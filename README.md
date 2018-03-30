@@ -8,7 +8,7 @@ GameNetworkingSockets is a basic transport layer for games.  The features are:
 * Mix of reliable and unreliable messages
 * Messages can be larger than underlying MTU, the protocol performs fragmentation and reassembly, and retransmission for reliable
 * Bandwidth estimation based on TCP-friendly rate control (RFC 5348)
-* Encryption
+* Encryption.  AES per packet, Ed25519 crypto for key exchange and cert signatures.  The details for shared key derivation and per-packet IV are based on Google QUIC.
 * Tools for simulating loss and detailed stats measurement
 
 The main interface class is named SteamNetworkingSockets, and many files have "steam" in their name.
@@ -37,7 +37,7 @@ meson build src
 
 We're still in the process of extracting the code from our proprietary build toolchain and making everything more open-source friendly.  Bear with us.
 
-* The code in this form is only known to compile on Ubuntu 17.  (Although this code has shipped through or toolchain on Win32/Win64 and OSX as well and also compiles for several Android flavors).
+* The code in this form is only known to compile on Ubuntu 17.  (Although this code has shipped through our toolchain on Win32/Win64 and OSX as well and also compiles for several Android flavors).
 * We don't provide any Windows project files or any straightforward method for building on windows yet.
 * There is a unit test, but it's not currently included and we don't have it working in any standard framework.
 
