@@ -54,4 +54,4 @@ We have a new version of the "SNP" code in progress.  (This is the code that tak
 We'd like to generalize the concept of an identity.  Basically anywhere you see CSteamID, it would be good to enable the use of a more generic identity structure.
 
 ### OpenSSL bloat
-Our use of OpenSLL is extremely limited; basically just AES encryption.  We use Ed25519 keys for signatures and key exchange and we do not support X.509 certificates.  However, because the code is going through a wrapper layer that is part of Steam, we are linking in much more code than strictly necessary.  And each time we encrypt and decrypt a packet, this wrapper layer is doing some work which could be avoided.
+Our use of OpenSSL is extremely limited; basically just AES encryption.  We use Ed25519 keys for signatures and key exchange and we do not support X.509 certificates.  However, because the code is going through a wrapper layer that is part of Steam, we are linking in much more code than strictly necessary.  And each time we encrypt and decrypt a packet, this wrapper layer is doing some work which could be avoided.
