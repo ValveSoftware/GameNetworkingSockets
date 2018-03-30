@@ -1,0 +1,185 @@
+//====== Copyright Valve Corporation, All rights reserved. ====================
+//
+// Wire format messages for Steam datagram transport
+//
+//=============================================================================
+syntax = "proto2";
+
+// Note about encoding:
+//	http://code.google.com/apis/protocolbuffers/docs/encoding.html
+//
+// TL;DR: Use sint32/sint64 for values that may be negative.
+//
+// There is an important difference between the signed int types (sint32 and sint64)
+// and the "standard" int types (int32 and int64) when it comes to encoding negative
+// numbers.  If you use int32 or int64 as the type for a negative number, the
+// resulting varint is always ten bytes long – it is, effectively, treated like a
+// very large unsigned integer.  If you use one of the signed types, the resulting
+// varint uses ZigZag encoding, which is much more efficient.
+
+
+// Commenting this out allows it to be compiled for SPEED or LITE_RUNTIME.
+// option optimize_for = SPEED;
+
+// We don't use the service generation functionality
+option cc_generic_services = false;
+
+import "steamnetworkingsockets_messages_certs.proto";
+import "steamnetworkingsockets_messages.proto";
+
+
+// 
+// STYLE NOTES:
+//
+// Use CamelCase CMsgMyMessageName style names for messages.
+// 
+// Use lowercase _ delimited names like my_steam_id for field names, this is non-standard for Steam,
+// but plays nice with the Google formatted code generation.  
+// 
+// Try not to use required fields ever. Only do so if you are really really sure you'll never want them removed. 
+// Optional should be preffered as it will make versioning easier and cleaner in the future if someone refactors
+// your message and wants to remove or rename fields.
+//
+// Use fixed64 for JobId_t, GID_t, or SteamID.  This is appropriate for any field that is normally
+// going to be larger than 2^56.  Otherwise use int64 for 64 bit values that are frequently smaller
+// than 2^56 as it will safe space on the wire in those cases.
+//
+// Similar to fixed64, use fixed32 for RTime32 or other 32 bit values that are frequently larger than
+// 2^28.  It will safe space in those cases, otherwise use int32 which will safe space for smaller values.
+// An exception to this rule for RTime32 is if the value will frequently be zero rather than set to an actual 
+// time.
+//
+
+/// Control message ID.
+enum ESteamNetworkingUDPMsgID
+{
+	// Steam networking using direct UDP connect
+	k_ESteamNetworkingUDPMsg_ChallengeRequest = 32;			// Client->server
+	k_ESteamNetworkingUDPMsg_ChallengeReply = 33;			// Server->client
+	k_ESteamNetworkingUDPMsg_ConnectRequest = 34;			// Client->server
+	k_ESteamNetworkingUDPMsg_ConnectOK = 35;				// Server->client
+	k_ESteamNetworkingUDPMsg_ConnectionClosed = 36;			// Client<->server.  A reply is requested to this packet
+	k_ESteamNetworkingUDPMsg_NoConnection = 37;				// Client<->server.  A reply should never be sent to this packet
+	k_ESteamNetworkingUDPMsg_Stats = 38;					// Client<->server.  Standalone stats message
+};
+
+// k_ESteamNetworkingUDPMsg_ChallengeRequest
+message CMsgSteamSockets_UDP_ChallengeRequest
+{
+	optional fixed32 connection_id = 1;
+	//optional fixed64 client_steam_id = 2;
+	optional fixed64 my_timestamp = 3; // Please send this back to me
+
+	// Version of the code I'm running
+	optional uint32 protocol_version = 4;
+};
+
+// k_ESteamNetworkingUDPMsg_ChallengeReply
+message CMsgSteamSockets_UDP_ChallengeReply
+{
+	optional fixed32 connection_id = 1;
+	optional fixed64 challenge = 2;
+	//optional uint32 required_proof_of_work_bits = 3;
+	optional fixed64 your_timestamp = 3; // the my_timestamp you sent to us in ChallengeRequest
+
+	// Version of the code I'm running
+	optional uint32 protocol_version = 4;
+};
+
+// k_ESteamNetworkingUDPMsg_ConnectRequest
+message CMsgSteamSockets_UDP_ConnectRequest
+{
+	optional fixed32 client_connection_id = 1;
+	optional fixed64 challenge = 2;
+	optional fixed64 client_steam_id = 3;
+	//optional fixed64 proof_of_work = 4;
+	optional fixed64 my_timestamp = 5; // Please send this back to me
+	optional uint32 ping_est_ms = 6; // My estimate of the ping time
+
+	/// My ephemeral keys, and any crypto parameter negotiation.
+	optional CMsgSteamDatagramSessionCryptInfoSigned crypt = 7;
+
+	/// Certificate used to prove my identity
+	optional CMsgSteamDatagramCertificateSigned cert = 4;
+
+	// Version of the code I'm running
+	optional uint32 protocol_version = 8;
+};
+
+// k_ESteamDatagramMsg_UDP_ConnectOK
+message CMsgSteamSockets_UDP_ConnectOK
+{
+	optional fixed32 client_connection_id = 1;
+	optional fixed32 server_connection_id = 5;
+	optional fixed64 server_steam_id = 2;
+	optional fixed64 your_timestamp = 3; // the timestamp (or whatever) you send to us in ConnectRequest
+	optional uint32 delay_time_usec = 4; // number of microseconds between when we received your request and we replied
+
+	/// My ephemeral keys, and any crypto parameter negotiation.
+	optional CMsgSteamDatagramSessionCryptInfoSigned crypt = 7;
+
+	/// Certificate used to prove my identity
+	optional CMsgSteamDatagramCertificateSigned cert = 8;
+
+	// Version of the code I'm running
+	optional uint32 protocol_version = 9;
+};
+
+// k_ESteamDatagramMsg_UDP_ConnectionClosed
+message CMsgSteamSockets_UDP_ConnectionClosed
+{
+	//optional fixed32 legacy_client_connection_id = 1;
+	optional fixed32 to_connection_id = 4;
+	optional fixed32 from_connection_id = 5;
+	optional string debug = 2;
+	optional uint32 reason_code = 3;
+};
+
+// k_ESteamDatagramMsg_UDP_NoConnection
+message CMsgSteamSockets_UDP_NoConnection
+{
+	//optional fixed32 legacy_client_connection_id = 1; // The client-side connection ID
+	optional fixed32 from_connection_id = 2; // "My" portion of the connection ID you tried to use (always present), but that connection doesn't exist or has been closed.
+	optional fixed32 to_connection_id = 3; // Your portion of the connection ID you sent (if any)
+};
+
+message CMsgSteamSockets_UDP_Stats
+{
+	// End to end stats
+	optional CMsgSteamDatagramConnectionQuality stats = 1;
+
+	/// If acks are reasonably rare compared to outgoing data packets,
+	/// we will usually be able to fit an ack in the header of a data packet.
+	/// If we need to send multiple acks, or a standalong stats message,
+	/// we can put them here.
+	///
+	/// Intentionally not array packed, since having more than one is actually
+	/// rare and sending a single value "packed" takes more bytes.
+	/// Upper 16 bits is the sequence number, lower is the delay
+	///
+	/// Note that we really need to integrate this better with the SNP acks/nacks.
+	repeated fixed32 ack_e2e = 2;
+
+	enum Flags
+	{
+		//ACK_REQUEST_RELAY = 1; // Reserved
+		ACK_REQUEST_E2E = 2;
+		ACK_REQUEST_IMMEDIATE = 4;
+	};
+
+	/// Additional flags.  Should we try to put these in the
+	/// message header and save a few bytes?
+	optional uint32 flags = 3;
+
+	//
+	// Envelope data.  Not present if the message is
+	// inline in a data message
+	//
+	//optional fixed32 legacy_client_connection_id = 8;
+	optional fixed32 to_connection_id = 9;
+	optional fixed32 from_connection_id = 10;
+	optional uint32 seq_num = 4;
+};
+
+// Do not remove this comment due to a bug on the Mac OS X protobuf compiler
+

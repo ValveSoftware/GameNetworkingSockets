@@ -1,0 +1,110 @@
+//====== Copyright Valve Corporation, All rights reserved. ====================
+//
+// Wire format messages for Steam datagram transport
+//
+//=============================================================================
+syntax = "proto2";
+
+// Note about encoding:
+//	http://code.google.com/apis/protocolbuffers/docs/encoding.html
+//
+// TL;DR: Use sint32/sint64 for values that may be negative.
+//
+// There is an important difference between the signed int types (sint32 and sint64)
+// and the "standard" int types (int32 and int64) when it comes to encoding negative
+// numbers.  If you use int32 or int64 as the type for a negative number, the
+// resulting varint is always ten bytes long – it is, effectively, treated like a
+// very large unsigned integer.  If you use one of the signed types, the resulting
+// varint uses ZigZag encoding, which is much more efficient.
+
+
+// Commenting this out allows it to be compiled for SPEED or LITE_RUNTIME.
+// option optimize_for = SPEED;
+
+// We don't use the service generation functionality
+option cc_generic_services = false;
+
+
+// 
+// STYLE NOTES:
+//
+// Use CamelCase CMsgMyMessageName style names for messages.
+// 
+// Use lowercase _ delimited names like my_steam_id for field names, this is non-standard for Steam,
+// but plays nice with the Google formatted code generation.  
+// 
+// Try not to use required fields ever. Only do so if you are really really sure you'll never want them removed. 
+// Optional should be preffered as it will make versioning easier and cleaner in the future if someone refactors
+// your message and wants to remove or rename fields.
+//
+// Use fixed64 for JobId_t, GID_t, or SteamID.  This is appropriate for any field that is normally
+// going to be larger than 2^56.  Otherwise use int64 for 64 bit values that are frequently smaller
+// than 2^56 as it will safe space on the wire in those cases.
+//
+// Similar to fixed64, use fixed32 for RTime32 or other 32 bit values that are frequently larger than
+// 2^28.  It will safe space in those cases, otherwise use int32 which will safe space for smaller values.
+// An exception to this rule for RTime32 is if the value will frequently be zero rather than set to an actual 
+// time.
+//
+
+// A public key used for crypto key exchange and identity.
+// This is basically the portion of a certificate over which
+// the signature is generated.  (It is broken into a separate
+// message to make it easy to keep the exact bytes that were
+// signed intact during transport.)
+message CMsgSteamDatagramCertificate
+{
+	enum EKeyType
+	{
+		INVALID = 0;
+		ED25519 = 1;
+	};
+	optional EKeyType key_type = 1;
+	optional bytes key_data = 2;
+
+	//
+	// Who is allowed to use this key?  This is the set of people who we assume
+	// will have access to the corresponding private key.
+	//
+
+	// Single user key?  This might not be set if the key is shared!
+	optional fixed64 steam_id = 4;
+
+	// Allow any server in particular data centers to use it?
+	repeated fixed32 gameserver_datacenter_ids = 5;
+
+	//
+	// Key restrictions
+	//
+
+	// Restricted time range?
+	optional fixed32 time_created = 8;
+	optional fixed32 time_expiry = 9;
+
+	// Restrict key to be used for a particular App ID?
+	optional uint32 app_id = 10;
+};
+
+// Certificate signed by a certificate authority.
+message CMsgSteamDatagramCertificateSigned
+{
+	// The public key associated with my identity.  This is a longer standing key
+	// that can be used for multiple connections.  It's a serialized
+	// version of CMsgSteamDatagramCertificate, but because the signature
+	// is based on a particular serialization of that message, we keep the
+	// original serialization here.
+	optional bytes cert = 4;
+
+	/// The key that was used by the certificate authority to sign
+	/// my public key.  This might be empty if the key is unsigned.
+	// (It's up to the endpoint to decide if they want to accept that
+	// or not.)
+	optional fixed64 ca_key_id = 5;
+
+	/// Signature over the certificate, using the key identified
+	/// by ca_key_id.
+	optional bytes ca_signature = 6;
+}
+
+// Do not remove this comment due to a bug on the Mac OS X protobuf compiler
+

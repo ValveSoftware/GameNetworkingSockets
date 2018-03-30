@@ -16,17 +16,15 @@
 *.dylib
 *.dll
 
-# Fortran module files
-*.mod
-*.smod
-
 # Compiled Static libraries
 *.lai
 *.la
 *.a
 *.lib
 
-# Executables
-*.exe
-*.out
-*.app
+*.VC.*
+/build
+/src/.vs/*
+/src/steamnetworkingsockets/Messageswin64Debug/*
+/src/steamnetworkingsockets/certtool/win64/*
+/src/steamnetworkingsockets/clientlib/win64/*
