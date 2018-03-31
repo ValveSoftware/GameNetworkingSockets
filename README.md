@@ -27,7 +27,7 @@ But even if you don't make games or aren't on Steam, feel free to use this code 
 
 ### Linux
 
-This has only really been tested on Ubuntu 17.
+This has only really been tested on Ubuntu 17.10.
 
 ```
 meson build src
@@ -37,7 +37,7 @@ meson build src
 
 We're still in the process of extracting the code from our proprietary build toolchain and making everything more open-source friendly.  Bear with us.
 
-* The code in this form is only known to compile on Ubuntu 17.  (Although this code has shipped through our toolchain on Win32/Win64 and OSX as well and also compiles for several Android flavors).
+* The code in this form is only known to compile on Ubuntu 17.10.  (Although this code has shipped through our toolchain on Win32/Win64 and OSX as well and also compiles for several Android flavors).
 * We don't provide any Windows project files or any straightforward method for building on windows yet.
 * There is a unit test, but it's not currently included and we don't have it working in any standard framework.
 
@@ -55,3 +55,13 @@ We'd like to generalize the concept of an identity.  Basically anywhere you see 
 
 ### OpenSSL bloat
 Our use of OpenSSL is extremely limited; basically just AES encryption.  We use Ed25519 keys for signatures and key exchange and we do not support X.509 certificates.  However, because the code is going through a wrapper layer that is part of Steam, we are linking in much more code than strictly necessary.  And each time we encrypt and decrypt a packet, this wrapper layer is doing some work which could be avoided.
+
+Conduct
+-------
+
+There are basic rules of conduct that should be followed at all times by everyone participating in the discussions.  While this is generally a relaxed environment, please remember the following:
+
+- Do not insult, harass, or demean anyone.
+- Do not intentionally multi-post an issue.
+- Do not use ALL CAPS when creating an issue report.
+- Do not repeatedly update an open issue remarking that the issue persists.
