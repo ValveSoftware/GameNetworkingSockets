@@ -98,8 +98,6 @@ sources = [
   'external/curve25519-donna/curve25519_VALVE_sse2.c',
   'external/ed25519-donna/ed25519_VALVE.c',
   'external/ed25519-donna/ed25519_VALVE_sse2.c',
-  'external/ujson/ujson/ujson.cpp',
-  'external/ujson/ujson/double-conversion.cc',
   'common/crypto.cpp',
   'common/opensslwrapper.cpp',
   'common/steamid.cpp',

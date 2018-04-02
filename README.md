@@ -22,7 +22,6 @@ But even if you don't make games or aren't on Steam, feel free to use this code 
 
 * OpenSSL
 * Google protobuf
-* ujson.  A small JSON parser, with DOM storage using STL.  The project seems to have been abandoned, as our pull requests have been ignored.  The code is included in this project, with some of our own fixes and changes.
 * ed25519-donna and curve25519-donna.  We've made some minor changes, so the source is included in this project.
 
 ### Linux
