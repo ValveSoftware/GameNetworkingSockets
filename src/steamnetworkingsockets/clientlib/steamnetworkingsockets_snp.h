@@ -10,7 +10,6 @@
 
 #include <tier1/utlvector.h>
 #include <tier1/utlbuffer.h>
-#include <tier1/utlstring.h>
 
 struct P2PSessionState_t;
 

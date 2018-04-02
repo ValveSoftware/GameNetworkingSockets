@@ -173,7 +173,7 @@ public:
 	virtual bool SetConnectionUserData( HSteamNetConnection hPeer, int64 nUserData ) OVERRIDE;
 	virtual int64 GetConnectionUserData( HSteamNetConnection hPeer ) OVERRIDE;
 	virtual void SetConnectionName( HSteamNetConnection hPeer, const char *pszName ) OVERRIDE;
-	virtual void GetConnectionName( HSteamNetConnection hPeer, char *pszName, int nMaxLen ) OVERRIDE;
+	virtual bool GetConnectionName( HSteamNetConnection hPeer, char *pszName, int nMaxLen ) OVERRIDE;
 	virtual EResult SendMessageToConnection( HSteamNetConnection hConn, const void *pData, uint32 cbData, ESteamNetworkingSendType eSendType ) OVERRIDE;
 	virtual EResult FlushMessagesOnConnection( HSteamNetConnection hConn );
 	virtual int ReceiveMessagesOnConnection( HSteamNetConnection hConn, ISteamNetworkingMessage **ppOutMessages, int nMaxMessages ) OVERRIDE;

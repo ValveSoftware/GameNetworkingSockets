@@ -11,7 +11,6 @@
 #include "../steamnetworkingsockets_internal.h"
 #include "crypto.h"
 #include "keypair.h"
-#include <tier1/utlstring.h>
 #include <vstdlib/random.h>
 //#include "curl/curl.h"
 
@@ -116,21 +115,23 @@ void GenKeyPair()
 	DbgVerify( nKeyID != 0 );
 
 	// Generate the key comment
-	CUtlStringBuilder szComment;
+	std::string sComment;
 	for ( uint32 id: s_vecDataCenterIDs )
 	{
 		char szTemp[ 8 ];
 		GetSteamNetworkingLocationPOPStringFromID( id, szTemp );
-		szComment.AppendFormat( "%s-", szTemp );
+		sComment += szTemp;
+		sComment += '-';
 	}
 
-	// AppID?
-	szComment.AppendFormat( "ID%llu", nKeyID );
+	// Key ID
+	sComment += "ID";
+	sComment += nKeyID;
 
 	uint32 cbText = 0;
 	char text[ 16000 ];
 
-	DbgVerify( s_keyCertPub.GetAsOpenSSHAuthorizedKeys( text, sizeof(text), &cbText, szComment.String() ) );
+	DbgVerify( s_keyCertPub.GetAsOpenSSHAuthorizedKeys( text, sizeof(text), &cbText, sComment.c_str() ) );
 	Msg( "\nPublic key:\n" );
 	Msg( "%s\n", text );
 
@@ -156,8 +157,10 @@ void GenKeyPair()
 static const char k_szSDRCertPEMHeader[] = "-----BEGIN STEAMDATAGRAM CERT-----";
 static const char k_szSDRCertPEMFooter[] = "-----END STEAMDATAGRAM CERT-----";
 
-void PrintCertInfo( const CMsgSteamDatagramCertificateSigned &msgSigned, CUtlStringBuilder &buf, const char *pszJSONIndent )
+void PrintCertInfo( const CMsgSteamDatagramCertificateSigned &msgSigned, std::string &sOutResult, const char *pszJSONIndent )
 {
+	char szTemp[ 256 ];
+
 	CMsgSteamDatagramCertificate msgCert;
 	msgCert.ParseFromString( msgSigned.cert() );
 
@@ -175,45 +178,58 @@ void PrintCertInfo( const CMsgSteamDatagramCertificateSigned &msgSigned, CUtlStr
 	Plat_ctime( &timeExpiry, szTimeExpiry, sizeof(szTimeExpiry) );
 	V_StripTrailingWhitespaceASCII( szTimeExpiry );
 
-	CUtlString sDataCenterIDs;
+	std::string sDataCenterIDs;
 	for ( uint32 id: msgCert.gameserver_datacenter_ids() )
 	{
-		char szTemp[ 8 ];
 		GetSteamNetworkingLocationPOPStringFromID( id, szTemp );
 
 		if ( pszJSONIndent )
 		{
-			if ( !sDataCenterIDs.IsEmpty() )
-				sDataCenterIDs.AppendChar( ',' );
-			sDataCenterIDs.AppendChar( '\"' );
-			sDataCenterIDs.Append( szTemp );
-			sDataCenterIDs.AppendChar( '\"' );
+			if ( !sDataCenterIDs.empty() )
+				sDataCenterIDs += ',';
+			sDataCenterIDs += '\"';
+			sDataCenterIDs += szTemp;
+			sDataCenterIDs += '\"';
 		}
 		else
 		{
-			if ( !sDataCenterIDs.IsEmpty() )
-				sDataCenterIDs.AppendChar( ' ' );
-			sDataCenterIDs.Append( szTemp );
+			if ( !sDataCenterIDs.empty() )
+				sDataCenterIDs += ' ';
+			sDataCenterIDs += szTemp;
 		}
 	}
 
 	if ( pszJSONIndent )
 	{
-		buf.AppendFormat( "%s\"key_id\": %llu,\n", pszJSONIndent, CalculatePublicKeyID( pubKey ) );
-		if ( !sDataCenterIDs.IsEmpty() )
-			buf.AppendFormat( "%s\"data_centers\": [ %s ],\n", pszJSONIndent, sDataCenterIDs.String() );
-		buf.AppendFormat( "%s\"created\": \"%s\",\n", pszJSONIndent, szTimeCreated );
-		buf.AppendFormat( "%s\"expires\": \"%s\",\n", pszJSONIndent, szTimeExpiry );
-		buf.AppendFormat( "%s\"ca_key_id\": %" PRIu64 "\n", pszJSONIndent, msgSigned.ca_key_id() );
+		V_sprintf_safe( szTemp, "%s\"key_id\": %llu,\n", pszJSONIndent, CalculatePublicKeyID( pubKey ) );
+		sOutResult += szTemp;
+		if ( !sDataCenterIDs.empty() )
+		{
+			V_sprintf_safe( szTemp, "%s\"data_centers\": [ %s ],\n", pszJSONIndent, sDataCenterIDs.c_str() );
+			sOutResult += szTemp;
+		}
+		V_sprintf_safe( szTemp, "%s\"created\": \"%s\",\n", pszJSONIndent, szTimeCreated );
+		sOutResult += szTemp;
+		V_sprintf_safe( szTemp, "%s\"expires\": \"%s\",\n", pszJSONIndent, szTimeExpiry );
+		sOutResult += szTemp;
+		V_sprintf_safe( szTemp, "%s\"ca_key_id\": %" PRIu64 "\n", pszJSONIndent, msgSigned.ca_key_id() );
+		sOutResult += szTemp;
 	}
 	else
 	{
-		buf.AppendFormat( "Public key ID. . : %llu\n", CalculatePublicKeyID( pubKey ) );
-		buf.AppendFormat( "Created. . . . . : %s\n", szTimeCreated );
-		buf.AppendFormat( "Expires. . . . . : %s\n", szTimeExpiry );
-		buf.AppendFormat( "CA key ID. . . . : %" PRIu64 "\n", msgSigned.ca_key_id() );
-		if ( sDataCenterIDs )
-			buf.AppendFormat( "Data center(s) . : %s\n", sDataCenterIDs.String() );
+		V_sprintf_safe( szTemp, "Public key ID. . : %llu\n", CalculatePublicKeyID( pubKey ) );
+		sOutResult += szTemp;
+		V_sprintf_safe( szTemp, "Created. . . . . : %s\n", szTimeCreated );
+		sOutResult += szTemp;
+		V_sprintf_safe( szTemp, "Expires. . . . . : %s\n", szTimeExpiry );
+		sOutResult += szTemp;
+		V_sprintf_safe( szTemp, "CA key ID. . . . : %" PRIu64 "\n", msgSigned.ca_key_id() );
+		sOutResult += szTemp;
+		if ( !sDataCenterIDs.empty() )
+		{
+			V_sprintf_safe( szTemp, "Data center(s) . : %s\n", sDataCenterIDs.c_str() );
+			sOutResult += szTemp;
+		}
 	}
 }
 
@@ -272,9 +288,9 @@ void CreateCert()
 	Msg( "%s\n", k_szSDRCertPEMHeader );
 	Msg( "%s\n", text );
 	Msg( "%s\n", k_szSDRCertPEMFooter );
-	CUtlStringBuilder sDetails;
+	std::string sDetails;
 	PrintCertInfo( msgSigned, sDetails, nullptr );
-	Msg( "%s", sDetails.String() );
+	Msg( "%s", sDetails.c_str() );
 }
 
 ///////////////////////////////////////////////////////////////////////////////

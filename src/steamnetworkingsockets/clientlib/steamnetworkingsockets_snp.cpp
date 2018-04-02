@@ -106,7 +106,7 @@ void CSteamNetworkConnectionBase::SNP_InitializeConnection( SteamNetworkingMicro
 	if ( steamdatagram_snp_log_x )
 	SpewMsg( "%12llu %s: INITIAL X=%d rtt=%dms tx_s=%d\n", 
 				 usecNow,
-				 m_sName.String(),
+				 m_sName.c_str(),
 				 m_senderState.m_n_x,
 				 m_statsEndToEnd.m_ping.m_nSmoothedPing,
 				 m_senderState.m_n_tx_s );
@@ -171,7 +171,7 @@ EResult CSteamNetworkConnectionBase::SNP_SendMessage( SteamNetworkingMicrosecond
 	if ( steamdatagram_snp_log_message )
 	SpewMsg( "%12llu %s: SendMessage %s: MsgNum=%d sz=%d\n",
 				 usecNow,
-				 m_sName.String(),
+				 m_sName.c_str(),
 				 pSendMessage->m_bReliable ? "RELIABLE" : "UNRELIABLE",
 				 pSendMessage->m_unMsgNum,
 				 pSendMessage->m_nSize );
@@ -187,7 +187,7 @@ EResult CSteamNetworkConnectionBase::SNP_SendMessage( SteamNetworkingMicrosecond
 		if ( steamdatagram_snp_log_nagle )
 		SpewMsg( "%12llu %s: NAGLE cleared nagle timer because pendingBytes %d > %d\n", 
 					 usecNow,
-					 m_sName.String(),
+					 m_sName.c_str(),
 					 m_senderState.PendingBytesTotal(),
 					 k_cbSteamNetworkingSocketsMaxMessageNoFragment );
 		m_senderState.FlushNagle();
@@ -198,7 +198,7 @@ EResult CSteamNetworkConnectionBase::SNP_SendMessage( SteamNetworkingMicrosecond
 		if ( steamdatagram_snp_log_nagle )
 		SpewMsg( "%12llu %s: NAGLE cleared nagle timer because message was sent with type %d\n", 
 					 usecNow,
-					 m_sName.String(),
+					 m_sName.c_str(),
 					 eSendType );
 		m_senderState.FlushNagle();
 	}
@@ -208,7 +208,7 @@ EResult CSteamNetworkConnectionBase::SNP_SendMessage( SteamNetworkingMicrosecond
 		if ( steamdatagram_snp_log_nagle )
 		SpewMsg( "%12llu %s: NAGLE SET to %llu (%d delay)\n", 
 				 usecNow,
-				 m_sName.String(),
+				 m_sName.c_str(),
 				 m_senderState.m_t_nagle,
 				 steamdatagram_snp_nagle_time );
 	}
@@ -221,7 +221,7 @@ EResult CSteamNetworkConnectionBase::SNP_SendMessage( SteamNetworkingMicrosecond
 	{
 		SpewVerbose( "%12llu %s: RATELIM QueueTime is %.1fms, SendRate=%.1fk, BytesQueued=%d\n", 
 			usecNow,
-			m_sName.String(),
+			m_sName.c_str(),
 			m_senderState.CalcTimeUntilNextSend() * 1e-3,
 			m_senderState.m_n_x * ( 1.0/1024.0),
 			m_senderState.PendingBytesTotal()
@@ -242,7 +242,7 @@ EResult CSteamNetworkConnectionBase::SNP_FlushMessage( SteamNetworkingMicrosecon
 	if ( steamdatagram_snp_log_nagle )
 	SpewMsg( "%12llu %s: NAGLE FlushMessasge\n", 
 			 usecNow,
-			 m_sName.String() );
+			 m_sName.c_str() );
 
 	m_senderState.FlushNagle();
 
@@ -395,7 +395,7 @@ void CSteamNetworkConnectionBase::SNP_CheckForReliable( SteamNetworkingMicroseco
 		if ( steamdatagram_snp_log_reliable )
 		SpewMsg( "%12llu %s: %s CheckForReliable: sentMsgNum=%d, recvMsgNum=%d, recvSeqNum=%d, sendSeqNum=%d sendSeqOffset=%d\n",
 					 usecNow,
-					 m_sName.String(),
+					 m_sName.c_str(),
 					 pMsg == m_senderState.m_pSendMessages ? "SEND" : "SENT",
 					 pMsg->m_unMsgNum,
 					 m_senderState.m_unRecvMsgNumReliable,
@@ -409,7 +409,7 @@ void CSteamNetworkConnectionBase::SNP_CheckForReliable( SteamNetworkingMicroseco
 			if ( steamdatagram_snp_log_reliable )
 			SpewMsg( "%12llu %s: %s ACK recvMsgNum %d is after sentMsgNum %d, acknowledged\n", 
 						 usecNow,
-						 m_sName.String(),
+						 m_sName.c_str(),
 						 pMsg == m_senderState.m_pSendMessages ? "SEND" : "SENT",
 						 m_senderState.m_unRecvMsgNumReliable, 
 						 pMsg->m_unMsgNum );
@@ -440,7 +440,7 @@ void CSteamNetworkConnectionBase::SNP_CheckForReliable( SteamNetworkingMicroseco
 					if ( steamdatagram_snp_log_reliable )
 					SpewMsg( "%12llu %s: %s NAK sentMsgNum %d: recvSeqNum %d is GTE sentSeqNum %d, but ack is previous msg %d:%u\n", 
 								 usecNow,
-								 m_sName.String(),
+								 m_sName.c_str(),
 								 pMsg == m_senderState.m_pSendMessages ? "SEND" : "SENT",
 								 pMsg->m_unMsgNum,
 								 m_senderState.m_unRecvSeqNum, 
@@ -456,7 +456,7 @@ void CSteamNetworkConnectionBase::SNP_CheckForReliable( SteamNetworkingMicroseco
 			if ( steamdatagram_snp_log_reliable )
 			SpewMsg( "%12llu %s: %s recvMsgNum %d != sentMsgNum %d, lastAck %d:%u\n", 
 					 usecNow,
-					 m_sName.String(),
+					 m_sName.c_str(),
 					 pMsg == m_senderState.m_pSendMessages ? "SEND" : "SENT",
 					 m_senderState.m_unRecvMsgNumReliable, 
 					 pMsg->m_unMsgNum,
@@ -478,7 +478,7 @@ void CSteamNetworkConnectionBase::SNP_CheckForReliable( SteamNetworkingMicroseco
 					if ( steamdatagram_snp_log_reliable )
 					SpewMsg( "%12llu %s: %s NAK sentMsgNum %d: recvSeqNum %d is GTE sentSeqNum %d, but m_unRecvMsgAmt %d is less than m_nSentAmt %d\n", 
 								 usecNow,
-								 m_sName.String(),
+								 m_sName.c_str(),
 								 pMsg == m_senderState.m_pSendMessages ? "SEND" : "SENT",
 								 pMsg->m_unMsgNum,
 								 m_senderState.m_unRecvSeqNum, 
@@ -493,7 +493,7 @@ void CSteamNetworkConnectionBase::SNP_CheckForReliable( SteamNetworkingMicroseco
 					if ( steamdatagram_snp_log_reliable )
 					SpewMsg( "%12llu %s: %s ACK sentMsgNum %d: recvSeqNum %d is GTE sentSeqNum %d, m_unRecvMsgAmt %d is GTE than m_nSentAmt %d\n", 
 								 usecNow,
-								 m_sName.String(),
+								 m_sName.c_str(),
 								 pMsg == m_senderState.m_pSendMessages ? "SEND" : "SENT",
 								 pMsg->m_unMsgNum,
 								 m_senderState.m_unRecvSeqNum, 
@@ -515,7 +515,7 @@ void CSteamNetworkConnectionBase::SNP_CheckForReliable( SteamNetworkingMicroseco
 			if ( steamdatagram_snp_log_reliable )
 			SpewMsg( "%12llu %s: SENT Finished sentMsgNum %d lastAck %d:%u\n", 
 					 usecNow,
-					 m_sName.String(),
+					 m_sName.c_str(),
 					 pMsg->m_unMsgNum,
 					 m_senderState.m_unRecvMsgNumReliable,
 					 m_senderState.m_unRecvMsgAmtReliable );
@@ -545,7 +545,7 @@ void CSteamNetworkConnectionBase::SNP_CheckForReliable( SteamNetworkingMicroseco
 			if ( steamdatagram_snp_log_reliable || steamdatagram_snp_log_loss )
 			SpewMsg( "%12llu %s: RTO sentMsgNum %d\n", 
 						 usecNow,
-						 m_sName.String(),
+						 m_sName.c_str(),
 						 pMsg->m_unMsgNum );
 
 			// Set for retransmit due to timeout
@@ -575,7 +575,7 @@ void CSteamNetworkConnectionBase::SNP_PrepareFeedback( SteamNetworkingMicrosecon
 		if ( steamdatagram_snp_log_feedback )
 			SpewMsg( "%12llu %s: TFRC_FBACK_PERIODIC usec_delta=%llu bytes_recv=%d n_x_recv=%d m_n_x_recv=%d\n",
 					 usecNow,
-					 m_sName.String(),
+					 m_sName.c_str(),
 					 usec_delta,
 					 m_receiverState.m_n_bytes_recv,
 					 n_x_recv,
@@ -746,7 +746,7 @@ bool CSteamNetworkConnectionBase::SNP_AddLossEvent( uint16 unSeqNum, SteamNetwor
 		if ( steamdatagram_snp_log_loss )
 		SpewMsg( "%12llu %s: LOSS INITIAL: x_recv: %d, cur_p: %.8f len: %d\n",
 				 usecNow,
-				 m_sName.String(),
+				 m_sName.c_str(),
 				 n_x_recv,
 				 cur_p,
 				 len );
@@ -852,7 +852,7 @@ void CSteamNetworkConnectionBase::SNP_NoFeedbackTimer( SteamNetworkingMicrosecon
 	if ( steamdatagram_snp_log_feedback )
 		SpewMsg( "%12llu %s: NO FEEDBACK TIMER X=%d, was %d, timer is %llu (rtt is %dms)\n",
 				 usecNow,
-				 m_sName.String(),
+				 m_sName.c_str(),
 				 m_senderState.m_n_x,
 				 n_old_x,
 				 m_senderState.m_usec_nfb - usecNow,
@@ -871,7 +871,7 @@ int CSteamNetworkConnectionBase::SNP_CheckForLoss( uint16 unSeqNum, SteamNetwork
 		{
 			SpewMsg( "%12llu %s: RECV OOO PACKET(S) %d (wanted %d)\n",
 				usecNow,
-				m_sName.String(),
+				m_sName.c_str(),
 				unSeqNum,
 				( uint16 )( m_receiverState.m_queue_rx_hist.back().m_unRecvSeqNum + 1 ) );
 
@@ -884,7 +884,7 @@ int CSteamNetworkConnectionBase::SNP_CheckForLoss( uint16 unSeqNum, SteamNetwork
 		if ( steamdatagram_snp_log_packet || steamdatagram_snp_log_loss )
 		SpewMsg( "%12llu %s: RECV LOST %d PACKET(S) %d - %d\n", 
 				 usecNow,
-				 m_sName.String(),
+				 m_sName.c_str(),
 				 nSeqDelta - 1,
 				 first,
 				 second );
@@ -931,7 +931,7 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( uint16 unSeqNum, const void
 	if ( steamdatagram_snp_log_packet )
 	SpewMsg( "%12llu %s: RECV PACKET %d usecNow=%llu sz=%d(%d) recvSeqNum:%d recvMsgNum:%d recvMsgAmt:%d\n",
 				 usecNow,
-				 m_sName.String(),
+				 m_sName.c_str(),
 				 unSeqNum,
 				 usecNow,
 				 cbChunk,
@@ -1024,7 +1024,7 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( uint16 unSeqNum, const void
 			if ( steamdatagram_snp_log_feedback )
 			SpewMsg( "%12llu %s: RECV FEEDBACK %d x_recv:%d t_delay:%d p:%d\n",
 						 usecNow,
-						 m_sName.String(),
+						 m_sName.c_str(),
 						 unSeqNum,
 						 LittleDWord( pFeedback->m_un_X_recv ),
 						 LittleDWord( pFeedback->m_un_t_delay ),
@@ -1065,7 +1065,7 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( uint16 unSeqNum, const void
 					if ( steamdatagram_snp_log_rtt )
 					SpewMsg( "%12llu %s: RECV UPDATE RTT rtt:%dms seqNum:%d ts:%d r_sample:%llu diff_ts:%llu t_delay:%d\n",
 								 usecNow,
-								 m_sName.String(),
+								 m_sName.c_str(),
 								 m_statsEndToEnd.m_ping.m_nSmoothedPing,
 								 m_senderState.m_unRecvSeqNum,
 								 (int)( tx_hist_entry.m_usec_ts / 1000 ),
@@ -1144,7 +1144,7 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( uint16 unSeqNum, const void
 					if ( steamdatagram_snp_log_segments )
 					SpewMsg( "%12llu %s: Unexpected reliable message segment %d:%u sz=%d (expected %d)\n", 
 								 usecNow,
-								 m_sName.String(),
+								 m_sName.c_str(),
 								 unMsgNum, 
 								 unOffset, 
 								 nSegmentSize,
@@ -1157,7 +1157,7 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( uint16 unSeqNum, const void
 					if ( steamdatagram_snp_log_segments )
 					SpewMsg( "%12llu %s: Unexpected reliable message offset %d:%u sz=%d (expected %d:%u)\n", 
 								 usecNow,
-								 m_sName.String(),
+								 m_sName.c_str(),
 								 unMsgNum, 
 								 unOffset, 
 								 nSegmentSize,
@@ -1174,7 +1174,7 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( uint16 unSeqNum, const void
 				if ( steamdatagram_snp_log_segments )
 				SpewMsg( "%12llu %s: RELIABLE    %d: msgNum %d offset=%d recvAmt=%d segmentSize=%d%s\n", 
 							 usecNow,
-							 m_sName.String(), 
+							 m_sName.c_str(), 
 							 unSeqNum,
 							 unMsgNum,
 							 unOffset,
@@ -1190,7 +1190,7 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( uint16 unSeqNum, const void
 					if ( steamdatagram_snp_log_message || steamdatagram_snp_log_reliable )
 					SpewMsg( "%12llu %s: RecvMessage RELIABLE: MsgNum=%d sz=%d\n",
 								 usecNow,
-								 m_sName.String(),
+								 m_sName.c_str(),
 								 unMsgNum,
 								 recvBuf.TellPut() );
 
@@ -1212,7 +1212,7 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( uint16 unSeqNum, const void
 					if ( steamdatagram_snp_log_segments )
 					SpewMsg( "%12llu %s: Throwing away unreliable message %d sz=%d\n", 
 								 usecNow,
-								 m_sName.String(),
+								 m_sName.c_str(),
 								 m_receiverState.m_unRecvMsgNum, 
 								 recvBuf.TellPut() );
 					recvBuf.Purge();
@@ -1228,7 +1228,7 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( uint16 unSeqNum, const void
 						if ( steamdatagram_snp_log_segments )
 						SpewMsg( "%12llu %s: Unexpected reliable message offset %d:%u sz=%d\n", 
 									 usecNow,
-									 m_sName.String(),
+									 m_sName.c_str(),
 									 unMsgNum, 
 									 unOffset, 
 									 nSegmentSize );
@@ -1242,7 +1242,7 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( uint16 unSeqNum, const void
 				if ( steamdatagram_snp_log_segments )
 				SpewMsg( "%12llu %s: UNRELIABLE  %d: msgNum %d offset=%d recvAmt=%d segmentSize=%d%s\n", 
 							 usecNow,
-							 m_sName.String(), 
+							 m_sName.c_str(), 
 							 unSeqNum,
 							 unMsgNum,
 							 unOffset,
@@ -1258,7 +1258,7 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( uint16 unSeqNum, const void
 					if ( steamdatagram_snp_log_message )
 					SpewMsg( "%12llu %s: RecvMessage UNRELIABLE: MsgNum=%d sz=%d\n",
 								 usecNow,
-								 m_sName.String(),
+								 m_sName.c_str(),
 								 unMsgNum,
 								 recvBuf.TellPut() );
 
@@ -1274,7 +1274,7 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( uint16 unSeqNum, const void
 					if ( steamdatagram_snp_log_segments )
 					SpewMsg( "%12llu %s: MSG recieved unreliable message %d section offset %u (sz=%d)\n",
 								 usecNow,
-								 m_sName.String(),
+								 m_sName.c_str(),
 								 unMsgNum,
 								 unOffset,
 								 nSegmentSize );
@@ -1368,7 +1368,7 @@ void CSteamNetworkConnectionBase::SNP_UpdateX( SteamNetworkingMicroseconds usecN
 		if ( steamdatagram_snp_log_x )
 		SpewMsg( "%12llu %s: UPDATE X=%d (was %d) x_recv=%d min_rate=%d p=%u x_calc=%d tx_s=%d\n", 
 					 usecNow,
-					 m_sName.String(),
+					 m_sName.c_str(),
 					 m_senderState.m_n_x,
 					 n_old_x,
 					 m_senderState.m_n_x_recv,
@@ -1568,7 +1568,7 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 	if ( steamdatagram_snp_log_packet )
 	SpewMsg( "%12llu %s: SEND PACKET %d usecNow=%llu sz=%d(%d) recvSeqNum:%d recvMsgNum:%d recvMsgAmt:%d\n", 
 				 usecNow,
-				 m_sName.String(),
+				 m_sName.c_str(),
 				 sendSeqNum,
 				 usecNow,
 				 sendBuf.m_nSize,
@@ -1610,7 +1610,7 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 		if ( steamdatagram_snp_log_segments )
 		SpewMsg( "%12llu %s: %s  %d: msgNum %d offset=%d sendAmt=%d segmentSize=%d%s\n", 
 					 usecNow,
-					 m_sName.String(),
+					 m_sName.c_str(),
 					 sendPacketEntryMsg.m_bReliable ? "RELIABLE  " : "UNRELIABLE",
 					 sendSeqNum,
 					 sendPacketEntryMsg.m_pMsg->m_unMsgNum,
@@ -1664,14 +1664,14 @@ void CSteamNetworkConnectionBase::SNP_ThinkSendState( SteamNetworkingMicrosecond
 					if ( steamdatagram_snp_log_nagle )
 					SpewMsg( "%12llu %s: NAGLE WAIT %llu to go\n", 
 								usecNow,
-								m_sName.String(), 
+								m_sName.c_str(), 
 								m_senderState.m_t_nagle - usecNow );
 					break;
 				}
 				if ( steamdatagram_snp_log_nagle )
 				SpewMsg( "%12llu %s: NAGLE cleared (pending send), %llu early\n", 
 							usecNow,
-							m_sName.String(), 
+							m_sName.c_str(), 
 							m_senderState.m_t_nagle - usecNow );
 				m_senderState.m_t_nagle = 0; 
 			}
@@ -1684,7 +1684,7 @@ void CSteamNetworkConnectionBase::SNP_ThinkSendState( SteamNetworkingMicrosecond
 			{
 				SpewMsg( "%12llu %s: NAGLE REACHED (cleared)\n", 
 							usecNow,
-							m_sName.String() );
+							m_sName.c_str() );
 			}
 		}
 
@@ -1697,7 +1697,7 @@ void CSteamNetworkConnectionBase::SNP_ThinkSendState( SteamNetworkingMicrosecond
 				if ( steamdatagram_snp_log_feedback )
 					SpewMsg( "%12llu %s: TFRC_SSTATE_FBACK_REQ due to rto/2 timeout\n",
 								usecNow,
-								m_sName.String() );
+								m_sName.c_str() );
 			}
 			if ( !m_senderState.m_usec_rto && usecNow - m_receiverState.m_usec_tstamp_last_feedback > TCP_RTO_MIN / 2 )
 			{
@@ -1705,7 +1705,7 @@ void CSteamNetworkConnectionBase::SNP_ThinkSendState( SteamNetworkingMicrosecond
 				if ( steamdatagram_snp_log_feedback )
 					SpewMsg( "%12llu %s: TFRC_SSTATE_FBACK_REQ due to TCP_RTO_MIN/2 timeout\n",
 								usecNow,
-								m_sName.String() );
+								m_sName.c_str() );
 			}
 		}
 			
@@ -1871,11 +1871,9 @@ void CSteamNetworkConnectionBase::SetMaximumRate( int nRate )
 		m_senderState.m_n_x = nRate;
 }
 
-CUtlString CSteamNetworkConnectionBase::SNP_GetDebugText()
+void CSteamNetworkConnectionBase::GetDebugText( char *pszOut, int nOutCCH )
 {
-	CUtlString text;
-
-	text.Format( "%s\n"
+	V_snprintf( pszOut, nOutCCH, "%s\n"
 				 "SenderState\n"
 				 " x . . . . . . %d\n"
 				 " x_recv. . . . %d\n"
@@ -1898,7 +1896,7 @@ CUtlString CSteamNetworkConnectionBase::SNP_GetDebugText()
 				 " i_mean. . . . %d (%.8f)\n"
 				 " msgsReliable. %lld\n"
 				 " msgs. . . . . %lld\n",
-				 m_sName.String(),
+				 m_sName.c_str(),
 				 m_senderState.m_n_x,
 				 m_senderState.m_n_x_recv,
 				 m_senderState.m_n_x_calc,
@@ -1921,8 +1919,6 @@ CUtlString CSteamNetworkConnectionBase::SNP_GetDebugText()
 				 m_receiverState.m_nMessagesRecvReliable,
 				 m_receiverState.m_nMessagesRecvUnreliable
 				 );
-
-	return text;
 }
 
 } // namespace SteamNetworkingSocketsLib

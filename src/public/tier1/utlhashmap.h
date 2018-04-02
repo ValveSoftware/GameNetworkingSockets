@@ -15,7 +15,7 @@
 #include "tier0/dbg.h"
 #include "tier1/bitstring.h"
 #include "tier1/generichash.h"
-#include "tier1/utlstring.h"
+//SDR_PUBLIC #include "tier1/utlstring.h"
 #include "tier1/utliterator.h"
 #include "tier1/utlvector.h"
 
@@ -81,19 +81,19 @@ public:
 	inline bool operator!() const { return false; }
 };
 
-// Specialization to compare char * AS strings
-template <>
-class CDefEquals < CUtlString >
-{
-public:
-	CDefEquals() {}
-	CDefEquals( int i ) {}
-	inline bool operator()( CUtlString lhs, CUtlString rhs ) const
-	{
-		return (V_strcmp( lhs.String(), rhs.String() ) == 0);
-	}
-	inline bool operator!() const { return false; }
-};
+//SDR_PUBLIC // Specialization to compare char * AS strings
+//SDR_PUBLIC template <>
+//SDR_PUBLIC class CDefEquals < CUtlString >
+//SDR_PUBLIC {
+//SDR_PUBLIC public:
+//SDR_PUBLIC 	CDefEquals() {}
+//SDR_PUBLIC 	CDefEquals( int i ) {}
+//SDR_PUBLIC 	inline bool operator()( CUtlString lhs, CUtlString rhs ) const
+//SDR_PUBLIC 	{
+//SDR_PUBLIC 		return (V_strcmp( lhs.String(), rhs.String() ) == 0);
+//SDR_PUBLIC 	}
+//SDR_PUBLIC 	inline bool operator!() const { return false; }
+//SDR_PUBLIC };
 
 //-----------------------------------------------------------------------------
 // Purpose: Case insensitive const char * comparison

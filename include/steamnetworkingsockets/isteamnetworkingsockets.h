@@ -161,9 +161,8 @@ public:
 	/// Set a name for the connection, used mostly for debugging
 	virtual void SetConnectionName( HSteamNetConnection hPeer, const char *pszName ) = 0;
 
-	/// Fetch connection user data.  Returns -1 if handle is invalid
-	/// or if you haven't set any userdata on the connection.
-	virtual void GetConnectionName( HSteamNetConnection hPeer, char *ppszName, int nMaxLen ) = 0;
+	/// Fetch connection name.  Returns false if handle is invalid
+	virtual bool GetConnectionName( HSteamNetConnection hPeer, char *pszName, int nMaxLen ) = 0;
 
 	/// Send a message to the remote host on the connected socket.
 	///

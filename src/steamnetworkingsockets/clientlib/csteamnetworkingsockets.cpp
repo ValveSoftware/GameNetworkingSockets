@@ -650,13 +650,14 @@ void CSteamNetworkingSockets::SetConnectionName( HSteamNetConnection hPeer, cons
 	pConn->SetName( pszName );
 }
 
-void CSteamNetworkingSockets::GetConnectionName( HSteamNetConnection hPeer, char *pszName, int nMaxLen )
+bool CSteamNetworkingSockets::GetConnectionName( HSteamNetConnection hPeer, char *pszName, int nMaxLen )
 {
 	SteamDatagramTransportLock scopeLock;
 	CSteamNetworkConnectionBase *pConn = GetConnectionByHandle( hPeer );
 	if ( !pConn )
-		return;
-	pConn->GetName( pszName, nMaxLen );
+		return false;
+	V_strncpy( pszName, pConn->GetName(), nMaxLen );
+	return true;
 }
 
 EResult CSteamNetworkingSockets::SendMessageToConnection( HSteamNetConnection hConn, const void *pData, uint32 cbData, ESteamNetworkingSendType eSendType )

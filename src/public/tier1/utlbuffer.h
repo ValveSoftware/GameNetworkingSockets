@@ -17,7 +17,7 @@
 #include "tier1/utlmemory.h"
 #include "tier0/validator.h"
 #include <stdarg.h>
-#include "tier1/utlstring.h"
+//SDR_PUBLIC #include "tier1/utlstring.h"
 
 //-----------------------------------------------------------------------------
 // Description of character conversions for string output
@@ -292,7 +292,7 @@ public:
 	// Returns the base as a const char*, only valid in text mode.
 	const char *String() const;
 	// Copies the content of the buffer into a string (valid for binary and text mode).
-	void CopyToString( CUtlString &strText ) const;
+	//SDR_PUBLIC void CopyToString( CUtlString &strText ) const;
 
 	// memory allocation size, does *not* reflect size written or read,
 	//	use TellPut or TellGet for that
@@ -747,10 +747,10 @@ inline const char *CUtlBuffer::String() const
 		return "";
 }
 
-inline void CUtlBuffer::CopyToString( CUtlString &strText ) const
-{
-	strText.SetDirect( (const char *)Base(), TellMaxPut() );
-}
+//SDR_PUBLIC inline void CUtlBuffer::CopyToString( CUtlString &strText ) const
+//SDR_PUBLIC {
+//SDR_PUBLIC 	strText.SetDirect( (const char *)Base(), TellMaxPut() );
+//SDR_PUBLIC }
 
 
 inline int CUtlBuffer::Size() const // FIXME delete soon

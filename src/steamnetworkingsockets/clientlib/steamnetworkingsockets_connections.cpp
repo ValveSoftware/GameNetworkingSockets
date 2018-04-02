@@ -559,9 +559,11 @@ bool CSteamNetworkConnectionBase::BInitConnection( uint32 nPeerProtocolVersion, 
 	m_hConnectionSelf = g_listConnections.AddToTail( this ) | s_nUpperBits;
 
 	// Set a default name if we haven't been given one
-	if ( m_sName.IsEmpty() )
+	if ( m_sName.empty() )
 	{
-		m_sName.Format( "%d", m_hConnectionSelf & ~s_nUpperBits );
+		char temp[ 64 ];
+		V_sprintf_safe( temp, "%d", m_hConnectionSelf & ~s_nUpperBits );
+		m_sName = temp;
 	}
 	
 	// Clear everything out
@@ -1318,13 +1320,6 @@ bool CSteamNetworkConnectionBase::RecvDataChunk( uint16 unSeqNum, const void *pC
 	}
 
 	return SNP_RecvDataChunk( unSeqNum, arDecryptedChunk, cbDecrypted, cbPacketSize, usecNow );
-}
-
-bool CSteamNetworkConnectionBase::GetDebugText( char *pszOut, int nOutCCH )
-{
-	CUtlString snpDebug = SNP_GetDebugText();
-	V_strncpy( pszOut, snpDebug.String(), nOutCCH );
-	return true;
 }
 
 void CSteamNetworkConnectionBase::APICloseConnection( int nReason, const char *pszDebug, bool bEnableLinger )

@@ -119,7 +119,6 @@ sources = [
   'tier1/netadr.cpp',
   'tier1/utlbuffer.cpp',
   'tier1/utlmemory.cpp',
-  'tier1/utlstring.cpp',
   'vstdlib/strtools.cpp',
 ]
 
