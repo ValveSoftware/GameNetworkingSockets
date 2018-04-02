@@ -3,11 +3,10 @@ GameNetworkingSockets
 
 GameNetworkingSockets is a basic transport layer for games.  The features are:
 
-* Connection-oriented protocol (like TCP)
-* ... but message-oriented instead of stream-oriented
+* Connection-oriented protocol (like TCP) but message-oriented instead of stream-oriented
 * Mix of reliable and unreliable messages
-* Messages can be larger than underlying MTU, the protocol performs fragmentation and reassembly, and retransmission for reliable
-* Bandwidth estimation based on TCP-friendly rate control (RFC 5348)
+* Messages can be larger than underlying MTU
+* The protocol performs fragmentation and reassembly, and retransmission for reliable bandwidth estimation based on TCP-friendly rate control (RFC 5348)
 * Encryption.  AES per packet, Ed25519 crypto for key exchange and cert signatures.  The details for shared key derivation and per-packet IV are based on Google QUIC.
 * Tools for simulating loss and detailed stats measurement
 
