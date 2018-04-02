@@ -1,6 +1,13 @@
 cmake_minimum_required(VERSION 3.5)
 project(GameNetworkingSockets)
 
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+  set(CMAKE_BUILD_TYPE "Release" CACHE
+      STRING "Choose the type of build." FORCE
+  )
+  message(STATUS "Defaulting to release build! Use -DCMAKE_BUILD_TYPE=Debug when running CMake to get Debug build.")
+endif()
+
 find_package(Protobuf REQUIRED)
 find_package(OpenSSL REQUIRED)
 
@@ -31,20 +38,16 @@ set(GNS_SRCS
   "tier0/cpu.cpp"
   "tier0/dbg.cpp"
   "tier0/platformtime.cpp"
-  "tier1/bitstring.cpp"
-  "tier1/generichash.cpp"
   "tier1/netadr.cpp"
   "tier1/utlbuffer.cpp"
   "tier1/utlmemory.cpp"
-  "tier1/utlstring.cpp"
   "vstdlib/strtools.cpp"
 )
 
 set(GNS_COMMON_FLAGS
   -fvisibility=hidden
-  -fstack-protector-strong
   -fno-strict-aliasing
-  #-Wall
+  -Wall
   #-Wextra
   #-pedantic
   -Wno-unknown-pragmas
@@ -59,6 +62,8 @@ set(GNS_CXX_FLAGS
   -fvisibility-inlines-hidden
   -Wno-reorder
   -Wno-non-virtual-dtor
+  -fno-rtti
+  -fno-exceptions
 )
 
 protobuf_generate_cpp(GNS_PROTO_SRCS GNS_PROTO_HDRS ${GNS_PROTOS})
@@ -89,18 +94,23 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 
   target_compile_definitions(${GNS_TARGET} PRIVATE
     STEAMNETWORKINGSOCKETS_OPENSOURCE
+    STEAMDATAGRAMLIB_FOREXPORT
+    STATIC_TIER0
+    # needed for ed25519-donna
     ENABLE_CRYPTO_25519
     HAVE_OPENSSL
     ENABLE_OPENSSLCONNECTION
     CRYPTO_DISABLE_ENCRYPT_WITH_PASSWORD
+    GOOGLE_PROTOBUF_NO_RTTI
   )
 
   include(CheckCCompilerFlag)
   include(CheckCXXCompilerFlag)
 
   foreach(FLAG ${GNS_COMMON_FLAGS} ${GNS_C_FLAGS})
-    check_c_compiler_flag(${FLAG} FLAG_VAR)
-    if(FLAG_VAR)
+    string(MAKE_C_IDENTIFIER ${FLAG} FLAG_ID)
+    check_c_compiler_flag(${FLAG} ${FLAG_ID}_TEST)
+    if(${FLAG_ID}_TEST)
       target_compile_options(${GNS_TARGET} PRIVATE
         $<$<COMPILE_LANGUAGE:C>:${FLAG}>
       )
@@ -108,8 +118,9 @@ macro(gamenetworkingsockets_common GNS_TARGET)
   endforeach()
 
   foreach(FLAG ${GNS_COMMON_FLAGS} ${GNS_CXX_FLAGS})
-    check_cxx_compiler_flag(${FLAG} FLAG_VAR)
-    if(FLAG_VAR)
+    string(MAKE_C_IDENTIFIER ${FLAG} FLAG_ID)
+    check_cxx_compiler_flag(${FLAG} ${FLAG_ID}_TEST)
+    if(${FLAG_ID}_TEST)
       target_compile_options(${GNS_TARGET} PRIVATE
         $<$<COMPILE_LANGUAGE:CXX>:${FLAG}>
       )
@@ -121,9 +132,19 @@ macro(gamenetworkingsockets_common GNS_TARGET)
   elseif(CMAKE_SYSTEM_NAME MATCHES Darwin)
     target_compile_definitions(${GNS_TARGET} PRIVATE POSIX OSX)
   elseif(CMAKE_SYSTEM_NAME MATCHES Windows)
-    target_compile_definitions(${GNS_TARGET} PRIVATE WIN32)
+    target_compile_definitions(${GNS_TARGET} PRIVATE WIN32
+      __STDC_FORMAT_MACROS=1
+      __USE_MINGW_ANSI_STDIO=0
+    )
+    target_compile_options(${GNS_TARGET} PRIVATE -fno-stack-protector)
+    target_link_libraries(${GNS_TARGET} PRIVATE ws2_32)
+
   else()
     message(FATAL_ERROR "Could not identify your target operating system")
+  endif()
+
+  if(NOT CMAKE_SYSTEM_NAME MATCHES Windows)
+    target_compile_options(${GNS_TARGET} PRIVATE -fstack-protector-strong)
   endif()
 
   if(CMAKE_CXX_COMPILER_ID MATCHES "GNU"
