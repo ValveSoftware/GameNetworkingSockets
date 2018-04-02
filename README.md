@@ -26,17 +26,18 @@ But even if you don't make games or aren't on Steam, feel free to use this code 
 
 ### Linux
 
-This has only really been tested on Ubuntu 17.
+This has only really been tested on Ubuntu 17.10.
 
 ```
-meson build src
+$ meson src build
+$ ninja -C build
 ```
 
 ### Work in progress!
 
 We're still in the process of extracting the code from our proprietary build toolchain and making everything more open-source friendly.  Bear with us.
 
-* The code in this form is only known to compile on Ubuntu 17.  (Although this code has shipped through our toolchain on Win32/Win64 and OSX as well and also compiles for several Android flavors).
+* The code in this form is only known to compile on Ubuntu 17.10.  (Although this code has shipped through our toolchain on Win32/Win64 and OSX as well and also compiles for several Android flavors).
 * We don't provide any Windows project files or any straightforward method for building on windows yet.
 * There is a unit test, but it's not currently included and we don't have it working in any standard framework.
 
