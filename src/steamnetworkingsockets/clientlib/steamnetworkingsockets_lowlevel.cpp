@@ -1068,9 +1068,11 @@ static void SteamDatagramThreadProc()
 	// we need to take priority above normal threads and wake up immediately
 	// to process the packet.  We should be asleep most of the time waiting
 	// for packets to arrive.
-	#if defined(_WIN32) && !defined(GNU_COMPILER)
-		DbgVerify( SetThreadPriority( GetCurrentThread(), THREAD_PRIORITY_HIGHEST ) );
+	#if defined(_WIN32)
+	DbgVerify( SetThreadPriority( GetCurrentThread(), THREAD_PRIORITY_HIGHEST ) );
+	#endif
 
+	#if defined(_WIN32) && !defined(GNU_COMPILER)
 		typedef struct tagTHREADNAME_INFO
 		{
 			DWORD dwType;
