@@ -17,7 +17,7 @@ protoc = generator(protoc_bin,
 
 dependencies += [
   dependency('threads'),
-  dependency('openssl'),
+  dependency('libcrypto'),
   dependency('protobuf'),
 ]
 
