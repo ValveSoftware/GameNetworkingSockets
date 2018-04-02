@@ -29,6 +29,11 @@ flags_common = [
   '-fno-strict-aliasing',
 ]
 
+flags_cxx = [
+  '-fno-rtti',
+  '-fno-exceptions',
+]
+
 warn_flags_common = [
   '-Wall',
   #'-Wextra',
@@ -56,6 +61,7 @@ cpp_flags = [
   '-DHAVE_OPENSSL',
   '-DENABLE_OPENSSLCONNECTION',
   '-DCRYPTO_DISABLE_ENCRYPT_WITH_PASSWORD',
+  '-DGOOGLE_PROTOBUF_NO_RTTI',
 ]
 
 target_os = target_machine.system()
@@ -89,7 +95,7 @@ endforeach
 
 cxx_flags = []
 cxx_flags += cxx_compiler.first_supported_argument(['-std=c++11', '-std=c++0x'])
-foreach arg : warn_flags_cxx + flags_common + warn_flags_common
+foreach arg : warn_flags_cxx + flags_common + flags_cxx + warn_flags_common
   if cxx_compiler.has_argument(arg)
 	cxx_flags += [ arg ]
   endif
