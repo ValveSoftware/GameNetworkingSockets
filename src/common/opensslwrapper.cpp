@@ -7,9 +7,10 @@
 #include "stdafx.h"
 #include "opensslwrapper.h"
 
-#include <openssl/bio.h>
-#include <openssl/ssl.h>
-#include <openssl/err.h>
+//SDR_PUBLIC 	#include <openssl/bio.h>
+//SDR_PUBLIC 	#include <openssl/ssl.h>
+//SDR_PUBLIC 	#include <openssl/err.h>
+#include <openssl/crypto.h>
 #include <openssl/rand.h>
 
 #include <mutex>
@@ -94,9 +95,9 @@ void COpenSSLWrapper::Initialize()
 //#else	
 //		CRYPTO_set_mem_ex_functions( &VALVE_CRYPTO_dbg_malloc, &VALVE_CRYPTO_dbg_realloc, &VALVE_CRYPTO_dbg_free );
 //#endif
-		SSL_library_init();
-		SSL_load_error_strings();
-		ERR_load_BIO_strings();
+//SDR_PUBLIC 			SSL_library_init();
+//SDR_PUBLIC 			SSL_load_error_strings();
+//SDR_PUBLIC 			ERR_load_BIO_strings();
 
 		s_pMutexArray = new std::recursive_mutex[CRYPTO_num_locks()];
 		CRYPTO_set_locking_callback( COpenSSLWrapper::OpenSSLLockingCallback );
@@ -106,10 +107,10 @@ void COpenSSLWrapper::Initialize()
 		CRYPTO_set_dynlock_destroy_callback( COpenSSLWrapper::OpenSSLDynLockDestroyCallback );
 		CRYPTO_set_dynlock_lock_callback( COpenSSLWrapper::OpenSSLDynLockLockCallback );
 
-		OpenSSL_add_all_algorithms();
-
-		COpenSSLWrapper::s_nContextDataIndex = SSL_get_ex_new_index(0, (void*)"COpenSSLContext", NULL, NULL, NULL);
-		COpenSSLWrapper::s_nConnectionDataIndex = SSL_get_ex_new_index(0, (void*)"COpenSSLConnection", NULL, NULL, NULL);
+//SDR_PUBLIC		OpenSSL_add_all_algorithms();
+//SDR_PUBLIC
+//SDR_PUBLIC		COpenSSLWrapper::s_nContextDataIndex = SSL_get_ex_new_index(0, (void*)"COpenSSLContext", NULL, NULL, NULL);
+//SDR_PUBLIC		COpenSSLWrapper::s_nConnectionDataIndex = SSL_get_ex_new_index(0, (void*)"COpenSSLConnection", NULL, NULL, NULL);
 
 #ifdef _WIN32
 		RAND_set_rand_method( &RAND_Win32CryptoGenRandom );
@@ -135,13 +136,13 @@ void COpenSSLWrapper::Shutdown()
 	// If this is the last instance, then we can do some one time cleanup of the library
 	if ( m_nInstances-- == 1 )
 	{
-		EVP_cleanup();
-
-		/* Don't call ERR_free_strings here; ERR_load_*_strings only
-		 * actually load the error strings once per process due to static
-		 * variable abuse in OpenSSL. */
-		ERR_free_strings();
-		ERR_remove_state(0);
+//SDR_PUBLIC		EVP_cleanup();
+//SDR_PUBLIC
+//SDR_PUBLIC		/* Don't call ERR_free_strings here; ERR_load_*_strings only
+//SDR_PUBLIC		 * actually load the error strings once per process due to static
+//SDR_PUBLIC		 * variable abuse in OpenSSL. */
+//SDR_PUBLIC		ERR_free_strings();
+//SDR_PUBLIC		ERR_remove_state(0);
 		CRYPTO_cleanup_all_ex_data();
 
 //#ifdef _DEBUG

@@ -8,6 +8,7 @@
 
 namespace SteamNetworkingSocketsLib {
 
+#ifdef SDR_SUPPORT_RSA_TICKETS
 uint64 CalculatePublicKeyID( const CRSAPublicKey &pubKey )
 {
 	if ( !pubKey.IsValid() )
@@ -27,6 +28,7 @@ uint64 CalculatePublicKeyID( const CRSAPublicKey &pubKey )
 	// First 8 bytes
 	return LittleQWord( *(uint64*)&digest );
 }
+#endif
 
 extern uint64 CalculatePublicKeyID( const CECSigningPublicKey &pubKey )
 {

@@ -354,7 +354,9 @@ inline std::string Indent( const std::string &s ) { return Indent( s.c_str() ); 
 /// Generate a fingerprint for a public that is reasonably collision resistant,
 /// although not really cryptographically secure.  (We are in charge of the
 /// set of public keys and we expect it to be reasonably small.)
+#ifdef SDR_SUPPORT_RSA_TICKETS
 extern uint64 CalculatePublicKeyID( const CRSAPublicKey &pubKey );
+#endif
 extern uint64 CalculatePublicKeyID( const CECSigningPublicKey &pubKey );
 
 } // namespace SteamNetworkingSocketsLib

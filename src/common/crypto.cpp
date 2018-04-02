@@ -27,9 +27,11 @@
 #include <openssl/md5.h>
 #include <openssl/sha.h>
 #include <openssl/aes.h>
-#include <openssl/rsa.h>
 #include <openssl/pem.h>
+#ifdef SDR_SUPPORT_RSA_TICKETS
+#include <openssl/rsa.h>
 #include <openssl/x509.h>
+#endif
 #include "tier0/memdbgon.h"
 
 #include "opensslwrapper.h"
@@ -592,6 +594,7 @@ static void CalculatePBKDF2SHA256( const void *pubPassword, uint32 cubPassword, 
 }
 */
 
+#ifdef SDR_SUPPORT_RSA_TICKETS
 // Decode ASN.1 tag - works only for simple tag/length/value cases, such as SEQUENCE (0x30) and OCTET_STRING (0x04)
 static bool DecodeASN1Tag( uint8 expect_tag, const uint8 *buf, size_t buflen, const uint8 **datastart_out, size_t *datalen_out )
 {
@@ -682,79 +685,81 @@ static ::RSA *OpenSSL_RSAFromPKCS8PrivKey( const uint8 *pDataPtr, size_t cDataLe
 	}
 	return NULL;
 }
+#endif
 
 // Write a tag and its encoded length (or return the number of bytes that we would write)
-static int WriteASN1TagAndLength( uint8 **pPtr, uint8 tag, int32 len )
-{
-	uint8 discard[8], *pIgnore = discard;
-	uint8 * &ptr = pPtr ? *pPtr : pIgnore;
-
-	*ptr++ = tag;
-	if ( len < 128 )
-	{
-		Assert( len >= 0 );
-		*ptr++ = (uint8)(len);
-		return 2;
-	}
-	else if ( len < 65536 )
-	{
-		*ptr++ = 0x82;
-		*ptr++ = (uint8)((uint32)len >> 8);
-		*ptr++ = (uint8)(len);
-		return 4;
-	}
-	else if ( len < 256 * 65536 )
-	{
-		*ptr++ = 0x83;
-		*ptr++ = (uint8)((uint32)len >> 16);
-		*ptr++ = (uint8)((uint32)len >> 8);
-		*ptr++ = (uint8)(len);
-		return 5;
-	}
-	else
-	{
-		*ptr++ = 0x84;
-		*ptr++ = (uint8)((uint32)len >> 24);
-		*ptr++ = (uint8)((uint32)len >> 16);
-		*ptr++ = (uint8)((uint32)len >> 8);
-		*ptr++ = (uint8)(len);
-		return 6;
-	}
-}
+//SDR_PUBLIC static int WriteASN1TagAndLength( uint8 **pPtr, uint8 tag, int32 len )
+//SDR_PUBLIC {
+//SDR_PUBLIC 	uint8 discard[8], *pIgnore = discard;
+//SDR_PUBLIC 	uint8 * &ptr = pPtr ? *pPtr : pIgnore;
+//SDR_PUBLIC 
+//SDR_PUBLIC 	*ptr++ = tag;
+//SDR_PUBLIC 	if ( len < 128 )
+//SDR_PUBLIC 	{
+//SDR_PUBLIC 		Assert( len >= 0 );
+//SDR_PUBLIC 		*ptr++ = (uint8)(len);
+//SDR_PUBLIC 		return 2;
+//SDR_PUBLIC 	}
+//SDR_PUBLIC 	else if ( len < 65536 )
+//SDR_PUBLIC 	{
+//SDR_PUBLIC 		*ptr++ = 0x82;
+//SDR_PUBLIC 		*ptr++ = (uint8)((uint32)len >> 8);
+//SDR_PUBLIC 		*ptr++ = (uint8)(len);
+//SDR_PUBLIC 		return 4;
+//SDR_PUBLIC 	}
+//SDR_PUBLIC 	else if ( len < 256 * 65536 )
+//SDR_PUBLIC 	{
+//SDR_PUBLIC 		*ptr++ = 0x83;
+//SDR_PUBLIC 		*ptr++ = (uint8)((uint32)len >> 16);
+//SDR_PUBLIC 		*ptr++ = (uint8)((uint32)len >> 8);
+//SDR_PUBLIC 		*ptr++ = (uint8)(len);
+//SDR_PUBLIC 		return 5;
+//SDR_PUBLIC 	}
+//SDR_PUBLIC 	else
+//SDR_PUBLIC 	{
+//SDR_PUBLIC 		*ptr++ = 0x84;
+//SDR_PUBLIC 		*ptr++ = (uint8)((uint32)len >> 24);
+//SDR_PUBLIC 		*ptr++ = (uint8)((uint32)len >> 16);
+//SDR_PUBLIC 		*ptr++ = (uint8)((uint32)len >> 8);
+//SDR_PUBLIC 		*ptr++ = (uint8)(len);
+//SDR_PUBLIC 		return 6;
+//SDR_PUBLIC 	}
+//SDR_PUBLIC }
 
 // Private and public key formats are PKCS#8 DER. OpenSSL doesn't include a simple function
 // for writing RSA private keys in this particular format without passing through base64 PEM,
 // but we can do it ourselves to avoid that inefficiency.
-static int OpenSSL_PKCS8PrivKeyFromRSA( const ::RSA *pRSA, uint8 **pPtr )
-{
-	// Output: 0x30 + (sequence length) + (fixed bytes) + 0x04 + (string length) + (string)
-
-	// Work out overall length by going backwards... start with final string, add prefixes
-	int rsalen = i2d_RSAPrivateKey( pRSA, NULL );
-	Assert( rsalen > 0 && rsalen < 10 * 1024 * 1024 );
-
-	int seqlen = WriteASN1TagAndLength( NULL, 0x04, rsalen ) + rsalen;
-	static const char k_rgFixedSequencePrefixBytes[] = "\x02\x01\x00\x30\x0D\x06\x09\x2A\x86\x48\x86\xF7\x0D\x01\x01\x01\x05"; // final byte is \x00
-	seqlen += sizeof( k_rgFixedSequencePrefixBytes );
-
-	int total = WriteASN1TagAndLength( NULL, 0x30, seqlen ) + seqlen;
-	if ( pPtr )
-	{
-		uint8 *pExpectEnd = *pPtr + total;
-		(void) WriteASN1TagAndLength( pPtr, 0x30, seqlen );
-		V_memcpy( *pPtr, k_rgFixedSequencePrefixBytes, sizeof( k_rgFixedSequencePrefixBytes ) );
-		(*pPtr) += sizeof( k_rgFixedSequencePrefixBytes );
-		(void)WriteASN1TagAndLength( pPtr, 0x04, rsalen );
-		Assert( *pPtr == pExpectEnd - rsalen );
-		(void)i2d_RSAPrivateKey( pRSA, pPtr );
-		Assert( *pPtr == pExpectEnd );
-	}
-
-	return total;
-}
+//SDR_PUBLIC static int OpenSSL_PKCS8PrivKeyFromRSA( const ::RSA *pRSA, uint8 **pPtr )
+//SDR_PUBLIC {
+//SDR_PUBLIC 	// Output: 0x30 + (sequence length) + (fixed bytes) + 0x04 + (string length) + (string)
+//SDR_PUBLIC 
+//SDR_PUBLIC 	// Work out overall length by going backwards... start with final string, add prefixes
+//SDR_PUBLIC 	int rsalen = i2d_RSAPrivateKey( pRSA, NULL );
+//SDR_PUBLIC 	Assert( rsalen > 0 && rsalen < 10 * 1024 * 1024 );
+//SDR_PUBLIC 
+//SDR_PUBLIC 	int seqlen = WriteASN1TagAndLength( NULL, 0x04, rsalen ) + rsalen;
+//SDR_PUBLIC 	static const char k_rgFixedSequencePrefixBytes[] = "\x02\x01\x00\x30\x0D\x06\x09\x2A\x86\x48\x86\xF7\x0D\x01\x01\x01\x05"; // final byte is \x00
+//SDR_PUBLIC 	seqlen += sizeof( k_rgFixedSequencePrefixBytes );
+//SDR_PUBLIC 
+//SDR_PUBLIC 	int total = WriteASN1TagAndLength( NULL, 0x30, seqlen ) + seqlen;
+//SDR_PUBLIC 	if ( pPtr )
+//SDR_PUBLIC 	{
+//SDR_PUBLIC 		uint8 *pExpectEnd = *pPtr + total;
+//SDR_PUBLIC 		(void) WriteASN1TagAndLength( pPtr, 0x30, seqlen );
+//SDR_PUBLIC 		V_memcpy( *pPtr, k_rgFixedSequencePrefixBytes, sizeof( k_rgFixedSequencePrefixBytes ) );
+//SDR_PUBLIC 		(*pPtr) += sizeof( k_rgFixedSequencePrefixBytes );
+//SDR_PUBLIC 		(void)WriteASN1TagAndLength( pPtr, 0x04, rsalen );
+//SDR_PUBLIC 		Assert( *pPtr == pExpectEnd - rsalen );
+//SDR_PUBLIC 		(void)i2d_RSAPrivateKey( pRSA, pPtr );
+//SDR_PUBLIC 		Assert( *pPtr == pExpectEnd );
+//SDR_PUBLIC 	}
+//SDR_PUBLIC 
+//SDR_PUBLIC 	return total;
+//SDR_PUBLIC }
 
 
 // Parse X.509 RSA public key structure to extract modulus and exponent as big-endian byte sequences
+#ifdef SDR_SUPPORT_RSA_TICKETS
 static bool ExtractModulusAndExponentFromX509PubKey( const uint8 *pDataPtr, size_t cDataLen, const uint8 **ppModulus, size_t *pcubModulus, const uint8 **ppExponent, size_t *pcubExponent )
 {
 	// X.509-format RSA public keys are wrapped in an outer SEQUENCE, with an initial inner SEQUENCE containing ( OID for rsaEncryption, NULL )
@@ -795,55 +800,56 @@ static bool ExtractModulusAndExponentFromX509PubKey( const uint8 *pDataPtr, size
 	}
 	return true;
 }
+#endif // #ifdef SDR_SUPPORT_RSA_TICKETS
 
 
 // Parse X.509 RSA public key structure to extract modulus (no need for private exponent at this time)
-static bool ExtractModulusFromPKCS8PrivKey( const uint8 *pDataPtr, size_t cDataLen, const uint8 **ppModulus, size_t *pcubModulus )
-{
-	// PKCS#8 wraps the DER-encoded RSA private key as the third OCTET_STRING element in an
-	// ASN.1 SEQUENCE with some fixed values as the first two elements.
-	if ( !DecodeASN1Tag( 0x30/*SEQUENCE*/, pDataPtr, cDataLen, &pDataPtr, &cDataLen ) )
-		return false;
-
-	// Skip first two elements which are always encoded exactly the same way
-	static const char k_rgExpectSequenceBytes[] = "\x02\x01\x00\x30\x0D\x06\x09\x2A\x86\x48\x86\xF7\x0D\x01\x01\x01\x05"; // final byte is \x00
-	if ( cDataLen < sizeof( k_rgExpectSequenceBytes ) || memcmp( pDataPtr, k_rgExpectSequenceBytes, sizeof( k_rgExpectSequenceBytes ) ) != 0 )
-	{
-		AssertMsg( false, "invalid PKCS#8 RSA Private Key data" );
-		return false;
-	}
-	
-	pDataPtr += sizeof( k_rgExpectSequenceBytes );
-	cDataLen -= sizeof( k_rgExpectSequenceBytes );
-
-	// Parse the ASN.1 OCTET_STRING that contains our DER-encoded RSA private key
-	if ( !DecodeASN1Tag( 0x04/*OCTET_STRING*/, pDataPtr, cDataLen, &pDataPtr, &cDataLen ) )
-		return false;
-
-	// DER-encoded RSA private key contains a SEQUENCE of fields
-	if ( !DecodeASN1Tag( 0x30/*SEQUENCE*/, pDataPtr, cDataLen, &pDataPtr, &cDataLen ) )
-		return false;
-
-	// First field in sequence is INTEGER (0x02) length 1 (0x01) value 0 (0x00)
-	if ( cDataLen < 3 || pDataPtr[0] != 0x02 || pDataPtr[1] != 0x01 || pDataPtr[2] != 0x00 )
-		return false;
-
-	pDataPtr += 3;
-	cDataLen -= 3;
-	
-	// Second field in sequence is big-endian INTEGER containing modulus
-	if ( !DecodeASN1Tag( 0x02 /*INTEGER*/, pDataPtr, cDataLen, ppModulus, pcubModulus ) )
-		return false;
-
-	// Modulus may start with a leading 0 byte to prevent ASN.1 sign extension - strip it
-	if ( *pcubModulus > 1 && (*ppModulus)[0] == 0x00 )
-	{
-		++(*ppModulus);
-		--(*pcubModulus);
-	}
-
-	return true;
-}
+//SDR_PUBLIC static bool ExtractModulusFromPKCS8PrivKey( const uint8 *pDataPtr, size_t cDataLen, const uint8 **ppModulus, size_t *pcubModulus )
+//SDR_PUBLIC {
+//SDR_PUBLIC 	// PKCS#8 wraps the DER-encoded RSA private key as the third OCTET_STRING element in an
+//SDR_PUBLIC 	// ASN.1 SEQUENCE with some fixed values as the first two elements.
+//SDR_PUBLIC 	if ( !DecodeASN1Tag( 0x30/*SEQUENCE*/, pDataPtr, cDataLen, &pDataPtr, &cDataLen ) )
+//SDR_PUBLIC 		return false;
+//SDR_PUBLIC 
+//SDR_PUBLIC 	// Skip first two elements which are always encoded exactly the same way
+//SDR_PUBLIC 	static const char k_rgExpectSequenceBytes[] = "\x02\x01\x00\x30\x0D\x06\x09\x2A\x86\x48\x86\xF7\x0D\x01\x01\x01\x05"; // final byte is \x00
+//SDR_PUBLIC 	if ( cDataLen < sizeof( k_rgExpectSequenceBytes ) || memcmp( pDataPtr, k_rgExpectSequenceBytes, sizeof( k_rgExpectSequenceBytes ) ) != 0 )
+//SDR_PUBLIC 	{
+//SDR_PUBLIC 		AssertMsg( false, "invalid PKCS#8 RSA Private Key data" );
+//SDR_PUBLIC 		return false;
+//SDR_PUBLIC 	}
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	pDataPtr += sizeof( k_rgExpectSequenceBytes );
+//SDR_PUBLIC 	cDataLen -= sizeof( k_rgExpectSequenceBytes );
+//SDR_PUBLIC 
+//SDR_PUBLIC 	// Parse the ASN.1 OCTET_STRING that contains our DER-encoded RSA private key
+//SDR_PUBLIC 	if ( !DecodeASN1Tag( 0x04/*OCTET_STRING*/, pDataPtr, cDataLen, &pDataPtr, &cDataLen ) )
+//SDR_PUBLIC 		return false;
+//SDR_PUBLIC 
+//SDR_PUBLIC 	// DER-encoded RSA private key contains a SEQUENCE of fields
+//SDR_PUBLIC 	if ( !DecodeASN1Tag( 0x30/*SEQUENCE*/, pDataPtr, cDataLen, &pDataPtr, &cDataLen ) )
+//SDR_PUBLIC 		return false;
+//SDR_PUBLIC 
+//SDR_PUBLIC 	// First field in sequence is INTEGER (0x02) length 1 (0x01) value 0 (0x00)
+//SDR_PUBLIC 	if ( cDataLen < 3 || pDataPtr[0] != 0x02 || pDataPtr[1] != 0x01 || pDataPtr[2] != 0x00 )
+//SDR_PUBLIC 		return false;
+//SDR_PUBLIC 
+//SDR_PUBLIC 	pDataPtr += 3;
+//SDR_PUBLIC 	cDataLen -= 3;
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	// Second field in sequence is big-endian INTEGER containing modulus
+//SDR_PUBLIC 	if ( !DecodeASN1Tag( 0x02 /*INTEGER*/, pDataPtr, cDataLen, ppModulus, pcubModulus ) )
+//SDR_PUBLIC 		return false;
+//SDR_PUBLIC 
+//SDR_PUBLIC 	// Modulus may start with a leading 0 byte to prevent ASN.1 sign extension - strip it
+//SDR_PUBLIC 	if ( *pcubModulus > 1 && (*ppModulus)[0] == 0x00 )
+//SDR_PUBLIC 	{
+//SDR_PUBLIC 		++(*ppModulus);
+//SDR_PUBLIC 		--(*pcubModulus);
+//SDR_PUBLIC 	}
+//SDR_PUBLIC 
+//SDR_PUBLIC 	return true;
+//SDR_PUBLIC }
 
 
 static bool SymmetricEncryptHelper( const uint8 *pubPlaintextData, const uint32 cubPlaintextData_, 
@@ -1363,739 +1369,739 @@ uint32 CCrypto::GetSymmetricEncryptedSize( uint32 cubPlaintextData )
 	return k_nSymmetricBlockSize /* IV */ + ALIGN_VALUE( cubPlaintextData + 1, k_nSymmetricBlockSize );
 }
 
-//-----------------------------------------------------------------------------
-// Purpose: Encrypts the specified data with the specified text password.  
-//			Uses the SHA256 hash of the password as the key for AES (Rijndael) symmetric
-//			encryption. A SHA1 HMAC of the result is appended, for authentication on 
-//			the receiving end.
-//			The encrypted data may then be decrypted by calling DecryptWithPasswordAndAuthenticate
-//			with the same password.
-// Input:	pubPlaintextData -	Data to be encrypted
-//			cubPlaintextData -	Size of data to be encrypted
-//			pubEncryptedData -  Pointer to buffer to receive encrypted data
-//			pcubEncryptedData - Pointer to a variable that at time of call contains the size of
-//								the receive buffer for encrypted data.  When the method returns, this will contain
-//								the actual size of the encrypted data.
-//			pchPassword -		text password
-// Output:  true if successful, false if encryption failed
-//
-// This is DEPRECATED because you can attack it fairly easily by brute-forcing the HMAC. 
-// Just e
-//
-//-----------------------------------------------------------------------------
-bool CCrypto::EncryptWithPasswordAndHMAC_DEPRECATED( const uint8 *pubPlaintextData, uint32 cubPlaintextData,
-								 uint8 * pubEncryptedData, uint32 * pcubEncryptedData,
-								 const char *pchPassword )
-{
-	//
-	// Generate a random IV
-	//
-	byte rgubIV[k_nSymmetricBlockSize];
-	GenerateRandomBlock( rgubIV, k_nSymmetricBlockSize );
-
-	return EncryptWithPasswordAndHMACWithIV_DEPRECATED( pubPlaintextData, cubPlaintextData, rgubIV, k_nSymmetricBlockSize, pubEncryptedData, pcubEncryptedData, pchPassword );
-}
-
-
-//-----------------------------------------------------------------------------
-// Purpose: Encrypts the specified data with the specified text password.  
-//			Uses the SHA256 hash of the password as the key for AES (Rijndael) symmetric
-//			encryption. A SHA1 HMAC of the result is appended, for authentication on 
-//			the receiving end.
-//			The encrypted data may then be decrypted by calling DecryptWithPasswordAndAuthenticate
-//			with the same password.
-// Input:	pubPlaintextData -	Data to be encrypted
-//			cubPlaintextData -	Size of data to be encrypted
-//			pIV -				IV to use for AES encryption. Should be random and never used before unless you know
-//								exactly what you're doing.
-//			cubIV -				size of the IV - should be same ase the AES blocksize.
-//			pubEncryptedData -  Pointer to buffer to receive encrypted data
-//			pcubEncryptedData - Pointer to a variable that at time of call contains the size of
-//								the receive buffer for encrypted data.  When the method returns, this will contain
-//								the actual size of the encrypted data.
-//			pchPassword -		text password
-// Output:  true if successful, false if encryption failed
-//-----------------------------------------------------------------------------
-bool CCrypto::EncryptWithPasswordAndHMACWithIV_DEPRECATED( const uint8 *pubPlaintextData, uint32 cubPlaintextData,
-								 const uint8 * pIV, uint32 cubIV,
-								 uint8 * pubEncryptedData, uint32 * pcubEncryptedData,
-								 const char *pchPassword )
-{
-	uint8 rgubKey[k_nSymmetricKeyLen];
-	if ( !pchPassword || !pchPassword[0] )
-		return false;
-
-	if ( !cubPlaintextData )
-		return false;
-
-	uint32 cubBuffer = *pcubEncryptedData;
-	uint32 cubExpectedResult = GetSymmetricEncryptedSize( cubPlaintextData ) + sizeof( SHADigest_t );
-
-	if ( cubBuffer < cubExpectedResult )
-		return false;
-
-	GenerateSHA256Digest( (const uint8 *)pchPassword, V_strlen( pchPassword ), &rgubKey );
-	
-	bool bRet = SymmetricEncryptChosenIV( pubPlaintextData, cubPlaintextData, pIV, cubIV, pubEncryptedData, pcubEncryptedData, rgubKey, k_nSymmetricKeyLen );
-	if ( bRet )
-	{
-		// calc HMAC
-		uint32 cubEncrypted = *pcubEncryptedData;
-		*pcubEncryptedData += sizeof( SHADigest_t );
-		if ( cubBuffer < *pcubEncryptedData )
-			return false;
-
-		SHADigest_t *pHMAC = (SHADigest_t*)( pubEncryptedData + cubEncrypted );
-		bRet = CCrypto::GenerateHMAC( pubEncryptedData, cubEncrypted, rgubKey, k_nSymmetricKeyLen, pHMAC );
-	}
-
-	return bRet;
-}
-
-
-//-----------------------------------------------------------------------------
-// Purpose: Decrypts the specified data with the specified password.  Uses AES (Rijndael) symmetric
-//			decryption. First, the HMAC is verified - if it is not correct, then we know that
-//			the key is incorrect or the data is corrupted, and the decryption fails.
-// Input:	pubEncryptedData -	Data to be decrypted
-//			cubEncryptedData -	Size of data to be decrypted
-//			pubPlaintextData -  Pointer to buffer to receive decrypted data
-//			pcubPlaintextData - Pointer to a variable that at time of call contains the size of
-//								the receive buffer for decrypted data.  When the method returns, this will contain
-//								the actual size of the decrypted data.
-//			pchPassword -		the text password to decrypt the data with
-// Output:  true if successful, false if decryption failed
-//-----------------------------------------------------------------------------
-bool CCrypto::DecryptWithPasswordAndAuthenticate_DEPRECATED( const uint8 * pubEncryptedData, uint32 cubEncryptedData, 
-								 uint8 * pubPlaintextData, uint32 * pcubPlaintextData,
-								 const char *pchPassword )
-{
-	uint8 rgubKey[k_nSymmetricKeyLen];
-	if ( !pchPassword || !pchPassword[0] )
-		return false;
-
-	if ( cubEncryptedData <= sizeof( SHADigest_t ) )
-		return false;
-
-	GenerateSHA256Digest( (const uint8 *)pchPassword, V_strlen( pchPassword ), &rgubKey );
-
-	uint32 cubCiphertext = cubEncryptedData - sizeof( SHADigest_t );
-	SHADigest_t *pHMAC = (SHADigest_t*)( pubEncryptedData + cubCiphertext  );
-	SHADigest_t hmacActual;
-	bool bRet = CCrypto::GenerateHMAC( pubEncryptedData, cubCiphertext, rgubKey, k_nSymmetricKeyLen, &hmacActual );
-
-	if ( bRet )
-	{
-		// invalid ciphertext or key
-		if ( V_memcmp( &hmacActual, pHMAC, sizeof( SHADigest_t ) ) )
-			return false;
-		
-		bRet = SymmetricDecrypt( pubEncryptedData, cubCiphertext, pubPlaintextData, pcubPlaintextData, rgubKey, k_nSymmetricKeyLen );
-	}
-
-	return bRet;
-}
-
-#ifndef CRYPTO_DISABLE_ENCRYPT_WITH_PASSWORD
-
-//-----------------------------------------------------------------------------
-// Purpose: Encrypts the specified data with the specified text passphrase.
-//
-// EncryptWithPassphrase / DecryptWithPassphrase uses the following format:
-//  <1 byte algo id> <1 byte parameter> <16 bytes random IV> <AES-256 CBC of data> <HMAC-SHA256 of all preceding bytes>
-//
-// Let "intermediate secret" be the password digest generated according to the algorithm id and parameter:
-//   key for AES-256 CBC is HMAC-SHA256( key = intermediate secret, signed data = 4 bytes "AES\x01" )
-//   key for HMAC-SHA256 is HMAC-SHA256( key = intermediate secret, signed data = 4 bytes "HMAC" )
-//-----------------------------------------------------------------------------
-bool CCrypto::EncryptWithPassphraseImpl( const uint8 *pubPlaintextData, uint32 cubPlaintextData, uint8 * pubEncryptedData, uint32 * pcubEncryptedData, const char *pchPassphrase, int nPassphraseLength, bool bStrong )
-{
-	if ( nPassphraseLength < 0 )
-		nPassphraseLength = (int) V_strlen( pchPassphrase );
-
-	COMPILE_TIME_ASSERT( sizeof( SHA256Digest_t ) == 32 );
-	uint32 cubRequiredSpace = 2 + CCrypto::GetSymmetricEncryptedSize( cubPlaintextData ) + 32;
-	if ( cubRequiredSpace > *pcubEncryptedData )
-	{
-		*pcubEncryptedData = cubRequiredSpace;
-		return false;
-	}
-
-	PassphraseHelperFn_t pHelper = NULL;
-	if ( bStrong )
-	{
-		// Make it effing expensive to crack
-#ifdef ENABLE_CRYPTO_SCRYPT
-		// Scrypt is tuned to require ~400ms and 256MB of temporary memory on server CPUs
-		pubEncryptedData[0] = 0x02; // hardcoded 0x02 = scrypt
-		pubEncryptedData[1] = 0x00; // parameter is currently reserved, must be 0
-		pHelper = &CCrypto::PassphraseHelper_Scrypt;
-#else
-		// PBKDF2 with absurdly high round count is less effective than scrypt, but still strong
-		pubEncryptedData[0] = 0x01; // hardcoded 0x01 = PBKDF2
-		pubEncryptedData[1] = 21; // 2^21 rounds is over 2 million rounds, takes ~1.5 seconds
-		pHelper = &CCrypto::PassphraseHelper_PBKDF2SHA256;
-#endif
-	}
-	else
-	{
-		// Choose faster mobile- and web-friendly settings
-		pubEncryptedData[0] = 0x01; // hardcoded 0x01 = PBKDF2
-		pubEncryptedData[1] = 14; // parameter is log2(rounds), 2^14 rounds is 16384 rounds
-		pHelper = &CCrypto::PassphraseHelper_PBKDF2SHA256;
-	}
-
-	GenerateRandomBlock( pubEncryptedData + 2, 16 ); // random 16-byte IV
-
-	SHA256Digest_t aeskey, hmackey;
-	uint8 digest[32] = {};
-	if ( !pHelper || !pHelper( digest, pchPassphrase, nPassphraseLength, pubEncryptedData + 2, 16, pubEncryptedData[0], pubEncryptedData[1] ) )
-	{
-		Assert( false ); // shouldn't be possible for helper to fail
-		return false;
-	}
-	GenerateHMAC256( (const uint8*)"AES\x01", 4, digest, sizeof( digest ), &aeskey );
-	GenerateHMAC256( (const uint8*)"HMAC", 4, digest, sizeof( digest ), &hmackey );
-	SecureZeroMemory( digest, sizeof(digest) );
-
-	uint32 cubSpaceForSymmetricEncrypt = cubRequiredSpace - 18;
-	bool bRet = SymmetricEncryptWithIV( pubPlaintextData, cubPlaintextData, pubEncryptedData + 2, 16, pubEncryptedData + 18, &cubSpaceForSymmetricEncrypt, aeskey, sizeof(aeskey) );
-	SecureZeroMemory( aeskey, sizeof( aeskey ) );
-
-	if ( bRet && 2 + 16 + cubSpaceForSymmetricEncrypt + 32 == cubRequiredSpace )
-	{
-		SHA256Digest_t hmac;
-		GenerateHMAC256( pubEncryptedData, 2 + 16 + cubSpaceForSymmetricEncrypt, hmackey, sizeof( hmackey ), &hmac );
-		SecureZeroMemory( hmackey, sizeof( hmackey ) );
-		memcpy( pubEncryptedData + 2 + 16 + cubSpaceForSymmetricEncrypt, hmac, sizeof( hmac ) );
-		SecureZeroMemory( hmac, sizeof( hmac ) );
-	}
-	else
-	{
-		Assert( false ); // this shouldn't ever happen!! aside from implementation bugs...
-		SecureZeroMemory( hmackey, sizeof( hmackey ) );
-		SecureZeroMemory( pubEncryptedData + 18, cubRequiredSpace - 18 );
-		bRet = false;
-	}
-
-	*pcubEncryptedData = cubRequiredSpace;
-	return bRet;
-}
-
-
-//-----------------------------------------------------------------------------
-// Purpose: Decrypt the specified data with the specified text passphrase.
-//
-// EncryptWithPassphrase / DecryptWithPassphrase uses the following format:
-//  <1 byte 0x01> <1 byte rounds_log2> <16 bytes random IV> <AES-256 CBC of data> <HMAC-SHA256 of all preceding bytes>
-//
-// Let "intermediate secret" be the password digest generated according to the algorithm id and parameter:
-//   key for AES-256 CBC is HMAC-SHA256( key = intermediate secret, signed data = 4 bytes "AES\x01" )
-//   key for HMAC-SHA256 is HMAC-SHA256( key = intermediate secret, signed data = 4 bytes "HMAC" )
-//-----------------------------------------------------------------------------
-bool CCrypto::DecryptWithPassphraseImpl( const uint8 *pubEncryptedData, uint32 cubEncryptedData, uint8 * pubPlaintextData, uint32 * pcubPlaintextData, const char *pchPassphrase, int nPassphraseLength, bool bVerifyIntegrity )
-{
-	if ( nPassphraseLength < 0 )
-		nPassphraseLength = (int)V_strlen( pchPassphrase );
-
-	if ( cubEncryptedData < 2 + 16 + 16 + 32 )
-		return false;
-
-	uint8 digest[32] = {};
-	switch ( pubEncryptedData[0] )
-	{
-	case 0x01:
-		Assert( PassphraseHelper_PBKDF2SHA256( digest, pchPassphrase, nPassphraseLength, pubEncryptedData + 2, 16, pubEncryptedData[0], pubEncryptedData[1] ) );
-		break;
-#ifdef ENABLE_CRYPTO_SCRYPT
-	case 0x02:
-		Assert( PassphraseHelper_Scrypt( digest, pchPassphrase, nPassphraseLength, pubEncryptedData + 2, 16, pubEncryptedData[0], pubEncryptedData[1] ) );
-		break;
-#endif
-	default:
-		AssertMsg1( false, "Unhandled algorithm 0x%02x, this build does not know how to decrypt it", pubEncryptedData[0] );
-		return false;
-	}
-
-	SHA256Digest_t aeskey, hmackey;
-	GenerateHMAC256( (const uint8*)"AES\x01", 4, digest, sizeof( digest ), &aeskey );
-	if ( bVerifyIntegrity )
-	{
-		GenerateHMAC256( (const uint8*)"HMAC", 4, digest, sizeof( digest ), &hmackey );
-	}
-	SecureZeroMemory( digest, sizeof( digest ) );
-
-	if ( bVerifyIntegrity )
-	{
-		SHA256Digest_t hmac;
-		GenerateHMAC256( pubEncryptedData, cubEncryptedData - 32, hmackey, sizeof( hmackey ), &hmac );
-		SecureZeroMemory( hmackey, sizeof( hmackey ) );
-		int deltaBits = 0;
-		for ( int i = 0; i < 32; ++i )
-		{
-			deltaBits |= (int)(uint8)( hmac[i] ^ pubEncryptedData[cubEncryptedData - 32 + i] );
-		}
-		SecureZeroMemory( hmac, sizeof( hmac ) );
-		if ( deltaBits != 0 )
-			return false;
-	}
-
-	bool bRet = SymmetricDecryptWithIV( pubEncryptedData + 18, cubEncryptedData - 18 - 32, pubEncryptedData + 2, 16, pubPlaintextData, pcubPlaintextData, aeskey, sizeof( aeskey ), bVerifyIntegrity );
-	SecureZeroMemory( aeskey, sizeof( aeskey ) );
-	return bRet;
-}
-
-
-// //-----------------------------------------------------------------------------
-// // Purpose: Helper to implement PBKDF2 algorithm for EncryptWithPassphrase
-// //-----------------------------------------------------------------------------
-// bool CCrypto::PassphraseHelper_PBKDF2SHA256( uint8 ( &rgubDigest )[32], const char *pchPassphrase, int nPassphraseLength, const uint8 *pubSalt, uint32 cubSalt, uint8 ubAlgorithmID, uint8 ubParameter )
-// {
-// 	// Parameter is log2(rounds)
-// 	Assert( ubAlgorithmID == 0x01 && ubParameter > 10 && ubParameter < 31 );
-// 	if ( !( ubAlgorithmID == 0x01 && ubParameter > 10 && ubParameter < 31 ) )
-// 		return false;
-// 
-// 	if ( nPassphraseLength < 0 )
-// 		nPassphraseLength = (int)V_strlen( pchPassphrase );
-// 
-// 	CalculatePBKDF2SHA256( pchPassphrase, (uint32)nPassphraseLength, pubSalt, cubSalt, rgubDigest, 1u << ubParameter );
-// 	return true;
-// }
-
-
-//-----------------------------------------------------------------------------
-// Purpose: Helper to implement scrypt algorithm for EncryptWithPassphrase
-//-----------------------------------------------------------------------------
-#ifdef ENABLE_CRYPTO_SCRYPT
-bool CCrypto::PassphraseHelper_Scrypt( uint8( &rgubDigest )[32], const char *pchPassphrase, int nPassphraseLength, const uint8 *pubSalt, uint32 cubSalt, uint8 ubAlgorithmID, uint8 ubParameter )
-{
-	// Parameter is always zero, we hardcode scrypt parameters
-	Assert( ubAlgorithmID == 0x02 && ubParameter == 0 );
-	if ( !( ubAlgorithmID == 0x02 && ubParameter == 0 ) )
-		return false;
-
-	if ( nPassphraseLength < 0 )
-		nPassphraseLength = (int)V_strlen( pchPassphrase );
-
-	bool bRet = GenerateStrongScryptDigest( pchPassphrase, nPassphraseLength, pubSalt, cubSalt, &rgubDigest );
-	Assert( bRet );
-	return bRet;
-}
-#endif
-
-
-//-----------------------------------------------------------------------------
-// Purpose: Encrypts the specified data with the specified text passphrase.
-// Choses a "strong" algorithm that requires a large amount of system resources
-// to effectively make brute-force dictionary attacks impossible. Can require
-// several seconds of CPU work and/or up to 256 MB of temporary RAM to decrypt!
-//-----------------------------------------------------------------------------
-bool CCrypto::EncryptWithPassphrase_Strong( const uint8 *pubPlaintextData, uint32 cubPlaintextData, uint8 * pubEncryptedData, uint32 * pcubEncryptedData, const char *pchPassphrase, int nPassphraseLength /* = -1 */ )
-{
-	return EncryptWithPassphraseImpl( pubPlaintextData, cubPlaintextData, pubEncryptedData, pcubEncryptedData, pchPassphrase, nPassphraseLength, true );
-}
-
-
-//-----------------------------------------------------------------------------
-// Purpose: Encrypts the specified data with the specified text passphrase.
-// Currently 16384 PBKDF2-SHA256 rounds, significantly slows down brute-forcing.
-// This is on par with what modern password managers do to protect master files.
-//-----------------------------------------------------------------------------
-bool CCrypto::EncryptWithPassphrase_Fast( const uint8 *pubPlaintextData, uint32 cubPlaintextData, uint8 * pubEncryptedData, uint32 * pcubEncryptedData, const char *pchPassphrase, int nPassphraseLength /* = -1 */ )
-{
-	return EncryptWithPassphraseImpl( pubPlaintextData, cubPlaintextData, pubEncryptedData, pcubEncryptedData, pchPassphrase, nPassphraseLength, false );
-}
-
-
-//-----------------------------------------------------------------------------
-// Purpose: Decrypts the specified data with the specified text passphrase.
-//-----------------------------------------------------------------------------
-bool CCrypto::DecryptWithPassphrase( const uint8 *pubEncryptedData, uint32 cubEncryptedData, uint8 * pubPlaintextData, uint32 * pcubPlaintextData, const char *pchPassphrase, int nPassphraseLength /* = -1 */, bool bVerifyIntegrity /* = true */ )
-{
-	return DecryptWithPassphraseImpl( pubEncryptedData, cubEncryptedData, pubPlaintextData, pcubPlaintextData, pchPassphrase, nPassphraseLength, bVerifyIntegrity );
-}
-
-
-#ifdef ENABLE_CRYPTO_25519
-//-----------------------------------------------------------------------------
-// Purpose: variation EncryptWithPassphrase_Strong with no CBC trailing padding
-// and no integrity checks. Extremely compact representation.
-//-----------------------------------------------------------------------------
-bool CCrypto::EncryptECPrivateKeyWithPassphrase( const CEC25519PrivateKeyBase &privateKey, uint8 *pubEncryptedData, uint32 *pcubEncryptedData, const char *pchPassphrase, int nPassphraseLen, bool bStrong )
-{
-	Assert( privateKey.IsValid() );
-	if ( !privateKey.IsValid() )
-		return false;
-
-	Assert( pcubEncryptedData && *pcubEncryptedData >= 2 + 16 + 32 );
-	if ( !pcubEncryptedData || *pcubEncryptedData < 2 + 16 + 32 )
-		return false;
-
-	uint8 bufPrivate[32];
-	memcpy( bufPrivate, privateKey.GetData() + 32, 32 );
-
-	uint8 bufEncrypted[128] = {};
-	uint32 buflen = sizeof(bufEncrypted);
-
-	bool bRet = ( bStrong ? EncryptWithPassphrase_Strong : EncryptWithPassphrase_Fast )( bufPrivate, 32, bufEncrypted, &buflen, pchPassphrase, nPassphraseLen ) && buflen == 2 + 16 + 32 + 16 + 32;
-	SecureZeroMemory( bufPrivate, sizeof( bufPrivate ) );
-
-	// Don't output the final CBC block, which is all padding, or the HMAC that follows
-	*pcubEncryptedData = 2 + 16 + 32;
-	memcpy( pubEncryptedData, bufEncrypted, 2 + 16 + 32 );
-	SecureZeroMemory( bufEncrypted, sizeof( bufEncrypted ) );
-
-	return bRet;
-}
-
-
-//-----------------------------------------------------------------------------
-// Purpose: variation of DecryptWithPassphrase with no CBC trailing padding
-// and no integrity checks. Extremely compact representation.
-//-----------------------------------------------------------------------------
-bool CCrypto::DecryptECPrivateKeyWithPassphrase( const uint8 *pubEncryptedData, uint32 cubEncryptedData, CEC25519PrivateKeyBase *pPrivateKey, const char *pchPassphrase, int nPassphraseLength )
-{
-	pPrivateKey->Wipe();
-	Assert( pPrivateKey->GetKeyType() == k_ECryptoKeyTypeKeyExchangePrivate || pPrivateKey->GetKeyType() == k_ECryptoKeyTypeSigningPrivate );
-	if ( pPrivateKey->GetKeyType() != k_ECryptoKeyTypeKeyExchangePrivate && pPrivateKey->GetKeyType() != k_ECryptoKeyTypeSigningPrivate )
-		return false;
-	if ( cubEncryptedData != 2 + 16 + 32 )
-		return false;
-
-	uint8 bufEncrypted[ 2 + 16 + 32 + 16 + 32 ] = {}; // zero init
-	memcpy( bufEncrypted, pubEncryptedData, 2 + 16 + 32 );
-	// final 16 + 32 bytes (final CBC block + HMAC) will be zeros, don't care.
-
-	uint8 bufDecrypted[ 32 + 16 ]; // need room for whatever junk the all-zero trailing CBC block decrypts to
-	uint32 cubDecrypted = sizeof( bufDecrypted );
-	if ( DecryptWithPassphrase( bufEncrypted, sizeof( bufEncrypted ), bufDecrypted, &cubDecrypted, pchPassphrase, nPassphraseLength, false /* do not verify HMAC or padding */ ) && cubDecrypted >= 32 )
-	{
-		pPrivateKey->RebuildFromPrivateData( bufDecrypted );
-	}
-
-	SecureZeroMemory( bufDecrypted, sizeof( bufDecrypted ) );
-	SecureZeroMemory( bufEncrypted, sizeof( bufEncrypted ) );
-	return pPrivateKey->IsValid();
-}
-#endif
-
-#endif // #ifndef CRYPTO_DISABLE_ENCRYPT_WITH_PASSWORD
-
-
-//-----------------------------------------------------------------------------
-// Purpose: Generates a new pair of private/public RSA keys
-// Input:	cKeyBits -			Bit length for the key to generate
-//			rsaKeyPublic -		Reference to return the generated public key
-//			rsaKeyPrivate -		Reference to return the generated private key
-// Output:  true if successful, false if key generation failed
-//-----------------------------------------------------------------------------
-bool CCrypto::RSAGenerateKeys( uint32 cKeyBits, CRSAPublicKey &rsaKeyPublic, CRSAPrivateKey &rsaKeyPrivate )
-{
-	bool bSuccess = false;
-
-	rsaKeyPublic.Wipe();
-	rsaKeyPrivate.Wipe();
-
-	OneTimeCryptoInitOpenSSL();
-
-	::BIGNUM *pBN_E = BN_new();
-	::RSA *pRSA = RSA_new();
-
-	// Crypto++ defaults to E=17; E=65537 is generally accepted as a much better choice for
-	// practical security reasons. E=3 is 8x faster for RSA operations, but E=65537 mitigates
-	// attacks against known weaknesses in earlier (now-deprecated) padding schemes. -henryg
-	if ( BN_set_word( pBN_E, 65537 ) && RSA_generate_key_ex( pRSA, cKeyBits, pBN_E, NULL ) )
-	{
-		CUtlMemory<uint8> mem;
-
-		// Encode private key in portable PKCS#8 DER format
-		{
-			int lengthToEncodePriv = OpenSSL_PKCS8PrivKeyFromRSA( pRSA, NULL );
-			Assert( lengthToEncodePriv > 0 && lengthToEncodePriv < 1024*1024 ); /* 1 MB sanity check */
-			if ( lengthToEncodePriv > 0 && lengthToEncodePriv < 1024*1024 )
-			{
-				mem.EnsureCapacity( lengthToEncodePriv + 1 );
-				uint8 *pPtr = mem.Base();
-				(void) OpenSSL_PKCS8PrivKeyFromRSA( pRSA, &pPtr );
-				Assert( pPtr == mem.Base() + lengthToEncodePriv );
-				if ( pPtr == mem.Base() + lengthToEncodePriv )
-				{
-					rsaKeyPrivate.Set( mem.Base(), (uint32)lengthToEncodePriv );
-				}
-				SecureZeroMemory( mem.Base(), (size_t)mem.CubAllocated() );
-			}
-		}
-
-		// Encode public key in portable X.509 public key DER format
-		{
-			int lengthToEncodePub = i2d_RSA_PUBKEY( pRSA, NULL );
-			Assert( lengthToEncodePub > 0 && lengthToEncodePub < 1024*1024 ); /* 1 MB sanity check */
-			if ( lengthToEncodePub > 0 && lengthToEncodePub < 1024*1024 )
-			{
-				mem.EnsureCapacity( lengthToEncodePub + 1 );
-				uint8 *pPtr = mem.Base();
-				(void)i2d_RSA_PUBKEY( pRSA, &pPtr );
-				Assert( pPtr == mem.Base() + lengthToEncodePub );
-				if ( pPtr == mem.Base() + lengthToEncodePub )
-				{
-					rsaKeyPublic.Set( mem.Base(), (uint32)lengthToEncodePub );
-				}
-				SecureZeroMemory( mem.Base(), (size_t)mem.CubAllocated() );
-			}
-		}
-	}
-
-	BN_free( pBN_E );
-	RSA_free( pRSA );
-
-	DispatchOpenSSLErrors( "CCrypto::RSAGenerateKeys" );
-
-	bSuccess = rsaKeyPublic.IsValid() && rsaKeyPrivate.IsValid();
-
-	return bSuccess;
-}
-
-
-//-----------------------------------------------------------------------------
-// Purpose: Returns the maximum plaintext length that can be encrypted in a
-//			single block for the given public key.
-// Input:	rsaKey - Reference to public key
-//-----------------------------------------------------------------------------
-uint32 CCrypto::GetRSAMaxPlaintextSize( const CRSAPublicKey &rsaKey )
-{
-	return GetRSAEncryptionBlockSize( rsaKey ) - k_nRSAOAEPOverheadBytes;
-}
-
-
-//-----------------------------------------------------------------------------
-// Purpose: Returns the ciphertext block size resulting from encryption of
-///			a single block for the given public key.
-// Input:	rsaKey - Reference to public key
-//-----------------------------------------------------------------------------
-uint32 CCrypto::GetRSAEncryptionBlockSize( const CRSAPublicKey &rsaKey )
-{
-	return rsaKey.GetModulusBytes( nullptr, 0 );
-}
-
-
-//-----------------------------------------------------------------------------
-// Purpose: Encrypts the specified data with the specified RSA public key.  
-//			The encrypted data may then be decrypted by calling RSADecrypt with the
-//			corresponding RSA private key.
-// Input:	pubPlaintextData -	Data to be encrypted
-//			cubPlaintextData -	Size of data to be encrypted
-//			pubEncryptedData -  Pointer to buffer to receive encrypted data
-//			pcubEncryptedData - Pointer to a variable that at time of call contains the size of
-//								the receive buffer for encrypted data.  When the method returns, this will contain
-//								the actual size of the encrypted data.
-//			pubPublicKey -		the RSA public key to encrypt the data with
-//			cubPublicKey -		Size of the key (must be k_nSymmetricKeyLen)
-// Output:  true if successful, false if encryption failed
-//-----------------------------------------------------------------------------
-bool CCrypto::RSAEncrypt( const uint8 *pubPlaintextData, uint32 cubPlaintextData, 
-						  uint8 *pubEncryptedData, uint32 *pcubEncryptedData, 
-						  const uint8 *pubPublicKey, const uint32 cubPublicKey )
-{
-	VPROF_BUDGET( "CCrypto::RSAEncrypt", VPROF_BUDGETGROUP_ENCRYPTION );
-	bool bRet = false;
-	Assert( cubPlaintextData > 0 );	// must pass in some data
-
-	OneTimeCryptoInitOpenSSL();
-	const uint8 *pPublicKeyPtr = pubPublicKey;
-	::RSA *rsa = d2i_RSA_PUBKEY( NULL, &pPublicKeyPtr, cubPublicKey );
-	if ( rsa )
-	{
-		int nEncryptedBytesPerIteration = RSA_size( rsa );
-		// Sanity check on RSA modulus size - between 512 and 32k bits
-		if ( nEncryptedBytesPerIteration < 60 || nEncryptedBytesPerIteration > 4000 )
-		{
-			AssertMsg1( false, "Invalid RSA modulus: %d bytes wide", nEncryptedBytesPerIteration );
-		}
-		else
-		{
-			// calculate how many blocks of encryption will we need to do and how big the output will be
-			int nPlaintextBytesPerIteration = nEncryptedBytesPerIteration - k_nRSAOAEPOverheadBytes;
-			uint32 cBlocks = 1 + ( ( cubPlaintextData - 1 ) / (uint32)nPlaintextBytesPerIteration );
-			uint32 cubCipherText = cBlocks * (uint32)nEncryptedBytesPerIteration;
-			// ensure there is sufficient room in output buffer for result
-			if ( cubCipherText > (*pcubEncryptedData) )
-			{
-				AssertMsg2( false, "CCrypto::RSAEncrypt: insufficient output buffer for encryption, needed %d got %d\n", cubCipherText, *pcubEncryptedData );
-			}
-			else
-			{
-				uint8 *pubOutputStart = pubEncryptedData;
-				for ( ; cBlocks > 0; --cBlocks )
-				{
-					// encrypt either all remaining plaintext, or maximum allowed plaintext per RSA encryption operation
-					uint32 cubToEncrypt = Min( cubPlaintextData, (uint32)nPlaintextBytesPerIteration );
-					// encrypt the plaintext
-					if ( RSA_public_encrypt( cubToEncrypt, pubPlaintextData, pubEncryptedData, rsa, RSA_PKCS1_OAEP_PADDING ) != nEncryptedBytesPerIteration )
-					{
-						SecureZeroMemory( pubOutputStart, cubCipherText );
-						AssertMsg( false, "RSA encryption failed" );
-						break;
-					}
-					pubPlaintextData += cubToEncrypt;
-					cubPlaintextData -= cubToEncrypt;
-					pubEncryptedData += nEncryptedBytesPerIteration;
-				}
-
-				bRet = ( cBlocks == 0 );
-				*pcubEncryptedData = bRet ? cubCipherText : 0;
-			}
-		}
-		RSA_free( rsa );
-	}
-	DispatchOpenSSLErrors( "CCrypto::RSAEncrypt" );
-
-	return bRet;
-}
-
-
-//-----------------------------------------------------------------------------
-// Purpose: Decrypts the specified data with the specified RSA private key 
-// Input:	pubEncryptedData -	Data to be decrypted
-//			cubEncryptedData -	Size of data to be decrypted
-//			pubPlaintextData -  Pointer to buffer to receive decrypted data
-//			pcubPlaintextData - Pointer to a variable that at time of call contains the size of
-//								the receive buffer for decrypted data.  When the method returns, this will contain
-//								the actual size of the decrypted data.
-//			pubPrivateKey -		the RSA private key key to decrypt the data with
-//			cubPrivateKey -		Size of the key (must be k_nSymmetricKeyLen)
-// Output:  true if successful, false if decryption failed
-//-----------------------------------------------------------------------------
-bool CCrypto::RSADecrypt( const uint8 *pubEncryptedData, uint32 cubEncryptedData, 
-						  uint8 *pubPlaintextData, uint32 *pcubPlaintextData, 
-						  const uint8 *pubPrivateKey, const uint32 cubPrivateKey, bool bLegacyPKCSv15 )
-{
-	VPROF_BUDGET( "CCrypto::RSADecrypt", VPROF_BUDGETGROUP_ENCRYPTION );
-	bool bRet = false;
-
-	OneTimeCryptoInitOpenSSL();
-	::RSA *rsa = OpenSSL_RSAFromPKCS8PrivKey( pubPrivateKey, cubPrivateKey );
-	if ( rsa )
-	{
-		int nEncryptedBytesPerIteration = RSA_size( rsa );
-		// Sanity check on RSA modulus size - between 512 and 32k bits
-		if ( nEncryptedBytesPerIteration < 60 || nEncryptedBytesPerIteration > 4000 )
-		{
-			AssertMsg1( false, "Invalid RSA modulus: %d bytes wide", nEncryptedBytesPerIteration );
-		}
-		else
-		{
-			// calculate how many blocks of decryption will we need to do and how big the output will be
-			int nPlaintextBytesPerIteration = nEncryptedBytesPerIteration - k_nRSAOAEPOverheadBytes;
-			uint32 cBlocks = 1 + ((cubEncryptedData - 1) / (uint32)nEncryptedBytesPerIteration);
-			uint32 cubMaxPlaintext = cBlocks * (uint32)nPlaintextBytesPerIteration;
-			// ensure there is sufficient room in output buffer for result
-			if ( cubMaxPlaintext > (*pcubPlaintextData) )
-			{
-				AssertMsg2( false, "CCrypto::RSAEncrypt: insufficient output buffer for decryption, needed %d got %d\n", cubMaxPlaintext, *pcubPlaintextData );
-			}
-			else
-			{
-				uint8 *pubOutputStart = pubPlaintextData;
-				for ( ; cBlocks > 0; --cBlocks )
-				{
-					// decrypt either all remaining ciphertext, or maximum allowed per RSA decryption operation
-					uint32 cubToDecrypt = Min( cubEncryptedData, (uint32)nEncryptedBytesPerIteration );
-					int ret = RSA_private_decrypt( cubToDecrypt, pubEncryptedData, pubPlaintextData, rsa, bLegacyPKCSv15 ? RSA_PKCS1_PADDING : RSA_PKCS1_OAEP_PADDING );
-					if ( ret <= 0 || ret > nPlaintextBytesPerIteration || ( ret < nPlaintextBytesPerIteration && cBlocks != 1 ) )
-					{
-						ERR_clear_error(); // if RSA_private_decrypt failed, we don't spew - could be invalid data.
-						SecureZeroMemory( pubOutputStart, cubMaxPlaintext );
-						pubPlaintextData = pubOutputStart;
-						break;
-					}
-					pubEncryptedData += nEncryptedBytesPerIteration;
-					cubEncryptedData -= nEncryptedBytesPerIteration;
-					pubPlaintextData += ret;
-				}
-
-				bRet = ( cBlocks == 0 );
-				*pcubPlaintextData = (int)( pubPlaintextData - pubOutputStart );
-			}
-		}
-		RSA_free( rsa );
-	}
-	DispatchOpenSSLErrors( "CCrypto::RSADecrypt" );
-	return bRet;
-}
-
-
-//-----------------------------------------------------------------------------
-// Purpose: Decrypts the specified data with the specified RSA PUBLIC key,
-//			using no padding (eg un-padded signature).
-// Input:	pubEncryptedData -	Data to be decrypted
-//			cubEncryptedData -	Size of data to be decrypted
-//			pubPlaintextData -  Pointer to buffer to receive decrypted data
-//			pcubPlaintextData - Pointer to a variable that at time of call contains the size of
-//								the receive buffer for decrypted data.  When the method returns, this will contain
-//								the actual size of the decrypted data.
-//			pubPublicKey -		the RSA public key key to decrypt the data with
-//			cubPublicKey -		Size of the key
-// Output:  true if successful, false if decryption failed
-//-----------------------------------------------------------------------------
-bool CCrypto::RSAPublicDecrypt_NoPadding_DEPRECATED( const uint8 *pubEncryptedData, uint32 cubEncryptedData, 
-						 uint8 *pubPlaintextData, uint32 *pcubPlaintextData, 
-						 const uint8 *pubPublicKey, const uint32 cubPublicKey )
-{
-	// NOTE: This is not a generally secure use of RSA encryption! It may serve to
-	// temporarily obfuscate the numeric value of a CD KEY, but the algorithm and key
-	// can be cracked with enough samples due to the lack of a secure padding mode.
-	// And as there is no integrity check, attackers can flip bits in transit. -henryg
-
-	VPROF_BUDGET( "CCrypto::RSAPublicDecrypt_NoPadding", VPROF_BUDGETGROUP_ENCRYPTION );
-	bool bRet = false;
-
-	Assert( cubEncryptedData > 0 );	// must pass in some data
-
-	// BUGBUG taylor
-	// This probably only works for reasonably small ciphertext sizes.
-
-	OneTimeCryptoInitOpenSSL();
-	const uint8 *pPublicKeyPtr = pubPublicKey;
-	::RSA *rsa = d2i_RSA_PUBKEY( NULL, &pPublicKeyPtr, cubPublicKey );
-	if ( rsa )
-	{
-		int nModulusBytes = RSA_size( rsa );
-		// Sanity check on RSA modulus size - severely relaxed for compatibility with
-		// the absurd 64-bit RSA keys used by DOOM3 activation codes (!?!) -henryg
-		if ( nModulusBytes < 1 || nModulusBytes > 4000 )
-		{
-			AssertMsg1( false, "Invalid RSA modulus: %d bytes wide", nModulusBytes );
-		}
-		else
-		{
-			CUtlMemory<uint8> mem;
-			mem.EnsureCapacity( nModulusBytes );
-			int ret = RSA_public_decrypt( cubEncryptedData, pubEncryptedData, mem.Base(), rsa, RSA_NO_PADDING );
-			// No padding scheme, should always have a full modulus-width array of bytes as output
-			if ( ret == nModulusBytes )
-			{
-				// For compatibility with pre-existing code, always strip all trailing null bytes
-				uint cubDecrypted = (uint)nModulusBytes;
-				while ( cubDecrypted > 0 && mem[cubDecrypted-1] == 0 )
-					--cubDecrypted;
-
-				// For compatibility with pre-existing code, fail quietly if there isn't enough space
-				if ( *pcubPlaintextData >= cubDecrypted )
-				{
-					V_memcpy( pubPlaintextData, mem.Base(), cubDecrypted );
-					*pcubPlaintextData = cubDecrypted;
-					bRet = true;
-				}
-			}
-			SecureZeroMemory( mem.Base(), nModulusBytes );
-		}
-		RSA_free( rsa );
-	}
-	DispatchOpenSSLErrors( "CCrypto::RSAPublicDecrypt_NoPadding_DEPRECATED" );
-
-	return bRet;
-}
+//SDR_PUBLIC 	//-----------------------------------------------------------------------------
+//SDR_PUBLIC 	// Purpose: Encrypts the specified data with the specified text password.  
+//SDR_PUBLIC 	//			Uses the SHA256 hash of the password as the key for AES (Rijndael) symmetric
+//SDR_PUBLIC 	//			encryption. A SHA1 HMAC of the result is appended, for authentication on 
+//SDR_PUBLIC 	//			the receiving end.
+//SDR_PUBLIC 	//			The encrypted data may then be decrypted by calling DecryptWithPasswordAndAuthenticate
+//SDR_PUBLIC 	//			with the same password.
+//SDR_PUBLIC 	// Input:	pubPlaintextData -	Data to be encrypted
+//SDR_PUBLIC 	//			cubPlaintextData -	Size of data to be encrypted
+//SDR_PUBLIC 	//			pubEncryptedData -  Pointer to buffer to receive encrypted data
+//SDR_PUBLIC 	//			pcubEncryptedData - Pointer to a variable that at time of call contains the size of
+//SDR_PUBLIC 	//								the receive buffer for encrypted data.  When the method returns, this will contain
+//SDR_PUBLIC 	//								the actual size of the encrypted data.
+//SDR_PUBLIC 	//			pchPassword -		text password
+//SDR_PUBLIC 	// Output:  true if successful, false if encryption failed
+//SDR_PUBLIC 	//
+//SDR_PUBLIC 	// This is DEPRECATED because you can attack it fairly easily by brute-forcing the HMAC. 
+//SDR_PUBLIC 	// Just e
+//SDR_PUBLIC 	//
+//SDR_PUBLIC 	//-----------------------------------------------------------------------------
+//SDR_PUBLIC 	bool CCrypto::EncryptWithPasswordAndHMAC_DEPRECATED( const uint8 *pubPlaintextData, uint32 cubPlaintextData,
+//SDR_PUBLIC 									 uint8 * pubEncryptedData, uint32 * pcubEncryptedData,
+//SDR_PUBLIC 									 const char *pchPassword )
+//SDR_PUBLIC 	{
+//SDR_PUBLIC 		//
+//SDR_PUBLIC 		// Generate a random IV
+//SDR_PUBLIC 		//
+//SDR_PUBLIC 		byte rgubIV[k_nSymmetricBlockSize];
+//SDR_PUBLIC 		GenerateRandomBlock( rgubIV, k_nSymmetricBlockSize );
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		return EncryptWithPasswordAndHMACWithIV_DEPRECATED( pubPlaintextData, cubPlaintextData, rgubIV, k_nSymmetricBlockSize, pubEncryptedData, pcubEncryptedData, pchPassword );
+//SDR_PUBLIC 	}
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	//-----------------------------------------------------------------------------
+//SDR_PUBLIC 	// Purpose: Encrypts the specified data with the specified text password.  
+//SDR_PUBLIC 	//			Uses the SHA256 hash of the password as the key for AES (Rijndael) symmetric
+//SDR_PUBLIC 	//			encryption. A SHA1 HMAC of the result is appended, for authentication on 
+//SDR_PUBLIC 	//			the receiving end.
+//SDR_PUBLIC 	//			The encrypted data may then be decrypted by calling DecryptWithPasswordAndAuthenticate
+//SDR_PUBLIC 	//			with the same password.
+//SDR_PUBLIC 	// Input:	pubPlaintextData -	Data to be encrypted
+//SDR_PUBLIC 	//			cubPlaintextData -	Size of data to be encrypted
+//SDR_PUBLIC 	//			pIV -				IV to use for AES encryption. Should be random and never used before unless you know
+//SDR_PUBLIC 	//								exactly what you're doing.
+//SDR_PUBLIC 	//			cubIV -				size of the IV - should be same ase the AES blocksize.
+//SDR_PUBLIC 	//			pubEncryptedData -  Pointer to buffer to receive encrypted data
+//SDR_PUBLIC 	//			pcubEncryptedData - Pointer to a variable that at time of call contains the size of
+//SDR_PUBLIC 	//								the receive buffer for encrypted data.  When the method returns, this will contain
+//SDR_PUBLIC 	//								the actual size of the encrypted data.
+//SDR_PUBLIC 	//			pchPassword -		text password
+//SDR_PUBLIC 	// Output:  true if successful, false if encryption failed
+//SDR_PUBLIC 	//-----------------------------------------------------------------------------
+//SDR_PUBLIC 	bool CCrypto::EncryptWithPasswordAndHMACWithIV_DEPRECATED( const uint8 *pubPlaintextData, uint32 cubPlaintextData,
+//SDR_PUBLIC 									 const uint8 * pIV, uint32 cubIV,
+//SDR_PUBLIC 									 uint8 * pubEncryptedData, uint32 * pcubEncryptedData,
+//SDR_PUBLIC 									 const char *pchPassword )
+//SDR_PUBLIC 	{
+//SDR_PUBLIC 		uint8 rgubKey[k_nSymmetricKeyLen];
+//SDR_PUBLIC 		if ( !pchPassword || !pchPassword[0] )
+//SDR_PUBLIC 			return false;
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		if ( !cubPlaintextData )
+//SDR_PUBLIC 			return false;
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		uint32 cubBuffer = *pcubEncryptedData;
+//SDR_PUBLIC 		uint32 cubExpectedResult = GetSymmetricEncryptedSize( cubPlaintextData ) + sizeof( SHADigest_t );
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		if ( cubBuffer < cubExpectedResult )
+//SDR_PUBLIC 			return false;
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		GenerateSHA256Digest( (const uint8 *)pchPassword, V_strlen( pchPassword ), &rgubKey );
+//SDR_PUBLIC 		
+//SDR_PUBLIC 		bool bRet = SymmetricEncryptChosenIV( pubPlaintextData, cubPlaintextData, pIV, cubIV, pubEncryptedData, pcubEncryptedData, rgubKey, k_nSymmetricKeyLen );
+//SDR_PUBLIC 		if ( bRet )
+//SDR_PUBLIC 		{
+//SDR_PUBLIC 			// calc HMAC
+//SDR_PUBLIC 			uint32 cubEncrypted = *pcubEncryptedData;
+//SDR_PUBLIC 			*pcubEncryptedData += sizeof( SHADigest_t );
+//SDR_PUBLIC 			if ( cubBuffer < *pcubEncryptedData )
+//SDR_PUBLIC 				return false;
+//SDR_PUBLIC 	
+//SDR_PUBLIC 			SHADigest_t *pHMAC = (SHADigest_t*)( pubEncryptedData + cubEncrypted );
+//SDR_PUBLIC 			bRet = CCrypto::GenerateHMAC( pubEncryptedData, cubEncrypted, rgubKey, k_nSymmetricKeyLen, pHMAC );
+//SDR_PUBLIC 		}
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		return bRet;
+//SDR_PUBLIC 	}
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	//-----------------------------------------------------------------------------
+//SDR_PUBLIC 	// Purpose: Decrypts the specified data with the specified password.  Uses AES (Rijndael) symmetric
+//SDR_PUBLIC 	//			decryption. First, the HMAC is verified - if it is not correct, then we know that
+//SDR_PUBLIC 	//			the key is incorrect or the data is corrupted, and the decryption fails.
+//SDR_PUBLIC 	// Input:	pubEncryptedData -	Data to be decrypted
+//SDR_PUBLIC 	//			cubEncryptedData -	Size of data to be decrypted
+//SDR_PUBLIC 	//			pubPlaintextData -  Pointer to buffer to receive decrypted data
+//SDR_PUBLIC 	//			pcubPlaintextData - Pointer to a variable that at time of call contains the size of
+//SDR_PUBLIC 	//								the receive buffer for decrypted data.  When the method returns, this will contain
+//SDR_PUBLIC 	//								the actual size of the decrypted data.
+//SDR_PUBLIC 	//			pchPassword -		the text password to decrypt the data with
+//SDR_PUBLIC 	// Output:  true if successful, false if decryption failed
+//SDR_PUBLIC 	//-----------------------------------------------------------------------------
+//SDR_PUBLIC 	bool CCrypto::DecryptWithPasswordAndAuthenticate_DEPRECATED( const uint8 * pubEncryptedData, uint32 cubEncryptedData, 
+//SDR_PUBLIC 									 uint8 * pubPlaintextData, uint32 * pcubPlaintextData,
+//SDR_PUBLIC 									 const char *pchPassword )
+//SDR_PUBLIC 	{
+//SDR_PUBLIC 		uint8 rgubKey[k_nSymmetricKeyLen];
+//SDR_PUBLIC 		if ( !pchPassword || !pchPassword[0] )
+//SDR_PUBLIC 			return false;
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		if ( cubEncryptedData <= sizeof( SHADigest_t ) )
+//SDR_PUBLIC 			return false;
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		GenerateSHA256Digest( (const uint8 *)pchPassword, V_strlen( pchPassword ), &rgubKey );
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		uint32 cubCiphertext = cubEncryptedData - sizeof( SHADigest_t );
+//SDR_PUBLIC 		SHADigest_t *pHMAC = (SHADigest_t*)( pubEncryptedData + cubCiphertext  );
+//SDR_PUBLIC 		SHADigest_t hmacActual;
+//SDR_PUBLIC 		bool bRet = CCrypto::GenerateHMAC( pubEncryptedData, cubCiphertext, rgubKey, k_nSymmetricKeyLen, &hmacActual );
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		if ( bRet )
+//SDR_PUBLIC 		{
+//SDR_PUBLIC 			// invalid ciphertext or key
+//SDR_PUBLIC 			if ( V_memcmp( &hmacActual, pHMAC, sizeof( SHADigest_t ) ) )
+//SDR_PUBLIC 				return false;
+//SDR_PUBLIC 			
+//SDR_PUBLIC 			bRet = SymmetricDecrypt( pubEncryptedData, cubCiphertext, pubPlaintextData, pcubPlaintextData, rgubKey, k_nSymmetricKeyLen );
+//SDR_PUBLIC 		}
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		return bRet;
+//SDR_PUBLIC 	}
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	#ifndef CRYPTO_DISABLE_ENCRYPT_WITH_PASSWORD
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	//-----------------------------------------------------------------------------
+//SDR_PUBLIC 	// Purpose: Encrypts the specified data with the specified text passphrase.
+//SDR_PUBLIC 	//
+//SDR_PUBLIC 	// EncryptWithPassphrase / DecryptWithPassphrase uses the following format:
+//SDR_PUBLIC 	//  <1 byte algo id> <1 byte parameter> <16 bytes random IV> <AES-256 CBC of data> <HMAC-SHA256 of all preceding bytes>
+//SDR_PUBLIC 	//
+//SDR_PUBLIC 	// Let "intermediate secret" be the password digest generated according to the algorithm id and parameter:
+//SDR_PUBLIC 	//   key for AES-256 CBC is HMAC-SHA256( key = intermediate secret, signed data = 4 bytes "AES\x01" )
+//SDR_PUBLIC 	//   key for HMAC-SHA256 is HMAC-SHA256( key = intermediate secret, signed data = 4 bytes "HMAC" )
+//SDR_PUBLIC 	//-----------------------------------------------------------------------------
+//SDR_PUBLIC 	bool CCrypto::EncryptWithPassphraseImpl( const uint8 *pubPlaintextData, uint32 cubPlaintextData, uint8 * pubEncryptedData, uint32 * pcubEncryptedData, const char *pchPassphrase, int nPassphraseLength, bool bStrong )
+//SDR_PUBLIC 	{
+//SDR_PUBLIC 		if ( nPassphraseLength < 0 )
+//SDR_PUBLIC 			nPassphraseLength = (int) V_strlen( pchPassphrase );
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		COMPILE_TIME_ASSERT( sizeof( SHA256Digest_t ) == 32 );
+//SDR_PUBLIC 		uint32 cubRequiredSpace = 2 + CCrypto::GetSymmetricEncryptedSize( cubPlaintextData ) + 32;
+//SDR_PUBLIC 		if ( cubRequiredSpace > *pcubEncryptedData )
+//SDR_PUBLIC 		{
+//SDR_PUBLIC 			*pcubEncryptedData = cubRequiredSpace;
+//SDR_PUBLIC 			return false;
+//SDR_PUBLIC 		}
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		PassphraseHelperFn_t pHelper = NULL;
+//SDR_PUBLIC 		if ( bStrong )
+//SDR_PUBLIC 		{
+//SDR_PUBLIC 			// Make it effing expensive to crack
+//SDR_PUBLIC 	#ifdef ENABLE_CRYPTO_SCRYPT
+//SDR_PUBLIC 			// Scrypt is tuned to require ~400ms and 256MB of temporary memory on server CPUs
+//SDR_PUBLIC 			pubEncryptedData[0] = 0x02; // hardcoded 0x02 = scrypt
+//SDR_PUBLIC 			pubEncryptedData[1] = 0x00; // parameter is currently reserved, must be 0
+//SDR_PUBLIC 			pHelper = &CCrypto::PassphraseHelper_Scrypt;
+//SDR_PUBLIC 	#else
+//SDR_PUBLIC 			// PBKDF2 with absurdly high round count is less effective than scrypt, but still strong
+//SDR_PUBLIC 			pubEncryptedData[0] = 0x01; // hardcoded 0x01 = PBKDF2
+//SDR_PUBLIC 			pubEncryptedData[1] = 21; // 2^21 rounds is over 2 million rounds, takes ~1.5 seconds
+//SDR_PUBLIC 			pHelper = &CCrypto::PassphraseHelper_PBKDF2SHA256;
+//SDR_PUBLIC 	#endif
+//SDR_PUBLIC 		}
+//SDR_PUBLIC 		else
+//SDR_PUBLIC 		{
+//SDR_PUBLIC 			// Choose faster mobile- and web-friendly settings
+//SDR_PUBLIC 			pubEncryptedData[0] = 0x01; // hardcoded 0x01 = PBKDF2
+//SDR_PUBLIC 			pubEncryptedData[1] = 14; // parameter is log2(rounds), 2^14 rounds is 16384 rounds
+//SDR_PUBLIC 			pHelper = &CCrypto::PassphraseHelper_PBKDF2SHA256;
+//SDR_PUBLIC 		}
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		GenerateRandomBlock( pubEncryptedData + 2, 16 ); // random 16-byte IV
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		SHA256Digest_t aeskey, hmackey;
+//SDR_PUBLIC 		uint8 digest[32] = {};
+//SDR_PUBLIC 		if ( !pHelper || !pHelper( digest, pchPassphrase, nPassphraseLength, pubEncryptedData + 2, 16, pubEncryptedData[0], pubEncryptedData[1] ) )
+//SDR_PUBLIC 		{
+//SDR_PUBLIC 			Assert( false ); // shouldn't be possible for helper to fail
+//SDR_PUBLIC 			return false;
+//SDR_PUBLIC 		}
+//SDR_PUBLIC 		GenerateHMAC256( (const uint8*)"AES\x01", 4, digest, sizeof( digest ), &aeskey );
+//SDR_PUBLIC 		GenerateHMAC256( (const uint8*)"HMAC", 4, digest, sizeof( digest ), &hmackey );
+//SDR_PUBLIC 		SecureZeroMemory( digest, sizeof(digest) );
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		uint32 cubSpaceForSymmetricEncrypt = cubRequiredSpace - 18;
+//SDR_PUBLIC 		bool bRet = SymmetricEncryptWithIV( pubPlaintextData, cubPlaintextData, pubEncryptedData + 2, 16, pubEncryptedData + 18, &cubSpaceForSymmetricEncrypt, aeskey, sizeof(aeskey) );
+//SDR_PUBLIC 		SecureZeroMemory( aeskey, sizeof( aeskey ) );
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		if ( bRet && 2 + 16 + cubSpaceForSymmetricEncrypt + 32 == cubRequiredSpace )
+//SDR_PUBLIC 		{
+//SDR_PUBLIC 			SHA256Digest_t hmac;
+//SDR_PUBLIC 			GenerateHMAC256( pubEncryptedData, 2 + 16 + cubSpaceForSymmetricEncrypt, hmackey, sizeof( hmackey ), &hmac );
+//SDR_PUBLIC 			SecureZeroMemory( hmackey, sizeof( hmackey ) );
+//SDR_PUBLIC 			memcpy( pubEncryptedData + 2 + 16 + cubSpaceForSymmetricEncrypt, hmac, sizeof( hmac ) );
+//SDR_PUBLIC 			SecureZeroMemory( hmac, sizeof( hmac ) );
+//SDR_PUBLIC 		}
+//SDR_PUBLIC 		else
+//SDR_PUBLIC 		{
+//SDR_PUBLIC 			Assert( false ); // this shouldn't ever happen!! aside from implementation bugs...
+//SDR_PUBLIC 			SecureZeroMemory( hmackey, sizeof( hmackey ) );
+//SDR_PUBLIC 			SecureZeroMemory( pubEncryptedData + 18, cubRequiredSpace - 18 );
+//SDR_PUBLIC 			bRet = false;
+//SDR_PUBLIC 		}
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		*pcubEncryptedData = cubRequiredSpace;
+//SDR_PUBLIC 		return bRet;
+//SDR_PUBLIC 	}
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	//-----------------------------------------------------------------------------
+//SDR_PUBLIC 	// Purpose: Decrypt the specified data with the specified text passphrase.
+//SDR_PUBLIC 	//
+//SDR_PUBLIC 	// EncryptWithPassphrase / DecryptWithPassphrase uses the following format:
+//SDR_PUBLIC 	//  <1 byte 0x01> <1 byte rounds_log2> <16 bytes random IV> <AES-256 CBC of data> <HMAC-SHA256 of all preceding bytes>
+//SDR_PUBLIC 	//
+//SDR_PUBLIC 	// Let "intermediate secret" be the password digest generated according to the algorithm id and parameter:
+//SDR_PUBLIC 	//   key for AES-256 CBC is HMAC-SHA256( key = intermediate secret, signed data = 4 bytes "AES\x01" )
+//SDR_PUBLIC 	//   key for HMAC-SHA256 is HMAC-SHA256( key = intermediate secret, signed data = 4 bytes "HMAC" )
+//SDR_PUBLIC 	//-----------------------------------------------------------------------------
+//SDR_PUBLIC 	bool CCrypto::DecryptWithPassphraseImpl( const uint8 *pubEncryptedData, uint32 cubEncryptedData, uint8 * pubPlaintextData, uint32 * pcubPlaintextData, const char *pchPassphrase, int nPassphraseLength, bool bVerifyIntegrity )
+//SDR_PUBLIC 	{
+//SDR_PUBLIC 		if ( nPassphraseLength < 0 )
+//SDR_PUBLIC 			nPassphraseLength = (int)V_strlen( pchPassphrase );
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		if ( cubEncryptedData < 2 + 16 + 16 + 32 )
+//SDR_PUBLIC 			return false;
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		uint8 digest[32] = {};
+//SDR_PUBLIC 		switch ( pubEncryptedData[0] )
+//SDR_PUBLIC 		{
+//SDR_PUBLIC 		case 0x01:
+//SDR_PUBLIC 			Assert( PassphraseHelper_PBKDF2SHA256( digest, pchPassphrase, nPassphraseLength, pubEncryptedData + 2, 16, pubEncryptedData[0], pubEncryptedData[1] ) );
+//SDR_PUBLIC 			break;
+//SDR_PUBLIC 	#ifdef ENABLE_CRYPTO_SCRYPT
+//SDR_PUBLIC 		case 0x02:
+//SDR_PUBLIC 			Assert( PassphraseHelper_Scrypt( digest, pchPassphrase, nPassphraseLength, pubEncryptedData + 2, 16, pubEncryptedData[0], pubEncryptedData[1] ) );
+//SDR_PUBLIC 			break;
+//SDR_PUBLIC 	#endif
+//SDR_PUBLIC 		default:
+//SDR_PUBLIC 			AssertMsg1( false, "Unhandled algorithm 0x%02x, this build does not know how to decrypt it", pubEncryptedData[0] );
+//SDR_PUBLIC 			return false;
+//SDR_PUBLIC 		}
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		SHA256Digest_t aeskey, hmackey;
+//SDR_PUBLIC 		GenerateHMAC256( (const uint8*)"AES\x01", 4, digest, sizeof( digest ), &aeskey );
+//SDR_PUBLIC 		if ( bVerifyIntegrity )
+//SDR_PUBLIC 		{
+//SDR_PUBLIC 			GenerateHMAC256( (const uint8*)"HMAC", 4, digest, sizeof( digest ), &hmackey );
+//SDR_PUBLIC 		}
+//SDR_PUBLIC 		SecureZeroMemory( digest, sizeof( digest ) );
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		if ( bVerifyIntegrity )
+//SDR_PUBLIC 		{
+//SDR_PUBLIC 			SHA256Digest_t hmac;
+//SDR_PUBLIC 			GenerateHMAC256( pubEncryptedData, cubEncryptedData - 32, hmackey, sizeof( hmackey ), &hmac );
+//SDR_PUBLIC 			SecureZeroMemory( hmackey, sizeof( hmackey ) );
+//SDR_PUBLIC 			int deltaBits = 0;
+//SDR_PUBLIC 			for ( int i = 0; i < 32; ++i )
+//SDR_PUBLIC 			{
+//SDR_PUBLIC 				deltaBits |= (int)(uint8)( hmac[i] ^ pubEncryptedData[cubEncryptedData - 32 + i] );
+//SDR_PUBLIC 			}
+//SDR_PUBLIC 			SecureZeroMemory( hmac, sizeof( hmac ) );
+//SDR_PUBLIC 			if ( deltaBits != 0 )
+//SDR_PUBLIC 				return false;
+//SDR_PUBLIC 		}
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		bool bRet = SymmetricDecryptWithIV( pubEncryptedData + 18, cubEncryptedData - 18 - 32, pubEncryptedData + 2, 16, pubPlaintextData, pcubPlaintextData, aeskey, sizeof( aeskey ), bVerifyIntegrity );
+//SDR_PUBLIC 		SecureZeroMemory( aeskey, sizeof( aeskey ) );
+//SDR_PUBLIC 		return bRet;
+//SDR_PUBLIC 	}
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	// //-----------------------------------------------------------------------------
+//SDR_PUBLIC 	// // Purpose: Helper to implement PBKDF2 algorithm for EncryptWithPassphrase
+//SDR_PUBLIC 	// //-----------------------------------------------------------------------------
+//SDR_PUBLIC 	// bool CCrypto::PassphraseHelper_PBKDF2SHA256( uint8 ( &rgubDigest )[32], const char *pchPassphrase, int nPassphraseLength, const uint8 *pubSalt, uint32 cubSalt, uint8 ubAlgorithmID, uint8 ubParameter )
+//SDR_PUBLIC 	// {
+//SDR_PUBLIC 	// 	// Parameter is log2(rounds)
+//SDR_PUBLIC 	// 	Assert( ubAlgorithmID == 0x01 && ubParameter > 10 && ubParameter < 31 );
+//SDR_PUBLIC 	// 	if ( !( ubAlgorithmID == 0x01 && ubParameter > 10 && ubParameter < 31 ) )
+//SDR_PUBLIC 	// 		return false;
+//SDR_PUBLIC 	// 
+//SDR_PUBLIC 	// 	if ( nPassphraseLength < 0 )
+//SDR_PUBLIC 	// 		nPassphraseLength = (int)V_strlen( pchPassphrase );
+//SDR_PUBLIC 	// 
+//SDR_PUBLIC 	// 	CalculatePBKDF2SHA256( pchPassphrase, (uint32)nPassphraseLength, pubSalt, cubSalt, rgubDigest, 1u << ubParameter );
+//SDR_PUBLIC 	// 	return true;
+//SDR_PUBLIC 	// }
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	//-----------------------------------------------------------------------------
+//SDR_PUBLIC 	// Purpose: Helper to implement scrypt algorithm for EncryptWithPassphrase
+//SDR_PUBLIC 	//-----------------------------------------------------------------------------
+//SDR_PUBLIC 	#ifdef ENABLE_CRYPTO_SCRYPT
+//SDR_PUBLIC 	bool CCrypto::PassphraseHelper_Scrypt( uint8( &rgubDigest )[32], const char *pchPassphrase, int nPassphraseLength, const uint8 *pubSalt, uint32 cubSalt, uint8 ubAlgorithmID, uint8 ubParameter )
+//SDR_PUBLIC 	{
+//SDR_PUBLIC 		// Parameter is always zero, we hardcode scrypt parameters
+//SDR_PUBLIC 		Assert( ubAlgorithmID == 0x02 && ubParameter == 0 );
+//SDR_PUBLIC 		if ( !( ubAlgorithmID == 0x02 && ubParameter == 0 ) )
+//SDR_PUBLIC 			return false;
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		if ( nPassphraseLength < 0 )
+//SDR_PUBLIC 			nPassphraseLength = (int)V_strlen( pchPassphrase );
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		bool bRet = GenerateStrongScryptDigest( pchPassphrase, nPassphraseLength, pubSalt, cubSalt, &rgubDigest );
+//SDR_PUBLIC 		Assert( bRet );
+//SDR_PUBLIC 		return bRet;
+//SDR_PUBLIC 	}
+//SDR_PUBLIC 	#endif
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	//-----------------------------------------------------------------------------
+//SDR_PUBLIC 	// Purpose: Encrypts the specified data with the specified text passphrase.
+//SDR_PUBLIC 	// Choses a "strong" algorithm that requires a large amount of system resources
+//SDR_PUBLIC 	// to effectively make brute-force dictionary attacks impossible. Can require
+//SDR_PUBLIC 	// several seconds of CPU work and/or up to 256 MB of temporary RAM to decrypt!
+//SDR_PUBLIC 	//-----------------------------------------------------------------------------
+//SDR_PUBLIC 	bool CCrypto::EncryptWithPassphrase_Strong( const uint8 *pubPlaintextData, uint32 cubPlaintextData, uint8 * pubEncryptedData, uint32 * pcubEncryptedData, const char *pchPassphrase, int nPassphraseLength /* = -1 */ )
+//SDR_PUBLIC 	{
+//SDR_PUBLIC 		return EncryptWithPassphraseImpl( pubPlaintextData, cubPlaintextData, pubEncryptedData, pcubEncryptedData, pchPassphrase, nPassphraseLength, true );
+//SDR_PUBLIC 	}
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	//-----------------------------------------------------------------------------
+//SDR_PUBLIC 	// Purpose: Encrypts the specified data with the specified text passphrase.
+//SDR_PUBLIC 	// Currently 16384 PBKDF2-SHA256 rounds, significantly slows down brute-forcing.
+//SDR_PUBLIC 	// This is on par with what modern password managers do to protect master files.
+//SDR_PUBLIC 	//-----------------------------------------------------------------------------
+//SDR_PUBLIC 	bool CCrypto::EncryptWithPassphrase_Fast( const uint8 *pubPlaintextData, uint32 cubPlaintextData, uint8 * pubEncryptedData, uint32 * pcubEncryptedData, const char *pchPassphrase, int nPassphraseLength /* = -1 */ )
+//SDR_PUBLIC 	{
+//SDR_PUBLIC 		return EncryptWithPassphraseImpl( pubPlaintextData, cubPlaintextData, pubEncryptedData, pcubEncryptedData, pchPassphrase, nPassphraseLength, false );
+//SDR_PUBLIC 	}
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	//-----------------------------------------------------------------------------
+//SDR_PUBLIC 	// Purpose: Decrypts the specified data with the specified text passphrase.
+//SDR_PUBLIC 	//-----------------------------------------------------------------------------
+//SDR_PUBLIC 	bool CCrypto::DecryptWithPassphrase( const uint8 *pubEncryptedData, uint32 cubEncryptedData, uint8 * pubPlaintextData, uint32 * pcubPlaintextData, const char *pchPassphrase, int nPassphraseLength /* = -1 */, bool bVerifyIntegrity /* = true */ )
+//SDR_PUBLIC 	{
+//SDR_PUBLIC 		return DecryptWithPassphraseImpl( pubEncryptedData, cubEncryptedData, pubPlaintextData, pcubPlaintextData, pchPassphrase, nPassphraseLength, bVerifyIntegrity );
+//SDR_PUBLIC 	}
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	#ifdef ENABLE_CRYPTO_25519
+//SDR_PUBLIC 	//-----------------------------------------------------------------------------
+//SDR_PUBLIC 	// Purpose: variation EncryptWithPassphrase_Strong with no CBC trailing padding
+//SDR_PUBLIC 	// and no integrity checks. Extremely compact representation.
+//SDR_PUBLIC 	//-----------------------------------------------------------------------------
+//SDR_PUBLIC 	bool CCrypto::EncryptECPrivateKeyWithPassphrase( const CEC25519PrivateKeyBase &privateKey, uint8 *pubEncryptedData, uint32 *pcubEncryptedData, const char *pchPassphrase, int nPassphraseLen, bool bStrong )
+//SDR_PUBLIC 	{
+//SDR_PUBLIC 		Assert( privateKey.IsValid() );
+//SDR_PUBLIC 		if ( !privateKey.IsValid() )
+//SDR_PUBLIC 			return false;
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		Assert( pcubEncryptedData && *pcubEncryptedData >= 2 + 16 + 32 );
+//SDR_PUBLIC 		if ( !pcubEncryptedData || *pcubEncryptedData < 2 + 16 + 32 )
+//SDR_PUBLIC 			return false;
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		uint8 bufPrivate[32];
+//SDR_PUBLIC 		memcpy( bufPrivate, privateKey.GetData() + 32, 32 );
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		uint8 bufEncrypted[128] = {};
+//SDR_PUBLIC 		uint32 buflen = sizeof(bufEncrypted);
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		bool bRet = ( bStrong ? EncryptWithPassphrase_Strong : EncryptWithPassphrase_Fast )( bufPrivate, 32, bufEncrypted, &buflen, pchPassphrase, nPassphraseLen ) && buflen == 2 + 16 + 32 + 16 + 32;
+//SDR_PUBLIC 		SecureZeroMemory( bufPrivate, sizeof( bufPrivate ) );
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		// Don't output the final CBC block, which is all padding, or the HMAC that follows
+//SDR_PUBLIC 		*pcubEncryptedData = 2 + 16 + 32;
+//SDR_PUBLIC 		memcpy( pubEncryptedData, bufEncrypted, 2 + 16 + 32 );
+//SDR_PUBLIC 		SecureZeroMemory( bufEncrypted, sizeof( bufEncrypted ) );
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		return bRet;
+//SDR_PUBLIC 	}
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	//-----------------------------------------------------------------------------
+//SDR_PUBLIC 	// Purpose: variation of DecryptWithPassphrase with no CBC trailing padding
+//SDR_PUBLIC 	// and no integrity checks. Extremely compact representation.
+//SDR_PUBLIC 	//-----------------------------------------------------------------------------
+//SDR_PUBLIC 	bool CCrypto::DecryptECPrivateKeyWithPassphrase( const uint8 *pubEncryptedData, uint32 cubEncryptedData, CEC25519PrivateKeyBase *pPrivateKey, const char *pchPassphrase, int nPassphraseLength )
+//SDR_PUBLIC 	{
+//SDR_PUBLIC 		pPrivateKey->Wipe();
+//SDR_PUBLIC 		Assert( pPrivateKey->GetKeyType() == k_ECryptoKeyTypeKeyExchangePrivate || pPrivateKey->GetKeyType() == k_ECryptoKeyTypeSigningPrivate );
+//SDR_PUBLIC 		if ( pPrivateKey->GetKeyType() != k_ECryptoKeyTypeKeyExchangePrivate && pPrivateKey->GetKeyType() != k_ECryptoKeyTypeSigningPrivate )
+//SDR_PUBLIC 			return false;
+//SDR_PUBLIC 		if ( cubEncryptedData != 2 + 16 + 32 )
+//SDR_PUBLIC 			return false;
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		uint8 bufEncrypted[ 2 + 16 + 32 + 16 + 32 ] = {}; // zero init
+//SDR_PUBLIC 		memcpy( bufEncrypted, pubEncryptedData, 2 + 16 + 32 );
+//SDR_PUBLIC 		// final 16 + 32 bytes (final CBC block + HMAC) will be zeros, don't care.
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		uint8 bufDecrypted[ 32 + 16 ]; // need room for whatever junk the all-zero trailing CBC block decrypts to
+//SDR_PUBLIC 		uint32 cubDecrypted = sizeof( bufDecrypted );
+//SDR_PUBLIC 		if ( DecryptWithPassphrase( bufEncrypted, sizeof( bufEncrypted ), bufDecrypted, &cubDecrypted, pchPassphrase, nPassphraseLength, false /* do not verify HMAC or padding */ ) && cubDecrypted >= 32 )
+//SDR_PUBLIC 		{
+//SDR_PUBLIC 			pPrivateKey->RebuildFromPrivateData( bufDecrypted );
+//SDR_PUBLIC 		}
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		SecureZeroMemory( bufDecrypted, sizeof( bufDecrypted ) );
+//SDR_PUBLIC 		SecureZeroMemory( bufEncrypted, sizeof( bufEncrypted ) );
+//SDR_PUBLIC 		return pPrivateKey->IsValid();
+//SDR_PUBLIC 	}
+//SDR_PUBLIC 	#endif
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	#endif // #ifndef CRYPTO_DISABLE_ENCRYPT_WITH_PASSWORD
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	//-----------------------------------------------------------------------------
+//SDR_PUBLIC 	// Purpose: Generates a new pair of private/public RSA keys
+//SDR_PUBLIC 	// Input:	cKeyBits -			Bit length for the key to generate
+//SDR_PUBLIC 	//			rsaKeyPublic -		Reference to return the generated public key
+//SDR_PUBLIC 	//			rsaKeyPrivate -		Reference to return the generated private key
+//SDR_PUBLIC 	// Output:  true if successful, false if key generation failed
+//SDR_PUBLIC 	//-----------------------------------------------------------------------------
+//SDR_PUBLIC 	bool CCrypto::RSAGenerateKeys( uint32 cKeyBits, CRSAPublicKey &rsaKeyPublic, CRSAPrivateKey &rsaKeyPrivate )
+//SDR_PUBLIC 	{
+//SDR_PUBLIC 		bool bSuccess = false;
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		rsaKeyPublic.Wipe();
+//SDR_PUBLIC 		rsaKeyPrivate.Wipe();
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		OneTimeCryptoInitOpenSSL();
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		::BIGNUM *pBN_E = BN_new();
+//SDR_PUBLIC 		::RSA *pRSA = RSA_new();
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		// Crypto++ defaults to E=17; E=65537 is generally accepted as a much better choice for
+//SDR_PUBLIC 		// practical security reasons. E=3 is 8x faster for RSA operations, but E=65537 mitigates
+//SDR_PUBLIC 		// attacks against known weaknesses in earlier (now-deprecated) padding schemes. -henryg
+//SDR_PUBLIC 		if ( BN_set_word( pBN_E, 65537 ) && RSA_generate_key_ex( pRSA, cKeyBits, pBN_E, NULL ) )
+//SDR_PUBLIC 		{
+//SDR_PUBLIC 			CUtlMemory<uint8> mem;
+//SDR_PUBLIC 	
+//SDR_PUBLIC 			// Encode private key in portable PKCS#8 DER format
+//SDR_PUBLIC 			{
+//SDR_PUBLIC 				int lengthToEncodePriv = OpenSSL_PKCS8PrivKeyFromRSA( pRSA, NULL );
+//SDR_PUBLIC 				Assert( lengthToEncodePriv > 0 && lengthToEncodePriv < 1024*1024 ); /* 1 MB sanity check */
+//SDR_PUBLIC 				if ( lengthToEncodePriv > 0 && lengthToEncodePriv < 1024*1024 )
+//SDR_PUBLIC 				{
+//SDR_PUBLIC 					mem.EnsureCapacity( lengthToEncodePriv + 1 );
+//SDR_PUBLIC 					uint8 *pPtr = mem.Base();
+//SDR_PUBLIC 					(void) OpenSSL_PKCS8PrivKeyFromRSA( pRSA, &pPtr );
+//SDR_PUBLIC 					Assert( pPtr == mem.Base() + lengthToEncodePriv );
+//SDR_PUBLIC 					if ( pPtr == mem.Base() + lengthToEncodePriv )
+//SDR_PUBLIC 					{
+//SDR_PUBLIC 						rsaKeyPrivate.Set( mem.Base(), (uint32)lengthToEncodePriv );
+//SDR_PUBLIC 					}
+//SDR_PUBLIC 					SecureZeroMemory( mem.Base(), (size_t)mem.CubAllocated() );
+//SDR_PUBLIC 				}
+//SDR_PUBLIC 			}
+//SDR_PUBLIC 	
+//SDR_PUBLIC 			// Encode public key in portable X.509 public key DER format
+//SDR_PUBLIC 			{
+//SDR_PUBLIC 				int lengthToEncodePub = i2d_RSA_PUBKEY( pRSA, NULL );
+//SDR_PUBLIC 				Assert( lengthToEncodePub > 0 && lengthToEncodePub < 1024*1024 ); /* 1 MB sanity check */
+//SDR_PUBLIC 				if ( lengthToEncodePub > 0 && lengthToEncodePub < 1024*1024 )
+//SDR_PUBLIC 				{
+//SDR_PUBLIC 					mem.EnsureCapacity( lengthToEncodePub + 1 );
+//SDR_PUBLIC 					uint8 *pPtr = mem.Base();
+//SDR_PUBLIC 					(void)i2d_RSA_PUBKEY( pRSA, &pPtr );
+//SDR_PUBLIC 					Assert( pPtr == mem.Base() + lengthToEncodePub );
+//SDR_PUBLIC 					if ( pPtr == mem.Base() + lengthToEncodePub )
+//SDR_PUBLIC 					{
+//SDR_PUBLIC 						rsaKeyPublic.Set( mem.Base(), (uint32)lengthToEncodePub );
+//SDR_PUBLIC 					}
+//SDR_PUBLIC 					SecureZeroMemory( mem.Base(), (size_t)mem.CubAllocated() );
+//SDR_PUBLIC 				}
+//SDR_PUBLIC 			}
+//SDR_PUBLIC 		}
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		BN_free( pBN_E );
+//SDR_PUBLIC 		RSA_free( pRSA );
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		DispatchOpenSSLErrors( "CCrypto::RSAGenerateKeys" );
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		bSuccess = rsaKeyPublic.IsValid() && rsaKeyPrivate.IsValid();
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		return bSuccess;
+//SDR_PUBLIC 	}
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	//-----------------------------------------------------------------------------
+//SDR_PUBLIC 	// Purpose: Returns the maximum plaintext length that can be encrypted in a
+//SDR_PUBLIC 	//			single block for the given public key.
+//SDR_PUBLIC 	// Input:	rsaKey - Reference to public key
+//SDR_PUBLIC 	//-----------------------------------------------------------------------------
+//SDR_PUBLIC 	uint32 CCrypto::GetRSAMaxPlaintextSize( const CRSAPublicKey &rsaKey )
+//SDR_PUBLIC 	{
+//SDR_PUBLIC 		return GetRSAEncryptionBlockSize( rsaKey ) - k_nRSAOAEPOverheadBytes;
+//SDR_PUBLIC 	}
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	//-----------------------------------------------------------------------------
+//SDR_PUBLIC 	// Purpose: Returns the ciphertext block size resulting from encryption of
+//SDR_PUBLIC 	///			a single block for the given public key.
+//SDR_PUBLIC 	// Input:	rsaKey - Reference to public key
+//SDR_PUBLIC 	//-----------------------------------------------------------------------------
+//SDR_PUBLIC 	uint32 CCrypto::GetRSAEncryptionBlockSize( const CRSAPublicKey &rsaKey )
+//SDR_PUBLIC 	{
+//SDR_PUBLIC 		return rsaKey.GetModulusBytes( nullptr, 0 );
+//SDR_PUBLIC 	}
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	//-----------------------------------------------------------------------------
+//SDR_PUBLIC 	// Purpose: Encrypts the specified data with the specified RSA public key.  
+//SDR_PUBLIC 	//			The encrypted data may then be decrypted by calling RSADecrypt with the
+//SDR_PUBLIC 	//			corresponding RSA private key.
+//SDR_PUBLIC 	// Input:	pubPlaintextData -	Data to be encrypted
+//SDR_PUBLIC 	//			cubPlaintextData -	Size of data to be encrypted
+//SDR_PUBLIC 	//			pubEncryptedData -  Pointer to buffer to receive encrypted data
+//SDR_PUBLIC 	//			pcubEncryptedData - Pointer to a variable that at time of call contains the size of
+//SDR_PUBLIC 	//								the receive buffer for encrypted data.  When the method returns, this will contain
+//SDR_PUBLIC 	//								the actual size of the encrypted data.
+//SDR_PUBLIC 	//			pubPublicKey -		the RSA public key to encrypt the data with
+//SDR_PUBLIC 	//			cubPublicKey -		Size of the key (must be k_nSymmetricKeyLen)
+//SDR_PUBLIC 	// Output:  true if successful, false if encryption failed
+//SDR_PUBLIC 	//-----------------------------------------------------------------------------
+//SDR_PUBLIC 	bool CCrypto::RSAEncrypt( const uint8 *pubPlaintextData, uint32 cubPlaintextData, 
+//SDR_PUBLIC 							  uint8 *pubEncryptedData, uint32 *pcubEncryptedData, 
+//SDR_PUBLIC 							  const uint8 *pubPublicKey, const uint32 cubPublicKey )
+//SDR_PUBLIC 	{
+//SDR_PUBLIC 		VPROF_BUDGET( "CCrypto::RSAEncrypt", VPROF_BUDGETGROUP_ENCRYPTION );
+//SDR_PUBLIC 		bool bRet = false;
+//SDR_PUBLIC 		Assert( cubPlaintextData > 0 );	// must pass in some data
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		OneTimeCryptoInitOpenSSL();
+//SDR_PUBLIC 		const uint8 *pPublicKeyPtr = pubPublicKey;
+//SDR_PUBLIC 		::RSA *rsa = d2i_RSA_PUBKEY( NULL, &pPublicKeyPtr, cubPublicKey );
+//SDR_PUBLIC 		if ( rsa )
+//SDR_PUBLIC 		{
+//SDR_PUBLIC 			int nEncryptedBytesPerIteration = RSA_size( rsa );
+//SDR_PUBLIC 			// Sanity check on RSA modulus size - between 512 and 32k bits
+//SDR_PUBLIC 			if ( nEncryptedBytesPerIteration < 60 || nEncryptedBytesPerIteration > 4000 )
+//SDR_PUBLIC 			{
+//SDR_PUBLIC 				AssertMsg1( false, "Invalid RSA modulus: %d bytes wide", nEncryptedBytesPerIteration );
+//SDR_PUBLIC 			}
+//SDR_PUBLIC 			else
+//SDR_PUBLIC 			{
+//SDR_PUBLIC 				// calculate how many blocks of encryption will we need to do and how big the output will be
+//SDR_PUBLIC 				int nPlaintextBytesPerIteration = nEncryptedBytesPerIteration - k_nRSAOAEPOverheadBytes;
+//SDR_PUBLIC 				uint32 cBlocks = 1 + ( ( cubPlaintextData - 1 ) / (uint32)nPlaintextBytesPerIteration );
+//SDR_PUBLIC 				uint32 cubCipherText = cBlocks * (uint32)nEncryptedBytesPerIteration;
+//SDR_PUBLIC 				// ensure there is sufficient room in output buffer for result
+//SDR_PUBLIC 				if ( cubCipherText > (*pcubEncryptedData) )
+//SDR_PUBLIC 				{
+//SDR_PUBLIC 					AssertMsg2( false, "CCrypto::RSAEncrypt: insufficient output buffer for encryption, needed %d got %d\n", cubCipherText, *pcubEncryptedData );
+//SDR_PUBLIC 				}
+//SDR_PUBLIC 				else
+//SDR_PUBLIC 				{
+//SDR_PUBLIC 					uint8 *pubOutputStart = pubEncryptedData;
+//SDR_PUBLIC 					for ( ; cBlocks > 0; --cBlocks )
+//SDR_PUBLIC 					{
+//SDR_PUBLIC 						// encrypt either all remaining plaintext, or maximum allowed plaintext per RSA encryption operation
+//SDR_PUBLIC 						uint32 cubToEncrypt = Min( cubPlaintextData, (uint32)nPlaintextBytesPerIteration );
+//SDR_PUBLIC 						// encrypt the plaintext
+//SDR_PUBLIC 						if ( RSA_public_encrypt( cubToEncrypt, pubPlaintextData, pubEncryptedData, rsa, RSA_PKCS1_OAEP_PADDING ) != nEncryptedBytesPerIteration )
+//SDR_PUBLIC 						{
+//SDR_PUBLIC 							SecureZeroMemory( pubOutputStart, cubCipherText );
+//SDR_PUBLIC 							AssertMsg( false, "RSA encryption failed" );
+//SDR_PUBLIC 							break;
+//SDR_PUBLIC 						}
+//SDR_PUBLIC 						pubPlaintextData += cubToEncrypt;
+//SDR_PUBLIC 						cubPlaintextData -= cubToEncrypt;
+//SDR_PUBLIC 						pubEncryptedData += nEncryptedBytesPerIteration;
+//SDR_PUBLIC 					}
+//SDR_PUBLIC 	
+//SDR_PUBLIC 					bRet = ( cBlocks == 0 );
+//SDR_PUBLIC 					*pcubEncryptedData = bRet ? cubCipherText : 0;
+//SDR_PUBLIC 				}
+//SDR_PUBLIC 			}
+//SDR_PUBLIC 			RSA_free( rsa );
+//SDR_PUBLIC 		}
+//SDR_PUBLIC 		DispatchOpenSSLErrors( "CCrypto::RSAEncrypt" );
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		return bRet;
+//SDR_PUBLIC 	}
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	//-----------------------------------------------------------------------------
+//SDR_PUBLIC 	// Purpose: Decrypts the specified data with the specified RSA private key 
+//SDR_PUBLIC 	// Input:	pubEncryptedData -	Data to be decrypted
+//SDR_PUBLIC 	//			cubEncryptedData -	Size of data to be decrypted
+//SDR_PUBLIC 	//			pubPlaintextData -  Pointer to buffer to receive decrypted data
+//SDR_PUBLIC 	//			pcubPlaintextData - Pointer to a variable that at time of call contains the size of
+//SDR_PUBLIC 	//								the receive buffer for decrypted data.  When the method returns, this will contain
+//SDR_PUBLIC 	//								the actual size of the decrypted data.
+//SDR_PUBLIC 	//			pubPrivateKey -		the RSA private key key to decrypt the data with
+//SDR_PUBLIC 	//			cubPrivateKey -		Size of the key (must be k_nSymmetricKeyLen)
+//SDR_PUBLIC 	// Output:  true if successful, false if decryption failed
+//SDR_PUBLIC 	//-----------------------------------------------------------------------------
+//SDR_PUBLIC 	bool CCrypto::RSADecrypt( const uint8 *pubEncryptedData, uint32 cubEncryptedData, 
+//SDR_PUBLIC 							  uint8 *pubPlaintextData, uint32 *pcubPlaintextData, 
+//SDR_PUBLIC 							  const uint8 *pubPrivateKey, const uint32 cubPrivateKey, bool bLegacyPKCSv15 )
+//SDR_PUBLIC 	{
+//SDR_PUBLIC 		VPROF_BUDGET( "CCrypto::RSADecrypt", VPROF_BUDGETGROUP_ENCRYPTION );
+//SDR_PUBLIC 		bool bRet = false;
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		OneTimeCryptoInitOpenSSL();
+//SDR_PUBLIC 		::RSA *rsa = OpenSSL_RSAFromPKCS8PrivKey( pubPrivateKey, cubPrivateKey );
+//SDR_PUBLIC 		if ( rsa )
+//SDR_PUBLIC 		{
+//SDR_PUBLIC 			int nEncryptedBytesPerIteration = RSA_size( rsa );
+//SDR_PUBLIC 			// Sanity check on RSA modulus size - between 512 and 32k bits
+//SDR_PUBLIC 			if ( nEncryptedBytesPerIteration < 60 || nEncryptedBytesPerIteration > 4000 )
+//SDR_PUBLIC 			{
+//SDR_PUBLIC 				AssertMsg1( false, "Invalid RSA modulus: %d bytes wide", nEncryptedBytesPerIteration );
+//SDR_PUBLIC 			}
+//SDR_PUBLIC 			else
+//SDR_PUBLIC 			{
+//SDR_PUBLIC 				// calculate how many blocks of decryption will we need to do and how big the output will be
+//SDR_PUBLIC 				int nPlaintextBytesPerIteration = nEncryptedBytesPerIteration - k_nRSAOAEPOverheadBytes;
+//SDR_PUBLIC 				uint32 cBlocks = 1 + ((cubEncryptedData - 1) / (uint32)nEncryptedBytesPerIteration);
+//SDR_PUBLIC 				uint32 cubMaxPlaintext = cBlocks * (uint32)nPlaintextBytesPerIteration;
+//SDR_PUBLIC 				// ensure there is sufficient room in output buffer for result
+//SDR_PUBLIC 				if ( cubMaxPlaintext > (*pcubPlaintextData) )
+//SDR_PUBLIC 				{
+//SDR_PUBLIC 					AssertMsg2( false, "CCrypto::RSAEncrypt: insufficient output buffer for decryption, needed %d got %d\n", cubMaxPlaintext, *pcubPlaintextData );
+//SDR_PUBLIC 				}
+//SDR_PUBLIC 				else
+//SDR_PUBLIC 				{
+//SDR_PUBLIC 					uint8 *pubOutputStart = pubPlaintextData;
+//SDR_PUBLIC 					for ( ; cBlocks > 0; --cBlocks )
+//SDR_PUBLIC 					{
+//SDR_PUBLIC 						// decrypt either all remaining ciphertext, or maximum allowed per RSA decryption operation
+//SDR_PUBLIC 						uint32 cubToDecrypt = Min( cubEncryptedData, (uint32)nEncryptedBytesPerIteration );
+//SDR_PUBLIC 						int ret = RSA_private_decrypt( cubToDecrypt, pubEncryptedData, pubPlaintextData, rsa, bLegacyPKCSv15 ? RSA_PKCS1_PADDING : RSA_PKCS1_OAEP_PADDING );
+//SDR_PUBLIC 						if ( ret <= 0 || ret > nPlaintextBytesPerIteration || ( ret < nPlaintextBytesPerIteration && cBlocks != 1 ) )
+//SDR_PUBLIC 						{
+//SDR_PUBLIC 							ERR_clear_error(); // if RSA_private_decrypt failed, we don't spew - could be invalid data.
+//SDR_PUBLIC 							SecureZeroMemory( pubOutputStart, cubMaxPlaintext );
+//SDR_PUBLIC 							pubPlaintextData = pubOutputStart;
+//SDR_PUBLIC 							break;
+//SDR_PUBLIC 						}
+//SDR_PUBLIC 						pubEncryptedData += nEncryptedBytesPerIteration;
+//SDR_PUBLIC 						cubEncryptedData -= nEncryptedBytesPerIteration;
+//SDR_PUBLIC 						pubPlaintextData += ret;
+//SDR_PUBLIC 					}
+//SDR_PUBLIC 	
+//SDR_PUBLIC 					bRet = ( cBlocks == 0 );
+//SDR_PUBLIC 					*pcubPlaintextData = (int)( pubPlaintextData - pubOutputStart );
+//SDR_PUBLIC 				}
+//SDR_PUBLIC 			}
+//SDR_PUBLIC 			RSA_free( rsa );
+//SDR_PUBLIC 		}
+//SDR_PUBLIC 		DispatchOpenSSLErrors( "CCrypto::RSADecrypt" );
+//SDR_PUBLIC 		return bRet;
+//SDR_PUBLIC 	}
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	//-----------------------------------------------------------------------------
+//SDR_PUBLIC 	// Purpose: Decrypts the specified data with the specified RSA PUBLIC key,
+//SDR_PUBLIC 	//			using no padding (eg un-padded signature).
+//SDR_PUBLIC 	// Input:	pubEncryptedData -	Data to be decrypted
+//SDR_PUBLIC 	//			cubEncryptedData -	Size of data to be decrypted
+//SDR_PUBLIC 	//			pubPlaintextData -  Pointer to buffer to receive decrypted data
+//SDR_PUBLIC 	//			pcubPlaintextData - Pointer to a variable that at time of call contains the size of
+//SDR_PUBLIC 	//								the receive buffer for decrypted data.  When the method returns, this will contain
+//SDR_PUBLIC 	//								the actual size of the decrypted data.
+//SDR_PUBLIC 	//			pubPublicKey -		the RSA public key key to decrypt the data with
+//SDR_PUBLIC 	//			cubPublicKey -		Size of the key
+//SDR_PUBLIC 	// Output:  true if successful, false if decryption failed
+//SDR_PUBLIC 	//-----------------------------------------------------------------------------
+//SDR_PUBLIC 	bool CCrypto::RSAPublicDecrypt_NoPadding_DEPRECATED( const uint8 *pubEncryptedData, uint32 cubEncryptedData, 
+//SDR_PUBLIC 							 uint8 *pubPlaintextData, uint32 *pcubPlaintextData, 
+//SDR_PUBLIC 							 const uint8 *pubPublicKey, const uint32 cubPublicKey )
+//SDR_PUBLIC 	{
+//SDR_PUBLIC 		// NOTE: This is not a generally secure use of RSA encryption! It may serve to
+//SDR_PUBLIC 		// temporarily obfuscate the numeric value of a CD KEY, but the algorithm and key
+//SDR_PUBLIC 		// can be cracked with enough samples due to the lack of a secure padding mode.
+//SDR_PUBLIC 		// And as there is no integrity check, attackers can flip bits in transit. -henryg
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		VPROF_BUDGET( "CCrypto::RSAPublicDecrypt_NoPadding", VPROF_BUDGETGROUP_ENCRYPTION );
+//SDR_PUBLIC 		bool bRet = false;
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		Assert( cubEncryptedData > 0 );	// must pass in some data
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		// BUGBUG taylor
+//SDR_PUBLIC 		// This probably only works for reasonably small ciphertext sizes.
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		OneTimeCryptoInitOpenSSL();
+//SDR_PUBLIC 		const uint8 *pPublicKeyPtr = pubPublicKey;
+//SDR_PUBLIC 		::RSA *rsa = d2i_RSA_PUBKEY( NULL, &pPublicKeyPtr, cubPublicKey );
+//SDR_PUBLIC 		if ( rsa )
+//SDR_PUBLIC 		{
+//SDR_PUBLIC 			int nModulusBytes = RSA_size( rsa );
+//SDR_PUBLIC 			// Sanity check on RSA modulus size - severely relaxed for compatibility with
+//SDR_PUBLIC 			// the absurd 64-bit RSA keys used by DOOM3 activation codes (!?!) -henryg
+//SDR_PUBLIC 			if ( nModulusBytes < 1 || nModulusBytes > 4000 )
+//SDR_PUBLIC 			{
+//SDR_PUBLIC 				AssertMsg1( false, "Invalid RSA modulus: %d bytes wide", nModulusBytes );
+//SDR_PUBLIC 			}
+//SDR_PUBLIC 			else
+//SDR_PUBLIC 			{
+//SDR_PUBLIC 				CUtlMemory<uint8> mem;
+//SDR_PUBLIC 				mem.EnsureCapacity( nModulusBytes );
+//SDR_PUBLIC 				int ret = RSA_public_decrypt( cubEncryptedData, pubEncryptedData, mem.Base(), rsa, RSA_NO_PADDING );
+//SDR_PUBLIC 				// No padding scheme, should always have a full modulus-width array of bytes as output
+//SDR_PUBLIC 				if ( ret == nModulusBytes )
+//SDR_PUBLIC 				{
+//SDR_PUBLIC 					// For compatibility with pre-existing code, always strip all trailing null bytes
+//SDR_PUBLIC 					uint cubDecrypted = (uint)nModulusBytes;
+//SDR_PUBLIC 					while ( cubDecrypted > 0 && mem[cubDecrypted-1] == 0 )
+//SDR_PUBLIC 						--cubDecrypted;
+//SDR_PUBLIC 	
+//SDR_PUBLIC 					// For compatibility with pre-existing code, fail quietly if there isn't enough space
+//SDR_PUBLIC 					if ( *pcubPlaintextData >= cubDecrypted )
+//SDR_PUBLIC 					{
+//SDR_PUBLIC 						V_memcpy( pubPlaintextData, mem.Base(), cubDecrypted );
+//SDR_PUBLIC 						*pcubPlaintextData = cubDecrypted;
+//SDR_PUBLIC 						bRet = true;
+//SDR_PUBLIC 					}
+//SDR_PUBLIC 				}
+//SDR_PUBLIC 				SecureZeroMemory( mem.Base(), nModulusBytes );
+//SDR_PUBLIC 			}
+//SDR_PUBLIC 			RSA_free( rsa );
+//SDR_PUBLIC 		}
+//SDR_PUBLIC 		DispatchOpenSSLErrors( "CCrypto::RSAPublicDecrypt_NoPadding_DEPRECATED" );
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		return bRet;
+//SDR_PUBLIC 	}
 
 
 #ifdef ENABLE_CRYPTO_25519
@@ -2178,34 +2184,36 @@ bool CCrypto::VerifySignature( const uint8 *pubData, uint32 cubData, const CECSi
 #endif
 
 
-//-----------------------------------------------------------------------------
-// Purpose: Given an RSA private key, return the length in bytes of a signature
-//			done using that key.
-// Input:	rsaKey - RSA private key
-// Output:	Length in bytes of a corresponding signature
-//-----------------------------------------------------------------------------
-uint32 CCrypto::GetRSASignatureSize( const CRSAPrivateKey &rsaKey )
-{
-	size_t cubModulus;
-	const uint8 *pubModulus;
-	if ( !ExtractModulusFromPKCS8PrivKey( rsaKey.GetData(), rsaKey.GetLength(), &pubModulus, &cubModulus ) )
-		return 0;
-	Assert( cubModulus <= 0xFFFFFFFFu );
-	return cubModulus <= 0xFFFFFFFFu ? (uint32)cubModulus : 0;
-}
-
-
-//-----------------------------------------------------------------------------
-// Purpose: Given an RSA public key, return the length in bytes of a signature
-//			done using that key.
-// Input:	rsaKey - RSA public key
-// Output:	Length in bytes of a corresponding signature
-//-----------------------------------------------------------------------------
-uint32 CCrypto::GetRSASignatureSize( const CRSAPublicKey &rsaKey )
-{
-	return GetRSAEncryptionBlockSize( rsaKey );
-}
-
+//SDR_PUBLIC 	//-----------------------------------------------------------------------------
+//SDR_PUBLIC 	// Purpose: Given an RSA private key, return the length in bytes of a signature
+//SDR_PUBLIC 	//			done using that key.
+//SDR_PUBLIC 	// Input:	rsaKey - RSA private key
+//SDR_PUBLIC 	// Output:	Length in bytes of a corresponding signature
+//SDR_PUBLIC 	//-----------------------------------------------------------------------------
+//SDR_PUBLIC 	uint32 CCrypto::GetRSASignatureSize( const CRSAPrivateKey &rsaKey )
+//SDR_PUBLIC 	{
+//SDR_PUBLIC 		size_t cubModulus;
+//SDR_PUBLIC 		const uint8 *pubModulus;
+//SDR_PUBLIC 		if ( !ExtractModulusFromPKCS8PrivKey( rsaKey.GetData(), rsaKey.GetLength(), &pubModulus, &cubModulus ) )
+//SDR_PUBLIC 			return 0;
+//SDR_PUBLIC 		Assert( cubModulus <= 0xFFFFFFFFu );
+//SDR_PUBLIC 		return cubModulus <= 0xFFFFFFFFu ? (uint32)cubModulus : 0;
+//SDR_PUBLIC 	}
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	//-----------------------------------------------------------------------------
+//SDR_PUBLIC 	// Purpose: Given an RSA public key, return the length in bytes of a signature
+//SDR_PUBLIC 	//			done using that key.
+//SDR_PUBLIC 	// Input:	rsaKey - RSA public key
+//SDR_PUBLIC 	// Output:	Length in bytes of a corresponding signature
+//SDR_PUBLIC 	//-----------------------------------------------------------------------------
+//SDR_PUBLIC 	uint32 CCrypto::GetRSASignatureSize( const CRSAPublicKey &rsaKey )
+//SDR_PUBLIC 	{
+//SDR_PUBLIC 		return GetRSAEncryptionBlockSize( rsaKey );
+//SDR_PUBLIC 	}
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	
+#ifdef SDR_SUPPORT_RSA_TICKETS
 
 //-----------------------------------------------------------------------------
 // Purpose: Generates an RSA signature block for the specified data with the specified
@@ -2292,85 +2300,86 @@ bool CCrypto::RSAVerifySignature( const uint8 *pubData, const uint32 cubData,
 
 	return bRet;
 }
+#endif
 
-//-----------------------------------------------------------------------------
-// Purpose: Generates an RSA signature block for the specified data with the specified
-//			RSA private key.  The signature can be verified by calling RSAVerifySignature
-//			with the RSA public key.
-// Input:	pubData -			Data to be signed
-//			cubData -			Size of data to be signed
-//			pubSignature -		Pointer to buffer to receive signature block
-//			pcubSignature -		Pointer to a variable that at time of call contains the size of
-//								the pubSignature buffer.  When the method returns, this will contain
-//								the actual size of the signature block
-//			pubPrivateKey -		The RSA private key to use to sign the data
-//			cubPrivateKey -		Size of the key
-// Output:  true if successful, false if signature failed
-//-----------------------------------------------------------------------------
-bool CCrypto::RSASignSHA256( const uint8 *pubData, const uint32 cubData, 
-					   uint8 *pubSignature, uint32 *pcubSignature,
-					   const uint8 *pubPrivateKey, const uint32 cubPrivateKey )
-{
-	VPROF_BUDGET( "CCrypto::RSASign", VPROF_BUDGETGROUP_ENCRYPTION );
-	Assert( pubData );
-	Assert( pubPrivateKey );
-	Assert( cubPrivateKey > 0 );
-	Assert( pubSignature );
-	Assert( pcubSignature );
-	Assert( *pcubSignature > 0 );
-	bool bRet = false;
-
-	OneTimeCryptoInitOpenSSL();
-	::RSA *rsa = OpenSSL_RSAFromPKCS8PrivKey( pubPrivateKey, cubPrivateKey );
-	if ( rsa )
-	{
-		SHA256Digest_t digest;
-		CCrypto::GenerateSHA256Digest( (const uint8*)pubData, cubData, &digest );
-		bRet = !!RSA_sign( NID_sha256, digest, sizeof( digest ), pubSignature, pcubSignature, rsa );
-		RSA_free( rsa );
-	}
-	DispatchOpenSSLErrors( "CCrypto::RSASignSHA256" );
-
-	return bRet;
-}
-
-
-//-----------------------------------------------------------------------------
-// Purpose: Verifies that signature block is authentic for given data & RSA public key
-// Input:	pubData -			Data that was signed
-//			cubData -			Size of data that was signed signed
-//			pubSignature -		Signature block
-//			cubSignature -		Size of signature block
-//			pubPublicKey -		The RSA public key to use to verify the signature 
-//								(must be from same pair as RSA private key used to generate signature)
-//			cubPublicKey -		Size of the key
-// Output:  true if successful and signature is authentic, false if signature does not match or other error
-//-----------------------------------------------------------------------------
-bool CCrypto::RSAVerifySignatureSHA256( const uint8 *pubData, const uint32 cubData, 
-								  const uint8 *pubSignature, const uint32 cubSignature, 
-								  const uint8 *pubPublicKey, const uint32 cubPublicKey )
-{
-	VPROF_BUDGET( "CCrypto::RSAVerifySignature", VPROF_BUDGETGROUP_ENCRYPTION );
-	Assert( pubData );
-	Assert( pubSignature );
-	Assert( pubPublicKey );
-
-	bool bRet = false;	
-
-	OneTimeCryptoInitOpenSSL();
-	const uint8 *pPublicKeyPtr = pubPublicKey;
-	if ( ::RSA *rsa = d2i_RSA_PUBKEY( NULL, &pPublicKeyPtr, cubPublicKey ) )
-	{
-		SHA256Digest_t digest;
-		GenerateSHA256Digest( pubData, cubData, &digest );
-		bRet = !!RSA_verify( NID_sha256, digest, sizeof( digest ), pubSignature, cubSignature, rsa );
-		ERR_clear_error(); // if RSA_verify failed, we don't spew - could be invalid data.
-		RSA_free( rsa );
-	}
-	DispatchOpenSSLErrors( "CCrypto::RSAVerifySignatureSHA256" );
-
-	return bRet;
-}
+//SDR_PUBLIC 	//-----------------------------------------------------------------------------
+//SDR_PUBLIC 	// Purpose: Generates an RSA signature block for the specified data with the specified
+//SDR_PUBLIC 	//			RSA private key.  The signature can be verified by calling RSAVerifySignature
+//SDR_PUBLIC 	//			with the RSA public key.
+//SDR_PUBLIC 	// Input:	pubData -			Data to be signed
+//SDR_PUBLIC 	//			cubData -			Size of data to be signed
+//SDR_PUBLIC 	//			pubSignature -		Pointer to buffer to receive signature block
+//SDR_PUBLIC 	//			pcubSignature -		Pointer to a variable that at time of call contains the size of
+//SDR_PUBLIC 	//								the pubSignature buffer.  When the method returns, this will contain
+//SDR_PUBLIC 	//								the actual size of the signature block
+//SDR_PUBLIC 	//			pubPrivateKey -		The RSA private key to use to sign the data
+//SDR_PUBLIC 	//			cubPrivateKey -		Size of the key
+//SDR_PUBLIC 	// Output:  true if successful, false if signature failed
+//SDR_PUBLIC 	//-----------------------------------------------------------------------------
+//SDR_PUBLIC 	bool CCrypto::RSASignSHA256( const uint8 *pubData, const uint32 cubData, 
+//SDR_PUBLIC 						   uint8 *pubSignature, uint32 *pcubSignature,
+//SDR_PUBLIC 						   const uint8 *pubPrivateKey, const uint32 cubPrivateKey )
+//SDR_PUBLIC 	{
+//SDR_PUBLIC 		VPROF_BUDGET( "CCrypto::RSASign", VPROF_BUDGETGROUP_ENCRYPTION );
+//SDR_PUBLIC 		Assert( pubData );
+//SDR_PUBLIC 		Assert( pubPrivateKey );
+//SDR_PUBLIC 		Assert( cubPrivateKey > 0 );
+//SDR_PUBLIC 		Assert( pubSignature );
+//SDR_PUBLIC 		Assert( pcubSignature );
+//SDR_PUBLIC 		Assert( *pcubSignature > 0 );
+//SDR_PUBLIC 		bool bRet = false;
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		OneTimeCryptoInitOpenSSL();
+//SDR_PUBLIC 		::RSA *rsa = OpenSSL_RSAFromPKCS8PrivKey( pubPrivateKey, cubPrivateKey );
+//SDR_PUBLIC 		if ( rsa )
+//SDR_PUBLIC 		{
+//SDR_PUBLIC 			SHA256Digest_t digest;
+//SDR_PUBLIC 			CCrypto::GenerateSHA256Digest( (const uint8*)pubData, cubData, &digest );
+//SDR_PUBLIC 			bRet = !!RSA_sign( NID_sha256, digest, sizeof( digest ), pubSignature, pcubSignature, rsa );
+//SDR_PUBLIC 			RSA_free( rsa );
+//SDR_PUBLIC 		}
+//SDR_PUBLIC 		DispatchOpenSSLErrors( "CCrypto::RSASignSHA256" );
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		return bRet;
+//SDR_PUBLIC 	}
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	//-----------------------------------------------------------------------------
+//SDR_PUBLIC 	// Purpose: Verifies that signature block is authentic for given data & RSA public key
+//SDR_PUBLIC 	// Input:	pubData -			Data that was signed
+//SDR_PUBLIC 	//			cubData -			Size of data that was signed signed
+//SDR_PUBLIC 	//			pubSignature -		Signature block
+//SDR_PUBLIC 	//			cubSignature -		Size of signature block
+//SDR_PUBLIC 	//			pubPublicKey -		The RSA public key to use to verify the signature 
+//SDR_PUBLIC 	//								(must be from same pair as RSA private key used to generate signature)
+//SDR_PUBLIC 	//			cubPublicKey -		Size of the key
+//SDR_PUBLIC 	// Output:  true if successful and signature is authentic, false if signature does not match or other error
+//SDR_PUBLIC 	//-----------------------------------------------------------------------------
+//SDR_PUBLIC 	bool CCrypto::RSAVerifySignatureSHA256( const uint8 *pubData, const uint32 cubData, 
+//SDR_PUBLIC 									  const uint8 *pubSignature, const uint32 cubSignature, 
+//SDR_PUBLIC 									  const uint8 *pubPublicKey, const uint32 cubPublicKey )
+//SDR_PUBLIC 	{
+//SDR_PUBLIC 		VPROF_BUDGET( "CCrypto::RSAVerifySignature", VPROF_BUDGETGROUP_ENCRYPTION );
+//SDR_PUBLIC 		Assert( pubData );
+//SDR_PUBLIC 		Assert( pubSignature );
+//SDR_PUBLIC 		Assert( pubPublicKey );
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		bool bRet = false;	
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		OneTimeCryptoInitOpenSSL();
+//SDR_PUBLIC 		const uint8 *pPublicKeyPtr = pubPublicKey;
+//SDR_PUBLIC 		if ( ::RSA *rsa = d2i_RSA_PUBKEY( NULL, &pPublicKeyPtr, cubPublicKey ) )
+//SDR_PUBLIC 		{
+//SDR_PUBLIC 			SHA256Digest_t digest;
+//SDR_PUBLIC 			GenerateSHA256Digest( pubData, cubData, &digest );
+//SDR_PUBLIC 			bRet = !!RSA_verify( NID_sha256, digest, sizeof( digest ), pubSignature, cubSignature, rsa );
+//SDR_PUBLIC 			ERR_clear_error(); // if RSA_verify failed, we don't spew - could be invalid data.
+//SDR_PUBLIC 			RSA_free( rsa );
+//SDR_PUBLIC 		}
+//SDR_PUBLIC 		DispatchOpenSSLErrors( "CCrypto::RSAVerifySignatureSHA256" );
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		return bRet;
+//SDR_PUBLIC 	}
 
 
 //-----------------------------------------------------------------------------
@@ -3682,39 +3691,40 @@ bool CCryptoKeyBase::LoadFromAndWipeBuffer( void *pBuffer, size_t cBytes )
 	return IsValid();
 }
 
-//-----------------------------------------------------------------------------
-void CRSAPrivateKey::GetPublicKey( CRSAPublicKey *pPublicKey ) const
-{
-	pPublicKey->Wipe();
+//SDR_PUBLIC //-----------------------------------------------------------------------------
+//SDR_PUBLIC void CRSAPrivateKey::GetPublicKey( CRSAPublicKey *pPublicKey ) const
+//SDR_PUBLIC {
+//SDR_PUBLIC 	pPublicKey->Wipe();
+//SDR_PUBLIC 
+//SDR_PUBLIC 	::RSA *rsa = OpenSSL_RSAFromPKCS8PrivKey( m_pbKey, m_cubKey );
+//SDR_PUBLIC 	if ( rsa )
+//SDR_PUBLIC 	{
+//SDR_PUBLIC 		CUtlMemory<uint8> mem;
+//SDR_PUBLIC 
+//SDR_PUBLIC 		// Encode public key in portable X.509 public key DER format
+//SDR_PUBLIC 		{
+//SDR_PUBLIC 			int lengthToEncodePub = i2d_RSA_PUBKEY( rsa, NULL );
+//SDR_PUBLIC 			Assert( lengthToEncodePub > 0 && lengthToEncodePub < 1024*1024 ); /* 1 MB sanity check */
+//SDR_PUBLIC 			if ( lengthToEncodePub > 0 && lengthToEncodePub < 1024*1024 )
+//SDR_PUBLIC 			{
+//SDR_PUBLIC 				mem.EnsureCapacity( lengthToEncodePub + 1 );
+//SDR_PUBLIC 				uint8 *pPtr = mem.Base();
+//SDR_PUBLIC 				(void)i2d_RSA_PUBKEY( rsa, &pPtr );
+//SDR_PUBLIC 				Assert( pPtr == mem.Base() + lengthToEncodePub );
+//SDR_PUBLIC 				if ( pPtr == mem.Base() + lengthToEncodePub )
+//SDR_PUBLIC 				{
+//SDR_PUBLIC 					pPublicKey->Set( mem.Base(), (uint32)lengthToEncodePub );
+//SDR_PUBLIC 				}
+//SDR_PUBLIC 				SecureZeroMemory( mem.Base(), (size_t)mem.CubAllocated() );
+//SDR_PUBLIC 			}
+//SDR_PUBLIC 		}
+//SDR_PUBLIC 
+//SDR_PUBLIC 		RSA_free( rsa );
+//SDR_PUBLIC 	}
+//SDR_PUBLIC 	DispatchOpenSSLErrors( "CRSAPrivateKey::GetPublicKey" );
+//SDR_PUBLIC }
 
-	::RSA *rsa = OpenSSL_RSAFromPKCS8PrivKey( m_pbKey, m_cubKey );
-	if ( rsa )
-	{
-		CUtlMemory<uint8> mem;
-
-		// Encode public key in portable X.509 public key DER format
-		{
-			int lengthToEncodePub = i2d_RSA_PUBKEY( rsa, NULL );
-			Assert( lengthToEncodePub > 0 && lengthToEncodePub < 1024*1024 ); /* 1 MB sanity check */
-			if ( lengthToEncodePub > 0 && lengthToEncodePub < 1024*1024 )
-			{
-				mem.EnsureCapacity( lengthToEncodePub + 1 );
-				uint8 *pPtr = mem.Base();
-				(void)i2d_RSA_PUBKEY( rsa, &pPtr );
-				Assert( pPtr == mem.Base() + lengthToEncodePub );
-				if ( pPtr == mem.Base() + lengthToEncodePub )
-				{
-					pPublicKey->Set( mem.Base(), (uint32)lengthToEncodePub );
-				}
-				SecureZeroMemory( mem.Base(), (size_t)mem.CubAllocated() );
-			}
-		}
-
-		RSA_free( rsa );
-	}
-	DispatchOpenSSLErrors( "CRSAPrivateKey::GetPublicKey" );
-}
-
+#ifdef SDR_SUPPORT_RSA_TICKETS
 //-----------------------------------------------------------------------------
 // Purpose: Get modulus of RSA public key as big-endian bytes, returns actual length
 //-----------------------------------------------------------------------------
@@ -3732,24 +3742,25 @@ uint32 CRSAPublicKey::GetModulusBytes( uint8 *pBufferOut, uint32 cbMaxBufferOut 
 		V_memcpy( pBufferOut, pModulus, cbModulus );
 	return (uint32)cbModulus;
 }
+#endif
 
-//-----------------------------------------------------------------------------
-// Purpose: Get exponent of RSA public key as big-endian bytes, returns actual length
-//-----------------------------------------------------------------------------
-uint32 CRSAPublicKey::GetExponentBytes( uint8 *pBufferOut, uint32 cbMaxBufferOut ) const
-{
-	uint8 const *pModulus = 0;
-	uint8 const *pExponent = 0;
-	size_t cbModulus = 0;
-	size_t cbExponent = 0;
-	if ( !ExtractModulusAndExponentFromX509PubKey( GetData(), GetLength(), &pModulus, &cbModulus, &pExponent, &cbExponent ) )
-		return 0;
-	if ( cbExponent > 0xFFFFFFFFu )
-		return 0;
-	if ( pBufferOut && cbMaxBufferOut >= cbExponent )
-		V_memcpy( pBufferOut, pExponent, cbExponent );
-	return (uint32)cbExponent;
-}
+//SDR_PUBLIC //-----------------------------------------------------------------------------
+//SDR_PUBLIC // Purpose: Get exponent of RSA public key as big-endian bytes, returns actual length
+//SDR_PUBLIC //-----------------------------------------------------------------------------
+//SDR_PUBLIC uint32 CRSAPublicKey::GetExponentBytes( uint8 *pBufferOut, uint32 cbMaxBufferOut ) const
+//SDR_PUBLIC {
+//SDR_PUBLIC 	uint8 const *pModulus = 0;
+//SDR_PUBLIC 	uint8 const *pExponent = 0;
+//SDR_PUBLIC 	size_t cbModulus = 0;
+//SDR_PUBLIC 	size_t cbExponent = 0;
+//SDR_PUBLIC 	if ( !ExtractModulusAndExponentFromX509PubKey( GetData(), GetLength(), &pModulus, &cbModulus, &pExponent, &cbExponent ) )
+//SDR_PUBLIC 		return 0;
+//SDR_PUBLIC 	if ( cbExponent > 0xFFFFFFFFu )
+//SDR_PUBLIC 		return 0;
+//SDR_PUBLIC 	if ( pBufferOut && cbMaxBufferOut >= cbExponent )
+//SDR_PUBLIC 		V_memcpy( pBufferOut, pExponent, cbExponent );
+//SDR_PUBLIC 	return (uint32)cbExponent;
+//SDR_PUBLIC }
 
 //-----------------------------------------------------------------------------
 // Purpose: Retrieve the public half of our internal (public,private) pair

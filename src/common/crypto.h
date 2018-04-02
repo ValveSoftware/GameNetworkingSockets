@@ -85,148 +85,151 @@ public:
 	static bool VerifySignature( const uint8 *pubData, uint32 cubData, const CECSigningPublicKey &publicKey, const CryptoSignature_t &signature );
 
 
-	static bool RSAGenerateKeys( uint32 cKeyBits, CRSAPublicKey &rsaKeyPublic, CRSAPrivateKey &rsaKeyPrivate );
-
-	//
-	// RSA encryption of small data blocks - usable for authenticated key exchange
-	// (deprecated, prefer key exchange followed by AES-GCM or similar authenticated encryption)
-	//
-	static uint32 GetRSAMaxPlaintextSize( const CRSAPublicKey &rsaKey );
-	static uint32 GetRSAEncryptionBlockSize( const CRSAPublicKey &rsaKey );
-	static bool RSAEncrypt( const uint8 *pubPlaintextPlaintextData, const uint32 cubData, uint8 *pubEncryptedData, 
-		uint32 *pcubEncryptedData, const CRSAPublicKey &rsaKey );
-	static bool RSADecrypt( const uint8 *pubEncryptedData, uint32 cubEncryptedData, 
-		uint8 *pubPlaintextData, uint32 *pcubPlaintextData, const CRSAPrivateKey &rsaKey );
-	// decrypt a payload which was encrypted using PCKS #1 v1.5 padding instead of OAEP 
-	static bool RSADecryptPKCSv15( const uint8 *pubEncryptedData, uint32 cubEncryptedData,
-		uint8 *pubPlaintextData, uint32 *pcubPlaintextData, const CRSAPrivateKey &rsaKey );
-	// decrypt using a public key, and no padding. DO NOT USE. only kept for compatibility with old systems.
-	static bool RSAPublicDecrypt_NoPadding_DEPRECATED( const uint8 *pubEncryptedData, uint32 cubEncryptedData, 
-		uint8 *pubPlaintextData, uint32 *pcubPlaintextData, const CRSAPrivateKey &rsaKey );
-
-	//
-	// Signing and verification (RSA signatures - slower, larger, old-school)
-	//
-	static uint32 GetRSASignatureSize( const CRSAPrivateKey &rsaKey );
-	static uint32 GetRSASignatureSize( const CRSAPublicKey &rsaKey );
-	static bool RSASign( const uint8 *pubData, const uint32 cubData, 
-		uint8 *pubSignature, uint32 *pcubSignature, 
-		const CRSAPrivateKey &rsaKey );
-	static bool RSAVerifySignature( const uint8 *pubData, const uint32 cubData, 
-		const uint8 *pubSignature, const uint32 cubSignature,
-		const CRSAPublicKey &rsaKey );
-	static bool RSASignSHA256(	const uint8 *pubData, const uint32 cubData, 
-		uint8 *pubSignature, uint32 *pcubSignature, 
-		const CRSAPrivateKey &rsaKey );
-	static bool RSAVerifySignatureSHA256(	const uint8 *pubData, const uint32 cubData, 
-		const uint8 *pubSignature, const uint32 cubSignature, 
-		const CRSAPublicKey &rsaKey );
-
-#ifdef _SERVER
-	//
-	// Signing and verification (ECDSA signatures)
-	//
-	static bool ECDSASign( const uint8 *pubData, const uint32 cubData,
-		uint8 *pubSignature, uint32 *pcubSignature,
-		const uint8 * pubPrivateKey, const uint32 cubPrivateKey, ECDSACurve eCurve = k_ECDSACurve_secp256k1 );
-	static bool ECDSAVerifySignature( const uint8 *pubData, const uint32 cubData,
-		const uint8 *pubSignature, const uint32 cubSignature,
-		const uint8 *pubPublicKey, const uint32 cubPublicKey, ECDSACurve eCurve = k_ECDSACurve_secp256k1 );
-	static bool ECDSASignSHA256( const uint8 *pubData, const uint32 cubData,
-		uint8 *pubSignature, uint32 *pcubSignature,
-		const uint8 * pubPrivateKey, const uint32 cubPrivateKey, ECDSACurve eCurve = k_ECDSACurve_secp256k1 );
-	static bool ECDSAVerifySignatureSHA256( const uint8 *pubData, const uint32 cubData,
-		const uint8 *pubSignature, const uint32 cubSignature,
-		const uint8 *pubPublicKey, const uint32 cubPublicKey, ECDSACurve eCurve = k_ECDSACurve_secp256k1 );
-#endif
-
-	//
-	// These are deprecated because they are not secure enough.
-	//	1.	the key-derivation function (SHA256 single round) is fast, meaning easy to brute-force
-	//		for low-entropy passwords
-	//  2.	including the full HMAC actually makes it easier to brute-force, because you just
-	//		attack the HMAC and get a definitive "yes" when you use the right key.
-	//		A truncated MAC (eg just one or two bytes) would still provide relatively good
-	//		typo protection, and would make the list of possible passphrases much larger.
-	//		However, then they just have to run the AES decryption once for each of those and
-	//		pick the results that look most likely to be the plaintext.
-	//	So, don't use these.
-	static bool EncryptWithPasswordAndHMAC_DEPRECATED( const uint8 *pubPlaintextData, uint32 cubPlaintextData,
-									 uint8 * pubEncryptedData, uint32 * pcubEncryptedData,
-									 const char *pchPassword );
-
-	static bool EncryptWithPasswordAndHMACWithIV_DEPRECATED( const uint8 *pubPlaintextData, uint32 cubPlaintextData,
-											const uint8 * pIV, uint32 cubIV,
-											uint8 * pubEncryptedData, uint32 * pcubEncryptedData,
-											const char *pchPassword );
-
-
-	static bool DecryptWithPasswordAndAuthenticate_DEPRECATED( const uint8 * pubEncryptedData, uint32 cubEncryptedData, 
-									 uint8 * pubPlaintextData, uint32 * pcubPlaintextData,
-									 const char *pchPassword );
-
-	// EncryptWithPassphrase / DecryptWithPassphrase uses the following format:
-	//  <1 byte algorithm ID> <1 byte parameter> <16 bytes random IV> <AES-256 CBC of data> <HMAC-SHA256 of all preceding bytes>
-	//
-	// The resulting size is always ( 16*n + 2 ), which helps distinguish it from plain AES-256 CBC.
-	//
-	// Let "intermediate secret" be HashAlgorithm( passphrase, parameter, random IV ):
-	//   key for AES-256 CBC is HMAC-SHA256( key = intermediate secret, signed data = 4 bytes "AES\x01" )
-	//   key for HMAC-SHA256 is HMAC-SHA256( key = intermediate secret, signed data = 4 bytes "HMAC" )
-	//
-	// The defined password hashing algorithm are currently
-	//   0x01 = PBKDF2( HMAC-SHA256, rounds = 2^(parameter byte) ) 
-	//   0x02 = scrypt-jane( HMAC-SHA256, Salsa20/8, params=16/4/0 ) with parameter byte always 0x00
-	//
-	// Note that EncryptWithPassphrase_Strong is designed to be very slow! Possibly even 2+ seconds.
-	// Each decryption attempt to will take exactly as long as encryption, which is the whole point.
-	// For things which need to be encrypted and decrypted rapidly, use EncryptWithPassphrase_Fast
-	// but be aware that this *dramatically* reduces the expense of cracking the PBKDF2 passphrase.
-	// (The Fast variant is still in line with good practices for password hashing as of early 2016.)
-	//
-	// A stronger passphrase is always the best defense against offline cracking. Any algorithm can
-	// only be a fixed work multiplier, compared to the exponential increase of a longer passphrase.
-	//
-	static bool EncryptWithPassphrase_Strong( const uint8 *pubPlaintextData, uint32 cubPlaintextData, uint8 * pubEncryptedData, uint32 * pcubEncryptedData, const char *pchPassphrase, int nPassphraseLength = -1 );
-	static bool EncryptWithPassphrase_Fast( const uint8 *pubPlaintextData, uint32 cubPlaintextData, uint8 * pubEncryptedData, uint32 * pcubEncryptedData, const char *pchPassphrase, int nPassphraseLength = -1 );
-	static bool DecryptWithPassphrase( const uint8 *pubEncryptedData, uint32 cubEncryptedData, uint8 * pubPlaintextData, uint32 * pcubPlaintextData, const char *pchPassphrase, int nPassphraseLength = -1, bool bVerifyIntegrity = true );
-
-	// A variation of EncryptWithPassphrase_Strong with no CBC trailing padding and no integrity
-	// checks, since the decryption can be validated against the public key. Extremely compact;
-	// always 1 + 1 + 16 + 32 bytes = 50 bytes.
-	static bool EncryptECPrivateKeyWithPassphrase( const CEC25519PrivateKeyBase &privateKey, uint8 *pubEncryptedData, uint32 *pcubEncryptedData, const char *pchPassphrase, int nPassphraseLength = -1, bool bStrong = true );
-	static bool DecryptECPrivateKeyWithPassphrase( const uint8 *pubEncryptedData, uint32 cubEncryptedData, CEC25519PrivateKeyBase *pPrivateKey, const char *pchPassphrase, int nPassphraseLength = -1 );
+// Stub a bunch of stuff used in the Stam monolith not needed by this little lib
+//SDR_PUBLIC 		static bool RSAGenerateKeys( uint32 cKeyBits, CRSAPublicKey &rsaKeyPublic, CRSAPrivateKey &rsaKeyPrivate );
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		//
+//SDR_PUBLIC 		// RSA encryption of small data blocks - usable for authenticated key exchange
+//SDR_PUBLIC 		// (deprecated, prefer key exchange followed by AES-GCM or similar authenticated encryption)
+//SDR_PUBLIC 		//
+//SDR_PUBLIC 		static uint32 GetRSAMaxPlaintextSize( const CRSAPublicKey &rsaKey );
+//SDR_PUBLIC 		static uint32 GetRSAEncryptionBlockSize( const CRSAPublicKey &rsaKey );
+//SDR_PUBLIC 		static bool RSAEncrypt( const uint8 *pubPlaintextPlaintextData, const uint32 cubData, uint8 *pubEncryptedData, 
+//SDR_PUBLIC 			uint32 *pcubEncryptedData, const CRSAPublicKey &rsaKey );
+//SDR_PUBLIC 		static bool RSADecrypt( const uint8 *pubEncryptedData, uint32 cubEncryptedData, 
+//SDR_PUBLIC 			uint8 *pubPlaintextData, uint32 *pcubPlaintextData, const CRSAPrivateKey &rsaKey );
+//SDR_PUBLIC 		// decrypt a payload which was encrypted using PCKS #1 v1.5 padding instead of OAEP 
+//SDR_PUBLIC 		static bool RSADecryptPKCSv15( const uint8 *pubEncryptedData, uint32 cubEncryptedData,
+//SDR_PUBLIC 			uint8 *pubPlaintextData, uint32 *pcubPlaintextData, const CRSAPrivateKey &rsaKey );
+//SDR_PUBLIC 		// decrypt using a public key, and no padding. DO NOT USE. only kept for compatibility with old systems.
+//SDR_PUBLIC 		static bool RSAPublicDecrypt_NoPadding_DEPRECATED( const uint8 *pubEncryptedData, uint32 cubEncryptedData, 
+//SDR_PUBLIC 			uint8 *pubPlaintextData, uint32 *pcubPlaintextData, const CRSAPrivateKey &rsaKey );
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		//
+//SDR_PUBLIC 		// Signing and verification (RSA signatures - slower, larger, old-school)
+//SDR_PUBLIC 		//
+//SDR_PUBLIC 		static uint32 GetRSASignatureSize( const CRSAPrivateKey &rsaKey );
+//SDR_PUBLIC 		static uint32 GetRSASignatureSize( const CRSAPublicKey &rsaKey );
+//SDR_PUBLIC 		static bool RSASign( const uint8 *pubData, const uint32 cubData, 
+//SDR_PUBLIC 			uint8 *pubSignature, uint32 *pcubSignature, 
+//SDR_PUBLIC 			const CRSAPrivateKey &rsaKey );
+//SDR_PUBLIC 		static bool RSAVerifySignature( const uint8 *pubData, const uint32 cubData, 
+//SDR_PUBLIC 			const uint8 *pubSignature, const uint32 cubSignature,
+//SDR_PUBLIC 			const CRSAPublicKey &rsaKey );
+//SDR_PUBLIC 		static bool RSASignSHA256(	const uint8 *pubData, const uint32 cubData, 
+//SDR_PUBLIC 			uint8 *pubSignature, uint32 *pcubSignature, 
+//SDR_PUBLIC 			const CRSAPrivateKey &rsaKey );
+//SDR_PUBLIC 		static bool RSAVerifySignatureSHA256(	const uint8 *pubData, const uint32 cubData, 
+//SDR_PUBLIC 			const uint8 *pubSignature, const uint32 cubSignature, 
+//SDR_PUBLIC 			const CRSAPublicKey &rsaKey );
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	#ifdef _SERVER
+//SDR_PUBLIC 		//
+//SDR_PUBLIC 		// Signing and verification (ECDSA signatures)
+//SDR_PUBLIC 		//
+//SDR_PUBLIC 		static bool ECDSASign( const uint8 *pubData, const uint32 cubData,
+//SDR_PUBLIC 			uint8 *pubSignature, uint32 *pcubSignature,
+//SDR_PUBLIC 			const uint8 * pubPrivateKey, const uint32 cubPrivateKey, ECDSACurve eCurve = k_ECDSACurve_secp256k1 );
+//SDR_PUBLIC 		static bool ECDSAVerifySignature( const uint8 *pubData, const uint32 cubData,
+//SDR_PUBLIC 			const uint8 *pubSignature, const uint32 cubSignature,
+//SDR_PUBLIC 			const uint8 *pubPublicKey, const uint32 cubPublicKey, ECDSACurve eCurve = k_ECDSACurve_secp256k1 );
+//SDR_PUBLIC 		static bool ECDSASignSHA256( const uint8 *pubData, const uint32 cubData,
+//SDR_PUBLIC 			uint8 *pubSignature, uint32 *pcubSignature,
+//SDR_PUBLIC 			const uint8 * pubPrivateKey, const uint32 cubPrivateKey, ECDSACurve eCurve = k_ECDSACurve_secp256k1 );
+//SDR_PUBLIC 		static bool ECDSAVerifySignatureSHA256( const uint8 *pubData, const uint32 cubData,
+//SDR_PUBLIC 			const uint8 *pubSignature, const uint32 cubSignature,
+//SDR_PUBLIC 			const uint8 *pubPublicKey, const uint32 cubPublicKey, ECDSACurve eCurve = k_ECDSACurve_secp256k1 );
+//SDR_PUBLIC 	#endif
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		//
+//SDR_PUBLIC 		// These are deprecated because they are not secure enough.
+//SDR_PUBLIC 		//	1.	the key-derivation function (SHA256 single round) is fast, meaning easy to brute-force
+//SDR_PUBLIC 		//		for low-entropy passwords
+//SDR_PUBLIC 		//  2.	including the full HMAC actually makes it easier to brute-force, because you just
+//SDR_PUBLIC 		//		attack the HMAC and get a definitive "yes" when you use the right key.
+//SDR_PUBLIC 		//		A truncated MAC (eg just one or two bytes) would still provide relatively good
+//SDR_PUBLIC 		//		typo protection, and would make the list of possible passphrases much larger.
+//SDR_PUBLIC 		//		However, then they just have to run the AES decryption once for each of those and
+//SDR_PUBLIC 		//		pick the results that look most likely to be the plaintext.
+//SDR_PUBLIC 		//	So, don't use these.
+//SDR_PUBLIC 		static bool EncryptWithPasswordAndHMAC_DEPRECATED( const uint8 *pubPlaintextData, uint32 cubPlaintextData,
+//SDR_PUBLIC 										 uint8 * pubEncryptedData, uint32 * pcubEncryptedData,
+//SDR_PUBLIC 										 const char *pchPassword );
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		static bool EncryptWithPasswordAndHMACWithIV_DEPRECATED( const uint8 *pubPlaintextData, uint32 cubPlaintextData,
+//SDR_PUBLIC 												const uint8 * pIV, uint32 cubIV,
+//SDR_PUBLIC 												uint8 * pubEncryptedData, uint32 * pcubEncryptedData,
+//SDR_PUBLIC 												const char *pchPassword );
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		static bool DecryptWithPasswordAndAuthenticate_DEPRECATED( const uint8 * pubEncryptedData, uint32 cubEncryptedData, 
+//SDR_PUBLIC 										 uint8 * pubPlaintextData, uint32 * pcubPlaintextData,
+//SDR_PUBLIC 										 const char *pchPassword );
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		// EncryptWithPassphrase / DecryptWithPassphrase uses the following format:
+//SDR_PUBLIC 		//  <1 byte algorithm ID> <1 byte parameter> <16 bytes random IV> <AES-256 CBC of data> <HMAC-SHA256 of all preceding bytes>
+//SDR_PUBLIC 		//
+//SDR_PUBLIC 		// The resulting size is always ( 16*n + 2 ), which helps distinguish it from plain AES-256 CBC.
+//SDR_PUBLIC 		//
+//SDR_PUBLIC 		// Let "intermediate secret" be HashAlgorithm( passphrase, parameter, random IV ):
+//SDR_PUBLIC 		//   key for AES-256 CBC is HMAC-SHA256( key = intermediate secret, signed data = 4 bytes "AES\x01" )
+//SDR_PUBLIC 		//   key for HMAC-SHA256 is HMAC-SHA256( key = intermediate secret, signed data = 4 bytes "HMAC" )
+//SDR_PUBLIC 		//
+//SDR_PUBLIC 		// The defined password hashing algorithm are currently
+//SDR_PUBLIC 		//   0x01 = PBKDF2( HMAC-SHA256, rounds = 2^(parameter byte) ) 
+//SDR_PUBLIC 		//   0x02 = scrypt-jane( HMAC-SHA256, Salsa20/8, params=16/4/0 ) with parameter byte always 0x00
+//SDR_PUBLIC 		//
+//SDR_PUBLIC 		// Note that EncryptWithPassphrase_Strong is designed to be very slow! Possibly even 2+ seconds.
+//SDR_PUBLIC 		// Each decryption attempt to will take exactly as long as encryption, which is the whole point.
+//SDR_PUBLIC 		// For things which need to be encrypted and decrypted rapidly, use EncryptWithPassphrase_Fast
+//SDR_PUBLIC 		// but be aware that this *dramatically* reduces the expense of cracking the PBKDF2 passphrase.
+//SDR_PUBLIC 		// (The Fast variant is still in line with good practices for password hashing as of early 2016.)
+//SDR_PUBLIC 		//
+//SDR_PUBLIC 		// A stronger passphrase is always the best defense against offline cracking. Any algorithm can
+//SDR_PUBLIC 		// only be a fixed work multiplier, compared to the exponential increase of a longer passphrase.
+//SDR_PUBLIC 		//
+//SDR_PUBLIC 		static bool EncryptWithPassphrase_Strong( const uint8 *pubPlaintextData, uint32 cubPlaintextData, uint8 * pubEncryptedData, uint32 * pcubEncryptedData, const char *pchPassphrase, int nPassphraseLength = -1 );
+//SDR_PUBLIC 		static bool EncryptWithPassphrase_Fast( const uint8 *pubPlaintextData, uint32 cubPlaintextData, uint8 * pubEncryptedData, uint32 * pcubEncryptedData, const char *pchPassphrase, int nPassphraseLength = -1 );
+//SDR_PUBLIC 		static bool DecryptWithPassphrase( const uint8 *pubEncryptedData, uint32 cubEncryptedData, uint8 * pubPlaintextData, uint32 * pcubPlaintextData, const char *pchPassphrase, int nPassphraseLength = -1, bool bVerifyIntegrity = true );
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		// A variation of EncryptWithPassphrase_Strong with no CBC trailing padding and no integrity
+//SDR_PUBLIC 		// checks, since the decryption can be validated against the public key. Extremely compact;
+//SDR_PUBLIC 		// always 1 + 1 + 16 + 32 bytes = 50 bytes.
+//SDR_PUBLIC 		static bool EncryptECPrivateKeyWithPassphrase( const CEC25519PrivateKeyBase &privateKey, uint8 *pubEncryptedData, uint32 *pcubEncryptedData, const char *pchPassphrase, int nPassphraseLength = -1, bool bStrong = true );
+//SDR_PUBLIC 		static bool DecryptECPrivateKeyWithPassphrase( const uint8 *pubEncryptedData, uint32 cubEncryptedData, CEC25519PrivateKeyBase *pPrivateKey, const char *pchPassphrase, int nPassphraseLength = -1 );
 
 protected:
-	static bool RSAEncrypt( const uint8 *pubPlaintextData, const uint32 cubData, uint8 *pubEncryptedData, 
-							uint32 *pcubEncryptedData, const uint8 *pubPublicKey, const uint32 cubPublicKey );
-	static bool RSADecrypt( const uint8 *pubEncryptedData, uint32 cubEncryptedData, 
-							uint8 *pubPlaintextData, uint32 *pcubPlaintextData, const uint8 *pubPrivateKey, const uint32 cubPrivateKey, bool bLegacyPKCSv15 );
 
-	// decrypt using a public key, and no padding
-	static bool RSAPublicDecrypt_NoPadding_DEPRECATED( const uint8 *pubEncryptedData, uint32 cubEncryptedData, 
-							uint8 *pubPlaintextData, uint32 *pcubPlaintextData, const uint8 *pubPublicKey, const uint32 cubPublicKey );
-
-	static bool RSASign( const uint8 *pubData, const uint32 cubData, 
-						 uint8 *pubSignature, uint32 *pcubSignature, 
-						const uint8 * pubPrivateKey, const uint32 cubPrivateKey );
-	static bool RSAVerifySignature( const uint8 *pubData, const uint32 cubData, 
-									const uint8 *pubSignature, const uint32 cubSignature, 
-									const uint8 *pubPublicKey, const uint32 cubPublicKey );
-
-	static bool RSASignSHA256( const uint8 *pubData, const uint32 cubData, 
-						 uint8 *pubSignature, uint32 *pcubSignature, 
-						const uint8 * pubPrivateKey, const uint32 cubPrivateKey );
-	static bool RSAVerifySignatureSHA256( const uint8 *pubData, const uint32 cubData, 
-									const uint8 *pubSignature, const uint32 cubSignature, 
-									const uint8 *pubPublicKey, const uint32 cubPublicKey );
-
-	typedef bool (*PassphraseHelperFn_t)( uint8 ( &rgubDigest )[32], const char *pchPassphrase, int nPassphraseLength, const uint8 *pubSalt, uint32 cubSalt, uint8 ubAlgorithmID, uint8 ubParameter );
-	static bool PassphraseHelper_PBKDF2SHA256( uint8 ( &rgubDigest )[32], const char *pchPassphrase, int nPassphraseLength, const uint8 *pubSalt, uint32 cubSalt, uint8 ubAlgorithmID, uint8 ubParameter );
-	static bool PassphraseHelper_Scrypt( uint8 ( &rgubDigest )[32], const char *pchPassphrase, int nPassphraseLength, const uint8 *pubSalt, uint32 cubSalt, uint8 ubAlgorithmID, uint8 ubParameter );
-
-	static bool EncryptWithPassphraseImpl( const uint8 *pubPlaintextData, uint32 cubPlaintextData, uint8 * pubEncryptedData, uint32 * pcubEncryptedData, const char *pchPassphrase, int nPassphraseLength, bool bStrong );
-	static bool DecryptWithPassphraseImpl( const uint8 *pubEncryptedData, uint32 cubEncryptedData, uint8 * pubPlaintextData, uint32 * pcubPlaintextData, const char *pchPassphrase, int nPassphraseLength, bool bVerifyIntegrity );
+// Stub a bunch of stuff used in the Stam monolith not needed by this little lib
+//SDR_PUBLIC 		static bool RSAEncrypt( const uint8 *pubPlaintextData, const uint32 cubData, uint8 *pubEncryptedData, 
+//SDR_PUBLIC 								uint32 *pcubEncryptedData, const uint8 *pubPublicKey, const uint32 cubPublicKey );
+//SDR_PUBLIC 		static bool RSADecrypt( const uint8 *pubEncryptedData, uint32 cubEncryptedData, 
+//SDR_PUBLIC 								uint8 *pubPlaintextData, uint32 *pcubPlaintextData, const uint8 *pubPrivateKey, const uint32 cubPrivateKey, bool bLegacyPKCSv15 );
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		// decrypt using a public key, and no padding
+//SDR_PUBLIC 		static bool RSAPublicDecrypt_NoPadding_DEPRECATED( const uint8 *pubEncryptedData, uint32 cubEncryptedData, 
+//SDR_PUBLIC 								uint8 *pubPlaintextData, uint32 *pcubPlaintextData, const uint8 *pubPublicKey, const uint32 cubPublicKey );
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		static bool RSASign( const uint8 *pubData, const uint32 cubData, 
+//SDR_PUBLIC 							 uint8 *pubSignature, uint32 *pcubSignature, 
+//SDR_PUBLIC 							const uint8 * pubPrivateKey, const uint32 cubPrivateKey );
+//SDR_PUBLIC 		static bool RSAVerifySignature( const uint8 *pubData, const uint32 cubData, 
+//SDR_PUBLIC 										const uint8 *pubSignature, const uint32 cubSignature, 
+//SDR_PUBLIC 										const uint8 *pubPublicKey, const uint32 cubPublicKey );
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		static bool RSASignSHA256( const uint8 *pubData, const uint32 cubData, 
+//SDR_PUBLIC 							 uint8 *pubSignature, uint32 *pcubSignature, 
+//SDR_PUBLIC 							const uint8 * pubPrivateKey, const uint32 cubPrivateKey );
+//SDR_PUBLIC 		static bool RSAVerifySignatureSHA256( const uint8 *pubData, const uint32 cubData, 
+//SDR_PUBLIC 										const uint8 *pubSignature, const uint32 cubSignature, 
+//SDR_PUBLIC 										const uint8 *pubPublicKey, const uint32 cubPublicKey );
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		typedef bool (*PassphraseHelperFn_t)( uint8 ( &rgubDigest )[32], const char *pchPassphrase, int nPassphraseLength, const uint8 *pubSalt, uint32 cubSalt, uint8 ubAlgorithmID, uint8 ubParameter );
+//SDR_PUBLIC 		static bool PassphraseHelper_PBKDF2SHA256( uint8 ( &rgubDigest )[32], const char *pchPassphrase, int nPassphraseLength, const uint8 *pubSalt, uint32 cubSalt, uint8 ubAlgorithmID, uint8 ubParameter );
+//SDR_PUBLIC 		static bool PassphraseHelper_Scrypt( uint8 ( &rgubDigest )[32], const char *pchPassphrase, int nPassphraseLength, const uint8 *pubSalt, uint32 cubSalt, uint8 ubAlgorithmID, uint8 ubParameter );
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		static bool EncryptWithPassphraseImpl( const uint8 *pubPlaintextData, uint32 cubPlaintextData, uint8 * pubEncryptedData, uint32 * pcubEncryptedData, const char *pchPassphrase, int nPassphraseLength, bool bStrong );
+//SDR_PUBLIC 		static bool DecryptWithPassphraseImpl( const uint8 *pubEncryptedData, uint32 cubEncryptedData, uint8 * pubPlaintextData, uint32 * pcubPlaintextData, const char *pchPassphrase, int nPassphraseLength, bool bVerifyIntegrity );
 
 public:
 	static bool HexEncode( const uint8 *pubData, const uint32 cubData, char *pchEncodedData, uint32 cchEncodedData );
@@ -285,57 +288,57 @@ public:
 //
 // Inline a bunch of functions that consume RSA keys.
 //
-inline bool CCrypto::RSAEncrypt( const uint8 *pubPlaintextPlaintextData, const uint32 cubData, uint8 *pubEncryptedData, 
-	uint32 *pcubEncryptedData, const CRSAPublicKey &rsaKey )
-{
-	return RSAEncrypt( pubPlaintextPlaintextData, cubData, pubEncryptedData, pcubEncryptedData, rsaKey.GetData(), rsaKey.GetLength() );
-}
-
-inline bool CCrypto::RSADecrypt( const uint8 *pubEncryptedData, uint32 cubEncryptedData, 
-	uint8 *pubPlaintextData, uint32 *pcubPlaintextData, const CRSAPrivateKey &rsaKey )
-{
-	return RSADecrypt( pubEncryptedData, cubEncryptedData, pubPlaintextData, pcubPlaintextData, rsaKey.GetData(), rsaKey.GetLength(), false );
-}
-
-inline bool CCrypto::RSADecryptPKCSv15( const uint8 *pubEncryptedData, uint32 cubEncryptedData,
-	uint8 *pubPlaintextData, uint32 *pcubPlaintextData, const CRSAPrivateKey &rsaKey )
-{
-	return RSADecrypt( pubEncryptedData, cubEncryptedData, pubPlaintextData, pcubPlaintextData, rsaKey.GetData(), rsaKey.GetLength(), true );
-}
-
-inline bool CCrypto::RSAPublicDecrypt_NoPadding_DEPRECATED( const uint8 *pubEncryptedData, uint32 cubEncryptedData, 
-	uint8 *pubPlaintextData, uint32 *pcubPlaintextData, const CRSAPrivateKey &rsaKey )
-{
-	return RSAPublicDecrypt_NoPadding_DEPRECATED( pubEncryptedData, cubEncryptedData, pubPlaintextData, pcubPlaintextData, rsaKey.GetData(), rsaKey.GetLength() );
-}
-
-inline bool CCrypto::RSASign( const uint8 *pubData, const uint32 cubData, 
-	uint8 *pubSignature, uint32 *pcubSignature, 
-	const CRSAPrivateKey &rsaKey )
-{
-	return RSASign( pubData, cubData, pubSignature, pcubSignature, rsaKey.GetData(), rsaKey.GetLength() );
-}
-
-inline bool CCrypto::RSAVerifySignature( const uint8 *pubData, const uint32 cubData, 
-	const uint8 *pubSignature, const uint32 cubSignature,
-	const CRSAPublicKey &rsaKey )
-{
-	return RSAVerifySignature( pubData, cubData, pubSignature, cubSignature, rsaKey.GetData(), rsaKey.GetLength() );
-}
-
-inline bool CCrypto::RSASignSHA256( const uint8 *pubData, const uint32 cubData, 
-	uint8 *pubSignature, uint32 *pcubSignature, 
-	const CRSAPrivateKey &rsaKey )
-{
-	return RSASignSHA256( pubData, cubData, pubSignature, pcubSignature, rsaKey.GetData(), rsaKey.GetLength() );
-}
-
-inline bool CCrypto::RSAVerifySignatureSHA256(const uint8 *pubData, const uint32 cubData, 
-	const uint8 *pubSignature, const uint32 cubSignature, 
-	const CRSAPublicKey &rsaKey )
-{
-	return RSAVerifySignatureSHA256( pubData, cubData, pubSignature, cubSignature, rsaKey.GetData(), rsaKey.GetLength() );
-}
+//SDR_PUBLIC 	inline bool CCrypto::RSAEncrypt( const uint8 *pubPlaintextPlaintextData, const uint32 cubData, uint8 *pubEncryptedData, 
+//SDR_PUBLIC 		uint32 *pcubEncryptedData, const CRSAPublicKey &rsaKey )
+//SDR_PUBLIC 	{
+//SDR_PUBLIC 		return RSAEncrypt( pubPlaintextPlaintextData, cubData, pubEncryptedData, pcubEncryptedData, rsaKey.GetData(), rsaKey.GetLength() );
+//SDR_PUBLIC 	}
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	inline bool CCrypto::RSADecrypt( const uint8 *pubEncryptedData, uint32 cubEncryptedData, 
+//SDR_PUBLIC 		uint8 *pubPlaintextData, uint32 *pcubPlaintextData, const CRSAPrivateKey &rsaKey )
+//SDR_PUBLIC 	{
+//SDR_PUBLIC 		return RSADecrypt( pubEncryptedData, cubEncryptedData, pubPlaintextData, pcubPlaintextData, rsaKey.GetData(), rsaKey.GetLength(), false );
+//SDR_PUBLIC 	}
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	inline bool CCrypto::RSADecryptPKCSv15( const uint8 *pubEncryptedData, uint32 cubEncryptedData,
+//SDR_PUBLIC 		uint8 *pubPlaintextData, uint32 *pcubPlaintextData, const CRSAPrivateKey &rsaKey )
+//SDR_PUBLIC 	{
+//SDR_PUBLIC 		return RSADecrypt( pubEncryptedData, cubEncryptedData, pubPlaintextData, pcubPlaintextData, rsaKey.GetData(), rsaKey.GetLength(), true );
+//SDR_PUBLIC 	}
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	inline bool CCrypto::RSAPublicDecrypt_NoPadding_DEPRECATED( const uint8 *pubEncryptedData, uint32 cubEncryptedData, 
+//SDR_PUBLIC 		uint8 *pubPlaintextData, uint32 *pcubPlaintextData, const CRSAPrivateKey &rsaKey )
+//SDR_PUBLIC 	{
+//SDR_PUBLIC 		return RSAPublicDecrypt_NoPadding_DEPRECATED( pubEncryptedData, cubEncryptedData, pubPlaintextData, pcubPlaintextData, rsaKey.GetData(), rsaKey.GetLength() );
+//SDR_PUBLIC 	}
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	inline bool CCrypto::RSASign( const uint8 *pubData, const uint32 cubData, 
+//SDR_PUBLIC 		uint8 *pubSignature, uint32 *pcubSignature, 
+//SDR_PUBLIC 		const CRSAPrivateKey &rsaKey )
+//SDR_PUBLIC 	{
+//SDR_PUBLIC 		return RSASign( pubData, cubData, pubSignature, pcubSignature, rsaKey.GetData(), rsaKey.GetLength() );
+//SDR_PUBLIC 	}
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	inline bool CCrypto::RSAVerifySignature( const uint8 *pubData, const uint32 cubData, 
+//SDR_PUBLIC 		const uint8 *pubSignature, const uint32 cubSignature,
+//SDR_PUBLIC 		const CRSAPublicKey &rsaKey )
+//SDR_PUBLIC 	{
+//SDR_PUBLIC 		return RSAVerifySignature( pubData, cubData, pubSignature, cubSignature, rsaKey.GetData(), rsaKey.GetLength() );
+//SDR_PUBLIC 	}
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	inline bool CCrypto::RSASignSHA256( const uint8 *pubData, const uint32 cubData, 
+//SDR_PUBLIC 		uint8 *pubSignature, uint32 *pcubSignature, 
+//SDR_PUBLIC 		const CRSAPrivateKey &rsaKey )
+//SDR_PUBLIC 	{
+//SDR_PUBLIC 		return RSASignSHA256( pubData, cubData, pubSignature, pcubSignature, rsaKey.GetData(), rsaKey.GetLength() );
+//SDR_PUBLIC 	}
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	inline bool CCrypto::RSAVerifySignatureSHA256(const uint8 *pubData, const uint32 cubData, 
+//SDR_PUBLIC 		const uint8 *pubSignature, const uint32 cubSignature, 
+//SDR_PUBLIC 		const CRSAPublicKey &rsaKey )
+//SDR_PUBLIC 	{
+//SDR_PUBLIC 		return RSAVerifySignatureSHA256( pubData, cubData, pubSignature, cubSignature, rsaKey.GetData(), rsaKey.GetLength() );
+//SDR_PUBLIC 	}
 
 
 
