@@ -6,14 +6,14 @@ GameNetworkingSockets is a basic transport layer for games.  The features are:
 * Connection-oriented protocol (like TCP) but message-oriented instead of stream-oriented
 * Mix of reliable and unreliable messages
 * Messages can be larger than underlying MTU
-* The protocol performs fragmentation and reassembly, and retransmission for reliable bandwidth estimation based on TCP-friendly rate control (RFC 5348)
-* Encryption.  AES per packet, Ed25519 crypto for key exchange and cert signatures.  The details for shared key derivation and per-packet IV are based on Google QUIC.
+* The protocol performs fragmentation, reassembly, and retransmission for reliable bandwidth estimation based on TCP-friendly rate control (RFC 5348)
+* AES per packet Encryption. Ed25519 crypto for key exchange and cert signatures.  The details for shared key derivation and per-packet IV are based on Google QUIC.
 * Tools for simulating loss and detailed stats measurement
 
 The main interface class is named SteamNetworkingSockets, and many files have "steam" in their name.
-But *Steam is not needed*.  The reason for the name is that this provides a subset of the functionality of the API with the same name in the SteamworksSDK.  The intention is that on PC you can use the Steamworks version, and on other platforms, you can use this version.  In this way, you can avoid having the Steam version be "weird" or not take full advantage of the features above that it provides.
+However, *Steam is not needed* because the subset of the functionality of the API is provided within the same name in the SteamworksSDK.  This naming intention is that you can use the Steamworks version on PC and can still use this version in other platforsms. In this way, having the Steam version be "weird" can be avoided and makes sure the Steam version take full advantage of the features it provides.
 
-But even if you don't make games or aren't on Steam, feel free to use this code for whatever purpose you want.
+Even if you do not make games or are not on Steam, feel free to use this code for whatever purpose you want.
 
 ## Building
 
@@ -25,7 +25,7 @@ But even if you don't make games or aren't on Steam, feel free to use this code 
 
 ### Linux
 
-This has only really been tested on Ubuntu 17.
+This has only been tested on Ubuntu 17.
 
 ```
 meson build src
