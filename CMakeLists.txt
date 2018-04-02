@@ -15,8 +15,6 @@ set(GNS_SRCS
   "external/curve25519-donna/curve25519_VALVE_sse2.c"
   "external/ed25519-donna/ed25519_VALVE.c"
   "external/ed25519-donna/ed25519_VALVE_sse2.c"
-  "external/ujson/ujson/ujson.cpp"
-  "external/ujson/ujson/double-conversion.cc"
   "common/crypto.cpp"
   "common/opensslwrapper.cpp"
   "common/steamid.cpp"
@@ -86,7 +84,7 @@ macro(gamenetworkingsockets_common GNS_TARGET)
   target_link_libraries(${GNS_TARGET} PRIVATE
     # protobuf::libprotobuf
     ${PROTOBUF_LIBRARIES}
-    OpenSSL::SSL
+    OpenSSL::Crypto
   )
 
   target_compile_definitions(${GNS_TARGET} PRIVATE
