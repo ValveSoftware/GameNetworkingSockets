@@ -1,5 +1,7 @@
 project('GameNetworkingSockets', 'cpp', 'c',
-  default_options: []
+  default_options: [
+	'buildtype=debugoptimized',
+  ]
 )
 
 add_global_arguments('-fvisibility=hidden', language: 'cpp')
