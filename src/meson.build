@@ -30,7 +30,7 @@ flags_common = [
 ]
 
 warn_flags_common = [
-  #'-Wall',
+  '-Wall',
   #'-Wextra',
   #'-pedantic',
   '-Wno-unknown-pragmas',
