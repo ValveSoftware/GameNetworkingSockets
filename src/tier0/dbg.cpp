@@ -88,7 +88,7 @@ bool Plat_IsInDebugSession()
 #endif
 }
 
-#if !defined( _PS3 )
+#if defined (POSIX) && !defined( _PS3 )
 static bool s_bSetSigHandler = false;
 #endif
 

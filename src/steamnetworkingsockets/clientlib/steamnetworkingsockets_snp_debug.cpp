@@ -24,7 +24,6 @@ void SetSNPDebugText( int nCols, const char **ppszTextArray ) {};
 namespace SteamNetworkingSocketsLib {
 
 static bool s_bDebugWindowActive = false;
-static uint64 s_usecLastDebugWindowUpdate = 0;
 
 static HWND g_hwnd;
 
