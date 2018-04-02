@@ -133,8 +133,6 @@ sources = [
   'tier0/cpu.cpp',
   'tier0/dbg.cpp',
   'tier0/platformtime.cpp',
-  'tier1/bitstring.cpp',
-  'tier1/generichash.cpp',
   'tier1/netadr.cpp',
   'tier1/utlbuffer.cpp',
   'tier1/utlmemory.cpp',

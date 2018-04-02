@@ -12,7 +12,6 @@
 #include "../steamnetworking_statsutils.h"
 #include <tier1/utllinkedlist.h>
 #include <tier1/netadr.h>
-#include <tier1/utlhashmap.h>
 #include "steamnetworkingsockets_lowlevel.h"
 #include "keypair.h"
 #include <tier0/memdbgoff.h>
