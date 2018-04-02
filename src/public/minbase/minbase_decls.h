@@ -176,6 +176,10 @@
 #define DLL_GLOBAL_IMPORT extern PLAT_DECL_IMPORT
 #endif
 
+#ifdef FASTCALL
+#undef FASTCALL
+#endif
+
 // Used for standard calling conventions
 #if defined(_WIN32)
 	#define STDCALL				    __stdcall

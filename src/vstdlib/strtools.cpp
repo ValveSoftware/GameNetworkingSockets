@@ -582,7 +582,7 @@ bool V_IsAbsolutePath( const char *pStr )
 
 #ifdef _WIN32
 
-static __success( return != 0 ) DWORD ConvertWideToUTF8( __in_z const wchar_t *pwszNullTerm, __out_ecount_part_z_opt( nMaxOut, return ) char *pchOut, __in DWORD nMaxOut )
+static DWORD ConvertWideToUTF8( const wchar_t *pwszNullTerm, char *pchOut, DWORD nMaxOut )
 {
 	if ( !pchOut )
 		return WideCharToMultiByte( CP_UTF8, 0, pwszNullTerm, -1, NULL, 0, NULL, NULL );

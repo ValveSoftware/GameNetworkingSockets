@@ -143,7 +143,9 @@
 
 // Tag the end of functions using printf-style format strings with this (consumed by GCC).
 // Note that for methods the 'this' pointer counts as the first argument in argument numbering.
-#ifdef COMPILER_GCC
+#ifdef __MINGW32__
+#define FMTFUNCTION( fmtargnumber, firstvarargnumber ) __attribute__ (( format( __MINGW_PRINTF_FORMAT, fmtargnumber, firstvarargnumber )))
+#elif defined(COMPILER_GCC)
 #define FMTFUNCTION( fmtargnumber, firstvarargnumber ) __attribute__ (( format( __printf__, fmtargnumber, firstvarargnumber )))
 #else
 #define FMTFUNCTION( fmtargnumber, firstvarargnumber )

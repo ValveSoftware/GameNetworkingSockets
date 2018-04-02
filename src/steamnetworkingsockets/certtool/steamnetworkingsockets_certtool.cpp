@@ -201,7 +201,7 @@ void PrintCertInfo( const CMsgSteamDatagramCertificateSigned &msgSigned, std::st
 
 	if ( pszJSONIndent )
 	{
-		V_sprintf_safe( szTemp, "%s\"key_id\": %llu,\n", pszJSONIndent, CalculatePublicKeyID( pubKey ) );
+		V_sprintf_safe( szTemp, "%s\"key_id\": %" PRIu64 ",\n", pszJSONIndent, CalculatePublicKeyID( pubKey ) );
 		sOutResult += szTemp;
 		if ( !sDataCenterIDs.empty() )
 		{
@@ -217,7 +217,7 @@ void PrintCertInfo( const CMsgSteamDatagramCertificateSigned &msgSigned, std::st
 	}
 	else
 	{
-		V_sprintf_safe( szTemp, "Public key ID. . : %llu\n", CalculatePublicKeyID( pubKey ) );
+		V_sprintf_safe( szTemp, "Public key ID. . : %" PRIu64 "\n", CalculatePublicKeyID( pubKey ) );
 		sOutResult += szTemp;
 		V_sprintf_safe( szTemp, "Created. . . . . : %s\n", szTimeCreated );
 		sOutResult += szTemp;

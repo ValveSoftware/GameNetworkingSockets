@@ -27,7 +27,9 @@
 #endif
 
 #endif
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
 #define NOSERVICE
 #define NOMCX
 #define NOIME

@@ -402,7 +402,7 @@ I CUtlLinkedList<T,I>::AllocInternal( bool multilist )
 
 		if ( elem == InvalidIndex() )
 		{
-#ifdef _WIN32
+#if defined(_WIN32) && !defined(GNU_COMPILER)
 			Error("%s overflow!\n", typeid(*this).raw_name());
 #else
 #if ( !defined(_PS3) || defined(_DEBUG) )

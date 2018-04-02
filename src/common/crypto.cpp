@@ -6,6 +6,11 @@
 // on compile-time defines, which in turn pulls in other odd dependencies
 
 #if defined(_WIN32)
+#ifdef __MINGW32__
+// x86intrin.h gets included by MinGW's winnt.h, so defining this avoids
+// redefinition of AES-NI intrinsics below
+#define _X86INTRIN_H_INCLUDED
+#endif
 #include "winlite.h"
 #elif defined(POSIX)
 #include <sys/types.h>
@@ -399,10 +404,10 @@ void DispatchOpenSSLErrors( const char * contextMessage )
 #include <emmintrin.h>
 // stupid: can't use wmmintrin.h on gcc/clang, requires AESNI codegen to be globally enabled!
 #if defined(__clang__) || defined(__GNUC__)
-static FORCEINLINE __m128i _mm_aesenc_si128( __m128i a, __m128i b ) { asm( "aesenc %1, %0" : "+x"(a) : "x"(b) ); return a; }
-static FORCEINLINE __m128i _mm_aesenclast_si128( __m128i a, __m128i b ) { asm( "aesenclast %1, %0" : "+x"(a) : "x"(b) ); return a; }
-static FORCEINLINE __m128i _mm_aesdec_si128( __m128i a, __m128i b ) { asm( "aesdec %1, %0" : "+x"(a) : "x"(b) ); return a; }
-static FORCEINLINE __m128i _mm_aesdeclast_si128( __m128i a, __m128i b ) { asm( "aesdeclast %1, %0" : "+x"(a) : "x"(b) ); return a; }
+static FORCEINLINE __attribute__((gnu_inline)) __m128i _mm_aesenc_si128( __m128i a, __m128i b ) { asm( "aesenc %1, %0" : "+x"(a) : "x"(b) ); return a; }
+static FORCEINLINE __attribute__((gnu_inline)) __m128i _mm_aesenclast_si128( __m128i a, __m128i b ) { asm( "aesenclast %1, %0" : "+x"(a) : "x"(b) ); return a; }
+static FORCEINLINE __attribute__((gnu_inline)) __m128i _mm_aesdec_si128( __m128i a, __m128i b ) { asm( "aesdec %1, %0" : "+x"(a) : "x"(b) ); return a; }
+static FORCEINLINE __attribute__((gnu_inline)) __m128i _mm_aesdeclast_si128( __m128i a, __m128i b ) { asm( "aesdeclast %1, %0" : "+x"(a) : "x"(b) ); return a; }
 #else
 #include <wmmintrin.h>
 #endif
@@ -3082,7 +3087,7 @@ bool CCrypto::GenerateRandomBlock( void *pvDest, int cubDest )
 	// NOTE: assume that this cannot fail. MS has baked this function name into
 	// static CRT runtime libraries for years; changing the export would break 
 	// millions of applications. Available from Windows XP onward. -henryg
-	typedef BYTE ( NTAPI *PfnRtlGenRandom_t )( __out_bcount( RandomBufferLength ) PVOID RandomBuffer, __in ULONG RandomBufferLength );
+	typedef BYTE ( NTAPI *PfnRtlGenRandom_t )( PVOID RandomBuffer, ULONG RandomBufferLength );
 	static PfnRtlGenRandom_t s_pfnRtlGenRandom;
 	if ( !s_pfnRtlGenRandom )
 	{

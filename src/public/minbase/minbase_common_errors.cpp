@@ -9,6 +9,7 @@
 #include "minbase_identify.h"
 #include "minbase_common_errors.h"
 #include "errno.h"
+#include "winlite.h"
 
 ECommonError TranslateCommonErrno()
 {

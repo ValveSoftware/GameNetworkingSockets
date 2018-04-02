@@ -11,6 +11,10 @@
 
 #include <ctype.h>
 #include <string.h>
+#ifdef __MINGW32__
+// for __MINGW_PRINTF_FORMAT
+#include <stdio.h>
+#endif
 #include <stdlib.h>
 #include <limits.h>
 #include <stdarg.h>
@@ -163,6 +167,9 @@ extern void V_MakeAbsolutePath( OUT_Z_CAP(outLen) char *pOut, int outLen, const 
 #define _wcsnicmp wcsncasecmp
 #endif
 #define _wcschr wcschr
+#ifdef TEXT
+#undef TEXT
+#endif
 #define TEXT(str) str
 
 #endif // POSIX
