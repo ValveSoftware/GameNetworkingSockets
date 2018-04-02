@@ -2214,94 +2214,93 @@ bool CCrypto::VerifySignature( const uint8 *pubData, uint32 cubData, const CECSi
 //SDR_PUBLIC 	
 //SDR_PUBLIC 	
 #ifdef SDR_SUPPORT_RSA_TICKETS
-
-//-----------------------------------------------------------------------------
-// Purpose: Generates an RSA signature block for the specified data with the specified
-//			RSA private key.  The signature can be verified by calling RSAVerifySignature
-//			with the RSA public key.
-// Input:	pubData -			Data to be signed
-//			cubData -			Size of data to be signed
-//			pubSignature -		Pointer to buffer to receive signature block
-//			pcubSignature -		Pointer to a variable that at time of call contains the size of
-//								the pubSignature buffer.  When the method returns, this will contain
-//								the actual size of the signature block
-//			pubPrivateKey -		The RSA private key to use to sign the data
-//			cubPrivateKey -		Size of the key
-// Output:  true if successful, false if signature failed
-//-----------------------------------------------------------------------------
-bool CCrypto::RSASign( const uint8 *pubData, const uint32 cubData, 
-					   uint8 *pubSignature, uint32 *pcubSignature,
-					   const uint8 *pubPrivateKey, const uint32 cubPrivateKey )
-{
-	VPROF_BUDGET( "CCrypto::RSASign", VPROF_BUDGETGROUP_ENCRYPTION );
-	Assert( pubData );
-	Assert( pubPrivateKey );
-	Assert( cubPrivateKey > 0 );
-	Assert( pubSignature );
-	Assert( pcubSignature );
-	Assert( *pcubSignature > 0 );
-	bool bRet = false;
-
-	OneTimeCryptoInitOpenSSL();
-	::RSA *rsa = OpenSSL_RSAFromPKCS8PrivKey( pubPrivateKey, cubPrivateKey );
-	if ( rsa )
-	{
-		if ( *pcubSignature < (uint)RSA_size( rsa ) )
-		{
-			AssertMsg2( false, "Insufficient signature buffer passed to RSASign, got %u needed %d", *pcubSignature, RSA_size( rsa ) );
-		}
-		else
-		{
-			SHADigest_t digest;
-			CCrypto::GenerateSHA1Digest( (const uint8*)pubData, cubData, &digest );
-			bRet = !!RSA_sign( NID_sha1, digest, sizeof( digest ), pubSignature, pcubSignature, rsa );
-		}
-		RSA_free( rsa );
-	}
-	DispatchOpenSSLErrors( "CCrypto::RSASign" );
-
-	return bRet;
-}
-
-
-//-----------------------------------------------------------------------------
-// Purpose: Verifies that signature block is authentic for given data & RSA public key
-// Input:	pubData -			Data that was signed
-//			cubData -			Size of data that was signed signed
-//			pubSignature -		Signature block
-//			cubSignature -		Size of signature block
-//			pubPublicKey -		The RSA public key to use to verify the signature 
-//								(must be from same pair as RSA private key used to generate signature)
-//			cubPublicKey -		Size of the key
-// Output:  true if successful and signature is authentic, false if signature does not match or other error
-//-----------------------------------------------------------------------------
-bool CCrypto::RSAVerifySignature( const uint8 *pubData, const uint32 cubData, 
-								  const uint8 *pubSignature, const uint32 cubSignature, 
-								  const uint8 *pubPublicKey, const uint32 cubPublicKey )
-{
-	VPROF_BUDGET( "CCrypto::RSAVerifySignature", VPROF_BUDGETGROUP_ENCRYPTION );
-	Assert( pubData );
-	Assert( pubSignature );
-	Assert( pubPublicKey );
-	
-	bool bRet = false;
-
-	OneTimeCryptoInitOpenSSL();
-	const uint8 *pPublicKeyPtr = pubPublicKey;
-	if ( ::RSA *rsa = d2i_RSA_PUBKEY( NULL, &pPublicKeyPtr, cubPublicKey ) )
-	{
-		SHADigest_t digest;
-		GenerateSHA1Digest( pubData, cubData, &digest );
-		bRet = !!RSA_verify( NID_sha1, digest, sizeof(digest), pubSignature, cubSignature, rsa );
-		ERR_clear_error(); // if RSA_verify failed, we don't spew - could be invalid data.
-		RSA_free( rsa );
-	}
-	DispatchOpenSSLErrors( "CCrypto::RSAVerifySignature" );
-
-	return bRet;
-}
 #endif
-
+//SDR_PUBLIC 	//-----------------------------------------------------------------------------
+//SDR_PUBLIC 	// Purpose: Generates an RSA signature block for the specified data with the specified
+//SDR_PUBLIC 	//			RSA private key.  The signature can be verified by calling RSAVerifySignature
+//SDR_PUBLIC 	//			with the RSA public key.
+//SDR_PUBLIC 	// Input:	pubData -			Data to be signed
+//SDR_PUBLIC 	//			cubData -			Size of data to be signed
+//SDR_PUBLIC 	//			pubSignature -		Pointer to buffer to receive signature block
+//SDR_PUBLIC 	//			pcubSignature -		Pointer to a variable that at time of call contains the size of
+//SDR_PUBLIC 	//								the pubSignature buffer.  When the method returns, this will contain
+//SDR_PUBLIC 	//								the actual size of the signature block
+//SDR_PUBLIC 	//			pubPrivateKey -		The RSA private key to use to sign the data
+//SDR_PUBLIC 	//			cubPrivateKey -		Size of the key
+//SDR_PUBLIC 	// Output:  true if successful, false if signature failed
+//SDR_PUBLIC 	//-----------------------------------------------------------------------------
+//SDR_PUBLIC 	bool CCrypto::RSASign( const uint8 *pubData, const uint32 cubData, 
+//SDR_PUBLIC 						   uint8 *pubSignature, uint32 *pcubSignature,
+//SDR_PUBLIC 						   const uint8 *pubPrivateKey, const uint32 cubPrivateKey )
+//SDR_PUBLIC 	{
+//SDR_PUBLIC 		VPROF_BUDGET( "CCrypto::RSASign", VPROF_BUDGETGROUP_ENCRYPTION );
+//SDR_PUBLIC 		Assert( pubData );
+//SDR_PUBLIC 		Assert( pubPrivateKey );
+//SDR_PUBLIC 		Assert( cubPrivateKey > 0 );
+//SDR_PUBLIC 		Assert( pubSignature );
+//SDR_PUBLIC 		Assert( pcubSignature );
+//SDR_PUBLIC 		Assert( *pcubSignature > 0 );
+//SDR_PUBLIC 		bool bRet = false;
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		OneTimeCryptoInitOpenSSL();
+//SDR_PUBLIC 		::RSA *rsa = OpenSSL_RSAFromPKCS8PrivKey( pubPrivateKey, cubPrivateKey );
+//SDR_PUBLIC 		if ( rsa )
+//SDR_PUBLIC 		{
+//SDR_PUBLIC 			if ( *pcubSignature < (uint)RSA_size( rsa ) )
+//SDR_PUBLIC 			{
+//SDR_PUBLIC 				AssertMsg2( false, "Insufficient signature buffer passed to RSASign, got %u needed %d", *pcubSignature, RSA_size( rsa ) );
+//SDR_PUBLIC 			}
+//SDR_PUBLIC 			else
+//SDR_PUBLIC 			{
+//SDR_PUBLIC 				SHADigest_t digest;
+//SDR_PUBLIC 				CCrypto::GenerateSHA1Digest( (const uint8*)pubData, cubData, &digest );
+//SDR_PUBLIC 				bRet = !!RSA_sign( NID_sha1, digest, sizeof( digest ), pubSignature, pcubSignature, rsa );
+//SDR_PUBLIC 			}
+//SDR_PUBLIC 			RSA_free( rsa );
+//SDR_PUBLIC 		}
+//SDR_PUBLIC 		DispatchOpenSSLErrors( "CCrypto::RSASign" );
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		return bRet;
+//SDR_PUBLIC 	}
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	
+//SDR_PUBLIC 	//-----------------------------------------------------------------------------
+//SDR_PUBLIC 	// Purpose: Verifies that signature block is authentic for given data & RSA public key
+//SDR_PUBLIC 	// Input:	pubData -			Data that was signed
+//SDR_PUBLIC 	//			cubData -			Size of data that was signed signed
+//SDR_PUBLIC 	//			pubSignature -		Signature block
+//SDR_PUBLIC 	//			cubSignature -		Size of signature block
+//SDR_PUBLIC 	//			pubPublicKey -		The RSA public key to use to verify the signature 
+//SDR_PUBLIC 	//								(must be from same pair as RSA private key used to generate signature)
+//SDR_PUBLIC 	//			cubPublicKey -		Size of the key
+//SDR_PUBLIC 	// Output:  true if successful and signature is authentic, false if signature does not match or other error
+//SDR_PUBLIC 	//-----------------------------------------------------------------------------
+//SDR_PUBLIC 	bool CCrypto::RSAVerifySignature( const uint8 *pubData, const uint32 cubData, 
+//SDR_PUBLIC 									  const uint8 *pubSignature, const uint32 cubSignature, 
+//SDR_PUBLIC 									  const uint8 *pubPublicKey, const uint32 cubPublicKey )
+//SDR_PUBLIC 	{
+//SDR_PUBLIC 		VPROF_BUDGET( "CCrypto::RSAVerifySignature", VPROF_BUDGETGROUP_ENCRYPTION );
+//SDR_PUBLIC 		Assert( pubData );
+//SDR_PUBLIC 		Assert( pubSignature );
+//SDR_PUBLIC 		Assert( pubPublicKey );
+//SDR_PUBLIC 		
+//SDR_PUBLIC 		bool bRet = false;
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		OneTimeCryptoInitOpenSSL();
+//SDR_PUBLIC 		const uint8 *pPublicKeyPtr = pubPublicKey;
+//SDR_PUBLIC 		if ( ::RSA *rsa = d2i_RSA_PUBKEY( NULL, &pPublicKeyPtr, cubPublicKey ) )
+//SDR_PUBLIC 		{
+//SDR_PUBLIC 			SHADigest_t digest;
+//SDR_PUBLIC 			GenerateSHA1Digest( pubData, cubData, &digest );
+//SDR_PUBLIC 			bRet = !!RSA_verify( NID_sha1, digest, sizeof(digest), pubSignature, cubSignature, rsa );
+//SDR_PUBLIC 			ERR_clear_error(); // if RSA_verify failed, we don't spew - could be invalid data.
+//SDR_PUBLIC 			RSA_free( rsa );
+//SDR_PUBLIC 		}
+//SDR_PUBLIC 		DispatchOpenSSLErrors( "CCrypto::RSAVerifySignature" );
+//SDR_PUBLIC 	
+//SDR_PUBLIC 		return bRet;
+//SDR_PUBLIC 	}
+//SDR_PUBLIC 	
 //SDR_PUBLIC 	//-----------------------------------------------------------------------------
 //SDR_PUBLIC 	// Purpose: Generates an RSA signature block for the specified data with the specified
 //SDR_PUBLIC 	//			RSA private key.  The signature can be verified by calling RSAVerifySignature
