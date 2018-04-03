@@ -33,6 +33,31 @@ $ meson . build
 $ ninja -C build
 ```
 
+### MSYS2
+
+You can also build this project on [MSYS2](https://www.msys2.org). First, follow the [instructions](https://github.com/msys2/msys2/wiki/MSYS2-installation) on the MSYS2 website for updating your MSYS2 install.
+
+Next install the dependencies for building GameNetworkingSockets (if you want a 32-bit build, install the i686 versions of these packages):
+
+```
+$ pacman -S \
+    git \
+    mingw-w64-x86_64-protobuf \
+    mingw-w64-x86_64-meson \
+    mingw-w64-x86_64-openssl \
+    mingw-w64-x86_64-gcc \
+    mingw-w64-x86_64-pkg-config
+```
+
+And finally, clone the repository and build it:
+
+```
+$ git clone https://github.com/ValveSoftware/GameNetworkingSockets.git
+$ cd GameNetworkingSockets
+$ meson . build
+$ ninja -C build
+```
+
 ### Work in progress!
 
 We're still in the process of extracting the code from our proprietary build toolchain and making everything more open-source friendly.  Bear with us.
