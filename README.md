@@ -11,7 +11,7 @@ GameNetworkingSockets is a basic transport layer for games.  The features are:
 * Tools for simulating loss and detailed stats measurement
 
 The main interface class is named SteamNetworkingSockets, and many files have "steam" in their name.
-However, *Steam is not needed* because the subset of the functionality of the API is provided within the same name in the SteamworksSDK.  This naming intention is that you can use the Steamworks version on PC and can still use this version in other platforsms. In this way, having the Steam version be "weird" can be avoided and makes sure the Steam version take full advantage of the features it provides.
+However, *Steam is not needed* because the subset of the functionality of the API is provided within the same name in the SteamworksSDK.  This naming intention is that you can use the Steamworks version on PC and can still use this version in other platforms. In this way, having the Steam version be "weird" can be avoided and makes sure the Steam version take full advantage of the features it provides.
 
 Even if you do not make games or are not on Steam, feel free to use this code for whatever purpose you want.
 
