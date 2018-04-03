@@ -1,6 +1,3 @@
-add_global_arguments('-fvisibility=hidden', language: 'cpp')
-add_global_arguments('-fvisibility-inlines-hidden', language: 'cpp')
-
 dependencies = []
 
 c_compiler = meson.get_compiler('c')
@@ -21,11 +18,13 @@ incdirs = include_directories('.', '../include', 'common', 'public')
 
 flags_common = [
   '-fno-strict-aliasing',
+  '-fvisibility=hidden',
 ]
 
 flags_cxx = [
   '-fno-rtti',
   '-fno-exceptions',
+  '-fvisibility-inlines-hidden',
 ]
 
 warn_flags_common = [
