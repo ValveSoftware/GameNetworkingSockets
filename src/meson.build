@@ -84,7 +84,7 @@ endif
 
 c_flags = []
 c_flags += c_compiler.first_supported_argument(['-std=c11', '-std=gnu99'])
-foreach arg : warn_flags_c + flags_common + warn_flags_common
+foreach arg : flags_common + warn_flags_common + warn_flags_c
   if c_compiler.has_argument(arg)
 	c_flags += [ arg ]
   endif
@@ -92,7 +92,7 @@ endforeach
 
 cxx_flags = []
 cxx_flags += cxx_compiler.first_supported_argument(['-std=c++11', '-std=c++0x'])
-foreach arg : warn_flags_cxx + flags_common + flags_cxx + warn_flags_common
+foreach arg : flags_common + warn_flags_common + flags_cxx + warn_flags_cxx
   if cxx_compiler.has_argument(arg)
 	cxx_flags += [ arg ]
   endif
