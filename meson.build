@@ -1,7 +1,8 @@
 project('GameNetworkingSockets', 'cpp', 'c',
   default_options: [
 	'buildtype=debugoptimized',
-  ]
+  ],
+  license: 'BSD'
 )
 
 flags_common = [
