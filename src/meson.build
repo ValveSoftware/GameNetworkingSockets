@@ -29,13 +29,15 @@ flags_cxx = [
 
 warn_flags_common = [
   '-Wall',
-  #'-Wextra',
-  #'-pedantic',
+  '-Wextra',
   '-Wno-unknown-pragmas',
   '-Wno-sign-compare',
+  '-Wno-implicit-fallthrough',
+  '-Wno-unused-parameter',
 ]
 
 warn_flags_c = [
+  '-Wimplicit',
   '-Wstrict-prototypes',
 ]
 
