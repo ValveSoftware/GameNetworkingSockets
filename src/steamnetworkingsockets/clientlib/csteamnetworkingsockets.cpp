@@ -18,6 +18,8 @@
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
 
+ISteamNetworkingSockets::~ISteamNetworkingSockets() {}
+
 // Put everything in a namespace, so we don't violate the one definition rule
 namespace SteamNetworkingSocketsLib {
 
@@ -729,7 +731,7 @@ int CSteamNetworkingSockets::GetDetailedConnectionStatus( HSteamNetConnection hC
 		if ( !pConn )
 			return -1;
 
-		pConn->APIGetDetailedConnectionStatus( stats, SteamDatagram_GetCurrentTime() );
+		pConn->APIGetDetailedConnectionStatus( stats, SteamNetworkingSockets_GetLocalTimestamp() );
 
 	} // Release lock.  We don't need it, and printing can take a while!
 	int r = stats.Print( pszBuf, cbBuf );
@@ -1315,19 +1317,19 @@ CSteamNetworkingSockets SteamNetworkingSocketsLib::g_SteamNetworkingSocketsGameS
 //
 /////////////////////////////////////////////////////////////////////////////
 
-STEAMDATAGRAMLIB_INTERFACE ISteamNetworkingSockets *SteamNetworkingSockets()
+STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets *SteamNetworkingSockets()
 {
 	return &g_SteamNetworkingSocketsUser;
 }
 
-STEAMDATAGRAMLIB_INTERFACE ISteamNetworkingSockets *SteamNetworkingSocketsGameServer()
+STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets *SteamNetworkingSocketsGameServer()
 {
 	return &g_SteamNetworkingSocketsGameServer;
 }
 
 #ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
 
-STEAMDATAGRAMLIB_INTERFACE bool GameNetworkingSockets_Init( SteamDatagramErrMsg &errMsg )
+STEAMNETWORKINGSOCKETS_INTERFACE bool GameNetworkingSockets_Init( SteamDatagramErrMsg &errMsg )
 {
 
 	// Init basic functionality
@@ -1339,7 +1341,7 @@ STEAMDATAGRAMLIB_INTERFACE bool GameNetworkingSockets_Init( SteamDatagramErrMsg 
 	return true;
 }
 
-STEAMDATAGRAMLIB_INTERFACE void GameNetworkingSockets_Kill()
+STEAMNETWORKINGSOCKETS_INTERFACE void GameNetworkingSockets_Kill()
 {
 	g_SteamNetworkingSocketsUser.Kill();
 	g_SteamNetworkingSocketsGameServer.Kill();
@@ -1347,7 +1349,7 @@ STEAMDATAGRAMLIB_INTERFACE void GameNetworkingSockets_Kill()
 
 #else
 
-STEAMDATAGRAMLIB_INTERFACE void SteamDatagramClient_Kill()
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamDatagramClient_Kill()
 {
 	SteamDatagramTransportLock lock;
 
@@ -1356,7 +1358,7 @@ STEAMDATAGRAMLIB_INTERFACE void SteamDatagramClient_Kill()
 	g_SteamNetworkingSocketsUser.Kill();
 }
 
-STEAMDATAGRAMLIB_INTERFACE void SteamDatagramClient_Internal_SteamAPIKludge( FSteamAPI_RegisterCallback fnRegisterCallback, FSteamAPI_UnregisterCallback fnUnregisterCallback, FSteamAPI_RegisterCallResult fnRegisterCallResult, FSteamAPI_UnregisterCallResult fnUnregisterCallResult )
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamDatagramClient_Internal_SteamAPIKludge( FSteamAPI_RegisterCallback fnRegisterCallback, FSteamAPI_UnregisterCallback fnUnregisterCallback, FSteamAPI_RegisterCallResult fnRegisterCallResult, FSteamAPI_UnregisterCallResult fnUnregisterCallResult )
 {
 	s_fnRegisterCallback = fnRegisterCallback;
 	s_fnUnregisterCallback = fnUnregisterCallback;
@@ -1368,7 +1370,7 @@ STEAMDATAGRAMLIB_INTERFACE void SteamDatagramClient_Internal_SteamAPIKludge( FSt
 //#undef STEAMCLIENT_INTERFACE_VERSION
 //#define STEAMCLIENT_INTERFACE_VERSION		"SteamClient017"
 
-STEAMDATAGRAMLIB_INTERFACE bool SteamDatagramClient_Init_InternalV4( int iPartnerMask, SteamDatagramErrMsg &errMsg, FSteamInternal_CreateInterface fnCreateInterface, HSteamUser hSteamUser, HSteamPipe hSteamPipe )
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamDatagramClient_Init_InternalV4( int iPartnerMask, SteamDatagramErrMsg &errMsg, FSteamInternal_CreateInterface fnCreateInterface, HSteamUser hSteamUser, HSteamPipe hSteamPipe )
 {
 	SteamDatagramTransportLock lock;
 	if ( g_pSteamUser )
@@ -1415,7 +1417,7 @@ STEAMDATAGRAMLIB_INTERFACE bool SteamDatagramClient_Init_InternalV4( int iPartne
 	return true;
 }
 
-STEAMDATAGRAMLIB_INTERFACE bool SteamDatagramServer_Init_Internal( SteamDatagramErrMsg &errMsg, FSteamInternal_CreateInterface fnCreateInterface, HSteamUser hSteamUser, HSteamPipe hSteamPipe )
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamDatagramServer_Init_Internal( SteamDatagramErrMsg &errMsg, FSteamInternal_CreateInterface fnCreateInterface, HSteamUser hSteamUser, HSteamPipe hSteamPipe )
 {
 	SteamDatagramTransportLock lock;
 
@@ -1495,7 +1497,7 @@ STEAMDATAGRAMLIB_INTERFACE bool SteamDatagramServer_Init_Internal( SteamDatagram
 	return true;
 }
 
-STEAMDATAGRAMLIB_INTERFACE void SteamDatagramServer_Kill()
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamDatagramServer_Kill()
 {
 	SteamDatagramTransportLock lock;
 	g_pSteamGameServer = nullptr;

@@ -51,7 +51,7 @@ void SteamDatagramTransportLock::OnLocked()
 	++s_nLocked;
 	if ( s_nLocked == 1 )
 	{
-		s_usecWhenLocked = SteamDatagram_GetCurrentTime();
+		s_usecWhenLocked = SteamNetworkingSockets_GetLocalTimestamp();
 		s_threadIDLockOwner = std::this_thread::get_id();
 	}
 }
@@ -75,7 +75,7 @@ void SteamDatagramTransportLock::Unlock()
 	SteamNetworkingMicroseconds usecElapsed = 0;
 	if ( s_nLocked == 1 )
 	{
-		usecElapsed = SteamDatagram_GetCurrentTime() - s_usecWhenLocked;
+		usecElapsed = SteamNetworkingSockets_GetLocalTimestamp() - s_usecWhenLocked;
 		s_threadIDLockOwner = std::thread::id();
 	}
 	--s_nLocked;
@@ -108,61 +108,6 @@ static void SeedWeakRandomGenerator()
 
 static std::atomic<long long> s_usecTimeLastReturned;
 static std::atomic<long long> s_usecTimeOffset( (long long)( k_nMillion*24*3600*30 ) ); // Start with an offset so that a timestamp of zero is always pretty far in the past
-
-SteamNetworkingMicroseconds SteamDatagram_GetCurrentTime()
-{
-	SteamNetworkingMicroseconds usecResult;
-	long long usecLastReturned;
-	for (;;)
-	{
-		// Fetch values into locals (probably registers)
-		usecLastReturned = s_usecTimeLastReturned;
-		long long usecOffset = s_usecTimeOffset;
-
-		// Read raw timer
-		uint64 usecRaw = Plat_USTime();
-
-		// Add offset to get value in "SteamNetworkingMicroseconds" time
-		usecResult = usecRaw + usecOffset;
-
-		// How much raw timer time (presumed to be wall clock time) has elapsed since
-		// we read the timer?
-		SteamNetworkingMicroseconds usecElapsed = usecResult - usecLastReturned;
-		Assert( usecElapsed >= 0 ); // Our raw timer function is not monotonic!  We assume this never happens!
-		const SteamNetworkingMicroseconds k_usecMaxTimestampDelta = k_nMillion; // one second
-		if ( usecElapsed <= k_usecMaxTimestampDelta )
-		{
-			// Should be the common case - only a relatively small of time has elapsed
-			break;
-		}
-		if ( !g_bWantThreadRunning && !g_bThreadInMainThread )
-		{
-			// We don't have any expectation that we should be updating the timer frequently,
-			// so  a big jump in the value just means they aren't calling it very often
-			break;
-		}
-
-		// NOTE: We should only rarely get here, and probably as a result of running under the debugger
-
-		// Adjust offset so that delta between timestamps is limited
-		long long usecNewOffset = usecOffset - ( usecElapsed - k_usecMaxTimestampDelta );
-		usecResult = usecRaw + usecNewOffset;
-
-		// Save the new offset.
-		if ( s_usecTimeOffset.compare_exchange_strong( usecOffset, usecNewOffset ) )
-			break;
-
-		// Race condition which should be extremely rare.  Some other thread changed the offset, in the time
-		// between when we fetched it and now.  (So, a really small race window!)  Just start all over from
-		// the beginning.
-	}
-
-	// Save the last value returned.  Unless another thread snuck in there while we were busy.
-	// If so, that's OK.
-	s_usecTimeLastReturned.compare_exchange_strong( usecLastReturned, usecResult );
-
-	return usecResult;
-}
 
 /////////////////////////////////////////////////////////////////////////////
 //
@@ -283,7 +228,7 @@ public:
 
 		// Limit to something sane
 		msDelay = Min( msDelay, 5000 );
-		const SteamNetworkingMicroseconds usecTime = SteamDatagram_GetCurrentTime() + msDelay * 1000;
+		const SteamNetworkingMicroseconds usecTime = SteamNetworkingSockets_GetLocalTimestamp() + msDelay * 1000;
 
 		// Find the right place to insert the packet.
 		LaggedPacket *pkt = nullptr;
@@ -683,7 +628,7 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS )
 		poll( s_vecPollFD.Base(), s_vecPollFD.Count(), nMaxTimeoutMS );
 	#endif
 
-	SteamNetworkingMicroseconds usecStartedLocking = SteamDatagram_GetCurrentTime();
+	SteamNetworkingMicroseconds usecStartedLocking = SteamNetworkingSockets_GetLocalTimestamp();
 	for (;;)
 	{
 
@@ -711,7 +656,7 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS )
 		// However, note that try_lock_for is permitted to "fail" spuriously, returning
 		// false even if no other thread holds the lock.  (For performance reasons.)
 		// So we check how long we have actually been waiting.
-		SteamNetworkingMicroseconds usecElapsed = SteamDatagram_GetCurrentTime() - usecStartedLocking;
+		SteamNetworkingMicroseconds usecElapsed = SteamNetworkingSockets_GetLocalTimestamp() - usecStartedLocking;
 		AssertMsg1( usecElapsed < 50*1000 || !g_bWantThreadRunning || Plat_IsInDebugSession(), "SDR service thread gave up on lock after waiting %dms.  This directly adds to delay of processing of network packets!", int( usecElapsed/1000 ) );
 	}
 
@@ -1011,7 +956,7 @@ void IThinker::EnsureMinThinkTime( SteamNetworkingMicroseconds usecTargetThinkTi
 
 void ProcessThinkers()
 {
-	SteamNetworkingMicroseconds usecNow = SteamDatagram_GetCurrentTime();
+	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 
 	// Until the queue is empty
 	while ( s_queueThinkers.Count() > 0 )
@@ -1124,7 +1069,7 @@ static void SteamDatagramThreadProc()
 			// Calc wait time to wake up as late as possible,
 			// routed up to the nearest millisecond.
 			SteamNetworkingMicroseconds usecNextWakeTime = pNextThinker->GetLatestThinkTime();
-			SteamNetworkingMicroseconds usecNow = SteamDatagram_GetCurrentTime();
+			SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 			int64 usecUntilNextThinkTime = usecNextWakeTime - usecNow;
 
 			if ( usecNow >= pNextThinker->GetEarliestThinkTime() )
@@ -1227,7 +1172,7 @@ static bool BEnsureSteamDatagramThreadRunning( SteamDatagramErrMsg &errMsg )
 	// just before we start up our thread, so we don't lurch
 	// on our first reading after the thread is running and
 	// take action to correct this.
-	SteamDatagram_GetCurrentTime();
+	SteamNetworkingSockets_GetLocalTimestamp();
 
 	if ( g_bThreadInMainThread )
 	{
@@ -1543,15 +1488,15 @@ void CSharedSocket::RemoteHost::Close()
 //
 /////////////////////////////////////////////////////////////////////////////
 
-ESteamDatagramDebugOutputType g_eSteamDatagramDebugOutputDetailLevel;
-static FSteamDatagramDebugOutput s_pfnDebugOutput = nullptr;
+ESteamNetworkingSocketsDebugOutputType g_eSteamDatagramDebugOutputDetailLevel;
+static FSteamNetworkingSocketsDebugOutput s_pfnDebugOutput = nullptr;
 
-void ReallySpewType( ESteamDatagramDebugOutputType eType, const char *pMsg, ... )
+void ReallySpewType( ESteamNetworkingSocketsDebugOutputType eType, const char *pMsg, ... )
 {
 	// Save callback.  Paranoia for unlikely but possible race condition,
 	// if we spew from more than one place in our code and stuff changes
 	// while we are formatting.
-	FSteamDatagramDebugOutput pfnDebugOutput = s_pfnDebugOutput;
+	FSteamNetworkingSocketsDebugOutput pfnDebugOutput = s_pfnDebugOutput;
 
 	// Filter, just in case.  (We really shouldn't get here, though.)
 	if ( !pfnDebugOutput || eType > g_eSteamDatagramDebugOutputDetailLevel )
@@ -1583,18 +1528,18 @@ static SpewRetval_t SDRSpewFunc( SpewType_t type, tchar const *pMsg )
 			// |
 			// V
 		case SPEW_MESSAGE:
-			if ( s_pfnDebugOutput && g_eSteamDatagramDebugOutputDetailLevel >= k_ESteamDatagramDebugOutputType_Msg )
-				s_pfnDebugOutput( k_ESteamDatagramDebugOutputType_Msg, pMsg );
+			if ( s_pfnDebugOutput && g_eSteamDatagramDebugOutputDetailLevel >= k_ESteamNetworkingSocketsDebugOutputType_Msg )
+				s_pfnDebugOutput( k_ESteamNetworkingSocketsDebugOutputType_Msg, pMsg );
 			break;
 
 		case SPEW_WARNING:
-			if ( s_pfnDebugOutput && g_eSteamDatagramDebugOutputDetailLevel >= k_ESteamDatagramDebugOutputType_Warning )
-				s_pfnDebugOutput( k_ESteamDatagramDebugOutputType_Warning, pMsg );
+			if ( s_pfnDebugOutput && g_eSteamDatagramDebugOutputDetailLevel >= k_ESteamNetworkingSocketsDebugOutputType_Warning )
+				s_pfnDebugOutput( k_ESteamNetworkingSocketsDebugOutputType_Warning, pMsg );
 			break;
 
 		case SPEW_ASSERT:
-			if ( s_pfnDebugOutput && g_eSteamDatagramDebugOutputDetailLevel >= k_ESteamDatagramDebugOutputType_Error )
-				s_pfnDebugOutput( k_ESteamDatagramDebugOutputType_Bug, pMsg );
+			if ( s_pfnDebugOutput && g_eSteamDatagramDebugOutputDetailLevel >= k_ESteamNetworkingSocketsDebugOutputType_Error )
+				s_pfnDebugOutput( k_ESteamNetworkingSocketsDebugOutputType_Bug, pMsg );
 
 			// Ug, for some reason this is crashing, because it's trying to generate a breakpoint
 			// even when it's not being run under the debugger.  Probably the best thing to do is just rely
@@ -1603,13 +1548,13 @@ static SpewRetval_t SDRSpewFunc( SpewType_t type, tchar const *pMsg )
 			break;
 
 		case SPEW_ERROR:
-			if ( s_pfnDebugOutput && g_eSteamDatagramDebugOutputDetailLevel >= k_ESteamDatagramDebugOutputType_Error )
-				s_pfnDebugOutput( k_ESteamDatagramDebugOutputType_Error, pMsg );
+			if ( s_pfnDebugOutput && g_eSteamDatagramDebugOutputDetailLevel >= k_ESteamNetworkingSocketsDebugOutputType_Error )
+				s_pfnDebugOutput( k_ESteamNetworkingSocketsDebugOutputType_Error, pMsg );
 			return SPEW_ABORT;
 
 		case SPEW_BOLD_MESSAGE:
-			if ( s_pfnDebugOutput && g_eSteamDatagramDebugOutputDetailLevel >= k_ESteamDatagramDebugOutputType_Important )
-				s_pfnDebugOutput( k_ESteamDatagramDebugOutputType_Important, pMsg );
+			if ( s_pfnDebugOutput && g_eSteamDatagramDebugOutputDetailLevel >= k_ESteamNetworkingSocketsDebugOutputType_Important )
+				s_pfnDebugOutput( k_ESteamNetworkingSocketsDebugOutputType_Important, pMsg );
 	}
 	
 	return SPEW_CONTINUE;
@@ -1682,17 +1627,72 @@ void SteamNetworkingSocketsKillCommon()
 //
 /////////////////////////////////////////////////////////////////////////////
 
-STEAMDATAGRAMLIB_INTERFACE void SteamDatagram_SetDebugOutputFunction( /* ESteamDatagramSpewType */ int eDetailLevel, FSteamDatagramDebugOutput pfnFunc )
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetDebugOutputFunction( /* ESteamDatagramSpewType */ int eDetailLevel, FSteamNetworkingSocketsDebugOutput pfnFunc )
 {
-	if ( pfnFunc && eDetailLevel > k_ESteamDatagramDebugOutputType_None )
+	if ( pfnFunc && eDetailLevel > k_ESteamNetworkingSocketsDebugOutputType_None )
 	{
 		SteamNetworkingSocketsLib::s_pfnDebugOutput = pfnFunc;
-		SteamNetworkingSocketsLib::g_eSteamDatagramDebugOutputDetailLevel = ESteamDatagramDebugOutputType( eDetailLevel );
+		SteamNetworkingSocketsLib::g_eSteamDatagramDebugOutputDetailLevel = ESteamNetworkingSocketsDebugOutputType( eDetailLevel );
 	}
 	else
 	{
 		SteamNetworkingSocketsLib::s_pfnDebugOutput = nullptr;
-		SteamNetworkingSocketsLib::g_eSteamDatagramDebugOutputDetailLevel = k_ESteamDatagramDebugOutputType_None;
+		SteamNetworkingSocketsLib::g_eSteamDatagramDebugOutputDetailLevel = k_ESteamNetworkingSocketsDebugOutputType_None;
 	}
+}
+
+STEAMNETWORKINGSOCKETS_INTERFACE SteamNetworkingMicroseconds SteamNetworkingSockets_GetLocalTimestamp()
+{
+	SteamNetworkingMicroseconds usecResult;
+	long long usecLastReturned;
+	for (;;)
+	{
+		// Fetch values into locals (probably registers)
+		usecLastReturned = SteamNetworkingSocketsLib::s_usecTimeLastReturned;
+		long long usecOffset = SteamNetworkingSocketsLib::s_usecTimeOffset;
+
+		// Read raw timer
+		uint64 usecRaw = Plat_USTime();
+
+		// Add offset to get value in "SteamNetworkingMicroseconds" time
+		usecResult = usecRaw + usecOffset;
+
+		// How much raw timer time (presumed to be wall clock time) has elapsed since
+		// we read the timer?
+		SteamNetworkingMicroseconds usecElapsed = usecResult - usecLastReturned;
+		Assert( usecElapsed >= 0 ); // Our raw timer function is not monotonic!  We assume this never happens!
+		const SteamNetworkingMicroseconds k_usecMaxTimestampDelta = k_nMillion; // one second
+		if ( usecElapsed <= k_usecMaxTimestampDelta )
+		{
+			// Should be the common case - only a relatively small of time has elapsed
+			break;
+		}
+		if ( !SteamNetworkingSocketsLib::g_bWantThreadRunning && !SteamNetworkingSocketsLib::g_bThreadInMainThread )
+		{
+			// We don't have any expectation that we should be updating the timer frequently,
+			// so  a big jump in the value just means they aren't calling it very often
+			break;
+		}
+
+		// NOTE: We should only rarely get here, and probably as a result of running under the debugger
+
+		// Adjust offset so that delta between timestamps is limited
+		long long usecNewOffset = usecOffset - ( usecElapsed - k_usecMaxTimestampDelta );
+		usecResult = usecRaw + usecNewOffset;
+
+		// Save the new offset.
+		if ( SteamNetworkingSocketsLib::s_usecTimeOffset.compare_exchange_strong( usecOffset, usecNewOffset ) )
+			break;
+
+		// Race condition which should be extremely rare.  Some other thread changed the offset, in the time
+		// between when we fetched it and now.  (So, a really small race window!)  Just start all over from
+		// the beginning.
+	}
+
+	// Save the last value returned.  Unless another thread snuck in there while we were busy.
+	// If so, that's OK.
+	SteamNetworkingSocketsLib::s_usecTimeLastReturned.compare_exchange_strong( usecLastReturned, usecResult );
+
+	return usecResult;
 }
 

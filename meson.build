@@ -5,3 +5,4 @@ project('GameNetworkingSockets', 'cpp', 'c',
 )
 
 subdir('src')
+subdir('tests')

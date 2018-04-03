@@ -273,9 +273,6 @@ private:
 //
 /////////////////////////////////////////////////////////////////////////////
 
-/// Fetch current time
-extern SteamNetworkingMicroseconds SteamDatagram_GetCurrentTime();
-
 /// Flag to signal that we want to be active.  If this is false, either
 /// we haven't activated a service that needs the service thread, or
 /// we've failed to initialize, or we're shutting down.
@@ -289,16 +286,16 @@ extern void CallDatagramThreadProc();
 /// This is when: 1.) We own the lock and 2.) we aren't polling in the service thread.
 extern void ProcessPendingDestroyClosedRawUDPSockets();
 
-extern ESteamDatagramDebugOutputType g_eSteamDatagramDebugOutputDetailLevel;
-extern void ReallySpewType( ESteamDatagramDebugOutputType eType, PRINTF_FORMAT_STRING const char *pMsg, ... ) FMTFUNCTION( 2, 3 );
+extern ESteamNetworkingSocketsDebugOutputType g_eSteamDatagramDebugOutputDetailLevel;
+extern void ReallySpewType( ESteamNetworkingSocketsDebugOutputType eType, PRINTF_FORMAT_STRING const char *pMsg, ... ) FMTFUNCTION( 2, 3 );
 #define SpewType( eType, ... ) ( ( eType <= g_eSteamDatagramDebugOutputDetailLevel ) ? ReallySpewType( eType, __VA_ARGS__ ) : (void)0 )
-#define SpewMsg( ... ) SpewType( k_ESteamDatagramDebugOutputType_Msg, __VA_ARGS__ )
-#define SpewVerbose( ... ) SpewType( k_ESteamDatagramDebugOutputType_Verbose, __VA_ARGS__ )
-#define SpewDebug( ... ) SpewType( k_ESteamDatagramDebugOutputType_Debug, __VA_ARGS__ )
-#define SpewImportant( ... ) SpewType( k_ESteamDatagramDebugOutputType_Important, __VA_ARGS__ )
-#define SpewWarning( ... ) SpewType( k_ESteamDatagramDebugOutputType_Warning, __VA_ARGS__ )
-#define SpewError( ... ) SpewType( k_ESteamDatagramDebugOutputType_Error, __VA_ARGS__ )
-#define SpewBug( ... ) SpewType( k_ESteamDatagramDebugOutputType_Bug, __VA_ARGS__ )
+#define SpewMsg( ... ) SpewType( k_ESteamNetworkingSocketsDebugOutputType_Msg, __VA_ARGS__ )
+#define SpewVerbose( ... ) SpewType( k_ESteamNetworkingSocketsDebugOutputType_Verbose, __VA_ARGS__ )
+#define SpewDebug( ... ) SpewType( k_ESteamNetworkingSocketsDebugOutputType_Debug, __VA_ARGS__ )
+#define SpewImportant( ... ) SpewType( k_ESteamNetworkingSocketsDebugOutputType_Important, __VA_ARGS__ )
+#define SpewWarning( ... ) SpewType( k_ESteamNetworkingSocketsDebugOutputType_Warning, __VA_ARGS__ )
+#define SpewError( ... ) SpewType( k_ESteamNetworkingSocketsDebugOutputType_Error, __VA_ARGS__ )
+#define SpewBug( ... ) SpewType( k_ESteamNetworkingSocketsDebugOutputType_Bug, __VA_ARGS__ )
 
 /// Make sure stuff is initialized
 extern bool BSteamNetworkingSocketsInitCommon( SteamDatagramErrMsg &errMsg );
@@ -321,5 +318,8 @@ struct SteamDatagramTransportLock
 };
 
 } // namespace SteamNetworkingSocketsLib
+
+/// Fetch current time
+STEAMNETWORKINGSOCKETS_INTERFACE SteamNetworkingMicroseconds SteamNetworkingSockets_GetLocalTimestamp();
 
 #endif // STEAMNETWORKINGSOCKETS_LOWLEVEL_H

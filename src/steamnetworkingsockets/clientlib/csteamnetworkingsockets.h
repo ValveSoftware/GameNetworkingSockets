@@ -4,10 +4,10 @@
 #define CSTEAMNETWORKINGSOCKETS_H
 #pragma once
 
+#include <steamnetworkingsockets/isteamnetworkingsockets.h>
 #ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
 #include <steam/isteamnetworkingsocketsserialized.h>
 #endif
-#include <steamnetworkingsockets/isteamnetworkingsockets.h>
 #include "steamnetworkingsockets_connections.h"
 
 class CMsgSteamDatagramP2PRendezvous;

@@ -45,7 +45,6 @@ warn_flags_cxx = [
 ]
 
 cpp_flags = [
-  '-DSTEAMNETWORKINGSOCKETS_OPENSOURCE',
   '-DSTEAMDATAGRAMLIB_FOREXPORT',
   '-DSTATIC_TIER0',
   
@@ -141,9 +140,14 @@ static_library('GameNetworkingSockets',
   include_directories: incdirs,
   dependencies: dependencies)
 
-library('GameNetworkingSockets',
+GameNetworkingSockets_so = library('GameNetworkingSockets',
   sources, protobufs,
   c_args: c_flags + cpp_flags,
   cpp_args: cxx_flags + cpp_flags,
   include_directories: incdirs,
   dependencies: dependencies)
+
+
+dep_GameNetworkingSockets_so = declare_dependency(
+  include_directories: include_directories( '../include' ),
+  link_with: GameNetworkingSockets_so )
