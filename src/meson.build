@@ -82,6 +82,7 @@ if target_os != 'windows'
 endif
 
 c_flags = []
+c_flags += c_compiler.first_supported_argument(['-std=c11', '-std=gnu99'])
 foreach arg : warn_flags_c + flags_common + warn_flags_common
   if c_compiler.has_argument(arg)
 	c_flags += [ arg ]
