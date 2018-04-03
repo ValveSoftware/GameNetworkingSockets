@@ -33,6 +33,18 @@ $ meson src build
 $ ninja -C build
 ```
 
+### macOS
+Tested only on macOS 10.13 (High Sierra)
+
+* The easiest way to install is via [#machomebrew](https://brew.sh/). The formula isn't went to official repos yet due to lack of official releases/tags (see [PR #26005](https://github.com/Homebrew/homebrew-core/pull/26005)) , so for now we will use unofficial tap.
+* At first you need to [install Homebrew](https://brew.sh/) if you haven't yet.
+* Then install the formula via unofficial tap:
+
+```brew install yurikoles/yurikoles/gamenetworkingsockets --HEAD```
+* The only way to update HEAD-only formula is via reinstall:
+
+```brew reinstall yurikoles/yurikoles/gamenetworkingsockets --HEAD```
+
 ### Work in progress!
 
 We're still in the process of extracting the code from our proprietary build toolchain and making everything more open-source friendly.  Bear with us.
