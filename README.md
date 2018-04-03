@@ -89,8 +89,10 @@ toolchain and making everything more open-source friendly.  Bear with us.
   and also compiles for several Android flavors).
 * We don't provide any Windows project files or any straightforward method for
   building on windows yet.
-* There is a unit test, but it's not currently included and we don't have it
-  working in any standard framework.
+* The unit test compiles, but has some issues.  And we don't have it working
+  in any standard framework.
+* We don't have a good, simple client/server example of how to use the code.
+  (The unit test is not a good example, please don't cut and paste it.)
 
 ## Roadmap
 Here are some areas where we're working on improvement
