@@ -29,7 +29,7 @@ But even if you don't make games or aren't on Steam, feel free to use this code 
 This has only really been tested on Ubuntu 17.10.
 
 ```
-$ meson src build
+$ meson . build
 $ ninja -C build
 ```
 
