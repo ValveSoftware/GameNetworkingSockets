@@ -1331,6 +1331,7 @@ STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets *SteamNetworkingSockets
 
 STEAMNETWORKINGSOCKETS_INTERFACE bool GameNetworkingSockets_Init( SteamDatagramErrMsg &errMsg )
 {
+	SteamDatagramTransportLock lock;
 
 	// Init basic functionality
 	if ( !g_SteamNetworkingSocketsUser.BInitNonSteam( errMsg ) )
@@ -1343,6 +1344,7 @@ STEAMNETWORKINGSOCKETS_INTERFACE bool GameNetworkingSockets_Init( SteamDatagramE
 
 STEAMNETWORKINGSOCKETS_INTERFACE void GameNetworkingSockets_Kill()
 {
+	SteamDatagramTransportLock lock;
 	g_SteamNetworkingSocketsUser.Kill();
 	g_SteamNetworkingSocketsGameServer.Kill();
 }
