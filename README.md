@@ -39,7 +39,7 @@ for whatever purpose you want.
 
 
 #### OpenSSL
-If you're building on Linux or Mac, just install the appropriate protobuf packages from your package manager.
+If you're building on Linux or Mac, just install the appropriate packages from your package manager.
 
 Ubuntu/Debian:
 ```
@@ -70,7 +70,7 @@ sure to pick the installers **without** the "Light"suffix. In this instance,
 
 #### protobuf
 
-If you're building on Linux or Mac, just install the appropriate protobuf packages from your package manager.
+If you're building on Linux or Mac, just install the appropriate packages from your package manager.
 
 Ubuntu/Debian:
 ```
