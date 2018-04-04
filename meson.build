@@ -34,6 +34,7 @@ warn_flags_common = [
   '-Wno-implicit-fallthrough',
   '-Wno-unused-parameter',
   '-Wno-unused-local-typedef',
+  '-Wno-unused-const-variable',
 ]
 
 warn_flags_c = [
