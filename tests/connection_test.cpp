@@ -143,7 +143,8 @@ static void Send( ISteamNetworkingSockets *pSteamSocketNetworking, SSteamNetConn
 			 msg.m_cbSize,
 			 info.m_cbPendingReliable + info.m_cbPendingUnreliable );
 	}
-	else if ( 0 )
+#if 0
+	else
 		printf( "Send: %s %.3f %s message %lld, %d bytes (pending %d bytes)\n", 
 			 connection.m_sName.c_str(), 
 			 g_usecTestElapsed*1e-6,
@@ -151,6 +152,7 @@ static void Send( ISteamNetworkingSockets *pSteamSocketNetworking, SSteamNetConn
 			 (long long)msg.m_nMsgNum, 
 			 msg.m_cbSize,
 			 info.m_cbPendingReliable + info.m_cbPendingUnreliable );
+#endif
 }
 
 static void Recv( ISteamNetworkingSockets *pSteamSocketNetworking )
