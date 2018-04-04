@@ -13,7 +13,7 @@
 
 #define PORT_SERVER			27200	// Default server port, UDP/TCP
 
-void InitSteamDatagramConnectionSockets()
+static void InitSteamDatagramConnectionSockets()
 {
 	#ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
 		SteamDatagramErrMsg errMsg;
@@ -34,7 +34,7 @@ void InitSteamDatagramConnectionSockets()
 	#endif
 }
 
-void ShutdownSteamDatagramConnectionSockets()
+static void ShutdownSteamDatagramConnectionSockets()
 {
 	#ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
 		GameNetworkingSockets_Kill();
@@ -43,7 +43,7 @@ void ShutdownSteamDatagramConnectionSockets()
 	#endif
 }
 
-HSteamListenSocket g_hSteamListenSocket = k_HSteamListenSocket_Invalid;
+static HSteamListenSocket g_hSteamListenSocket = k_HSteamListenSocket_Invalid;
 
 struct TestMsg
 {
@@ -77,13 +77,13 @@ struct SSteamNetConnection
 	SteamNetworkingMicroseconds m_usecWhenStateEnd = 0;
 };
 
-SSteamNetConnection g_connectionServer( "Server" );
-SSteamNetConnection g_connectionClient( "Client" );
+static SSteamNetConnection g_connectionServer( "Server" );
+static SSteamNetConnection g_connectionClient( "Client" );
 
-std::default_random_engine g_rand;
-SteamNetworkingMicroseconds g_usecTestElapsed;
+static std::default_random_engine g_rand;
+static SteamNetworkingMicroseconds g_usecTestElapsed;
 
-void Send( ISteamNetworkingSockets *pSteamSocketNetworking, SSteamNetConnection &connection )
+static void Send( ISteamNetworkingSockets *pSteamSocketNetworking, SSteamNetConnection &connection )
 {
 	if ( connection.m_hSteamNetConnection == k_HSteamNetConnection_Invalid )
 		return;
@@ -153,7 +153,7 @@ void Send( ISteamNetworkingSockets *pSteamSocketNetworking, SSteamNetConnection 
 			 info.m_cbPendingReliable + info.m_cbPendingUnreliable );
 }
 
-void Recv( ISteamNetworkingSockets *pSteamSocketNetworking )
+static void Recv( ISteamNetworkingSockets *pSteamSocketNetworking )
 {
 
 	while ( true )
@@ -265,9 +265,11 @@ struct TestSteamNetworkingSocketsCallbacks : public ISteamNetworkingSocketsCallb
 		}
 	}
 };
-TestSteamNetworkingSocketsCallbacks g_Callbacks;
 
-void RunSteamDatagramConnectionTest()
+
+static TestSteamNetworkingSocketsCallbacks g_Callbacks;
+
+static void RunSteamDatagramConnectionTest()
 {
 	ISteamNetworkingSockets *pSteamSocketNetworking = SteamNetworkingSockets();
 
