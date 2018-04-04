@@ -12,6 +12,7 @@
 //SDR_PUBLIC 	#include <openssl/err.h>
 #include <openssl/crypto.h>
 #include <openssl/rand.h>
+#include "winlite.h"
 
 #include <mutex>
 #include <thread>
