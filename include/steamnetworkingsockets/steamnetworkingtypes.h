@@ -287,7 +287,7 @@ protected:
 	int64 m_nConnUserData;
 	SteamNetworkingMicroseconds m_usecTimeReceived;
 
-	inline ~ISteamNetworkingMessage() {}; // Destructor hidden - use Release()!  But make it inline and empty, in case you want to derive your own type that satisfies this interface for use in your code.
+	inline ~ISteamNetworkingMessage() {} // Destructor hidden - use Release()!  But make it inline and empty, in case you want to derive your own type that satisfies this interface for use in your code.
 };
 
 /// Object that describes a "location" on the Internet with sufficient
