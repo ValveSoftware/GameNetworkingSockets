@@ -11,7 +11,6 @@
 #include <steam/steam_api.h>
 #endif
 
-#define PORT_CLIENT			27005	// Default client port, UDP/TCP
 #define PORT_SERVER			27200	// Default server port, UDP/TCP
 
 void InitSteamDatagramConnectionSockets()
