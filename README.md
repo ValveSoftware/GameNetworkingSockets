@@ -182,11 +182,6 @@ C:\dev\GameNetworkingSockets\build> ninja
 We're still in the process of extracting the code from our proprietary build
 toolchain and making everything more open-source friendly.  Bear with us.
 
-* The code in this form is only known to compile on Ubuntu 17.10.  (Although
-  this code has shipped through our toolchain on Win32/Win64 and OSX as well
-  and also compiles for several Android flavors).
-* We don't provide any Windows project files or any straightforward method for
-  building on windows yet.
 * The unit test compiles, but has some issues.  And we don't have it working
   in any standard framework.
 * We don't have a good, simple client/server example of how to use the code.
