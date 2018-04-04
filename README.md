@@ -121,13 +121,13 @@ For Visual Studio, the process is a bit more involved, as you need to compile
 protobuf yourself. The process we used is something like this:
 
 ```
-C:\dev> vcvarsall amd64
 C:\dev> git clone https://github.com/google/protobuf
-C:\dev> mkdir protobuf\cmake_build
 C:\dev> cd protobuf
 C:\dev\protobuf> git checkout -t origin/3.5.x
+C:\dev\protobuf> mkdir cmake_build
 C:\dev\protobuf> cd cmake_build
-C:\dev\protobuf\cmake_build> cmake -G Ninja -Dprotobuf_BUILD_TESTS=OFF -Dprotobuf_BUILD_SHARED_LIBS=ON -DCMAKE_INSTALL_PREFIX=c:\sdk\protobuf-amd64 ..\cmake
+C:\dev\protobuf\cmake_build> vcvarsall amd64
+C:\dev\protobuf\cmake_build> cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -Dprotobuf_BUILD_TESTS=OFF -Dprotobuf_BUILD_SHARED_LIBS=ON -DCMAKE_INSTALL_PREFIX=c:\sdk\protobuf-amd64 ..\cmake
 C:\dev\protobuf\cmake_build> ninja
 C:\dev\protobuf\cmake_build> ninja install
 ```
