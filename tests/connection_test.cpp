@@ -103,7 +103,7 @@ static void Send( ISteamNetworkingSockets *pSteamSocketNetworking, SSteamNetConn
 		return;
 
 	TestMsg msg;
-	msg.m_bReliable = std::uniform_real_distribution<>()( g_rand ) < .75f;
+	msg.m_bReliable = std::uniform_real_distribution<>()( g_rand ) < .75;
 	msg.m_cbSize = std::uniform_int_distribution<>( 20, msg.m_bReliable ? TestMsg::k_cbMaxSize : 5000 )( g_rand );
 	//bIsReliable = false;
 	//nBytes = 1200-13;
