@@ -1,0 +1,4 @@
+add_executable(
+	test_connection
+	connection_test.cpp)
+target_link_libraries(test_connection GameNetworkingSockets)

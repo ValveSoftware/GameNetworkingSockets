@@ -1,12 +1,3 @@
-project('GameNetworkingSockets', 'cpp', 'c',
-  default_options: [
-	'buildtype=debugoptimized',
-  ]
-)
-
-add_global_arguments('-fvisibility=hidden', language: 'cpp')
-add_global_arguments('-fvisibility-inlines-hidden', language: 'cpp')
-
 dependencies = []
 
 c_compiler = meson.get_compiler('c')
@@ -27,22 +18,27 @@ incdirs = include_directories('.', '../include', 'common', 'public')
 
 flags_common = [
   '-fno-strict-aliasing',
+  '-fvisibility=hidden',
 ]
 
 flags_cxx = [
   '-fno-rtti',
   '-fno-exceptions',
+  '-fvisibility-inlines-hidden',
 ]
 
 warn_flags_common = [
   '-Wall',
-  #'-Wextra',
-  #'-pedantic',
+  '-Wextra',
   '-Wno-unknown-pragmas',
   '-Wno-sign-compare',
+  '-Wno-implicit-fallthrough',
+  '-Wno-unused-parameter',
+  '-Wno-unused-local-typedef',
 ]
 
 warn_flags_c = [
+  '-Wimplicit',
   '-Wstrict-prototypes',
 ]
 
@@ -52,7 +48,6 @@ warn_flags_cxx = [
 ]
 
 cpp_flags = [
-  '-DSTEAMNETWORKINGSOCKETS_OPENSOURCE',
   '-DSTEAMDATAGRAMLIB_FOREXPORT',
   '-DSTATIC_TIER0',
   
@@ -87,7 +82,8 @@ if target_os != 'windows'
 endif
 
 c_flags = []
-foreach arg : warn_flags_c + flags_common + warn_flags_common
+c_flags += c_compiler.first_supported_argument(['-std=c11', '-std=gnu99'])
+foreach arg : flags_common + warn_flags_common + warn_flags_c
   if c_compiler.has_argument(arg)
 	c_flags += [ arg ]
   endif
@@ -95,7 +91,7 @@ endforeach
 
 cxx_flags = []
 cxx_flags += cxx_compiler.first_supported_argument(['-std=c++11', '-std=c++0x'])
-foreach arg : warn_flags_cxx + flags_common + flags_cxx + warn_flags_common
+foreach arg : flags_common + warn_flags_common + flags_cxx + warn_flags_cxx
   if cxx_compiler.has_argument(arg)
 	cxx_flags += [ arg ]
   endif
@@ -148,9 +144,14 @@ static_library('GameNetworkingSockets',
   include_directories: incdirs,
   dependencies: dependencies)
 
-library('GameNetworkingSockets',
+GameNetworkingSockets_so = library('GameNetworkingSockets',
   sources, protobufs,
   c_args: c_flags + cpp_flags,
   cpp_args: cxx_flags + cpp_flags,
   include_directories: incdirs,
   dependencies: dependencies)
+
+
+dep_GameNetworkingSockets_so = declare_dependency(
+  include_directories: include_directories( '../include' ),
+  link_with: GameNetworkingSockets_so )

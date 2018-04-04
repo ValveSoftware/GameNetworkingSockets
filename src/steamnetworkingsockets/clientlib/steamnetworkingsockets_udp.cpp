@@ -138,7 +138,7 @@ void CSteamNetworkListenSocketStandard::ReceivedIPv4FromUnknownHost( const void 
 {
 	const uint8 *pPkt = static_cast<const uint8 *>( pvPkt );
 
-	SteamNetworkingMicroseconds usecNow = SteamDatagram_GetCurrentTime();
+	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 
 	if ( cbPkt < 5 )
 	{
@@ -629,7 +629,7 @@ bool CSteamNetworkConnectionIPv4::BInitConnect( const netadr_t &netadrRemote, St
 
 	// Let base class do some common initialization
 	uint32 nPeerProtocolVersion = 0; // don't know yet
-	SteamNetworkingMicroseconds usecNow = SteamDatagram_GetCurrentTime();
+	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 	if ( !CSteamNetworkConnectionBase::BInitConnection( nPeerProtocolVersion, usecNow, errMsg ) )
 	{
 		m_pSocket->Close();
@@ -735,7 +735,7 @@ bool CSteamNetworkConnectionIPv4::BBeginAccept(
 	pParent->AddChildConnection( this );
 
 	// Let base class do some common initialization
-	SteamNetworkingMicroseconds usecNow = SteamDatagram_GetCurrentTime();
+	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 	if ( !CSteamNetworkConnectionBase::BInitConnection( nPeerProtocolVersion, usecNow, errMsg ) )
 	{
 		m_pSocket->Close();
@@ -757,7 +757,7 @@ bool CSteamNetworkConnectionIPv4::BBeginAccept(
 
 EResult CSteamNetworkConnectionIPv4::APIAcceptConnection()
 {
-	SteamNetworkingMicroseconds usecNow = SteamDatagram_GetCurrentTime();
+	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 
 	// Send the message
 	SendConnectOK( usecNow );
@@ -867,7 +867,7 @@ void CSteamNetworkConnectionIPv4::PacketReceived( const void *pvPkt, int cbPkt, 
 {
 	const uint8 *pPkt = static_cast<const uint8 *>( pvPkt );
 
-	SteamNetworkingMicroseconds usecNow = SteamDatagram_GetCurrentTime();
+	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 	pSelf->m_statsEndToEnd.TrackRecvPacket( cbPkt, usecNow ); // FIXME - We really shouldn't do this until we know it is valid and hasn't been spoofed!
 
 	if ( cbPkt < 5 )
@@ -948,7 +948,7 @@ void CSteamNetworkConnectionIPv4::RecvStats( const CMsgSteamSockets_UDP_Stats &m
 	m_statsEndToEnd.RecvPackedAcks( msgStatsIn.ack_e2e(), usecNow );
 
 	// Spew appropriately
-	if ( g_eSteamDatagramDebugOutputDetailLevel >= k_ESteamDatagramDebugOutputType_Verbose )
+	if ( g_eSteamDatagramDebugOutputDetailLevel >= k_ESteamNetworkingSocketsDebugOutputType_Verbose )
 	{
 		std::string sWhat = DescribeStatsContents( msgStatsIn );
 		SpewVerbose( "Recvd %s stats from %s @ %s:%s\n",
@@ -1007,7 +1007,7 @@ void CSteamNetworkConnectionIPv4::TrackSentStats( const CMsgSteamSockets_UDP_Sta
 	m_statsEndToEnd.TrackSentPackedAcks( msgStatsOut.ack_e2e() );
 
 	// Spew appropriately
-	if ( g_eSteamDatagramDebugOutputDetailLevel >= k_ESteamDatagramDebugOutputType_Verbose )
+	if ( g_eSteamDatagramDebugOutputDetailLevel >= k_ESteamNetworkingSocketsDebugOutputType_Verbose )
 	{
 		std::string sWhat = DescribeStatsContents( msgStatsOut );
 		SpewVerbose( "Sent %s stats to %s @ %s:%s\n",
@@ -1582,7 +1582,7 @@ failed:
 		goto failed;
 	}
 
-	SteamNetworkingMicroseconds usecNow = SteamDatagram_GetCurrentTime();
+	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 
 	// Initialize both connections
 	for ( int i = 0 ; i < 2 ; ++i )
@@ -1633,7 +1633,7 @@ void UpdateSNPDebugWindow()
 		return;
 	}
 	
-	SteamNetworkingMicroseconds usecNow = SteamDatagram_GetCurrentTime();
+	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 
 	if ( s_bDebugWindowActive && usecNow - usec_debugWindowLastUpdate >= usec_debugWindowUpdateTime )
 	{

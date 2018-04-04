@@ -443,7 +443,7 @@ void CSteamNetworkConnectionBase::QueueDestroy()
 	FreeResources();
 
 	// We'll delete ourselves from within Think();
-	SetNextThinkTime( SteamDatagram_GetCurrentTime() );
+	SetNextThinkTime( SteamNetworkingSockets_GetLocalTimestamp() );
 }
 
 void CSteamNetworkConnectionBase::FreeResources()
@@ -451,7 +451,7 @@ void CSteamNetworkConnectionBase::FreeResources()
 	// Make sure we're marked in the dead state, and also if we were in an
 	// API-visible state, this will queue the state change notification
 	// while we still know who our listen socket is (if any).
-	SetState( k_ESteamNetworkingConnectionState_Dead, SteamDatagram_GetCurrentTime() );
+	SetState( k_ESteamNetworkingConnectionState_Dead, SteamNetworkingSockets_GetLocalTimestamp() );
 
 	// Discard any messages that weren't retrieved
 	m_queueRecvMessages.PurgeMessages();
@@ -662,7 +662,7 @@ void CSteamNetworkConnectionBase::InterfaceGotCert()
 	InitLocalCrypto( m_pSteamNetworkingSocketsInterface->m_msgSignedCert, m_pSteamNetworkingSocketsInterface->m_keyPrivateKey );
 
 	// Don't check state machine now, let's just schedule immediate wake up to deal with it
-	SetNextThinkTime( SteamDatagram_GetCurrentTime() );
+	SetNextThinkTime( SteamNetworkingSockets_GetLocalTimestamp() );
 }
 
 void CSteamNetworkConnectionBase::InitLocalCrypto( const CMsgSteamDatagramCertificateSigned &msgSignedCert, const CECSigningPrivateKey &keyPrivate )
@@ -742,7 +742,7 @@ void CSteamNetworkConnectionBase::CertRequestFailed( ESteamNetConnectionEnd nCon
 	InitLocalCryptoWithUnsignedCert();
 
 	// Schedule immediate wake up to check on state machine
-	SetNextThinkTime( SteamDatagram_GetCurrentTime() );
+	SetNextThinkTime( SteamNetworkingSockets_GetLocalTimestamp() );
 }
 
 bool CSteamNetworkConnectionBase::BRecvCryptoHandshake( const CMsgSteamDatagramCertificateSigned &msgCert, const CMsgSteamDatagramSessionCryptInfoSigned &msgSessionInfo, bool bServer )
@@ -1087,7 +1087,7 @@ void CSteamNetworkConnectionBase::PopulateConnectionInfo( SteamNetConnectionInfo
 
 void CSteamNetworkConnectionBase::APIGetQuickConnectionStatus( SteamNetworkingQuickConnectionStatus &stats )
 {
-	SteamNetworkingMicroseconds usecNow = SteamDatagram_GetCurrentTime();
+	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 
 	stats.m_eState = CollapseConnectionStateToAPIState( m_eConnectionState );
 	stats.m_nPing = m_statsEndToEnd.m_ping.m_nSmoothedPing;
@@ -1218,7 +1218,7 @@ EResult CSteamNetworkConnectionBase::_APISendMessageToConnection( const void *pD
 	}
 
 	// Using SNP?
-	SteamNetworkingMicroseconds usecNow = SteamDatagram_GetCurrentTime();
+	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 	return SNP_SendMessage( usecNow, pData, cbData, eSendType );
 }
 
@@ -1249,7 +1249,7 @@ EResult CSteamNetworkConnectionBase::APIFlushMessageOnConnection()
 		return k_EResultNoConnection;
 	}
 
-	SteamNetworkingMicroseconds usecNow = SteamDatagram_GetCurrentTime();
+	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 	return SNP_FlushMessage( usecNow );
 }
 
@@ -1378,7 +1378,7 @@ void CSteamNetworkConnectionBase::APICloseConnection( int nReason, const char *p
 		case k_ESteamNetworkingConnectionState_Connected:
 			if ( bEnableLinger )
 			{
-				SteamNetworkingMicroseconds usecNow = SteamDatagram_GetCurrentTime();
+				SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 				SetState( k_ESteamNetworkingConnectionState_Linger, usecNow );
 				CheckConnectionStateAndSetNextThinkTime( usecNow );
 			}
@@ -1478,7 +1478,7 @@ void CSteamNetworkConnectionBase::ConnectionState_ProblemDetectedLocally( ESteam
 {
 	va_list ap;
 
-	SteamNetworkingMicroseconds usecNow = SteamDatagram_GetCurrentTime();
+	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 	Assert( eReason > k_ESteamNetConnectionEnd_AppException_Max );
 	Assert( pszFmt && *pszFmt );
 	if ( m_eEndReason == k_ESteamNetConnectionEnd_Invalid || GetState() == k_ESteamNetworkingConnectionState_Linger )
@@ -1520,7 +1520,7 @@ void CSteamNetworkConnectionBase::ConnectionState_ProblemDetectedLocally( ESteam
 
 void CSteamNetworkConnectionBase::ConnectionState_FinWait()
 {
-	SteamNetworkingMicroseconds usecNow = SteamDatagram_GetCurrentTime();
+	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 
 	// Check our state
 	switch ( GetState() )
@@ -1588,7 +1588,7 @@ void CSteamNetworkConnectionBase::ConnectionState_ClosedByPeer( int nReason, con
 			else if ( m_szEndDebug[0] == '\0' )
 				V_strcpy_safe( m_szEndDebug, "The remote host closed the connection." );
 			m_eEndReason = ESteamNetConnectionEnd( nReason );
-			SetState( k_ESteamNetworkingConnectionState_ClosedByPeer, SteamDatagram_GetCurrentTime() );
+			SetState( k_ESteamNetworkingConnectionState_ClosedByPeer, SteamNetworkingSockets_GetLocalTimestamp() );
 			break;
 	}
 }
@@ -1957,7 +1957,7 @@ void CSteamNetworkConnectionBase::UpdateSpeeds( int nTXSpeed, int nRXSpeed )
 bool CSteamNetworkConnectionPipe::APICreateSocketPair( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface, CSteamNetworkConnectionPipe *pConn[2] )
 {
 	SteamDatagramErrMsg errMsg;
-	SteamNetworkingMicroseconds usecNow = SteamDatagram_GetCurrentTime();
+	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 
 	pConn[1] = new CSteamNetworkConnectionPipe( pSteamNetworkingSocketsInterface );
 	pConn[0] = new CSteamNetworkConnectionPipe( pSteamNetworkingSocketsInterface );
@@ -2033,7 +2033,7 @@ EResult CSteamNetworkConnectionPipe::_APISendMessageToConnection( const void *pD
 		AssertMsg( false, "No partner pipe?" );
 		return k_EResultFail;
 	}
-	SteamNetworkingMicroseconds usecNow = SteamDatagram_GetCurrentTime();
+	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 
 	// Fake a bunch of stats
 	FakeSendStats( usecNow, cbData );

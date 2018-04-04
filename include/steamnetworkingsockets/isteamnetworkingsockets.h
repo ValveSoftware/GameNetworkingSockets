@@ -359,17 +359,19 @@ public:
 	// You should call this at the same time you call SteamAPI_RunCallbacks and SteamGameServer_RunCallbacks
 	// to minimize potential changes in timing when that change happens.
 	virtual void RunCallbacks( ISteamNetworkingSocketsCallbacks *pCallbacks ) = 0;
+protected:
+	~ISteamNetworkingSockets(); // Silence some warnings
 };
 //#define STEAMNETWORKINGSOCKETS_VERSION "SteamNetworkingSockets001"
 
 // Global accessor.   This will eventually be moved to steam_api.h.
-STEAMDATAGRAMLIB_INTERFACE ISteamNetworkingSockets *SteamNetworkingSockets();
-STEAMDATAGRAMLIB_INTERFACE ISteamNetworkingSockets *SteamNetworkingSocketsGameServer();
+STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets *SteamNetworkingSockets();
+STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets *SteamNetworkingSocketsGameServer();
 
 #ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
 
-STEAMDATAGRAMLIB_INTERFACE bool GameNetworkingSockets_Init( SteamDatagramErrMsg &errMsg );
-STEAMDATAGRAMLIB_INTERFACE void GameNetworkingSockets_Kill();
+STEAMNETWORKINGSOCKETS_INTERFACE bool GameNetworkingSockets_Init( SteamDatagramErrMsg &errMsg );
+STEAMNETWORKINGSOCKETS_INTERFACE void GameNetworkingSockets_Kill();
 
 #else
 
@@ -381,9 +383,9 @@ STEAMDATAGRAMLIB_INTERFACE void GameNetworkingSockets_Kill();
 	typedef void ( S_CALLTYPE *FSteamAPI_UnregisterCallback)( class CCallbackBase *pCallback );
 	typedef void ( S_CALLTYPE *FSteamAPI_RegisterCallResult)( class CCallbackBase *pCallback, SteamAPICall_t hAPICall );
 	typedef void ( S_CALLTYPE *FSteamAPI_UnregisterCallResult)( class CCallbackBase *pCallback, SteamAPICall_t hAPICall );
-	STEAMDATAGRAMLIB_INTERFACE void SteamDatagramClient_Internal_SteamAPIKludge( FSteamAPI_RegisterCallback fnRegisterCallback, FSteamAPI_UnregisterCallback fnUnregisterCallback, FSteamAPI_RegisterCallResult fnRegisterCallResult, FSteamAPI_UnregisterCallResult fnUnregisterCallResult );
-	STEAMDATAGRAMLIB_INTERFACE bool SteamDatagramClient_Init_InternalV4( int iPartnerMask, SteamDatagramErrMsg &errMsg, FSteamInternal_CreateInterface fnCreateInterface, HSteamUser hSteamUser, HSteamPipe hSteamPipe );
-	STEAMDATAGRAMLIB_INTERFACE bool SteamDatagramServer_Init_Internal( SteamDatagramErrMsg &errMsg, FSteamInternal_CreateInterface fnCreateInterface, HSteamUser hSteamUser, HSteamPipe hSteamPipe );
+	STEAMNETWORKINGSOCKETS_INTERFACE void SteamDatagramClient_Internal_SteamAPIKludge( FSteamAPI_RegisterCallback fnRegisterCallback, FSteamAPI_UnregisterCallback fnUnregisterCallback, FSteamAPI_RegisterCallResult fnRegisterCallResult, FSteamAPI_UnregisterCallResult fnUnregisterCallResult );
+	STEAMNETWORKINGSOCKETS_INTERFACE bool SteamDatagramClient_Init_InternalV4( int iPartnerMask, SteamDatagramErrMsg &errMsg, FSteamInternal_CreateInterface fnCreateInterface, HSteamUser hSteamUser, HSteamPipe hSteamPipe );
+	STEAMNETWORKINGSOCKETS_INTERFACE bool SteamDatagramServer_Init_Internal( SteamDatagramErrMsg &errMsg, FSteamInternal_CreateInterface fnCreateInterface, HSteamUser hSteamUser, HSteamPipe hSteamPipe );
 
 /////////////////////////////////////////////////////////////////////////////
 
@@ -396,7 +398,7 @@ inline bool SteamDatagramClient_Init( int iPartnerMask, SteamDatagramErrMsg &err
 }
 
 /// Shutdown all clients and close all sockets
-STEAMDATAGRAMLIB_INTERFACE void SteamDatagramClient_Kill();
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamDatagramClient_Kill();
 
 /// Initialize the game server interface
 inline bool SteamDatagramServer_Init( SteamDatagramErrMsg &errMsg )
@@ -406,7 +408,7 @@ inline bool SteamDatagramServer_Init( SteamDatagramErrMsg &errMsg )
 }
 
 /// Shutdown the game server interface
-STEAMDATAGRAMLIB_INTERFACE void SteamDatagramServer_Kill( );
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamDatagramServer_Kill( );
 
 #endif
 
@@ -429,25 +431,27 @@ class ISteamNetworkingSocketsCallbacks
 {
 public:
 	inline ISteamNetworkingSocketsCallbacks() {}
-	virtual void OnSteamNetConnectionStatusChanged( SteamNetConnectionStatusChangedCallback_t *pInfo ) {}
-	virtual void OnP2PSessionRequest( P2PSessionRequest_t *pInfo ) {}
-	virtual void OnP2PSessionConnectFail( P2PSessionConnectFail_t *pInfo ) {}
+	virtual void OnSteamNetConnectionStatusChanged( SteamNetConnectionStatusChangedCallback_t * ) {}
+	virtual void OnP2PSessionRequest( P2PSessionRequest_t * ) {}
+	virtual void OnP2PSessionConnectFail( P2PSessionConnectFail_t * ) {}
+protected:
+	inline ~ISteamNetworkingSocketsCallbacks() {}
 };
 
-enum ESteamDatagramDebugOutputType
+enum ESteamNetworkingSocketsDebugOutputType
 {
-	k_ESteamDatagramDebugOutputType_None,
-	k_ESteamDatagramDebugOutputType_Bug, // You used the API incorrectly, or an internal error happened
-	k_ESteamDatagramDebugOutputType_Error, // Run-time error condition that isn't the result of a bug.  (E.g. we are offline, cannot bind a port, etc)
-	k_ESteamDatagramDebugOutputType_Important, // Nothing is wrong, but this is an important notification
-	k_ESteamDatagramDebugOutputType_Warning,
-	k_ESteamDatagramDebugOutputType_Msg, // Recommended amount
-	k_ESteamDatagramDebugOutputType_Verbose, // Quite a bit
-	k_ESteamDatagramDebugOutputType_Debug, // Practically everything
+	k_ESteamNetworkingSocketsDebugOutputType_None,
+	k_ESteamNetworkingSocketsDebugOutputType_Bug, // You used the API incorrectly, or an internal error happened
+	k_ESteamNetworkingSocketsDebugOutputType_Error, // Run-time error condition that isn't the result of a bug.  (E.g. we are offline, cannot bind a port, etc)
+	k_ESteamNetworkingSocketsDebugOutputType_Important, // Nothing is wrong, but this is an important notification
+	k_ESteamNetworkingSocketsDebugOutputType_Warning,
+	k_ESteamNetworkingSocketsDebugOutputType_Msg, // Recommended amount
+	k_ESteamNetworkingSocketsDebugOutputType_Verbose, // Quite a bit
+	k_ESteamNetworkingSocketsDebugOutputType_Debug, // Practically everything
 };
 
 /// Setup callback for debug output, and the desired verbosity you want.
-typedef void (*FSteamDatagramDebugOutput)( /* ESteamDatagramDebugOutputType */ int nType, const char *pszMsg );
-STEAMDATAGRAMLIB_INTERFACE void SteamDatagram_SetDebugOutputFunction( /* ESteamDatagramDebugOutputType */ int eDetailLevel, FSteamDatagramDebugOutput pfnFunc );
+typedef void (*FSteamNetworkingSocketsDebugOutput)( /* ESteamNetworkingSocketsDebugOutputType */ int nType, const char *pszMsg );
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetDebugOutputFunction( /* ESteamNetworkingSocketsDebugOutputType */ int eDetailLevel, FSteamNetworkingSocketsDebugOutput pfnFunc );
 
 #endif // ISTEAMNETWORKINGSOCKETS
