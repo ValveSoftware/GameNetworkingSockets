@@ -3,11 +3,11 @@ GameNetworkingSockets
 
 GameNetworkingSockets is a basic transport layer for games.  The features are:
 
-* Connection-oriented protocol (like TCP)
-* ... but message-oriented (like UDP)
+* Connection-oriented API (like TCP)
+* ... but message-oriented (like UDP), not stream-oriented.
 * Supports both reliable and unreliable message types
-* Messages can be larger than underlying MTU, the protocol performs
-  fragmentation and reassembly, and retransmission for reliable messages
+* Messages can be larger than underlying MTU.  The protocol performs
+  fragmentation, reassembly, and retransmission for reliable messages
 * Bandwidth estimation based on TCP-friendly rate control (RFC 5348)
 * Encryption. AES per packet, Ed25519 crypto for key exchange and cert
   signatures. The details for shared key derivation and per-packet IV are
@@ -15,17 +15,44 @@ GameNetworkingSockets is a basic transport layer for games.  The features are:
   used by Google's QUIC protocol.
 * Tools for simulating loss and detailed stats measurement
 
+What it does *not* do:
+
+* Higher level serialization of entities, delta encoding of changed state variables, etc
+* Compression
+* NAT piercing, STUN/TURN, etc.
+
+### Why do I see "Steam" everywhere?
+
 The main interface class is named SteamNetworkingSockets, and many files have
-"steam" in their name.  But *Steam is not needed*.  The reason for the name is
-that this provides a subset of the functionality of the API with the same name
-in the SteamworksSDK.  The intention is that on PC you can use the Steamworks
-version, and on other platforms, you can use this version.  In this way, you
-can avoid having the Steam version be "weird" or not take full advantage of the
-features above that it provides.
+"steam" in their name.  But *Steam is not needed*.  If you don't make games or
+aren't on Steam, feel free to use this code for whatever purpose you want.
 
-But even if you don't make games or aren't on Steam, feel free to use this code
-for whatever purpose you want.
+The reason for "Steam" in the names is that this provides a subset of the
+functionality of the API with the same name in the Steamworks SDK.  Our main
+reason for releasing this code is so that developers won't have any hesitation
+coding to the API in the Steamworks SDK.  On Steam, you will link against the
+Steamworks version, and you can get the additional features there (access to
+the relay network).  And on other platformss, you can use this version, which
+has the same names for everything, the same semantics, the same behavioural
+quirks.  We want you to take maximum advantage of the features in the
+Steamworks version, and that won't happen if the Steam code is a weird "wart"
+that's hidden behind `#ifdef STEAM`.
 
+The desire to match the Steamworks SDK also explains a somewhat anachronistic
+coding style and weird directory layout.  This project is kept in sync with the
+Steam code here at Valve.  When we extracted the code from the much larger
+codebase, we had to do some relatively gross hackery.  The files in folders
+named  `tier0`, `tier1`, `vstdlib`, `common`, etc have especially suffered
+trauma.  Also if you see code that appears to have unnecessary layers of
+abstraction, it's probably because those layers are needed to support relayed
+connection types or some part of the Steamworks SDK.
+
+So the code has some style issues that some people probably won't like, but it
+does have the advantage of being battle tested over several years and millions
+of customers.  We aim to make this lib a solid transport library and we hope
+people will use it to ship their games on non-Steam platforms.  If there is
+something about this code that makes it awkward to use, or if it doesn't work
+properly or you see a security or performance issue, please let us know.
 
 ## Building
 
