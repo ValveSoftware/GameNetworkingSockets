@@ -1,7 +1,6 @@
 dependencies = []
 
 c_compiler = meson.get_compiler('c')
-cxx_compiler = meson.get_compiler('cpp')
 
 protoc_bin = find_program('protoc')
 protoc = generator(protoc_bin,
@@ -15,37 +14,6 @@ dependencies += [
 ]
 
 incdirs = include_directories('.', '../include', 'common', 'public')
-
-flags_common = [
-  '-fno-strict-aliasing',
-  '-fvisibility=hidden',
-]
-
-flags_cxx = [
-  '-fno-rtti',
-  '-fno-exceptions',
-  '-fvisibility-inlines-hidden',
-]
-
-warn_flags_common = [
-  '-Wall',
-  '-Wextra',
-  '-Wno-unknown-pragmas',
-  '-Wno-sign-compare',
-  '-Wno-implicit-fallthrough',
-  '-Wno-unused-parameter',
-  '-Wno-unused-local-typedef',
-]
-
-warn_flags_c = [
-  '-Wimplicit',
-  '-Wstrict-prototypes',
-]
-
-warn_flags_cxx = [
-  '-Wno-reorder',
-  '-Wno-non-virtual-dtor',
-]
 
 cpp_flags = [
   '-DSTEAMDATAGRAMLIB_FOREXPORT',
@@ -67,35 +35,12 @@ elif target_os == 'darwin'
   cpp_flags += ['-DPOSIX', '-DOSX']
 elif target_os == 'windows'
   cpp_flags += ['-D_WIN32', '-DWIN32', '-D__STDC_FORMAT_MACROS=1', '-D__USE_MINGW_ANSI_STDIO=0']
-  flags_common += [
-    '-fno-stack-protector',
-  ]
   dependencies += [
-	c_compiler.find_library('ws2_32'),
+    c_compiler.find_library('ws2_32'),
   ]
 else
   error('Could not identify your target operating system')
 endif
-
-if target_os != 'windows'
-  flags_common += [ '-fstack-protector-strong' ]
-endif
-
-c_flags = []
-c_flags += c_compiler.first_supported_argument(['-std=c11', '-std=gnu99'])
-foreach arg : flags_common + warn_flags_common + warn_flags_c
-  if c_compiler.has_argument(arg)
-	c_flags += [ arg ]
-  endif
-endforeach
-
-cxx_flags = []
-cxx_flags += cxx_compiler.first_supported_argument(['-std=c++11', '-std=c++0x'])
-foreach arg : flags_common + warn_flags_common + flags_cxx + warn_flags_cxx
-  if cxx_compiler.has_argument(arg)
-	cxx_flags += [ arg ]
-  endif
-endforeach
 
 target_compiler = c_compiler.get_id()
 if target_compiler == 'gcc' or target_compiler == 'clang'
@@ -139,15 +84,15 @@ protobufs = protoc.process(protobuf_sources)
 
 static_library('GameNetworkingSockets',
   sources, protobufs,
-  c_args: c_flags + cpp_flags,
-  cpp_args: cxx_flags + cpp_flags,
+  c_args: cpp_flags,
+  cpp_args: cpp_flags,
   include_directories: incdirs,
   dependencies: dependencies)
 
 GameNetworkingSockets_so = library('GameNetworkingSockets',
   sources, protobufs,
-  c_args: c_flags + cpp_flags,
-  cpp_args: cxx_flags + cpp_flags,
+  c_args: cpp_flags,
+  cpp_args: cpp_flags,
   include_directories: incdirs,
   dependencies: dependencies)
 
