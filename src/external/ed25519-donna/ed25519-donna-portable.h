@@ -2,6 +2,10 @@
 
 #define mul32x32_64(a,b) (((uint64_t)(a))*(b))
 
+#ifdef ALIGN
+#undef ALIGN
+#endif
+
 /* platform */
 #if defined(COMPILER_MSVC)
 	#include <intrin.h>
