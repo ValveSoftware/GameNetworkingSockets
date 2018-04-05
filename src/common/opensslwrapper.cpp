@@ -6,13 +6,12 @@
 
 #include "stdafx.h"
 #include "opensslwrapper.h"
-
+#include "winlite.h"
 //SDR_PUBLIC 	#include <openssl/bio.h>
 //SDR_PUBLIC 	#include <openssl/ssl.h>
 //SDR_PUBLIC 	#include <openssl/err.h>
 #include <openssl/crypto.h>
 #include <openssl/rand.h>
-#include "winlite.h"
 
 #include <mutex>
 #include <thread>
