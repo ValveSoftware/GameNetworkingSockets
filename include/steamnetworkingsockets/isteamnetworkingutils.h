@@ -13,9 +13,13 @@
 #include "steamnetworkingtypes.h"
 struct SteamDatagramRelayAuthTicket;
 
+extern "C" {
+
 // Fetch local timestamp.  If you want to stay compatible with Steamworks SDK,
 // don't call this directly.  Use the ISteamnetworkingUtils interface
 STEAMNETWORKINGSOCKETS_INTERFACE SteamNetworkingMicroseconds SteamNetworkingSockets_GetLocalTimestamp();
+
+}
 
 //-----------------------------------------------------------------------------
 class ISteamNetworkingUtils

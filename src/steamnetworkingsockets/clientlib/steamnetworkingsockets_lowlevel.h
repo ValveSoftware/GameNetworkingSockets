@@ -319,7 +319,9 @@ struct SteamDatagramTransportLock
 
 } // namespace SteamNetworkingSocketsLib
 
+extern "C" {
 /// Fetch current time
 STEAMNETWORKINGSOCKETS_INTERFACE SteamNetworkingMicroseconds SteamNetworkingSockets_GetLocalTimestamp();
+}
 
 #endif // STEAMNETWORKINGSOCKETS_LOWLEVEL_H

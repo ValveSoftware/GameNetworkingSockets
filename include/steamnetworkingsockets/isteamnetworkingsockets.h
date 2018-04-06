@@ -364,6 +364,8 @@ protected:
 };
 //#define STEAMNETWORKINGSOCKETS_VERSION "SteamNetworkingSockets001"
 
+extern "C" {
+
 // Global accessor.   This will eventually be moved to steam_api.h.
 STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets *SteamNetworkingSockets();
 STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets *SteamNetworkingSocketsGameServer();
@@ -453,5 +455,7 @@ enum ESteamNetworkingSocketsDebugOutputType
 /// Setup callback for debug output, and the desired verbosity you want.
 typedef void (*FSteamNetworkingSocketsDebugOutput)( /* ESteamNetworkingSocketsDebugOutputType */ int nType, const char *pszMsg );
 STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetDebugOutputFunction( /* ESteamNetworkingSocketsDebugOutputType */ int eDetailLevel, FSteamNetworkingSocketsDebugOutput pfnFunc );
+
+}
 
 #endif // ISTEAMNETWORKINGSOCKETS
