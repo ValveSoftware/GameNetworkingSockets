@@ -734,7 +734,7 @@ void CSteamNetworkConnectionBase::CertRequestFailed( ESteamNetConnectionEnd nCon
 	{
 		// This is fatal
 		SpewWarning( "Connection %u cannot use self-signed cert; failing connection.\n", m_unConnectionIDLocal );
-		ConnectionState_ProblemDetectedLocally( nConnectionEndReason, pszMsg );
+		ConnectionState_ProblemDetectedLocally( nConnectionEndReason, "Cert failure: %s", pszMsg );
 		return;
 	}
 
@@ -1313,9 +1313,9 @@ bool CSteamNetworkConnectionBase::RecvDataChunk( uint16 unSeqNum, const void *pC
 	// mostly full packets, which means that this is closer to a gap of around ~18MB.
 	if ( nGap > 0x4000 )
 	{
-		char msg[ 64 ];
-		V_sprintf_safe( msg, "Pkt number lurch by %d; %04x->%04x", nGap, (uint16)m_statsEndToEnd.m_unLastRecvSequenceNumber, unSeqNum );
-		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_Generic, msg );
+		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_Generic,
+			"Pkt number lurch by %d; %04x->%04x",
+			nGap, (uint16)m_statsEndToEnd.m_unLastRecvSequenceNumber, unSeqNum);
 		return false;
 	}
 
@@ -1919,7 +1919,7 @@ void CSteamNetworkConnectionBase::ConnectionTimedOut( SteamNetworkingMicrosecond
 	GuessTimeoutReason( nReasonCode, msg, usecNow );
 
 	// Switch connection state
-	ConnectionState_ProblemDetectedLocally( nReasonCode, msg );
+	ConnectionState_ProblemDetectedLocally( nReasonCode, "%s", msg );
 }
 
 void CSteamNetworkConnectionBase::GuessTimeoutReason( ESteamNetConnectionEnd &nReasonCode, ConnectionEndDebugMsg &msg, SteamNetworkingMicroseconds usecNow )

@@ -276,10 +276,10 @@ public:
 
 //
 // Connection state machine
+// Functions to transition to the specified state.
 //
 
-	// enter the specified state
-	void ConnectionState_ProblemDetectedLocally( ESteamNetConnectionEnd eReason, const char *pszFmt, ... );
+	void ConnectionState_ProblemDetectedLocally( ESteamNetConnectionEnd eReason, PRINTF_FORMAT_STRING const char *pszFmt, ... ) FMTFUNCTION( 3, 4 );
 	void ConnectionState_ClosedByPeer( int nReason, const char *pszDebug );
 	void ConnectionState_FindingRoute( SteamNetworkingMicroseconds usecNow );
 	void ConnectionState_Connected( SteamNetworkingMicroseconds usecNow );
