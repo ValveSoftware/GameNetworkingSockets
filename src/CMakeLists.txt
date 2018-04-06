@@ -77,7 +77,7 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 		${CMAKE_CURRENT_BINARY_DIR}
 
 		# Only necessary if we're not using protobuf::libprotobuf
-		# But that's not supported in CMake 3.5
+		# But that's not supported until CMake 3.9
 		${Protobuf_INCLUDE_DIRS}
 	)
 
