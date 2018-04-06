@@ -1,5 +1,6 @@
 find_package(Protobuf REQUIRED)
 find_package(OpenSSL REQUIRED)
+find_package(Threads REQUIRED)
 
 include(CheckCCompilerFlag)
 include(CheckCXXCompilerFlag)
@@ -84,6 +85,7 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 		# protobuf::libprotobuf
 		${PROTOBUF_LIBRARIES}
 		OpenSSL::Crypto
+		Threads::Threads
 	)
 
 	target_compile_definitions(${GNS_TARGET} PRIVATE
