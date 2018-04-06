@@ -38,6 +38,14 @@ set(GNS_SRCS
 	"vstdlib/strtools.cpp"
 )
 
+set(C99_FEATURES
+	c_restrict
+	c_function_prototypes)
+
+set(CXX11_FEATURES
+	cxx_constexpr
+	cxx_auto_type)
+
 set(GNS_COMMON_FLAGS
 	-fvisibility=hidden
 	-fno-strict-aliasing
@@ -98,6 +106,10 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 		CRYPTO_DISABLE_ENCRYPT_WITH_PASSWORD
 		GOOGLE_PROTOBUF_NO_RTTI
 	)
+
+	## Needs CMake 3.8, then we could get rid of the workaround below it.
+	#target_compile_features(${GNS_TARGET} PUBLIC c_std_99 cxx_std_11)
+	target_compile_features(${GNS_TARGET} PUBLIC ${C99_FEATURES} ${CXX11_FEATURES})
 
 	if(CMAKE_CXX_COMPILER_ID MATCHES "GNU"
 	OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
