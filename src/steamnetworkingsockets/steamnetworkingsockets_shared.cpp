@@ -852,6 +852,7 @@ void LinkStatsTrackerEndToEnd::Init( SteamNetworkingMicroseconds usecNow )
 	InitBaseLinkStatsTracker( usecNow, false );
 
 	m_TXSpeedSample.Clear();
+	m_nTXSpeed = 0;
 	m_nTXSpeedHistogram16 = 0; // Speed at kb/s
 	m_nTXSpeedHistogram32 = 0; 
 	m_nTXSpeedHistogram64 = 0;
@@ -862,6 +863,7 @@ void LinkStatsTrackerEndToEnd::Init( SteamNetworkingMicroseconds usecNow )
 	m_nTXSpeedHistogramMax = 0;
 
 	m_RXSpeedSample.Clear();
+	m_nRXSpeed = 0;
 	m_nRXSpeedHistogram16 = 0; // Speed at kb/s
 	m_nRXSpeedHistogram32 = 0; 
 	m_nRXSpeedHistogram64 = 0;
