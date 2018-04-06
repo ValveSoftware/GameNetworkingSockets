@@ -22,7 +22,19 @@
 *.a
 *.lib
 
+# Ignore CMake outputs
+compile_commands.json
+CMakeCache.txt
+CMakeFiles
+Makefile
+cmake_install.cmake
+
+# Ignore outputs from "perf record"
+perf.data
+perf.data.old
+
 *.VC.*
+/.vscode
 /build
 /src/.vs/*
 /src/steamnetworkingsockets/Messageswin64Debug/*
