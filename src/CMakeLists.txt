@@ -54,6 +54,8 @@ set(GNS_COMMON_FLAGS
 	#-pedantic
 	-Wno-unknown-pragmas
 	-Wno-sign-compare
+	-Wno-unused-local-typedef
+	-Wno-unused-const-variable
 )
 
 set(GNS_C_FLAGS
