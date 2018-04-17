@@ -286,6 +286,18 @@ extern void CallDatagramThreadProc();
 /// This is when: 1.) We own the lock and 2.) we aren't polling in the service thread.
 extern void ProcessPendingDestroyClosedRawUDPSockets();
 
+/// Last time that we spewed something that was subject to rate limit 
+extern SteamNetworkingMicroseconds g_usecLastRateLimitSpew;
+
+/// Check for rate limiting spew (e.g. when spew could be triggered by malicious sender.)
+inline bool BRateLimitSpew( SteamNetworkingMicroseconds usecNow )
+{
+	if ( usecNow < g_usecLastRateLimitSpew + 100000 )
+		return false;
+	g_usecLastRateLimitSpew = usecNow;
+	return true;
+}
+
 extern ESteamNetworkingSocketsDebugOutputType g_eSteamDatagramDebugOutputDetailLevel;
 extern void ReallySpewType( ESteamNetworkingSocketsDebugOutputType eType, PRINTF_FORMAT_STRING const char *pMsg, ... ) FMTFUNCTION( 2, 3 );
 #define SpewType( eType, ... ) ( ( eType <= g_eSteamDatagramDebugOutputDetailLevel ) ? ReallySpewType( eType, __VA_ARGS__ ) : (void)0 )
@@ -296,6 +308,12 @@ extern void ReallySpewType( ESteamNetworkingSocketsDebugOutputType eType, PRINTF
 #define SpewWarning( ... ) SpewType( k_ESteamNetworkingSocketsDebugOutputType_Warning, __VA_ARGS__ )
 #define SpewError( ... ) SpewType( k_ESteamNetworkingSocketsDebugOutputType_Error, __VA_ARGS__ )
 #define SpewBug( ... ) SpewType( k_ESteamNetworkingSocketsDebugOutputType_Bug, __VA_ARGS__ )
+
+#define SpewTypeRateLimited( usecNow, eType, ... ) ( ( eType <= g_eSteamDatagramDebugOutputDetailLevel && BRateLimitSpew( usecNow ) ) ? ReallySpewType( eType, __VA_ARGS__ ) : (void)0 )
+#define SpewMsgRateLimited( usecNow, ... ) SpewTypeRateLimited( usecNow, k_ESteamNetworkingSocketsDebugOutputType_Msg, __VA_ARGS__ )
+#define SpewWarningRateLimited( usecNow, ... ) SpewTypeRateLimited( usecNow, k_ESteamNetworkingSocketsDebugOutputType_Warning, __VA_ARGS__ )
+#define SpewErrorRateLimited( usecNow, ... ) SpewTypeRateLimited( usecNow, k_ESteamNetworkingSocketsDebugOutputType_Error, __VA_ARGS__ )
+#define SpewBugRateLimited( usecNow, ... ) SpewTypeRateLimited( usecNow, k_ESteamNetworkingSocketsDebugOutputType_Bug, __VA_ARGS__ )
 
 /// Make sure stuff is initialized
 extern bool BSteamNetworkingSocketsInitCommon( SteamDatagramErrMsg &errMsg );

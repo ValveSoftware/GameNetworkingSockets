@@ -232,8 +232,10 @@ inline void GetSteamNetworkingLocationPOPStringFromID( SteamNetworkingPOPID id, 
 /// microsecond *resolution*.
 typedef int64 SteamNetworkingMicroseconds;
 
-// maximum amount of pending buffered messages allows
-const int k_cbMaxSteamDatagramMessageSize = 512 * 1024;
+/// Max size of a single message that we can SEND.
+/// Note: We might be wiling to receive larger messages,
+/// and our peer might, too.
+const int k_cbMaxSteamNetworkingSocketsMessageSizeSend = 512 * 1024;
 
 /// A message that has been received.
 class ISteamNetworkingMessage
@@ -278,6 +280,9 @@ public:
 	/// Get the time that it was received
 	inline SteamNetworkingMicroseconds GetTimeReceived() const { return m_usecTimeReceived; }
 
+	/// Message number assigned by the sender
+	inline int64 GetMessageNumber() const { return m_nMessageNumber; }
+
 protected:
 	CSteamID m_steamIDSender;
 	void *m_pData;
@@ -286,6 +291,7 @@ protected:
 	HSteamNetConnection m_conn;
 	int64 m_nConnUserData;
 	SteamNetworkingMicroseconds m_usecTimeReceived;
+	int64 m_nMessageNumber;
 
 	inline ~ISteamNetworkingMessage() {} // Destructor hidden - use Release()!  But make it inline and empty, in case you want to derive your own type that satisfies this interface for use in your code.
 };

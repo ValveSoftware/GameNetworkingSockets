@@ -397,7 +397,7 @@ struct LinkStatsTracker
 	//
 	// Outgoing stats
 	//
-	uint64 m_unNextSendSequenceNumber;
+	int64 m_nNextSendSequenceNumber;
 	PacketRate_t m_sent;
 	SteamNetworkingMicroseconds m_usecTimeLastSentSeq;
 
@@ -415,7 +415,7 @@ struct LinkStatsTracker
 	inline uint16 GetNextSendSequenceNumber( SteamNetworkingMicroseconds usecNow )
 	{
 		m_usecTimeLastSentSeq = usecNow;
-		return m_unNextSendSequenceNumber++;
+		return uint16( m_nNextSendSequenceNumber++ );
 	}
 
 	// Track acks outstanding that we expect to receive
@@ -430,7 +430,7 @@ struct LinkStatsTracker
 	//
 	// Incoming
 	//
-	uint64 m_unLastRecvSequenceNumber;
+	int64 m_nLastRecvSequenceNumber;
 	PacketRate_t m_recv;
 
 	/// Packets that we receive that exceed the rate limit.
@@ -457,7 +457,8 @@ struct LinkStatsTracker
 	/// Called when we receive a packet with a sequence number, to update estimated
 	/// number of dropped packets, etc.  Returns the full 64-bit sequence number
 	/// for the flow.
-	uint64 TrackRecvSequencedPacket( uint16 unWireSequenceNumber, SteamNetworkingMicroseconds usecNow, int usecSenderTimeSincePrev );
+	void TrackRecvSequencedPacket( uint16 unWireSequenceNumber, SteamNetworkingMicroseconds usecNow, int usecSenderTimeSincePrev );
+	void TrackRecvSequencedPacketGap( int16 nGap, SteamNetworkingMicroseconds usecNow, int usecSenderTimeSincePrev );
 
 	//
 	// Instantaneous stats
@@ -798,6 +799,14 @@ struct LinkStatsTrackerEndToEnd : public LinkStatsTracker
 	void Init( SteamNetworkingMicroseconds usecNow );
 	void Think( SteamNetworkingMicroseconds usecNow );
 	virtual void GetLifetimeStats( SteamDatagramLinkLifetimeStats &s ) const OVERRIDE;
+
+	/// Calculate retry timeout the sender will use
+	SteamNetworkingMicroseconds CalcSenderRetryTimeout() const
+	{
+		if ( m_ping.m_nSmoothedPing < 0 )
+			return 500000;
+		return m_ping.m_nSmoothedPing*2000 + k_usecMaxDataAckDelay;
+	}
 
 	/// Time when the current interval started
 	SteamNetworkingMicroseconds m_usecSpeedIntervalStart;

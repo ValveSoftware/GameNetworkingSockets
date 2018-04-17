@@ -7,8 +7,14 @@ GameNetworkingSockets is a basic transport layer for games.  The features are:
 * ... but message-oriented (like UDP), not stream-oriented.
 * Supports both reliable and unreliable message types
 * Messages can be larger than underlying MTU.  The protocol performs
-  fragmentation, reassembly, and retransmission for reliable messages
+  fragmentation, reassembly, and retransmission for reliable messages.
+* The ack model is inspired by Google QUIC and is significantly more
+  sophisticated than a basic TCP-style sliding window.  This allows
+  the receiver to efficiently communicate to the sender which individual
+  segments were not received, and to only retransmit those specific segments.
 * Bandwidth estimation based on TCP-friendly rate control (RFC 5348)
+  **NOTE: TEMPORARILY BROKEN** As part of the rewrite of the reliability rewrite
+  in this branch, this is broken.  A fixed (configurable) rate is used.
 * Encryption. AES per packet, Ed25519 crypto for key exchange and cert
   signatures. The details for shared key derivation and per-packet IV are
   based on the [design](https://docs.google.com/document/d/1g5nIXAIkN_Y-7XJW5K45IblHd_L2f5LTaDUDwvZ5L6g/edit?usp=sharing)
@@ -19,7 +25,6 @@ What it does *not* do:
 
 * Higher level serialization of entities, delta encoding of changed state variables, etc
 * Compression
-* NAT piercing, STUN/TURN, etc.
 
 ### Why do I see "Steam" everywhere?
 
@@ -209,8 +214,15 @@ C:\dev\GameNetworkingSockets\build> ninja
 We're still in the process of extracting the code from our proprietary build
 toolchain and making everything more open-source friendly.  Bear with us.
 
-* The unit test compiles, but has some issues.  And we don't have it working
-  in any standard framework.
+* The test compiles and runs, but generates lots of spew that looks like bugs
+  but is actually normal.  We also don't have it working in any standard framework.
+  It isn't really a narrowly targeted unit test, it is designed to exercise
+  almost all of the reliability, rate limiting, and serialization layers, by
+  connecting two peers and enabling some paket loss and reordering, and then
+  delivering a bunch of random-sized packets.  Exercising specific patterns
+  of packet misdelivery and checking the exact behaviour more strictly would
+  be great, since certain classes of bugs can just cause poor performance or
+  miscalculation of the rate, while still appearing to be "working."
 * We don't have a good, simple client/server example of how to use the code.
   (The unit test is not a good example, please don't cut and paste it.)
 
@@ -218,25 +230,29 @@ toolchain and making everything more open-source friendly.  Bear with us.
 ## Roadmap
 Here are some areas we're actively working on improving.
 
+### Bandwidth estimation temporarily broken
+As part of the reliability layer rewrite, bandwidth estimation is temporarily
+broken, and a fixed (configurable) rate is used.  This is because the new ack
+model allows the sender to know packet-by-packet which were delivered and
+dropped, and thus the TCP-friendly rate calculations can be done by the sender,
+instead of by the receiver.  The RFC mentions this possibility.
 
-### Reliability layer improvements
-We have a new version of the "SNP" code in progress.  (This is the code that
-takes API messages and puts them into UDP packets.  Long packets are fragmented
-and reassembled, short messages can be combined, and lost fragments of reliable
-messages are retransmitted.)
-
-* The wire format framing is rather... prodigious.
-* The reliability layer is a pretty naive sliding window implementation.
-* The reassembly layer is likewise pretty naive.  Out-of-order packets are
-  totally discarded, which can be catastrophic for certain patterns of traffic
-  over, e.g. DSL lines.
-
+### Use of STL causing more dynamic memory allocations than necessary
+There are a few STL maps and such that could be significantly optimized
+by the use of custom data structures or allocators.
 
 ### Abstract SteamIDs to generic "identity"
 We'd like to generalize the concept of an identity.  Basically anywhere you see
 CSteamID, it would be good to enable the use of a more generic identity
 structure.
 
+### NAT piercing (ICE/STUN/TURN)
+The Steamworks code supports a custom protocol for relaying packets through
+our network of relays and on our backbone.  At this time the opensource code
+does not have any support for piercing NAT or relaying packets.  But since
+the Steamworks code already has those concepts, it should be pretty easy to
+add support for this.  You'd still be responsible for running the STUN/TURN
+servers and doing the rendezvous/signalling, but the code could use them.
 
 ### OpenSSL bloat
 Our use of OpenSSL is extremely limited; basically just AES encryption.  We use

@@ -13,6 +13,12 @@
 
 #define PORT_SERVER			27200	// Default server port, UDP/TCP
 
+static void DebugOutput( int /*eType*/, const char *pszMsg )
+{
+	printf( "%s\n", pszMsg );
+	fflush(stdout);
+}
+
 static void InitSteamDatagramConnectionSockets()
 {
 	#ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
@@ -32,6 +38,8 @@ static void InitSteamDatagramConnectionSockets()
 			exit(1);
 		}
 	#endif
+
+	SteamNetworkingSockets_SetDebugOutputFunction( k_ESteamNetworkingSocketsDebugOutputType_Verbose, DebugOutput );
 }
 
 static void ShutdownSteamDatagramConnectionSockets()
@@ -285,13 +293,15 @@ static void RunSteamDatagramConnectionTest()
 	pSteamSocketNetworking->SetConfigurationValue( k_ESteamNetworkingConfigurationValue_SNP_Log_Loss, 1 );
 	pSteamSocketNetworking->SetConfigurationValue( k_ESteamNetworkingConfigurationValue_SNP_Log_X, 0 );
 
-	//pSteamSocketNetworking->SetConfigurationValue( k_ESteamNetworkingConfigurationValue_SNP_MinRate, 50000 );
-	//pSteamSocketNetworking->SetConfigurationValue( k_ESteamNetworkingConfigurationValue_SNP_MaxRate, 250000 );
+	pSteamSocketNetworking->SetConfigurationValue( k_ESteamNetworkingConfigurationValue_SNP_MinRate, 1000000 );
+	pSteamSocketNetworking->SetConfigurationValue( k_ESteamNetworkingConfigurationValue_SNP_MaxRate, 1000000 );
 
-	pSteamSocketNetworking->SetConfigurationValue( k_ESteamNetworkingConfigurationValue_FakePacketLoss_Send, 5 );
+	pSteamSocketNetworking->SetConfigurationValue( k_ESteamNetworkingConfigurationValue_FakePacketLoss_Send, 10 );
 	pSteamSocketNetworking->SetConfigurationValue( k_ESteamNetworkingConfigurationValue_FakePacketLoss_Recv, 0 );
-	pSteamSocketNetworking->SetConfigurationValue( k_ESteamNetworkingConfigurationValue_FakePacketLag_Send, 10 );
-	pSteamSocketNetworking->SetConfigurationValue( k_ESteamNetworkingConfigurationValue_FakePacketLag_Recv, 0 );
+	pSteamSocketNetworking->SetConfigurationValue( k_ESteamNetworkingConfigurationValue_FakePacketLag_Send, 20 );
+	pSteamSocketNetworking->SetConfigurationValue( k_ESteamNetworkingConfigurationValue_FakePacketReorder_Send, 10 );
+	pSteamSocketNetworking->SetConfigurationValue( k_ESteamNetworkingConfigurationValue_FakePacketReorder_Time, 5 );
+//	pSteamSocketNetworking->SetConfigurationValue( k_ESteamNetworkingConfigurationValue_FakePacketLag_Recv, 0 );
 
 	// Command line options:
 	// -connect:ip -- don't create a server, just try to connect to the given ip

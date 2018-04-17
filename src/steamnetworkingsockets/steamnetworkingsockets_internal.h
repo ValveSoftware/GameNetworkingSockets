@@ -34,6 +34,10 @@
 	#define WSAEWOULDBLOCK EWOULDBLOCK
 #endif
 
+// Windows is the worst
+#undef min
+#undef max
+
 // Public shared stuff
 #include <tier0/basetypes.h>
 #include <tier0/t0constants.h>
@@ -114,10 +118,30 @@ inline int GetLastSocketError()
 /// (IP addresses, ports, checksum, etc.
 const int k_cbSteamNetworkingSocketsMaxUDPMsgLen = 1300;
 
-/// Max message size that we promise that we can send without fragmenting
-/// Should we promote this to a public header?  It does seems like an
-/// important API parameter.
+/// Max message size that we can send without fragmenting (except perhaps in some
+/// rare degenerate cases.)  Should we promote this to a public header?  It does
+/// seems like an important API parameter?  Or maybe not.  If they are doing any
+/// of their own fragmentation and assembly, 
 const int k_cbSteamNetworkingSocketsMaxMessageNoFragment = 1200;
+
+/// Max size of a reliable segment.  This is designed such that a reliable
+/// message of size k_cbSteamNetworkingSocketsMaxMessageNoFragment
+/// won't get fragmented, except perhaps in an exceedingly degenerate
+/// case.  (Even in this case, the protocol will function properly, it
+/// will just potentially fragment the message.)  We shouldn't make any
+/// hard promises in this department.
+///
+/// 1 byte - message header
+/// 3 bytes - varint encode msgnum gap between previous reliable message.  (Gap could be greater, but this would be really unusual.)
+/// 1 byte - size remainder bytes (assuming message is k_cbSteamNetworkingSocketsMaxMessageNoFragment, we only need a single size overflow byte)
+const int k_cbSteamNetworkingSocketsMaxReliableMessageSegment = k_cbSteamNetworkingSocketsMaxMessageNoFragment + 5;
+
+/// Worst case encoding of a single reliable segment frame.
+/// Basically this is the SNP frame type header byte, plus a 48-bit
+/// message number (worst case scenario).  Nothing for the size field,
+/// since we assume that if we write this many bytes, it will be the last
+/// frame in the packet and thus no explicit size field will be needed.
+const int k_cbSteamNetworkingSocketsMaxReliableMessageSegmentFrame = k_cbSteamNetworkingSocketsMaxReliableMessageSegment + 7;
 
 /// Max length of encrypted payload we will send.  Must be multiple of
 /// the encryption key length.  (Currently 32-byte AES keys.)
@@ -150,11 +174,16 @@ enum EStatsReplyRequest
 
 /// Max time that we we should "Nagle" an ack, hoping to combine them together or
 /// piggy back on another outgoing message, before sending a standalone message.
-const SteamNetworkingMicroseconds k_usecMaxAckDelay = 250*1000;
+const SteamNetworkingMicroseconds k_usecMaxAckStatsDelay = 250*1000;
+
+/// Max duration that a receiver could pend a data ack, in the hopes of trying
+/// to piggyback the ack on another outbound packet.
+/// !KLUDGE! This really ought to be application- (or connection-) specific.
+const SteamNetworkingMicroseconds k_usecMaxDataAckDelay = 35*1000;
 
 /// Precision of the delay ack delay values we send.  A packed value of 1 represents 2^N microseconds
 const unsigned k_usecAckDelayPacketSerializedPrecisionShift = 6;
-COMPILE_TIME_ASSERT( ( (k_usecMaxAckDelay*2) >> k_usecAckDelayPacketSerializedPrecisionShift ) < 0x4000 ); // Make sure we varint encode in 2 bytes, even if we overshoot a factor of 2x
+COMPILE_TIME_ASSERT( ( (k_usecMaxAckStatsDelay*2) >> k_usecAckDelayPacketSerializedPrecisionShift ) < 0x4000 ); // Make sure we varint encode in 2 bytes, even if we overshoot a factor of 2x
 
 /// After a connection is closed, a session will hang out in a CLOSE_WAIT-like
 /// (or perhaps FIN_WAIT?) state to handle last stray packets and help both sides
@@ -279,8 +308,10 @@ inline int VarIntSerializedSize( uint64 x )
 // De-serialize a var-int encoded quantity.  Returns pointer to the next byte,
 // or NULL if there was a decoding error (we hit the end of stream.)
 // https://developers.google.com/protocol-buffers/docs/encoding
+//
+// NOTE: We do not detect overflow.
 template <typename T>
-inline const byte *DeserializeVarInt( const byte *p, const byte *end, T &x )
+inline byte *DeserializeVarInt( byte *p, const byte *end, T &x )
 {
 	if ( p >= end )
 		return nullptr;
@@ -295,6 +326,13 @@ inline const byte *DeserializeVarInt( const byte *p, const byte *end, T &x )
 	}
 	x = nResult;
 	return p;
+}
+
+// Const version
+template <typename T>
+inline const byte *DeserializeVarInt( const byte *p, const byte *end, T &x )
+{
+	return DeserializeVarInt( const_cast<byte*>( p ), end, x );
 }
 
 void LinkStatsPrintInstantaneousToBuf( const char *pszLeader, const SteamDatagramLinkInstantaneousStats &stats, CUtlBuffer &buf );
@@ -381,45 +419,52 @@ struct IndexRange
 	Iter end() const { return Iter{m_nEnd}; }
 };
 
-template <typename T>
-inline IndexRange iter_indices( const std::vector<T> &vec )
+template <typename T, typename A>
+inline IndexRange iter_indices( const std::vector<T,A> &vec )
 {
 	return IndexRange{ 0, (int)vec.size() };
 }
 
-template <typename T>
-inline void erase_at( std::vector<T> &vec, int idx )
+template <typename T, typename A>
+inline void erase_at( std::vector<T,A> &vec, int idx )
 {
 	vec.erase( vec.begin()+idx );
 }
 
-template <typename T>
-inline int push_back_get_idx( std::vector<T> &vec )
+template <typename T, typename A>
+inline void pop_from_front( std::vector<T,A> &vec, int n )
+{
+	auto b = vec.begin();
+	vec.erase( b, b+n );
+}
+
+template <typename T, typename A>
+inline int push_back_get_idx( std::vector<T,A> &vec )
 {
 	vec.resize( vec.size()+1 ); return int( vec.size()-1 );
 }
 
-template <typename T>
-inline int push_back_get_idx( std::vector<T> &vec, const T &x )
+template <typename T, typename A>
+inline int push_back_get_idx( std::vector<T,A> &vec, const T &x )
 {
 	vec.push_back( x ); return int( vec.size()-1 );
 }
 
-template <typename T>
-inline T *push_back_get_ptr( std::vector<T> &vec )
+template <typename T, typename A>
+inline T *push_back_get_ptr( std::vector<T,A> &vec )
 {
 	vec.resize( vec.size()+1 ); return &vec[ vec.size()-1 ];
 }
 
-template <typename T>
-inline T *push_back_get_ptr( std::vector<T> &vec, const T &x )
+template <typename T, typename A>
+inline T *push_back_get_ptr( std::vector<T,A> &vec, const T &x )
 {
 	vec.push_back( x ); return &vec[ vec.size()-1 ];
 }
 
 // Return size as an *int*, not size_t, which is totally pedantic useless garbage in 99% of code.
-template <typename T>
-inline int len( const std::vector<T> &vec )
+template <typename T, typename A>
+inline int len( const std::vector<T,A> &vec )
 {
 	return (int)vec.size();
 }
@@ -429,8 +474,20 @@ inline int len( const std::string &str )
 	return (int)str.length();
 }
 
-template< typename T >
-inline bool has_element( const std::vector<T> &vec, const T&x )
+template <typename K, typename V, typename L, typename A>
+inline int len( const std::map<K,V,L,A> &map )
+{
+	return (int)map.size();
+}
+
+template <typename T, typename L, typename A>
+inline int len( const std::set<T,L,A> &map )
+{
+	return (int)map.size();
+}
+
+template< typename T, typename A >
+inline bool has_element( const std::vector<T,A> &vec, const T&x )
 {
 	return std::find( vec.begin(), vec.end(), x ) != vec.end();
 }

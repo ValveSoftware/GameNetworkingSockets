@@ -90,7 +90,7 @@ const TrustedKey s_arTrustedKeys[1] = {
 
 inline CSteamNetworkingMessage::~CSteamNetworkingMessage() {}
 
-CSteamNetworkingMessage::CSteamNetworkingMessage( CSteamNetworkConnectionBase *pParent, uint32 cbSize, SteamNetworkingMicroseconds usecNow )
+CSteamNetworkingMessage::CSteamNetworkingMessage( CSteamNetworkConnectionBase *pParent, uint32 cbSize, int64 nMsgNum, SteamNetworkingMicroseconds usecNow )
 {
 	m_steamIDSender = pParent->m_steamIDRemote;
 	m_pData = malloc( cbSize );
@@ -99,6 +99,7 @@ CSteamNetworkingMessage::CSteamNetworkingMessage( CSteamNetworkConnectionBase *p
 	m_conn = pParent->m_hConnectionSelf;
 	m_nConnUserData = pParent->GetUserData();
 	m_usecTimeReceived = usecNow;
+	m_nMessageNumber = nMsgNum;
 }
 
 void CSteamNetworkingMessage::Release()
@@ -602,10 +603,29 @@ void CSteamNetworkConnectionBase::ClearCrypto()
 	m_cryptIVRecv.Wipe();
 }
 
-void CSteamNetworkConnectionBase::RecvNonDataSequencedPacket( uint16 nWireSeqNum, SteamNetworkingMicroseconds usecNow )
+bool CSteamNetworkConnectionBase::RecvNonDataSequencedPacket( uint16 nWireSeqNum, SteamNetworkingMicroseconds usecNow )
 {
-	m_statsEndToEnd.TrackRecvSequencedPacket( nWireSeqNum, usecNow, 0 );
-	SNP_RecvNonDataPacket( nWireSeqNum, usecNow );
+	// Get the full end-to-end packet number
+	int16 nGap = nWireSeqNum - uint16( m_statsEndToEnd.m_nLastRecvSequenceNumber );
+	int64 nFullSequenceNumber = m_statsEndToEnd.m_nLastRecvSequenceNumber + nGap;
+	Assert( uint16( nFullSequenceNumber ) == nWireSeqNum );
+
+	// Check the packet gap.  If it's too old, just discard it immediately.
+	if ( nGap < -16 )
+		return false;
+	if ( nFullSequenceNumber <= 0 ) // Sequence number 0 is not used, and we don't allow negative sequence numbers
+		return false;
+
+	// Let SNP know when we received it, so we can track loss evens and send acks
+	if ( SNP_RecordReceivedPktNum( nFullSequenceNumber, usecNow ) )
+	{
+
+		// And also the general purpose sequence number/stats tracker
+		// for the end-to-end flow.
+		m_statsEndToEnd.TrackRecvSequencedPacketGap( nGap, usecNow, 0 );
+	}
+
+	return true;
 }
 
 bool CSteamNetworkConnectionBase::BThinkCryptoReady( SteamNetworkingMicroseconds usecNow )
@@ -1134,7 +1154,7 @@ void CSteamNetworkConnectionBase::APIGetDetailedConnectionStatus( SteamNetworkin
 	SNP_PopulateDetailedStats( stats.m_statsEndToEnd );
 }
 
-int CSteamNetworkConnectionBase::EncryptAndSendDataChunk( const void *pChunk, int cbChunk, SteamNetworkingMicroseconds usecNow, uint16 *pOutSeqNum )
+int CSteamNetworkConnectionBase::EncryptAndSendDataChunk( const void *pChunk, int cbChunk, SteamNetworkingMicroseconds usecNow )
 {
 	if ( cbChunk > k_cbSteamNetworkingSocketsMaxPlaintextPayloadSend )
 	{
@@ -1150,7 +1170,7 @@ int CSteamNetworkConnectionBase::EncryptAndSendDataChunk( const void *pChunk, in
 
 	// Encrypt the chunk
 	uint8 arEncryptedChunk[ k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend + 64 ]; // Should not need pad
-	*(uint64 *)&m_cryptIVSend.m_buf = LittleQWord( m_statsEndToEnd.m_unNextSendSequenceNumber );
+	*(uint64 *)&m_cryptIVSend.m_buf = LittleQWord( m_statsEndToEnd.m_nNextSendSequenceNumber );
 	uint32 cbEncrypted = sizeof(arEncryptedChunk);
 	DbgVerify( CCrypto::SymmetricEncryptWithIV(
 		(const uint8 *)pChunk, cbChunk, // plaintext
@@ -1164,7 +1184,8 @@ int CSteamNetworkConnectionBase::EncryptAndSendDataChunk( const void *pChunk, in
 	//SpewMsg( "Send encrypt IV %llu + %02x%02x%02x%02x, key %02x%02x%02x%02x\n", *(uint64 *)&m_cryptIVSend.m_buf, m_cryptIVSend.m_buf[8], m_cryptIVSend.m_buf[9], m_cryptIVSend.m_buf[10], m_cryptIVSend.m_buf[11], m_cryptKeySend.m_buf[0], m_cryptKeySend.m_buf[1], m_cryptKeySend.m_buf[2], m_cryptKeySend.m_buf[3] );
 
 	// Connection-specific method to send it
-	return SendDataChunk( arEncryptedChunk, cbEncrypted, usecNow, pOutSeqNum );
+	uint16 ignoreSeqNum;
+	return SendDataChunk( arEncryptedChunk, cbEncrypted, usecNow, &ignoreSeqNum );
 }
 
 
@@ -1204,9 +1225,9 @@ EResult CSteamNetworkConnectionBase::_APISendMessageToConnection( const void *pD
 {
 
 	// Message too big?
-	if ( cbData > k_cbMaxSteamDatagramMessageSize )
+	if ( cbData > k_cbMaxSteamNetworkingSocketsMessageSizeSend )
 	{
-		AssertMsg2( false, "Message size %d is too big.  Max is %d", cbData, k_cbMaxSteamDatagramMessageSize );
+		AssertMsg2( false, "Message size %d is too big.  Max is %d", cbData, k_cbMaxSteamNetworkingSocketsMessageSizeSend );
 		return k_EResultInvalidParam;
 	}
 
@@ -1239,8 +1260,6 @@ EResult CSteamNetworkConnectionBase::APIFlushMessageOnConnection()
 
 	case k_ESteamNetworkingConnectionState_Connecting:
 	case k_ESteamNetworkingConnectionState_FindingRoute:
-		return k_EResultIgnored;
-
 	case k_ESteamNetworkingConnectionState_Connected:
 		break;
 
@@ -1258,22 +1277,24 @@ int CSteamNetworkConnectionBase::APIReceiveMessages( ISteamNetworkingMessage **p
 	return m_queueRecvMessages.RemoveMessages( ppOutMessages, nMaxMessages );
 }
 
-bool CSteamNetworkConnectionBase::RecvDataChunk( uint16 unSeqNum, const void *pChunk, int cbChunk, int cbPacketSize, SteamNetworkingMicroseconds usecNow )
+bool CSteamNetworkConnectionBase::RecvDataChunk( uint16 nWireSeqNum, const void *pChunk, int cbChunk, int cbPacketSize, int usecTimeSinceLast, SteamNetworkingMicroseconds usecNow )
 {
 	Assert( m_bCryptKeysValid );
 
 	// Get the full end-to-end packet number
-	int16 nGap = unSeqNum - uint16( m_statsEndToEnd.m_unLastRecvSequenceNumber );
-	uint64 unFullSequenceNumber = m_statsEndToEnd.m_unLastRecvSequenceNumber + nGap;
-	Assert( uint16( unFullSequenceNumber ) == unSeqNum );
+	int16 nGap = nWireSeqNum - uint16( m_statsEndToEnd.m_nLastRecvSequenceNumber );
+	int64 nFullSequenceNumber = m_statsEndToEnd.m_nLastRecvSequenceNumber + nGap;
+	Assert( uint16( nFullSequenceNumber ) == nWireSeqNum );
 
 	// Check the packet gap.  If it's too old, just discard it immediately.
 	if ( nGap < -16 )
 		return false;
+	if ( nFullSequenceNumber <= 0 ) // Sequence number 0 is not used, and we don't allow negative sequence numbers
+		return false;
 
 	// Decrypt the chunk
 	uint8 arDecryptedChunk[ k_cbSteamNetworkingSocketsMaxPlaintextPayloadRecv ];
-	*(uint64 *)&m_cryptIVRecv.m_buf = LittleQWord( unFullSequenceNumber );
+	*(uint64 *)&m_cryptIVRecv.m_buf = LittleQWord( nFullSequenceNumber );
 
 	//SpewMsg( "Recv decrypt IV %llu + %02x%02x%02x%02x, key %02x%02x%02x%02x\n", *(uint64 *)&m_cryptIVRecv.m_buf, m_cryptIVRecv.m_buf[8], m_cryptIVRecv.m_buf[9], m_cryptIVRecv.m_buf[10], m_cryptIVRecv.m_buf[11], m_cryptKeyRecv.m_buf[0], m_cryptKeyRecv.m_buf[1], m_cryptKeyRecv.m_buf[2], m_cryptKeyRecv.m_buf[3] );
 
@@ -1286,11 +1307,10 @@ bool CSteamNetworkConnectionBase::RecvDataChunk( uint16 unSeqNum, const void *pC
 	) ) {
 
 		// Just drop packet.
-		// !FIXME! Probably should rate limit this.
 		// The assumption is that we either have a bug or some weird thing,
 		// or that somebody is spoofing / tampering.  If it's the latter
 		// we don't want to magnify the impact of their efforts
-		SpewWarning( "Packet data chunk failed to decrypt!  Could be tampering/spoofing or a bug." );
+		SpewWarningRateLimited( usecNow, "%s packet data chunk failed to decrypt!  Could be tampering/spoofing or a bug.", m_sName.c_str() );
 		return false;
 	}
 
@@ -1315,11 +1335,22 @@ bool CSteamNetworkConnectionBase::RecvDataChunk( uint16 unSeqNum, const void *pC
 	{
 		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_Generic,
 			"Pkt number lurch by %d; %04x->%04x",
-			nGap, (uint16)m_statsEndToEnd.m_unLastRecvSequenceNumber, unSeqNum);
+			nGap, (uint16)m_statsEndToEnd.m_nLastRecvSequenceNumber, nWireSeqNum);
 		return false;
 	}
 
-	return SNP_RecvDataChunk( unSeqNum, arDecryptedChunk, cbDecrypted, cbPacketSize, usecNow );
+	// Pass on to reassembly/reliability layer.  It may instruct us to act like we never received this
+	// packet
+	if ( !SNP_RecvDataChunk( nFullSequenceNumber, arDecryptedChunk, cbDecrypted, cbPacketSize, usecNow ) )
+	{
+		SpewDebug( "%s discarding pkt %lld\n", m_sName.c_str(), (long long)nFullSequenceNumber );
+		return false;
+	}
+
+	// Packet is OK.  Track end-to-end flow.
+	m_statsEndToEnd.TrackRecvPacket( cbPacketSize, usecNow );
+	m_statsEndToEnd.TrackRecvSequencedPacketGap( nGap, usecNow, usecTimeSinceLast );
+	return true;
 }
 
 void CSteamNetworkConnectionBase::APICloseConnection( int nReason, const char *pszDebug, bool bEnableLinger )
@@ -1404,10 +1435,25 @@ void CSteamNetworkConnectionBase::SetState( ESteamNetworkingConnectionState eNew
 	ConnectionStateChanged( eOldState );
 }
 
-void CSteamNetworkConnectionBase::ReceivedMessage( const void *pData, int cbData, SteamNetworkingMicroseconds usecNow )
+void CSteamNetworkConnectionBase::ReceivedMessage( const void *pData, int cbData, int64 nMsgNum, SteamNetworkingMicroseconds usecNow )
 {
+//	// !TEST! Enable this during connection test to trap bogus messages earlier
+//	#if 1
+//		struct TestMsg
+//		{
+//			int64 m_nMsgNum;
+//			bool m_bReliable;
+//			int m_cbSize;
+//			uint8 m_data[ 20*1000 ];
+//		};
+//		const TestMsg *pTestMsg = (const TestMsg *)pData;
+//
+//		// Size makes sense?
+//		Assert( sizeof(*pTestMsg) - sizeof(pTestMsg->m_data) + pTestMsg->m_cbSize == cbData );
+//	#endif
+
 	// Create a message
-	CSteamNetworkingMessage *pMsg = new CSteamNetworkingMessage( this, cbData, usecNow );
+	CSteamNetworkingMessage *pMsg = new CSteamNetworkingMessage( this, cbData, nMsgNum, usecNow );
 
 	// Add to end of my queue.
 	pMsg->LinkToQueueTail( &CSteamNetworkingMessage::m_linksSameConnection, &m_queueRecvMessages );
@@ -1680,6 +1726,9 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 		if ( usecTime < usecMinNextThinkTime )
 			usecMinNextThinkTime = usecTime;
 		SteamNetworkingMicroseconds usecEnd = usecTime + msTol*1000;
+		#ifdef _MSC_VER // Fix warning about optimization assuming no overflow
+		Assert( usecEnd > usecTime );
+		#endif
 		if ( usecEnd < usecMaxNextThinkTime )
 			usecMaxNextThinkTime = usecEnd;
 	};
@@ -1788,12 +1837,12 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 		// V
 		case k_ESteamNetworkingConnectionState_Connected:
 		{
-			SNP_ThinkSendState( usecNow );
-			SteamNetworkingMicroseconds usecNextThinkSNP = SNP_GetNextThinkTime( usecNow );
+			SteamNetworkingMicroseconds usecNextThinkSNP = SNP_ThinkSendState( usecNow );
 			AssertMsg1( usecNextThinkSNP > usecNow, "SNP next think time must be in in the future.  It's %lldusec in the past", (long long)( usecNow - usecNextThinkSNP ) );
 
 			// Set a pretty tight tolerance if SNP wants to wake up at a certain time.
-			UpdateMinThinkTime( usecNextThinkSNP, +1 );
+			if ( usecNextThinkSNP < k_nThinkTime_Never )
+				UpdateMinThinkTime( usecNextThinkSNP, +1 );
 		} break;
 	}
 
@@ -1856,7 +1905,7 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 		{
 			// FIXME We really should be a lot better here with an adaptive keepalive time.  If they have been
 			// sending us a steady stream of packets, we could expect it to continue at a high rate, so that we
-			// can begin to detect a dropped connection much more quickly.  But if the connection uis mostly idle, we want
+			// can begin to detect a dropped connection much more quickly.  But if the connection is mostly idle, we want
 			// to make sure we use a relatively long keepalive.
 			SteamNetworkingMicroseconds usecSendKeepalive = m_statsEndToEnd.m_usecTimeLastRecv+k_usecKeepAliveInterval;
 			if ( usecNow >= usecSendKeepalive )
@@ -2038,8 +2087,10 @@ EResult CSteamNetworkConnectionPipe::_APISendMessageToConnection( const void *pD
 	// Fake a bunch of stats
 	FakeSendStats( usecNow, cbData );
 
+	int64 nMsgNum = ++m_senderState.m_nLastSentMsgNum;
+
 	// Pass directly to our partner
-	m_pPartner->ReceivedMessage( pData, cbData, usecNow );
+	m_pPartner->ReceivedMessage( pData, cbData, nMsgNum, usecNow );
 
 	return k_EResultOK;
 }

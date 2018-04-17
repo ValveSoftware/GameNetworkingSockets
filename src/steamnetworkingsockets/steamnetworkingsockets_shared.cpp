@@ -205,9 +205,9 @@ void LinkStatsTracker::InitBaseLinkStatsTracker( SteamNetworkingMicroseconds use
 	m_recv.Reset();
 	m_recvExceedRateLimit.Reset();
 	m_ping.Reset();
-	m_unNextSendSequenceNumber = 0;
+	m_nNextSendSequenceNumber = 1;
 	m_usecTimeLastSentSeq = 0;
-	m_unLastRecvSequenceNumber = 0;
+	m_nLastRecvSequenceNumber = 0;
 	m_flInPacketsDroppedPct = -1.0f;
 	m_usecMaxJitterPreviousInterval = -1;
 	m_flInPacketsWeirdSequencePct = -1.0f;
@@ -414,7 +414,16 @@ void LinkStatsTracker::UpdateInterval( SteamNetworkingMicroseconds usecNow )
 	StartNextInterval( usecNow );
 }
 
-uint64 LinkStatsTracker::TrackRecvSequencedPacket( uint16 unWireSequenceNumber, SteamNetworkingMicroseconds usecNow, int usecSenderTimeSincePrev )
+void LinkStatsTracker::TrackRecvSequencedPacket( uint16 unWireSequenceNumber, SteamNetworkingMicroseconds usecNow, int usecSenderTimeSincePrev )
+{
+	int16 nGap = unWireSequenceNumber - uint16( m_nLastRecvSequenceNumber );
+	int64 nFullSequenceNumber = m_nLastRecvSequenceNumber + nGap;
+	Assert( uint16( nFullSequenceNumber ) == unWireSequenceNumber );
+
+	TrackRecvSequencedPacketGap( nGap, usecNow, usecSenderTimeSincePrev );
+}
+
+void LinkStatsTracker::TrackRecvSequencedPacketGap( int16 nGap, SteamNetworkingMicroseconds usecNow, int usecSenderTimeSincePrev )
 {
 
 	// Update stats
@@ -426,9 +435,6 @@ uint64 LinkStatsTracker::TrackRecvSequencedPacket( uint16 unWireSequenceNumber, 
 	// Check for dropped packet.  Since we hope that by far the most common
 	// case will be packets delivered in order, we optimize this logic
 	// for that case.
-	int16 nGap = unWireSequenceNumber - uint16( m_unLastRecvSequenceNumber );
-	uint64 unFullSequenceNumber = m_unLastRecvSequenceNumber + nGap;
-	Assert( uint16( unFullSequenceNumber ) == unWireSequenceNumber );
 	if ( nGap == 1 )
 	{
 
@@ -466,56 +472,49 @@ uint64 LinkStatsTracker::TrackRecvSequencedPacket( uint16 unWireSequenceNumber, 
 	}
 	else
 	{
-		// Ignore it if we're just getting the connection bootstrapped
-		if ( m_nPktsRecvSequenced > 1 || unWireSequenceNumber != 0 )
+		// Classify imperfection based on gap size.
+		if ( nGap < -10 || nGap >= 100 )
 		{
+			// Very weird.
+			++m_nPktsRecvSequenceNumberLurch;
+			++m_nPktsRecvWeirdSequenceCurrentInterval;
 
-			// Classify imperfection based on gap size.
-			if ( nGap < -10 || nGap >= 100 )
-			{
-				// Very weird.
-				++m_nPktsRecvSequenceNumberLurch;
-				++m_nPktsRecvWeirdSequenceCurrentInterval;
+			// Continue to code below, reseting the sequence number
+			// for packets going forward.
+		}
+		else if ( nGap > 0 )
+		{
+			// Probably the most common case, we just dropped a packet
+			int nDropped = nGap-1;
+			m_nPktsRecvDropped += nDropped;
+			m_nPktsRecvDroppedCurrentInterval += nDropped;
+		}
+		else if ( nGap == 0 )
+		{
+			// Same sequence number as last time.
+			// Packet was delivered multiple times.
+			++m_nPktsRecvDuplicate;
+			++m_nPktsRecvWeirdSequenceCurrentInterval;
 
-				// Continue to code below, reseting the sequence number
-				// for packets going forward.
-			}
-			else if ( nGap > 0 )
-			{
-				// Probably the most common case, we just dropped a packet
-				int nDropped = nGap-1;
-				m_nPktsRecvDropped += nDropped;
-				m_nPktsRecvDroppedCurrentInterval += nDropped;
-			}
-			else if ( nGap == 0 )
-			{
-				// Same sequence number as last time.
-				// Packet was delivered multiple times.
-				++m_nPktsRecvDuplicate;
-				++m_nPktsRecvWeirdSequenceCurrentInterval;
-
-				// NOTE: There is no mechanism in this layer
-				// of the code to prevent the processing of
-				// the duplicate by the application layer!
-			}
-			else
-			{
-				// Small negative gap.  Looks like packets were delivered
-				// out of order (or multiple times).
-				++m_nPktsRecvOutOfOrder;
-				++m_nPktsRecvWeirdSequenceCurrentInterval;
-
-				// DO NOT update the sequence number, because we have already received
-				// a later sequence number than this.
-				return unFullSequenceNumber;
-			}
+			// NOTE: There is no mechanism in this layer
+			// of the code to prevent the processing of
+			// the duplicate by the application layer!
+		}
+		else
+		{
+			// Small negative gap.  Looks like packets were delivered
+			// out of order (or multiple times).
+			++m_nPktsRecvOutOfOrder;
+			++m_nPktsRecvWeirdSequenceCurrentInterval;
 		}
 	}
 
-	// Save sequence number for next time.
-	m_unLastRecvSequenceNumber = unFullSequenceNumber;
-	m_usecTimeLastRecvSeq = usecNow;
-	return unFullSequenceNumber;
+	// Save highest known sequence number for next time.
+	if ( nGap > 0 )
+	{
+		m_nLastRecvSequenceNumber += nGap;
+		m_usecTimeLastRecvSeq = usecNow;
+	}
 }
 
 bool LinkStatsTracker::BCheckHaveDataToSendInstantaneous( SteamNetworkingMicroseconds usecNow )
@@ -576,7 +575,7 @@ bool LinkStatsTracker::BNeedToSendStatsOrAcks( SteamNetworkingMicroseconds usecN
 			return true;
 
 		// Is the oldest pending ack getting pretty stale?
-		if ( m_arPendingOutgoingAck[0].MicrosecondsAge( usecNow ) > k_usecMaxAckDelay )
+		if ( m_arPendingOutgoingAck[0].MicrosecondsAge( usecNow ) > k_usecMaxAckStatsDelay )
 			return true;
 	}
 
@@ -631,7 +630,7 @@ void LinkStatsTracker::TrackSentMessageExpectingSeqNumAck( SteamNetworkingMicros
 	TrackSentPingRequest( usecNow, bAllowDelayedReply );
 
 	// Remember when we sent this, so that when we receive the ack we can use it as a latency estimate
-	m_expectedAcks.AddExpectedAck( uint16( m_unNextSendSequenceNumber-1 ), usecNow );
+	m_expectedAcks.AddExpectedAck( uint16( m_nNextSendSequenceNumber-1 ), usecNow );
 }
 
 bool LinkStatsTracker::RecvAck( uint16 nWireSeqNum, uint16 nPackedDelay, SteamNetworkingMicroseconds usecNow )
@@ -682,7 +681,7 @@ void LinkStatsTracker::TrackSentStats( const CMsgSteamDatagramConnectionQuality 
 	// Check if we expect our peer to know how to acknowledge this
 	if ( !m_bDisconnected )
 	{
-		m_seqNumInFlight = m_unNextSendSequenceNumber-1;
+		m_seqNumInFlight = uint16( m_nNextSendSequenceNumber-1 );
 		m_bInFlightInstantaneous = msg.has_instantaneous();
 		m_bInFlightLifetime = msg.has_lifetime();
 

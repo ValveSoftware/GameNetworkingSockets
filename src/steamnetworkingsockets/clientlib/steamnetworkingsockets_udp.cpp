@@ -1074,7 +1074,6 @@ void CSteamNetworkConnectionIPv4::Received_Data( const uint8 *pPkt, int cbPkt, S
 		return;
 	}
 	uint16 nWirePktNumber = LittleWord( hdr->m_unSeqNum );
-	m_statsEndToEnd.TrackRecvSequencedPacket( nWirePktNumber, usecNow, 0 );
 
 	// Check state
 	switch ( GetState() )
@@ -1143,13 +1142,14 @@ void CSteamNetworkConnectionIPv4::Received_Data( const uint8 *pPkt, int cbPkt, S
 		msgStatsIn.set_seq_num( nWirePktNumber );
 
 		// Process the stats
+		// FIXME Should probably not do this until we check SNP layer for any problems
 		RecvStats( msgStatsIn, true, usecNow );
 
 		// Advance pointer
 		pIn += cbStatsMsgIn;
 	}
 
-	RecvDataChunk( nWirePktNumber, pIn, pPktEnd - pIn, cbPkt, usecNow );
+	RecvDataChunk( nWirePktNumber, pIn, pPktEnd - pIn, cbPkt, 0, usecNow );
 }
 
 void CSteamNetworkConnectionIPv4::Received_ChallengeReply( const CMsgSteamSockets_UDP_ChallengeReply &msg, SteamNetworkingMicroseconds usecNow )
@@ -1375,7 +1375,7 @@ void CSteamNetworkConnectionIPv4::Received_NoConnection( const CMsgSteamSockets_
 
 void CSteamNetworkConnectionIPv4::Received_Stats( const CMsgSteamSockets_UDP_Stats &msg, SteamNetworkingMicroseconds usecNow )
 {
-	if ( msg.to_connection_id() == 0 )
+	if ( !msg.has_to_connection_id() && !msg.has_from_connection_id() )
 	{
 		ReportBadPacketIPv4( "Stats", "Missing connection ID." );
 		return;
@@ -1401,7 +1401,8 @@ void CSteamNetworkConnectionIPv4::Received_Stats( const CMsgSteamSockets_UDP_Sta
 	}
 
 	// Update bookkeeping, we received a sequence number
-	RecvNonDataSequencedPacket( msg.seq_num(), usecNow );
+	if ( !RecvNonDataSequencedPacket( msg.seq_num(), usecNow ) )
+		return;
 
 	// Process the incoming stats, and if it warrants an immediate reply, go ahead and send it now
 	RecvStats( msg, false, usecNow );
