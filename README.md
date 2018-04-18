@@ -8,10 +8,11 @@ GameNetworkingSockets is a basic transport layer for games.  The features are:
 * Supports both reliable and unreliable message types
 * Messages can be larger than underlying MTU.  The protocol performs
   fragmentation, reassembly, and retransmission for reliable messages.
-* The ack model is inspired by Google QUIC and is significantly more
-  sophisticated than a basic TCP-style sliding window.  This allows
-  the receiver to efficiently communicate to the sender which individual
-  segments were not received, and to only retransmit those specific segments.
+* The [ack model](src/steamnetworkingsockets/clientlib/SNP_WIRE_FORMAT.md)
+  is inspired by Google QUIC and is significantly more sophisticated than
+  a basic TCP-style sliding window.  This allows the receiver to efficiently
+  communicate to the sender which individual segments were not received,
+  so that only those specific segments are retransmitted.
 * Bandwidth estimation based on TCP-friendly rate control (RFC 5348)
   **NOTE: TEMPORARILY BROKEN** As part of the rewrite of the reliability rewrite
   in this branch, this is broken.  A fixed (configurable) rate is used.

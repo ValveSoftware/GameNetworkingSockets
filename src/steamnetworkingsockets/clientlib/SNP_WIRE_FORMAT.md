@@ -5,10 +5,13 @@ frame type / flags field.
 
 ### Unreliable message segment
 
+Encodes a segment of an unreliable message.  (Often, an entire message.)
+
     00emosss [message_num] [offset] [size] data
 
-    e: 0: More message data after this segment.
-       1: Message ends at the end of this segment.
+    e: 0: There's more data after ths in the unreliable message.
+          (Will be sent in another packet.)
+       1: This is the last segment in the unreliable message.
     m: encoded size of message_num
        First segment in packet: message_num is absolute.  Only bottom N bits are sent.
            0: 16-bits
@@ -31,6 +34,8 @@ frame type / flags field.
         111: This is the last frame, so message data extends to the end of the packet.
 
 ### Reliable message segment
+
+Encodes a segment of the reliable stream.
 
     010mmsss [stream_pos] [size] data
 
@@ -57,56 +62,54 @@ frame type / flags field.
 
 ### Stop waiting
 
-Meaning: "Stop acking packets older than this_pkt_num - pkt_num_offset - 1".
-Concept comes from Google QUIC
+Meaning: "Stop acking packets older than `this_pkt_num - pkt_num_offset - 1`".
 
-Stop waiting segments are encoded as follows:
+Stop waiting frames are encoded as follows:
 
-          100000ww pkt_num_offset
+    100000ww pkt_num_offset
 
-          ww: size of pkt_num_offset:
-              00: 8-bit offset
-              01: 16-bit offset
-              10: 24-bit offset
-              11: 64-bit offset
+     ww: size of pkt_num_offset:
+         00: 8-bit offset
+         01: 16-bit offset
+         10: 24-bit offset
+         11: 64-bit offset
 
 ### Ack
 
 Meaning: "Here's the latest packet number I have received from you, and how long ago I received it.
 Also, here's an RLE-encoded bitfield of recent packets, describing which I have received."
 
-Concept comes from Google QUIC.  The eventual goal is for a sender to know the fate (whether or
-it was received) of every single packet that it sends.  (!)  However, the sender's understanding
-may include some false NACKs, if packets arrive out of order.  For example, if a receiver observes
-a gap in the packet numbers, he will NACKs the skipped packets to the sender.  However, subsequently
-he may receive the "lost" packet.  It MUST be safe for the receiver to go ahead and process the packet,
-even though it has NACKed it.  The protocol is designed to work even if the sender is "wrong"
-about the fate of this packet and acts on that incorrect information.  E.g. if the sender retransmits
-data in the packet believed to be lost, the redundant data must be discarded by the receiver.  Or if
-the packet contained unreliable messages, the sender may incorrectly believe that the message was lost,
-when in fact it was delivered.
+A quick word on terminology used here: "sender" refers to a peer's role in sending actual *data*
+and the "stop waiting" frame, but not acks.  "Receiver" refers to a peer's role in sending the *acks*.
+Each side is actually both a sender and receiver, but the message data flow in one direction is
+essentially unrelated to the flow in the opposite direction, other than the fact that a peer will
+try to send data as a "sender" and acks as a "receiver" in the same packet.  For purposes of
+analyzing the protocol we ignore this symmetry, and focus on a single flow.  Thus, ack frames are
+actually sent by the "receiver" and received by the "sender"!  We'll use the words "encode" and
+"decode" below to try to minimize confusion.  Also, note that all packet numbers here are those
+assigned by the sender.
+
+The eventual goal is for a sender to know the fate of every single packet that it sends.  Since
+packets can arrive late or out of order, and there is transmission delay for the acks,
+the sender's understanding of the situation is not perfect: it may include some false NACKs.
+For example, if the receiver observes a gap in the packet numbers, he will NACKs the skipped
+packets to the sender.  However, subsequently he may receive the "lost" packets.  It MUST be
+safe for the receiver to go ahead and process the packets, even though he NACKed them.  The
+protocol is designed to work even if the sender is wrong about the fate of this packet, and
+acts on that incorrect information.  If the packet that was presumed lost contained reliable
+segments, this means that the sender may unnecessarily retransmit those reliable segments
+unnecessarily.  This redundant data must be discarded by the receiver.  If the presumed lost
+packet contained unreliable message(s), the sender may believe that those messages were not
+delivered, when in fact they were.  However, the sender will never mistakenly believe that
+a packet has been delivered when it has not.  Note that packet numbers are strictly
+increasing, and any retransmissions will be assigned a new packet number by the sender.
+The sender is free to retransmit reliable data on different segment boundaries; it is not
+restricted to retransmitting identical packets or segments.
 
 Compared to simple sliding window schemes, this provides the sender with far more visibility into
 the receiver's state, and thus when there is loss, only specific lost packets need to be retransmitted,
 instead of rewinding all the way back to the point of loss.  This also serves as loss feedback for
 TCP-friendly bandwidth estimation.
-
-All packets between the latest stop_waiting packet number and latest_received_pkt_num (inclusive)
-will be accounted for.  Specifically, any packet after the latest received latest_received_pkt_num
-and the earliest ack block (if any) are being acknowledged, even though the "starting" point is not
-specifically included!  This works because the sender (in this case, I mean the peer who is processing
-the ack frame, whose packets are being acked) never decreases the stop_waiting packet number.
-And so when the sender receives an ack frame, the frame may cover packets that are older than the most
-recently sent stop_waiting message (in which case they will be discarded, since the sender should already
-know the fate of those packets, or has already arranged for any necessary retransmission).
-
-If packet loss is such that the ack/nack record is badly fragmented, it may not be possible
-to give a full account of all packets between stop_waiting and latest_received_pkt_num in a
-reasonable number of blocks.  In this case, the receiver (the peer encoding these acks) can simply
-encode only the oldest packets that will fit.  Eventually the sender should advance the stop_waiting
-packet number past this fragmentation, at which point the receiver can catch up.  In cases of very bad
-fragmentation we will probably end up slowing down the packet rate, due to the packet loss causing the
-fragmentation, anyway.
 
 Ack frames are encoded as follows:
 
@@ -117,24 +120,25 @@ Ack frames are encoded as follows:
         1=32-bit
     nnn: number of blocks in this frame.
         000-110: use this number
-        111: number of blocks is >7, explicit count byte is present.
+        111: number of blocks is >6, explicit count byte N is present.  (Max 255 blocks)
 
-latest_received_delay measures how long since I received that packet number until I sent the
-packet containing these acks.  It is 16-bit value on a scale of 1=32usec.  Thus the largest
-delay that can be encoded is 65,535 * 32 is a little over 2 seconds.  However, the max value of
-65,535 is reserved to indicate that value is missing/invalid.  In general, since the sender
-remembers the time each outbound packet is sent, the combination of the sequence number and
-delay can be used to estimate the ping.
+`latest_received_delay` measures the delay between the receiver receiving the packet
+numbered `latest_received_pkt_num` and sending these acks.  It is 16-bit value on a scale
+of 1=32usec.  Thus the largest delay that can be encoded is 65,535 x 32usec = a little
+over 2 seconds.  Since the sender remembers the time each outbound packet is sent,
+the combination of the packet number and delay means that every ack frame also serves
+as a ping reply, so that the RTT can be continuously monitored.    However, the
+max value of 65,535 is reserved to indicate that the value is intentionally missing
+or invalid and no timing information should be inferred.
 
-Ack blocks work backwards from the most recent towards older packets, and essentially
-run-length-encode the sequence of received/not-received.  Each block conceptually
-contains a count of packets being acked, and a count of packets that have not (yet)
-been received.
+Ack blocks are encoded working backwards, starting from the most recent packets,
+towards older packets.  This is essentially a run-length encoding of a bitfield
+describing the ACK or NACK state of each packet.  Each block conceptually contains
+a count of packets being acked, and a count of packets that have not (yet) been received.
+The ACKs for a block are for newer (greater numbered) packets, and the NACKed
+range in the same block is for the older packets.
 
-The "acks" for a block are for newer (greater numbered) packets than the nacks in
-the same block.
-
-Each block is encoded as as follows:
+Each ack block is encoded as as follows:
 
     aaaannnn [num_ack] [num_nack]
 
@@ -143,9 +147,33 @@ Each block is encoded as as follows:
           1xxx: xxx are lower 3 bits.  Upper bits are var-int encoded and follow.
     nnnn: same as aaaa, but for nacks
 
-Note that except for the oldest (serialized last) ack block, if should never be necessary
-to encode a zero for any of these counts.  (FIXME - we could make a micro-optimization
-here to take advantage of this, although it would add a slight complication.)
+When a receiver encodes an ack frame, it MUST account for all packets between the latest
+`stop_waiting` packet number that it has received and the `latest_received_pkt_num` in the
+frame (inclusive).  For this purpose, he MUST NOT use a value of `stop_waiting` larger
+than the larger received value from the sender.  But the receiver MAY use
+a value of `latest_received_pkt_num` that is lower (older) than the latest packet number
+actually received.  In particular, this may be necessary if packet loss is such that the
+ack/nack record is badly fragmented and there is not enough space to give a full account
+of all the packets starting with `stop_waiting` up to the latest packet actually received.
+In this case, the receiver can simply encode only the oldest packets that will fit, and not
+ack (for now) the newer packets after the value of `latest_received_pkt_num` encoded
+in the frame.  Eventually the sender will advance the `stop_waiting` packet number past
+this fragmentation, at which point the receiver can stop acking the fragmented region of the
+packet number address space, and can catch up.  In cases of very bad fragmentation, we will
+probably end up slowing down the packet rate anyway, due to the packet loss that is causing the
+fragmentation.
+
+When the sender decodes the frame, it doesn't actually know what `stop_waiting` value the receiver
+has received, but it does know the latest `stop_waiting` value that it has sent, which cannot be
+lower (older) than the one that was used by the receiver to encode the packet.  This is a key
+guarantee that allows the receiver to avoid encoding acks between `stop_waiting` and the first
+loss, and for the sender to implicitly mark those packets as acked when decoding.  In particular,
+in the (hopefully!) common case where no packets have been lost in the range being accounted for,
+no blocks need be encoded at all.
+
+(FIXME - based on the above description, it's actually never necessary to encode a zero.
+So should we then always encode the number - 1?  Saving one byte in the case of a run of 8 dropped
+packets?)
 
 ### Reserved lead bytes
 
