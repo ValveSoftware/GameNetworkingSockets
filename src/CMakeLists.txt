@@ -22,6 +22,7 @@ set(GNS_SRCS
 	"public/minbase/minbase_common_errors.cpp"
 	"steamnetworkingsockets/certtool/steamnetworkingsockets_certtool.cpp"
 	"steamnetworkingsockets/clientlib/csteamnetworkingsockets.cpp"
+	"steamnetworkingsockets/clientlib/steamnetworkingsockets_flat.cpp"
 	"steamnetworkingsockets/clientlib/steamnetworkingsockets_connections.cpp"
 	"steamnetworkingsockets/clientlib/steamnetworkingsockets_lowlevel.cpp"
 	"steamnetworkingsockets/clientlib/steamnetworkingsockets_snp.cpp"
