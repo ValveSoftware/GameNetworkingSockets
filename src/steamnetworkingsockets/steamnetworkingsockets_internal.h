@@ -238,8 +238,8 @@ COMPILE_TIME_ASSERT( ( k_usecTimeSinceLastPacketMinReasonable >> k_usecTimeSince
 extern EUniverse g_eUniverse;
 
 /// Protocol version of this code
-const uint32 k_nCurrentProtocolVersion = 5;
-const uint32 k_nMinRequiredProtocolVersion = 5;
+const uint32 k_nCurrentProtocolVersion = 4;
+const uint32 k_nMinRequiredProtocolVersion = 4;
 
 // Serialize an UNSIGNED quantity.  Returns pointer to the next byte.
 // https://developers.google.com/protocol-buffers/docs/encoding
