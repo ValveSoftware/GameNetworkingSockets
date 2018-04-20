@@ -32,7 +32,7 @@ functionality of the API with the same name in the Steamworks SDK.  Our main
 reason for releasing this code is so that developers won't have any hesitation
 coding to the API in the Steamworks SDK.  On Steam, you will link against the
 Steamworks version, and you can get the additional features there (access to
-the relay network).  And on other platformss, you can use this version, which
+the relay network).  And on other platforms, you can use this version, which
 has the same names for everything, the same semantics, the same behavioural
 quirks.  We want you to take maximum advantage of the features in the
 Steamworks version, and that won't happen if the Steam code is a weird "wart"
