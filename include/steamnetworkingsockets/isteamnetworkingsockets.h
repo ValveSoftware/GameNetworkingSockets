@@ -1,7 +1,14 @@
 //====== Copyright Valve Corporation, All rights reserved. ====================
 //
-// Purpose: A low level API similar to Berkeley socket, to send messages
-// between hosts over the Steam network and addressed using Steam IDs.
+// Networking API similar to Berkeley sockets, but for games.
+// - connection-oriented API (like TCP, not UDP)
+// - but unlike TCP, it's message-oriented, not stream-oriented
+// - mix of reliable and unreliable messages
+// - fragmentation and reassembly
+// - Supports connectivity over plain UDPv4
+// - Also supports SDR ("Steam Datagram Relay") connections, which are
+//   addressed by SteamID.  There is a "P2P" use case and also a "hosted
+//   dedicated server" use case.
 //
 //=============================================================================
 
