@@ -2,6 +2,7 @@
 
 #include "steamnetworkingsockets_snp.h"
 #include "steamnetworkingsockets_connections.h"
+#include "crypto.h"
 
 #include "steamnetworkingconfig.h"
 
@@ -864,7 +865,7 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 				while ( inFlightPkt->first >= nPktNumNackBegin )
 				{
 					Assert( inFlightPkt->first < nPktNumAckEnd );
-					SNP_SenderProcessPacketNack( inFlightPkt->first, inFlightPkt->second );
+					SNP_SenderProcessPacketNack( inFlightPkt->first, inFlightPkt->second, "NACK" );
 
 					// We'll keep the record on hand, though, in case an ACK comes in
 					--inFlightPkt;
@@ -928,7 +929,7 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 	#undef READ_SEGMENT_DATA_SIZE
 }
 
-void CSteamNetworkConnectionBase::SNP_SenderProcessPacketNack( int64 nPktNum, SNPInFlightPacket_t &pkt )
+void CSteamNetworkConnectionBase::SNP_SenderProcessPacketNack( int64 nPktNum, SNPInFlightPacket_t &pkt, const char *pszDebug )
 {
 
 	// Did we already treat the packet as dropped (implicitly or explicitly)?
@@ -947,9 +948,10 @@ void CSteamNetworkConnectionBase::SNP_SenderProcessPacketNack( int64 nPktNum, SN
 		if ( inFlightRange == m_senderState.m_listInFlightReliableRange.end() )
 			continue;
 
-		SpewVerbose( "%s pkt %lld nack, queueing retry of reliable range [%lld,%lld)\n", 
+		SpewVerbose( "%s pkt %lld %s, queueing retry of reliable range [%lld,%lld)\n", 
 			m_sName.c_str(),
 			nPktNum,
+			pszDebug,
 			relRange.m_nBegin, relRange.m_nEnd );
 
 		// The ready-to-retry list counts towards the "pending" stat
@@ -996,7 +998,7 @@ SteamNetworkingMicroseconds CSteamNetworkConnectionBase::SNP_SenderCheckInFlight
 
 			// Mark as dropped, and move any reliable contents into the
 			// retry list.
-			SNP_SenderProcessPacketNack( m_senderState.m_itNextInFlightPacketToTimeout->first, m_senderState.m_itNextInFlightPacketToTimeout->second );
+			SNP_SenderProcessPacketNack( m_senderState.m_itNextInFlightPacketToTimeout->first, m_senderState.m_itNextInFlightPacketToTimeout->second, "AckTimeout" );
 		}
 
 		// Advance to next packet waiting to timeout
@@ -1182,15 +1184,19 @@ inline bool HasOverlappingRange( const SNPRange_t &range, const std::map<SNPRang
 	return false;
 }
 
-int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds usecNow, int cbMaxPayloadRequest )
+int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds usecNow, int cbMaxEncryptedPayload, void *pConnectionData )
 {
-	// FIXME - If they have a max size they want us to fit in, we should
-	// probably
-	Assert( cbMaxPayloadRequest < 0 ); // not yet implemented
-	int cbMaxPayload = cbMaxPayloadRequest < 0 ? k_cbSteamNetworkingSocketsMaxPlaintextPayloadSend : Min( k_cbSteamNetworkingSocketsMaxPlaintextPayloadSend, cbMaxPayloadRequest );
+	// Check if they are asking us to make room
+	int cbMaxPlaintextPayload = k_cbSteamNetworkingSocketsMaxPlaintextPayloadSend;
+	if ( cbMaxEncryptedPayload < k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend )
+	{
+		COMPILE_TIME_ASSERT( ( k_cbSteamNetworkingSocketsEncryptionBlockSize & (k_cbSteamNetworkingSocketsEncryptionBlockSize-1) ) == 0 ); // key size should be power of two
+		cbMaxPlaintextPayload = ( cbMaxEncryptedPayload - 1 ) & ~(k_cbSteamNetworkingSocketsEncryptionBlockSize-1); // we need at least one byte of padding, and then round up to multiple of key size
+		cbMaxPlaintextPayload = std::max( 0, cbMaxPlaintextPayload );
+	}
 
 	uint8 payload[ k_cbSteamNetworkingSocketsMaxPlaintextPayloadSend ];
-	uint8 *pPayloadEnd = payload + cbMaxPayload;
+	uint8 *pPayloadEnd = payload + cbMaxPlaintextPayload;
 	uint8 *pPayloadPtr = payload;
 
 	if ( usecNow >= m_receiverState.m_usecWhenFlushAck )
@@ -1201,7 +1207,7 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 	{
 		// If we aren't being specifically asked to send a packet, and we don't have anything to send,
 		// then don't send right now.
-		if ( cbMaxPayloadRequest < 0 && m_senderState.TimeWhenWantToSendNextPacket() > usecNow && m_receiverState.m_usecWhenFlushAck > usecNow )
+		if ( pConnectionData == nullptr && m_senderState.TimeWhenWantToSendNextPacket() > usecNow && m_receiverState.m_usecWhenFlushAck > usecNow )
 			return 0;
 	}
 
@@ -1252,14 +1258,14 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 			// we always retry exactly that range.  The only complication would be when we
 			// receive an ack, we would need to be aware that the acked ranges might not
 			// exactly match up with the ranges that we sent.  Actually this shouldn't
-			// be that big of a deal.  But for now let's always retry the exact ranges that things
-			// got chopped up during theinitial send.
+			// be that big of a deal.  But for now let's always retry the exact ranges that
+			// things got chopped up during the initial send.
 
 			// This should only happen if we have already fit some data in, or
 			// the caller asked us to see what we could squeeze into a smaller
 			// packet.  If this is an opportunity to fill a normal packet and we fail
 			// on the first segment, we will never make progress and we are hosed!
-			Assert( nLastReliableStreamPosEnd > 0 || cbMaxPayload < k_cbSteamNetworkingSocketsMaxPlaintextPayloadSend );
+			Assert( nLastReliableStreamPosEnd > 0 || cbMaxPlaintextPayload < k_cbSteamNetworkingSocketsMaxPlaintextPayloadSend );
 
 			// Don't try to put more stuff in the packet, even if we have room.  We're
 			// already having to retry, so this data is already delayed.  If we skip ahead
@@ -1272,9 +1278,10 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 		cbPayloadBytesRemaining -= cbSegTotalWithoutSizeField;
 		nLastReliableStreamPosEnd = h->first.m_nEnd;
 
-		// Assume for now this won't be the last segment, in which case we will also need the byte for the size field.
-		// NOTE: This might cause cbPayloadBytesRemaining to go negative by one!  I know that seems weird, but it actually
-		// keeps the logic below simpler.
+		// Assume for now this won't be the last segment, in which case we will also need
+		// the byte for the size field.
+		// NOTE: This might cause cbPayloadBytesRemaining to go negative by one!  I know
+		// that seems weird, but it actually keeps the logic below simpler.
 		cbPayloadBytesRemaining -= 1;
 
 		// Remove from retry list.  (We'll add to the in-flight list later)
@@ -1504,10 +1511,42 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 		}
 	}
 
-	// one last check for overflow
+	// One last check for overflow
 	Assert( pPayloadPtr <= pPayloadEnd );
+	int cbPlainText = pPayloadPtr - payload;
+	if ( cbPlainText > cbMaxPlaintextPayload )
+	{
+		AssertMsg1( false, "Payload exceeded max size of %d\n", cbMaxPlaintextPayload );
+		return 0;
+	}
 
-	int nBytesSent = EncryptAndSendDataChunk( payload, pPayloadPtr-payload, usecNow );
+	//
+	// Encrypt it
+	//
+
+	Assert( m_bCryptKeysValid );
+
+	// Make sure sizes are reasonable.
+	COMPILE_TIME_ASSERT( k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend % k_cbSteamNetworkingSocketsEncryptionBlockSize == 0 );
+	COMPILE_TIME_ASSERT( k_cbSteamNetworkingSocketsMaxPlaintextPayloadSend >= k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend - 4 );
+
+	// Encrypt the chunk
+	uint8 arEncryptedChunk[ k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend + 64 ]; // Should not need pad
+	*(uint64 *)&m_cryptIVSend.m_buf = LittleQWord( m_statsEndToEnd.m_nNextSendSequenceNumber );
+	uint32 cbEncrypted = sizeof(arEncryptedChunk);
+	DbgVerify( CCrypto::SymmetricEncryptWithIV(
+		(const uint8 *)payload, cbPlainText, // plaintext
+		m_cryptIVSend.m_buf, m_cryptIVSend.k_nSize, // IV
+		arEncryptedChunk, &cbEncrypted, // output
+		m_cryptKeySend.m_buf, m_cryptKeySend.k_nSize // Key
+	) );
+	Assert( (int)cbEncrypted >= cbPlainText );
+	Assert( (int)cbEncrypted <= k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend ); // confirm that pad above was not necessary and we never exceed k_nMaxSteamDatagramTransportPayload, even after encrypting
+
+	//SpewMsg( "Send encrypt IV %llu + %02x%02x%02x%02x, key %02x%02x%02x%02x\n", *(uint64 *)&m_cryptIVSend.m_buf, m_cryptIVSend.m_buf[8], m_cryptIVSend.m_buf[9], m_cryptIVSend.m_buf[10], m_cryptIVSend.m_buf[11], m_cryptKeySend.m_buf[0], m_cryptKeySend.m_buf[1], m_cryptKeySend.m_buf[2], m_cryptKeySend.m_buf[3] );
+
+	// Connection-specific method to send it
+	int nBytesSent = SendEncryptedDataChunk( arEncryptedChunk, cbEncrypted, usecNow, pConnectionData );
 	if ( nBytesSent <= 0 )
 		return -1;
 
@@ -2424,7 +2463,7 @@ SteamNetworkingMicroseconds CSteamNetworkConnectionBase::SNP_ThinkSendState( Ste
 			return usecNow + 1000;
 		}
 
-		int nBytesSent = SNP_SendPacket( usecNow );
+		int nBytesSent = SNP_SendPacket( usecNow, k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend, nullptr );
 		if ( nBytesSent < 0 )
 		{
 			// Problem sending packet.  Nuke token bucket, but request

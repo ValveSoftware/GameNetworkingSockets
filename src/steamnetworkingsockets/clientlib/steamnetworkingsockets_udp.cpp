@@ -185,11 +185,6 @@ void CSteamNetworkListenSocketStandard::ReceivedIPv4FromUnknownHost( const void 
 		// They don't think there's a connection on this address.
 		// We agree -- connection ID doesn't matter.  Nothing else to do.
 	}
-	else if ( *pPkt == k_ESteamNetworkingUDPMsg_Stats )
-	{
-		ParseProtobufBody( pPkt+1, cbPkt-1, CMsgSteamSockets_UDP_Stats, msg )
-		pSock->ReceivedIPv4_Stats( msg, adrFrom, cbPkt, usecNow );
-	}
 	else
 	{
 		// Any other lead byte is bogus
@@ -342,27 +337,6 @@ void CSteamNetworkListenSocketStandard::ReceivedIPv4_ConnectionClosed( const CMs
 	SendMsgIPv4( k_ESteamNetworkingUDPMsg_NoConnection, msgReply, adrFrom );
 }
 
-void CSteamNetworkListenSocketStandard::ReceivedIPv4_Stats( const CMsgSteamSockets_UDP_Stats &msg, const netadr_t &adrFrom, int cbPkt, SteamNetworkingMicroseconds usecNow )
-{
-	// Malformed?
-	if ( msg.to_connection_id() == 0 )
-		return;
-
-	// If their incoming message is a reasonable size, then there's no risk
-	// of us being used for reflection attack, because the NoConnection
-	// reply is tiny
-	if ( cbPkt < 64 && !BCheckRateLimitReportBadPacket( usecNow ) )
-		return; // Just drop it
-
-	// No connection!
-	CMsgSteamSockets_UDP_NoConnection msgReply;
-	if ( msg.from_connection_id() )
-		msgReply.set_to_connection_id( msg.from_connection_id() );
-	if ( msg.to_connection_id() )
-		msgReply.set_from_connection_id( msg.to_connection_id() );
-	SendMsgIPv4( k_ESteamNetworkingUDPMsg_NoConnection, msgReply, adrFrom );
-}
-
 void CSteamNetworkListenSocketStandard::SendMsgIPv4( uint8 nMsgID, const google::protobuf::MessageLite &msg, const netadr_t &adrTo )
 {
 	if ( !m_pSockIPV4Connections )
@@ -409,6 +383,13 @@ void CSteamNetworkListenSocketStandard::SendPaddedMsgIPv4( uint8 nMsgID, const g
 //
 /////////////////////////////////////////////////////////////////////////////
 
+struct IPv4InlineStatsContext_t
+{
+	CMsgSteamSockets_UDP_Stats msg;
+	int cbSize;
+	//char data[ k_cbSteamNetworkingSocketsMaxPlaintextPayloadSend ];
+};
+
 CSteamNetworkConnectionIPv4::CSteamNetworkConnectionIPv4( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface )
 : CSteamNetworkConnectionBase( pSteamNetworkingSocketsInterface )
 {
@@ -432,7 +413,7 @@ void CSteamNetworkConnectionIPv4::FreeResources()
 	CSteamNetworkConnectionBase::FreeResources();
 }
 
-int CSteamNetworkConnectionIPv4::SendDataChunk( const void *pChunk, int cbChunk, SteamNetworkingMicroseconds usecNow, uint16 *pOutSeqNum )
+int CSteamNetworkConnectionIPv4::SendEncryptedDataChunk( const void *pChunk, int cbChunk, SteamNetworkingMicroseconds usecNow, void *pConnectionContext )
 {
 	if ( !m_pSocket )
 	{
@@ -458,12 +439,31 @@ int CSteamNetworkConnectionIPv4::SendDataChunk( const void *pChunk, int cbChunk,
 		return 0;
 	}
 
-	// FIXME Check for putting acks in the header of the packet, instead of protobuf
+	// Assume no inline blob
+	CMsgSteamSockets_UDP_Stats *pStatsMsg = nullptr;
+	int cbStatsMsg = 0;
+	int cbHdrSpaceNeeded = 0;
 
-	// Do we need to send tracer ping request or connection stats?
-	// Make sure we aren't totally full already.  (Is this even possible to fail right now?)
-	if ( cbHdrOutSpaceRemaining >= 4 )
+	// Did we initiate this packet?
+	if ( pConnectionContext )
 	{
+		IPv4InlineStatsContext_t &context = *(IPv4InlineStatsContext_t *)pConnectionContext;
+		pStatsMsg = &context.msg;
+		cbStatsMsg = context.cbSize;
+		cbHdrSpaceNeeded = cbStatsMsg + 1;
+		if ( cbStatsMsg >= 0x80 )
+			++cbHdrSpaceNeeded;
+		if ( cbHdrOutSpaceRemaining < cbHdrSpaceNeeded )
+		{
+			AssertMsg( false, "We didn't make enough room for CMsgSteamSockets_UDP_Stats!" );
+			return 0;
+		}
+	}
+	else if ( cbHdrOutSpaceRemaining >= 4 )
+	{
+
+		// We didn't specifically request any inline stats, this is an ordinary data packet.
+		// Do we need to send tracer ping request or connection stats?
 
 		// What sorts of ack should we request?
 		uint32 nFlags = 0;
@@ -483,7 +483,9 @@ int CSteamNetworkConnectionIPv4::SendDataChunk( const void *pChunk, int cbChunk,
 		if ( bTrySendEndToEndStats || nFlags != 0 || m_statsEndToEnd.m_nPendingOutgoingAcks > 0 )
 		{
 			// Populate a message with everything we'd like to send
-			CMsgSteamSockets_UDP_Stats msgStatsOut;
+			static CMsgSteamSockets_UDP_Stats msgStatsOut;
+			pStatsMsg = &msgStatsOut;
+			msgStatsOut.Clear();
 			if ( bTrySendEndToEndStats )
 				m_statsEndToEnd.PopulateMessage( *msgStatsOut.mutable_stats(), usecNow );
 
@@ -494,7 +496,6 @@ int CSteamNetworkConnectionIPv4::SendDataChunk( const void *pChunk, int cbChunk,
 
 			// We'll try to fit what we can.  If we try to serialize a message
 			// and it won't fit, we'll remove some stuff and see if that fits.
-			int cbStatsMsg, cbHdrSpaceNeeded;
 			for (;;)
 			{
 
@@ -551,36 +552,36 @@ int CSteamNetworkConnectionIPv4::SendDataChunk( const void *pChunk, int cbChunk,
 				cbStatsMsg = -1;
 				break;
 			}
+		}
+	}
 
-			// Did we actually end up sending anything?
-			if ( cbStatsMsg > 0 )
-			{
+	// Did we actually end up sending anything?
+	if ( cbStatsMsg > 0 && pStatsMsg )
+	{
 
-				// Serialize the stats size, var-int encoded
-				byte *pStatsOut = SerializeVarInt( (byte*)p, uint32( cbStatsMsg ) );
+		// Serialize the stats size, var-int encoded
+		byte *pStatsOut = SerializeVarInt( (byte*)p, uint32( cbStatsMsg ) );
 
-				// Serialize the actual message
-				pStatsOut = msgStatsOut.SerializeWithCachedSizesToArray( pStatsOut );
+		// Serialize the actual message
+		pStatsOut = pStatsMsg->SerializeWithCachedSizesToArray( pStatsOut );
 
-				// Make sure we wrote the number of bytes we expected
-				if ( pStatsOut != p + cbHdrSpaceNeeded )
-				{
-					// ABORT!
-					AssertMsg( false, "Size mismatch after serializing connection quality stats" );
-				}
-				else
-				{
+		// Make sure we wrote the number of bytes we expected
+		if ( pStatsOut != p + cbHdrSpaceNeeded )
+		{
+			// ABORT!
+			AssertMsg( false, "Size mismatch after serializing connection quality stats" );
+		}
+		else
+		{
 
-					// Update bookkeeping with the stuff we are actually sending
-					TrackSentStats( msgStatsOut, true, usecNow );
+			// Update bookkeeping with the stuff we are actually sending
+			TrackSentStats( *pStatsMsg, true, usecNow );
 
-					// Mark header with the flag
-					hdr->m_unMsgFlags |= hdr->kFlag_ProtobufBlob;
+			// Mark header with the flag
+			hdr->m_unMsgFlags |= hdr->kFlag_ProtobufBlob;
 
-					// Advance pointer
-					p = pStatsOut;
-				}
-			}
+			// Advance pointer
+			p = pStatsOut;
 		}
 	}
 
@@ -598,10 +599,6 @@ int CSteamNetworkConnectionIPv4::SendDataChunk( const void *pChunk, int cbChunk,
 
 	// !FIXME! Should we track data payload separately?  Maybe we ought to track
 	// *messages* instead of packets.
-
-	// Return sequence number to caller, if requested
-	if ( pOutSeqNum )
-		*pOutSeqNum = hdr->m_unSeqNum;
 
 	// Send it
 	SendPacketGather( 2, gather, cbSend );
@@ -910,11 +907,6 @@ void CSteamNetworkConnectionIPv4::PacketReceived( const void *pvPkt, int cbPkt, 
 		ParseProtobufBody( pPkt+1, cbPkt-1, CMsgSteamSockets_UDP_ConnectRequest, msg )
 		pSelf->Received_ChallengeOrConnectRequest( "ConnectRequest", msg.client_connection_id(), usecNow );
 	}
-	else if ( *pPkt == k_ESteamNetworkingUDPMsg_Stats )
-	{
-		ParseProtobufBody( pPkt+1, cbPkt-1, CMsgSteamSockets_UDP_Stats, msg )
-		pSelf->Received_Stats( msg, usecNow );
-	}
 	else
 	{
 		ReportBadPacket( "packet", "Lead byte 0x%02x not a known message ID", *pPkt );
@@ -1021,11 +1013,13 @@ void CSteamNetworkConnectionIPv4::TrackSentStats( const CMsgSteamSockets_UDP_Sta
 
 void CSteamNetworkConnectionIPv4::SendStatsMsg( EStatsReplyRequest eReplyRequested, SteamNetworkingMicroseconds usecNow )
 {
-	CMsgSteamSockets_UDP_Stats msg;
-	if ( m_unConnectionIDRemote )
-		msg.set_to_connection_id( m_unConnectionIDRemote );
-	msg.set_from_connection_id( m_unConnectionIDLocal );
-	msg.set_seq_num( m_statsEndToEnd.GetNextSendSequenceNumber( usecNow ) );
+	IPv4InlineStatsContext_t context;
+	CMsgSteamSockets_UDP_Stats &msg = context.msg;
+
+//	if ( m_unConnectionIDRemote )
+//		msg.set_to_connection_id( m_unConnectionIDRemote );
+//	msg.set_from_connection_id( m_unConnectionIDLocal );
+//	msg.set_seq_num( m_statsEndToEnd.GetNextSendSequenceNumber( usecNow ) );
 
 	// What flags should we set?
 	uint32 nFlags = 0;
@@ -1044,11 +1038,18 @@ void CSteamNetworkConnectionIPv4::SendStatsMsg( EStatsReplyRequest eReplyRequest
 	// Always set flags into message, even if they can be implied by the presence of stats
 	msg.set_flags( nFlags );
 
-	// Send it
-	SendMsg( k_ESteamNetworkingUDPMsg_Stats, msg );
+	context.cbSize = msg.ByteSize();
+	if ( context.cbSize > k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend )
+	{
+		AssertMsg1( false, "Serialized CMsgSteamSockets_UDP_Stats is %d bytes!", context.cbSize );
+		return;
+	}
 
-	// Track that we sent stats
-	TrackSentStats( msg, false, usecNow );
+	// Ask SNP to send a packet, with this data piggybacked on.
+	// FIXME we can probably do better that this, although this is
+	// not too bad.
+	int cbMaxEncryptedPayload = k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend - context.cbSize;
+	SNP_SendPacket( usecNow, cbMaxEncryptedPayload, &context );
 }
 
 void CSteamNetworkConnectionIPv4::Received_Data( const uint8 *pPkt, int cbPkt, SteamNetworkingMicroseconds usecNow )
@@ -1114,6 +1115,8 @@ void CSteamNetworkConnectionIPv4::Received_Data( const uint8 *pPkt, int cbPkt, S
 	const uint8 *pPktEnd = pPkt + cbPkt;
 
 	// Inline stats?
+	static CMsgSteamSockets_UDP_Stats msgStats;
+	CMsgSteamSockets_UDP_Stats *pMsgStatsIn = nullptr;
 	uint32 cbStatsMsgIn = 0;
 	if ( hdr->m_unMsgFlags & hdr->kFlag_ProtobufBlob )
 	{
@@ -1131,25 +1134,27 @@ void CSteamNetworkConnectionIPv4::Received_Data( const uint8 *pPkt, int cbPkt, S
 			return;
 		}
 
-		CMsgSteamSockets_UDP_Stats msgStatsIn;
-		if ( !msgStatsIn.ParseFromArray( pIn, cbStatsMsgIn ) )
+		if ( !msgStats.ParseFromArray( pIn, cbStatsMsgIn ) )
 		{
 			ReportBadPacketIPv4( "DataPacket", "protobuf failed to parse inline stats message" );
 			return;
 		}
 
 		// Shove sequence number so we know what acks to pend, etc
-		msgStatsIn.set_seq_num( nWirePktNumber );
-
-		// Process the stats
-		// FIXME Should probably not do this until we check SNP layer for any problems
-		RecvStats( msgStatsIn, true, usecNow );
+		msgStats.set_seq_num( nWirePktNumber );
+		pMsgStatsIn = &msgStats;
 
 		// Advance pointer
 		pIn += cbStatsMsgIn;
 	}
 
-	RecvDataChunk( nWirePktNumber, pIn, pPktEnd - pIn, cbPkt, 0, usecNow );
+	if ( RecvDataChunk( nWirePktNumber, pIn, pPktEnd - pIn, cbPkt, 0, usecNow ) )
+	{
+
+		// Process the stats, if any
+		if ( pMsgStatsIn )
+			RecvStats( *pMsgStatsIn, true, usecNow );
+	}
 }
 
 void CSteamNetworkConnectionIPv4::Received_ChallengeReply( const CMsgSteamSockets_UDP_ChallengeReply &msg, SteamNetworkingMicroseconds usecNow )
@@ -1371,41 +1376,6 @@ void CSteamNetworkConnectionIPv4::Received_NoConnection( const CMsgSteamSockets_
 
 	// Generic connection code will take it from here.
 	ConnectionState_ClosedByPeer( 0, nullptr );
-}
-
-void CSteamNetworkConnectionIPv4::Received_Stats( const CMsgSteamSockets_UDP_Stats &msg, SteamNetworkingMicroseconds usecNow )
-{
-	if ( !msg.has_to_connection_id() && !msg.has_from_connection_id() )
-	{
-		ReportBadPacketIPv4( "Stats", "Missing connection ID." );
-		return;
-	}
-
-	// Check connection ID to make sure they aren't spoofing and it's the same connection we think it is
-	bool bConnectionIDMatch =
-		msg.to_connection_id() == m_unConnectionIDLocal
-		|| ( msg.to_connection_id() == 0 && msg.from_connection_id() && msg.from_connection_id() == m_unConnectionIDRemote ); // they might not know our ID yet, if they are a client aborting the connection really early.
-	if ( !bConnectionIDMatch )
-	{
-		if ( BCheckGlobalSpamReplyRateLimit( usecNow ) )
-		{
-			CMsgSteamSockets_UDP_NoConnection msgReply;
-			if ( msg.to_connection_id() )
-				msgReply.set_from_connection_id( msg.to_connection_id() );
-			if ( msg.from_connection_id() )
-				msgReply.set_to_connection_id( msg.from_connection_id() );
-			SendMsg( k_ESteamNetworkingUDPMsg_NoConnection, msgReply );
-		}
-		ReportBadPacketIPv4( "Stats", "Old/incorrect connection ID.  Message is for a stale connection, or is spoofed.  Ignoring." );
-		return;
-	}
-
-	// Update bookkeeping, we received a sequence number
-	if ( !RecvNonDataSequencedPacket( msg.seq_num(), usecNow ) )
-		return;
-
-	// Process the incoming stats, and if it warrants an immediate reply, go ahead and send it now
-	RecvStats( msg, false, usecNow );
 }
 
 void CSteamNetworkConnectionIPv4::Received_ChallengeOrConnectRequest( const char *pszDebugPacketType, uint32 unPacketConnectionID, SteamNetworkingMicroseconds usecNow )

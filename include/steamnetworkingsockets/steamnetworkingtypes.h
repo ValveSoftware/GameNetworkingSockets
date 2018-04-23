@@ -305,13 +305,19 @@ protected:
 /// networking characteristics, then it's valid to use the same location
 /// object for both of them.
 ///
-/// NOTE: This object should only be used in memory.  If you need to persist
-/// it or send it over the wire, convert it to a string representation using
-/// the methods in ISteamNetworkingUtils()
+/// NOTE: This object should only be used in the same process!  Do not serialize it,
+/// send it over the wire, or persist it in a file or database!  If you need
+/// to do that, convert it to a string representation using the methods in
+/// ISteamNetworkingUtils().
 struct SteamNetworkPingLocation_t
 {
-	uint8 m_data[ 64 ];
+	uint8 m_data[ 144 ];
 };
+
+/// Max possible length of a ping location, in string format.  This is quite
+/// generous worst case and leaves room for future syntax enhancements.
+/// Most strings are a lot shorter.
+const int k_cchMaxSteamNetworkingPingLocationString = 512;
 
 /// Special values that are returned by some functions that return a ping.
 const int k_nSteamNetworkingPing_Failed = -1;

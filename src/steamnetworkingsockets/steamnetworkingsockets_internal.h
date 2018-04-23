@@ -143,9 +143,12 @@ const int k_cbSteamNetworkingSocketsMaxReliableMessageSegment = k_cbSteamNetwork
 /// frame in the packet and thus no explicit size field will be needed.
 const int k_cbSteamNetworkingSocketsMaxReliableMessageSegmentFrame = k_cbSteamNetworkingSocketsMaxReliableMessageSegment + 7;
 
-/// Max length of encrypted payload we will send.  Must be multiple of
-/// the encryption key length.  (Currently 32-byte AES keys.)
+/// Currently 16-byte AES
+const int k_cbSteamNetworkingSocketsEncryptionBlockSize = 16;
+
+/// Max length of encrypted payload we will send.
 const int k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend = 1248;
+COMPILE_TIME_ASSERT( k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend % k_cbSteamNetworkingSocketsEncryptionBlockSize == 0 );
 
 /// Max length of plaintext payload we could send.  We need at least
 /// one byte of pad, so an exact multiple of the key size would
@@ -179,7 +182,7 @@ const SteamNetworkingMicroseconds k_usecMaxAckStatsDelay = 250*1000;
 /// Max duration that a receiver could pend a data ack, in the hopes of trying
 /// to piggyback the ack on another outbound packet.
 /// !KLUDGE! This really ought to be application- (or connection-) specific.
-const SteamNetworkingMicroseconds k_usecMaxDataAckDelay = 35*1000;
+const SteamNetworkingMicroseconds k_usecMaxDataAckDelay = 50*1000;
 
 /// Precision of the delay ack delay values we send.  A packed value of 1 represents 2^N microseconds
 const unsigned k_usecAckDelayPacketSerializedPrecisionShift = 6;

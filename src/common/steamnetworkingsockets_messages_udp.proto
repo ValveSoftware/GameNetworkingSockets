@@ -60,7 +60,7 @@ enum ESteamNetworkingUDPMsgID
 	k_ESteamNetworkingUDPMsg_ConnectOK = 35;				// Server->client
 	k_ESteamNetworkingUDPMsg_ConnectionClosed = 36;			// Client<->server.  A reply is requested to this packet
 	k_ESteamNetworkingUDPMsg_NoConnection = 37;				// Client<->server.  A reply should never be sent to this packet
-	k_ESteamNetworkingUDPMsg_Stats = 38;					// Client<->server.  Standalone stats message
+	//k_ESteamNetworkingUDPMsg_Stats = 38;					// Client<->server.  Standalone stats message.  DEPRECATED.  Always sent as empty "data" packet now.
 };
 
 // k_ESteamNetworkingUDPMsg_ChallengeRequest

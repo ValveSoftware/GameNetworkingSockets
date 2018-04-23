@@ -804,8 +804,11 @@ struct LinkStatsTrackerEndToEnd : public LinkStatsTracker
 	SteamNetworkingMicroseconds CalcSenderRetryTimeout() const
 	{
 		if ( m_ping.m_nSmoothedPing < 0 )
-			return 500000;
-		return m_ping.m_nSmoothedPing*2000 + k_usecMaxDataAckDelay;
+			return k_nMillion;
+		// 3 x RTT + max delay, plus some slop.
+		// If the receiver hands on to it for the max duration and
+		// our RTT is very low
+		return m_ping.m_nSmoothedPing*3000 + ( k_usecMaxDataAckDelay + 10000 );
 	}
 
 	/// Time when the current interval started

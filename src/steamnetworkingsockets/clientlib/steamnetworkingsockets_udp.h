@@ -29,7 +29,7 @@ public:
 	inline CSteamNetworkListenSocketStandard *ListenSocket() const { return assert_cast<CSteamNetworkListenSocketStandard *>( m_pParentListenSocket ); }
 
 	/// Implements CSteamNetworkConnectionBase
-	virtual int SendDataChunk( const void *pChunk, int cbChunk, SteamNetworkingMicroseconds usecNow, uint16 *pOutSeqNum ) OVERRIDE;
+	virtual int SendEncryptedDataChunk( const void *pChunk, int cbChunk, SteamNetworkingMicroseconds usecNow, void *pConnectionContext ) OVERRIDE;
 	virtual EResult APIAcceptConnection() OVERRIDE;
 	virtual bool BCanSendEndToEndConnectRequest() const OVERRIDE;
 	virtual bool BCanSendEndToEndData() const OVERRIDE;
@@ -69,7 +69,6 @@ protected:
 	void Received_ConnectionClosed( const CMsgSteamSockets_UDP_ConnectionClosed &msg, SteamNetworkingMicroseconds usecNow );
 	void Received_NoConnection( const CMsgSteamSockets_UDP_NoConnection &msg, SteamNetworkingMicroseconds usecNow );
 	void Received_ChallengeOrConnectRequest( const char *pszDebugPacketType, uint32 unPacketConnectionID, SteamNetworkingMicroseconds usecNow );
-	void Received_Stats( const CMsgSteamSockets_UDP_Stats &msg, SteamNetworkingMicroseconds usecNow );
 
 	void SendPaddedMsg( uint8 nMsgID, const google::protobuf::MessageLite &msg );
 	void SendMsg( uint8 nMsgID, const google::protobuf::MessageLite &msg );

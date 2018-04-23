@@ -1154,41 +1154,6 @@ void CSteamNetworkConnectionBase::APIGetDetailedConnectionStatus( SteamNetworkin
 	SNP_PopulateDetailedStats( stats.m_statsEndToEnd );
 }
 
-int CSteamNetworkConnectionBase::EncryptAndSendDataChunk( const void *pChunk, int cbChunk, SteamNetworkingMicroseconds usecNow )
-{
-	if ( cbChunk > k_cbSteamNetworkingSocketsMaxPlaintextPayloadSend )
-	{
-		AssertMsg1( false, "Transported exceeded MTU of %d\n", k_cbSteamNetworkingSocketsMaxPlaintextPayloadSend );
-		return 0;
-	}
-
-	Assert( m_bCryptKeysValid );
-
-	// Make sure sizes are reasonable.
-	COMPILE_TIME_ASSERT( k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend % m_cryptKeySend.k_nSize == 0 );
-	COMPILE_TIME_ASSERT( k_cbSteamNetworkingSocketsMaxPlaintextPayloadSend >= k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend - 4 );
-
-	// Encrypt the chunk
-	uint8 arEncryptedChunk[ k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend + 64 ]; // Should not need pad
-	*(uint64 *)&m_cryptIVSend.m_buf = LittleQWord( m_statsEndToEnd.m_nNextSendSequenceNumber );
-	uint32 cbEncrypted = sizeof(arEncryptedChunk);
-	DbgVerify( CCrypto::SymmetricEncryptWithIV(
-		(const uint8 *)pChunk, cbChunk, // plaintext
-		m_cryptIVSend.m_buf, m_cryptIVSend.k_nSize, // IV
-		arEncryptedChunk, &cbEncrypted, // output
-		m_cryptKeySend.m_buf, m_cryptKeySend.k_nSize // Key
-	) );
-	Assert( (int)cbEncrypted >= cbChunk );
-	Assert( (int)cbEncrypted <= k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend ); // confirm that pad above was not necessary and we never exceed k_nMaxSteamDatagramTransportPayload, even after encrypting
-
-	//SpewMsg( "Send encrypt IV %llu + %02x%02x%02x%02x, key %02x%02x%02x%02x\n", *(uint64 *)&m_cryptIVSend.m_buf, m_cryptIVSend.m_buf[8], m_cryptIVSend.m_buf[9], m_cryptIVSend.m_buf[10], m_cryptIVSend.m_buf[11], m_cryptKeySend.m_buf[0], m_cryptKeySend.m_buf[1], m_cryptKeySend.m_buf[2], m_cryptKeySend.m_buf[3] );
-
-	// Connection-specific method to send it
-	uint16 ignoreSeqNum;
-	return SendDataChunk( arEncryptedChunk, cbEncrypted, usecNow, &ignoreSeqNum );
-}
-
-
 EResult CSteamNetworkConnectionBase::APISendMessageToConnection( const void *pData, uint32 cbData, ESteamNetworkingSendType eSendType )
 {
 
@@ -2159,10 +2124,10 @@ EResult CSteamNetworkConnectionPipe::APIAcceptConnection()
 	return k_EResultFail;
 }
 
-int CSteamNetworkConnectionPipe::SendDataChunk( const void *pChunk, int cbChunk, SteamNetworkingMicroseconds usecNow, uint16 *pOutSeqNum )
+int CSteamNetworkConnectionPipe::SendEncryptedDataChunk( const void *pChunk, int cbChunk, SteamNetworkingMicroseconds usecNow, void *pConnectionContext )
 {
 	AssertMsg( false, "CSteamNetworkConnectionPipe connections shouldn't try to send 'packets'!" );
-	return k_EResultFail;
+	return -1;
 }
 
 void CSteamNetworkConnectionPipe::ConnectionStateChanged( ESteamNetworkingConnectionState eOldState )
