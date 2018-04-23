@@ -685,7 +685,7 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 				if ( std::abs( nLatestRecvSeqNum - m_statsEndToEnd.m_nNextSendSequenceNumber ) > (nMask>>2) )
 				{
 					// We really should never get close to this boundary.
-					SpewWarningRateLimited( usecNow, "Sender sent abs unreliable message number using %llx mod %llx, next send %llx\n",
+					SpewWarningRateLimited( usecNow, "Sender sent abs latest recv pkt number using %llx mod %llx, next send %llx\n",
 						(unsigned long long)nOffset, (unsigned long long)( nMask+1 ), (unsigned long long)m_statsEndToEnd.m_nNextSendSequenceNumber );
 				}
 			}
@@ -1689,7 +1689,7 @@ uint8 *CSteamNetworkConnectionBase::SNP_SerializeAckFrame( uint8 *pOut, const ui
 					// and overflow using varint.  This is probably going to be less common than
 					// large ACK runs, but not totally uncommon.  Losing one or two packets is
 					// really common, but loss events often involve a lost of many packets in a run.
-					*pAckBlockHeaderByte = 0x08 | uint8(nNumNack & 7);
+					*pAckBlockHeaderByte |= 0x08 | uint8(nNumNack & 7);
 					pOut = SerializeVarInt( pOut, uint64(nNumNack >> 3), pOutEnd );
 					if ( pOut == nullptr )
 					{
