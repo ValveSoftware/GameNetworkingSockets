@@ -956,7 +956,6 @@ void IThinker::EnsureMinThinkTime( SteamNetworkingMicroseconds usecTargetThinkTi
 
 void ProcessThinkers()
 {
-	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 
 	// Until the queue is empty
 	while ( s_queueThinkers.Count() > 0 )
@@ -964,6 +963,14 @@ void ProcessThinkers()
 
 		// Grab the head element
 		IThinker *pNextThinker = s_queueThinkers.ElementAtHead();
+
+		// Refetch timestamp each time.  The reason is that certain thinkers
+		// may pass through to other systems (e.g. fake lag) that fetch the time.
+		// If we don't update the time here, that code may have used the newer
+		// timestamp (e.g. to mark when a packet was received) and then
+		// in our next iteration, we will use an older timestamp to process
+		// a thinker.
+		SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 
 		// Scheduled too far in the future?  Note that
 		// there could be other items in the queue with
