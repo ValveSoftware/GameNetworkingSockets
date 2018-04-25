@@ -17,6 +17,9 @@
 constexpr int k_nAckDelayPrecisionShift = 5;
 constexpr SteamNetworkingMicroseconds k_usecAckDelayPrecision = (1 << k_nAckDelayPrecisionShift );
 
+// When a receiver detects a dropped packet, schedule sending of ACKs on this interval
+constexpr SteamNetworkingMicroseconds k_usecNackFlush = 10*1000;
+
 // Max size of a message that we are wiling to *receive*.
 constexpr int k_cbMaxMessageSizeRecv = k_cbMaxSteamNetworkingSocketsMessageSizeSend*2;
 
@@ -44,6 +47,42 @@ constexpr int k_nMaxBufferedUnreliableSegments = 20;
 #include "tier0/memdbgon.h"
 
 namespace SteamNetworkingSocketsLib {
+
+struct SNPAckSerializerHelper
+{
+	struct Block
+	{
+		// Acks and nacks count to serialize
+		uint32 m_nAck;
+		uint32 m_nNack;
+
+		// What to put in the header if we use this as the
+		// highest numbered block
+		uint32 m_nLatestPktNum; // Lower 32-bits.  We might send even fewer bits
+		uint16 m_nEncodedTimeSinceLatestPktNum;
+
+		// Total size of this block and all earlier ones.
+		int16 m_cbTotalEncodedSize;
+	};
+
+	enum { k_cbHeaderSize = 5 };
+	enum { k_nMaxBlocks = 64 };
+	int m_nBlocks;
+	Block m_arBlocks[ k_nMaxBlocks ];
+
+	static uint16 EncodeTimeSince( SteamNetworkingMicroseconds usecNow, SteamNetworkingMicroseconds usecWhenSentLast )
+	{
+
+		// Encode time since last
+		SteamNetworkingMicroseconds usecElapsedSinceLast = usecNow - usecWhenSentLast;
+		Assert( usecElapsedSinceLast >= 0 );
+		Assert( usecNow > 0x20000*k_usecAckDelayPrecision ); // We should never have small timestamp values.  A timestamp of zero should always be "a long time ago"
+		if ( usecElapsedSinceLast > 0xfffell<<k_nAckDelayPrecisionShift )
+			return 0xffff;
+		return uint16( usecElapsedSinceLast >> k_nAckDelayPrecisionShift );
+	}
+
+};
 
 // exponentially weighted moving average
 template< typename T > T tfrc_ewma( T avg, T newval, T weight )
@@ -634,7 +673,7 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 				auto h = m_receiverState.m_mapPacketGaps.begin();
 				if ( h->first > m_receiverState.m_nMinPktNumToSendAcks )
 					break;
-				if ( h->second > m_receiverState.m_nMinPktNumToSendAcks )
+				if ( h->second.m_nEnd > m_receiverState.m_nMinPktNumToSendAcks )
 				{
 					// Ug.  You're not supposed to modify the key in a map.
 					// I suppose that's legit, since you could violate the ordering.
@@ -813,11 +852,11 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 					if ( nPktNumNackBegin < 0 )
 						DECODE_ERROR( "Nack range underflow, end=%lld, num=%lld", (long long)nPktNumAckBegin, (long long)numAcks );
 
-					SpewDebug( "  %s decode pkt %lld ack [%lld,%lld) nack [%lld,%lld)\n",
+					SpewDebug( "  %s decode pkt %lld nack [%lld,%lld) ack [%lld,%lld)\n",
 						m_sName.c_str(),
 						(long long)nPktNum,
-						(long long)nPktNumAckBegin, (long long)( nPktNumAckBegin + numAcks ), 
-						(long long)nPktNumNackBegin, (long long)( nPktNumNackBegin + numNacks )
+						(long long)nPktNumNackBegin, (long long)( nPktNumNackBegin + numNacks ),
+						(long long)nPktNumAckBegin, (long long)( nPktNumAckBegin + numAcks )
 					);
 				}
 
@@ -1186,6 +1225,11 @@ inline bool HasOverlappingRange( const SNPRange_t &range, const std::map<SNPRang
 
 int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds usecNow, int cbMaxEncryptedPayload, void *pConnectionData )
 {
+	// If we aren't being specifically asked to send a packet, and we don't have anything to send,
+	// then don't send right now.
+	if ( pConnectionData == nullptr && usecNow < m_receiverState.m_usecWhenFlushAck && m_senderState.TimeWhenWantToSendNextPacket() > usecNow && m_receiverState.m_usecWhenFlushAck > usecNow )
+		return 0;
+
 	// Check if they are asking us to make room
 	int cbMaxPlaintextPayload = k_cbSteamNetworkingSocketsMaxPlaintextPayloadSend;
 	if ( cbMaxEncryptedPayload < k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend )
@@ -1199,31 +1243,70 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 	uint8 *pPayloadEnd = payload + cbMaxPlaintextPayload;
 	uint8 *pPayloadPtr = payload;
 
-	if ( usecNow >= m_receiverState.m_usecWhenFlushAck )
-	{
-		SpewVerbose( "%s flushing acks", m_sName.c_str() );
-	}
-	else
-	{
-		// If we aren't being specifically asked to send a packet, and we don't have anything to send,
-		// then don't send right now.
-		if ( pConnectionData == nullptr && m_senderState.TimeWhenWantToSendNextPacket() > usecNow && m_receiverState.m_usecWhenFlushAck > usecNow )
-			return 0;
-	}
-
 	SpewDebug( "%s encode pkt %lld",
 		m_sName.c_str(),
 		(long long)m_statsEndToEnd.m_nNextSendSequenceNumber );
 
-	// Fill in an ack block, if we have room
-	pPayloadPtr = SNP_SerializeAckFrame( pPayloadPtr, pPayloadEnd, usecNow );
-	if ( pPayloadPtr == nullptr )
-		return -1;
+	// Get list of ack blocks we might want to serialize
+	SNPAckSerializerHelper ackHelper;
+	SNP_GatherAckBlocks( ackHelper, usecNow );
 
 	// Stop waiting frame
 	pPayloadPtr = SNP_SerializeStopWaitingFrame( pPayloadPtr, pPayloadEnd, usecNow );
 	if ( pPayloadPtr == nullptr )
 		return -1;
+
+	// Should we try to send as many acks as possible?
+	int cbReserveForAcks = 0;
+	if ( m_receiverState.m_usecWhenFlushAck <= usecNow )
+	{
+		uint8 *pAfterAck = SNP_SerializeAckBlocks( ackHelper, pPayloadPtr, pPayloadEnd, usecNow );
+		if ( pAfterAck == nullptr )
+			return -1; // bug!  Abort
+
+		// Did anything fit?
+		if ( pAfterAck > pPayloadPtr )
+		{
+			pPayloadPtr = pAfterAck;
+			if ( m_receiverState.m_usecWhenFlushAck == INT64_MAX )
+			{
+				SpewVerbose( "%s flushed acks\n", m_sName.c_str() );
+			}
+			else
+			{
+				SpewVerbose( "%s flush didn't fit; rescheduling\n", m_sName.c_str() );
+
+				// If we are artificially limited, then the connection
+				// type specific code initiated this packet, and so
+				// let's keep the timer set and we'll try again on our own terms.
+				// But if we have quite a bit of space and we still failed,
+				// then we really are badly fragmented.  In that case, don't
+				// keep trying to ack over and over in every single packet.
+				if ( cbMaxPlaintextPayload > 128 )
+					m_receiverState.m_usecWhenFlushAck = usecNow + 50*1000;
+			}
+		}
+	}
+	else if ( m_statsEndToEnd.m_nLastRecvSequenceNumber > 0 )
+	{
+		// Should we try to reserve a bit of space for acks?
+		// If possible, always send at least a few blocks (if we have them)
+		int cbPayloadRemainingForBlocks = pPayloadEnd - pPayloadPtr - SNPAckSerializerHelper::k_cbHeaderSize;
+		if ( cbPayloadRemainingForBlocks >= 0 )
+		{
+			cbReserveForAcks = SNPAckSerializerHelper::k_cbHeaderSize;
+			int n = std::min( 3, ackHelper.m_nBlocks );
+			while ( n > 0 )
+			{
+				--n;
+				if ( ackHelper.m_arBlocks[n].m_cbTotalEncodedSize <= cbPayloadRemainingForBlocks )
+				{
+					cbReserveForAcks += ackHelper.m_arBlocks[n].m_cbTotalEncodedSize;
+					break;
+				}
+			}
+		}
+	}
 
 	// Check if we don't actually have room to send any data, then don't.
 	// (This means that acks or other responsibilities are choking the pipe
@@ -1231,16 +1314,27 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 	if ( m_senderState.m_flTokenBucket < 0.0 )
 	{
 		SpewWarningRateLimited( usecNow, "%s exceeding rate limit just sending acks / stats!  Not sending any data!", m_sName.c_str() );
+
+		// Serialize some acks, if we want to
+		if ( cbReserveForAcks > 0 )
+		{
+			pPayloadPtr = SNP_SerializeAckBlocks( ackHelper, pPayloadPtr, std::min( pPayloadPtr+cbReserveForAcks, pPayloadEnd ), usecNow );
+			if ( pPayloadPtr == nullptr )
+				return -1; // bug!  Abort
+			cbReserveForAcks = 0;
+		}
+
+		// No more
 		pPayloadEnd = pPayloadPtr;
 	}
 
 	int64 nLastReliableStreamPosEnd = 0;
-	int cbPayloadBytesRemaining = pPayloadEnd - pPayloadPtr;
+	int cbBytesRemainingForSegments = pPayloadEnd - pPayloadPtr - cbReserveForAcks;
 	std::vector<EncodedSegment> m_vecSegments; // FIXME Avoid dynamic memory here
 
 	// If we need to *retry* any reliable data, then try to put that in first.
 	// Bail if we only have a tiny sliver of data left
-	while ( !m_senderState.m_listReadyRetryReliableRange.empty() && cbPayloadBytesRemaining > 2 )
+	while ( !m_senderState.m_listReadyRetryReliableRange.empty() && cbBytesRemainingForSegments > 2 )
 	{
 		auto h = m_senderState.m_listReadyRetryReliableRange.begin();
 
@@ -1248,7 +1342,7 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 		EncodedSegment &seg = *push_back_get_ptr( m_vecSegments );
 		seg.SetupReliable( h->second, h->first.m_nBegin, h->first.m_nEnd, nLastReliableStreamPosEnd );
 		int cbSegTotalWithoutSizeField = seg.m_cbHdr + seg.m_cbSize;
-		if ( cbSegTotalWithoutSizeField > cbPayloadBytesRemaining )
+		if ( cbSegTotalWithoutSizeField > cbBytesRemainingForSegments )
 		{
 			// This one won't fit.
 			m_vecSegments.pop_back();
@@ -1275,14 +1369,14 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 		}
 
 		// If we only have a sliver left, then don't try to fit any more.
-		cbPayloadBytesRemaining -= cbSegTotalWithoutSizeField;
+		cbBytesRemainingForSegments -= cbSegTotalWithoutSizeField;
 		nLastReliableStreamPosEnd = h->first.m_nEnd;
 
 		// Assume for now this won't be the last segment, in which case we will also need
 		// the byte for the size field.
 		// NOTE: This might cause cbPayloadBytesRemaining to go negative by one!  I know
 		// that seems weird, but it actually keeps the logic below simpler.
-		cbPayloadBytesRemaining -= 1;
+		cbBytesRemainingForSegments -= 1;
 
 		// Remove from retry list.  (We'll add to the in-flight list later)
 		m_senderState.m_listReadyRetryReliableRange.erase( h );
@@ -1295,7 +1389,7 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 
 		// OK, check the outgoing messages, and send as much stuff as we can cram in there
 		int64 nLastMsgNum = 0;
-		while ( cbPayloadBytesRemaining > 4 )
+		while ( cbBytesRemainingForSegments > 4 )
 		{
 			if ( m_senderState.m_messagesQueued.empty() )
 			{
@@ -1341,7 +1435,7 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 			}
 
 			// Can't fit the whole thing?
-			if ( bLastSegment || seg.m_cbHdr + seg.m_cbSize > cbPayloadBytesRemaining )
+			if ( bLastSegment || seg.m_cbHdr + seg.m_cbSize > cbBytesRemainingForSegments )
 			{
 
 				// Check if we have enough room to send anything worthwhile.
@@ -1351,7 +1445,7 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 				// anyway, don't send a little sliver of a message at the beginning of a packet
 				// We need to finish the header by this point if we're going to send anything
 				int cbMinSegDataSizeToSend = std::min( 16, seg.m_cbSize );
-				if ( seg.m_cbHdr + cbMinSegDataSizeToSend > cbPayloadBytesRemaining )
+				if ( seg.m_cbHdr + cbMinSegDataSizeToSend > cbBytesRemainingForSegments )
 				{
 					// Don't send this segment now.
 					m_vecSegments.pop_back();
@@ -1359,9 +1453,10 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 				}
 
 				// Truncate, and leave the message in the queue
-				seg.m_cbSize = std::min( seg.m_cbSize, cbPayloadBytesRemaining - seg.m_cbHdr );
+				seg.m_cbSize = std::min( seg.m_cbSize, cbBytesRemainingForSegments - seg.m_cbHdr );
 				m_senderState.m_cbCurrentSendMessageSent += seg.m_cbSize;
 				Assert( m_senderState.m_cbCurrentSendMessageSent < pSendMsg->m_cbSize );
+				cbBytesRemainingForSegments -= seg.m_cbHdr + seg.m_cbSize;
 				break;
 			}
 
@@ -1375,12 +1470,12 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 			m_senderState.m_messagesQueued.pop_front();
 
 			// Consume payload bytes
-			cbPayloadBytesRemaining -= seg.m_cbHdr + seg.m_cbSize;
+			cbBytesRemainingForSegments -= seg.m_cbHdr + seg.m_cbSize;
 
 			// Assume for now this won't be the last segment, in which case we will also need the byte for the size field.
 			// NOTE: This might cause cbPayloadBytesRemaining to go negative by one!  I know that seems weird, but it actually
 			// keeps the logic below simpler.
-			cbPayloadBytesRemaining -= 1;
+			cbBytesRemainingForSegments -= 1;
 
 			// Update various accounting, depending on reliable or unreliable
 			if ( pSendMsg->m_nReliableStreamPos > 0 )
@@ -1403,6 +1498,41 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 		}
 	}
 
+	// Now we know how much space we need for the segments.  If we asked to reserve
+	// space for acks, we should have at least that much.  But we might have more.
+	// Serialize acks, as much as will fit.  If we are badly fragmented and we have
+	// the space, it's better to keep sending acks over and over to try to clear
+	// it out as fast as possible.
+	if ( cbReserveForAcks > 0 )
+	{
+
+		// If we didn't use all the space for data, that's more we could use for acks
+		int cbAvailForAcks = cbReserveForAcks;
+		if ( cbBytesRemainingForSegments > 0 )
+			cbAvailForAcks += cbBytesRemainingForSegments;
+		uint8 *pAckEnd = pPayloadPtr + cbAvailForAcks;
+		Assert( pAckEnd <= pPayloadEnd );
+
+		uint8 *pAfterAcks = SNP_SerializeAckBlocks( ackHelper, pPayloadPtr, pAckEnd, usecNow );
+		if ( pAfterAcks == nullptr )
+			return -1; // bug!  Abort
+
+		int cbAckBytesWritten = pAfterAcks - pPayloadPtr;
+		if ( cbAckBytesWritten > cbReserveForAcks )
+		{
+			// We used more space for acks than was strictly reserved.
+			// Update space remaining for data segments.  We should have the room!
+			cbBytesRemainingForSegments -= ( cbAckBytesWritten - cbReserveForAcks );
+			Assert( cbBytesRemainingForSegments >= -1 ); // remember we might go over by one byte
+		}
+		else
+		{
+			Assert( cbAckBytesWritten == cbReserveForAcks ); // The code above reserves space very carefuly.  So if we reserve it, we should fill it!
+		}
+
+		pPayloadPtr = pAfterAcks;
+	}
+
 	// We are gonna send a packet.  Start filling out an entry so that when it's acked (or nacked)
 	// we can know what to do.
 	Assert( m_senderState.m_mapInFlightPacketsByPktNum.lower_bound( m_statsEndToEnd.m_nNextSendSequenceNumber ) == m_senderState.m_mapInFlightPacketsByPktNum.end() );
@@ -1413,7 +1543,7 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 
 	// We might have gone over exactly one byte, because we counted the size byte of the last
 	// segment, which doesn't actually need to be sent
-	Assert( cbPayloadBytesRemaining >= 0 || ( cbPayloadBytesRemaining == -1 && m_vecSegments.size() > 0 ) );
+	Assert( cbBytesRemainingForSegments >= 0 || ( cbBytesRemainingForSegments == -1 && m_vecSegments.size() > 0 ) );
 
 	// OK, now go through and actually serialize the segments
 	int nSegments = len( m_vecSegments );
@@ -1566,162 +1696,246 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 	return nBytesSent;
 }
 
-uint8 *CSteamNetworkConnectionBase::SNP_SerializeAckFrame( uint8 *pOut, const uint8 *pOutEnd, SteamNetworkingMicroseconds usecNow )
+void CSteamNetworkConnectionBase::SNP_GatherAckBlocks( SNPAckSerializerHelper &helper, SteamNetworkingMicroseconds usecNow )
 {
-	// Don't do anything if we don't have room
-	if ( pOut+32 > pOutEnd )
+	helper.m_nBlocks = 0;
+
+	// Fast case for no packet loss we need to ack, which will (hopefully!) be a common case
+	if ( m_receiverState.m_mapPacketGaps.empty() )
+		return;
+
+	int n = std::min( (int)helper.k_nMaxBlocks, len( m_receiverState.m_mapPacketGaps ) );
+	auto itNext = m_receiverState.m_mapPacketGaps.begin();
+
+	int cbEncodedSize = 0;
+	while ( n > 0 )
+	{
+		--n;
+		auto itCur = itNext;
+		++itNext;
+
+		Assert( itCur->first < itCur->second.m_nEnd );
+
+		SNPAckSerializerHelper::Block &block = helper.m_arBlocks[ helper.m_nBlocks ];
+		block.m_nNack = uint32( itCur->second.m_nEnd - itCur->first );
+
+		int64 nAckEnd;
+		SteamNetworkingMicroseconds usecWhenSentLast;
+		if ( n == 0 )
+		{
+			Assert( itNext == m_receiverState.m_mapPacketGaps.end() );
+			nAckEnd = m_statsEndToEnd.m_nLastRecvSequenceNumber+1;
+			usecWhenSentLast = m_statsEndToEnd.m_usecTimeLastRecvSeq;
+		}
+		else
+		{
+			nAckEnd = itNext->first;
+			usecWhenSentLast = itNext->second.m_usecWhenReceivedPktBefore;
+		}
+		Assert( itCur->second.m_nEnd < nAckEnd );
+		block.m_nAck = uint32( nAckEnd - itCur->second.m_nEnd );
+
+		block.m_nLatestPktNum = uint32( nAckEnd-1 );
+		block.m_nEncodedTimeSinceLatestPktNum = SNPAckSerializerHelper::EncodeTimeSince( usecNow, usecWhenSentLast );
+
+		++cbEncodedSize;
+		if ( block.m_nAck > 7 )
+			cbEncodedSize += VarIntSerializedSize( block.m_nAck>>3 );
+		if ( block.m_nNack > 7 )
+			cbEncodedSize += VarIntSerializedSize( block.m_nNack>>3 );
+		block.m_cbTotalEncodedSize = cbEncodedSize;
+
+		// FIXME Here if the caller knows they are working with limited space,
+		// they could tell us how much space they have and we could bail
+		// if we already know we're over
+
+		++helper.m_nBlocks;
+	}
+}
+
+uint8 *CSteamNetworkConnectionBase::SNP_SerializeAckBlocks( const SNPAckSerializerHelper &helper, uint8 *pOut, const uint8 *pOutEnd, SteamNetworkingMicroseconds usecNow )
+{
+
+	// Never received anything?
+	if ( m_statsEndToEnd.m_nLastRecvSequenceNumber == 0 )
+	{
+		m_receiverState.m_usecWhenFlushAck = INT64_MAX;
+		return pOut;
+	}
+
+	// No room even for the header?
+	if ( pOut + 5 > pOutEnd )
 		return pOut;
 
 	// !KLUDGE! For now limit number of blocks, and always use 16-bit ID.
 	//          Later we might want to make this code smarter.
+	COMPILE_TIME_ASSERT( SNPAckSerializerHelper::k_cbHeaderSize == 5 );
 	uint8 *pAckHeaderByte = pOut;
 	++pOut;
-	uint16 *pLatestSeqNum = (uint16 *)pOut;
+	uint16 *pLatestPktNum = (uint16 *)pOut;
 	pOut += 2;
-	uint16 *pTimeSinceLatestSeqNum = (uint16 *)pOut;
+	uint16 *pTimeSinceLatestPktNum = (uint16 *)pOut;
 	pOut += 2;
 
 	// 10011000 - ack frame designator, with 16-bit last-received sequence number, and no ack blocks
 	*pAckHeaderByte = 0x98;
 
-	// Assume for now that we'll actually return the true last sequence number received.
-	// If we have a lot of packet loss, we'll
-	int64 nLastRecvSeqNum = m_statsEndToEnd.m_nLastRecvSequenceNumber;
-	SteamNetworkingMicroseconds usecElapsedSinceLast = usecNow - m_statsEndToEnd.m_usecTimeLastRecvSeq;
-	Assert( usecElapsedSinceLast >= 0 );
-	Assert( usecNow > 0x20000*k_usecAckDelayPrecision ); // We should never have small timestamp values.  A timestamp of zero should always be "a long time ago"
-	if ( usecElapsedSinceLast > 0xfffell<<k_nAckDelayPrecisionShift )
-		*pTimeSinceLatestSeqNum = 0xffff;
-	else
-		*pTimeSinceLatestSeqNum = uint16( usecElapsedSinceLast >> k_nAckDelayPrecisionShift );
-
-	// Limit number of blocks for now, so the count will always fit and we don't
-	// have to use the overflow bits.
-	const int k_nMaxBlocksToSend = 6;
-	int nNumAckBlocks = 0;
-
 	// Fast case for no packet loss we need to ack, which will (hopefully!) be a common case
-	if ( !m_receiverState.m_mapPacketGaps.empty() )
+	if ( m_receiverState.m_mapPacketGaps.empty() )
 	{
-		auto oldest = m_receiverState.m_mapPacketGaps.begin();
-		auto ptr = m_receiverState.m_mapPacketGaps.end();
-		Assert( oldest->second <= m_statsEndToEnd.m_nLastRecvSequenceNumber );
-		Assert( oldest->first < oldest->second );
-		if ( m_receiverState.m_mapPacketGaps.size() > k_nMaxBlocksToSend )
-		{
+		int64 nLastRecvPktNum = m_statsEndToEnd.m_nLastRecvSequenceNumber;
+		*pLatestPktNum = uint16( nLastRecvPktNum );
+		*pTimeSinceLatestPktNum = SNPAckSerializerHelper::EncodeTimeSince( usecNow, m_statsEndToEnd.m_usecTimeLastRecvSeq );
 
-			// Wow, quite a few loss events.  This is not just N lost packets, its N different blocks
-			// of received/lost.
-
-			// Just send the oldest N blocks.
-			ptr = oldest;
-			for ( int i = 0 ; i < k_nMaxBlocksToSend ; ++i )
-			{
-				++ptr;
-				Assert( ptr != m_receiverState.m_mapPacketGaps.end() );
-				Assert( ptr->second <= m_statsEndToEnd.m_nLastRecvSequenceNumber );
-				Assert( ptr->first < ptr->second );
-			}
-			nLastRecvSeqNum = ptr->first-1;
-
-			// Don't send a timestamp, we don't know exactly when we received this one.
-			// FIXME: We might actually have the info we need, at least in some cases
-			// and could fill this in.  For now, since this will hopefully be rare,
-			// just put in the "don't know" value.
-			*pTimeSinceLatestSeqNum = 0xffff;
-		}
-
-		SpewDebug( "  %s encode pkt %lld last recv %lld\n",
+		SpewDebug( "  %s encode pkt %lld last recv %lld (no loss)\n",
 			m_sName.c_str(),
-			(long long)m_statsEndToEnd.m_nNextSendSequenceNumber, (long long)nLastRecvSeqNum
+			(long long)m_statsEndToEnd.m_nNextSendSequenceNumber, (long long)nLastRecvPktNum
 		);
-
-		// One past the current block of received packets that we want to ack
-		int64 nSeqNumAckEnd = nLastRecvSeqNum+1;
-
-		for (;;)
-		{
-			--ptr;
-			Assert( ptr->first < ptr->second );
-			Assert( ptr->second < nSeqNumAckEnd );
-
-			// Encode ACK (number of packets successfully received)
-			if ( pOut >= pOutEnd )
-			{
-				AssertMsg( false, "Overflow serializing packet ack block header" );
-				return nullptr;
-			}
-			uint8 *pAckBlockHeaderByte = pOut;
-			++pOut;
-			{
-				int64 nNumAck = nSeqNumAckEnd - ptr->second;
-				if ( nNumAck < 8 )
-				{
-					// Small block of packets.  Encode directly in the header.
-					*pAckBlockHeaderByte = uint8(nNumAck << 4);
-				}
-				else
-				{
-					// Larger block of received packets.  Put lowest bits in the header,
-					// and overflow using varint.  This is probably going to be pretty
-					// common.
-					*pAckBlockHeaderByte = 0x80 | ( uint8(nNumAck & 7) << 4 );
-					pOut = SerializeVarInt( pOut, uint64(nNumAck >> 3), pOutEnd );
-					if ( pOut == nullptr )
-					{
-						AssertMsg( false, "Overflow serializing packet ack varint count" );
-						return nullptr;
-					}
-				}
-			}
-
-			// Encode NACK (number of packets dropped)
-			{
-				int64 nNumNack = ptr->second - ptr->first;
-				if ( nNumNack < 8 )
-				{
-					// Small block of packets.  Encode directly in the header.
-					*pAckBlockHeaderByte |= uint8(nNumNack);
-				}
-				else
-				{
-					// Larger block of dropped packets.  Put lowest bits in the header,
-					// and overflow using varint.  This is probably going to be less common than
-					// large ACK runs, but not totally uncommon.  Losing one or two packets is
-					// really common, but loss events often involve a lost of many packets in a run.
-					*pAckBlockHeaderByte |= 0x08 | uint8(nNumNack & 7);
-					pOut = SerializeVarInt( pOut, uint64(nNumNack >> 3), pOutEnd );
-					if ( pOut == nullptr )
-					{
-						AssertMsg( false, "Overflow serializing packet nack varint count" );
-						return nullptr;
-					}
-				}
-			}
-
-			SpewDebug( "  %s encode pkt %lld ack [%lld,%lld) nack [%lld,%lld)\n",
-				m_sName.c_str(),
-				(long long)m_statsEndToEnd.m_nNextSendSequenceNumber,
-				(long long)ptr->second, (long long)nSeqNumAckEnd,
-				(long long)ptr->first, (long long)ptr->second
-			);
-
-			// That's one more ack block written
-			++nNumAckBlocks;
-
-			// Assume we received the packet just before this one
-			nSeqNumAckEnd = ptr->first;
-
-			// Was that the lack block of dropped packets?
-			if ( ptr == oldest )
-				break;
-		}
+		m_receiverState.m_usecWhenFlushAck = INT64_MAX; // Clear timer, we wrote everything we needed to
+		return pOut;
 	}
 
-	// Finalize the header
-	Assert( nNumAckBlocks < 7 );
-	*pAckHeaderByte |= nNumAckBlocks;
-	*pLatestSeqNum = uint16( nLastRecvSeqNum );
+	// Fit as many blocks as possible.
+	// (Unless we are badly fragmented and are trying to squeeze in what
+	// we can at the end of a packet, this won't ever iterate
+	int nBlocks = helper.m_nBlocks;
+	uint8 *pExpectedOutEnd;
+	for (;;)
+	{
+
+		// Can't fit any blocks at all?  Just fill in the header
+		// with the oldest thing we can ack and call it a day
+		if ( nBlocks == 0 )
+		{
+			auto itOldestGap = m_receiverState.m_mapPacketGaps.begin();
+			int64 nLastRecvPktNum = itOldestGap->first-1;
+			*pLatestPktNum = uint16( nLastRecvPktNum );
+			*pTimeSinceLatestPktNum = SNPAckSerializerHelper::EncodeTimeSince( usecNow, itOldestGap->second.m_usecWhenReceivedPktBefore );
+
+			SpewDebug( "  %s encode pkt %lld last recv %lld (no blocks, actual last recv=%lld)\n",
+				m_sName.c_str(),
+				(long long)m_statsEndToEnd.m_nNextSendSequenceNumber, (long long)nLastRecvPktNum, (long long)m_statsEndToEnd.m_nLastRecvSequenceNumber
+			);
+			return pOut;
+		}
+
+		int cbTotalEncoded = helper.m_arBlocks[nBlocks-1].m_cbTotalEncodedSize;
+		if ( nBlocks > 6 )
+			++cbTotalEncoded;
+		pExpectedOutEnd = pOut + cbTotalEncoded; // Save for debugging below
+		if ( pExpectedOutEnd <= pOutEnd )
+			break;
+
+		// Won't fit, peel off the newest one, see if the earlier ones will fit
+		--nBlocks;
+	}
+
+	// OK, we know how many blocks we are going to write.  Finish the header byte
+	Assert( nBlocks == uint8(nBlocks) );
+	if ( nBlocks > 6 )
+	{
+		*pAckHeaderByte |= 7;
+		*(pOut++) = uint8( nBlocks );
+	}
+	else
+	{
+		*pAckHeaderByte |= uint8( nBlocks );
+	}
+
+	// Locate the first one we will serialize.
+	// (It's the newest one, which is the last one in the list).
+	const SNPAckSerializerHelper::Block *pBlock = &helper.m_arBlocks[nBlocks-1];
+
+	// Latest packet number and time
+	*pLatestPktNum = LittleWord( uint16( pBlock->m_nLatestPktNum ) );
+	*pTimeSinceLatestPktNum = LittleWord( pBlock->m_nEncodedTimeSinceLatestPktNum );
+
+	// Full packet number, for spew
+	int64 nAckEnd = ( m_statsEndToEnd.m_nLastRecvSequenceNumber & (int64)(~(uint32)0) ) | pBlock->m_nLatestPktNum;
+	++nAckEnd;
+
+	SpewDebug( "  %s encode pkt %lld last recv %lld (%d blocks, actual last recv=%lld)\n",
+		m_sName.c_str(),
+		(long long)m_statsEndToEnd.m_nNextSendSequenceNumber, (long long)(nAckEnd-1), nBlocks, (long long)m_statsEndToEnd.m_nLastRecvSequenceNumber
+	);
+
+	// Serialize the blocks into the packet, from newest to oldest
+	while ( pBlock >= helper.m_arBlocks )
+	{
+		uint8 *pAckBlockHeaderByte = pOut;
+		++pOut;
+
+		// Encode ACK (number of packets successfully received)
+		{
+			if ( pBlock->m_nAck < 8 )
+			{
+				// Small block of packets.  Encode directly in the header.
+				*pAckBlockHeaderByte = uint8(pBlock->m_nAck << 4);
+			}
+			else
+			{
+				// Larger block of received packets.  Put lowest bits in the header,
+				// and overflow using varint.  This is probably going to be pretty
+				// common.
+				*pAckBlockHeaderByte = 0x80 | ( uint8(pBlock->m_nAck & 7) << 4 );
+				pOut = SerializeVarInt( pOut, pBlock->m_nAck>>3, pOutEnd );
+				if ( pOut == nullptr )
+				{
+					AssertMsg( false, "Overflow serializing packet ack varint count" );
+					return nullptr;
+				}
+			}
+		}
+
+		// Encode NACK (number of packets dropped)
+		{
+			if ( pBlock->m_nNack < 8 )
+			{
+				// Small block of packets.  Encode directly in the header.
+				*pAckBlockHeaderByte |= uint8(pBlock->m_nNack);
+			}
+			else
+			{
+				// Larger block of dropped packets.  Put lowest bits in the header,
+				// and overflow using varint.  This is probably going to be less common than
+				// large ACK runs, but not totally uncommon.  Losing one or two packets is
+				// really common, but loss events often involve a lost of many packets in a run.
+				*pAckBlockHeaderByte |= 0x08 | uint8(pBlock->m_nNack & 7);
+				pOut = SerializeVarInt( pOut, pBlock->m_nNack >> 3, pOutEnd );
+				if ( pOut == nullptr )
+				{
+					AssertMsg( false, "Overflow serializing packet nack varint count" );
+					return nullptr;
+				}
+			}
+		}
+
+		// Debug
+		int64 nAckBegin = nAckEnd - pBlock->m_nAck;
+		int64 nNackBegin = nAckBegin - pBlock->m_nNack;
+		SpewDebug( "  %s encode pkt %lld nack [%lld,%lld) ack [%lld,%lld) \n",
+			m_sName.c_str(),
+			(long long)m_statsEndToEnd.m_nNextSendSequenceNumber,
+			(long long)nNackBegin, (long long)nAckBegin,
+			(long long)nAckBegin, (long long)nAckEnd
+		);
+		nAckEnd = nNackBegin;
+		Assert( nAckEnd > 0 ); // Make sure we don't try to ack packet 0 or below
+
+		// Move backwards in time
+		--pBlock;
+	}
+
+	// Make sure when we were checking what would fit, we correctly calculated serialized size
+	Assert( pOut == pExpectedOutEnd );
+
+	// If we were able to fit all blocks, then clear the ack timeout,
+	// since we wrote everything we wanted to
+	// NOTE: This assumes that helper.m_nBlocks wasn't artificially limited
+	// due to trying to fit in a special space-limited packet
+	if ( nBlocks == helper.m_nBlocks )
+		m_receiverState.m_usecWhenFlushAck = INT64_MAX;
+
 	return pOut;
 }
 
@@ -2137,128 +2351,136 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 		Assert( nNumReliableBytes > 0 );
 		Assert( nNumReliableBytes < len( m_receiverState.m_bufReliableStream ) ); // The last byte in the buffer should always be valid!
 	}
-
-	// OK, if we get here, we have some data.  Attempt to decode a reliable message.
-	// NOTE: If the message is really big, we will end up doing this parsing work
-	// each time we get a new packet.  We could cache off the result if we find out
-	// that it's worth while.  It should be pretty fast, though, so let's keep the
-	// code simple until we know that it's worthwhile.
 	Assert( nNumReliableBytes > 0 );
-	uint8 *pReliableStart = &m_receiverState.m_bufReliableStream[0];
-	uint8 *pReliableDecode = pReliableStart;
-	uint8 *pReliableEnd = pReliableDecode + nNumReliableBytes;
 
-	// Spew
-	SpewDebug( "  %s decode pkt %lld valid reliable bytes = %d [%lld,%lld)\n",
-		m_sName.c_str(),
-		(long long)nPktNum, nNumReliableBytes,
-		(long long)m_receiverState.m_nReliableStreamPos,
-		(long long)( m_receiverState.m_nReliableStreamPos + nNumReliableBytes ) );
-
-	// Sanity check that we have a valid header byte.
-	uint8 nHeaderByte = *(pReliableDecode++);
-	if ( nHeaderByte & 0x80 )
+	// OK, now dispatch as many reliable messages as are now available
+	do
 	{
-		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_InternalError, "Invalid reliable message header byte 0x%02x", nHeaderByte );
-		return false;
-	}
 
-	// Parse the message number
-	int64 nMsgNum = m_receiverState.m_nLastRecvReliableMsgNum;
-	if ( nHeaderByte & 0x40 )
-	{
-		uint64 nOffset;
-		pReliableDecode = DeserializeVarInt( pReliableDecode, pReliableEnd, nOffset );
-		if ( pReliableDecode == nullptr )
-			return true; // We haven't received all of the message
+		// OK, if we get here, we have some data.  Attempt to decode a reliable message.
+		// NOTE: If the message is really big, we will end up doing this parsing work
+		// each time we get a new packet.  We could cache off the result if we find out
+		// that it's worth while.  It should be pretty fast, though, so let's keep the
+		// code simple until we know that it's worthwhile.
+		uint8 *pReliableStart = &m_receiverState.m_bufReliableStream[0];
+		uint8 *pReliableDecode = pReliableStart;
+		uint8 *pReliableEnd = pReliableDecode + nNumReliableBytes;
 
-		nMsgNum += nOffset;
+		// Spew
+		SpewDebug( "  %s decode pkt %lld valid reliable bytes = %d [%lld,%lld)\n",
+			m_sName.c_str(),
+			(long long)nPktNum, nNumReliableBytes,
+			(long long)m_receiverState.m_nReliableStreamPos,
+			(long long)( m_receiverState.m_nReliableStreamPos + nNumReliableBytes ) );
 
-		// Sanity check against a HUGE jump in the message number.
-		// This is almost certainly bogus.  (OKOK, yes it is theoretically
-		// possible.  But for now while this thing is still under development,
-		// most likely it's a bug.  Eventually we can lessen these to handle
-		// the case where the app decides to send literally a million unreliable
-		// messages in between reliable messages.  The second condition is probably
-		// legit, though.)
-		if ( nOffset > 1000000 || nMsgNum > m_receiverState.m_nHighestSeenMsgNum+10000 )
+		// Sanity check that we have a valid header byte.
+		uint8 nHeaderByte = *(pReliableDecode++);
+		if ( nHeaderByte & 0x80 )
 		{
-			ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_InternalError,
-				"Reliable message number lurch.  Last reliable %lld, offset %llu, highest seen %lld",
-				(long long)m_receiverState.m_nLastRecvReliableMsgNum, (unsigned long long)nOffset,
-				(long long)m_receiverState.m_nHighestSeenMsgNum );
-			return false;
-		}
-	}
-	else
-	{
-		++nMsgNum;
-	}
-
-	// Check for updating highest message number seen, so we know how to interpret
-	// message numbers from the sender with only the lowest N bits present.
-	// And yes, we want to do this even if we end up not processing the entire message
-	if ( nMsgNum > m_receiverState.m_nHighestSeenMsgNum )
-		m_receiverState.m_nHighestSeenMsgNum = nMsgNum;
-
-	// Parse message size.
-	int cbMsgSize = nHeaderByte&0x1f;
-	if ( nHeaderByte & 0x20 )
-	{
-		uint64 nMsgSizeUpperBits;
-		pReliableDecode = DeserializeVarInt( pReliableDecode, pReliableEnd, nMsgSizeUpperBits );
-		if ( pReliableDecode == nullptr )
-			return true; // We haven't received all of the message
-
-		// Sanity check size.  Note that we do this check before we shift,
-		// to protect against overflow.
-		// (Although DeserializeVarInt doesn't detect overflow...)
-		if ( nMsgSizeUpperBits > (uint64)k_cbMaxMessageSizeRecv<<5 )
-		{
-			ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_InternalError,
-				"Reliable message size too large.  (%llu<<5 + %d)",
-				(unsigned long long)nMsgSizeUpperBits, cbMsgSize );
+			ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_InternalError, "Invalid reliable message header byte 0x%02x", nHeaderByte );
 			return false;
 		}
 
-		// Compute total size, and check it again
-		cbMsgSize += int( nMsgSizeUpperBits<<5 );
-		if ( cbMsgSize > k_cbMaxMessageSizeRecv )
+		// Parse the message number
+		int64 nMsgNum = m_receiverState.m_nLastRecvReliableMsgNum;
+		if ( nHeaderByte & 0x40 )
 		{
-			ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_InternalError,
-				"Reliable message size %d too large.", cbMsgSize );
-			return false;
+			uint64 nOffset;
+			pReliableDecode = DeserializeVarInt( pReliableDecode, pReliableEnd, nOffset );
+			if ( pReliableDecode == nullptr )
+				return true; // We haven't received all of the message
+
+			nMsgNum += nOffset;
+
+			// Sanity check against a HUGE jump in the message number.
+			// This is almost certainly bogus.  (OKOK, yes it is theoretically
+			// possible.  But for now while this thing is still under development,
+			// most likely it's a bug.  Eventually we can lessen these to handle
+			// the case where the app decides to send literally a million unreliable
+			// messages in between reliable messages.  The second condition is probably
+			// legit, though.)
+			if ( nOffset > 1000000 || nMsgNum > m_receiverState.m_nHighestSeenMsgNum+10000 )
+			{
+				ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_InternalError,
+					"Reliable message number lurch.  Last reliable %lld, offset %llu, highest seen %lld",
+					(long long)m_receiverState.m_nLastRecvReliableMsgNum, (unsigned long long)nOffset,
+					(long long)m_receiverState.m_nHighestSeenMsgNum );
+				return false;
+			}
 		}
-	}
+		else
+		{
+			++nMsgNum;
+		}
 
-	// Do we have the full thing?
-	if ( pReliableDecode+cbMsgSize > pReliableEnd )
-	{
-		// Ouch, we did all that work and still don't have the whole message.
-		return true;
-	}
+		// Check for updating highest message number seen, so we know how to interpret
+		// message numbers from the sender with only the lowest N bits present.
+		// And yes, we want to do this even if we end up not processing the entire message
+		if ( nMsgNum > m_receiverState.m_nHighestSeenMsgNum )
+			m_receiverState.m_nHighestSeenMsgNum = nMsgNum;
 
-	// We have a full message!  Queue it
-	ReceivedMessage( pReliableDecode, cbMsgSize, nMsgNum, usecNow );
-	pReliableDecode += cbMsgSize;
-	int cbStreamConsumed = pReliableDecode-pReliableStart;
+		// Parse message size.
+		int cbMsgSize = nHeaderByte&0x1f;
+		if ( nHeaderByte & 0x20 )
+		{
+			uint64 nMsgSizeUpperBits;
+			pReliableDecode = DeserializeVarInt( pReliableDecode, pReliableEnd, nMsgSizeUpperBits );
+			if ( pReliableDecode == nullptr )
+				return true; // We haven't received all of the message
 
-	// Advance bookkeeping
-	m_receiverState.m_nLastRecvReliableMsgNum = nMsgNum;
-	m_receiverState.m_nReliableStreamPos += cbStreamConsumed;
+			// Sanity check size.  Note that we do this check before we shift,
+			// to protect against overflow.
+			// (Although DeserializeVarInt doesn't detect overflow...)
+			if ( nMsgSizeUpperBits > (uint64)k_cbMaxMessageSizeRecv<<5 )
+			{
+				ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_InternalError,
+					"Reliable message size too large.  (%llu<<5 + %d)",
+					(unsigned long long)nMsgSizeUpperBits, cbMsgSize );
+				return false;
+			}
 
-	// Remove the data from the from the front of the buffer
-	pop_from_front( m_receiverState.m_bufReliableStream, cbStreamConsumed );
+			// Compute total size, and check it again
+			cbMsgSize += int( nMsgSizeUpperBits<<5 );
+			if ( cbMsgSize > k_cbMaxMessageSizeRecv )
+			{
+				ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_InternalError,
+					"Reliable message size %d too large.", cbMsgSize );
+				return false;
+			}
+		}
+
+		// Do we have the full thing?
+		if ( pReliableDecode+cbMsgSize > pReliableEnd )
+		{
+			// Ouch, we did all that work and still don't have the whole message.
+			return true;
+		}
+
+		// We have a full message!  Queue it
+		ReceivedMessage( pReliableDecode, cbMsgSize, nMsgNum, usecNow );
+		pReliableDecode += cbMsgSize;
+		int cbStreamConsumed = pReliableDecode-pReliableStart;
+
+		// Advance bookkeeping
+		m_receiverState.m_nLastRecvReliableMsgNum = nMsgNum;
+		m_receiverState.m_nReliableStreamPos += cbStreamConsumed;
+
+		// Remove the data from the from the front of the buffer
+		pop_from_front( m_receiverState.m_bufReliableStream, cbStreamConsumed );
+
+		// We might have more in the stream that is ready to dispatch right now.
+		nNumReliableBytes -= cbStreamConsumed;
+	} while ( nNumReliableBytes > 0 );
 
 	return true;
 }
 
-bool CSteamNetworkConnectionBase::SNP_RecordReceivedPktNum( int64 nPktNum, SteamNetworkingMicroseconds /*usecNow*/ )
+bool CSteamNetworkConnectionBase::SNP_RecordReceivedPktNum( int64 nPktNum, SteamNetworkingMicroseconds usecNow )
 {
 
 	// Make sure the last received sequence number is never marked as being in a gap.
 	// Since we did receive it!
-	Assert( m_receiverState.m_mapPacketGaps.empty() || m_receiverState.m_mapPacketGaps.rbegin()->second <= m_statsEndToEnd.m_nLastRecvSequenceNumber );
+	Assert( m_receiverState.m_mapPacketGaps.empty() || m_receiverState.m_mapPacketGaps.rbegin()->second.m_nEnd <= m_statsEndToEnd.m_nLastRecvSequenceNumber );
 
 	// Check if sender has already told us they don't need us to
 	// account for packets this old anymore
@@ -2278,44 +2500,69 @@ bool CSteamNetworkConnectionBase::SNP_RecordReceivedPktNum( int64 nPktNum, Steam
 			return false; // CALLER: Do not record that we received this packet!
 
 		// Add a gap for the skipped packet(s)
-		m_receiverState.m_mapPacketGaps[ m_statsEndToEnd.m_nLastRecvSequenceNumber+1] = nPktNum;
+		int64 nBegin = m_statsEndToEnd.m_nLastRecvSequenceNumber+1;
+		SSNPPacketGap &gap = m_receiverState.m_mapPacketGaps[ nBegin ];
+		gap.m_usecWhenReceivedPktBefore = m_statsEndToEnd.m_usecTimeLastRecvSeq;
+		gap.m_nEnd = nPktNum;
+
+		SpewVerbose( "  %s drop %d pkts [%lld-%lld)",
+			m_sName.c_str(),
+			(int)( nPktNum - nBegin ),
+			(long long)nBegin, (long long)nPktNum );
+
+		// Schedule sending of a NACK pretty quickly.
+		// FIXME - really we should probably use two different timers.
+		// If this timer expires, we should check if the gap still exists,
+		// and if so, there's no need to do anything.  Because we want
+		// packets arriving out of order close together to basically
+		// be treated the same as arriving in order.
+		m_receiverState.m_usecWhenFlushAck = std::min( m_receiverState.m_usecWhenFlushAck, usecNow + k_usecNackFlush );
 	}
 	else if ( !m_receiverState.m_mapPacketGaps.empty() )
 	{
 		// Check if this filed a gap
-		auto gap = m_receiverState.m_mapPacketGaps.upper_bound( nPktNum );
-		--gap;
-		Assert( gap->first <= nPktNum );
-		if ( gap->second <= nPktNum )
+		auto itGap = m_receiverState.m_mapPacketGaps.upper_bound( nPktNum );
+		--itGap;
+		Assert( itGap->first <= nPktNum );
+		if ( itGap->second.m_nEnd <= nPktNum )
 			return true; // We already received this packet
 
 		// Packet is in a gap where we previously thought packets were lost.
 		// (Packets arriving out of order.)
 
 		// Last packet in gap?
-		if ( gap->second-1 == nPktNum )
+		if ( itGap->second.m_nEnd-1 == nPktNum )
 		{
 			// Single-packet gap?
-			if ( gap->first == nPktNum )
+			if ( itGap->first == nPktNum )
 			{
 				// Gap is totally filed
-				m_receiverState.m_mapPacketGaps.erase( gap );
+				m_receiverState.m_mapPacketGaps.erase( itGap );
+
+				SpewVerbose( "  %s decode pkt %lld, single pkt gap filled", m_sName.c_str(), (long long)nPktNum );
 			}
 			else
 			{
 				// Shrink gap by one from the end
-				--gap->second;
-				Assert( gap->first < gap->second );
+				--itGap->second.m_nEnd;
+				Assert( itGap->first < itGap->second.m_nEnd );
+
+				SpewVerbose( "  %s decode pkt %lld, last packet in gap, reduced to [%lld,%lld)", m_sName.c_str(),
+					(long long)nPktNum, (long long)itGap->first, (long long)itGap->second.m_nEnd );
 			}
 		}
-		else if ( gap->first == nPktNum )
+		else if ( itGap->first == nPktNum )
 		{
 			// First packet in multi-packet gap.
 			// Shrink packet from the front
 			// Cast away const to allow us to modify the key.
 			// We know this won't break the map ordering
-			++const_cast<int64&>( gap->first );
-			Assert( gap->first < gap->second );
+			++const_cast<int64&>( itGap->first );
+			Assert( itGap->first < itGap->second.m_nEnd );
+			itGap->second.m_usecWhenReceivedPktBefore = usecNow;
+
+			SpewVerbose( "  %s decode pkt %lld, first packet in gap, reduced to [%lld,%lld)", m_sName.c_str(),
+				(long long)nPktNum, (long long)itGap->first, (long long)itGap->second.m_nEnd );
 		}
 		else
 		{
@@ -2325,14 +2572,21 @@ bool CSteamNetworkConnectionBase::SNP_RecordReceivedPktNum( int64 nPktNum, Steam
 				return false; // CALLER: Do not record that we received this packet!
 
 			// Save end
-			int64 nEnd = gap->second;
+			int64 nEnd = itGap->second.m_nEnd;
 
 			// Truncate this gap
-			gap->second = nPktNum;
-			Assert( gap->first < gap->second );
+			itGap->second.m_nEnd = nPktNum;
+			Assert( itGap->first < itGap->second.m_nEnd );
+
+			int64 nUpperBegin = nPktNum+1;
+
+			SpewVerbose( "  %s decode pkt %lld, gap split [%lld,%lld) and [%lld,%lld)", m_sName.c_str(),
+				(long long)nPktNum, (long long)itGap->first, (long long)itGap->second.m_nEnd, nUpperBegin, nEnd );
 
 			// Insert a new gap to account for the upper end
-			m_receiverState.m_mapPacketGaps[ nPktNum+1 ] = nEnd;
+			SSNPPacketGap &gap = m_receiverState.m_mapPacketGaps[ nUpperBegin ];
+			gap.m_usecWhenReceivedPktBefore = usecNow;
+			gap.m_nEnd = nEnd;
 		}
 
 	}

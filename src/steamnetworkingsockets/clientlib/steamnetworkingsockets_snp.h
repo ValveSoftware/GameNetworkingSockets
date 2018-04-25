@@ -439,6 +439,12 @@ struct SSNPRecvUnreliableSegmentData
 	char m_buf[ k_cbSteamNetworkingSocketsMaxPlaintextPayloadRecv ];
 };
 
+struct SSNPPacketGap
+{
+	int64 m_nEnd; // just after the last packet received
+	SteamNetworkingMicroseconds m_usecWhenReceivedPktBefore;
+};
+
 struct SSNPReceiverState
 {
 	/// Unreliable message segments that we have received.  When an unreliable message
@@ -471,12 +477,12 @@ struct SSNPReceiverState
 
 	/// List of gaps in the packet sequence numbers we have received.
 	/// Since these must never overlap, we store them using begin as the
-	/// key and end as the value.
+	/// key and the end in the value.
 	///
 	/// !SPEED! We should probably use a small fixed-sized, sorted vector here,
 	/// since in most cases the list will be small, and the cost of dynamic memory
 	/// allocation will be way worse than O(n) insertion/removal.
-	std::map<int64,int64> m_mapPacketGaps;
+	std::map<int64,SSNPPacketGap> m_mapPacketGaps;
 
 	/// Oldest packet sequence number we need to ack to our peer
 	int64 m_nMinPktNumToSendAcks = 0;

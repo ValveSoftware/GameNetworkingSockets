@@ -40,6 +40,7 @@ class CSteamNetworkConnectionBase;
 class CSteamNetworkListenSocketStandard;
 class CSharedSocket;
 struct SteamNetworkingMessageQueue;
+struct SNPAckSerializerHelper;
 
 // Fixed size byte array that automatically wipes itself upon destruction.
 // Used for storage of secret keys, etc.
@@ -538,7 +539,8 @@ protected:
 
 private:
 
-	uint8 *SNP_SerializeAckFrame( uint8 *pOut, const uint8 *pOutEnd, SteamNetworkingMicroseconds usecNow );
+	void SNP_GatherAckBlocks( SNPAckSerializerHelper &helper, SteamNetworkingMicroseconds usecNow );
+	uint8 *SNP_SerializeAckBlocks( const SNPAckSerializerHelper &helper, uint8 *pOut, const uint8 *pOutEnd, SteamNetworkingMicroseconds usecNow );
 	uint8 *SNP_SerializeStopWaitingFrame( uint8 *pOut, const uint8 *pOutEnd, SteamNetworkingMicroseconds usecNow );
 
 	void SetState( ESteamNetworkingConnectionState eNewState, SteamNetworkingMicroseconds usecNow );
