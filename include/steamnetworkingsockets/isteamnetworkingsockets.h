@@ -285,7 +285,9 @@ public:
 	//
 
 	/// Called when we receive a ticket from our central matchmaking system.  Puts the
-	/// ticket into a persistent cache, and optionally returns the cracked ticket
+	/// ticket into a persistent cache, and optionally returns the parsed ticket.
+	///
+	/// See stamdatagram_ticketgen.h for more details.
 	virtual bool ReceivedRelayAuthTicket( const void *pvTicket, int cbTicket, SteamDatagramRelayAuthTicket *pOutParsedTicket ) = 0;
 
 	/// Search cache for a ticket to talk to the server on the specified virtual port.
