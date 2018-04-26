@@ -14,7 +14,6 @@
 #include <vstdlib/random.h>
 #include <tier1/utlpriorityqueue.h>
 #include <tier1/utllinkedlist.h>
-#include "steamnetworkingsockets_snp_debug.h"
 #include "steamnetworkingconfig.h"
 #include "crypto.h"
 
@@ -1257,7 +1256,6 @@ static bool BEnsureSteamDatagramThreadRunning( SteamDatagramErrMsg &errMsg )
 
 static void StopSteamDatagramThread()
 {
-	ShutdownSNPDebugWindow();
 
 	// Should only be called while we have the lock
 	SteamDatagramTransportLock::AssertHeldByCurrentThread();

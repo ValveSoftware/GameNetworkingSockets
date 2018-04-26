@@ -631,10 +631,8 @@ enum ESteamNetworkingConfigurationValue
 	// 0-100 Randomly discard N pct of packets received
 	k_ESteamNetworkingConfigurationValue_FakePacketLoss_Recv = 4,
 
-	// Set to true (non-zero) to open up a seperate debug window showing SNP 
-	// state for all current connections.  Only works on Windows.
-	// Defaults to 0 (off)
-	k_ESteamNetworkingConfigurationValue_SNP_DebugWindow = 5,
+	// DELETED
+	//k_ESteamNetworkingConfigurationValue_SNP_DebugWindow = 5,
 
 	// Upper limit of buffered pending bytes to be sent, if this is reached
 	// SendMessage will return k_EResultLimitExceeded

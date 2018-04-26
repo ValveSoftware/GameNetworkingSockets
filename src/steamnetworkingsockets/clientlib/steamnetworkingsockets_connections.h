@@ -19,7 +19,6 @@
 #include <tier0/memdbgon.h>
 
 #include "steamnetworkingsockets_snp.h"
-#include "steamnetworkingsockets_snp_debug.h"
 
 struct SteamNetConnectionStatusChangedCallback_t;
 class ISteamNetworkingSocketsSerialized;
@@ -646,7 +645,6 @@ extern CUtlLinkedList<SteamNetConnectionStatusChangedCallback_t> g_listPendingCo
 extern int g_iPartnerMask;
 
 extern bool BCheckGlobalSpamReplyRateLimit( SteamNetworkingMicroseconds usecNow );
-extern void UpdateSNPDebugWindow();
 extern CSteamNetworkConnectionBase *FindConnectionByLocalID( uint32 nLocalConnectionID );
 
 } // namespace SteamNetworkingSocketsLib

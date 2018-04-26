@@ -497,7 +497,6 @@ static void RunSteamDatagramConnectionTest()
 {
 	ISteamNetworkingSockets *pSteamSocketNetworking = SteamNetworkingSockets();
 
-	pSteamSocketNetworking->SetConfigurationValue( k_ESteamNetworkingConfigurationValue_SNP_DebugWindow, 0 );
 	pSteamSocketNetworking->SetConfigurationValue( k_ESteamNetworkingConfigurationValue_SNP_Log_RTT, 0 );
 	pSteamSocketNetworking->SetConfigurationValue( k_ESteamNetworkingConfigurationValue_SNP_Log_Packet, 0 );
 	pSteamSocketNetworking->SetConfigurationValue( k_ESteamNetworkingConfigurationValue_SNP_Log_Segments, 0 );

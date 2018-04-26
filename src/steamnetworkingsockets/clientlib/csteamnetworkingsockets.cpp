@@ -48,7 +48,6 @@ static SConfigurationValueEntry sConfigurationValueEntryList[] =
 	{ k_ESteamNetworkingConfigurationValue_FakePacketReorder_Recv,                     "FakePacketReorder_Recv",                     &steamdatagram_fakepacketreorder_recv },
 	{ k_ESteamNetworkingConfigurationValue_FakePacketReorder_Time,                     "FakePacketReorder_Time",                     &steamdatagram_fakepacketreorder_time },
 
-	{ k_ESteamNetworkingConfigurationValue_SNP_DebugWindow,                            "SNP_DebugWindow",                            &steamdatagram_snp_debug_window },
 	{ k_ESteamNetworkingConfigurationValue_SNP_SendBufferSize,                         "SNP_SendBufferSize",                         &steamdatagram_snp_send_buffer_size },
 	{ k_ESteamNetworkingConfigurationValue_SNP_MaxRate,                                "SNP_MaxRate",                                &steamdatagram_snp_max_rate },
 	{ k_ESteamNetworkingConfigurationValue_SNP_MinRate,                                "SNP_MinRate",                                &steamdatagram_snp_min_rate },
@@ -70,7 +69,7 @@ static SConfigurationValueEntry sConfigurationValueEntryList[] =
 	{ k_ESteamNetworkingConfigurationValue_Timeout_Seconds_Initial,                    "TimeoutSecondsInitial",                      &steamdatagram_timeout_seconds_initial },
 	{ k_ESteamNetworkingConfigurationValue_Timeout_Seconds_Connected,                  "TimeoutSecondsConnected",                    &steamdatagram_timeout_seconds_connected },
 };
-const int k_nDeprecated = 1;
+const int k_nDeprecated = 2;
 COMPILE_TIME_ASSERT( sizeof( sConfigurationValueEntryList ) / sizeof( SConfigurationValueEntry ) == k_ESteamNetworkingConfigurationValue_Count - k_nDeprecated );
 
 struct SConfigurationStringEntry
@@ -1258,7 +1257,6 @@ void CSteamNetworkingSockets::RunCallbacks( ISteamNetworkingSocketsCallbacks *pC
 	CUtlLinkedList<QueuedCallback> listTemp;
 	{
 		SteamDatagramTransportLock scopeLock;
-		UpdateSNPDebugWindow();
 
 		// Swap list with the temp one
 		listTemp.Swap( m_listPendingCallbacks );
