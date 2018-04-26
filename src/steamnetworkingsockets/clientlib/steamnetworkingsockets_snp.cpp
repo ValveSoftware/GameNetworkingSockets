@@ -84,6 +84,15 @@ struct SNPAckSerializerHelper
 
 };
 
+template <typename T>
+inline int64 NearestWithSameLowerBits( T nLowerBits, int64 nReference )
+{
+	COMPILE_TIME_ASSERT( sizeof(T) < sizeof(int64) ); // Make sure it's smaller than 64 bits, or else why are you doing this?
+	COMPILE_TIME_ASSERT( ~T(0) < 0 ); // make sure it's a signed type!
+	T nDiff = nLowerBits - T( nReference );
+	return nReference + nDiff;
+}
+
 // exponentially weighted moving average
 template< typename T > T tfrc_ewma( T avg, T newval, T weight )
 {
@@ -476,37 +485,31 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 			{
 				// First unreliable frame.  Message number is absolute, but only bottom N bits are sent
 				static const char szUnreliableMsgNumOffset[] = "unreliable msgnum";
-				int64 nOffset, nMask;
+				int64 nLowerBits, nMask;
 				if ( nFrameType & 0x10 )
 				{
-					READ_32BITU( nOffset, szUnreliableMsgNumOffset );
+					READ_32BITU( nLowerBits, szUnreliableMsgNumOffset );
 					nMask = 0xffffffff;
+					nCurMsgNum = NearestWithSameLowerBits( (int32)nLowerBits, m_receiverState.m_nHighestSeenMsgNum );
 				}
 				else
 				{
-					READ_16BITU( nOffset, szUnreliableMsgNumOffset );
+					READ_16BITU( nLowerBits, szUnreliableMsgNumOffset );
 					nMask = 0xffff;
+					nCurMsgNum = NearestWithSameLowerBits( (int16)nLowerBits, m_receiverState.m_nHighestSeenMsgNum );
 				}
+				Assert( ( nCurMsgNum & nMask ) == nLowerBits );
 
-				// Find the message number that is closes to 
-				nCurMsgNum = ( m_receiverState.m_nHighestSeenMsgNum & ~nMask ) + nOffset;
-				if ( nCurMsgNum + (nMask>>1) < m_receiverState.m_nHighestSeenMsgNum )
-				{
-					nCurMsgNum += nMask+1;
-					Assert( ( nCurMsgNum & nMask ) == nOffset );
-					Assert( m_receiverState.m_nHighestSeenMsgNum < nCurMsgNum );
-					Assert( m_receiverState.m_nHighestSeenMsgNum + (nMask>>1) >= nCurMsgNum );
-				}
 				if ( nCurMsgNum <= 0 )
 				{
 					DECODE_ERROR( "SNP decode unreliable msgnum underflow.  %llx mod %llx, highest seen %llx",
-						(unsigned long long)nOffset, (unsigned long long)( nMask+1 ), (unsigned long long)m_receiverState.m_nHighestSeenMsgNum );
+						(unsigned long long)nLowerBits, (unsigned long long)( nMask+1 ), (unsigned long long)m_receiverState.m_nHighestSeenMsgNum );
 				}
 				if ( std::abs( nCurMsgNum - m_receiverState.m_nHighestSeenMsgNum ) > (nMask>>2) )
 				{
 					// We really should never get close to this boundary.
 					SpewWarningRateLimited( usecNow, "Sender sent abs unreliable message number using %llx mod %llx, highest seen %llx\n",
-						(unsigned long long)nOffset, (unsigned long long)( nMask+1 ), (unsigned long long)m_receiverState.m_nHighestSeenMsgNum );
+						(unsigned long long)nLowerBits, (unsigned long long)( nMask+1 ), (unsigned long long)m_receiverState.m_nHighestSeenMsgNum );
 				}
 
 			}
@@ -695,37 +698,39 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 			int64 nLatestRecvSeqNum;
 			{
 				static const char szAckLatestPktNum[] = "ack latest pktnum";
-				int64 nOffset, nMask;
+				int64 nLowerBits, nMask;
 				if ( nFrameType & 0x40 )
 				{
-					READ_32BITU( nOffset, szAckLatestPktNum );
+					READ_32BITU( nLowerBits, szAckLatestPktNum );
 					nMask = 0xffffffff;
+					nLatestRecvSeqNum = NearestWithSameLowerBits( (int32)nLowerBits, m_statsEndToEnd.m_nNextSendSequenceNumber );
 				}
 				else
 				{
-					READ_16BITU( nOffset, szAckLatestPktNum );
+					READ_16BITU( nLowerBits, szAckLatestPktNum );
 					nMask = 0xffff;
+					nLatestRecvSeqNum = NearestWithSameLowerBits( (int16)nLowerBits, m_statsEndToEnd.m_nNextSendSequenceNumber );
 				}
+				Assert( ( nLatestRecvSeqNum & nMask ) == nLowerBits );
 
 				// Find the message number that is closes to 
-				nLatestRecvSeqNum = ( m_statsEndToEnd.m_nNextSendSequenceNumber & ~nMask ) + nOffset;
-				if ( nLatestRecvSeqNum + (nMask>>1) < m_statsEndToEnd.m_nNextSendSequenceNumber )
-				{
-					nLatestRecvSeqNum += nMask+1;
-					Assert( ( nLatestRecvSeqNum & nMask ) == nOffset );
-					Assert( m_statsEndToEnd.m_nNextSendSequenceNumber < nCurMsgNum );
-					Assert( m_statsEndToEnd.m_nNextSendSequenceNumber + (nMask>>1) >= nLatestRecvSeqNum );
-				}
 				if ( nLatestRecvSeqNum < 0 )
 				{
 					DECODE_ERROR( "SNP decode ack latest pktnum underflow.  %llx mod %llx, next send %llx",
-						(unsigned long long)nOffset, (unsigned long long)( nMask+1 ), (unsigned long long)m_statsEndToEnd.m_nNextSendSequenceNumber );
+						(unsigned long long)nLowerBits, (unsigned long long)( nMask+1 ), (unsigned long long)m_statsEndToEnd.m_nNextSendSequenceNumber );
 				}
 				if ( std::abs( nLatestRecvSeqNum - m_statsEndToEnd.m_nNextSendSequenceNumber ) > (nMask>>2) )
 				{
 					// We really should never get close to this boundary.
 					SpewWarningRateLimited( usecNow, "Sender sent abs latest recv pkt number using %llx mod %llx, next send %llx\n",
-						(unsigned long long)nOffset, (unsigned long long)( nMask+1 ), (unsigned long long)m_statsEndToEnd.m_nNextSendSequenceNumber );
+						(unsigned long long)nLowerBits, (unsigned long long)( nMask+1 ), (unsigned long long)m_statsEndToEnd.m_nNextSendSequenceNumber );
+				}
+				if ( nLatestRecvSeqNum >= m_statsEndToEnd.m_nNextSendSequenceNumber )
+				{
+					DECODE_ERROR( "SNP decode ack latest pktnum %lld (%llx mod %llx), but next outoing packet is %lld (%llx).",
+						(long long)nLatestRecvSeqNum, (unsigned long long)nLowerBits, (unsigned long long)( nMask+1 ),
+						(long long)m_statsEndToEnd.m_nNextSendSequenceNumber, (unsigned long long)m_statsEndToEnd.m_nNextSendSequenceNumber
+					);
 				}
 			}
 
@@ -1947,7 +1952,7 @@ uint8 *CSteamNetworkConnectionBase::SNP_SerializeStopWaitingFrame( uint8 *pOut, 
 
 	// Calculate offset from the current sequence number
 	int64 nOffset = m_statsEndToEnd.m_nNextSendSequenceNumber - m_senderState.m_nMinPktWaitingOnAck;
-	AssertMsg( nOffset > 0, "We marked peer as having acked a packet we haven't sent yet" );
+	AssertMsg2( nOffset > 0, "Told peer to stop acking up to %lld, but latest packet we have sent is %lld", (long long)m_senderState.m_nMinPktWaitingOnAck, (long long)m_statsEndToEnd.m_nNextSendSequenceNumber );
 	SpewDebug( "  %s encode pkt %lld stop_waiting offset %lld = %lld",
 		m_sName.c_str(),
 		(long long)m_statsEndToEnd.m_nNextSendSequenceNumber, (long long)nOffset, (long long)m_senderState.m_nMinPktWaitingOnAck );
