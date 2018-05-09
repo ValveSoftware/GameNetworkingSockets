@@ -23,7 +23,7 @@
 #include "steamuniverse.h"
 
 // General result codes
-enum EResult
+typedef enum _EResult
 {
 	k_EResultOK	= 1,							// success
 	k_EResultFail = 2,							// generic failure 
@@ -135,7 +135,7 @@ enum EResult
 	k_EResultTooManyPending = 108,				// There are too many of this thing pending already
 	k_EResultNoSiteLicensesFound = 109,			// No site licenses found
 	k_EResultWGNetworkSendExceeded = 110,		// the WG couldn't send a response because we exceeded max network send size
-};
+} EResult;
 
 // Error codes for use with the voice functions
 enum EVoiceResult
@@ -374,7 +374,11 @@ typedef void (*PFNLegacyKeyRegistration)( const char *pchCDKey, const char *pchI
 typedef bool (*PFNLegacyKeyInstalled)();
 
 const unsigned int k_unSteamAccountIDMask = 0xFFFFFFFF;
+#ifdef __cplusplus
 const unsigned int k_unSteamAccountInstanceMask = 0x000FFFFF;
+#else
+#define k_unSteamAccountInstanceMask 0x000FFFFF
+#endif
 // we allow 3 simultaneous user account instances right now, 1= desktop, 2 = console, 4 = web, 0 = all
 const unsigned int k_unSteamUserDesktopInstance	= 1;	 
 const unsigned int k_unSteamUserConsoleInstance	= 2;
@@ -451,7 +455,7 @@ enum EBroadcastUploadResult
 //-----------------------------------------------------------------------------
 // Purpose: codes for well defined launch options
 //-----------------------------------------------------------------------------
-enum ELaunchOptionType
+typedef enum _ELaunchOptionType
 {
 	k_ELaunchOptionType_None		= 0,	// unknown what launch option does
 	k_ELaunchOptionType_Default		= 1,	// runs the game, app, whatever in default mode
@@ -472,7 +476,7 @@ enum ELaunchOptionType
 
 	
 	k_ELaunchOptionType_Dialog 		= 1000, // show launch options dialog
-};
+} ELaunchOptionType;
 
 
 //-----------------------------------------------------------------------------
@@ -491,7 +495,7 @@ static inline bool BIsVRLaunchOptionType( const ELaunchOptionType  eType )
 // Purpose: code points for VR HMD vendors and models 
 // WARNING: DO NOT RENUMBER EXISTING VALUES - STORED IN A DATABASE
 //-----------------------------------------------------------------------------
-enum EVRHMDType
+typedef enum _EVRHMDType
 {
 	k_eEVRHMDType_None = -1, // unknown vendor and model
 
@@ -508,7 +512,7 @@ enum EVRHMDType
 	k_eEVRHMDType_Oculus_Rift = 23, // Oculus rift
 
 	k_eEVRHMDType_Oculus_Unknown = 40, // // Oculus unknown HMD
-};
+} EVRHMDType;
 
 
 //-----------------------------------------------------------------------------
@@ -529,6 +533,7 @@ static inline bool BIsViveHMD( EVRHMDType eType )
 }
 
 
+#ifdef __cplusplus
 #pragma pack( push, 1 )
 
 #define CSTEAMID_DEFINED
@@ -1217,6 +1222,7 @@ private:
 };
 
 #pragma pack( pop )
+#endif // __cplusplus
 
 const int k_cchGameExtraInfoMax = 64;
 

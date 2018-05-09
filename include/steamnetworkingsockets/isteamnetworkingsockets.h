@@ -28,6 +28,7 @@ enum { k_iSteamNetworkingCallbacks = 1200 };
 #include <steam/steam_gameserver.h>
 #endif
 
+#ifdef __cplusplus
 struct SteamDatagramRelayAuthTicket;
 class ISteamNetworkingSocketsCallbacks;
 struct SteamNetConnectionStatusChangedCallback_t;
@@ -373,13 +374,19 @@ protected:
 
 extern "C" {
 
+#else // __cplusplus
+
+typedef uintptr_t ISteamNetworkingSockets;
+
+#endif // __cplusplus
+
 // Global accessor.   This will eventually be moved to steam_api.h.
 STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets *SteamNetworkingSockets();
 STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets *SteamNetworkingSocketsGameServer();
 
 #ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
 
-STEAMNETWORKINGSOCKETS_INTERFACE bool GameNetworkingSockets_Init( SteamDatagramErrMsg &errMsg );
+STEAMNETWORKINGSOCKETS_INTERFACE bool GameNetworkingSockets_Init( SteamDatagramErrMsg *errMsg );
 STEAMNETWORKINGSOCKETS_INTERFACE void GameNetworkingSockets_Kill();
 
 #else
@@ -422,13 +429,13 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamDatagramServer_Kill( );
 #endif
 
 /// Callback struct used to notify when a connection has changed state
-struct SteamNetConnectionStatusChangedCallback_t
+typedef struct _SteamNetConnectionStatusChangedCallback_t
 { 
 	enum { k_iCallback = k_iSteamNetworkingCallbacks + 9 }; // Pretty sure this ID is available.  It will probably change later
 	HSteamNetConnection m_hConn;		//< Connection handle
 	SteamNetConnectionInfo_t m_info;	//< Full connection info
 	int m_eOldState;					//< ESNetSocketState.  (Current stats is in m_info)
-};
+} SteamNetConnectionStatusChangedCallback_t;
 
 /// TEMP callback dispatch mechanism.
 /// You'll override this guy and hook any callbacks you are interested in,
@@ -436,6 +443,7 @@ struct SteamNetConnectionStatusChangedCallback_t
 /// and you will register for the callbacks you want using the normal SteamWorks callback
 /// mechanisms, and they will get dispatched along with other Steamworks callbacks
 /// when you call SteamAPI_RunCallbacks and SteamGameServer_RunCallbacks.
+#ifdef __cplusplus
 class ISteamNetworkingSocketsCallbacks
 {
 public:
@@ -446,8 +454,9 @@ public:
 protected:
 	inline ~ISteamNetworkingSocketsCallbacks() {}
 };
+#endif
 
-enum ESteamNetworkingSocketsDebugOutputType
+typedef enum _ESteamNetworkingSocketsDebugOutputType
 {
 	k_ESteamNetworkingSocketsDebugOutputType_None,
 	k_ESteamNetworkingSocketsDebugOutputType_Bug, // You used the API incorrectly, or an internal error happened
@@ -457,12 +466,10 @@ enum ESteamNetworkingSocketsDebugOutputType
 	k_ESteamNetworkingSocketsDebugOutputType_Msg, // Recommended amount
 	k_ESteamNetworkingSocketsDebugOutputType_Verbose, // Quite a bit
 	k_ESteamNetworkingSocketsDebugOutputType_Debug, // Practically everything
-};
+} ESteamNetworkingSocketsDebugOutputType;
 
 /// Setup callback for debug output, and the desired verbosity you want.
-typedef void (*FSteamNetworkingSocketsDebugOutput)( /* ESteamNetworkingSocketsDebugOutputType */ int nType, const char *pszMsg );
-STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetDebugOutputFunction( /* ESteamNetworkingSocketsDebugOutputType */ int eDetailLevel, FSteamNetworkingSocketsDebugOutput pfnFunc );
-
-}
+typedef void (*FSteamNetworkingSocketsDebugOutput)( ESteamNetworkingSocketsDebugOutputType nType, const char *pszMsg );
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetDebugOutputFunction( ESteamNetworkingSocketsDebugOutputType eDetailLevel, FSteamNetworkingSocketsDebugOutput pfnFunc );
 
 #endif // ISTEAMNETWORKINGSOCKETS

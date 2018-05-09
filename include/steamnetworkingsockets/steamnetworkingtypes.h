@@ -17,7 +17,6 @@
 #pragma pack( push, 8 )
 
 struct SteamNetworkPingLocation_t;
-class ISteamNetworkingMessage;
 
 /// Handle used to identify a connection to a remote host.
 typedef uint32 HSteamNetConnection;
@@ -27,12 +26,18 @@ const HSteamNetConnection k_HSteamNetConnection_Invalid = 0;
 typedef uint32 HSteamListenSocket;
 const HSteamListenSocket k_HSteamListenSocket_Invalid = 0;
 
+#ifdef __cplusplus
 const int k_nSteamNetworkingSendFlags_NoNagle = 1;
 const int k_nSteamNetworkingSendFlags_NoDelay = 2;
 const int k_nSteamNetworkingSendFlags_Reliable = 8;
+#else
+#define k_nSteamNetworkingSendFlags_NoNagle 1
+#define k_nSteamNetworkingSendFlags_NoDelay 2
+#define k_nSteamNetworkingSendFlags_Reliable 8
+#endif
 
 /// Different methods that messages can be sent
-enum ESteamNetworkingSendType
+typedef enum _ESteamNetworkingSendType
 {
 	// Send an unreliable message. Can be lost.  Messages *can* be larger than a single MTU (UDP packet), but there is no
 	// retransmission, so if any piece of the message is lost, the entire message will be dropped.
@@ -85,10 +90,10 @@ enum ESteamNetworkingSendType
 	//
 	// This is equivalent to k_EP2PSendReliable
 	k_ESteamNetworkingSendType_ReliableNoNagle = k_nSteamNetworkingSendFlags_Reliable|k_nSteamNetworkingSendFlags_NoNagle,
-};
+} ESteamNetworkingSendType;
 
 /// High level connection status
-enum ESteamNetworkingConnectionState
+typedef enum _ESteamNetworkingConnectionState
 {
 
 	/// Dummy value used to indicate an error condition in the API.
@@ -193,7 +198,7 @@ enum ESteamNetworkingConnectionState
 
 	/// Connection is completely inactive and ready to be destroyed
 	k_ESteamNetworkingConnectionState_Dead = -3,
-};
+} ESteamNetworkingConnectionState;
 
 /// Identifier used for a network location point of presence.
 /// Typically you won't need to directly manipulate these.
@@ -207,13 +212,14 @@ inline SteamNetworkingPOPID CalculateSteamNetworkingPOPIDFromString( const char 
 	// this nontrivial, and there are already some IDs stored in SQL.  Ug, so the 4 character code "abcd" will
 	// be encoded with the digits like "0xddaabbcc"
 	return
-		( uint32(pszCode[3]) << 24U ) 
-		| ( uint32(pszCode[0]) << 16U ) 
-		| ( uint32(pszCode[1]) << 8U )
-		| uint32(pszCode[2]);
+		( (uint32)(pszCode[3]) << 24U )
+		| ( (uint32)(pszCode[0]) << 16U )
+		| ( (uint32)(pszCode[1]) << 8U )
+		| (uint32)(pszCode[2]);
 }
 
 /// Unpack integer to string representation, including terminating '\0'
+#ifdef __cplusplus
 template <int N>
 inline void GetSteamNetworkingLocationPOPStringFromID( SteamNetworkingPOPID id, char (&szCode)[N] )
 {
@@ -224,6 +230,7 @@ inline void GetSteamNetworkingLocationPOPStringFromID( SteamNetworkingPOPID id, 
 	szCode[3] = ( id >> 24U ); // See comment above about deep regret and sadness
 	szCode[4] = 0;
 }
+#endif
 
 /// A local timestamp.  You can subtract two timestamps to get the number of elapsed
 /// microseconds.  This is guaranteed to increase over time during the lifetime
@@ -236,6 +243,7 @@ typedef int64 SteamNetworkingMicroseconds;
 const int k_cbMaxSteamDatagramMessageSize = 512 * 1024;
 
 /// A message that has been received.
+#ifdef __cplusplus
 class ISteamNetworkingMessage
 {
 public:	
@@ -289,6 +297,7 @@ protected:
 
 	inline ~ISteamNetworkingMessage() {} // Destructor hidden - use Release()!  But make it inline and empty, in case you want to derive your own type that satisfies this interface for use in your code.
 };
+#endif
 
 /// Object that describes a "location" on the Internet with sufficient
 /// detail that we can reasonably estimate an upper bound on the ping between
@@ -314,7 +323,7 @@ const int k_nSteamNetworkingPing_Unknown = -2;
 /// Enumerate various causes of connection termination.  These are designed
 /// to work sort of like HTTP error codes, in that the numeric range gives you
 /// a ballpark as to where the problem is.
-enum ESteamNetConnectionEnd
+typedef enum _ESteamNetConnectionEnd
 {
 	// Invalid/sentinel value
 	k_ESteamNetConnectionEnd_Invalid = 0,
@@ -459,10 +468,14 @@ enum ESteamNetConnectionEnd
 		k_ESteamNetConnectionEnd_Misc_NoRelaySessionsToClient = 5006,
 
 	k_ESteamNetConnectionEnd_Misc_Max = 5999,
-};
+} ESteamNetConnectionEnd;
 
 /// Max length of diagnostic error message
+#ifdef __cplusplus
 const int k_cchMaxSteamDatagramErrMsg = 1024;
+#else
+#define k_cchMaxSteamDatagramErrMsg 1024
+#endif
 
 /// Used to return English-language diagnostic error messages to caller.
 /// (For debugging or spewing to a console, etc.  Not intended for UI.)
@@ -470,9 +483,13 @@ typedef char SteamDatagramErrMsg[ k_cchMaxSteamDatagramErrMsg ];
 
 /// Max length, in bytes (including null terminator) of the reason string
 /// when a connection is closed.
+#ifdef __cplusplus
 const int k_cchSteamNetworkingMaxConnectionCloseReason = 128;
+#else
+#define k_cchSteamNetworkingMaxConnectionCloseReason 128
+#endif
 
-struct SteamNetConnectionInfo_t
+typedef struct _SteamNetConnectionInfo_t
 {
 
 	/// Handle to listen socket this was connected on, or k_HSteamListenSocket_Invalid if we initiated the connection
@@ -514,11 +531,11 @@ struct SteamNetConnectionInfo_t
 	/// diagnostic purposes only, not to display to users.  It might
 	/// have some details specific to the issue.
 	char m_szEndDebug[ k_cchSteamNetworkingMaxConnectionCloseReason ];
-};
+} SteamNetConnectionInfo_t;
 
 /// Quick connection state, pared down to something you could call
 /// more frequently without it being too big of a perf hit.
-struct SteamNetworkingQuickConnectionStatus
+typedef struct _SteamNetworkingQuickConnectionStatus
 {
 
 	/// High level state of the connection
@@ -595,7 +612,7 @@ struct SteamNetworkingQuickConnectionStatus
 	/// but will quickly ramp up to the true bandwidth, and if packets start dropping,
 	/// we will lower the send rate.)
 	SteamNetworkingMicroseconds m_usecQueueTime;
-};
+} SteamNetworkingQuickConnectionStatus;
 
 #pragma pack( pop )
 
@@ -603,7 +620,7 @@ struct SteamNetworkingQuickConnectionStatus
 ///  
 /// Most of these are for controlling extend logging or features 
 /// of various subsystems 
-enum ESteamNetworkingConfigurationValue
+typedef enum _ESteamNetworkingConfigurationValue
 {
 	// 0-100 Randomly discard N pct of unreliable messages instead of sending
 	// Defaults to 0 (no loss).
@@ -738,13 +755,13 @@ enum ESteamNetworkingConfigurationValue
 
 	// Number of k_ESteamNetworkingConfigurationValue defines
 	k_ESteamNetworkingConfigurationValue_Count,
-};
+} ESteamNetworkingConfigurationValue;
 
 /// Configuration strings for Steam networking. 
 ///  
 /// Most of these are for controlling extend logging or features 
 /// of various subsystems 
-enum ESteamNetworkingConfigurationString
+typedef enum _ESteamNetworkingConfigurationString
 {
 	// Code of relay cluster to use.  If not empty, we will only use relays in that cluster.  E.g. 'iad'
 	k_ESteamNetworkingConfigurationString_ClientForceRelayCluster = 0,
@@ -759,10 +776,10 @@ enum ESteamNetworkingConfigurationString
 
 	// Number of k_ESteamNetworkingConfigurationString defines
 	k_ESteamNetworkingConfigurationString_Count = k_ESteamNetworkingConfigurationString_ClientForceProxyAddr + 1,
-};
+} ESteamNetworkingConfigurationString;
 
 /// Configuration values for Steam networking per connection
-enum ESteamNetworkingConnectionConfigurationValue
+typedef enum _ESteamNetworkingConnectionConfigurationValue
 {
 	// Maximum send rate clamp, 0 is no limit
 	// This value will control the maximum allowed sending rate that congestion 
@@ -776,7 +793,7 @@ enum ESteamNetworkingConnectionConfigurationValue
 
 	// Number of k_ESteamNetworkingConfigurationValue defines
 	k_ESteamNetworkingConnectionConfigurationValue_Count,
-};
+} ESteamNetworkingConnectionConfigurationValue;
 
 enum ESteamDatagramPartner
 {

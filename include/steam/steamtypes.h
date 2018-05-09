@@ -105,7 +105,11 @@ typedef unsigned int uintp;
 #define CALL_RESULT(RESULT_TYPE) CLANG_ATTR("callresult:" #RESULT_TYPE ";")
 #define CALL_BACK(RESULT_TYPE) CLANG_ATTR("callback:" #RESULT_TYPE ";")
 
+#ifdef __cplusplus
 const int k_cubSaltSize   = 8;
+#else
+#define k_cubSaltSize 8
+#endif
 typedef	uint8 Salt_t[ k_cubSaltSize ];
 
 //-----------------------------------------------------------------------------
@@ -122,7 +126,7 @@ const GID_t k_GIDNil = 0xffffffffffffffffull;
 typedef uint64 JobID_t;			// Each Job has a unique ID
 typedef GID_t TxnID_t;			// Each financial transaction has a unique ID
 
-const GID_t k_TxnIDNil = k_GIDNil;
+const GID_t k_TxnIDNil = 0xffffffffffffffffull;
 const GID_t k_TxnIDUnknown = 0;
 
 const JobID_t k_JobIDNil = 0xffffffffffffffffull;
