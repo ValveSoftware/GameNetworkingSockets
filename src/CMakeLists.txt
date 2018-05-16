@@ -26,7 +26,6 @@ set(GNS_SRCS
 	"steamnetworkingsockets/clientlib/steamnetworkingsockets_connections.cpp"
 	"steamnetworkingsockets/clientlib/steamnetworkingsockets_lowlevel.cpp"
 	"steamnetworkingsockets/clientlib/steamnetworkingsockets_snp.cpp"
-	"steamnetworkingsockets/clientlib/steamnetworkingsockets_snp_debug.cpp"
 	"steamnetworkingsockets/clientlib/steamnetworkingsockets_udp.cpp"
 	"steamnetworkingsockets/steamnetworkingsockets_certs.cpp"
 	"steamnetworkingsockets/steamnetworkingsockets_shared.cpp"
