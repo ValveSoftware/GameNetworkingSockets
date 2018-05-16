@@ -67,18 +67,6 @@ struct SNPRange_t
 			return false;
 		}
 	};
-
-	/// Compare only using begin.  This is used when ranges don't
-	/// overlap but we might need to search for a range that contains
-	/// a given item.  It's basically the same as NonOverlappingLess
-	/// without asserts.
-//	struct BeginLess
-//	{
-//		inline bool operator ()(const SNPRange_t &l, const SNPRange_t &r ) const
-//		{
-//			return l.m_nBegin < r.m_nBegin;
-//		}
-//	};
 };
 
 /// A packet that has been sent but we don't yet know if was received
@@ -95,9 +83,12 @@ struct SNPInFlightPacket_t
 	/// an ack for this same packet, that's OK!
 	bool m_bNack;
 
-	/// List of reliable segments.
-	/// FIXME Avoid dynamic memory allocation here
-	std::vector<SNPRange_t> m_vecReliableSegments;
+	/// List of reliable segments.  Ignoring retransmission,
+	/// there really is no reason why we we would need to have
+	/// more than 1 in a packet, even if there are multiple
+	/// reliable messages.  If we need to retry, we might
+	/// be fragmented.  But usually it will only be a few.
+	vstd::small_vector<SNPRange_t,1> m_vecReliableSegments;
 };
 
 /// Track an outbound message in various states

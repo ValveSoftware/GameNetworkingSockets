@@ -48,11 +48,8 @@
 #include <tier1/utlvector.h>
 #include <tier1/utlbuffer.h>
 #include "keypair.h"
-
-// Messages
 #include <tier0/memdbgoff.h>
 #include <steamnetworkingsockets_messages_certs.pb.h>
-#include <tier0/memdbgon.h>
 
 // Redefine the macros for byte-swapping, to sure the correct
 // argument size.  We probably should move this into platform.h,
@@ -406,69 +403,86 @@ extern uint64 CalculatePublicKeyID( const CECSigningPublicKey &pubKey );
 // Some misc tools for using std::vector that our CUtlVector class had
 //
 
+template< typename I = int >
 struct IndexRange
 {
 	struct Iter
 	{
-		int i;
+		I i;
 		int operator*() const { return i; }
 		void operator++() { ++i; }
 		inline bool operator==( const Iter &x) const { return i == x.i; }
 		inline bool operator!=( const Iter &x) const { return i != x.i; }
 	};
 
-	int m_nBegin, m_nEnd;
+	I m_nBegin, m_nEnd;
 	Iter begin() const { return Iter{m_nBegin}; }
 	Iter end() const { return Iter{m_nEnd}; }
 };
 
-template <typename T, typename A>
-inline IndexRange iter_indices( const std::vector<T,A> &vec )
+namespace vstd
 {
-	return IndexRange{ 0, (int)vec.size() };
-}
+
+template <typename V>
+struct LikeStdVectorTraits {};
 
 template <typename T, typename A>
-inline void erase_at( std::vector<T,A> &vec, int idx )
+struct LikeStdVectorTraits< std::vector<T,A> > { enum { yes=1 }; typedef T ElemType; };
+
+}
+
+template <typename V, typename I = int>
+inline IndexRange<I> iter_indices( const V &vec )
 {
+	(void)vstd::LikeStdVectorTraits<V>::yes;
+	return IndexRange<I>{ 0, (I)vec.size() };
+}
+
+template <typename V>
+inline void erase_at( V &vec, int idx )
+{
+	(void)vstd::LikeStdVectorTraits<V>::yes;
 	vec.erase( vec.begin()+idx );
 }
 
-template <typename T, typename A>
-inline void pop_from_front( std::vector<T,A> &vec, int n )
+template <typename V>
+inline void pop_from_front( V &vec, int n )
 {
+	(void)vstd::LikeStdVectorTraits<V>::yes;
 	auto b = vec.begin();
 	vec.erase( b, b+n );
 }
 
-template <typename T, typename A>
-inline int push_back_get_idx( std::vector<T,A> &vec )
+template <typename V>
+inline int push_back_get_idx( V &vec )
 {
+	(void)vstd::LikeStdVectorTraits<V>::yes;
 	vec.resize( vec.size()+1 ); return int( vec.size()-1 );
 }
 
-template <typename T, typename A>
-inline int push_back_get_idx( std::vector<T,A> &vec, const T &x )
+template <typename V>
+inline int push_back_get_idx( V &vec, const typename vstd::LikeStdVectorTraits<V>::ElemType &x )
 {
 	vec.push_back( x ); return int( vec.size()-1 );
 }
 
-template <typename T, typename A>
-inline T *push_back_get_ptr( std::vector<T,A> &vec )
+template <typename V>
+inline typename vstd::LikeStdVectorTraits<V>::ElemType *push_back_get_ptr( V &vec )
 {
 	vec.resize( vec.size()+1 ); return &vec[ vec.size()-1 ];
 }
 
-template <typename T, typename A>
-inline T *push_back_get_ptr( std::vector<T,A> &vec, const T &x )
+template <typename V>
+inline typename vstd::LikeStdVectorTraits<V>::ElemType *push_back_get_ptr( V &vec, const typename vstd::LikeStdVectorTraits<V>::ElemType &x )
 {
 	vec.push_back( x ); return &vec[ vec.size()-1 ];
 }
 
 // Return size as an *int*, not size_t, which is totally pedantic useless garbage in 99% of code.
-template <typename T, typename A>
-inline int len( const std::vector<T,A> &vec )
+template <typename V>
+inline int len( const V &vec )
 {
+	(void)vstd::LikeStdVectorTraits<V>::yes;
 	return (int)vec.size();
 }
 
@@ -489,10 +503,260 @@ inline int len( const std::set<T,L,A> &map )
 	return (int)map.size();
 }
 
-template< typename T, typename A >
-inline bool has_element( const std::vector<T,A> &vec, const T&x )
+template< typename V>
+inline bool has_element( const V &vec, const typename vstd::LikeStdVectorTraits<V>::ElemType &x )
 {
 	return std::find( vec.begin(), vec.end(), x ) != vec.end();
 }
+
+namespace vstd
+{
+
+	template <typename T>
+	void copy_construct_elements( T *dest, const T *src, size_t n )
+	{
+		if ( std::is_trivial<T>::value )
+		{
+			memcpy( dest, src, n*sizeof(T) );
+		}
+		else
+		{
+			T *dest_end = dest+n;
+			while ( dest < dest_end )
+				new (dest++) T( *(src++) );
+		}
+	}
+
+	template <typename T>
+	void move_construct_elements( T *dest, T *src, size_t n )
+	{
+		if ( std::is_trivial<T>::value )
+		{
+			memcpy( dest, src, n*sizeof(T) );
+		}
+		else
+		{
+			T *dest_end = dest+n;
+			while ( dest < dest_end )
+				new (dest++) T( std::move( *(src++) ) );
+		}
+	}
+
+	// Almost the exact same interface as std::vector, only it has a small initial capacity of
+	// size N in a statically-allocated block of memory.
+	//
+	// The only difference between this and std::vector (aside from any missing functions that just
+	// need to be written) is the guarantee about not constructing elements on swapping.
+	template< typename T, int N >
+	class small_vector
+	{
+	public:
+		small_vector() {}
+		small_vector( const small_vector<T,N> &x );
+		small_vector<T,N> &operator=( const small_vector<T,N> &x );
+		small_vector( small_vector<T,N> &&x );
+		small_vector<T,N> &operator=( small_vector<T,N> &&x );
+		~small_vector() { clear(); }
+
+		size_t size() const { return size_; }
+		size_t capacity() const { return capacity_; }
+		bool empty() const { return size_ == 0; }
+
+		T *begin() { return dynamic_ ? dynamic_ : (T*)fixed_; };
+		const T *begin() const { return dynamic_ ? dynamic_ : (T*)fixed_; };
+
+		T *end() { return begin() + size_; }
+		const T *end() const { return begin() + size_; }
+
+		T &operator[]( size_t index ) { assert(index < size_); return begin()[index]; }
+		const T &operator[]( size_t index ) const { assert(index < size_); return begin()[index]; }
+
+		void push_back( const T &value );
+		void pop_back();
+		void erase( T *it );
+
+		void resize( size_t n );
+		void reserve( size_t n );
+		void clear();
+
+	private:
+		size_t size_ = 0, capacity_ = N;
+		T *dynamic_ = nullptr;
+		char fixed_[N][sizeof(T)];
+	};
+
+	template<typename T, int N>
+	small_vector<T,N>::small_vector( const small_vector<T,N> &x )
+	{
+		reserve( x.size_ );
+		size_ = x.size_;
+		vstd::copy_construct_elements<T>( begin(), x.begin(), x.size_ );
+	}
+
+	template<typename T, int N>
+	small_vector<T,N>::small_vector( small_vector<T,N> &&x )
+	{
+		size_ = x.size_;
+		if ( x.dynamic_ )
+		{
+			capacity_ = x.capacity_;
+			dynamic_ = x.dynamic_;
+			x.dynamic_ = nullptr;
+			x.size_ = 0;
+			x.capacity_ = N;
+		}
+		else
+		{
+			vstd::move_construct_elements<T>( (T*)fixed_, (T*)x.fixed_, size_ );
+		}
+	}
+
+	template<typename T, int N>
+	small_vector<T,N> &small_vector<T,N>::operator=( const small_vector<T,N> &x )
+	{
+		clear();
+		reserve( x.size_ );
+		size_ = x.size_;
+		vstd::copy_construct_elements( begin(), x.begin(), size_ );
+	}
+
+	template<typename T, int N>
+	small_vector<T,N> &small_vector<T,N>::operator=( small_vector<T,N> &&x )
+	{
+		clear();
+		size_ = x.size_;
+		if ( x.dynamic_ )
+		{
+			capacity_ = x.capacity_;
+			dynamic_ = x.dynamic_;
+			x.dynamic_ = nullptr;
+			x.size_ = 0;
+			x.capacity_ = N;
+		}
+		else
+		{
+			vstd::move_construct_elements<T>( (T*)fixed_, (T*)x.fixed_, size_ );
+		}
+	}
+
+	template< typename T, int N >
+	void small_vector<T,N>::push_back( const T &value )
+	{
+		if ( size_ >= capacity_ )
+			reserve( size_*2  +  (63+sizeof(T))/sizeof(T) );
+		new ( begin() + size_ ) T ( value );
+		++size_;
+	}
+
+	template< typename T, int N >
+	void small_vector<T,N>::pop_back()
+	{
+		assert( size_ > 0 );
+		--size_;
+		( begin() + size_ )->~T();
+	}
+
+	template< typename T, int N >
+	void small_vector<T,N>::erase( T *it )
+	{
+		T *b = begin();
+		T *e = end();
+		assert( b <= it );
+		assert( it < e );
+
+		if ( std::is_trivial<T>::value )
+		{
+			memmove( it, it+1, (char*)e - (char*)(it+1) );
+		}
+		else
+		{
+			--e;
+			while ( it < e )
+			{
+				it[0] = std::move( it[1] );
+				++it;
+			}
+			e->~T();
+		}
+		--size_;
+	}
+
+	template< typename T, int N >
+	void small_vector<T,N>::reserve( size_t n )
+	{
+		if ( n <= capacity_ )
+			return;
+		if ( std::is_trivial<T>::value && dynamic_ )
+		{
+			dynamic_ = (T*)realloc( dynamic_, n * sizeof(T) );
+		}
+		else
+		{
+			T *new_dynamic = (T *)malloc( n * sizeof(T) );
+			T *e = end();
+			for ( T *s = begin(), *d = new_dynamic ; s < e ; ++s, ++d )
+			{
+				new ( d ) T ( std::move( *s ) );
+				s->~T();
+			}
+			if ( dynamic_ )
+				::free( dynamic_ );
+			dynamic_ = new_dynamic;
+		}
+		capacity_ = n;
+	}
+
+	template< typename T, int N >
+	void small_vector<T,N>::resize( size_t n )
+	{
+		if ( n > size_ )
+		{
+			reserve( n );
+			T *b = begin();
+			while ( size_ < n )
+			{
+				new ( b ) T;
+				++b;
+				++size_;
+			}
+		}
+		else
+		{
+			T *e = end();
+			while ( size_ > n )
+			{
+				--size_;
+				--e;
+				e->~T();
+			}
+		}
+	}
+
+	template< typename T, int N >
+	void small_vector<T,N>::clear()
+	{
+		T *b = begin();
+		T *e = b + size_;
+		while ( e > b )
+		{
+			--e;
+			e->~T();
+		}
+		if ( dynamic_ )
+		{
+			::free( dynamic_ );
+			dynamic_ = nullptr;
+		}
+		size_ = 0;
+		capacity_ = N;
+	}
+
+	template <typename T,int N>
+	struct LikeStdVectorTraits< small_vector<T,N> > { enum { yes = 1 }; typedef T ElemType; };
+
+} // namespace vstd
+
+
+#include <tier0/memdbgon.h>
 
 #endif // STEAMNETWORKINGSOCKETS_INTERNAL_H

@@ -1263,6 +1263,7 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 
 	// Should we try to send as many acks as possible?
 	int cbReserveForAcks = 0;
+	int cbFlushedAcks = 0;
 	if ( m_receiverState.m_usecWhenFlushAck <= usecNow )
 	{
 		uint8 *pAfterAck = SNP_SerializeAckBlocks( ackHelper, pPayloadPtr, pPayloadEnd, usecNow );
@@ -1272,10 +1273,11 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 		// Did anything fit?
 		if ( pAfterAck > pPayloadPtr )
 		{
+			cbFlushedAcks = pAfterAck - pPayloadPtr;
 			pPayloadPtr = pAfterAck;
 			if ( m_receiverState.m_usecWhenFlushAck == INT64_MAX )
 			{
-				SpewVerbose( "%s flushed acks\n", m_sName.c_str() );
+				SpewVerbose( "%s flushed %d acks (%d bytes)\n", m_sName.c_str(), ackHelper.m_nBlocks, cbFlushedAcks );
 			}
 			else
 			{
@@ -1335,7 +1337,7 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 
 	int64 nLastReliableStreamPosEnd = 0;
 	int cbBytesRemainingForSegments = pPayloadEnd - pPayloadPtr - cbReserveForAcks;
-	std::vector<EncodedSegment> m_vecSegments; // FIXME Avoid dynamic memory here
+	vstd::small_vector<EncodedSegment,8> vecSegments;
 
 	// If we need to *retry* any reliable data, then try to put that in first.
 	// Bail if we only have a tiny sliver of data left
@@ -1344,13 +1346,13 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 		auto h = m_senderState.m_listReadyRetryReliableRange.begin();
 
 		// Start a reliable segment
-		EncodedSegment &seg = *push_back_get_ptr( m_vecSegments );
+		EncodedSegment &seg = *push_back_get_ptr( vecSegments );
 		seg.SetupReliable( h->second, h->first.m_nBegin, h->first.m_nEnd, nLastReliableStreamPosEnd );
 		int cbSegTotalWithoutSizeField = seg.m_cbHdr + seg.m_cbSize;
 		if ( cbSegTotalWithoutSizeField > cbBytesRemainingForSegments )
 		{
 			// This one won't fit.
-			m_vecSegments.pop_back();
+			vecSegments.pop_back();
 
 			// FIXME If there's a decent amount of space left in this packet, it might
 			// be worthwhile to send what we can.  Right now, once we send a reliable range,
@@ -1362,9 +1364,15 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 
 			// This should only happen if we have already fit some data in, or
 			// the caller asked us to see what we could squeeze into a smaller
-			// packet.  If this is an opportunity to fill a normal packet and we fail
-			// on the first segment, we will never make progress and we are hosed!
-			Assert( nLastReliableStreamPosEnd > 0 || cbMaxPlaintextPayload < k_cbSteamNetworkingSocketsMaxPlaintextPayloadSend );
+			// packet, or we need to serialized a bunch of acks.  If this is an
+			// opportunity to fill a normal packet and we fail on the first segment,
+			// we will never make progress and we are hosed!
+			AssertMsg2(
+				nLastReliableStreamPosEnd > 0
+				|| cbMaxPlaintextPayload < k_cbSteamNetworkingSocketsMaxPlaintextPayloadSend
+				|| cbFlushedAcks > 20,
+				"We cannot fit reliable segment, need %d bytes, only %d remaining", cbSegTotalWithoutSizeField, cbBytesRemainingForSegments
+			);
 
 			// Don't try to put more stuff in the packet, even if we have room.  We're
 			// already having to retry, so this data is already delayed.  If we skip ahead
@@ -1405,7 +1413,7 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 			Assert( m_senderState.m_cbCurrentSendMessageSent < pSendMsg->m_cbSize );
 
 			// Start a new segment
-			EncodedSegment &seg = *push_back_get_ptr( m_vecSegments );
+			EncodedSegment &seg = *push_back_get_ptr( vecSegments );
 
 			// Reliable?
 			bool bLastSegment = false;
@@ -1453,7 +1461,7 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 				if ( seg.m_cbHdr + cbMinSegDataSizeToSend > cbBytesRemainingForSegments )
 				{
 					// Don't send this segment now.
-					m_vecSegments.pop_back();
+					vecSegments.pop_back();
 					break;
 				}
 
@@ -1548,13 +1556,13 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 
 	// We might have gone over exactly one byte, because we counted the size byte of the last
 	// segment, which doesn't actually need to be sent
-	Assert( cbBytesRemainingForSegments >= 0 || ( cbBytesRemainingForSegments == -1 && m_vecSegments.size() > 0 ) );
+	Assert( cbBytesRemainingForSegments >= 0 || ( cbBytesRemainingForSegments == -1 && vecSegments.size() > 0 ) );
 
 	// OK, now go through and actually serialize the segments
-	int nSegments = len( m_vecSegments );
+	int nSegments = len( vecSegments );
 	for ( int idx = 0 ; idx < nSegments ; ++idx )
 	{
-		EncodedSegment &seg = m_vecSegments[ idx ];
+		EncodedSegment &seg = vecSegments[ idx ];
 
 		// Check if this message is still sitting in the queue.  (If so, it has to be the first one!)
 		bool bStillInQueue = ( seg.m_pMsg == m_senderState.m_messagesQueued.m_pFirst );
@@ -1856,7 +1864,7 @@ uint8 *CSteamNetworkConnectionBase::SNP_SerializeAckBlocks( const SNPAckSerializ
 	*pTimeSinceLatestPktNum = LittleWord( pBlock->m_nEncodedTimeSinceLatestPktNum );
 
 	// Full packet number, for spew
-	int64 nAckEnd = ( m_statsEndToEnd.m_nLastRecvSequenceNumber & (int64)(~(uint32)0) ) | pBlock->m_nLatestPktNum;
+	int64 nAckEnd = ( m_statsEndToEnd.m_nLastRecvSequenceNumber & ~(int64)(~(uint32)0) ) | pBlock->m_nLatestPktNum;
 	++nAckEnd;
 
 	SpewDebug( "  %s encode pkt %lld last recv %lld (%d blocks, actual last recv=%lld)\n",
@@ -2214,13 +2222,13 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 					// Stop processing the packet, and don't ack it
 					// This indicates the connection is in pretty bad shape,
 					// so spew about it.  But rate limit in case of malicious sender
-					SpewWarningRateLimited( usecNow, "%s decode pkt %lld abort.  %lld bytes reliable data buffered [%lld-%lld), new size would be %lld to %lld\n",
+					SpewWarningRateLimited( usecNow, "%s decode pkt %lld abort.  Reliable stream already has %d fragments, first is [%lld,%lld), last is [%lld,%lld), new segment is [%lld,%lld)\n",
 						m_sName.c_str(),
 						(long long)nPktNum,
-						(long long)m_receiverState.m_bufReliableStream.size(),
-						(long long)m_receiverState.m_nReliableStreamPos,
-						(long long)( m_receiverState.m_nReliableStreamPos + m_receiverState.m_bufReliableStream.size() ),
-						(long long)cbNewSize, (long long)nSegEnd
+						len( m_receiverState.m_mapReliableStreamGaps ),
+						(long long)m_receiverState.m_mapReliableStreamGaps.begin()->first, (long long)m_receiverState.m_mapReliableStreamGaps.begin()->second,
+						(long long)m_receiverState.m_mapReliableStreamGaps.rbegin()->first, (long long)m_receiverState.m_mapReliableStreamGaps.rbegin()->second,
+						(long long)nSegBegin, (long long)nSegEnd
 					);
 					return false; 
 				}
@@ -2298,7 +2306,15 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 							if ( len( m_receiverState.m_mapReliableStreamGaps ) >= k_nMaxReliableStreamGaps_Fragment )
 							{
 								// Stop processing the packet, and don't ack it
-								// FIXME - we should probably spew here (but in a rate-limited way) since this is serious and might be an indication of a bug
+								SpewWarningRateLimited( usecNow, "%s decode pkt %lld abort.  Reliable stream already has %d fragments, first is [%lld,%lld), last is [%lld,%lld).  We don't want to fragment [%lld,%lld) with new segment [%lld,%lld)\n",
+									m_sName.c_str(),
+									(long long)nPktNum,
+									len( m_receiverState.m_mapReliableStreamGaps ),
+									(long long)m_receiverState.m_mapReliableStreamGaps.begin()->first, (long long)m_receiverState.m_mapReliableStreamGaps.begin()->second,
+									(long long)m_receiverState.m_mapReliableStreamGaps.rbegin()->first, (long long)m_receiverState.m_mapReliableStreamGaps.rbegin()->second,
+									(long long)gapFilled->first, (long long)gapFilled->second,
+									(long long)nSegBegin, (long long)nSegEnd
+								);
 								return false; 
 							}
 
