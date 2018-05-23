@@ -387,8 +387,8 @@ static void TestNetworkConditions( int rate, int loss, int lag, int reorderPct, 
 	Printf( "Act like game. . : %d\n", (int)bActLikeGame );
 	Printf( "---------------------------------------------------\n" );
 
-	pSteamSocketNetworking->SetConfigurationValue( k_ESteamNetworkingConfigurationValue_SNP_MinRate, rate );
-	pSteamSocketNetworking->SetConfigurationValue( k_ESteamNetworkingConfigurationValue_SNP_MaxRate, rate );
+	pSteamSocketNetworking->SetConfigurationValue( k_ESteamNetworkingConfigurationValue_MinRate, rate );
+	pSteamSocketNetworking->SetConfigurationValue( k_ESteamNetworkingConfigurationValue_MaxRate, rate );
 
 	pSteamSocketNetworking->SetConfigurationValue( k_ESteamNetworkingConfigurationValue_FakePacketLoss_Send, loss );
 	pSteamSocketNetworking->SetConfigurationValue( k_ESteamNetworkingConfigurationValue_FakePacketLoss_Recv, 0 );
@@ -496,15 +496,6 @@ static void TestNetworkConditions( int rate, int loss, int lag, int reorderPct, 
 static void RunSteamDatagramConnectionTest()
 {
 	ISteamNetworkingSockets *pSteamSocketNetworking = SteamNetworkingSockets();
-
-	pSteamSocketNetworking->SetConfigurationValue( k_ESteamNetworkingConfigurationValue_SNP_Log_RTT, 0 );
-	pSteamSocketNetworking->SetConfigurationValue( k_ESteamNetworkingConfigurationValue_SNP_Log_Packet, 0 );
-	pSteamSocketNetworking->SetConfigurationValue( k_ESteamNetworkingConfigurationValue_SNP_Log_Segments, 0 );
-	pSteamSocketNetworking->SetConfigurationValue( k_ESteamNetworkingConfigurationValue_SNP_Log_Feedback, 0 );
-	pSteamSocketNetworking->SetConfigurationValue( k_ESteamNetworkingConfigurationValue_SNP_Log_Reliable, 0 );
-	pSteamSocketNetworking->SetConfigurationValue( k_ESteamNetworkingConfigurationValue_SNP_Log_Message, 0 );
-	pSteamSocketNetworking->SetConfigurationValue( k_ESteamNetworkingConfigurationValue_SNP_Log_Loss, 1 );
-	pSteamSocketNetworking->SetConfigurationValue( k_ESteamNetworkingConfigurationValue_SNP_Log_X, 0 );
 
 
 	// Command line options:

@@ -88,35 +88,42 @@ const TrustedKey s_arTrustedKeys[1] = {
 //
 /////////////////////////////////////////////////////////////////////////////
 
-inline CSteamNetworkingMessage::~CSteamNetworkingMessage() {}
-
-CSteamNetworkingMessage::CSteamNetworkingMessage( CSteamNetworkConnectionBase *pParent, uint32 cbSize, int64 nMsgNum, SteamNetworkingMicroseconds usecNow )
+CSteamNetworkingMessage *CSteamNetworkingMessage::New( CSteamNetworkConnectionBase *pParent, uint32 cbSize, int64 nMsgNum, SteamNetworkingMicroseconds usecNow )
 {
-	m_steamIDSender = pParent->m_steamIDRemote;
-	m_pData = malloc( cbSize );
-	m_cbSize = cbSize;
-	m_nChannel = -1;
-	m_conn = pParent->m_hConnectionSelf;
-	m_nConnUserData = pParent->GetUserData();
-	m_usecTimeReceived = usecNow;
-	m_nMessageNumber = nMsgNum;
+	// FIXME Should avoid this dynamic memory call with some sort of pooling
+	CSteamNetworkingMessage *pMsg = new CSteamNetworkingMessage;
+
+	pMsg->m_steamIDSender = pParent->m_steamIDRemote;
+	pMsg->m_pData = malloc( cbSize );
+	pMsg->m_cbSize = cbSize;
+	pMsg->m_nChannel = -1;
+	pMsg->m_conn = pParent->m_hConnectionSelf;
+	pMsg->m_nConnUserData = pParent->GetUserData();
+	pMsg->m_usecTimeReceived = usecNow;
+	pMsg->m_nMessageNumber = nMsgNum;
+	pMsg->m_pfnRelease = CSteamNetworkingMessage::Delete;
+
+	return pMsg;
 }
 
-void CSteamNetworkingMessage::Release()
+void CSteamNetworkingMessage::Delete( SteamNetworkingMessage_t *pIMsg )
 {
-	free( m_pData );
+	CSteamNetworkingMessage *pMsg = static_cast<CSteamNetworkingMessage *>( pIMsg );
+
+	free( pMsg->m_pData );
 
 	// We must not currently be in any queue.  In fact, our parent
 	// might have been destroyed.
-	Assert( !m_linksSameConnection.m_pQueue );
-	Assert( !m_linksSameConnection.m_pPrev );
-	Assert( !m_linksSameConnection.m_pNext );
-	Assert( !m_linksSecondaryQueue.m_pQueue );
-	Assert( !m_linksSecondaryQueue.m_pPrev );
-	Assert( !m_linksSecondaryQueue.m_pNext );
+	Assert( !pMsg->m_linksSameConnection.m_pQueue );
+	Assert( !pMsg->m_linksSameConnection.m_pPrev );
+	Assert( !pMsg->m_linksSameConnection.m_pNext );
+	Assert( !pMsg->m_linksSecondaryQueue.m_pQueue );
+	Assert( !pMsg->m_linksSecondaryQueue.m_pPrev );
+	Assert( !pMsg->m_linksSecondaryQueue.m_pNext );
 
 	// Self destruct
-	delete this;
+	// FIXME Should avoid this dynamic memory call with some sort of pooling
+	delete pMsg;
 }
 
 void CSteamNetworkingMessage::LinkToQueueTail( Links CSteamNetworkingMessage::*pMbrLinks, SteamNetworkingMessageQueue *pQueue )
@@ -204,7 +211,7 @@ void SteamNetworkingMessageQueue::PurgeMessages()
 	}
 }
 
-int SteamNetworkingMessageQueue::RemoveMessages( ISteamNetworkingMessage **ppOutMessages, int nMaxMessages )
+int SteamNetworkingMessageQueue::RemoveMessages( SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages )
 {
 	int nMessagesReturned = 0;
 
@@ -266,7 +273,7 @@ void CSteamNetworkListenSocketBase::Destroy()
 	delete this;
 }
 
-int CSteamNetworkListenSocketBase::APIReceiveMessages( ISteamNetworkingMessage **ppOutMessages, int nMaxMessages )
+int CSteamNetworkListenSocketBase::APIReceiveMessages( SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages )
 {
 	return m_queueRecvMessages.RemoveMessages( ppOutMessages, nMaxMessages );
 }
@@ -1237,7 +1244,7 @@ EResult CSteamNetworkConnectionBase::APIFlushMessageOnConnection()
 	return SNP_FlushMessage( usecNow );
 }
 
-int CSteamNetworkConnectionBase::APIReceiveMessages( ISteamNetworkingMessage **ppOutMessages, int nMaxMessages )
+int CSteamNetworkConnectionBase::APIReceiveMessages( SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages )
 {
 	return m_queueRecvMessages.RemoveMessages( ppOutMessages, nMaxMessages );
 }
@@ -1417,8 +1424,13 @@ void CSteamNetworkConnectionBase::ReceivedMessage( const void *pData, int cbData
 //		Assert( sizeof(*pTestMsg) - sizeof(pTestMsg->m_data) + pTestMsg->m_cbSize == cbData );
 //	#endif
 
+	SpewType( steamdatagram_snp_log_message, "%s: RecvMessage MsgNum=%lld sz=%d\n",
+		m_sName.c_str(),
+		(long long)nMsgNum,
+		cbData );
+
 	// Create a message
-	CSteamNetworkingMessage *pMsg = new CSteamNetworkingMessage( this, cbData, nMsgNum, usecNow );
+	CSteamNetworkingMessage *pMsg = CSteamNetworkingMessage::New( this, cbData, nMsgNum, usecNow );
 
 	// Add to end of my queue.
 	pMsg->LinkToQueueTail( &CSteamNetworkingMessage::m_linksSameConnection, &m_queueRecvMessages );

@@ -48,19 +48,16 @@ static SConfigurationValueEntry sConfigurationValueEntryList[] =
 	{ k_ESteamNetworkingConfigurationValue_FakePacketReorder_Recv,                     "FakePacketReorder_Recv",                     &steamdatagram_fakepacketreorder_recv },
 	{ k_ESteamNetworkingConfigurationValue_FakePacketReorder_Time,                     "FakePacketReorder_Time",                     &steamdatagram_fakepacketreorder_time },
 
-	{ k_ESteamNetworkingConfigurationValue_SNP_SendBufferSize,                         "SNP_SendBufferSize",                         &steamdatagram_snp_send_buffer_size },
-	{ k_ESteamNetworkingConfigurationValue_SNP_MaxRate,                                "SNP_MaxRate",                                &steamdatagram_snp_max_rate },
-	{ k_ESteamNetworkingConfigurationValue_SNP_MinRate,                                "SNP_MinRate",                                &steamdatagram_snp_min_rate },
-	{ k_ESteamNetworkingConfigurationValue_SNP_Nagle_Time,                             "SNP_Nagle_Time",                             &steamdatagram_snp_nagle_time },
-	{ k_ESteamNetworkingConfigurationValue_SNP_Log_RTT,                                "SNP_Log_RTT",                                &steamdatagram_snp_log_rtt },
-	{ k_ESteamNetworkingConfigurationValue_SNP_Log_Packet,                             "SNP_Log_Packet",                             &steamdatagram_snp_log_packet },
-	{ k_ESteamNetworkingConfigurationValue_SNP_Log_Segments,                           "SNP_Log_Segments",                           &steamdatagram_snp_log_segments },
-	{ k_ESteamNetworkingConfigurationValue_SNP_Log_Feedback,                           "SNP_Log_Feedback",                           &steamdatagram_snp_log_feedback },
-	{ k_ESteamNetworkingConfigurationValue_SNP_Log_Reliable,                           "SNP_Log_Reliable",                           &steamdatagram_snp_log_reliable },
-	{ k_ESteamNetworkingConfigurationValue_SNP_Log_Message,                            "SNP_Log_Message",                            &steamdatagram_snp_log_message },
-	{ k_ESteamNetworkingConfigurationValue_SNP_Log_Loss,                               "SNP_Log_Loss",                               &steamdatagram_snp_log_loss },
-	{ k_ESteamNetworkingConfigurationValue_SNP_Log_X,                                  "SNP_Log_X",                                  &steamdatagram_snp_log_x },
-	{ k_ESteamNetworkingConfigurationValue_SNP_Log_Nagle,                              "SNP_Log_Nagle",                              &steamdatagram_snp_log_nagle },
+	{ k_ESteamNetworkingConfigurationValue_SendBufferSize,                             "SendBufferSize",                             &steamdatagram_snp_send_buffer_size },
+	{ k_ESteamNetworkingConfigurationValue_MaxRate,                                    "MaxRate",                                    &steamdatagram_snp_max_rate },
+	{ k_ESteamNetworkingConfigurationValue_MinRate,                                    "MinRate",                                    &steamdatagram_snp_min_rate },
+	{ k_ESteamNetworkingConfigurationValue_Nagle_Time,                                 "Nagle_Time",                                 &steamdatagram_snp_nagle_time },
+	{ k_ESteamNetworkingConfigurationValue_LogLevel_AckRTT,                            "Log_AckRTT",                                 &steamdatagram_snp_log_ackrtt },
+	{ k_ESteamNetworkingConfigurationValue_LogLevel_Packet,                            "Log_Packet",                                 &steamdatagram_snp_log_packet },
+	{ k_ESteamNetworkingConfigurationValue_LogLevel_Message,                           "Log_Message",                                &steamdatagram_snp_log_message },
+	{ k_ESteamNetworkingConfigurationValue_LogLevel_PacketGaps,                        "Log_PacketGaps",                             &steamdatagram_snp_log_packetgaps },
+	{ k_ESteamNetworkingConfigurationValue_LogLevel_P2PRendezvous,                     "Log_p2prendezvous",                          &steamdatagram_snp_log_p2prendezvous },
+	{ k_ESteamNetworkingConfigurationValue_LogLevel_RelayPings,                        "Log_RelayPings",                             &steamdatagram_snp_log_relaypings },
 	{ k_ESteamNetworkingConfigurationValue_ClientConsecutitivePingTimeoutsFailInitial, "ClientConsecutitivePingTimeoutsFailInitial", &steamdatagram_client_consecutitive_ping_timeouts_fail_initial },
 	{ k_ESteamNetworkingConfigurationValue_ClientConsecutitivePingTimeoutsFail,        "ClientConsecutitivePingTimeoutsFail",        &steamdatagram_client_consecutitive_ping_timeouts_fail },
 	{ k_ESteamNetworkingConfigurationValue_ClientMinPingsBeforePingAccurate,           "ClientMinPingsBeforePingAccurate",           &steamdatagram_client_min_pings_before_ping_accurate },
@@ -69,8 +66,7 @@ static SConfigurationValueEntry sConfigurationValueEntryList[] =
 	{ k_ESteamNetworkingConfigurationValue_Timeout_Seconds_Initial,                    "TimeoutSecondsInitial",                      &steamdatagram_timeout_seconds_initial },
 	{ k_ESteamNetworkingConfigurationValue_Timeout_Seconds_Connected,                  "TimeoutSecondsConnected",                    &steamdatagram_timeout_seconds_connected },
 };
-const int k_nDeprecated = 2;
-COMPILE_TIME_ASSERT( sizeof( sConfigurationValueEntryList ) / sizeof( SConfigurationValueEntry ) == k_ESteamNetworkingConfigurationValue_Count - k_nDeprecated );
+COMPILE_TIME_ASSERT( sizeof( sConfigurationValueEntryList ) / sizeof( SConfigurationValueEntry ) == k_ESteamNetworkingConfigurationValue_Count );
 
 struct SConfigurationStringEntry
 {
@@ -679,7 +675,7 @@ EResult CSteamNetworkingSockets::FlushMessagesOnConnection( HSteamNetConnection 
 	return pConn->APIFlushMessageOnConnection();
 }
 	
-int CSteamNetworkingSockets::ReceiveMessagesOnConnection( HSteamNetConnection hConn, ISteamNetworkingMessage **ppOutMessages, int nMaxMessages )
+int CSteamNetworkingSockets::ReceiveMessagesOnConnection( HSteamNetConnection hConn, SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages )
 {
 	SteamDatagramTransportLock scopeLock;
 	CSteamNetworkConnectionBase *pConn = GetConnectionByHandle( hConn );
@@ -688,7 +684,7 @@ int CSteamNetworkingSockets::ReceiveMessagesOnConnection( HSteamNetConnection hC
 	return pConn->APIReceiveMessages( ppOutMessages, nMaxMessages );
 }
 
-int CSteamNetworkingSockets::ReceiveMessagesOnListenSocket( HSteamListenSocket hSocket, ISteamNetworkingMessage **ppOutMessages, int nMaxMessages )
+int CSteamNetworkingSockets::ReceiveMessagesOnListenSocket( HSteamListenSocket hSocket, SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages )
 {
 	SteamDatagramTransportLock scopeLock;
 	CSteamNetworkListenSocketBase *pSock = GetListenSockedByHandle( hSocket );

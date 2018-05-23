@@ -300,7 +300,7 @@ inline bool BRateLimitSpew( SteamNetworkingMicroseconds usecNow )
 
 extern ESteamNetworkingSocketsDebugOutputType g_eSteamDatagramDebugOutputDetailLevel;
 extern void ReallySpewType( ESteamNetworkingSocketsDebugOutputType eType, PRINTF_FORMAT_STRING const char *pMsg, ... ) FMTFUNCTION( 2, 3 );
-#define SpewType( eType, ... ) ( ( eType <= g_eSteamDatagramDebugOutputDetailLevel ) ? ReallySpewType( eType, __VA_ARGS__ ) : (void)0 )
+#define SpewType( eType, ... ) ( ( (eType) <= g_eSteamDatagramDebugOutputDetailLevel ) ? ReallySpewType( ESteamNetworkingSocketsDebugOutputType(eType), __VA_ARGS__ ) : (void)0 )
 #define SpewMsg( ... ) SpewType( k_ESteamNetworkingSocketsDebugOutputType_Msg, __VA_ARGS__ )
 #define SpewVerbose( ... ) SpewType( k_ESteamNetworkingSocketsDebugOutputType_Verbose, __VA_ARGS__ )
 #define SpewDebug( ... ) SpewType( k_ESteamNetworkingSocketsDebugOutputType_Debug, __VA_ARGS__ )
@@ -309,7 +309,7 @@ extern void ReallySpewType( ESteamNetworkingSocketsDebugOutputType eType, PRINTF
 #define SpewError( ... ) SpewType( k_ESteamNetworkingSocketsDebugOutputType_Error, __VA_ARGS__ )
 #define SpewBug( ... ) SpewType( k_ESteamNetworkingSocketsDebugOutputType_Bug, __VA_ARGS__ )
 
-#define SpewTypeRateLimited( usecNow, eType, ... ) ( ( eType <= g_eSteamDatagramDebugOutputDetailLevel && BRateLimitSpew( usecNow ) ) ? ReallySpewType( eType, __VA_ARGS__ ) : (void)0 )
+#define SpewTypeRateLimited( usecNow, eType, ... ) ( ( (eType) <= g_eSteamDatagramDebugOutputDetailLevel && BRateLimitSpew( usecNow ) ) ? ReallySpewType( (eType), __VA_ARGS__ ) : (void)0 )
 #define SpewMsgRateLimited( usecNow, ... ) SpewTypeRateLimited( usecNow, k_ESteamNetworkingSocketsDebugOutputType_Msg, __VA_ARGS__ )
 #define SpewWarningRateLimited( usecNow, ... ) SpewTypeRateLimited( usecNow, k_ESteamNetworkingSocketsDebugOutputType_Warning, __VA_ARGS__ )
 #define SpewErrorRateLimited( usecNow, ... ) SpewTypeRateLimited( usecNow, k_ESteamNetworkingSocketsDebugOutputType_Error, __VA_ARGS__ )

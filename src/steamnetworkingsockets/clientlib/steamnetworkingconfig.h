@@ -65,15 +65,13 @@ SDT_EXTERNAL int32 steamdatagram_fakepacketreorder_time SDT_DEFAULT( 15 ); // Ho
 SDT_EXTERNAL int32 steamdatagram_snp_send_buffer_size SDT_DEFAULT( 524288 ); // Upper limit of buffered pending bytes to be sent
 SDT_EXTERNAL int32 steamdatagram_snp_max_rate SDT_DEFAULT( 1000000 ); // Maximum send rate clamp, 0 is no limit
 SDT_EXTERNAL int32 steamdatagram_snp_min_rate SDT_DEFAULT( 128000 ); // Mininum send rate clamp, 0 is no limit
-SDT_EXTERNAL int32 steamdatagram_snp_log_rtt SDT_DEFAULT( 0 ); // Enable logging of SNP RTT
-SDT_EXTERNAL int32 steamdatagram_snp_log_packet SDT_DEFAULT( 0 ); // Enable logging of SNP Packet
-SDT_EXTERNAL int32 steamdatagram_snp_log_segments SDT_DEFAULT( 0 ); // Enable logging of SNP Segments
-SDT_EXTERNAL int32 steamdatagram_snp_log_feedback SDT_DEFAULT( 0 ); // Enable logging of SNP Feedback
-SDT_EXTERNAL int32 steamdatagram_snp_log_reliable SDT_DEFAULT( 0 ); // Enable logging of SNP Relible
-SDT_EXTERNAL int32 steamdatagram_snp_log_message SDT_DEFAULT( 0 ); // Enable logging of SNP Messages
-SDT_EXTERNAL int32 steamdatagram_snp_log_loss SDT_DEFAULT( 0 ); // Enable logging of SNP loss calc
-SDT_EXTERNAL int32 steamdatagram_snp_log_x SDT_DEFAULT( 0 ); // Enable logging of SNP X (throughput) calc
-SDT_EXTERNAL int32 steamdatagram_snp_log_nagle SDT_DEFAULT( 0 ); // Enable logging of Nagle timer
+
+SDT_EXTERNAL int32 steamdatagram_snp_log_ackrtt SDT_DEFAULT( k_ESteamNetworkingSocketsDebugOutputType_Everything );
+SDT_EXTERNAL int32 steamdatagram_snp_log_packet SDT_DEFAULT( k_ESteamNetworkingSocketsDebugOutputType_Everything );
+SDT_EXTERNAL int32 steamdatagram_snp_log_message SDT_DEFAULT( k_ESteamNetworkingSocketsDebugOutputType_Everything );
+SDT_EXTERNAL int32 steamdatagram_snp_log_packetgaps SDT_DEFAULT( k_ESteamNetworkingSocketsDebugOutputType_Debug );
+SDT_EXTERNAL int32 steamdatagram_snp_log_p2prendezvous SDT_DEFAULT( k_ESteamNetworkingSocketsDebugOutputType_Verbose );
+SDT_EXTERNAL int32 steamdatagram_snp_log_relaypings SDT_DEFAULT( k_ESteamNetworkingSocketsDebugOutputType_Debug );
 
 SDT_EXTERNAL int32 steamdatagram_snp_nagle_time SDT_DEFAULT( 5000 ); // Default Nagle delay
 

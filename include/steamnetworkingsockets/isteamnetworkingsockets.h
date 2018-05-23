@@ -221,17 +221,17 @@ public:
 	/// If any messages are returned, you MUST call Release() to each of them free up resources
 	/// after you are done.  It is safe to keep the object alive for a little while (put it
 	/// into some queue, etc), and you may call Release() from any thread.
-	virtual int ReceiveMessagesOnConnection( HSteamNetConnection hConn, ISteamNetworkingMessage **ppOutMessages, int nMaxMessages ) = 0; 
+	virtual int ReceiveMessagesOnConnection( HSteamNetConnection hConn, SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages ) = 0; 
 
 	/// Same as ReceiveMessagesOnConnection, but will return the next message available
-	/// on any client socket that was accepted through the specified listen socket.  Use
-	/// ISteamNetworkingMessage::GetConnection to know which client connection.
+	/// on any client socket that was accepted through the specified listen socket.  Examine
+	/// SteamNetworkingMessage_t::m_conn to know which client connection.
 	///
 	/// Delivery order of messages among different clients is not defined.  They may
 	/// be returned in an order different from what they were actually received.  (Delivery
 	/// order of messages from the same client is well defined, and thus the order of the
 	/// messages is relevant!)
-	virtual int ReceiveMessagesOnListenSocket( HSteamListenSocket hSocket, ISteamNetworkingMessage **ppOutMessages, int nMaxMessages ) = 0; 
+	virtual int ReceiveMessagesOnListenSocket( HSteamListenSocket hSocket, SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages ) = 0; 
 
 	/// Returns information about the specified connection.
 	virtual bool GetConnectionInfo( HSteamNetConnection hConn, SteamNetConnectionInfo_t *pInfo ) = 0;
@@ -459,6 +459,7 @@ enum ESteamNetworkingSocketsDebugOutputType
 	k_ESteamNetworkingSocketsDebugOutputType_Msg, // Recommended amount
 	k_ESteamNetworkingSocketsDebugOutputType_Verbose, // Quite a bit
 	k_ESteamNetworkingSocketsDebugOutputType_Debug, // Practically everything
+	k_ESteamNetworkingSocketsDebugOutputType_Everything, // Everything
 };
 
 /// Setup callback for debug output, and the desired verbosity you want.

@@ -212,13 +212,13 @@ void CSteamNetworkConnectionBase::SNP_InitializeConnection( SteamNetworkingMicro
 	SteamNetworkingMicroseconds usecPing = GetUsecPingWithFallback( this );
 	m_senderState.m_n_x = GetInitialRate( usecPing );
 
-	if ( steamdatagram_snp_log_x )
-	SpewMsg( "%12llu %s: INITIAL X=%d rtt=%dms tx_s=%d\n", 
-				 usecNow,
-				 m_sName.c_str(),
-				 m_senderState.m_n_x,
-				 m_statsEndToEnd.m_ping.m_nSmoothedPing,
-				 m_senderState.m_n_tx_s );
+//	if ( steamdatagram_snp_log_x )
+//	SpewMsg( "%12llu %s: INITIAL X=%d rtt=%dms tx_s=%d\n", 
+//				 usecNow,
+//				 m_sName.c_str(),
+//				 m_senderState.m_n_x,
+//				 m_statsEndToEnd.m_ping.m_nSmoothedPing,
+//				 m_senderState.m_n_tx_s );
 
 	m_receiverState.m_usec_tstamp_last_feedback = usecNow;
 
@@ -313,10 +313,7 @@ EResult CSteamNetworkConnectionBase::SNP_SendMessage( SteamNetworkingMicrosecond
 
 	// Add to pending list
 	m_senderState.m_messagesQueued.push_back( pSendMessage );
-
-	if ( steamdatagram_snp_log_message )
-	SpewMsg( "%12llu %s: SendMessage %s: MsgNum=%lld sz=%d\n",
-				 usecNow,
+	SpewType( steamdatagram_snp_log_message, "%s: SendMessage %s: MsgNum=%lld sz=%d\n",
 				 m_sName.c_str(),
 				 ( eSendType & k_nSteamNetworkingSendFlags_Reliable ) ? "RELIABLE" : "UNRELIABLE",
 				 (long long)pSendMessage->m_nMsgNum,
@@ -382,12 +379,7 @@ EResult CSteamNetworkConnectionBase::SNP_FlushMessage( SteamNetworkingMicrosecon
 	// send so we want to do this first.)
 	m_senderState.TokenBucket_Accumulate( usecNow );
 
-	// Clear all nagle timers
-	if ( steamdatagram_snp_log_nagle )
-	SpewMsg( "%12llu %s: NAGLE FlushMessasge\n", 
-			 usecNow,
-			 m_sName.c_str() );
-
+	// Clear all Nagle timers
 	m_senderState.ClearNagleTimers();
 
 	// Schedule wakeup at the appropriate time.  (E.g. right now, if we're ready to send.)
@@ -461,7 +453,7 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 		const uint8 *pSegmentData = pDecode; \
 		pDecode += cbSegmentSize;
 
-	SpewDebug( "%s decode pkt %lld\n",
+	SpewType( steamdatagram_snp_log_packet, "%s decode pkt %lld\n",
 		m_sName.c_str(), (long long)nPktNum );
 
 	const byte *pDecode = (const byte *)pChunk;
@@ -662,7 +654,7 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 				}
 				continue;
 			}
-			SpewDebug( "  %s decode pkt %lld stop waiting: %lld (was %lld)",
+			SpewType( steamdatagram_snp_log_packet+1, "  %s decode pkt %lld stop waiting: %lld (was %lld)",
 				m_sName.c_str(),
 				(long long)nPktNum,
 				(long long)nMinPktNumToSendAcks, (long long)m_receiverState.m_nMinPktNumToSendAcks );
@@ -734,7 +726,7 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 				}
 			}
 
-			SpewDebug( "  %s decode pkt %lld latest recv %lld\n",
+			SpewType( steamdatagram_snp_log_packet+1, "  %s decode pkt %lld latest recv %lld\n",
 				m_sName.c_str(),
 				(long long)nPktNum, (long long)nLatestRecvSeqNum
 			);
@@ -771,7 +763,13 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 					{
 						// Either they are lying or some weird timer stuff is happening.
 						// Either way, discard it.
-						// FIXME Should we spew here?
+
+						SpewType( steamdatagram_snp_log_ackrtt, "%s decode pkt %lld latest recv %lld delay %lluusec INVALID ping %lldusec\n",
+							m_sName.c_str(),
+							(long long)nPktNum, (long long)nLatestRecvSeqNum,
+							(unsigned long long)usecDelay,
+							(long long)usecElapsed
+						);
 					}
 					else
 					{
@@ -779,6 +777,14 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 						if ( msPing < 0 )
 							msPing = 0;
 						m_statsEndToEnd.m_ping.ReceivedPing( msPing, usecNow );
+
+						// Spew
+						SpewType( steamdatagram_snp_log_ackrtt, "%s decode pkt %lld latest recv %lld delay %.1fms ping %.1fms\n",
+							m_sName.c_str(),
+							(long long)nPktNum, (long long)nLatestRecvSeqNum,
+							(float)(usecDelay * 1e-3 ),
+							(float)(usecElapsed * 1e-3 )
+						);
 					}
 				}
 			}
@@ -820,7 +826,7 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 
 					nPktNumAckBegin = m_senderState.m_nMinPktWaitingOnAck;
 					nPktNumNackBegin = nPktNumAckBegin;
-					SpewDebug( "  %s decode pkt %lld ack last block ack begin %lld\n",
+					SpewType( steamdatagram_snp_log_packet+1, "  %s decode pkt %lld ack last block ack begin %lld\n",
 						m_sName.c_str(),
 						(long long)nPktNum, (long long)nPktNumAckBegin );
 				}
@@ -857,7 +863,7 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 					if ( nPktNumNackBegin < 0 )
 						DECODE_ERROR( "Nack range underflow, end=%lld, num=%lld", (long long)nPktNumAckBegin, (long long)numAcks );
 
-					SpewDebug( "  %s decode pkt %lld nack [%lld,%lld) ack [%lld,%lld)\n",
+					SpewType( steamdatagram_snp_log_packet+1, "  %s decode pkt %lld nack [%lld,%lld) ack [%lld,%lld)\n",
 						m_sName.c_str(),
 						(long long)nPktNum,
 						(long long)nPktNumNackBegin, (long long)( nPktNumNackBegin + numNacks ),
@@ -936,7 +942,7 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 					if ( !m_senderState.m_listReadyRetryReliableRange.empty() )
 						nPeerReliablePos = std::min( nPeerReliablePos, m_senderState.m_listReadyRetryReliableRange.begin()->first.m_nBegin );
 
-					SpewDebug( "  %s decode pkt %lld peer reliable pos = %lld\n",
+					SpewType( steamdatagram_snp_log_packet+1, "  %s decode pkt %lld peer reliable pos = %lld\n",
 						m_sName.c_str(),
 						(long long)nPktNum, (long long)nPeerReliablePos );
 				}
@@ -945,7 +951,7 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 			// Check if any of this was new info, then advance our stop_waiting value.
 			if ( nLatestRecvSeqNum > m_senderState.m_nMinPktWaitingOnAck )
 			{
-				SpewDebug( "  %s updating min_waiting_on_ack %lld -> %lld\n",
+				SpewType( steamdatagram_snp_log_packet, "  %s updating min_waiting_on_ack %lld -> %lld\n",
 					m_sName.c_str(),
 					(long long)m_senderState.m_nMinPktWaitingOnAck, (long long)nLatestRecvSeqNum );
 				m_senderState.m_nMinPktWaitingOnAck = nLatestRecvSeqNum;
@@ -992,7 +998,7 @@ void CSteamNetworkConnectionBase::SNP_SenderProcessPacketNack( int64 nPktNum, SN
 		if ( inFlightRange == m_senderState.m_listInFlightReliableRange.end() )
 			continue;
 
-		SpewVerbose( "%s pkt %lld %s, queueing retry of reliable range [%lld,%lld)\n", 
+		SpewType( steamdatagram_snp_log_packet, "%s pkt %lld %s, queueing retry of reliable range [%lld,%lld)\n", 
 			m_sName.c_str(),
 			nPktNum,
 			pszDebug,
@@ -1248,7 +1254,7 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 	uint8 *pPayloadEnd = payload + cbMaxPlaintextPayload;
 	uint8 *pPayloadPtr = payload;
 
-	SpewDebug( "%s encode pkt %lld",
+	SpewType( steamdatagram_snp_log_packet, "%s encode pkt %lld",
 		m_sName.c_str(),
 		(long long)m_statsEndToEnd.m_nNextSendSequenceNumber );
 
@@ -1277,11 +1283,11 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 			pPayloadPtr = pAfterAck;
 			if ( m_receiverState.m_usecWhenFlushAck == INT64_MAX )
 			{
-				SpewVerbose( "%s flushed %d acks (%d bytes)\n", m_sName.c_str(), ackHelper.m_nBlocks, cbFlushedAcks );
+				SpewType( steamdatagram_snp_log_packet, "%s flushed %d acks (%d bytes)\n", m_sName.c_str(), ackHelper.m_nBlocks, cbFlushedAcks );
 			}
 			else
 			{
-				SpewVerbose( "%s flush didn't fit; rescheduling\n", m_sName.c_str() );
+				SpewType( steamdatagram_snp_log_packet, "%s flush didn't fit; rescheduling\n", m_sName.c_str() );
 
 				// If we are artificially limited, then the connection
 				// type specific code initiated this packet, and so
@@ -1613,7 +1619,7 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 			Assert( !HasOverlappingRange( range, m_senderState.m_listReadyRetryReliableRange ) );
 
 			// Spew
-			SpewDebug( "  %s encode pkt %lld reliable msg %lld offset %d+%d=%d range [%lld,%lld)\n",
+			SpewType( steamdatagram_snp_log_packet+1, "  %s encode pkt %lld reliable msg %lld offset %d+%d=%d range [%lld,%lld)\n",
 				m_sName.c_str(), (long long)m_statsEndToEnd.m_nNextSendSequenceNumber, (long long)seg.m_pMsg->m_nMsgNum,
 				seg.m_nOffset, seg.m_cbSize, seg.m_nOffset+seg.m_cbSize,
 				(long long)range.m_nBegin, (long long)range.m_nEnd );
@@ -1640,7 +1646,7 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 			Assert( seg.m_pMsg->m_pPrev == nullptr ); // We should either be at the head of the queue, or detached
 
 			// Spew
-			SpewDebug( "  %s encode pkt %lld unreliable msg %lld offset %d+%d=%d\n",
+			SpewType( steamdatagram_snp_log_packet+1, "  %s encode pkt %lld unreliable msg %lld offset %d+%d=%d\n",
 				m_sName.c_str(), (long long)m_statsEndToEnd.m_nNextSendSequenceNumber, (long long)seg.m_pMsg->m_nMsgNum,
 				seg.m_nOffset, seg.m_cbSize, seg.m_nOffset+seg.m_cbSize );
 
@@ -1800,7 +1806,7 @@ uint8 *CSteamNetworkConnectionBase::SNP_SerializeAckBlocks( const SNPAckSerializ
 		*pLatestPktNum = uint16( nLastRecvPktNum );
 		*pTimeSinceLatestPktNum = SNPAckSerializerHelper::EncodeTimeSince( usecNow, m_statsEndToEnd.m_usecTimeLastRecvSeq );
 
-		SpewDebug( "  %s encode pkt %lld last recv %lld (no loss)\n",
+		SpewType( steamdatagram_snp_log_packet+1, "  %s encode pkt %lld last recv %lld (no loss)\n",
 			m_sName.c_str(),
 			(long long)m_statsEndToEnd.m_nNextSendSequenceNumber, (long long)nLastRecvPktNum
 		);
@@ -1825,7 +1831,7 @@ uint8 *CSteamNetworkConnectionBase::SNP_SerializeAckBlocks( const SNPAckSerializ
 			*pLatestPktNum = uint16( nLastRecvPktNum );
 			*pTimeSinceLatestPktNum = SNPAckSerializerHelper::EncodeTimeSince( usecNow, itOldestGap->second.m_usecWhenReceivedPktBefore );
 
-			SpewDebug( "  %s encode pkt %lld last recv %lld (no blocks, actual last recv=%lld)\n",
+			SpewType( steamdatagram_snp_log_packet+1, "  %s encode pkt %lld last recv %lld (no blocks, actual last recv=%lld)\n",
 				m_sName.c_str(),
 				(long long)m_statsEndToEnd.m_nNextSendSequenceNumber, (long long)nLastRecvPktNum, (long long)m_statsEndToEnd.m_nLastRecvSequenceNumber
 			);
@@ -1867,7 +1873,7 @@ uint8 *CSteamNetworkConnectionBase::SNP_SerializeAckBlocks( const SNPAckSerializ
 	int64 nAckEnd = ( m_statsEndToEnd.m_nLastRecvSequenceNumber & ~(int64)(~(uint32)0) ) | pBlock->m_nLatestPktNum;
 	++nAckEnd;
 
-	SpewDebug( "  %s encode pkt %lld last recv %lld (%d blocks, actual last recv=%lld)\n",
+	SpewType( steamdatagram_snp_log_packet+1, "  %s encode pkt %lld last recv %lld (%d blocks, actual last recv=%lld)\n",
 		m_sName.c_str(),
 		(long long)m_statsEndToEnd.m_nNextSendSequenceNumber, (long long)(nAckEnd-1), nBlocks, (long long)m_statsEndToEnd.m_nLastRecvSequenceNumber
 	);
@@ -1926,7 +1932,7 @@ uint8 *CSteamNetworkConnectionBase::SNP_SerializeAckBlocks( const SNPAckSerializ
 		// Debug
 		int64 nAckBegin = nAckEnd - pBlock->m_nAck;
 		int64 nNackBegin = nAckBegin - pBlock->m_nNack;
-		SpewDebug( "  %s encode pkt %lld nack [%lld,%lld) ack [%lld,%lld) \n",
+		SpewType( steamdatagram_snp_log_packet+1, "  %s encode pkt %lld nack [%lld,%lld) ack [%lld,%lld) \n",
 			m_sName.c_str(),
 			(long long)m_statsEndToEnd.m_nNextSendSequenceNumber,
 			(long long)nNackBegin, (long long)nAckBegin,
@@ -1961,7 +1967,7 @@ uint8 *CSteamNetworkConnectionBase::SNP_SerializeStopWaitingFrame( uint8 *pOut, 
 	// Calculate offset from the current sequence number
 	int64 nOffset = m_statsEndToEnd.m_nNextSendSequenceNumber - m_senderState.m_nMinPktWaitingOnAck;
 	AssertMsg2( nOffset > 0, "Told peer to stop acking up to %lld, but latest packet we have sent is %lld", (long long)m_senderState.m_nMinPktWaitingOnAck, (long long)m_statsEndToEnd.m_nNextSendSequenceNumber );
-	SpewDebug( "  %s encode pkt %lld stop_waiting offset %lld = %lld",
+	SpewType( steamdatagram_snp_log_packet, "  %s encode pkt %lld stop_waiting offset %lld = %lld",
 		m_sName.c_str(),
 		(long long)m_statsEndToEnd.m_nNextSendSequenceNumber, (long long)nOffset, (long long)m_senderState.m_nMinPktWaitingOnAck );
 
@@ -2015,7 +2021,7 @@ uint8 *CSteamNetworkConnectionBase::SNP_SerializeStopWaitingFrame( uint8 *pOut, 
 
 void CSteamNetworkConnectionBase::SNP_ReceiveUnreliableSegment( int64 nMsgNum, int nOffset, const void *pSegmentData, int cbSegmentSize, bool bLastSegmentInMessage, SteamNetworkingMicroseconds usecNow )
 {
-	SpewDebug( "%s RX msg %lld offset %d+%d=%d %02x ... %02x\n", m_sName.c_str(), nMsgNum, nOffset, cbSegmentSize, nOffset+cbSegmentSize, ((byte*)pSegmentData)[0], ((byte*)pSegmentData)[cbSegmentSize-1] );
+	SpewType( steamdatagram_snp_log_packet+1, "%s RX msg %lld offset %d+%d=%d %02x ... %02x\n", m_sName.c_str(), nMsgNum, nOffset, cbSegmentSize, nOffset+cbSegmentSize, ((byte*)pSegmentData)[0], ((byte*)pSegmentData)[cbSegmentSize-1] );
 
 	// Check for a common special case: non-fragmented message.
 	if ( nOffset == 0 && bLastSegmentInMessage )
@@ -2146,7 +2152,7 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 	int64 nSegEnd = nSegBegin + cbSegmentSize;
 
 	// Spew
-	SpewDebug( "  %s decode pkt %lld reliable range [%lld,%lld)\n",
+	SpewType( steamdatagram_snp_log_packet, "  %s decode pkt %lld reliable range [%lld,%lld)\n",
 		m_sName.c_str(),
 		(long long)nPktNum,
 		(long long)nSegBegin, (long long)nSegEnd );
@@ -2388,7 +2394,7 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 		uint8 *pReliableEnd = pReliableDecode + nNumReliableBytes;
 
 		// Spew
-		SpewDebug( "  %s decode pkt %lld valid reliable bytes = %d [%lld,%lld)\n",
+		SpewType( steamdatagram_snp_log_packet+1, "  %s decode pkt %lld valid reliable bytes = %d [%lld,%lld)\n",
 			m_sName.c_str(),
 			(long long)nPktNum, nNumReliableBytes,
 			(long long)m_receiverState.m_nReliableStreamPos,
@@ -2526,7 +2532,7 @@ bool CSteamNetworkConnectionBase::SNP_RecordReceivedPktNum( int64 nPktNum, Steam
 		gap.m_usecWhenReceivedPktBefore = m_statsEndToEnd.m_usecTimeLastRecvSeq;
 		gap.m_nEnd = nPktNum;
 
-		SpewVerbose( "  %s drop %d pkts [%lld-%lld)",
+		SpewType( steamdatagram_snp_log_packetgaps, "%s drop %d pkts [%lld-%lld)",
 			m_sName.c_str(),
 			(int)( nPktNum - nBegin ),
 			(long long)nBegin, (long long)nPktNum );
@@ -2560,7 +2566,7 @@ bool CSteamNetworkConnectionBase::SNP_RecordReceivedPktNum( int64 nPktNum, Steam
 				// Gap is totally filed
 				m_receiverState.m_mapPacketGaps.erase( itGap );
 
-				SpewVerbose( "  %s decode pkt %lld, single pkt gap filled", m_sName.c_str(), (long long)nPktNum );
+				SpewType( steamdatagram_snp_log_packetgaps, "%s decode pkt %lld, single pkt gap filled", m_sName.c_str(), (long long)nPktNum );
 			}
 			else
 			{
@@ -2568,7 +2574,7 @@ bool CSteamNetworkConnectionBase::SNP_RecordReceivedPktNum( int64 nPktNum, Steam
 				--itGap->second.m_nEnd;
 				Assert( itGap->first < itGap->second.m_nEnd );
 
-				SpewVerbose( "  %s decode pkt %lld, last packet in gap, reduced to [%lld,%lld)", m_sName.c_str(),
+				SpewType( steamdatagram_snp_log_packetgaps, "%s decode pkt %lld, last packet in gap, reduced to [%lld,%lld)", m_sName.c_str(),
 					(long long)nPktNum, (long long)itGap->first, (long long)itGap->second.m_nEnd );
 			}
 		}
@@ -2582,7 +2588,7 @@ bool CSteamNetworkConnectionBase::SNP_RecordReceivedPktNum( int64 nPktNum, Steam
 			Assert( itGap->first < itGap->second.m_nEnd );
 			itGap->second.m_usecWhenReceivedPktBefore = usecNow;
 
-			SpewVerbose( "  %s decode pkt %lld, first packet in gap, reduced to [%lld,%lld)", m_sName.c_str(),
+			SpewType( steamdatagram_snp_log_packetgaps, "%s decode pkt %lld, first packet in gap, reduced to [%lld,%lld)", m_sName.c_str(),
 				(long long)nPktNum, (long long)itGap->first, (long long)itGap->second.m_nEnd );
 		}
 		else
@@ -2601,7 +2607,7 @@ bool CSteamNetworkConnectionBase::SNP_RecordReceivedPktNum( int64 nPktNum, Steam
 
 			int64 nUpperBegin = nPktNum+1;
 
-			SpewVerbose( "  %s decode pkt %lld, gap split [%lld,%lld) and [%lld,%lld)", m_sName.c_str(),
+			SpewType( steamdatagram_snp_log_packetgaps, "%s decode pkt %lld, gap split [%lld,%lld) and [%lld,%lld)", m_sName.c_str(),
 				(long long)nPktNum, (long long)itGap->first, (long long)itGap->second.m_nEnd, nUpperBegin, nEnd );
 
 			// Insert a new gap to account for the upper end

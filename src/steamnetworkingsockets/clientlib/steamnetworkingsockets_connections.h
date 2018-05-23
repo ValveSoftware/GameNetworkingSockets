@@ -63,13 +63,11 @@ public:
 //
 /////////////////////////////////////////////////////////////////////////////
 
-class CSteamNetworkingMessage : public ISteamNetworkingMessage
+class CSteamNetworkingMessage : public SteamNetworkingMessage_t
 {
 public:
-	CSteamNetworkingMessage( CSteamNetworkConnectionBase *pParent, uint32 cbSize, int64 nMsgNum, SteamNetworkingMicroseconds usecNow );
-
-	/// Implements ISteamNetworkingMessage
-	virtual void Release();
+	static CSteamNetworkingMessage *New( CSteamNetworkConnectionBase *pParent, uint32 cbSize, int64 nMsgNum, SteamNetworkingMicroseconds usecNow );
+	static void Delete( SteamNetworkingMessage_t *piMsg );
 
 	/// Remove it from queues
 	void Unlink();
@@ -104,9 +102,6 @@ public:
 
 	void LinkToQueueTail( Links CSteamNetworkingMessage::*pMbrLinks, SteamNetworkingMessageQueue *pQueue );
 	void UnlinkFromQueue( Links CSteamNetworkingMessage::*pMbrLinks );
-
-private:
-	virtual ~CSteamNetworkingMessage();
 };
 
 struct SteamNetworkingMessageQueue
@@ -126,7 +121,7 @@ struct SteamNetworkingMessageQueue
 	}
 
 	/// Remove the first messages out of the queue (up to nMaxMessages).  Returns the number returned
-	int RemoveMessages( ISteamNetworkingMessage **ppOutMessages, int nMaxMessages );
+	int RemoveMessages( SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages );
 
 	/// Delete all queued messages
 	void PurgeMessages();
@@ -152,7 +147,7 @@ public:
 	/// This gets called on an accepted connection before it gets destroyed
 	virtual void AboutToDestroyChildConnection( CSteamNetworkConnectionBase *pConn );
 
-	int APIReceiveMessages( ISteamNetworkingMessage **ppOutMessages, int nMaxMessages );
+	int APIReceiveMessages( SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages );
 
 	struct ChildConnectionKey_t
 	{
@@ -216,7 +211,7 @@ public:
 	EResult APIFlushMessageOnConnection();
 
 	/// Receive the next message(s)
-	int APIReceiveMessages( ISteamNetworkingMessage **ppOutMessages, int nMaxMessages );
+	int APIReceiveMessages( SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages );
 
 	/// Accept a connection.  This will involve sending a message
 	/// to the client, and calling ConnectionState_Connected on the connection
