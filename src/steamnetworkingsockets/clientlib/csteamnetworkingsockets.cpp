@@ -1086,10 +1086,114 @@ bool CSteamNetworkingSockets::GetHostedDedicatedServerInfo( SteamDatagramService
 		AssertMsg( false, "GetHostedDedicatedServerInfo should be called thorugh a gameserver's ISteamSocketNetworking" );
 		return false;
 	}
-	if ( !m_bInitted )
+
+	static bool bOnce = false;
+	if ( !bOnce  )
 	{
-		AssertMsg( false, "Need to call SteamDatagramServer_Init before calling GetHostedDedicatedServerInfo" );
-		return false;
+		bOnce = true;
+
+		// Check if we are a hosted dedicated server
+		const char *SDR_LISTEN_PORT = getenv( "SDR_LISTEN_PORT" );
+		if ( SDR_LISTEN_PORT )
+		{
+			SpewMsg( "SDR_LISTEN_PORT = %s\n", SDR_LISTEN_PORT );
+			s_nHostedDedicatedServerPort = atoi( SDR_LISTEN_PORT );
+			Assert( s_nHostedDedicatedServerPort );
+		}
+
+		const char *SDR_POPID = getenv( "SDR_POPID" );
+		if ( SDR_POPID )
+		{
+			SpewMsg( "SDR_POPID = '%s'\n", SDR_POPID );
+			s_nHostedDedicatedServerPOPID = CalculateSteamNetworkingPOPIDFromString( SDR_POPID );
+		}
+
+		//
+		// Deduce public IP
+		//
+		if ( s_nHostedDedicatedServerPort )
+		{
+
+			// Try to deduce our IP
+			// Set via environment variable?
+			const char *SDR_IP = getenv( "SDR_IP" );
+			if ( SDR_IP )
+			{
+				SpewMsg( "SDR_IP = '%s'\n", SDR_IP );
+				netadr_t adr;
+				if ( !adr.SetFromString( SDR_IP ) )
+					Plat_FatalError( "SDR_IP='%s', which isn't a valid IP address", SDR_IP );
+				s_nHostedDedicatedServerIP = adr.GetIP();
+			}
+			else
+			{
+
+				// Get list of IP addresses
+				CUtlVector<netadr_t> vecIPs;
+
+				// On linux, use getifaddr, so it doesn't matter how they have DNS resolved.  Basically
+				// we want to make sure we don't end up resolving our own hostname back to the loopback.
+				#ifdef LINUX
+					ifaddrs *pMyAddrInfo = NULL;
+					int r = getifaddrs( &pMyAddrInfo );
+					if ( r != 0 )
+						Plat_FatalError( "getifaddrs() failed, returned %d",  r );
+					for ( ifaddrs *pAddr = pMyAddrInfo ; pAddr ; pAddr = pAddr->ifa_next )
+					{
+						if ( ( pAddr->ifa_flags & IFF_LOOPBACK ) != 0 || !pAddr->ifa_addr )
+							continue;
+						netadr_t adr;
+						if ( !adr.SetFromSockadr( pAddr->ifa_addr ) )
+							continue;
+						vecIPs.AddToTail( adr );
+					}
+					freeifaddrs( pMyAddrInfo );
+				#elif defined(WIN32)
+
+					// On Windows resolve our hostname.
+					char szHostName[ 256 ];
+					if ( gethostname( szHostName, sizeof(szHostName) ) != 0 )
+						Plat_FatalError( "gethostname failed, error code 0x%x",  GetLastSocketError() );
+					addrinfo *pMyAddrInfo = NULL;
+					int r = getaddrinfo( szHostName, NULL, NULL, &pMyAddrInfo );
+					if ( r != 0 )
+						Plat_FatalError( "getaddrinfo(%s) failed, returned %d",  szHostName, r );
+					for ( addrinfo *pAddr = pMyAddrInfo ; pAddr ; pAddr = pAddr->ai_next )
+					{
+						if ( pAddr->ai_family != AF_INET || !pAddr->ai_addr )
+							continue;
+						netadr_t adr;
+						if ( !adr.SetFromSockadr( pAddr->ai_addr ) )
+							continue;
+						vecIPs.AddToTail( adr );
+					}
+					freeaddrinfo( pMyAddrInfo );
+				#endif
+
+				// Scan list of IPs.  If we have a single public-IP, then we're probably good
+				for ( netadr_t adr: vecIPs )
+				{
+					uint32 nCheckIP = adr.GetIP();
+					if ( !IsPrivateIP( nCheckIP ) || ( g_eUniverse == k_EUniverseBeta && ( nCheckIP >> 24U ) == 172 ) ) // Allow 172.x.x.x.x address to count as "public" on beta universe
+					{
+						if ( s_nHostedDedicatedServerIP )
+							SpewWarning( "Host is configured with multiple public IPs.  Using %s; ignoring %s\n", CUtlNetAdrRender( s_nHostedDedicatedServerIP ).String(), CUtlNetAdrRender( nCheckIP ).String() );
+						else
+							s_nHostedDedicatedServerIP = nCheckIP;
+					}
+				}
+				if ( s_nHostedDedicatedServerIP == 0 )
+				{
+					if ( SDR_POPID )
+						Plat_FatalError( "Cannot deduce public IP." );
+					SpewWarning( "Unable to deduce server's public IP.  If you are running the server behind a firewall, you'll need to supply the public IP:port that will be forwarded to this server in the SDR ticket.\n" );
+				}
+				else
+				{
+					SpewMsg( "%s appears to be SDR public address.\n", CUtlNetAdrRender( s_nHostedDedicatedServerIP, s_nHostedDedicatedServerPort ).String() );
+				}
+			}
+		}
 	}
 
 	if ( s_nHostedDedicatedServerPort == 0 )
@@ -1480,25 +1584,13 @@ STEAMNETWORKINGSOCKETS_INTERFACE bool SteamDatagramServer_Init_Internal( SteamDa
 	if ( !g_SteamNetworkingSocketsGameServer.BInit( pClient, hSteamUser, hSteamPipe, errMsg ) )
 		return false;
 
-	// Check if we are a hosted dedicated server
-	const char *SDR_LISTEN_PORT = getenv( "SDR_LISTEN_PORT" );
-	if ( SDR_LISTEN_PORT )
-	{
-		SpewMsg( "SDR_LISTEN_PORT = %s\n", SDR_LISTEN_PORT );
-		s_nHostedDedicatedServerPort = atoi( SDR_LISTEN_PORT );
-		Assert( s_nHostedDedicatedServerPort );
-	}
-
-	const char *SDR_POPID = getenv( "SDR_POPID" );
-	if ( SDR_POPID )
-	{
-		SpewMsg( "SDR_POPID = '%s'\n", SDR_POPID );
-		s_nHostedDedicatedServerPOPID = CalculateSteamNetworkingPOPIDFromString( SDR_POPID );
-	}
+	// Check environment variables
+	g_SteamNetworkingSocketsGameServer.GetHostedDedicatedServerInfo( nullptr, nullptr );
 
 	// Check environment variables, see if we are hosed in our data center
 	char *pszPrivateKey = getenv( "SDR_PRIVATE_KEY" );
 	char *pszCert = getenv( "SDR_CERT" );
+	const char *SDR_POPID = getenv( "SDR_POPID" );
 	if ( pszPrivateKey && *pszPrivateKey && pszCert && *pszCert )
 	{
 		SteamDatagramErrMsg certErrMsg;
@@ -1575,99 +1667,6 @@ STEAMNETWORKINGSOCKETS_INTERFACE bool SteamDatagramServer_Init_Internal( SteamDa
 
 		// Init shared cluster stuff
 		CreateSharedClusterData();
-	}
-
-	//
-	// Deduce public IP
-	//
-	if ( s_nHostedDedicatedServerPort )
-	{
-
-		// Try to deduce our IP
-		// Set via environment variable?
-		const char *SDR_IP = getenv( "SDR_IP" );
-		if ( SDR_IP )
-		{
-			SpewMsg( "SDR_IP = '%s'\n", SDR_IP );
-			netadr_t adr;
-			if ( !adr.SetFromString( SDR_IP ) )
-			{
-				V_sprintf_safe( errMsg, "SDR_IP='%s', which isn't a valid IP address", SDR_IP );
-				return false;
-			}
-			s_nHostedDedicatedServerIP = adr.GetIP();
-		}
-		else
-		{
-
-			// Get list of IP addresses
-			CUtlVector<netadr_t> vecIPs;
-
-			// On linux, use getifaddr, so it doesn't matter how they have DNS resolved.  Basically
-			// we want to make sure we don't end up resolving our own hostname back to the loopback.
-			#ifdef LINUX
-				ifaddrs *pMyAddrInfo = NULL;
-				int r = getifaddrs( &pMyAddrInfo );
-				if ( r != 0 )
-					Plat_FatalError( "getifaddrs() failed, returned %d",  r );
-				for ( ifaddrs *pAddr = pMyAddrInfo ; pAddr ; pAddr = pAddr->ifa_next )
-				{
-					if ( ( pAddr->ifa_flags & IFF_LOOPBACK ) != 0 || !pAddr->ifa_addr )
-						continue;
-					netadr_t adr;
-					if ( !adr.SetFromSockadr( pAddr->ifa_addr ) )
-						continue;
-					vecIPs.AddToTail( adr );
-				}
-				freeifaddrs( pMyAddrInfo );
-			#elif defined(WIN32)
-
-				// On Windows resolve our hostname.
-				char szHostName[ 256 ];
-				if ( gethostname( szHostName, sizeof(szHostName) ) != 0 )
-					Plat_FatalError( "gethostname failed, error code 0x%x",  GetLastSocketError() );
-				addrinfo *pMyAddrInfo = NULL;
-				int r = getaddrinfo( szHostName, NULL, NULL, &pMyAddrInfo );
-				if ( r != 0 )
-					Plat_FatalError( "getaddrinfo(%s) failed, returned %d",  szHostName, r );
-				for ( addrinfo *pAddr = pMyAddrInfo ; pAddr ; pAddr = pAddr->ai_next )
-				{
-					if ( pAddr->ai_family != AF_INET || !pAddr->ai_addr )
-						continue;
-					netadr_t adr;
-					if ( !adr.SetFromSockadr( pAddr->ai_addr ) )
-						continue;
-					vecIPs.AddToTail( adr );
-				}
-				freeaddrinfo( pMyAddrInfo );
-			#endif
-
-			// Scan list of IPs.  If we have a single public-IP, then we're probably good
-			for ( netadr_t adr: vecIPs )
-			{
-				uint32 nCheckIP = adr.GetIP();
-				if ( !IsPrivateIP( nCheckIP ) || ( g_eUniverse == k_EUniverseBeta && ( nCheckIP >> 24U ) == 172 ) ) // Allow 172.x.x.x.x address to count as "public" on beta universe
-				{
-					if ( s_nHostedDedicatedServerIP )
-						SpewWarning( "Host is configured with multiple public IPs.  Using %s; ignoring %s\n", CUtlNetAdrRender( s_nHostedDedicatedServerIP ).String(), CUtlNetAdrRender( nCheckIP ).String() );
-					else
-						s_nHostedDedicatedServerIP = nCheckIP;
-				}
-			}
-			if ( s_nHostedDedicatedServerIP == 0 )
-			{
-				if ( SDR_POPID )
-				{
-					V_sprintf_safe( errMsg, "Cannot deduce public IP." );
-					return false;
-				}
-				SpewWarning( "Unable to deduce server's public IP.  If you are running the server behind a firewall, you'll need to supply the public IP:port that will be forwarded to this server in the SDR ticket.\n" );
-			}
-			else
-			{
-				SpewMsg( "%s appears to be SDR public address.\n", CUtlNetAdrRender( s_nHostedDedicatedServerIP, s_nHostedDedicatedServerPort ).String() );
-			}
-		}
 	}
 
 	return true;
