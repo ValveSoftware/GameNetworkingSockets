@@ -395,7 +395,7 @@ STEAMNETWORKINGSOCKETS_INTERFACE void GameNetworkingSockets_Kill();
 	typedef void ( S_CALLTYPE *FSteamAPI_RegisterCallResult)( class CCallbackBase *pCallback, SteamAPICall_t hAPICall );
 	typedef void ( S_CALLTYPE *FSteamAPI_UnregisterCallResult)( class CCallbackBase *pCallback, SteamAPICall_t hAPICall );
 	STEAMNETWORKINGSOCKETS_INTERFACE void SteamDatagramClient_Internal_SteamAPIKludge( FSteamAPI_RegisterCallback fnRegisterCallback, FSteamAPI_UnregisterCallback fnUnregisterCallback, FSteamAPI_RegisterCallResult fnRegisterCallResult, FSteamAPI_UnregisterCallResult fnUnregisterCallResult );
-	STEAMNETWORKINGSOCKETS_INTERFACE bool SteamDatagramClient_Init_InternalV4( int iPartnerMask, SteamDatagramErrMsg &errMsg, FSteamInternal_CreateInterface fnCreateInterface, HSteamUser hSteamUser, HSteamPipe hSteamPipe );
+	STEAMNETWORKINGSOCKETS_INTERFACE bool SteamDatagramClient_Init_InternalV5( int iPartnerMask, SteamDatagramErrMsg &errMsg, FSteamInternal_CreateInterface fnCreateInterface, HSteamUser hSteamUser, HSteamPipe hSteamPipe );
 	STEAMNETWORKINGSOCKETS_INTERFACE bool SteamDatagramServer_Init_Internal( SteamDatagramErrMsg &errMsg, FSteamInternal_CreateInterface fnCreateInterface, HSteamUser hSteamUser, HSteamPipe hSteamPipe );
 
 /////////////////////////////////////////////////////////////////////////////
@@ -405,7 +405,7 @@ STEAMNETWORKINGSOCKETS_INTERFACE void GameNetworkingSockets_Kill();
 inline bool SteamDatagramClient_Init( int iPartnerMask, SteamDatagramErrMsg &errMsg )
 {
 	SteamDatagramClient_Internal_SteamAPIKludge( &::SteamAPI_RegisterCallback, &::SteamAPI_UnregisterCallback, &::SteamAPI_RegisterCallResult, &::SteamAPI_UnregisterCallResult );
-	return SteamDatagramClient_Init_InternalV4( iPartnerMask, errMsg, ::SteamInternal_CreateInterface, ::SteamAPI_GetHSteamUser(), ::SteamAPI_GetHSteamPipe() );
+	return SteamDatagramClient_Init_InternalV5( iPartnerMask, errMsg, ::SteamInternal_CreateInterface, ::SteamAPI_GetHSteamUser(), ::SteamAPI_GetHSteamPipe() );
 }
 
 /// Shutdown all clients and close all sockets

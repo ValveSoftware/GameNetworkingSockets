@@ -241,21 +241,8 @@ const int k_cbMaxSteamNetworkingSocketsMessageSizeSend = 512 * 1024;
 struct SteamNetworkingMessage_t
 {
 
-	/// Size of the payload.
-	uint32 m_cbSize;
-
-	/// Message payload
-	void *m_pData;
-
 	/// SteamID that sent this to us.
 	CSteamID m_steamIDSender;
-
-	/// The channel number the message was received on.
-	/// (Not used for messages received on "connections"
-	int m_nChannel;
-
-	/// The connection this came from.  (Not used when using the P2P calls)
-	HSteamNetConnection m_conn;
 
 	/// The user data associated with the connection.
 	///
@@ -281,6 +268,22 @@ struct SteamNetworkingMessage_t
 	/// Function used to clean up this object.  Normally you won't call
 	/// this directly, use Release() instead.
 	void (*m_pfnRelease)( SteamNetworkingMessage_t *msg );
+
+	/// Message payload
+	void *m_pData;
+
+	/// Size of the payload.
+	uint32 m_cbSize;
+
+	/// The connection this came from.  (Not used when using the P2P calls)
+	HSteamNetConnection m_conn;
+
+	/// The channel number the message was received on.
+	/// (Not used for messages received on "connections")
+	int m_nChannel;
+
+	/// Pad to multiple of 8 bytes
+	int m___nPadDummy;
 
 	#ifdef __cplusplus
 

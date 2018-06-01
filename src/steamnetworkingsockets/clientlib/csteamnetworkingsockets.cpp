@@ -1366,7 +1366,7 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamDatagramClient_Internal_SteamAPIKludg
 //#undef STEAMCLIENT_INTERFACE_VERSION
 //#define STEAMCLIENT_INTERFACE_VERSION		"SteamClient017"
 
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamDatagramClient_Init_InternalV4( int iPartnerMask, SteamDatagramErrMsg &errMsg, FSteamInternal_CreateInterface fnCreateInterface, HSteamUser hSteamUser, HSteamPipe hSteamPipe )
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamDatagramClient_Init_InternalV5( int iPartnerMask, SteamDatagramErrMsg &errMsg, FSteamInternal_CreateInterface fnCreateInterface, HSteamUser hSteamUser, HSteamPipe hSteamPipe )
 {
 	SteamDatagramTransportLock lock;
 	if ( g_pSteamUser )
