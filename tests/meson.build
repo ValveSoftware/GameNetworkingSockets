@@ -35,7 +35,14 @@ foreach arg : warn_flags_tests
 endforeach
 
 executable('test_connection',
-  'connection_test.cpp',
+  'test_connection.cpp',
   dependencies: dependencies,
   cpp_args: cxx_flags
+)
+
+incdirs = include_directories('../include')
+executable('test_flat',
+  'test_flat.c',
+  dependence: dependencies,
+  include_directories: incdirs
 )
