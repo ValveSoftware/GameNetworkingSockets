@@ -453,9 +453,13 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 		const uint8 *pSegmentData = pDecode; \
 		pDecode += cbSegmentSize;
 
+	// Make sure we have initialized the connection
+	Assert( BStateIsConnectedForWirePurposes() );
+
 	SpewType( steamdatagram_snp_log_packet, "%s decode pkt %lld\n",
 		m_sName.c_str(), (long long)nPktNum );
 
+	// Decode frames until we get to the end of the payload
 	const byte *pDecode = (const byte *)pChunk;
 	const byte *pEnd = pDecode + cbChunk;
 	int64 nCurMsgNum = 0;
@@ -872,6 +876,7 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 				}
 
 				// Process acks first.
+				Assert( nPktNumAckBegin >= 0 );
 				while ( inFlightPkt->first >= nPktNumAckBegin )
 				{
 					Assert( inFlightPkt->first < nPktNumAckEnd );
@@ -909,9 +914,11 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 					// No need to track this anymore, remove from our table
 					inFlightPkt = m_senderState.m_mapInFlightPacketsByPktNum.erase( inFlightPkt );
 					--inFlightPkt;
+					Assert( !m_senderState.m_mapInFlightPacketsByPktNum.empty() );
 				}
 
 				// Process nacks.
+				Assert( nPktNumNackBegin >= 0 );
 				while ( inFlightPkt->first >= nPktNumNackBegin )
 				{
 					Assert( inFlightPkt->first < nPktNumAckEnd );
@@ -1024,6 +1031,7 @@ SteamNetworkingMicroseconds CSteamNetworkConnectionBase::SNP_SenderCheckInFlight
 		Assert( m_senderState.m_itNextInFlightPacketToTimeout == m_senderState.m_mapInFlightPacketsByPktNum.end() );
 		return k_nThinkTime_Never;
 	}
+	Assert( m_senderState.m_mapInFlightPacketsByPktNum.begin()->first < 0 );
 
 	SteamNetworkingMicroseconds usecNextRetry = k_nThinkTime_Never;
 
@@ -1033,6 +1041,7 @@ SteamNetworkingMicroseconds CSteamNetworkConnectionBase::SNP_SenderCheckInFlight
 	SteamNetworkingMicroseconds usecRTO = m_statsEndToEnd.CalcSenderRetryTimeout();
 	while ( m_senderState.m_itNextInFlightPacketToTimeout != m_senderState.m_mapInFlightPacketsByPktNum.end() )
 	{
+		Assert( m_senderState.m_itNextInFlightPacketToTimeout->first > 0 );
 
 		// If already nacked, then no use waiting on it, just skip it
 		if ( !m_senderState.m_itNextInFlightPacketToTimeout->second.m_bNack )
@@ -1074,6 +1083,7 @@ SteamNetworkingMicroseconds CSteamNetworkConnectionBase::SNP_SenderCheckInFlight
 
 		// Expire it, advance to the next one
 		inFlightPkt = m_senderState.m_mapInFlightPacketsByPktNum.erase( inFlightPkt );
+		Assert( !m_senderState.m_mapInFlightPacketsByPktNum.empty() );
 
 		// Bail if we've hit the end of the nacks
 		if ( inFlightPkt == m_senderState.m_mapInFlightPacketsByPktNum.end() )
@@ -1240,6 +1250,10 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 	// then don't send right now.
 	if ( pConnectionData == nullptr && usecNow < m_receiverState.m_usecWhenFlushAck && m_senderState.TimeWhenWantToSendNextPacket() > usecNow && m_receiverState.m_usecWhenFlushAck > usecNow )
 		return 0;
+
+	// Make sure we have initialized the connection
+	Assert( BStateIsConnectedForWirePurposes() );
+	Assert( !m_senderState.m_mapInFlightPacketsByPktNum.empty() );
 
 	// Check if they are asking us to make room
 	int cbMaxPlaintextPayload = k_cbSteamNetworkingSocketsMaxPlaintextPayloadSend;
