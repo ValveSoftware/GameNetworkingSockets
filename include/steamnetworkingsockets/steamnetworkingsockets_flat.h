@@ -2,6 +2,9 @@
 //
 // Plain C interface to SteamNetworkingSockets
 //
+// Designed to match the auto-generated flat interface in the Steamworks SDK
+// (for better or worse...)
+//
 //=============================================================================
 
 #ifndef STEAMNETWORKINGSOCKETS_FLAT
@@ -9,58 +12,61 @@
 #pragma once
 
 #include <stdint.h>
-#include "isteamnetworkingsockets.h"
+#include "steamnetworkingtypes.h"
 
 extern "C" {
 
-STEAMNETWORKINGSOCKETS_INTERFACE HSteamListenSocket SteamNetworkingSockets_CreateListenSocket( ISteamNetworkingSockets *pInterface, int nSteamConnectVirtualPort, uint32 nIP, uint16 nPort );
+STEAMNETWORKINGSOCKETS_INTERFACE HSteamListenSocket SteamAPI_ISteamNetworkingSockets_CreateListenSocket( intptr_t instancePtr, int nSteamConnectVirtualPort, uint32 nIP, uint16 nPort );
 
 #ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
-STEAMNETWORKINGSOCKETS_INTERFACE HSteamNetConnection SteamNetworkingSockets_ConnectBySteamID( ISteamNetworkingSockets *pInterface, CSteamID steamIDTarget, int nVirtualPort );
+STEAMNETWORKINGSOCKETS_INTERFACE HSteamNetConnection SteamAPI_ISteamNetworkingSockets_ConnectBySteamID( intptr_t instancePtr, CSteamID steamIDTarget, int nVirtualPort );
 #endif
 
-STEAMNETWORKINGSOCKETS_INTERFACE HSteamNetConnection SteamNetworkingSockets_ConnectByIPv4Address( ISteamNetworkingSockets *pInterface, uint32 nIP, uint16 nPort );
-STEAMNETWORKINGSOCKETS_INTERFACE EResult SteamNetworkingSockets_AcceptConnection( HSteamNetConnection hConn );
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamNetworkingSockets_CloseConnection( HSteamNetConnection hPeer, int nReason, const char *pszDebug, bool bEnableLinger );
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamNetworkingSockets_CloseListenSocket( HSteamListenSocket hSocket, const char *pszNotifyRemoteReason );
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamNetworkingSockets_SetConnectionUserData( HSteamNetConnection hPeer, int64 nUserData );
-STEAMNETWORKINGSOCKETS_INTERFACE int64 SteamNetworkingSockets_GetConnectionUserData( HSteamNetConnection hPeer );
-STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetConnectionName( HSteamNetConnection hPeer, const char *pszName );
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamNetworkingSockets_GetConnectionName( HSteamNetConnection hPeer, char *pszName, int nMaxLen );
-STEAMNETWORKINGSOCKETS_INTERFACE EResult SteamNetworkingSockets_SendMessageToConnection( HSteamNetConnection hConn, const void *pData, uint32 cbData, ESteamNetworkingSendType eSendType );
-STEAMNETWORKINGSOCKETS_INTERFACE EResult SteamNetworkingSockets_FlushMessagesOnConnection( HSteamNetConnection hConn );
-STEAMNETWORKINGSOCKETS_INTERFACE int SteamNetworkingSockets_ReceiveMessagesOnConnection( HSteamNetConnection hConn, SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages ); 
-STEAMNETWORKINGSOCKETS_INTERFACE int SteamNetworkingSockets_ReceiveMessagesOnListenSocket( HSteamListenSocket hSocket, SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages ); 
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamNetworkingSockets_GetConnectionInfo( HSteamNetConnection hConn, SteamNetConnectionInfo_t *pInfo );
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamNetworkingSockets_GetQuickConnectionStatus( HSteamNetConnection hConn, SteamNetworkingQuickConnectionStatus *pStats );
-STEAMNETWORKINGSOCKETS_INTERFACE int SteamNetworkingSockets_GetDetailedConnectionStatus( HSteamNetConnection hConn, char *pszBuf, int cbBuf );
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamNetworkingSockets_GetListenSocketInfo( HSteamListenSocket hSocket, uint32 *pnIP, uint16 *pnPort );
+STEAMNETWORKINGSOCKETS_INTERFACE HSteamNetConnection SteamAPI_ISteamNetworkingSockets_ConnectByIPv4Address( intptr_t instancePtr, uint32 nIP, uint16 nPort );
+STEAMNETWORKINGSOCKETS_INTERFACE EResult SteamAPI_ISteamNetworkingSockets_AcceptConnection( intptr_t instancePtr, HSteamNetConnection hConn );
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_CloseConnection( intptr_t instancePtr, HSteamNetConnection hPeer, int nReason, const char *pszDebug, bool bEnableLinger );
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_CloseListenSocket( intptr_t instancePtr, HSteamListenSocket hSocket, const char *pszNotifyRemoteReason );
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_SetConnectionUserData( intptr_t instancePtr, HSteamNetConnection hPeer, int64 nUserData );
+STEAMNETWORKINGSOCKETS_INTERFACE int64 SteamAPI_ISteamNetworkingSockets_GetConnectionUserData( intptr_t instancePtr, HSteamNetConnection hPeer );
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_ISteamNetworkingSockets_SetConnectionName( intptr_t instancePtr, HSteamNetConnection hPeer, const char *pszName );
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_GetConnectionName( intptr_t instancePtr, HSteamNetConnection hPeer, char *pszName, int nMaxLen );
+STEAMNETWORKINGSOCKETS_INTERFACE EResult SteamAPI_ISteamNetworkingSockets_SendMessageToConnection( intptr_t instancePtr, HSteamNetConnection hConn, const void *pData, uint32 cbData, ESteamNetworkingSendType eSendType );
+STEAMNETWORKINGSOCKETS_INTERFACE EResult SteamAPI_ISteamNetworkingSockets_FlushMessagesOnConnection( intptr_t instancePtr, HSteamNetConnection hConn );
+STEAMNETWORKINGSOCKETS_INTERFACE int SteamAPI_ISteamNetworkingSockets_ReceiveMessagesOnConnection( intptr_t instancePtr, HSteamNetConnection hConn, SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages ); 
+STEAMNETWORKINGSOCKETS_INTERFACE int SteamAPI_ISteamNetworkingSockets_ReceiveMessagesOnListenSocket( intptr_t instancePtr, HSteamListenSocket hSocket, SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages ); 
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_GetConnectionInfo( intptr_t instancePtr, HSteamNetConnection hConn, SteamNetConnectionInfo_t *pInfo );
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_GetQuickConnectionStatus( intptr_t instancePtr, HSteamNetConnection hConn, SteamNetworkingQuickConnectionStatus *pStats );
+STEAMNETWORKINGSOCKETS_INTERFACE int SteamAPI_ISteamNetworkingSockets_GetDetailedConnectionStatus( intptr_t instancePtr, HSteamNetConnection hConn, char *pszBuf, int cbBuf );
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_GetListenSocketInfo( intptr_t instancePtr, HSteamListenSocket hSocket, uint32 *pnIP, uint16 *pnPort );
 
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamNetworkingSockets_CreateSocketPair( ISteamNetworkingSockets *pInterface, HSteamNetConnection *pOutConnection1, HSteamNetConnection *pOutConnection2, bool bUseNetworkLoopback );
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_CreateSocketPair( intptr_t instancePtr, HSteamNetConnection *pOutConnection1, HSteamNetConnection *pOutConnection2, bool bUseNetworkLoopback );
 
 #ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
 
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamNetworkingSockets_ReceivedRelayAuthTicket( ISteamNetworkingSockets *pInterface, const void *pvTicket, int cbTicket, SteamDatagramRelayAuthTicket *pOutParsedTicket );
-STEAMNETWORKINGSOCKETS_INTERFACE int SteamNetworkingSockets_FindRelayAuthTicketForServer( ISteamNetworkingSockets *pInterface, CSteamID steamID, int nVirtualPort, SteamDatagramRelayAuthTicket *pOutParsedTicket );
-STEAMNETWORKINGSOCKETS_INTERFACE HSteamNetConnection SteamNetworkingSockets_ConnectToHostedDedicatedServer( ISteamNetworkingSockets *pInterface, CSteamID steamIDTarget, int nVirtualPort );
-STEAMNETWORKINGSOCKETS_INTERFACE uint16 SteamNetworkingSockets_GetHostedDedicatedServerListenPort();
-STEAMNETWORKINGSOCKETS_INTERFACE HSteamListenSocket SteamNetworkingSockets_CreateHostedDedicatedServerListenSocket( int nVirtualPort );
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_ReceivedRelayAuthTicket( intptr_t instancePtr, const void *pvTicket, int cbTicket, SteamDatagramRelayAuthTicket *pOutParsedTicket );
+STEAMNETWORKINGSOCKETS_INTERFACE int SteamAPI_ISteamNetworkingSockets_FindRelayAuthTicketForServer( intptr_t instancePtr, CSteamID steamID, int nVirtualPort, SteamDatagramRelayAuthTicket *pOutParsedTicket );
+STEAMNETWORKINGSOCKETS_INTERFACE HSteamNetConnection SteamAPI_ISteamNetworkingSockets_ConnectToHostedDedicatedServer( intptr_t instancePtr, CSteamID steamIDTarget, int nVirtualPort );
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_GetHostedDedicatedServerInfo( intptr_t instancePtr, SteamDatagramServiceNetID *pRouting, SteamNetworkingPOPID *pPopID );
+STEAMNETWORKINGSOCKETS_INTERFACE HSteamListenSocket SteamAPI_ISteamNetworkingSockets_CreateHostedDedicatedServerListenSocket( intptr_t instancePtr, int nVirtualPort );
 
 #endif // #ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
 
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamNetworkingSockets_GetConnectionDebugText( HSteamNetConnection hConn, char *pOut, int nOutCCH );
-STEAMNETWORKINGSOCKETS_INTERFACE int32 SteamNetworkingSockets_GetConfigurationValue( ESteamNetworkingConfigurationValue eConfigValue );
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamNetworkingSockets_SetConfigurationValue( ESteamNetworkingConfigurationValue eConfigValue, int32 nValue );
-STEAMNETWORKINGSOCKETS_INTERFACE const char *SteamNetworkingSockets_GetConfigurationValueName( ESteamNetworkingConfigurationValue eConfigValue );
-STEAMNETWORKINGSOCKETS_INTERFACE int32 SteamNetworkingSockets_GetConfigurationString( ESteamNetworkingConfigurationString eConfigString, char *pDest, int32 destSize );
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamNetworkingSockets_SetConfigurationString( ESteamNetworkingConfigurationString eConfigString, const char *pString );
-STEAMNETWORKINGSOCKETS_INTERFACE const char *SteamNetworkingSockets_GetConfigurationStringName( ESteamNetworkingConfigurationString eConfigString );
-STEAMNETWORKINGSOCKETS_INTERFACE int32 SteamNetworkingSockets_GetConnectionConfigurationValue( HSteamNetConnection hConn, ESteamNetworkingConnectionConfigurationValue eConfigValue );
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamNetworkingSockets_SetConnectionConfigurationValue( HSteamNetConnection hConn, ESteamNetworkingConnectionConfigurationValue eConfigValue, int32 nValue );
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_GetConnectionDebugText( intptr_t instancePtr, HSteamNetConnection hConn, char *pOut, int nOutCCH );
+STEAMNETWORKINGSOCKETS_INTERFACE int32 SteamAPI_ISteamNetworkingSockets_GetConfigurationValue( intptr_t instancePtr, ESteamNetworkingConfigurationValue eConfigValue );
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_SetConfigurationValue( intptr_t instancePtr, ESteamNetworkingConfigurationValue eConfigValue, int32 nValue );
+STEAMNETWORKINGSOCKETS_INTERFACE const char *SteamAPI_ISteamNetworkingSockets_GetConfigurationValueName( intptr_t instancePtr, ESteamNetworkingConfigurationValue eConfigValue );
+STEAMNETWORKINGSOCKETS_INTERFACE int32 SteamAPI_ISteamNetworkingSockets_GetConfigurationString( intptr_t instancePtr, ESteamNetworkingConfigurationString eConfigString, char *pDest, int32 destSize );
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_SetConfigurationString( intptr_t instancePtr, ESteamNetworkingConfigurationString eConfigString, const char *pString );
+STEAMNETWORKINGSOCKETS_INTERFACE const char *SteamAPI_ISteamNetworkingSockets_GetConfigurationStringName( intptr_t instancePtr, ESteamNetworkingConfigurationString eConfigString );
+STEAMNETWORKINGSOCKETS_INTERFACE int32 SteamAPI_ISteamNetworkingSockets_GetConnectionConfigurationValue( intptr_t instancePtr, HSteamNetConnection hConn, ESteamNetworkingConnectionConfigurationValue eConfigValue );
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_SetConnectionConfigurationValue( intptr_t instancePtr, HSteamNetConnection hConn, ESteamNetworkingConnectionConfigurationValue eConfigValue, int32 nValue );
 
+// Temporarily callback dispatch mechanism.  Eventually in Steamworks
+// this function won't exist, the callbacks will be dispatched through the
+// SteamAPI_RunCallbacks method, and this will only be used in the opensource
+// version.
 typedef void (*FSteamNetConnectionStatusChangedCallback)( SteamNetConnectionStatusChangedCallback_t *pInfo, intptr_t context );
-
-STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_RunConnectionStatusChangedCallbacks( ISteamNetworkingSockets *pInterface, FSteamNetConnectionStatusChangedCallback callback, intptr_t context );
+STEAMNETWORKINGSOCKETS_INTERFACE void GameNetworkingSockets_RunConnectionStatusChangedCallbacks( intptr_t instancePtr, FSteamNetConnectionStatusChangedCallback callback, intptr_t context );
 
 }
 

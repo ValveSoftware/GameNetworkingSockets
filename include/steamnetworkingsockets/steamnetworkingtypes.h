@@ -18,6 +18,11 @@
 
 struct SteamNetworkPingLocation_t;
 struct SteamNetworkingMessage_t;
+struct SteamDatagramRelayAuthTicket;
+struct SteamDatagramServiceNetID;
+struct SteamNetConnectionStatusChangedCallback_t;
+struct P2PSessionRequest_t;
+struct P2PSessionConnectFail_t;
 
 /// Handle used to identify a connection to a remote host.
 typedef uint32 HSteamNetConnection;

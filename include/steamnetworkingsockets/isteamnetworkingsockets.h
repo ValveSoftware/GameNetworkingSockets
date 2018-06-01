@@ -20,6 +20,8 @@
 
 #include "steamnetworkingtypes.h"
 
+class ISteamNetworkingSocketsCallbacks;
+
 #ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
 enum { k_iSteamNetworkingCallbacks = 1200 };
 #else
@@ -27,13 +29,6 @@ enum { k_iSteamNetworkingCallbacks = 1200 };
 #include <steam/steam_api.h>
 #include <steam/steam_gameserver.h>
 #endif
-
-struct SteamDatagramRelayAuthTicket;
-struct SteamDatagramServiceNetID;
-class ISteamNetworkingSocketsCallbacks;
-struct SteamNetConnectionStatusChangedCallback_t;
-struct P2PSessionRequest_t;
-struct P2PSessionConnectFail_t;
 
 //-----------------------------------------------------------------------------
 /// Lower level networking interface that more closely mirrors the standard
