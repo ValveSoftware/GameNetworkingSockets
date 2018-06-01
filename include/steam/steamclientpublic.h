@@ -9,6 +9,10 @@
 #ifdef _WIN32
 #pragma once
 #endif
+
+#ifndef __cplusplus
+#include <stdbool.h>
+#endif
 //lint -save -e1931 -e1927 -e1924 -e613 -e726
 
 // This header file defines the interface between the calling application and the code that
@@ -478,7 +482,7 @@ enum ELaunchOptionType
 //-----------------------------------------------------------------------------
 // Purpose: true if this launch option is any of the vr launching types
 //-----------------------------------------------------------------------------
-static inline bool BIsVRLaunchOptionType( const ELaunchOptionType  eType )
+static inline bool BIsVRLaunchOptionType( const enum ELaunchOptionType eType )
 {
 	return eType == k_ELaunchOptionType_OpenVR 
 		|| eType == k_ELaunchOptionType_OpenVROverlay 
@@ -514,7 +518,7 @@ enum EVRHMDType
 //-----------------------------------------------------------------------------
 // Purpose: true if this is from an Oculus HMD
 //-----------------------------------------------------------------------------
-static inline bool BIsOculusHMD( EVRHMDType eType )
+static inline bool BIsOculusHMD( enum EVRHMDType eType )
 {
 	return eType == k_eEVRHMDType_Oculus_DK1 || eType == k_eEVRHMDType_Oculus_DK2 || eType == k_eEVRHMDType_Oculus_Rift || eType == k_eEVRHMDType_Oculus_Unknown;
 }
@@ -523,12 +527,12 @@ static inline bool BIsOculusHMD( EVRHMDType eType )
 //-----------------------------------------------------------------------------
 // Purpose: true if this is from an Vive HMD
 //-----------------------------------------------------------------------------
-static inline bool BIsViveHMD( EVRHMDType eType )
+static inline bool BIsViveHMD( enum EVRHMDType eType )
 {
 	return eType == k_eEVRHMDType_HTC_Dev || eType == k_eEVRHMDType_HTC_VivePre || eType == k_eEVRHMDType_HTC_Vive || eType == k_eEVRHMDType_HTC_Unknown;
 }
 
-
+#ifdef __cplusplus
 #pragma pack( push, 1 )
 
 #define CSTEAMID_DEFINED
@@ -1217,6 +1221,7 @@ private:
 };
 
 #pragma pack( pop )
+#endif
 
 const int k_cchGameExtraInfoMax = 64;
 

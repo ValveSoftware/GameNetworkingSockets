@@ -17,7 +17,6 @@
 #pragma pack( push, 8 )
 
 struct SteamNetworkPingLocation_t;
-struct SteamNetworkingMessage_t;
 struct SteamDatagramRelayAuthTicket;
 struct SteamDatagramServiceNetID;
 struct SteamNetConnectionStatusChangedCallback_t;
@@ -212,13 +211,14 @@ inline SteamNetworkingPOPID CalculateSteamNetworkingPOPIDFromString( const char 
 	// this nontrivial, and there are already some IDs stored in SQL.  Ug, so the 4 character code "abcd" will
 	// be encoded with the digits like "0xddaabbcc"
 	return
-		( uint32(pszCode[3]) << 24U ) 
-		| ( uint32(pszCode[0]) << 16U ) 
-		| ( uint32(pszCode[1]) << 8U )
-		| uint32(pszCode[2]);
+		( (uint32)(pszCode[3]) << 24U ) 
+		| ((uint32)(pszCode[0]) << 16U ) 
+		| ((uint32)(pszCode[1]) << 8U )
+		| (uint32)(pszCode[2]);
 }
 
 /// Unpack integer to string representation, including terminating '\0'
+#ifdef __cplusplus
 template <int N>
 inline void GetSteamNetworkingLocationPOPStringFromID( SteamNetworkingPOPID id, char (&szCode)[N] )
 {
@@ -229,6 +229,7 @@ inline void GetSteamNetworkingLocationPOPStringFromID( SteamNetworkingPOPID id, 
 	szCode[3] = ( id >> 24U ); // See comment above about deep regret and sadness
 	szCode[4] = 0;
 }
+#endif
 
 /// A local timestamp.  You can subtract two timestamps to get the number of elapsed
 /// microseconds.  This is guaranteed to increase over time during the lifetime
@@ -243,7 +244,7 @@ typedef int64 SteamNetworkingMicroseconds;
 const int k_cbMaxSteamNetworkingSocketsMessageSizeSend = 512 * 1024;
 
 /// Message that has been received
-struct SteamNetworkingMessage_t
+typedef struct _SteamNetworkingMessage_t
 {
 
 	/// SteamID that sent this to us.
@@ -272,7 +273,7 @@ struct SteamNetworkingMessage_t
 
 	/// Function used to clean up this object.  Normally you won't call
 	/// this directly, use Release() instead.
-	void (*m_pfnRelease)( SteamNetworkingMessage_t *msg );
+	void (*m_pfnRelease)( struct _SteamNetworkingMessage_t *msg );
 
 	/// Message payload
 	void *m_pData;
@@ -309,7 +310,7 @@ struct SteamNetworkingMessage_t
 		inline SteamNetworkingMicroseconds GetTimeReceived() const { return m_usecTimeReceived; }
 		inline int64 GetMessageNumber() const { return m_nMessageNumber; }
 	#endif
-};
+} SteamNetworkingMessage_t;
 
 // For code compatibility
 typedef SteamNetworkingMessage_t ISteamNetworkingMessage;
