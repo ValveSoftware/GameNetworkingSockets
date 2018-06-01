@@ -118,9 +118,9 @@ STEAMNETWORKINGSOCKETS_INTERFACE HSteamNetConnection SteamNetworkingSockets_Conn
 	return pInterface->ConnectToHostedDedicatedServer( steamIDTarget, nVirtualPort );
 }
 
-STEAMNETWORKINGSOCKETS_INTERFACE uint16 SteamNetworkingSockets_GetHostedDedicatedServerListenPort()
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamNetworkingSockets_GetHostedDedicatedServerInfo( SteamDatagramServiceNetID *pRouting, SteamNetworkingPOPID *pPopID )
 {
-	return SteamNetworkingSocketsGameServer()->GetHostedDedicatedServerListenPort();
+	return SteamNetworkingSocketsGameServer()->GetHostedDedicatedServerInfo( pRouting, pPopID );
 }
 
 STEAMNETWORKINGSOCKETS_INTERFACE HSteamListenSocket SteamNetworkingSockets_CreateHostedDedicatedServerListenSocket( int nVirtualPort )

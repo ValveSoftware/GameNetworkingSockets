@@ -11,6 +11,7 @@
 #include "steamnetworkingsockets_connections.h"
 
 class CMsgSteamDatagramP2PRendezvous;
+struct SteamDatagramServiceNetID;
 
 namespace SteamNetworkingSocketsLib {
 
@@ -199,7 +200,7 @@ public:
 	virtual bool ReceivedRelayAuthTicket( const void *pvTicket, int cbTicket, SteamDatagramRelayAuthTicket *pOutParsedTicket ) OVERRIDE;
 	virtual int FindRelayAuthTicketForServer( CSteamID steamID, int nVirtualPort, SteamDatagramRelayAuthTicket *pOutParsedTicket ) OVERRIDE;
 	virtual HSteamNetConnection ConnectToHostedDedicatedServer( CSteamID steamIDTarget, int nVirtualPort ) OVERRIDE;
-	virtual uint16 GetHostedDedicatedServerListenPort() OVERRIDE;
+	virtual bool GetHostedDedicatedServerInfo( SteamDatagramServiceNetID *pRouting, SteamNetworkingPOPID *pPopID ) OVERRIDE;
 	virtual HSteamListenSocket CreateHostedDedicatedServerListenSocket( int nVirtualPort ) OVERRIDE;
 #endif
 

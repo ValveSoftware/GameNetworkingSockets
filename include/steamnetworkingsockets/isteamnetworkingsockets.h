@@ -29,6 +29,7 @@ enum { k_iSteamNetworkingCallbacks = 1200 };
 #endif
 
 struct SteamDatagramRelayAuthTicket;
+struct SteamDatagramServiceNetID;
 class ISteamNetworkingSocketsCallbacks;
 struct SteamNetConnectionStatusChangedCallback_t;
 struct P2PSessionRequest_t;
@@ -303,25 +304,35 @@ public:
 	///
 	/// You may wonder why tickets are stored in a cache, instead of simply being passed as an argument
 	/// here.  The reason is to make reconnection to a gameserver robust, even if the client computer loses
-	/// connection to Steam or the central backend, or the app is restarted or creashes, etc.
+	/// connection to Steam or the central backend, or the app is restarted or crashes, etc.
 	virtual HSteamNetConnection ConnectToHostedDedicatedServer( CSteamID steamIDTarget, int nVirtualPort ) = 0;
 
 	//
 	// Servers hosted in Valve data centers
 	//
 
-	/// Return the port that we are configured to listen on, or 0 if we are not running in
-	/// a Valve data center with an SDR port assignment.
+	/// Return info about the hosted server.  You will need to send this information to your
+	/// backend, and put it in tickets, so that the relays will know how to forward traffic from
+	/// clients to your server.  See SteamDatagramRelayAuthTicket for more info.
 	///
-	/// NOTE: this just returns the value of the environment variable SDR_LISTEN_PORT,
-	///       so you can simulate a server running in a Valve data server by launching the process
-	///       with this environment variable set.
-	virtual uint16 GetHostedDedicatedServerListenPort() = 0;
+	/// NOTE ABOUT DEVELOPMENT ENVIRONMENTS:
+	/// In production in our data centers, these parameters are configured via environment variables.
+	/// In development, the only one you need to set is SDR_LISTEN_PORT, which is the local port you
+	/// want to listen on.  Furthermore, if you are running your server behind a corporate firewall,
+	/// you probably will not be able to put the routing information returned by this function into
+	/// tickets.   Instead, it should be a public internet address that the relays can use to send
+	/// data to your server.  So you might just end up hardcoding a public address and setup port
+	/// forwarding on your corporate firewall.  In that case, the port you put into the ticket
+	/// needs to be the public-facing port opened on your firewall, if it is different from the
+	/// actual server port.  In a development environment, the POPID will be zero, and that's OK
+	/// and what you should put into the ticket.
+	///
+	/// Returns false if the SDR_LISTEN_PORT environment variable is not set.
+	virtual bool GetHostedDedicatedServerInfo( SteamDatagramServiceNetID *pRouting, SteamNetworkingPOPID *pPopID ) = 0;
 
 	/// Create a listen socket on the specified virtual port.  The physical UDP port to use
-	/// will be determined by the SDR_LISTEN_PORT environment variable, e.g. the return value of
-	/// GetHostedDedicatedServerListenPort().  If a UDP port is not configured, this call will
-	/// fail.
+	/// will be determined by the SDR_LISTEN_PORT environment variable.  If a UDP port is not
+	/// configured, this call will fail.
 	///
 	/// Note that this call MUST be made through the SteamNetworkingSocketsGameServer() interface
 	virtual HSteamListenSocket CreateHostedDedicatedServerListenSocket( int nVirtualPort ) = 0;
