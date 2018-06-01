@@ -111,7 +111,9 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 
 	## Needs CMake 3.8, then we could get rid of the workaround below it.
 	#target_compile_features(${GNS_TARGET} PUBLIC c_std_99 cxx_std_11)
-	target_compile_features(${GNS_TARGET} PUBLIC ${C99_FEATURES} ${CXX11_FEATURES})
+	if(NOT CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
+		target_compile_features(${GNS_TARGET} PUBLIC ${C99_FEATURES} ${CXX11_FEATURES})
+	endif()
 
 	if(CMAKE_CXX_COMPILER_ID MATCHES "GNU"
 	OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
@@ -149,9 +151,18 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 				_ITERATOR_DEBUG_LEVEL=0
 				PROTOBUF_USE_DLLS
 			)
+			get_target_property(TARGET_TYPE ${GNS_TARGET} TYPE)
 			target_compile_options(${GNS_TARGET} PRIVATE
-				/wd4146 # include/google/protobuf/wire_format_lite.h(863): warning C4146: unary minus operator applied to unsigned type, result still unsigned
+				/EHs-c-   # Disable C++ exceptions
+				/GR-      # Disable RTTI
+				/wd4146   # include/google/protobuf/wire_format_lite.h(863): warning C4146: unary minus operator applied to unsigned type, result still unsigned
 			)
+			if(NOT TARGET_TYPE STREQUAL STATIC_LIBRARY)
+				target_compile_options(${GNS_TARGET} PRIVATE
+					/GL       # Enable link-time code generation
+				)
+				set_target_properties(${GNS_TARGET} PROPERTIES LINK_FLAGS "/LTCG /SUBSYSTEM:WINDOWS")
+			endif()
 		else()
 			target_compile_definitions(${GNS_TARGET} PRIVATE
 				__STDC_FORMAT_MACROS=1
@@ -165,7 +176,7 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 	endif()
 
 	if(NOT CMAKE_SYSTEM_NAME MATCHES Windows)
-	target_compile_options(${GNS_TARGET} PRIVATE -fstack-protector-strong)
+		target_compile_options(${GNS_TARGET} PRIVATE -fstack-protector-strong)
 	endif()
 
 	if(CMAKE_CXX_COMPILER_ID MATCHES "GNU"
