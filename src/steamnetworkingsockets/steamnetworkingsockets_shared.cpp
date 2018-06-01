@@ -846,9 +846,9 @@ void LinkStatsTracker::GetLinkStats( SteamDatagramLinkStats &s, SteamNetworkingM
 	}
 }
 
-void LinkStatsTrackerEndToEnd::Init( SteamNetworkingMicroseconds usecNow )
+void LinkStatsTrackerEndToEnd::Init( SteamNetworkingMicroseconds usecNow, bool bStartDisconnected )
 {
-	InitBaseLinkStatsTracker( usecNow, false );
+	InitBaseLinkStatsTracker( usecNow, bStartDisconnected );
 
 	m_TXSpeedSample.Clear();
 	m_nTXSpeed = 0;

@@ -546,7 +546,7 @@ bool CSteamNetworkConnectionBase::BInitConnection( uint32 nPeerProtocolVersion, 
 
 	m_eEndReason = k_ESteamNetConnectionEnd_Invalid;
 	m_szEndDebug[0] = '\0';
-	m_statsEndToEnd.Init( usecNow );
+	m_statsEndToEnd.Init( usecNow, true ); // Until we go connected don't try to send acks, etc
 	m_statsEndToEnd.m_nPeerProtocolVersion = nPeerProtocolVersion;
 
 	// Make sure our cheesy make-unique-handle system doesn't overflow
@@ -1470,20 +1470,33 @@ void CSteamNetworkConnectionBase::ConnectionStateChanged( ESteamNetworkingConnec
 
 			// Clear out any secret state, since we can't use it anymore anyway.
 			ClearCrypto();
+
+			// And let stats tracking system know that it shouldn't
+			// expect to be able to get stuff acked, etc
+			m_statsEndToEnd.SetDisconnected( true, m_usecWhenEnteredConnectionState );
 			break;
 
 		case k_ESteamNetworkingConnectionState_Linger:
+			// Don't bother trading stats back and forth with peer,
+			// the only message we will send to them is "connection has been closed"
+			m_statsEndToEnd.SetDisconnected( true, m_usecWhenEnteredConnectionState );
+			break;
+
 		case k_ESteamNetworkingConnectionState_Connected:
 		case k_ESteamNetworkingConnectionState_FindingRoute:
 
 			// Key exchange should be complete
 			Assert( m_bCryptKeysValid );
+			m_statsEndToEnd.SetDisconnected( false, m_usecWhenEnteredConnectionState );
 			break;
 
 		case k_ESteamNetworkingConnectionState_Connecting:
 
 			// If we've completed key exchange, then we should be connected
 			Assert( !m_bCryptKeysValid );
+
+			// And we shouldn't mark stats object as ready until we go connecteded
+			Assert( m_statsEndToEnd.IsDisconnected() );
 			break;
 	}
 }

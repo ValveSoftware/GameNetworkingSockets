@@ -796,7 +796,7 @@ struct LinkStatsTrackerEndToEnd : public LinkStatsTracker
 {
 
 	// LinkStatsTracker "overrides"
-	void Init( SteamNetworkingMicroseconds usecNow );
+	void Init( SteamNetworkingMicroseconds usecNow, bool bStartDisconnected = false );
 	void Think( SteamNetworkingMicroseconds usecNow );
 	virtual void GetLifetimeStats( SteamDatagramLinkLifetimeStats &s ) const OVERRIDE;
 
