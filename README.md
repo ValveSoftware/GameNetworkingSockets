@@ -17,9 +17,6 @@ GameNetworkingSockets is a basic transport layer for games.  The features are:
   the status of every packet number (whether or not a packet was received
   with that number).  By remembering what segments were sent in each packet,
   the sender can deduce which individual segments need to be retransmitted.
-* Bandwidth estimation based on TCP-friendly rate control (RFC 5348)
-  **NOTE: TEMPORARILY BROKEN** As part of the rewrite of the reliability rewrite
-  in this branch, this is broken.  A fixed (configurable) rate is used.
 * Encryption. AES per packet, Ed25519 crypto for key exchange and cert
   signatures. The details for shared key derivation and per-packet IV are
   based on the [design](https://docs.google.com/document/d/1g5nIXAIkN_Y-7XJW5K45IblHd_L2f5LTaDUDwvZ5L6g/edit?usp=sharing)
@@ -235,12 +232,18 @@ toolchain and making everything more open-source friendly.  Bear with us.
 ## Roadmap
 Here are some areas we're actively working on improving.
 
-### Bandwidth estimation temporarily broken
-As part of the reliability layer rewrite, bandwidth estimation is temporarily
-broken, and a fixed (configurable) rate is used.  This is because the new ack
-model allows the sender to know packet-by-packet which were delivered and
-dropped, and thus the TCP-friendly rate calculations can be done by the sender,
-instead of by the receiver.  The RFC mentions this possibility.
+### Bandwidth estimation
+An earlier version of this code implemented TCP-friendly rate control (RFC 5348)
+But as part of the reliability layer rewrite, bandwidth estimation has been
+temporarily broken, and a fixed (configurable) rate is used.  It's not clear
+if it's worth the complexity of implementation and testing to get sender-calculated
+TCP-friendly rate control implemented, or a simpler method would do just as good.
+Whatever method we use, needs to work even if the app code inspects the state and
+decides not to send a message.  In this case, the bandwidth estimation logic might
+perceive that the channel is not "data-limited", when it essentially is.  We could
+add an entry point to allow the application to express this, but this is getting
+complicted, making it more difficult for app code to do the right thing.  It'd
+be better if it mostly "just worked" when app code does the simple thing.
 
 ### Use of STL causing more dynamic memory allocations than necessary
 There are a few STL maps and such that could be significantly optimized
