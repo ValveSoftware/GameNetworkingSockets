@@ -330,7 +330,7 @@ typedef SteamNetworkingMessage_t ISteamNetworkingMessage;
 /// ISteamNetworkingUtils().
 struct SteamNetworkPingLocation_t
 {
-	uint8 m_data[ 144 ];
+	uint8 m_data[ 256 ];
 };
 
 /// Max possible length of a ping location, in string format.  This is quite
