@@ -430,6 +430,13 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamDatagramServer_Kill( );
 #endif
 
 /// Callback struct used to notify when a connection has changed state
+#if defined( VALVE_CALLBACK_PACK_SMALL )
+#pragma pack( push, 4 )
+#elif defined( VALVE_CALLBACK_PACK_LARGE )
+#pragma pack( push, 8 )
+#else
+#error "Must define VALVE_CALLBACK_PACK_SMALL or VALVE_CALLBACK_PACK_LARGE"
+#endif
 struct SteamNetConnectionStatusChangedCallback_t
 { 
 	enum { k_iCallback = k_iSteamNetworkingCallbacks + 9 }; // Pretty sure this ID is available.  It will probably change later
@@ -437,6 +444,7 @@ struct SteamNetConnectionStatusChangedCallback_t
 	SteamNetConnectionInfo_t m_info;	//< Full connection info
 	int m_eOldState;					//< ESNetSocketState.  (Current stats is in m_info)
 };
+#pragma pack( pop )
 
 /// TEMP callback dispatch mechanism.
 /// You'll override this guy and hook any callbacks you are interested in,

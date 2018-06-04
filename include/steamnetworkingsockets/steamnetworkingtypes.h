@@ -11,10 +11,16 @@
 #endif
 
 #include "steamnetworkingsockets_config.h"
-#include "steam/steamtypes.h"
-#include "steam/steamclientpublic.h"
+#include <steam/steamtypes.h>
+#include <steam/steamclientpublic.h>
 
+#if defined( VALVE_CALLBACK_PACK_SMALL )
+#pragma pack( push, 4 )
+#elif defined( VALVE_CALLBACK_PACK_LARGE )
 #pragma pack( push, 8 )
+#else
+#error "Must define VALVE_CALLBACK_PACK_SMALL or VALVE_CALLBACK_PACK_LARGE"
+#endif
 
 struct SteamNetworkPingLocation_t;
 struct SteamDatagramRelayAuthTicket;
