@@ -40,9 +40,9 @@ executable('test_connection',
   cpp_args: cxx_flags
 )
 
-incdirs = include_directories('../include')
-executable('test_flat',
-  'test_flat.c',
-  dependence: dependencies,
-  include_directories: incdirs
-)
+#incdirs = include_directories('../include')
+#executable('test_flat',
+#  'test_flat.c',
+#  dependence: dependencies,
+#  include_directories: incdirs
+#)
