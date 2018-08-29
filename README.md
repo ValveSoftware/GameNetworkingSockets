@@ -130,7 +130,7 @@ protobuf yourself. The process we used is something like this:
 ```
 C:\dev> git clone https://github.com/google/protobuf
 C:\dev> cd protobuf
-C:\dev\protobuf> git checkout -t origin/3.5.x
+C:\dev\protobuf> git checkout -t origin/3.6.x
 C:\dev\protobuf> mkdir cmake_build
 C:\dev\protobuf> cd cmake_build
 C:\dev\protobuf\cmake_build> vcvarsall amd64
