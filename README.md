@@ -65,9 +65,9 @@ properly or you see a security or performance issue, please let us know.
 
 ### Dependencies
 
-* CMake or Meson, and build tool like Ninja, GNU Make or Visual Studio
-* OpenSSL
-* Google protobuf
+* CMake or Meson, and build tool like Ninja, GNU Make or Visual Studio.
+* OpenSSL.
+* Google protobuf.
 * ed25519-donna and curve25519-donna.  We've made some minor changes, so the
   source is included in this project.
 
