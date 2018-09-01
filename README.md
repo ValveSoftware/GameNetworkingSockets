@@ -3,9 +3,9 @@ GameNetworkingSockets
 
 GameNetworkingSockets is a basic transport layer for games.  The features are:
 
-* Connection-oriented API (like TCP)
-* ... but message-oriented (like UDP), not stream-oriented.
-* Supports both reliable and unreliable message types
+* Connection-oriented API (like TCP).
+* Message-oriented (like UDP), not stream-oriented.
+* Supports both reliable and unreliable message types.
 * Messages can be larger than underlying MTU.  The protocol performs
   fragmentation, reassembly, and retransmission for reliable messages.
 * An [ack model](src/steamnetworkingsockets/clientlib/SNP_WIRE_FORMAT.md)
@@ -21,12 +21,12 @@ GameNetworkingSockets is a basic transport layer for games.  The features are:
   signatures. The details for shared key derivation and per-packet IV are
   based on the [design](https://docs.google.com/document/d/1g5nIXAIkN_Y-7XJW5K45IblHd_L2f5LTaDUDwvZ5L6g/edit?usp=sharing)
   used by Google's QUIC protocol.
-* Tools for simulating loss and detailed stats measurement
+* Tools for simulating loss and detailed stats measurement.
 
 What it does *not* do:
 
-* Higher level serialization of entities, delta encoding of changed state variables, etc
-* Compression
+* Higher level serialization of entities, delta encoding of changed state variables, etc.
+* Compression.
 
 ### Why do I see "Steam" everywhere?
 
@@ -34,7 +34,7 @@ The main interface class is named SteamNetworkingSockets, and many files have
 "steam" in their name.  But *Steam is not needed*.  If you don't make games or
 aren't on Steam, feel free to use this code for whatever purpose you want.
 
-The reason for "Steam" in the names is that this provides a subset of the
+The reason for "Steam" being in the names of files is that this provides a subset of the
 functionality of the API with the same name in the Steamworks SDK.  Our main
 reason for releasing this code is so that developers won't have any hesitation
 coding to the API in the Steamworks SDK.  On Steam, you will link against the
@@ -168,7 +168,7 @@ You can also build this project on [MSYS2](https://www.msys2.org). First,
 follow the [instructions](https://github.com/msys2/msys2/wiki/MSYS2-installation) on the
 MSYS2 website for updating your MSYS2 install.
 
-Next install the dependencies for building GameNetworkingSockets (if you want
+Next, install the dependencies for building GameNetworkingSockets (if you want
 a 32-bit build, install the i686 versions of these packages):
 
 ```
@@ -250,7 +250,7 @@ There are a few STL maps and such that could be significantly optimized
 by the use of custom data structures or allocators.
 
 ### Abstract SteamIDs to generic "identity"
-We'd like to generalize the concept of an identity.  Basically anywhere you see
+We'd like to generalize the concept of an identity.  Basically, anywhere you see
 CSteamID, it would be good to enable the use of a more generic identity
 structure.
 
