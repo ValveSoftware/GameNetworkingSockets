@@ -1774,9 +1774,12 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 				if ( m_eConnectionState != k_ESteamNetworkingConnectionState_FindingRoute && m_pParentListenSocket )
 				{
 					AssertMsg( false, "Application didn't accept or close incoming connection in a reasonable amount of time.  This is probably a bug." );
+					ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_Timeout, "%s", "App didn't accept or close incoming connection in time." );
 				}
-
-				ConnectionTimedOut( usecNow );
+				else
+				{
+					ConnectionTimedOut( usecNow );
+				}
 				AssertMsg( GetState() == k_ESteamNetworkingConnectionState_ProblemDetectedLocally, "ConnectionTimedOut didn't do what it is supposed to!" );
 				return;
 			}

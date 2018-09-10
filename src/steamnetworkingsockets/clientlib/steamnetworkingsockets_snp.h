@@ -485,10 +485,6 @@ struct SSNPReceiverState
 	/// comes along (piggy on top of outbound data packet) to do this.
 	SteamNetworkingMicroseconds m_usecWhenFlushAck = INT64_MAX;
 
-	inline void SentAcks()
-	{
-		m_usecWhenFlushAck = INT64_MAX;
-	}
 	inline void MarkNeedToSendAck( SteamNetworkingMicroseconds usecNow )
 	{
 		m_usecWhenFlushAck = std::min( m_usecWhenFlushAck, usecNow + k_usecMaxDataAckDelay );

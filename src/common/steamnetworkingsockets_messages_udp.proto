@@ -158,7 +158,7 @@ message CMsgSteamSockets_UDP_Stats
 	/// Upper 16 bits is the sequence number, lower is the delay
 	///
 	/// Note that we really need to integrate this better with the SNP acks/nacks.
-	repeated fixed32 ack_e2e = 2;
+	//repeated fixed32 ack_e2e = 2;
 
 	enum Flags
 	{

@@ -184,6 +184,7 @@ ISteamUser *g_pSteamUser;
 ISteamGameServer *g_pSteamGameServer;
 
 int g_iPartnerMask = -1;
+std::string g_sLauncherPartner = "valve";
 
 static FSteamAPI_RegisterCallback s_fnRegisterCallback;
 static FSteamAPI_UnregisterCallback s_fnUnregisterCallback;
@@ -294,12 +295,13 @@ bool CSteamNetworkingSockets::BInit( ISteamClient *pClient, HSteamUser hSteamUse
 	}
 	g_eUniverse = m_pSteamUtils->GetConnectedUniverse();
 
-	m_pSteamNetworkingSocketsSerialized = (ISteamNetworkingSocketsSerialized*)pClient->GetISteamGenericInterface( hSteamUser, hSteamPipe, STEAMNETWORKINGSOCKETSSERIALIZED_INTERFACE_VERSION );
+	m_pSteamNetworkingSocketsSerialized = (ISteamNetworkingSocketsSerialized002*)pClient->GetISteamGenericInterface( hSteamUser, hSteamPipe, "SteamNetworkingSocketsSerialized002" );
 	if ( !m_pSteamNetworkingSocketsSerialized )
 	{
-		V_sprintf_safe( errMsg, "Can't get steam interface '%s'", STEAMNETWORKINGSOCKETSSERIALIZED_INTERFACE_VERSION );
+		V_sprintf_safe( errMsg, "Can't get steam interface '%s'", "SteamNetworkingSocketsSerialized002" );
 		return false;
 	}
+	m_pSteamNetworkingSocketsSerializedV3 = (ISteamNetworkingSocketsSerialized*)pClient->GetISteamGenericInterface( hSteamUser, hSteamPipe, STEAMNETWORKINGSOCKETSSERIALIZED_INTERFACE_VERSION );
 
 	m_nAppID = m_pSteamUtils->GetAppID();
 
@@ -319,6 +321,7 @@ bool CSteamNetworkingSockets::BInit( ISteamClient *pClient, HSteamUser hSteamUse
 	}
 
 	// Cache our SteamID, if we're online
+	m_steamID.Clear();
 	GetSteamID();
 
 	m_bInitted = true;
@@ -338,6 +341,7 @@ void CSteamNetworkingSockets::Kill()
 	CSteamNetworkingSocketsCallback<SteamNetworkingSocketsRecvP2PFailure_t>::Unregister();
 	CSteamNetworkingSocketsCallback<SteamNetworkingSocketsConfigUpdated_t>::Unregister();
 	m_pSteamNetworkingSocketsSerialized = nullptr;
+	m_pSteamNetworkingSocketsSerializedV3 = nullptr;
 	m_pSteamUtils = nullptr;
 #endif
 
@@ -367,9 +371,20 @@ void CSteamNetworkingSockets::Kill()
 		idx = idxNext;
 	}
 
-#ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
-	SDRClientKill();
-#endif
+	// Kill relayed connection support
+	#ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
+		SDRClientKill();
+	#endif
+
+	// Clear identity and crypto stuff.
+	// If we are re-initialized, we might get new ones
+	#ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
+		m_steamID.Clear();
+		m_eLogonStatus = k_ELogonStatus_InitialConnecting;
+	#endif
+	m_msgSignedCert.Clear();
+	m_msgCert.Clear();
+	m_keyPrivateKey.Wipe();
 
 	// Mark us as no longer being setup
 	if ( m_bInitted )
@@ -1063,34 +1078,17 @@ bool CSteamNetworkingSockets::SetCertificate( const void *pCert, int cbCert, voi
 	return true;
 }
 
-inline bool IsPrivateIP( uint32 unIP )
-{
-	// RFC 1918
-	if ( ( unIP & 0xff000000 ) == netadr_t("10.0.0.0").GetIP() )
-		return true;
-	if ( ( unIP & 0xfff00000 ) == netadr_t("172.16.0.0").GetIP() )
-		return true;
-	if ( ( unIP & 0xffff0000 ) == netadr_t("192.168.0.0").GetIP() )
-		return true;
-	return false;
-}
-
-static uint16 s_nHostedDedicatedServerPort;
 static SteamNetworkingPOPID s_nHostedDedicatedServerPOPID;
-static uint32 s_nHostedDedicatedServerIP;
+static SteamDatagramHostedAddress s_HostedDedicatedServerRouting;
 
-bool CSteamNetworkingSockets::GetHostedDedicatedServerInfo( SteamDatagramServiceNetID *pRouting, SteamNetworkingPOPID *pPopID )
+uint16 CSteamNetworkingSockets::GetHostedDedicatedServerPort()
 {
-	if ( !m_bGameServer )
+	SteamDatagramTransportLock scopeLock;
+	static int s_nHostedDedicatedServerPort = -1;
+	if ( s_nHostedDedicatedServerPort < 0 )
 	{
-		AssertMsg( false, "GetHostedDedicatedServerInfo should be called thorugh a gameserver's ISteamSocketNetworking" );
-		return false;
-	}
 
-	static bool bOnce = false;
-	if ( !bOnce  )
-	{
-		bOnce = true;
+		s_nHostedDedicatedServerPort = 0;
 
 		// Check if we are a hosted dedicated server
 		const char *SDR_LISTEN_PORT = getenv( "SDR_LISTEN_PORT" );
@@ -1107,106 +1105,38 @@ bool CSteamNetworkingSockets::GetHostedDedicatedServerInfo( SteamDatagramService
 			SpewMsg( "SDR_POPID = '%s'\n", SDR_POPID );
 			s_nHostedDedicatedServerPOPID = CalculateSteamNetworkingPOPIDFromString( SDR_POPID );
 		}
-
-		//
-		// Deduce public IP
-		//
-		if ( s_nHostedDedicatedServerPort )
-		{
-
-			// Try to deduce our IP
-			// Set via environment variable?
-			const char *SDR_IP = getenv( "SDR_IP" );
-			if ( SDR_IP )
-			{
-				SpewMsg( "SDR_IP = '%s'\n", SDR_IP );
-				netadr_t adr;
-				if ( !adr.SetFromString( SDR_IP ) )
-					Plat_FatalError( "SDR_IP='%s', which isn't a valid IP address", SDR_IP );
-				s_nHostedDedicatedServerIP = adr.GetIP();
-			}
-			else
-			{
-
-				// Get list of IP addresses
-				CUtlVector<netadr_t> vecIPs;
-
-				// On linux, use getifaddr, so it doesn't matter how they have DNS resolved.  Basically
-				// we want to make sure we don't end up resolving our own hostname back to the loopback.
-				#ifdef LINUX
-					ifaddrs *pMyAddrInfo = NULL;
-					int r = getifaddrs( &pMyAddrInfo );
-					if ( r != 0 )
-						Plat_FatalError( "getifaddrs() failed, returned %d",  r );
-					for ( ifaddrs *pAddr = pMyAddrInfo ; pAddr ; pAddr = pAddr->ifa_next )
-					{
-						if ( ( pAddr->ifa_flags & IFF_LOOPBACK ) != 0 || !pAddr->ifa_addr )
-							continue;
-						netadr_t adr;
-						if ( !adr.SetFromSockadr( pAddr->ifa_addr ) )
-							continue;
-						vecIPs.AddToTail( adr );
-					}
-					freeifaddrs( pMyAddrInfo );
-				#elif defined(WIN32)
-
-					// On Windows resolve our hostname.
-					char szHostName[ 256 ];
-					if ( gethostname( szHostName, sizeof(szHostName) ) != 0 )
-						Plat_FatalError( "gethostname failed, error code 0x%x",  GetLastSocketError() );
-					addrinfo *pMyAddrInfo = NULL;
-					int r = getaddrinfo( szHostName, NULL, NULL, &pMyAddrInfo );
-					if ( r != 0 )
-						Plat_FatalError( "getaddrinfo(%s) failed, returned %d",  szHostName, r );
-					for ( addrinfo *pAddr = pMyAddrInfo ; pAddr ; pAddr = pAddr->ai_next )
-					{
-						if ( pAddr->ai_family != AF_INET || !pAddr->ai_addr )
-							continue;
-						netadr_t adr;
-						if ( !adr.SetFromSockadr( pAddr->ai_addr ) )
-							continue;
-						vecIPs.AddToTail( adr );
-					}
-					freeaddrinfo( pMyAddrInfo );
-				#endif
-
-				// Scan list of IPs.  If we have a single public-IP, then we're probably good
-				for ( netadr_t adr: vecIPs )
-				{
-					uint32 nCheckIP = adr.GetIP();
-					if ( !IsPrivateIP( nCheckIP ) || ( g_eUniverse == k_EUniverseBeta && ( nCheckIP >> 24U ) == 172 ) ) // Allow 172.x.x.x.x address to count as "public" on beta universe
-					{
-						if ( s_nHostedDedicatedServerIP )
-							SpewWarning( "Host is configured with multiple public IPs.  Using %s; ignoring %s\n", CUtlNetAdrRender( s_nHostedDedicatedServerIP ).String(), CUtlNetAdrRender( nCheckIP ).String() );
-						else
-							s_nHostedDedicatedServerIP = nCheckIP;
-					}
-				}
-				if ( s_nHostedDedicatedServerIP == 0 )
-				{
-					if ( SDR_POPID )
-						Plat_FatalError( "Cannot deduce public IP." );
-					SpewWarning( "Unable to deduce server's public IP.  If you are running the server behind a firewall, you'll need to supply the public IP:port that will be forwarded to this server in the SDR ticket.\n" );
-				}
-				else
-				{
-					SpewMsg( "%s appears to be SDR public address.\n", CUtlNetAdrRender( s_nHostedDedicatedServerIP, s_nHostedDedicatedServerPort ).String() );
-				}
-			}
-		}
 	}
 
-	if ( s_nHostedDedicatedServerPort == 0 )
-		return false;
-	if ( pRouting )
+	return s_nHostedDedicatedServerPort;
+}
+
+SteamNetworkingPOPID CSteamNetworkingSockets::GetHostedDedicatedServerPOPID()
+{
+	GetHostedDedicatedServerPort();
+	return s_nHostedDedicatedServerPOPID;
+}
+
+bool CSteamNetworkingSockets::GetHostedDedicatedServerAddress( SteamDatagramHostedAddress *pRouting )
+{
+	if ( !m_bGameServer )
 	{
-		pRouting->Clear();
-		pRouting->m_unPort = s_nHostedDedicatedServerPort;
-		pRouting->m_unIP = s_nHostedDedicatedServerIP;
+		AssertMsg( false, "GetHostedDedicatedServerAddress should be called thorugh a gameserver's ISteamSocketNetworking" );
+		return false;
 	}
 
-	if ( pPopID )
-		*pPopID = s_nHostedDedicatedServerPOPID;
+	if ( !m_bInitted )
+	{
+		AssertMsg( false, "GetHostedDedicatedServerAddress should not be called before calling SteamDatagramServer_Init." );
+		return false;
+	}
+
+	// Make sure we're listening
+	if ( GetHostedDedicatedServerPort() == 0 )
+		return false;
+
+	// Return routing to them
+	if ( pRouting )
+		*pRouting = s_HostedDedicatedServerRouting;
 
 	return true;
 }
@@ -1219,8 +1149,8 @@ HSteamListenSocket CSteamNetworkingSockets::CreateHostedDedicatedServerListenSoc
 		AssertMsg( false, "CreateHostedDedicatedServerListenSocket should be called thorugh a gameserver's ISteamSocketNetworking" );
 		return k_HSteamListenSocket_Invalid;
 	}
-	SteamDatagramServiceNetID routing;
-	if ( !GetHostedDedicatedServerInfo( &routing, nullptr ) )
+	uint16 nPort = GetHostedDedicatedServerPort();
+	if ( nPort == 0 )
 	{
 		AssertMsg( false, "SDR_LISTEN_PORT not set, should not call CreateHostedDedicatedServerListenSocket" );
 		return k_HSteamListenSocket_Invalid;
@@ -1229,14 +1159,14 @@ HSteamListenSocket CSteamNetworkingSockets::CreateHostedDedicatedServerListenSoc
 	if ( !pSock )
 		return k_HSteamListenSocket_Invalid;
 	SteamDatagramErrMsg errMsg;
-	if ( !pSock->BInit( routing.m_unPort, nVirtualPort, errMsg ) )
+	if ( !pSock->BInit( nPort, nVirtualPort, errMsg ) )
 	{
 		SpewError( "Cannot create hosted dedicated server listen socket.  %s", errMsg );
 		delete pSock;
 		return k_HSteamListenSocket_Invalid;
 	}
 
-	SpewMsg( "Listening for SDR relayed traffic on UDP port %d (virtual port %d).", routing.m_unPort, nVirtualPort );
+	SpewMsg( "Listening for SDR relayed traffic on UDP port %d (virtual port %d).", nPort, nVirtualPort );
 	return AddListenSocket( pSock );
 }
 
@@ -1511,7 +1441,19 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamDatagramClient_Internal_SteamAPIKludg
 //#undef STEAMCLIENT_INTERFACE_VERSION
 //#define STEAMCLIENT_INTERFACE_VERSION		"SteamClient017"
 
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamDatagramClient_Init_InternalV5( int iPartnerMask, SteamDatagramErrMsg &errMsg, FSteamInternal_CreateInterface fnCreateInterface, HSteamUser hSteamUser, HSteamPipe hSteamPipe )
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamDatagramClient_SetPartner( const char *pszLauncher, int iLegcayPartnerMask )
+{
+	AssertMsg( !g_SteamNetworkingSocketsUser.BInitted(), "Called SteamDatagramClient_SetPartner too late!" );
+
+	g_sLauncherPartner = pszLauncher;
+	Assert( !g_sLauncherPartner.empty() );
+
+	// Save partner mask
+	g_iPartnerMask = iLegcayPartnerMask;
+	Assert( g_iPartnerMask != 0 );
+}
+
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamDatagramClient_Init_InternalV6( SteamDatagramErrMsg &errMsg, FSteamInternal_CreateInterface fnCreateInterface, HSteamUser hSteamUser, HSteamPipe hSteamPipe )
 {
 	SteamDatagramTransportLock lock;
 	if ( g_pSteamUser )
@@ -1537,10 +1479,6 @@ STEAMNETWORKINGSOCKETS_INTERFACE bool SteamDatagramClient_Init_InternalV5( int i
 		V_sprintf_safe( errMsg, "Can't get steam interface '%s'", STEAMUSER_INTERFACE_VERSION );
 		return false;
 	}
-
-	// Save partner mask
-	g_iPartnerMask = iPartnerMask;
-	Assert( g_iPartnerMask != 0 );
 
 	// Init basic functionality
 	if ( !g_SteamNetworkingSocketsUser.BInit( pClient, hSteamUser, hSteamPipe, errMsg ) )
@@ -1584,13 +1522,128 @@ STEAMNETWORKINGSOCKETS_INTERFACE bool SteamDatagramServer_Init_Internal( SteamDa
 	if ( !g_SteamNetworkingSocketsGameServer.BInit( pClient, hSteamUser, hSteamPipe, errMsg ) )
 		return false;
 
-	// Check environment variables
-	g_SteamNetworkingSocketsGameServer.GetHostedDedicatedServerInfo( nullptr, nullptr );
+	//
+	// Are we listening for SDR in a Valve data center
+	//
+	s_HostedDedicatedServerRouting.Clear();
+	uint16 nSDR_PORT = g_SteamNetworkingSocketsGameServer.GetHostedDedicatedServerPort();
+	SteamNetworkingPOPID nSDR_POPID = g_SteamNetworkingSocketsGameServer.GetHostedDedicatedServerPOPID();
+	const char *SDR_POPID = getenv( "SDR_POPID" );
+	if ( nSDR_PORT && SDR_POPID )
+	{
+		V_strcpy_safe( s_HostedDedicatedServerRouting.m_data, SDR_POPID );
+		s_HostedDedicatedServerRouting.m_cbSize = sizeof(SteamNetworkingPOPID);
+		Assert( s_HostedDedicatedServerRouting.GetPopID() == nSDR_POPID );
+
+		// Did they give us specific routing string to use?
+		// We really don't need to understand this -- actually only the relay neds to.
+		const char *SDR_ROUTING = getenv( "SDR_ROUTING" );
+		if ( SDR_ROUTING )
+		{
+			uint32 cubDecodedData = sizeof(s_HostedDedicatedServerRouting.m_data) - s_HostedDedicatedServerRouting.m_cbSize;
+			if ( !CCrypto::HexDecode( SDR_ROUTING, (uint8 *)s_HostedDedicatedServerRouting.m_data + s_HostedDedicatedServerRouting.m_cbSize, &cubDecodedData ) )
+			{
+				V_strcpy_safe( errMsg, "SDR_ROUTING is invalid or too long" );
+				return false;
+			}
+			s_HostedDedicatedServerRouting.m_cbSize += cubDecodedData;
+		}
+		else
+		{
+			// No?  We'll have to use plaintext
+			// Figure out our IP
+			uint32 nIP = 0;
+
+			// Set via environment variable?
+			const char *SDR_IP = getenv( "SDR_IP" );
+			if ( SDR_IP )
+			{
+				SpewMsg( "SDR_IP = '%s'\n", SDR_IP );
+				netadr_t adr;
+				if ( !adr.SetFromString( SDR_IP ) )
+				{
+					V_sprintf_safe( errMsg, "SDR_IP='%s', which isn't a valid IP address", SDR_IP );
+					return false;
+				}
+				nIP = adr.GetIP();
+			}
+			else
+			{
+
+				// Get list of IP addresses
+				CUtlVector<netadr_t> vecIPs;
+
+				// On linux, use getifaddr, so it doesn't matter how they have DNS resolved.  Basically
+				// we want to make sure we don't end up resolving our own hostname back to the loopback.
+				#ifdef LINUX
+					ifaddrs *pMyAddrInfo = NULL;
+					int r = getifaddrs( &pMyAddrInfo );
+					if ( r != 0 )
+						Plat_FatalError( "getifaddrs() failed, returned %d",  r );
+					for ( ifaddrs *pAddr = pMyAddrInfo ; pAddr ; pAddr = pAddr->ifa_next )
+					{
+						if ( ( pAddr->ifa_flags & IFF_LOOPBACK ) != 0 || !pAddr->ifa_addr )
+							continue;
+						netadr_t adr;
+						if ( !adr.SetFromSockadr( pAddr->ifa_addr ) )
+							continue;
+						vecIPs.AddToTail( adr );
+					}
+					freeifaddrs( pMyAddrInfo );
+				#elif defined(WIN32)
+
+					// On Windows resolve our hostname.
+					char szHostName[ 256 ];
+					if ( gethostname( szHostName, sizeof(szHostName) ) != 0 )
+						Plat_FatalError( "gethostname failed, error code 0x%x",  GetLastSocketError() );
+					addrinfo *pMyAddrInfo = NULL;
+					int r = getaddrinfo( szHostName, NULL, NULL, &pMyAddrInfo );
+					if ( r != 0 )
+						Plat_FatalError( "getaddrinfo(%s) failed, returned %d",  szHostName, r );
+					for ( addrinfo *pAddr = pMyAddrInfo ; pAddr ; pAddr = pAddr->ai_next )
+					{
+						if ( pAddr->ai_family != AF_INET || !pAddr->ai_addr )
+							continue;
+						netadr_t adr;
+						if ( !adr.SetFromSockadr( pAddr->ai_addr ) )
+							continue;
+						vecIPs.AddToTail( adr );
+					}
+					freeaddrinfo( pMyAddrInfo );
+				#endif
+
+				// Scan list of IPs.  If we have a single public-IP, then we're probably good
+				for ( netadr_t adr: vecIPs )
+				{
+					uint32 nCheckIP = adr.GetIP();
+					if ( !IsPrivateIP( nCheckIP ) || ( g_eUniverse == k_EUniverseBeta && ( nCheckIP >> 24U ) == 172 ) ) // Allow 172.x.x.x.x address to count as "public" on beta universe
+					{
+						if ( nIP )
+							SpewWarning( "Host is configured with multiple public IPs.  Using %s; ignoring %s\n", CUtlNetAdrRender( nIP ).String(), CUtlNetAdrRender( nCheckIP ).String() );
+						else
+							nIP = nCheckIP;
+					}
+				}
+				if ( nIP == 0 )
+				{
+					V_strcpy_safe( errMsg, "Cannot deduce public IP.  Datacenter environment variables misconfigured!" );
+					return false;
+				}
+				SpewMsg( "%s appears to be SDR public address.\n", CUtlNetAdrRender( nIP, nSDR_PORT ).String() );
+			}
+
+			// Put it in plaintext
+			SteamDatagramHostedAddress_PlainText *pRoutingAsPlainText = (SteamDatagramHostedAddress_PlainText *)s_HostedDedicatedServerRouting.m_data;
+			pRoutingAsPlainText->m_magic_0101 = 0x0101;
+			pRoutingAsPlainText->m_ip = LittleDWord( nIP );
+			pRoutingAsPlainText->m_port = LittleWord( nSDR_PORT );
+			s_HostedDedicatedServerRouting.m_cbSize = sizeof(SteamDatagramHostedAddress_PlainText);
+		}
+	}
 
 	// Check environment variables, see if we are hosed in our data center
 	char *pszPrivateKey = getenv( "SDR_PRIVATE_KEY" );
 	char *pszCert = getenv( "SDR_CERT" );
-	const char *SDR_POPID = getenv( "SDR_POPID" );
 	if ( pszPrivateKey && *pszPrivateKey && pszCert && *pszCert )
 	{
 		SteamDatagramErrMsg certErrMsg;
@@ -1601,7 +1654,7 @@ STEAMNETWORKINGSOCKETS_INTERFACE bool SteamDatagramServer_Init_Internal( SteamDa
 		}
 		SpewMsg( "Using cert from SDR_PRIVATE_KEY and SDR_CERT environment vars\n" );
 
-		if ( !SDR_POPID || !s_nHostedDedicatedServerPOPID )
+		if ( !SDR_POPID || !nSDR_POPID )
 		{
 			V_sprintf_safe( errMsg, "SDR_PRIVATE_KEY/SDR_CERT are set, but not SDR_POPID!  We don't know what data center we are in.\n" );
 			return false;
@@ -1611,7 +1664,7 @@ STEAMNETWORKINGSOCKETS_INTERFACE bool SteamDatagramServer_Init_Internal( SteamDa
 		bool bCertForThisPopID = false;
 		for ( uint32 nCertPopID: g_SteamNetworkingSocketsGameServer.m_msgCert.gameserver_datacenter_ids() )
 		{
-			if ( nCertPopID == s_nHostedDedicatedServerPOPID )
+			if ( nCertPopID == nSDR_POPID )
 			{
 				bCertForThisPopID  = true;
 				break;
@@ -1637,9 +1690,9 @@ STEAMNETWORKINGSOCKETS_INTERFACE bool SteamDatagramServer_Init_Internal( SteamDa
 		}
 
 		// Otherwise, spew a message just to be clear
-		if ( s_nHostedDedicatedServerPort )
+		if ( nSDR_PORT )
 		{
-			SpewMsg( "SDR_POPID is set, but not SDR_CERT & SDR_PRIVATE_KEY!  Clients will not be able to trust this server.  This is OK for dev, but should not happen in production!\n" );
+			SpewMsg( "SDR_PORT is set, but not SDR_CERT & SDR_PRIVATE_KEY!  Clients will not be able to trust this server.  This is OK for dev, but should not happen in production!\n" );
 		}
 	}
 

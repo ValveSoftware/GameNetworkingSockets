@@ -37,27 +37,6 @@ struct UDPDataMsgHdr
 };
 #pragma pack( pop )
 
-//
-// FIXME - legacy stuff.  A very early version of the framing
-//         within the end-to-end data payload.
-//
-
-const uint8 k_nDataFrameFlags_Size_Mask         = 0xc0;
-const uint8 k_nDataFrameFlags_Size_RestOfPacket = 0x00;
-//const uint8 k_nDataFrameFlags_Size_8bits        = 0x40;
-//const uint8 k_nDataFrameFlags_Size_8bitsAdd256  = 0x80;
-//const uint8 k_nDataFrameFlags_Size_16bits       = 0xc0;
-
-const uint8 k_nDataFrameFlags_FrameType_Mask        = 0x3c;
-const uint8 k_nDataFrameFlags_FrameType_Unreliable  = 0x00;
-//const uint8 k_nDataFrameFlags_FrameType_Reliable    = 0x10;
-//const uint8 k_nDataFrameFlags_FrameType_ReliableAck = 0x20;
-
-const uint8 k_nDataFrameFlags_Channel_Mask        = 0x03;
-const uint8 k_nDataFrameFlags_Channel_Same        = 0x00;
-const uint8 k_nDataFrameFlags_Channel_8bit        = 0x02;
-//const uint8 k_nDataFrameFlags_Channel_16bit       = 0x03;
-
 const int k_nMaxRecentLocalConnectionIDs = 256;
 static CUtlVectorFixed<uint16,k_nMaxRecentLocalConnectionIDs> s_vecRecentLocalConnectionIDs;
 
@@ -480,7 +459,7 @@ int CSteamNetworkConnectionIPv4::SendEncryptedDataChunk( const void *pChunk, int
 
 		// Do we actually want to send anything in the protobuf blob at all?
 		// The goal is that we should only do this every couple of seconds or so.
-		if ( bTrySendEndToEndStats || nFlags != 0 || m_statsEndToEnd.m_nPendingOutgoingAcks > 0 )
+		if ( bTrySendEndToEndStats || nFlags != 0 )
 		{
 			// Populate a message with everything we'd like to send
 			static CMsgSteamSockets_UDP_Stats msgStatsOut;
@@ -488,11 +467,6 @@ int CSteamNetworkConnectionIPv4::SendEncryptedDataChunk( const void *pChunk, int
 			msgStatsOut.Clear();
 			if ( bTrySendEndToEndStats )
 				m_statsEndToEnd.PopulateMessage( *msgStatsOut.mutable_stats(), usecNow );
-
-			// Acks
-			// FIXME - Eventually we'd like to put a single ack in the header, since these will
-			// be reasonably common
-			PutEndToEndAcksIntoMessage( msgStatsOut, m_statsEndToEnd, usecNow );
 
 			// We'll try to fit what we can.  If we try to serialize a message
 			// and it won't fit, we'll remove some stuff and see if that fits.
@@ -691,14 +665,14 @@ void CSteamNetworkConnectionIPv4::ThinkConnection( SteamNetworkingMicroseconds u
 
 		// Do we need to send something immediately, for any reason?
 		if (
-			m_statsEndToEnd.BNeedToSendStatsOrAcks( usecNow )
+			BNeedToSendEndToEndStatsOrAcks( usecNow )
 			|| m_statsEndToEnd.BNeedToSendPingImmediate( usecNow )
 		) {
 			SendStatsMsg( k_EStatsReplyRequest_None, usecNow );
 
 			// Make sure that took care of what we needed!
 
-			Assert( !m_statsEndToEnd.BNeedToSendStatsOrAcks( usecNow ) );
+			Assert( !BNeedToSendEndToEndStatsOrAcks( usecNow ) );
 			Assert( !m_statsEndToEnd.BNeedToSendPingImmediate( usecNow ) );
 		}
 	}
@@ -924,8 +898,6 @@ std::string DescribeStatsContents( const CMsgSteamSockets_UDP_Stats &msg )
 		sWhat += " stats.life";
 	if ( msg.stats().has_instantaneous() )
 		sWhat += " stats.rate";
-	if ( msg.ack_e2e_size() > 0 )
-		sWhat += " ack";
 	return sWhat;
 }
 
@@ -935,9 +907,6 @@ void CSteamNetworkConnectionIPv4::RecvStats( const CMsgSteamSockets_UDP_Stats &m
 	// Connection quality stats?
 	if ( msgStatsIn.has_stats() )
 		m_statsEndToEnd.ProcessMessage( msgStatsIn.stats(), usecNow );
-
-	// Receive acks, if any
-	m_statsEndToEnd.RecvPackedAcks( msgStatsIn.ack_e2e(), usecNow );
 
 	// Spew appropriately
 	if ( g_eSteamDatagramDebugOutputDetailLevel >= k_ESteamNetworkingSocketsDebugOutputType_Verbose )
@@ -959,13 +928,13 @@ void CSteamNetworkConnectionIPv4::RecvStats( const CMsgSteamSockets_UDP_Stats &m
 		bool bImmediate = ( msgStatsIn.flags() & msgStatsIn.ACK_REQUEST_IMMEDIATE ) != 0;
 		if ( ( msgStatsIn.flags() & msgStatsIn.ACK_REQUEST_E2E ) || msgStatsIn.has_stats() )
 		{
-			m_statsEndToEnd.QueueOutgoingAck( msgStatsIn.seq_num(), bImmediate, usecNow );
+			QueueEndToEndAck( bImmediate, usecNow );
 		}
 
 		// Do we need to send an immediate reply?
 		if (
 			m_statsEndToEnd.BNeedToSendPingImmediate( usecNow )
-			|| m_statsEndToEnd.BNeedToSendStatsOrAcks( usecNow )
+			|| BNeedToSendEndToEndStatsOrAcks( usecNow )
 		) {
 			// Send a stats message
 			SendStatsMsg( k_EStatsReplyRequest_None, usecNow );
@@ -994,9 +963,6 @@ void CSteamNetworkConnectionIPv4::TrackSentStats( const CMsgSteamSockets_UDP_Sta
 			m_statsEndToEnd.TrackSentMessageExpectingSeqNumAck( usecNow, bAllowDelayedReply );
 		}
 	}
-
-	// Did we send any acks?
-	m_statsEndToEnd.TrackSentPackedAcks( msgStatsOut.ack_e2e() );
 
 	// Spew appropriately
 	if ( g_eSteamDatagramDebugOutputDetailLevel >= k_ESteamNetworkingSocketsDebugOutputType_Verbose )
@@ -1031,9 +997,6 @@ void CSteamNetworkConnectionIPv4::SendStatsMsg( EStatsReplyRequest eReplyRequest
 	// Need to send any connection stats stats?
 	if ( m_statsEndToEnd.BReadyToSendStats( usecNow ) )
 		m_statsEndToEnd.PopulateMessage( *msg.mutable_stats(), usecNow );
-
-	// Any pending acks?
-	PutEndToEndAcksIntoMessage( msg, m_statsEndToEnd, usecNow );
 
 	// Always set flags into message, even if they can be implied by the presence of stats
 	msg.set_flags( nFlags );

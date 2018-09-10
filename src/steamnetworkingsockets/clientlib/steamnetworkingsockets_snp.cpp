@@ -43,6 +43,11 @@ constexpr int k_nMaxPacketGaps = 62; // Don't bother tracking more than N gaps. 
 // error correction.)
 constexpr int k_nMaxBufferedUnreliableSegments = 20;
 
+// If app tries to send a message larger than N bytes unreliably,
+// complain about it, and automatically convert to reliable.
+// About 15 segments.
+constexpr int k_cbMaxUnreliableMsgSize = 15*1100;
+
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
 
@@ -83,15 +88,6 @@ struct SNPAckSerializerHelper
 	}
 
 };
-
-template <typename T>
-inline int64 NearestWithSameLowerBits( T nLowerBits, int64 nReference )
-{
-	COMPILE_TIME_ASSERT( sizeof(T) < sizeof(int64) ); // Make sure it's smaller than 64 bits, or else why are you doing this?
-	COMPILE_TIME_ASSERT( ~T(0) < 0 ); // make sure it's a signed type!
-	T nDiff = nLowerBits - T( nReference );
-	return nReference + nDiff;
-}
 
 // exponentially weighted moving average
 template< typename T > T tfrc_ewma( T avg, T newval, T weight )
@@ -234,6 +230,13 @@ EResult CSteamNetworkConnectionBase::SNP_SendMessage( SteamNetworkingMicrosecond
 	{
 		SpewWarning( "Connection already has %u bytes pending, cannot queue any more messages\n", m_senderState.PendingBytesTotal() );
 		return k_EResultLimitExceeded; 
+	}
+
+	// Check if they try to send a really large message
+	if ( cbData > k_cbMaxUnreliableMsgSize && !( eSendType & k_nSteamNetworkingSendFlags_Reliable )  )
+	{
+		SpewWarningRateLimited( usecNow, "Trying to send a very large (%d bytes) unreliable message.  Sending as reliable instead.\n", cbData );
+		eSendType = ESteamNetworkingSendType( eSendType | k_nSteamNetworkingSendFlags_Reliable );
 	}
 
 	if ( eSendType & k_nSteamNetworkingSendFlags_NoDelay )
@@ -917,6 +920,10 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 					Assert( !m_senderState.m_mapInFlightPacketsByPktNum.empty() );
 				}
 
+				// Ack of in-flight end-to-end stats?
+				if ( nPktNumAckBegin <= m_statsEndToEnd.m_pktNumInFlight && m_statsEndToEnd.m_pktNumInFlight < nPktNumAckEnd )
+					m_statsEndToEnd.InFlightPktAck( usecNow );
+
 				// Process nacks.
 				Assert( nPktNumNackBegin >= 0 );
 				while ( inFlightPkt->first >= nPktNumNackBegin )
@@ -995,6 +1002,10 @@ void CSteamNetworkConnectionBase::SNP_SenderProcessPacketNack( int64 nPktNum, SN
 
 	// Mark as dropped
 	pkt.m_bNack = true;
+
+	// Is this in-flight stats we were expecting an ack for?
+	if ( m_statsEndToEnd.m_pktNumInFlight == nPktNum )
+		m_statsEndToEnd.InFlightPktTimeout();
 
 	// Scan reliable segments
 	for ( const SNPRange_t &relRange: pkt.m_vecReliableSegments )
@@ -1248,7 +1259,7 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 {
 	// If we aren't being specifically asked to send a packet, and we don't have anything to send,
 	// then don't send right now.
-	if ( pConnectionData == nullptr && usecNow < m_receiverState.m_usecWhenFlushAck && m_senderState.TimeWhenWantToSendNextPacket() > usecNow && m_receiverState.m_usecWhenFlushAck > usecNow )
+	if ( pConnectionData == nullptr && usecNow < m_receiverState.m_usecWhenFlushAck && m_senderState.TimeWhenWantToSendNextPacket() > usecNow )
 		return 0;
 
 	// Make sure we have initialized the connection
@@ -1717,12 +1728,13 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 	auto pairInsertResult = m_senderState.m_mapInFlightPacketsByPktNum.insert( pairInsert );
 	Assert( pairInsertResult.second ); // We should have inserted a new element, not updated an existing element
 
+	// If we sent any reliable data, we should expect a reply
+	if ( !inFlightPkt.m_vecReliableSegments.empty() )
+		m_statsEndToEnd.TrackSentMessageExpectingSeqNumAck( usecNow, true );
+
 	// If we aren't already tracking anything to timeout, then this is the next one.
 	if ( m_senderState.m_itNextInFlightPacketToTimeout == m_senderState.m_mapInFlightPacketsByPktNum.end() )
 		m_senderState.m_itNextInFlightPacketToTimeout = pairInsertResult.first;
-
-	// If we needed to send acks, presumably we sent them, so clear timeout
-	m_receiverState.SentAcks();
 
 	// We spent some tokens
 	m_senderState.m_flTokenBucket -= (float)nBytesSent;

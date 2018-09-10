@@ -24,7 +24,7 @@
 
 struct SteamNetworkPingLocation_t;
 struct SteamDatagramRelayAuthTicket;
-struct SteamDatagramServiceNetID;
+struct SteamDatagramHostedAddress;
 struct SteamNetConnectionStatusChangedCallback_t;
 struct P2PSessionRequest_t;
 struct P2PSessionConnectFail_t;
@@ -215,12 +215,23 @@ inline SteamNetworkingPOPID CalculateSteamNetworkingPOPIDFromString( const char 
 	// OK we made a bad decision when we decided how to pack 3-character codes into a uint32.  We'd like to support
 	// 4-character codes, but we don't want to break compatibility.  The migration path has some subtleties that make
 	// this nontrivial, and there are already some IDs stored in SQL.  Ug, so the 4 character code "abcd" will
-	// be encoded with the digits like "0xddaabbcc"
-	return
-		( (uint32)(pszCode[3]) << 24U ) 
-		| ((uint32)(pszCode[0]) << 16U ) 
-		| ((uint32)(pszCode[1]) << 8U )
-		| (uint32)(pszCode[2]);
+	// be encoded with the digits like "0xddaabbcc".
+	//
+	// Also: we don't currently use 1- or 2-character codes, but if ever do in the future, let's make sure don't read
+	// past the end of the string and access uninitialized memory.  (And if the string is empty, we always want
+	// to return 0 and not read bytes past the '\0'.)
+	//
+	// There is also extra paranoia to make sure the bytes are not treated as signed.
+	SteamNetworkingPOPID result = (uint32)(uint8)pszCode[0] << 16U;
+	if ( pszCode[1] )
+	{
+		result |= ( (uint32)(uint8)pszCode[1] << 8U );
+		if ( pszCode[2] )
+		{
+			result |= (uint32)(uint8)pszCode[2] | ( (uint32)(uint8)pszCode[3] << 24U );
+		}
+	}
+	return result;
 }
 
 /// Unpack integer to string representation, including terminating '\0'
@@ -229,10 +240,10 @@ template <int N>
 inline void GetSteamNetworkingLocationPOPStringFromID( SteamNetworkingPOPID id, char (&szCode)[N] )
 {
 	static_assert( N >= 5, "Fixed-size buffer not big enough to hold SDR POP ID" );
-	szCode[0] = ( id >> 16U );
-	szCode[1] = ( id >> 8U );
-	szCode[2] = ( id );
-	szCode[3] = ( id >> 24U ); // See comment above about deep regret and sadness
+	szCode[0] = char( id >> 16U );
+	szCode[1] = char( id >> 8U );
+	szCode[2] = char( id );
+	szCode[3] = char( id >> 24U ); // See comment above about deep regret and sadness
 	szCode[4] = 0;
 }
 #endif
@@ -512,9 +523,6 @@ const int k_cchSteamNetworkingMaxConnectionCloseReason = 128;
 struct SteamNetConnectionInfo_t
 {
 
-	/// Handle to listen socket this was connected on, or k_HSteamListenSocket_Invalid if we initiated the connection
-	HSteamListenSocket m_hListenSocket;
-
 	/// Who is on the other end.  Depending on the connection type and phase of the connection, we might not know
 	CSteamID m_steamIDRemote;
 
@@ -522,6 +530,9 @@ struct SteamNetConnectionInfo_t
 
 	/// Arbitrary user data set by the local application code
 	int64 m_nUserData;
+
+	/// Handle to listen socket this was connected on, or k_HSteamListenSocket_Invalid if we initiated the connection
+	HSteamListenSocket m_hListenSocket;
 
 	/// Remote address.  Might be 0 if we don't know it
 	uint32 m_unIPRemote;

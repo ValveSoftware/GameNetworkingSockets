@@ -7,11 +7,26 @@
 #include <steamnetworkingsockets/isteamnetworkingsockets.h>
 #ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
 #include <steam/isteamnetworkingsocketsserialized.h>
+
+class ISteamNetworkingSocketsSerialized002
+{
+public:
+	virtual void SendP2PRendezvous( CSteamID steamIDRemote, uint32 unConnectionIDSrc, const void *pMsgRendezvous, uint32 cbRendezvous ) = 0;
+	virtual void SendP2PConnectionFailure( CSteamID steamIDRemote, uint32 unConnectionIDDest, uint32 nReason, const char *pszReason ) = 0;
+	CALL_RESULT( SteamNetworkingSocketsCert_t )
+	virtual SteamAPICall_t GetCertAsync() = 0;
+	virtual int GetNetworkConfigJSON( void *buf, uint32 cbBuf ) = 0;
+	virtual void CacheRelayTicket( const void *pTicket, uint32 cbTicket ) = 0;
+	virtual uint32 GetCachedRelayTicketCount() = 0;
+	virtual int GetCachedRelayTicket( uint32 idxTicket, void *buf, uint32 cbBuf ) = 0;
+	virtual void PostConnectionStateMsg( const void *pMsg, uint32 cbMsg ) = 0;
+};
+
 #endif
 #include "steamnetworkingsockets_connections.h"
 
 class CMsgSteamDatagramP2PRendezvous;
-struct SteamDatagramServiceNetID;
+struct SteamDatagramHostedAddress;
 
 namespace SteamNetworkingSocketsLib {
 
@@ -119,7 +134,8 @@ public:
 
 #ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
 	ISteamUtils *m_pSteamUtils;
-	ISteamNetworkingSocketsSerialized *m_pSteamNetworkingSocketsSerialized;
+	ISteamNetworkingSocketsSerialized002 *m_pSteamNetworkingSocketsSerialized;
+	ISteamNetworkingSocketsSerialized *m_pSteamNetworkingSocketsSerializedV3;
 	CSteamID GetSteamID();
 
 	enum ELogonStatus
@@ -200,7 +216,9 @@ public:
 	virtual bool ReceivedRelayAuthTicket( const void *pvTicket, int cbTicket, SteamDatagramRelayAuthTicket *pOutParsedTicket ) OVERRIDE;
 	virtual int FindRelayAuthTicketForServer( CSteamID steamID, int nVirtualPort, SteamDatagramRelayAuthTicket *pOutParsedTicket ) OVERRIDE;
 	virtual HSteamNetConnection ConnectToHostedDedicatedServer( CSteamID steamIDTarget, int nVirtualPort ) OVERRIDE;
-	virtual bool GetHostedDedicatedServerInfo( SteamDatagramServiceNetID *pRouting, SteamNetworkingPOPID *pPopID ) OVERRIDE;
+	virtual uint16 GetHostedDedicatedServerPort() OVERRIDE;
+	virtual SteamNetworkingPOPID GetHostedDedicatedServerPOPID() OVERRIDE;
+	virtual bool GetHostedDedicatedServerAddress( SteamDatagramHostedAddress *pRouting ) OVERRIDE;
 	virtual HSteamListenSocket CreateHostedDedicatedServerListenSocket( int nVirtualPort ) OVERRIDE;
 #endif
 

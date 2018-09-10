@@ -306,6 +306,13 @@ public:
 	// Servers hosted in Valve data centers
 	//
 
+	/// Returns the value of the SDR_LISTEN_PORT environment variable.
+	virtual uint16 GetHostedDedicatedServerPort() = 0;
+
+	/// If you are running in a production data center, this will return the data
+	/// center code.  Returns 0 otherwise.
+	virtual SteamNetworkingPOPID GetHostedDedicatedServerPOPID() = 0;
+
 	/// Return info about the hosted server.  You will need to send this information to your
 	/// backend, and put it in tickets, so that the relays will know how to forward traffic from
 	/// clients to your server.  See SteamDatagramRelayAuthTicket for more info.
@@ -319,11 +326,12 @@ public:
 	/// data to your server.  So you might just end up hardcoding a public address and setup port
 	/// forwarding on your corporate firewall.  In that case, the port you put into the ticket
 	/// needs to be the public-facing port opened on your firewall, if it is different from the
-	/// actual server port.  In a development environment, the POPID will be zero, and that's OK
-	/// and what you should put into the ticket.
+	/// actual server port.
+	///
+	/// This function will fail if SteamDatagramServer_Init has not been called.
 	///
 	/// Returns false if the SDR_LISTEN_PORT environment variable is not set.
-	virtual bool GetHostedDedicatedServerInfo( SteamDatagramServiceNetID *pRouting, SteamNetworkingPOPID *pPopID ) = 0;
+	virtual bool GetHostedDedicatedServerAddress( SteamDatagramHostedAddress *pRouting ) = 0;
 
 	/// Create a listen socket on the specified virtual port.  The physical UDP port to use
 	/// will be determined by the SDR_LISTEN_PORT environment variable.  If a UDP port is not
@@ -400,18 +408,19 @@ STEAMNETWORKINGSOCKETS_INTERFACE void GameNetworkingSockets_Kill();
 	typedef void ( S_CALLTYPE *FSteamAPI_UnregisterCallback)( class CCallbackBase *pCallback );
 	typedef void ( S_CALLTYPE *FSteamAPI_RegisterCallResult)( class CCallbackBase *pCallback, SteamAPICall_t hAPICall );
 	typedef void ( S_CALLTYPE *FSteamAPI_UnregisterCallResult)( class CCallbackBase *pCallback, SteamAPICall_t hAPICall );
+	STEAMNETWORKINGSOCKETS_INTERFACE void SteamDatagramClient_SetPartner( const char *pszLauncher, int iLegcayPartnerMask ); // Call this before SteamDatagramClient_Init
 	STEAMNETWORKINGSOCKETS_INTERFACE void SteamDatagramClient_Internal_SteamAPIKludge( FSteamAPI_RegisterCallback fnRegisterCallback, FSteamAPI_UnregisterCallback fnUnregisterCallback, FSteamAPI_RegisterCallResult fnRegisterCallResult, FSteamAPI_UnregisterCallResult fnUnregisterCallResult );
-	STEAMNETWORKINGSOCKETS_INTERFACE bool SteamDatagramClient_Init_InternalV5( int iPartnerMask, SteamDatagramErrMsg &errMsg, FSteamInternal_CreateInterface fnCreateInterface, HSteamUser hSteamUser, HSteamPipe hSteamPipe );
+	STEAMNETWORKINGSOCKETS_INTERFACE bool SteamDatagramClient_Init_InternalV6( SteamDatagramErrMsg &errMsg, FSteamInternal_CreateInterface fnCreateInterface, HSteamUser hSteamUser, HSteamPipe hSteamPipe );
 	STEAMNETWORKINGSOCKETS_INTERFACE bool SteamDatagramServer_Init_Internal( SteamDatagramErrMsg &errMsg, FSteamInternal_CreateInterface fnCreateInterface, HSteamUser hSteamUser, HSteamPipe hSteamPipe );
 
 /////////////////////////////////////////////////////////////////////////////
 
 /// Initialize the user interface.
 /// iPartnerMask - set this to 1 for now
-inline bool SteamDatagramClient_Init( int iPartnerMask, SteamDatagramErrMsg &errMsg )
+inline bool SteamDatagramClient_Init( SteamDatagramErrMsg &errMsg )
 {
 	SteamDatagramClient_Internal_SteamAPIKludge( &::SteamAPI_RegisterCallback, &::SteamAPI_UnregisterCallback, &::SteamAPI_RegisterCallResult, &::SteamAPI_UnregisterCallResult );
-	return SteamDatagramClient_Init_InternalV5( iPartnerMask, errMsg, ::SteamInternal_CreateInterface, ::SteamAPI_GetHSteamUser(), ::SteamAPI_GetHSteamPipe() );
+	return SteamDatagramClient_Init_InternalV6( errMsg, ::SteamInternal_CreateInterface, ::SteamAPI_GetHSteamUser(), ::SteamAPI_GetHSteamPipe() );
 }
 
 /// Shutdown all clients and close all sockets

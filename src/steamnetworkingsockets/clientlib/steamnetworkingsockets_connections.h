@@ -310,7 +310,7 @@ public:
 	uint32 m_unConnectionIDRemote;
 
 	/// Track end-to-end stats for this connection.
-	LinkStatsTrackerEndToEnd m_statsEndToEnd;
+	LinkStatsTracker<LinkStatsTrackerEndToEnd> m_statsEndToEnd;
 
 	/// When we accept a connection, they will send us a timestamp we should send back
 	/// to them, so that they can estimate the ping
@@ -442,6 +442,21 @@ protected:
 	virtual void SendEndToEndPing( bool bUrgent, SteamNetworkingMicroseconds usecNow ) = 0;
 	//virtual bool BSendEndToEndPing( SteamNetworkingMicroseconds usecNow );
 	virtual bool BAllowLocalUnsignedCert() const;
+
+	void QueueEndToEndAck( bool bImmediate, SteamNetworkingMicroseconds usecNow)
+	{
+		if ( bImmediate )
+			m_receiverState.m_usecWhenFlushAck = 0;
+		else
+			m_receiverState.MarkNeedToSendAck( usecNow );
+	}
+
+	bool BNeedToSendEndToEndStatsOrAcks( SteamNetworkingMicroseconds usecNow )
+	{
+		return m_receiverState.m_usecWhenFlushAck <= usecNow ||
+			m_statsEndToEnd.BNeedToSendStats( usecNow );
+	}
+
 
 	/// Timestamp when we last sent an end-to-end connection request packet
 	SteamNetworkingMicroseconds m_usecWhenSentConnectRequest;
@@ -638,6 +653,7 @@ extern CUtlLinkedList<CSteamNetworkListenSocketBase *> g_listListenSockets;
 extern CUtlLinkedList<SteamNetConnectionStatusChangedCallback_t> g_listPendingConnectionStatusChangedCallbacks;
 
 extern int g_iPartnerMask;
+extern std::string g_sLauncherPartner;
 
 extern bool BCheckGlobalSpamReplyRateLimit( SteamNetworkingMicroseconds usecNow );
 extern CSteamNetworkConnectionBase *FindConnectionByLocalID( uint32 nLocalConnectionID );

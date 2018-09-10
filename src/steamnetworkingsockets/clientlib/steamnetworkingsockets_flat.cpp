@@ -119,9 +119,19 @@ STEAMNETWORKINGSOCKETS_INTERFACE HSteamNetConnection SteamAPI_ISteamNetworkingSo
 	return ((ISteamNetworkingSockets*)instancePtr)->ConnectToHostedDedicatedServer( steamIDTarget, nVirtualPort );
 }
 
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_GetHostedDedicatedServerInfo( intptr_t instancePtr, SteamDatagramServiceNetID *pRouting, SteamNetworkingPOPID *pPopID )
+STEAMNETWORKINGSOCKETS_INTERFACE uint16 SteamAPI_ISteamNetworkingSockets_GetHostedDedicatedServerPort( intptr_t instancePtr )
 {
-	return ((ISteamNetworkingSockets*)instancePtr)->GetHostedDedicatedServerInfo( pRouting, pPopID );
+	return ((ISteamNetworkingSockets*)instancePtr)->GetHostedDedicatedServerPort();
+}
+
+STEAMNETWORKINGSOCKETS_INTERFACE SteamNetworkingPOPID SteamAPI_ISteamNetworkingSockets_GetHostedDedicatedServerPOPID( intptr_t instancePtr )
+{
+	return ((ISteamNetworkingSockets*)instancePtr)->GetHostedDedicatedServerPOPID();
+}
+
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_GetHostedDedicatedServerAddress( intptr_t instancePtr, SteamDatagramHostedAddress *pRouting )
+{
+	return ((ISteamNetworkingSockets*)instancePtr)->GetHostedDedicatedServerAddress( pRouting );
 }
 
 STEAMNETWORKINGSOCKETS_INTERFACE HSteamListenSocket SteamAPI_ISteamNetworkingSockets_CreateHostedDedicatedServerListenSocket( intptr_t instancePtr, int nVirtualPort )
@@ -180,8 +190,8 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_ISteamNetworkingSockets_RunConnec
 {
 	struct CallbackAdapter : ISteamNetworkingSocketsCallbacks
 	{
-		CallbackAdapter( FSteamNetConnectionStatusChangedCallback callback, intptr_t context )
-		: m_callback( callback ), m_context( context ) {}
+		CallbackAdapter( FSteamNetConnectionStatusChangedCallback _callback, intptr_t _context )
+		: m_callback( _callback ), m_context( _context ) {}
 
 		virtual void OnSteamNetConnectionStatusChanged( SteamNetConnectionStatusChangedCallback_t *pInfo ) override
 		{

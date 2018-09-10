@@ -397,6 +397,27 @@ extern uint64 CalculatePublicKeyID( const CRSAPublicKey &pubKey );
 #endif
 extern uint64 CalculatePublicKeyID( const CECSigningPublicKey &pubKey );
 
+inline bool IsPrivateIP( uint32 unIP )
+{
+	// RFC 1918
+	if ( ( unIP & 0xff000000 ) == 0x0a000000 ) // 10.0.0.0/8
+		return true;
+	if ( ( unIP & 0xfff00000 ) == 0xac100000 ) // 172.16.0.0/12
+		return true;
+	if ( ( unIP & 0xffff0000 ) == 0xc0a80000 ) // 192.168.0.0/16
+		return true;
+	return false;
+}
+
+template <typename T>
+inline int64 NearestWithSameLowerBits( T nLowerBits, int64 nReference )
+{
+	COMPILE_TIME_ASSERT( sizeof(T) < sizeof(int64) ); // Make sure it's smaller than 64 bits, or else why are you doing this?
+	COMPILE_TIME_ASSERT( ~T(0) < 0 ); // make sure it's a signed type!
+	T nDiff = nLowerBits - T( nReference );
+	return nReference + nDiff;
+}
+
 } // namespace SteamNetworkingSocketsLib
 
 //

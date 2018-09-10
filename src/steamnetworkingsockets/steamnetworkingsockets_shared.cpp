@@ -197,7 +197,7 @@ int PingTracker::OptimisticPingEstimate() const
 	return nResult;
 }
 
-void LinkStatsTracker::InitBaseLinkStatsTracker( SteamNetworkingMicroseconds usecNow, bool bStartDisconnected )
+void LinkStatsTrackerBase::InitInternal( SteamNetworkingMicroseconds usecNow )
 {
 	m_nPeerProtocolVersion = 0;
 	m_bDisconnected = false;
@@ -241,15 +241,13 @@ void LinkStatsTracker::InitBaseLinkStatsTracker( SteamNetworkingMicroseconds use
 	m_nJitterHistogram5 = 0;
 	m_nJitterHistogram10 = 0;
 	m_nJitterHistogram20 = 0;
-
-	InternalSetDisconnected( bStartDisconnected, usecNow );
 }
 
-void LinkStatsTracker::InternalSetDisconnected( bool bFlag, SteamNetworkingMicroseconds usecNow )
+void LinkStatsTrackerBase::SetDisconnectedInternal( bool bFlag, SteamNetworkingMicroseconds usecNow )
 {
 	m_bDisconnected = bFlag;
 
-	m_seqNumInFlight = 0;
+	m_pktNumInFlight = 0;
 	m_bInFlightInstantaneous = false;
 	m_bInFlightLifetime = false;
 	PeerAckedInstantaneous( usecNow );
@@ -260,9 +258,6 @@ void LinkStatsTracker::InternalSetDisconnected( bool bFlag, SteamNetworkingMicro
 	m_usecLastSendPacketExpectingImmediateReply = 0;
 	m_nReplyTimeoutsSinceLastRecv = 0;
 	m_usecWhenTimeoutStarted = 0;
-	m_expectedAcks.Clear();
-	m_nPendingOutgoingAcks = 0;
-	m_bPendingAckImmediate = false;
 
 	if ( !bFlag )
 	{
@@ -270,7 +265,7 @@ void LinkStatsTracker::InternalSetDisconnected( bool bFlag, SteamNetworkingMicro
 	}
 }
 
-void LinkStatsTracker::StartNextInterval( SteamNetworkingMicroseconds usecNow )
+void LinkStatsTrackerBase::StartNextInterval( SteamNetworkingMicroseconds usecNow )
 {
 	m_nPktsRecvSequencedCurrentInterval = 0;
 	m_nPktsRecvDroppedCurrentInterval = 0;
@@ -279,7 +274,7 @@ void LinkStatsTracker::StartNextInterval( SteamNetworkingMicroseconds usecNow )
 	m_usecIntervalStart = usecNow;
 }
 
-void LinkStatsTracker::ThinkBaseLinkStatsTracker( SteamNetworkingMicroseconds usecNow )
+void LinkStatsTrackerBase::ThinkInternal( SteamNetworkingMicroseconds usecNow )
 {
 	// Check for ending the current QoS interval
 	if ( !m_bDisconnected && m_usecIntervalStart + k_usecSteamDatagramLinkStatsDefaultInterval < usecNow )
@@ -301,25 +296,9 @@ void LinkStatsTracker::ThinkBaseLinkStatsTracker( SteamNetworkingMicroseconds us
 		}
 		++m_nReplyTimeoutsSinceLastRecv;
 	}
-
-	// Check for expiring expected acks.
-	if ( !m_expectedAcks.m_listAcks.IsEmpty() )
-	{
-		SteamNetworkingMicroseconds usecExpiry = usecNow - CalcConservativeTimeout();
-		PacketAck ackTimedOut;
-		while ( m_expectedAcks.BRemoveOldestAckIfTimedOut( ackTimedOut, usecExpiry ) )
-		{
-			if ( m_seqNumInFlight == ackTimedOut.m_nWireSeqNum )
-			{
-				// They probably didn't receive these stats, we should send again
-				m_seqNumInFlight = 0;
-				m_bInFlightInstantaneous = m_bInFlightLifetime = false;
-			}
-		}
-	}
 }
 
-void LinkStatsTracker::UpdateInterval( SteamNetworkingMicroseconds usecNow )
+void LinkStatsTrackerBase::UpdateInterval( SteamNetworkingMicroseconds usecNow )
 {
 	float flElapsed = int64( usecNow - m_usecIntervalStart ) * 1e-6;
 	flElapsed = Max( flElapsed, .001f ); // make sure math doesn't blow up
@@ -414,7 +393,7 @@ void LinkStatsTracker::UpdateInterval( SteamNetworkingMicroseconds usecNow )
 	StartNextInterval( usecNow );
 }
 
-void LinkStatsTracker::TrackRecvSequencedPacket( uint16 unWireSequenceNumber, SteamNetworkingMicroseconds usecNow, int usecSenderTimeSincePrev )
+void LinkStatsTrackerBase::TrackRecvSequencedPacket( uint16 unWireSequenceNumber, SteamNetworkingMicroseconds usecNow, int usecSenderTimeSincePrev )
 {
 	int16 nGap = unWireSequenceNumber - uint16( m_nLastRecvSequenceNumber );
 	int64 nFullSequenceNumber = m_nLastRecvSequenceNumber + nGap;
@@ -423,7 +402,7 @@ void LinkStatsTracker::TrackRecvSequencedPacket( uint16 unWireSequenceNumber, St
 	TrackRecvSequencedPacketGap( nGap, usecNow, usecSenderTimeSincePrev );
 }
 
-void LinkStatsTracker::TrackRecvSequencedPacketGap( int16 nGap, SteamNetworkingMicroseconds usecNow, int usecSenderTimeSincePrev )
+void LinkStatsTrackerBase::TrackRecvSequencedPacketGap( int16 nGap, SteamNetworkingMicroseconds usecNow, int usecSenderTimeSincePrev )
 {
 
 	// Update stats
@@ -517,7 +496,7 @@ void LinkStatsTracker::TrackRecvSequencedPacketGap( int16 nGap, SteamNetworkingM
 	}
 }
 
-bool LinkStatsTracker::BCheckHaveDataToSendInstantaneous( SteamNetworkingMicroseconds usecNow )
+bool LinkStatsTrackerBase::BCheckHaveDataToSendInstantaneous( SteamNetworkingMicroseconds usecNow )
 {
 	Assert( !m_bDisconnected );
 
@@ -543,7 +522,7 @@ bool LinkStatsTracker::BCheckHaveDataToSendInstantaneous( SteamNetworkingMicrose
 	return false;
 }
 
-bool LinkStatsTracker::BCheckHaveDataToSendLifetime( SteamNetworkingMicroseconds usecNow )
+bool LinkStatsTrackerBase::BCheckHaveDataToSendLifetime( SteamNetworkingMicroseconds usecNow )
 {
 	Assert( !m_bDisconnected );
 
@@ -561,35 +540,19 @@ bool LinkStatsTracker::BCheckHaveDataToSendLifetime( SteamNetworkingMicroseconds
 	return false;
 }
 
-bool LinkStatsTracker::BNeedToSendStatsOrAcks( SteamNetworkingMicroseconds usecNow )
+bool LinkStatsTrackerBase::BNeedToSendStatsInternal( SteamNetworkingMicroseconds usecNow )
 {
-	// Check if any acks need to be sent now
-	if ( m_nPendingOutgoingAcks > 0 )
-	{
-		// Ack list getting full?
-		if ( m_nPendingOutgoingAcks >= k_nMaxPendingAcks )
-			return true;
-
-		// Most recent ack was requested to be sent immediately?
-		if ( m_bPendingAckImmediate )
-			return true;
-
-		// Is the oldest pending ack getting pretty stale?
-		if ( m_arPendingOutgoingAck[0].MicrosecondsAge( usecNow ) > k_usecMaxAckStatsDelay )
-			return true;
-	}
-
 	// Message already in flight?
-	if ( m_seqNumInFlight != 0 || m_bDisconnected )
+	if ( m_pktNumInFlight != 0 || m_bDisconnected )
 		return false;
 	bool bNeedToSendInstantaneous = ( m_usecPeerAckedInstaneous + k_usecLinkStatsInstantaneousReportMaxInterval < usecNow ) && BCheckHaveDataToSendInstantaneous( usecNow );
 	bool bNeedToSendLifetime = ( m_usecPeerAckedLifetime + k_usecLinkStatsLifetimeReportMaxInterval < usecNow ) && BCheckHaveDataToSendLifetime( usecNow );
 	return bNeedToSendInstantaneous || bNeedToSendLifetime;
 }
 
-void LinkStatsTracker::PopulateMessage( CMsgSteamDatagramConnectionQuality &msg, SteamNetworkingMicroseconds usecNow )
+void LinkStatsTrackerBase::PopulateMessage( CMsgSteamDatagramConnectionQuality &msg, SteamNetworkingMicroseconds usecNow )
 {
-	if ( m_seqNumInFlight == 0 && !m_bDisconnected )
+	if ( m_pktNumInFlight == 0 && !m_bDisconnected )
 	{
 
 		// Ready to send instantaneous stats?
@@ -612,7 +575,7 @@ void LinkStatsTracker::PopulateMessage( CMsgSteamDatagramConnectionQuality &msg,
 	}
 }
 
-void LinkStatsTracker::TrackSentMessageExpectingReply( SteamNetworkingMicroseconds usecNow, bool bAllowDelayedReply )
+void LinkStatsTrackerBase::TrackSentMessageExpectingReply( SteamNetworkingMicroseconds usecNow, bool bAllowDelayedReply )
 {
 	if ( m_usecInFlightReplyTimeout == 0 )
 	{
@@ -624,86 +587,7 @@ void LinkStatsTracker::TrackSentMessageExpectingReply( SteamNetworkingMicrosecon
 		m_usecLastSendPacketExpectingImmediateReply = usecNow;
 }
 
-void LinkStatsTracker::TrackSentMessageExpectingSeqNumAck( SteamNetworkingMicroseconds usecNow, bool bAllowDelayedReply )
-{
-	// This counts as a ping request
-	TrackSentPingRequest( usecNow, bAllowDelayedReply );
-
-	// Remember when we sent this, so that when we receive the ack we can use it as a latency estimate
-	m_expectedAcks.AddExpectedAck( uint16( m_nNextSendSequenceNumber-1 ), usecNow );
-}
-
-bool LinkStatsTracker::RecvAck( uint16 nWireSeqNum, uint16 nPackedDelay, SteamNetworkingMicroseconds usecNow )
-{
-
-	// Acking stats that we sent?  Note that in general, we should also have an ack record
-	if ( nWireSeqNum == m_seqNumInFlight )
-	{
-		if ( m_bInFlightInstantaneous )
-			PeerAckedInstantaneous( usecNow );
-		if ( m_bInFlightLifetime )
-			PeerAckedLifetime( usecNow );
-		m_seqNumInFlight = 0;
-		m_bInFlightInstantaneous = m_bInFlightLifetime = false;
-	}
-
-	// Locate the ack
-	SteamNetworkingMicroseconds usecSent = m_expectedAcks.GetTimeSentAndRemoveAck( nWireSeqNum, usecNow );
-	if ( usecSent == 0 )
-		return true;
-	if ( usecSent < 0 )
-		return false;
-
-	SteamNetworkingMicroseconds usecTotalPing = usecNow - usecSent;
-	if ( usecTotalPing > 0 )
-	{
-
-		// Unpack the delay
-		SteamNetworkingMicroseconds usecDelay = SteamNetworkingMicroseconds(nPackedDelay) << k_usecAckDelayPacketSerializedPrecisionShift;
-
-		int msPing = ( usecTotalPing - usecDelay ) / 1000;
-		if ( msPing < -1 || msPing > 3000 )
-		{
-			// Hm - suspicious.  Let caller know so they can spew if they want to
-			return false;
-		}
-		if ( msPing < 0 )
-			msPing = 0;
-		m_ping.ReceivedPing( msPing, usecNow );
-	}
-
-	return true;
-}
-
-void LinkStatsTracker::TrackSentStats( const CMsgSteamDatagramConnectionQuality &msg, SteamNetworkingMicroseconds usecNow, bool bAllowDelayedReply )
-{
-
-	// Check if we expect our peer to know how to acknowledge this
-	if ( !m_bDisconnected )
-	{
-		m_seqNumInFlight = uint16( m_nNextSendSequenceNumber-1 );
-		m_bInFlightInstantaneous = msg.has_instantaneous();
-		m_bInFlightLifetime = msg.has_lifetime();
-
-		// They should ack.  Make a note of the sequence number that we used,
-		// so that we can measure latency when they reply, setup timeout bookkeeping, etc
-		TrackSentMessageExpectingSeqNumAck( usecNow, bAllowDelayedReply );
-	}
-	else
-	{
-		// Peer can't ack.  Just mark them as acking immediately
-		Assert( m_seqNumInFlight == 0 );
-		m_seqNumInFlight = 0;
-		m_bInFlightInstantaneous = false;
-		m_bInFlightLifetime = false;
-		if ( msg.has_instantaneous() )
-			PeerAckedInstantaneous( usecNow );
-		if ( msg.has_lifetime() )
-			PeerAckedLifetime( usecNow );
-	}
-}
-
-void LinkStatsTracker::ProcessMessage( const CMsgSteamDatagramConnectionQuality &msg, SteamNetworkingMicroseconds usecNow )
+void LinkStatsTrackerBase::ProcessMessage( const CMsgSteamDatagramConnectionQuality &msg, SteamNetworkingMicroseconds usecNow )
 {
 	if ( msg.has_instantaneous() )
 	{
@@ -717,7 +601,7 @@ void LinkStatsTracker::ProcessMessage( const CMsgSteamDatagramConnectionQuality 
 	}
 }
 
-void LinkStatsTracker::GetInstantaneousStats( SteamDatagramLinkInstantaneousStats &s ) const
+void LinkStatsTrackerBase::GetInstantaneousStats( SteamDatagramLinkInstantaneousStats &s ) const
 {
 	s.m_flOutPacketsPerSec = m_sent.m_packets.m_flRate;
 	s.m_flOutBytesPerSec = m_sent.m_bytes.m_flRate;
@@ -729,7 +613,7 @@ void LinkStatsTracker::GetInstantaneousStats( SteamDatagramLinkInstantaneousStat
 	s.m_usecMaxJitter = m_usecMaxJitterPreviousInterval;
 }
 
-void LinkStatsTracker::GetLifetimeStats( SteamDatagramLinkLifetimeStats &s ) const
+void LinkStatsTrackerBase::GetLifetimeStats( SteamDatagramLinkLifetimeStats &s ) const
 {
 	s.m_nPacketsSent = m_sent.m_packets.m_nTotal;
 	s.m_nBytesSent = m_sent.m_bytes.m_nTotal;
@@ -818,7 +702,7 @@ void LinkStatsTracker::GetLifetimeStats( SteamDatagramLinkLifetimeStats &s ) con
 	s.m_nRXSpeedNtile98th = -1;
 }
 
-void LinkStatsTracker::GetLinkStats( SteamDatagramLinkStats &s, SteamNetworkingMicroseconds usecNow ) const
+void LinkStatsTrackerBase::GetLinkStats( SteamDatagramLinkStats &s, SteamNetworkingMicroseconds usecNow ) const
 {
 	GetInstantaneousStats( s.m_latest );
 	GetLifetimeStats( s.m_lifetime );
@@ -846,9 +730,9 @@ void LinkStatsTracker::GetLinkStats( SteamDatagramLinkStats &s, SteamNetworkingM
 	}
 }
 
-void LinkStatsTrackerEndToEnd::Init( SteamNetworkingMicroseconds usecNow, bool bStartDisconnected )
+void LinkStatsTrackerEndToEnd::InitInternal( SteamNetworkingMicroseconds usecNow )
 {
-	InitBaseLinkStatsTracker( usecNow, bStartDisconnected );
+	LinkStatsTrackerBase::InitInternal( usecNow );
 
 	m_TXSpeedSample.Clear();
 	m_nTXSpeed = 0;
@@ -875,9 +759,9 @@ void LinkStatsTrackerEndToEnd::Init( SteamNetworkingMicroseconds usecNow, bool b
 	StartNextSpeedInterval( usecNow );
 }
 
-void LinkStatsTrackerEndToEnd::Think( SteamNetworkingMicroseconds usecNow )
+void LinkStatsTrackerEndToEnd::ThinkInternal( SteamNetworkingMicroseconds usecNow )
 {
-	ThinkBaseLinkStatsTracker( usecNow );
+	LinkStatsTrackerBase::ThinkInternal( usecNow );
 
 	if ( m_usecSpeedIntervalStart + k_usecSteamDatagramSpeedStatsDefaultInterval < usecNow )
 	{
@@ -934,7 +818,7 @@ void LinkStatsTrackerEndToEnd::UpdateSpeeds( int nTXSpeed, int nRXSpeed )
 
 void LinkStatsTrackerEndToEnd::GetLifetimeStats( SteamDatagramLinkLifetimeStats &s ) const
 {
-	LinkStatsTracker::GetLifetimeStats(s);
+	LinkStatsTrackerBase::GetLifetimeStats(s);
 
 	s.m_nTXSpeedMax           = m_nTXSpeedMax;
 

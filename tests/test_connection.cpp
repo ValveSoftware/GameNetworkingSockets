@@ -75,7 +75,7 @@ static void InitSteamDatagramConnectionSockets()
 		SteamAPI_Init();
 
 		SteamDatagramErrMsg errMsg;
-		if ( !SteamDatagramClient_Init( -1, errMsg ) )
+		if ( !SteamDatagramClient_Init( errMsg ) )
 		{
 			fprintf( stderr, "SteamDatagramClient_Init failed.  %s", errMsg );
 			exit(1);
@@ -249,9 +249,9 @@ static void Recv( ISteamNetworkingSockets *pSteamSocketNetworking )
 		// Size makes sense?
 		assert( sizeof(*pTestMsg) - sizeof(pTestMsg->m_data) + pTestMsg->m_cbSize == pIncomingMsg->GetSize() );
 
-		// Check for sequence number nomoly.
+		// Check for sequence number anomaly.
 		int64 &nExpectedMsgNum = pTestMsg->m_bReliable ? pConnection->m_nReliableExpectedRecvMsg : pConnection->m_nExpectedRecvMsg;
-		if ( pTestMsg->m_nMsgNum != nExpectedMsgNum )
+		if ( pTestMsg->m_nMsgNum != nExpectedMsgNum && pTestMsg->m_bReliable )
 		{
 
 			// Print that it happened.
