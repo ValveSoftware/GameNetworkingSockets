@@ -149,8 +149,11 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 			target_compile_definitions(${GNS_TARGET} PRIVATE
 				_CRT_SECURE_NO_WARNINGS
 				_ITERATOR_DEBUG_LEVEL=0
-				PROTOBUF_USE_DLLS
 			)
+			if(NOT Protobuf_USE_STATIC_LIBS)
+				target_compile_definitions(${GNS_TARGET} PRIVATE
+					PROTOBUF_USE_DLLS)
+			endif()
 			get_target_property(TARGET_TYPE ${GNS_TARGET} TYPE)
 			target_compile_options(${GNS_TARGET} PRIVATE
 				/EHs-c-   # Disable C++ exceptions
