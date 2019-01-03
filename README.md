@@ -26,7 +26,8 @@ GameNetworkingSockets is a basic transport layer for games.  The features are:
 
 What it does *not* do:
 
-* Higher level serialization of entities, delta encoding of changed state variables, etc
+* Higher level serialization of entities, delta encoding of changed state
+  variables, etc
 * Compression
 
 ### Why do I see "Steam" everywhere?
@@ -74,7 +75,8 @@ properly or you see a security or performance issue, please let us know.
 
 
 #### OpenSSL
-If you're building on Linux or Mac, just install the appropriate packages from your package manager.
+If you're building on Linux or Mac, just install the appropriate packages from
+your package manager.
 
 Ubuntu/Debian:
 ```
@@ -105,7 +107,8 @@ sure to pick the installers **without** the "Light"suffix. In this instance,
 
 #### protobuf
 
-If you're building on Linux or Mac, just install the appropriate packages from your package manager.
+If you're building on Linux or Mac, just install the appropriate packages from
+your package manager.
 
 Ubuntu/Debian:
 ```
@@ -201,7 +204,9 @@ GameNetworkingSockets for.
 
 ### Visual Studio
 
-When configuring GameNetworkingSockets using CMake, you need to add the protobuf bin dir to your path in order to help CMake figure out the protobuf installation prefix:
+When configuring GameNetworkingSockets using CMake, you need to add the
+protobuf `bin` directory to your path in order to help CMake figure out the
+protobuf installation prefix:
 ```
 C:\dev\GameNetworkingSockets> mkdir build
 C:\dev\GameNetworkingSockets> cd build
@@ -238,14 +243,14 @@ We're still in the process of extracting the code from our proprietary build
 toolchain and making everything more open-source friendly.  Bear with us.
 
 * The test compiles and runs, but generates lots of spew that looks like bugs
-  but is actually normal.  We also don't have it working in any standard framework.
-  It isn't really a narrowly targeted unit test, it is designed to exercise
-  almost all of the reliability, rate limiting, and serialization layers, by
-  connecting two peers and enabling some packet loss and reordering, and then
-  delivering a bunch of random-sized packets.  Exercising specific patterns
-  of packet misdelivery and checking the exact behaviour more strictly would
-  be great, since certain classes of bugs can just cause poor performance or
-  miscalculation of the rate, while still appearing to be "working."
+  but is actually normal.  We also don't have it working in any standard
+  framework.  It isn't really a narrowly targeted unit test, it is designed to
+  exercise almost all of the reliability, rate limiting, and serialization
+  layers, by connecting two peers and enabling some packet loss and reordering,
+  and then delivering a bunch of random-sized packets.  Exercising specific
+  patterns of packet misdelivery and checking the exact behaviour more strictly
+  would be great, since certain classes of bugs can just cause poor performance
+  or miscalculation of the rate, while still appearing to be "working."
 * We don't have a good, simple client/server example of how to use the code.
   (The unit test is not a good example, please don't cut and paste it.)
 
@@ -254,25 +259,26 @@ toolchain and making everything more open-source friendly.  Bear with us.
 Here are some areas we're actively working on improving.
 
 ### Bandwidth estimation
-An earlier version of this code implemented TCP-friendly rate control (RFC 5348)
-But as part of the reliability layer rewrite, bandwidth estimation has been
-temporarily broken, and a fixed (configurable) rate is used.  It's not clear
-if it's worth the complexity of implementation and testing to get sender-calculated
-TCP-friendly rate control implemented, or a simpler method would do just as good.
-Whatever method we use, needs to work even if the app code inspects the state and
-decides not to send a message.  In this case, the bandwidth estimation logic might
-perceive that the channel is not "data-limited", when it essentially is.  We could
-add an entry point to allow the application to express this, but this is getting
-complicted, making it more difficult for app code to do the right thing.  It'd
-be better if it mostly "just worked" when app code does the simple thing.
+An earlier version of this code implemented TCP-friendly rate control (RFC
+5348) But as part of the reliability layer rewrite, bandwidth estimation has
+been temporarily broken, and a fixed (configurable) rate is used.  It's not
+clear if it's worth the complexity of implementation and testing to get
+sender-calculated TCP-friendly rate control implemented, or a simpler method
+would do just as good.  Whatever method we use, needs to work even if the app
+code inspects the state and decides not to send a message.  In this case, the
+bandwidth estimation logic might perceive that the channel is not
+"data-limited", when it essentially is.  We could add an entry point to allow
+the application to express this, but this is getting complicted, making it more
+difficult for app code to do the right thing.  It'd be better if it mostly
+"just worked" when app code does the simple thing.
 
 ### NAT piercing (ICE/STUN/TURN)
-The Steamworks code supports a custom protocol for relaying packets through
-our network of relays and on our backbone.  At this time the opensource code
-does not have any support for piercing NAT or relaying packets.  But since
-the Steamworks code already has those concepts, it should be pretty easy to
-add support for this.  You'd still be responsible for running the STUN/TURN
-servers and doing the rendezvous/signalling, but the code could use them.
+The Steamworks code supports a custom protocol for relaying packets through our
+network of relays and on our backbone.  At this time the opensource code does
+not have any support for piercing NAT or relaying packets.  But since the
+Steamworks code already has those concepts, it should be pretty easy to add
+support for this.  You'd still be responsible for running the STUN/TURN servers
+and doing the rendezvous/signalling, but the code could use them.
 
 ### OpenSSL bloat
 Our use of OpenSSL is extremely limited; basically just AES encryption.  We use
@@ -286,12 +292,12 @@ A recent refactor made it possible to replace OpenSSL with libsodium, and we
 should be able to configure that to have much less waste.
 
 ### Use of STL causing more dynamic memory allocations than necessary
-There are a few STL maps and such that could be significantly optimized
-by the use of custom data structures or allocators.
+There are a few STL maps and such that could be significantly optimized by the
+use of custom data structures or allocators.
 
 ### Non-connection-oriented interface
-The Steam version has ISteamMessages, which is a UDP-like interface.
-Messages are addressed by peer identity, not connection handle.  (Both
-reliable and unreliable messages are still supported.)  We should open-
-source this API, too.  Previously it was only for P2P, but we've found
-that it's useful for porting UDP-based code.
+The Steam version has ISteamMessages, which is a UDP-like interface.  Messages
+are addressed by peer identity, not connection handle.  (Both reliable and
+unreliable messages are still supported.)  We should open- source this API,
+too.  Previously it was only for P2P, but we've found that it's useful for
+porting UDP-based code.
