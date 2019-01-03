@@ -44,6 +44,11 @@ void OneTimeCryptoInitOpenSSL()
 	}
 }
 
+void CCrypto::Init()
+{
+	OneTimeCryptoInitOpenSSL();
+}
+
 void DispatchOpenSSLErrors( const char * contextMessage )
 {
 	char buf[1024];
@@ -598,7 +603,7 @@ bool CCrypto::SymmetricDecryptWithIV( const uint8 *pubEncryptedData, uint32 cubE
 // Input:	pchInput -			Plaintext string of item to hash (null terminated)
 //			pOutDigest -		Pointer to receive hashed digest output
 //-----------------------------------------------------------------------------
-bool CCrypto::GenerateSHA256Digest( const uint8 *pubInput, const int cubInput, SHA256Digest_t *pOutDigest )
+void CCrypto::GenerateSHA256Digest( const uint8 *pubInput, const int cubInput, SHA256Digest_t *pOutDigest )
 {
 	VPROF_BUDGET( "CCrypto::GenerateSHA256Digest", VPROF_BUDGETGROUP_ENCRYPTION );
 	//Assert( pubInput );
@@ -606,19 +611,17 @@ bool CCrypto::GenerateSHA256Digest( const uint8 *pubInput, const int cubInput, S
 	Assert( pOutDigest );
 
 	SHA256_CTX c;
-	if ( !SHA256_Init( &c ) )
-		return false;
+	VerifyFatal( SHA256_Init( &c ) );
 	SHA256_Update( &c, pubInput, cubInput );
 	SHA256_Final( *pOutDigest, &c );
 	SecureZeroMemory( &c, sizeof(c) );
-	return true;
 }
 
 //-----------------------------------------------------------------------------
 // Purpose: Generates a cryptographiacally random block of data fit for any use.
 // NOTE: Function terminates process on failure rather than returning false!
 //-----------------------------------------------------------------------------
-bool CCrypto::GenerateRandomBlock( void *pvDest, int cubDest )
+void CCrypto::GenerateRandomBlock( void *pvDest, int cubDest )
 {
 	VPROF_BUDGET( "CCrypto::GenerateRandomBlock", VPROF_BUDGETGROUP_ENCRYPTION );
 	AssertFatal( cubDest >= 0 );
@@ -668,16 +671,13 @@ bool CCrypto::GenerateRandomBlock( void *pvDest, int cubDest )
 	AssertFatal( RAND_bytes( pubDest, cubDest ) > 0 );
 
 #endif
-
-	// NOTE: Function terminates process on failure rather than returning false.
-	return true;
 }
 
 
 //-----------------------------------------------------------------------------
 // Purpose: Generate a keyed-hash MAC using SHA-256
 //-----------------------------------------------------------------------------
-bool CCrypto::GenerateHMAC256( const uint8 *pubData, uint32 cubData, const uint8 *pubKey, uint32 cubKey, SHA256Digest_t *pOutputDigest )
+void CCrypto::GenerateHMAC256( const uint8 *pubData, uint32 cubData, const uint8 *pubKey, uint32 cubKey, SHA256Digest_t *pOutputDigest )
 {
 	VPROF_BUDGET( "CCrypto::GenerateHMAC256", VPROF_BUDGETGROUP_ENCRYPTION );
 	Assert( pubData );
@@ -690,5 +690,4 @@ bool CCrypto::GenerateHMAC256( const uint8 *pubData, uint32 cubData, const uint8
 	hmac.Init( pubKey, cubKey );
 	hmac.Update( pubData, cubData );
 	hmac.Final( *pOutputDigest );
-	return true;
 }

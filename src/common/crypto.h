@@ -27,6 +27,8 @@ namespace CCrypto
 		k_ECDSACurve_secp256k1,
 		k_ECDSACurve_secp256r1,
 	};
+
+	void Init();
 	
 	// SymmetricEncryptWithIV is NOT compatible with SymmetricDecrypt, because it does not write
 	// the IV into the data stream - it is assumed that the IV is communicated or agreed upon by
@@ -86,12 +88,12 @@ namespace CCrypto
 	/// then we just check that the header and footer contain something vaguely PEM-like.
 	const char *LocatePEMBody( const char *pchPEM, uint32 *pcch, const char *pszExpectedType );
 
-	bool GenerateRandomBlock( void *pubDest, int cubDest );
+	void GenerateRandomBlock( void *pubDest, int cubDest );
 
-	bool GenerateSHA256Digest( const uint8 *pubData, const int cubData, SHA256Digest_t *pOutputDigest );
+	void GenerateSHA256Digest( const uint8 *pubData, const int cubData, SHA256Digest_t *pOutputDigest );
 
 	// GenerateHMAC256 is our implementation of HMAC-SHA256. Relatively future-proof. You should probably use this unless you have a very good reason not to.
-	bool GenerateHMAC256( const uint8 *pubData, uint32 cubData, const uint8 *pubKey, uint32 cubKey, SHA256Digest_t *pOutputDigest );
+	void GenerateHMAC256( const uint8 *pubData, uint32 cubData, const uint8 *pubKey, uint32 cubKey, SHA256Digest_t *pOutputDigest );
 };
 
 #endif // CRYPTO_H

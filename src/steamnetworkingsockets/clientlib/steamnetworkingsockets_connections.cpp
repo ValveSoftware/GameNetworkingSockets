@@ -945,7 +945,7 @@ bool CSteamNetworkConnectionBase::BRecvCryptoHandshake( const CMsgSteamDatagramC
 	if ( bServer )
 		std::swap( salt[0], salt[1] );
 	AutoWipeFixedSizeBuffer<sizeof(SHA256Digest_t)> prk;
-	DbgVerify( CCrypto::GenerateHMAC256( (const uint8 *)salt, sizeof(salt), premasterSecret.m_buf, premasterSecret.k_nSize, &prk.m_buf ) );
+	CCrypto::GenerateHMAC256( (const uint8 *)salt, sizeof(salt), premasterSecret.m_buf, premasterSecret.k_nSize, &prk.m_buf );
 	premasterSecret.Wipe();
 
 	//
@@ -993,7 +993,7 @@ bool CSteamNetworkConnectionBase::BRecvCryptoHandshake( const CMsgSteamDatagramC
 	for ( int idxExpand = 0 ; idxExpand < 4 ; ++idxExpand )
 	{
 		*pLastByte = idxExpand+1;
-		DbgVerify( CCrypto::GenerateHMAC256( pStart, pLastByte - pStart + 1, prk.m_buf, prk.k_nSize, &expandTemp ) );
+		CCrypto::GenerateHMAC256( pStart, pLastByte - pStart + 1, prk.m_buf, prk.k_nSize, &expandTemp );
 		V_memcpy( expandOrder[ idxExpand ], &expandTemp, expandSize[ idxExpand ] );
 
 		//SpewMsg( "%s key %d: %02x%02x%02x%02x\n", bServer ? "Server" : "Client", idxExpand, expandTemp[0], expandTemp[1], expandTemp[2], expandTemp[3] );
