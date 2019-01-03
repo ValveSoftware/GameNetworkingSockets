@@ -221,7 +221,7 @@ toolchain and making everything more open-source friendly.  Bear with us.
   but is actually normal.  We also don't have it working in any standard framework.
   It isn't really a narrowly targeted unit test, it is designed to exercise
   almost all of the reliability, rate limiting, and serialization layers, by
-  connecting two peers and enabling some paket loss and reordering, and then
+  connecting two peers and enabling some packet loss and reordering, and then
   delivering a bunch of random-sized packets.  Exercising specific patterns
   of packet misdelivery and checking the exact behaviour more strictly would
   be great, since certain classes of bugs can just cause poor performance or
