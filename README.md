@@ -22,6 +22,7 @@ GameNetworkingSockets is a basic transport layer for games.  The features are:
   based on the [design](https://docs.google.com/document/d/1g5nIXAIkN_Y-7XJW5K45IblHd_L2f5LTaDUDwvZ5L6g/edit?usp=sharing)
   used by Google's QUIC protocol.
 * Tools for simulating loss and detailed stats measurement
+* IPv6
 
 What it does *not* do:
 
@@ -245,15 +246,6 @@ add an entry point to allow the application to express this, but this is getting
 complicted, making it more difficult for app code to do the right thing.  It'd
 be better if it mostly "just worked" when app code does the simple thing.
 
-### Use of STL causing more dynamic memory allocations than necessary
-There are a few STL maps and such that could be significantly optimized
-by the use of custom data structures or allocators.
-
-### Abstract SteamIDs to generic "identity"
-We'd like to generalize the concept of an identity.  Basically anywhere you see
-CSteamID, it would be good to enable the use of a more generic identity
-structure.
-
 ### NAT piercing (ICE/STUN/TURN)
 The Steamworks code supports a custom protocol for relaying packets through
 our network of relays and on our backbone.  At this time the opensource code
@@ -269,3 +261,17 @@ certificates.  However, because the code is going through a wrapper layer that
 is part of Steam, we are linking in much more code than strictly necessary.
 And each time we encrypt and decrypt a packet, this wrapper layer is doing some
 work which could be avoided.
+
+A recent refactor made it possible to replace OpenSSL with libsodium, and we
+should be able to configure that to have much less waste.
+
+### Use of STL causing more dynamic memory allocations than necessary
+There are a few STL maps and such that could be significantly optimized
+by the use of custom data structures or allocators.
+
+### Non-connection-oriented interface
+The Steam version has ISteamMessages, which is a UDP-like interface.
+Messages are addressed by peer identity, not connection handle.  (Both
+reliable and unreliable messages are still supported.)  We should open-
+source this API, too.  Previously it was only for P2P, but we've found
+that it's useful for porting UDP-based code.
