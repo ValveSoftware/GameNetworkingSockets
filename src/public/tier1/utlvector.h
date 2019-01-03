@@ -288,7 +288,7 @@ inline CUtlVector<T, A>::CUtlVector( int growSize, int initSize )	:
 
 #ifdef VALVE_RVALUE_REFS
 template< typename T, class A >
-CUtlVector<T, A>::CUtlVector( CUtlVector<T, A>&& src )
+inline CUtlVector<T, A>::CUtlVector( CUtlVector<T, A>&& src )
 	: m_Size( 0 )
 {
 	Swap( src );
@@ -420,7 +420,7 @@ inline int CUtlVector<T, A>::InvalidIndex()
 // Grows the vector
 //-----------------------------------------------------------------------------
 template< typename T, class A >
-void CUtlVector<T, A>::GrowVector( int num )
+inline void CUtlVector<T, A>::GrowVector( int num )
 {
 	if (m_Size + num > m_Memory.NumAllocated())
 	{
@@ -435,7 +435,7 @@ void CUtlVector<T, A>::GrowVector( int num )
 // Reverses the order of elements
 //-----------------------------------------------------------------------------
 template< typename T, class A >
-void CUtlVector<T, A>::Reverse()
+inline void CUtlVector<T, A>::Reverse()
 {
 	T* pBase = Base();
 	int iRight = m_Size - 1;
@@ -452,7 +452,7 @@ void CUtlVector<T, A>::Reverse()
 // You must sort the list before using or your results will be wrong
 //-----------------------------------------------------------------------------
 template< typename T, class A >
-int CUtlVector<T, A>::SortedFind( const T& search, bool (__cdecl *pfnLessFunc)( const T& src1, const T& src2, void *pCtx ), void *pLessContext ) const
+inline int CUtlVector<T, A>::SortedFind( const T& search, bool (__cdecl *pfnLessFunc)( const T& src1, const T& src2, void *pCtx ), void *pLessContext ) const
 {
 	int start = 0, stop = Count() - 1;
 	while (start <= stop)
@@ -480,7 +480,7 @@ int CUtlVector<T, A>::SortedFind( const T& search, bool (__cdecl *pfnLessFunc)( 
 // You must sort the list before using or your results will be wrong
 //-----------------------------------------------------------------------------
 template< typename T, class A >
-int CUtlVector<T, A>::SortedFind( const T& search, bool (__cdecl *pfnLessFunc)( const T& src1, const T& src2 ) ) const
+inline int CUtlVector<T, A>::SortedFind( const T& search, bool (__cdecl *pfnLessFunc)( const T& src1, const T& src2 ) ) const
 {
 	int start = 0, stop = Count() - 1;
 	while (start <= stop)
@@ -509,7 +509,7 @@ int CUtlVector<T, A>::SortedFind( const T& search, bool (__cdecl *pfnLessFunc)( 
 // You must sort the list before using or your results will be wrong
 //-----------------------------------------------------------------------------
 template< typename T, class A >
-int CUtlVector<T, A>::SortedFindFirst( const T& search, bool (__cdecl *pfnLessFunc)( const T& src1, const T& src2, void *pCtx ), void *pLessContext ) const
+inline int CUtlVector<T, A>::SortedFindFirst( const T& search, bool (__cdecl *pfnLessFunc)( const T& src1, const T& src2, void *pCtx ), void *pLessContext ) const
 {
 	int start = 0, stop = Count() - 1;
 	while (start <= stop)
@@ -542,7 +542,7 @@ int CUtlVector<T, A>::SortedFindFirst( const T& search, bool (__cdecl *pfnLessFu
 // This takes a range in the vector to search, end is inclusive (Count() - 1)
 //-----------------------------------------------------------------------------
 template< typename T, class A >
-int CUtlVector<T, A>::SortedFindLessOrEqual( const T& search, bool (__cdecl *pfnLessFunc)( const T& src1, const T& src2, void *pCtx ), void *pLessContext, int start, int stop ) const
+inline int CUtlVector<T, A>::SortedFindLessOrEqual( const T& search, bool (__cdecl *pfnLessFunc)( const T& src1, const T& src2, void *pCtx ), void *pLessContext, int start, int stop ) const
 {
 	while (start <= stop)
 	{
@@ -585,13 +585,13 @@ int CUtlVector<T, A>::SortedFindLessOrEqual( const T& search, bool (__cdecl *pfn
 // Searches the entire vector
 //-----------------------------------------------------------------------------
 template< typename T, class A >
-int CUtlVector<T, A>::SortedFindLessOrEqual( const T& search, bool (__cdecl *pfnLessFunc)( const T& src1, const T& src2, void *pCtx ), void *pLessContext ) const
+inline int CUtlVector<T, A>::SortedFindLessOrEqual( const T& search, bool (__cdecl *pfnLessFunc)( const T& src1, const T& src2, void *pCtx ), void *pLessContext ) const
 {
 	return SortedFindLessOrEqual( search, pfnLessFunc, pLessContext, 0, Count() - 1 );
 }
 
 template< typename T, class A >
-int CUtlVector<T, A>::SortedInsert( const T& src, bool (__cdecl *pfnLessFunc)( const T& src1, const T& src2, void *pCtx ), void *pLessContext )
+inline int CUtlVector<T, A>::SortedInsert( const T& src, bool (__cdecl *pfnLessFunc)( const T& src1, const T& src2, void *pCtx ), void *pLessContext )
 {
 	int pos = SortedFindLessOrEqual( src, pfnLessFunc, pLessContext ) + 1;
 	GrowVector();
@@ -602,7 +602,7 @@ int CUtlVector<T, A>::SortedInsert( const T& src, bool (__cdecl *pfnLessFunc)( c
 
 template< typename T, class A >
 template <class F>
-void CUtlVector<T, A>::SortPredicate( F &&predicate )
+inline void CUtlVector<T, A>::SortPredicate( F &&predicate )
 {
 	std::sort( begin(), end(), predicate );
 }
@@ -612,7 +612,7 @@ void CUtlVector<T, A>::SortPredicate( F &&predicate )
 // sorted find, with no context pointer
 //-----------------------------------------------------------------------------
 template< typename T, class A >
-int CUtlVector<T, A>::SortedFindLessOrEqual( const T& search, bool (__cdecl *pfnLessFunc)( const T& src1, const T& src2 ), int start, int stop ) const
+inline int CUtlVector<T, A>::SortedFindLessOrEqual( const T& search, bool (__cdecl *pfnLessFunc)( const T& src1, const T& src2 ), int start, int stop ) const
 {
 	while (start <= stop)
 	{
@@ -652,7 +652,7 @@ int CUtlVector<T, A>::SortedFindLessOrEqual( const T& search, bool (__cdecl *pfn
 // sorted find, with no context pointer
 //-----------------------------------------------------------------------------
 template< typename T, class A >
-int CUtlVector<T, A>::SortedFindLessOrEqual( const T& search, bool (__cdecl *pfnLessFunc)( const T& src1, const T& src2 ) ) const
+inline int CUtlVector<T, A>::SortedFindLessOrEqual( const T& search, bool (__cdecl *pfnLessFunc)( const T& src1, const T& src2 ) ) const
 {
 	return SortedFindLessOrEqual( search, pfnLessFunc, 0, Count() - 1 );
 }
@@ -665,7 +665,7 @@ int CUtlVector<T, A>::SortedFindLessOrEqual( const T& search, bool (__cdecl *pfn
 //-----------------------------------------------------------------------------
 template< typename T, class A >
 template <typename T2>
-int CUtlVector<T, A>::SortedFindFirst( const T2 &comparerPredicate ) const
+inline int CUtlVector<T, A>::SortedFindFirst( const T2 &comparerPredicate ) const
 {
 	int start = 0, stop = Count() - 1;
 	while ( start <= stop )
@@ -698,7 +698,7 @@ int CUtlVector<T, A>::SortedFindFirst( const T2 &comparerPredicate ) const
 //-----------------------------------------------------------------------------
 template< typename T, class A >
 template <typename T2>
-int CUtlVector<T, A>::SortedFindIf( const T2 &comparerPredicate ) const
+inline int CUtlVector<T, A>::SortedFindIf( const T2 &comparerPredicate ) const
 {
 	int start = 0, stop = Count() - 1;
 	while (start <= stop)
@@ -727,7 +727,7 @@ int CUtlVector<T, A>::SortedFindIf( const T2 &comparerPredicate ) const
 //-----------------------------------------------------------------------------
 template< typename T, class A >
 template <typename T2>
-const T&	CUtlVector<T, A>::FindElementIf( const T2 &comparerPredicate, const T& defaultParam ) const
+inline const T&	CUtlVector<T, A>::FindElementIf( const T2 &comparerPredicate, const T& defaultParam ) const
 {
 	FOR_EACH_VEC(*this, index)
 	{
@@ -741,7 +741,7 @@ const T&	CUtlVector<T, A>::FindElementIf( const T2 &comparerPredicate, const T& 
 
 
 template< typename T, class A >
-int CUtlVector<T, A>::SortedInsert( const T& src, bool (__cdecl *pfnLessFunc)( const T& src1, const T& src2 ) )
+inline int CUtlVector<T, A>::SortedInsert( const T& src, bool (__cdecl *pfnLessFunc)( const T& src1, const T& src2 ) )
 {
 	int pos = SortedFindLessOrEqual( src, pfnLessFunc ) + 1;
 	GrowVector();
@@ -755,7 +755,7 @@ int CUtlVector<T, A>::SortedInsert( const T& src, bool (__cdecl *pfnLessFunc)( c
 // Sorts the vector
 //-----------------------------------------------------------------------------
 template< typename T, class A >
-void CUtlVector<T, A>::Sort( int (__cdecl *pfnCompare)(const T *, const T *) )
+inline void CUtlVector<T, A>::Sort( int (__cdecl *pfnCompare)(const T *, const T *) )
 {
 	std::sort( begin(), end(),
 			   [pfnCompare] ( const T& a, const T& b ) -> bool
@@ -794,7 +794,7 @@ void CUtlVector<T, A>::Sort( int (__cdecl *pfnCompare)(const T *, const T *) )
 // Sorts the vector
 //-----------------------------------------------------------------------------
 template< typename T, class A >
-void CUtlVector<T, A>::Sort( bool (__cdecl *pfnLessFunc)( const T& src1, const T& src2 ) )
+inline void CUtlVector<T, A>::Sort( bool (__cdecl *pfnLessFunc)( const T& src1, const T& src2 ) )
 {
 	std::sort( begin(), end(),
 			   [pfnLessFunc] ( const T& a, const T& b ) -> bool
@@ -826,7 +826,7 @@ void CUtlVector<T, A>::Sort( bool (__cdecl *pfnLessFunc)( const T& src1, const T
 // Sorts the vector
 //-----------------------------------------------------------------------------
 template< typename T, class A >
-void CUtlVector<T, A>::Sort( bool( __cdecl *pfnLessFunc )(const T& src1, const T& src2, void *pCtx), void *pLessContext )
+inline void CUtlVector<T, A>::Sort( bool( __cdecl *pfnLessFunc )(const T& src1, const T& src2, void *pCtx), void *pLessContext )
 {
 	std::sort( begin(), end(),
 			[pfnLessFunc, pLessContext] ( const T& a, const T& b ) -> bool
@@ -858,7 +858,7 @@ void CUtlVector<T, A>::Sort( bool( __cdecl *pfnLessFunc )(const T& src1, const T
 // Sorts the vector
 //-----------------------------------------------------------------------------
 template< typename T, class A >
-void CUtlVector<T, A>::Sort_s( void *context, int (__cdecl *pfnCompare)(void *,const T *, const T *) )
+inline void CUtlVector<T, A>::Sort_s( void *context, int (__cdecl *pfnCompare)(void *,const T *, const T *) )
 {
 	std::sort( begin(), end(),
 			   [context, pfnCompare] ( const T& a, const T& b ) -> bool
@@ -897,7 +897,7 @@ void CUtlVector<T, A>::Sort_s( void *context, int (__cdecl *pfnCompare)(void *,c
 // Sorts the vector
 //-----------------------------------------------------------------------------
 template< typename T, class A >
-void CUtlVector<T, A>::Sort_s( void *context, bool (__cdecl *pfnLessFunc)( const T& src1, const T& src2, void *pCtx ) )
+inline void CUtlVector<T, A>::Sort_s( void *context, bool (__cdecl *pfnLessFunc)( const T& src1, const T& src2, void *pCtx ) )
 {
 	std::sort( begin(), end(),
 			   [context, pfnLessFunc] ( const T& a, const T& b ) -> bool
@@ -929,7 +929,7 @@ void CUtlVector<T, A>::Sort_s( void *context, bool (__cdecl *pfnLessFunc)( const
 // Makes sure we have enough memory allocated to store a requested # of elements
 //-----------------------------------------------------------------------------
 template< typename T, class A >
-void CUtlVector<T, A>::EnsureCapacity( int num )
+inline void CUtlVector<T, A>::EnsureCapacity( int num )
 {
 	m_Memory.EnsureCapacity(num);
 }
@@ -939,7 +939,7 @@ void CUtlVector<T, A>::EnsureCapacity( int num )
 // Makes sure we have at least this many elements
 //-----------------------------------------------------------------------------
 template< typename T, class A >
-void CUtlVector<T, A>::EnsureCount( int num )
+inline void CUtlVector<T, A>::EnsureCount( int num )
 {
 	if (Count() < num)
 		AddMultipleToTail( num - Count() );
@@ -950,18 +950,18 @@ void CUtlVector<T, A>::EnsureCount( int num )
 // Shifts elements
 //-----------------------------------------------------------------------------
 template< typename T, class A >
-void CUtlVector<T, A>::ShiftElementsRight( int elem, int num )
+inline void CUtlVector<T, A>::ShiftElementsRight( int elem, int num )
 {
-	Assert( IsValidIndex(elem) || ( m_Size == 0 ) || ( num == 0 ));
+	DbgAssert( IsValidIndex(elem) || ( m_Size == 0 ) || ( num == 0 ));
 	int numToMove = m_Size - elem - num;
 	if ((numToMove > 0) && (num > 0))
 		memmove( (void*)&Element(elem+num), (void *)&Element(elem), numToMove * sizeof(T) );
 }
 
 template< typename T, class A >
-void CUtlVector<T, A>::ShiftElementsLeft( int elem, int num )
+inline void CUtlVector<T, A>::ShiftElementsLeft( int elem, int num )
 {
-	Assert( IsValidIndex(elem) || ( m_Size == 0 ) || ( num == 0 ));
+	DbgAssert( IsValidIndex(elem) || ( m_Size == 0 ) || ( num == 0 ));
 	int numToMove = m_Size - elem - num;
 	if ((numToMove > 0) && (num > 0))
 	{
@@ -1002,7 +1002,7 @@ inline int CUtlVector<T, A>::InsertAfter( int elem )
 }
 
 template< typename T, class A >
-int CUtlVector<T, A>::InsertBefore( int elem )
+inline int CUtlVector<T, A>::InsertBefore( int elem )
 {
 	// Can insert at the end
 	Assert( (elem == Count()) || IsValidIndex(elem) );
@@ -1036,7 +1036,7 @@ inline int CUtlVector<T, A>::InsertAfter( int elem, const T& src )
 }
 
 template< typename T, class A >
-int CUtlVector<T, A>::InsertBefore( int elem, const T& src )
+inline int CUtlVector<T, A>::InsertBefore( int elem, const T& src )
 {
 	// Can't insert something that's in the list... reallocation may hose us
 	Assert( (&src < Base()) || (&src >= (Base() + Count()) ) );
@@ -1053,7 +1053,7 @@ int CUtlVector<T, A>::InsertBefore( int elem, const T& src )
 #ifdef VALVE_RVALUE_REFS
 // Optimized AddToTail path with move constructor.
 template< typename T, class A >
-int CUtlVector<T, A>::AddToTail( T&& src )
+inline int CUtlVector<T, A>::AddToTail( T&& src )
 {
 	// Can't insert something that's in the list... reallocation may hose us
 	Assert( (&src < Base()) || (&src >= (Base() + Count())) );
@@ -1084,32 +1084,40 @@ inline int CUtlVector<T, A>::AddMultipleToTail( int num, const T *pToCopy )
 }
 
 template< typename T, class A >
-int CUtlVector<T, A>::InsertMultipleAfter( int elem, int num, const T *pToCopy )
+inline int CUtlVector<T, A>::InsertMultipleAfter( int elem, int num, const T *pToCopy )
 {
 	return InsertMultipleBefore( elem + 1, num, pToCopy );
 }
 
 template< typename T, class A >
-void CUtlVector<T, A>::SetCount( int count )
+inline void CUtlVector<T, A>::SetCount( int count )
 {
-	Assert( count >= 0 );
-	if ( count >= m_Size )
+	if ( count > m_Size )
 	{
 		int i = m_Size;
 		GrowVector( count - m_Size );
 		for ( ; i < m_Size; ++i )
 		{
-			Construct( &Element(i) );
+			Construct( m_Memory.Base() + i );
 		}
 	}
 	else if ( count >= 0 )
 	{
-		RemoveMultiple( count, m_Size - count );
+		int nToRemove = m_Size - count;
+		m_Size = count;
+		while ( nToRemove-- )
+		{
+			Destruct( m_Memory.Base() + m_Size + nToRemove );
+		}
+	}
+	else
+	{
+		Assert( count >= 0 );
 	}
 }
 
 template< typename T, class A >
-void CUtlVector<T, A>::CopyArray( const T *pArray, int size )
+inline void CUtlVector<T, A>::CopyArray( const T *pArray, int size )
 {
 	// Can't insert something that's in the list... reallocation may hose us
 	Assert( !pArray || (Base() >= (pArray + size)) || (pArray >= (Base() + Count()) ) );
@@ -1117,19 +1125,19 @@ void CUtlVector<T, A>::CopyArray( const T *pArray, int size )
 	SetCount( size );
 	for( int i=0; i < size; i++ )
 	{
-		(*this)[i] = pArray[i];
+		m_Memory.Base()[i] = pArray[i];
 	}
 }
 
 template< typename T, class A >
-void CUtlVector<T, A>::Swap( CUtlVector< T, A > &vec )
+inline void CUtlVector<T, A>::Swap( CUtlVector< T, A > &vec )
 {
 	m_Memory.Swap( vec.m_Memory );
 	SWAP( m_Size, vec.m_Size );
 }
 
 template< typename T, class A >
-int CUtlVector<T, A>::AddVectorToTail( CUtlVector const &src )
+inline int CUtlVector<T, A>::AddVectorToTail( CUtlVector const &src )
 {
 	return AddMultipleToTail( src.Count(), src.Base() );
 }
@@ -1167,7 +1175,7 @@ inline int CUtlVector<T, A>::InsertMultipleBefore( int elem, int num, const T *p
 // Finds an element (element needs operator== defined)
 //-----------------------------------------------------------------------------
 template< typename T, class A >
-int CUtlVector<T, A>::Find( const T& src ) const
+inline int CUtlVector<T, A>::Find( const T& src ) const
 {
 	for ( int i = 0; i < Count(); ++i )
 	{
@@ -1180,7 +1188,7 @@ int CUtlVector<T, A>::Find( const T& src ) const
 #ifdef VALVE_RVALUE_REFS
 template< typename T, class A >
 template < typename TMatchFunc >
-int CUtlVector<T, A>::FindMatch( TMatchFunc&& func ) const
+inline int CUtlVector<T, A>::FindMatch( TMatchFunc&& func ) const
 {
 	for ( int i = 0; i < Count(); ++i )
 	{
@@ -1192,7 +1200,7 @@ int CUtlVector<T, A>::FindMatch( TMatchFunc&& func ) const
 #endif // VALVE_RVALUE_REFS
 
 template< typename T, class A >
-bool CUtlVector<T, A>::HasElement( const T& src ) const
+inline bool CUtlVector<T, A>::HasElement( const T& src ) const
 {
 	return ( Find(src) != InvalidIndex() );
 }
@@ -1202,7 +1210,7 @@ bool CUtlVector<T, A>::HasElement( const T& src ) const
 // Element removal
 //-----------------------------------------------------------------------------
 template< typename T, class A >
-void CUtlVector<T, A>::FastRemove( int elem )
+inline void CUtlVector<T, A>::FastRemove( int elem )
 {
 	Assert( IsValidIndex(elem) );
 
@@ -1220,7 +1228,7 @@ void CUtlVector<T, A>::FastRemove( int elem )
 }
 
 template< typename T, class A >
-void CUtlVector<T, A>::Remove( int elem )
+inline void CUtlVector<T, A>::Remove( int elem )
 {
 	Destruct( &Element(elem) );
 	ShiftElementsLeft(elem);
@@ -1228,7 +1236,7 @@ void CUtlVector<T, A>::Remove( int elem )
 }
 
 template< typename T, class A >
-bool CUtlVector<T, A>::FindAndRemove( const T& src )
+inline bool CUtlVector<T, A>::FindAndRemove( const T& src )
 {
 	int elem = Find( src );
 	if ( elem != InvalidIndex() )
@@ -1240,7 +1248,7 @@ bool CUtlVector<T, A>::FindAndRemove( const T& src )
 }
 
 template< typename T, class A >
-bool CUtlVector<T, A>::FindAndFastRemove( const T& src )
+inline bool CUtlVector<T, A>::FindAndFastRemove( const T& src )
 {
 	int elem = Find( src );
 	if ( elem != InvalidIndex() )
@@ -1275,26 +1283,30 @@ void CUtlVector<T, A>::RemoveMultiple( int elem, int num )
 }
 
 template< typename T, class A >
-void CUtlVector<T, A>::RemoveMultipleFromTail( int num )
+inline void CUtlVector<T, A>::RemoveMultipleFromTail( int num )
 {
-	if ( num <= 0 )
-		return;
-
-	Assert( Count() >= num );
-	int nToRemove = Min( Count(), num );
+	int nToRemove = Min( m_Size, num );
 	if ( nToRemove > 0 )
-		RemoveMultiple( Count() - nToRemove, nToRemove );
+	{
+		m_Size -= nToRemove;
+		while ( nToRemove-- )
+		{
+			Destruct( m_Memory.Base() + m_Size + nToRemove );
+		}
+	}
+	else
+	{
+		Assert( num >= 0 );
+	}
 }
 
-
 template< typename T, class A >
-void CUtlVector<T, A>::RemoveAll()
+inline void CUtlVector<T, A>::RemoveAll()
 {
 	for (int i = m_Size; --i >= 0; )
 	{
-		Destruct(&Base()[i]);
+		Destruct( m_Memory.Base() + i );
 	}
-
 	m_Size = 0;
 }
 
@@ -1367,7 +1379,7 @@ public:
 //-----------------------------------------------------------------------------
 #ifdef DBGFLAG_VALIDATE
 template< typename T, class A >
-void CUtlVector<T, A>::Validate( CValidator &validator, const char *pchName )
+inline void CUtlVector<T, A>::Validate( CValidator &validator, const char *pchName )
 {
 #ifdef _WIN32
 	validator.Push( typeid(*this).raw_name(), this, pchName );
@@ -1381,7 +1393,7 @@ void CUtlVector<T, A>::Validate( CValidator &validator, const char *pchName )
 }
 
 template< typename T, class A >
-void CUtlVector<T, A>::ValidateSelfAndElements( CValidator &validator, const char *pchName )
+inline void CUtlVector<T, A>::ValidateSelfAndElements( CValidator &validator, const char *pchName )
 {
 #ifdef _WIN32
 	validator.Push( typeid(*this).raw_name(), this, pchName );

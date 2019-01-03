@@ -96,8 +96,8 @@ COMPILE_TIME_ASSERT( sizeof( sConfigurationStringEntryList ) / sizeof( SConfigur
 //
 /////////////////////////////////////////////////////////////////////////////
 
-CUtlLinkedList<CSteamNetworkConnectionBase *> g_listConnections;
-CUtlLinkedList<CSteamNetworkListenSocketBase *> g_listListenSockets;
+CUtlHashMap<uint16, CSteamNetworkConnectionBase *, std::equal_to<uint16>, Identity<uint16> > g_mapConnections;
+CUtlHashMap<int, CSteamNetworkListenSocketBase *, std::equal_to<int>, Identity<int> > g_mapListenSockets;
 
 static bool BConnectionStateExistsToAPI( ESteamNetworkingConnectionState eState )
 {
@@ -125,10 +125,15 @@ static CSteamNetworkConnectionBase *GetConnectionByHandle( HSteamNetConnection s
 {
 	if ( sock == 0 )
 		return nullptr;
-	int idx = sock & 0xffff;
-	if ( !g_listConnections.IsValidIndex( idx ) )
+	int idx = g_mapConnections.Find( uint16( sock ) );
+	if ( idx == g_mapConnections.InvalidIndex() )
 		return nullptr;
-	CSteamNetworkConnectionBase *pResult = g_listConnections[ idx ];
+	CSteamNetworkConnectionBase *pResult = g_mapConnections[ idx ];
+	if ( !pResult || uint16( pResult->m_hConnectionSelf ) != uint16( sock ) )
+	{
+		AssertMsg( false, "g_mapConnections corruption!" );
+		return nullptr;
+	}
 	if ( pResult->m_hConnectionSelf != sock )
 		return nullptr;
 	if ( !BConnectionStateExistsToAPI( pResult->GetState() ) )
@@ -136,20 +141,34 @@ static CSteamNetworkConnectionBase *GetConnectionByHandle( HSteamNetConnection s
 	return pResult;
 }
 
+CSteamNetworkConnectionBase *FindConnectionByLocalID( uint32 nLocalConnectionID )
+{
+	// We use the wire connection ID as the API handle, so these two operations
+	// are currently the same.
+	return GetConnectionByHandle( HSteamNetConnection( nLocalConnectionID ) );
+}
+
 static CSteamNetworkListenSocketBase *GetListenSockedByHandle( HSteamListenSocket sock )
 {
 	if ( sock == 0 )
 		return nullptr;
 	int idx = sock & 0xffff;
-	if ( !g_listListenSockets.IsValidIndex( idx ) )
+	if ( !g_mapListenSockets.IsValidIndex( idx ) )
 		return nullptr;
-	CSteamNetworkListenSocketBase *pResult = g_listListenSockets[ idx ];
+	CSteamNetworkListenSocketBase *pResult = g_mapListenSockets[ idx ];
 	Assert( pResult && pResult->m_hListenSocketSelf == sock );
 	return pResult;
 }
 
 static HSteamListenSocket AddListenSocket( CSteamNetworkListenSocketBase *pSock )
 {
+	// We actually don't do map "lookups".  We assume the number of listen sockets
+	// is going to be reasonably small.
+	static int s_nDummy;
+	++s_nDummy;
+	int idx = g_mapListenSockets.Insert( s_nDummy, pSock );
+	Assert( idx < 0x1000 );
+
 	// Use upper 16 bits as a connection sequence number, so that listen socket handles
 	// are not reused within a short time period.
 	static uint32 s_nUpperBits = 0;
@@ -158,19 +177,9 @@ static HSteamListenSocket AddListenSocket( CSteamNetworkListenSocketBase *pSock 
 		s_nUpperBits = 0x10000;
 
 	// Add it to our table of listen sockets
-	pSock->m_hListenSocketSelf = g_listListenSockets.AddToTail( pSock ) | s_nUpperBits;
+	pSock->m_hListenSocketSelf = HSteamListenSocket( idx | s_nUpperBits );
 	return pSock->m_hListenSocketSelf;
 }
-
-CSteamNetworkConnectionBase *FindConnectionByLocalID( uint32 nLocalConnectionID )
-{
-	// Dumb linear search
-	for ( CSteamNetworkConnectionBase *pConn: g_listConnections )
-		if ( pConn->m_unConnectionIDLocal == nLocalConnectionID )
-			return pConn;
-	return nullptr;
-}
-
 
 /////////////////////////////////////////////////////////////////////////////
 //
@@ -183,7 +192,6 @@ CSteamNetworkConnectionBase *FindConnectionByLocalID( uint32 nLocalConnectionID 
 ISteamUser *g_pSteamUser;
 ISteamGameServer *g_pSteamGameServer;
 
-int g_iPartnerMask = -1;
 std::string g_sLauncherPartner = "valve";
 
 static FSteamAPI_RegisterCallback s_fnRegisterCallback;
@@ -295,13 +303,12 @@ bool CSteamNetworkingSockets::BInit( ISteamClient *pClient, HSteamUser hSteamUse
 	}
 	g_eUniverse = m_pSteamUtils->GetConnectedUniverse();
 
-	m_pSteamNetworkingSocketsSerialized = (ISteamNetworkingSocketsSerialized002*)pClient->GetISteamGenericInterface( hSteamUser, hSteamPipe, "SteamNetworkingSocketsSerialized002" );
+	m_pSteamNetworkingSocketsSerialized = (ISteamNetworkingSocketsSerialized*)pClient->GetISteamGenericInterface( hSteamUser, hSteamPipe, STEAMNETWORKINGSOCKETSSERIALIZED_INTERFACE_VERSION );
 	if ( !m_pSteamNetworkingSocketsSerialized )
 	{
-		V_sprintf_safe( errMsg, "Can't get steam interface '%s'", "SteamNetworkingSocketsSerialized002" );
+		V_sprintf_safe( errMsg, "Can't get steam interface '%s'", STEAMNETWORKINGSOCKETSSERIALIZED_INTERFACE_VERSION );
 		return false;
 	}
-	m_pSteamNetworkingSocketsSerializedV3 = (ISteamNetworkingSocketsSerialized*)pClient->GetISteamGenericInterface( hSteamUser, hSteamPipe, STEAMNETWORKINGSOCKETSSERIALIZED_INTERFACE_VERSION );
 
 	m_nAppID = m_pSteamUtils->GetAppID();
 
@@ -320,9 +327,9 @@ bool CSteamNetworkingSockets::BInit( ISteamClient *pClient, HSteamUser hSteamUse
 			m_eLogonStatus = k_ELogonStatus_Disconnected; // Unlike gameservers, we assume that we're logged on when we boot
 	}
 
-	// Cache our SteamID, if we're online
-	m_steamID.Clear();
-	GetSteamID();
+	// Cache our identity, if we're online
+	m_identity.Clear();
+	GetIdentity();
 
 	m_bInitted = true;
 	++s_nSteamNetworkingSocketsInitted;
@@ -341,34 +348,29 @@ void CSteamNetworkingSockets::Kill()
 	CSteamNetworkingSocketsCallback<SteamNetworkingSocketsRecvP2PFailure_t>::Unregister();
 	CSteamNetworkingSocketsCallback<SteamNetworkingSocketsConfigUpdated_t>::Unregister();
 	m_pSteamNetworkingSocketsSerialized = nullptr;
-	m_pSteamNetworkingSocketsSerializedV3 = nullptr;
 	m_pSteamUtils = nullptr;
 #endif
 
 	// Destroy all of my connections
-	for ( int idx = g_listConnections.FirstInorder() ; idx != g_listConnections.InvalidIndex() ; )
+	FOR_EACH_HASHMAP( g_mapConnections, idx )
 	{
-		int idxNext = g_listConnections.NextInorder( idx );
-		CSteamNetworkConnectionBase *pConn = g_listConnections[idx];
+		CSteamNetworkConnectionBase *pConn = g_mapConnections[idx];
 		if ( pConn->m_pSteamNetworkingSocketsInterface == this )
 		{
 			pConn->Destroy();
-			Assert( !g_listConnections.IsValidIndex( idx ) );
+			Assert( !g_mapConnections.IsValidIndex( idx ) );
 		}
-		idx = idxNext;
 	}
 
 	// Destroy all of my listen sockets
-	for ( int idx = g_listListenSockets.FirstInorder() ; idx != g_listListenSockets.InvalidIndex() ; )
+	FOR_EACH_HASHMAP( g_mapListenSockets, idx )
 	{
-		int idxNext = g_listListenSockets.NextInorder( idx );
-		CSteamNetworkListenSocketBase *pSock = g_listListenSockets[idx];
+		CSteamNetworkListenSocketBase *pSock = g_mapListenSockets[idx];
 		if ( pSock->m_pSteamNetworkingSocketsInterface == this )
 		{
-			DbgVerify( CloseListenSocket( pSock->m_hListenSocketSelf, nullptr ) );
-			Assert( !g_listListenSockets.IsValidIndex( idx ) );
+			DbgVerify( CloseListenSocket( pSock->m_hListenSocketSelf ) );
+			Assert( !g_mapListenSockets.IsValidIndex( idx ) );
 		}
-		idx = idxNext;
 	}
 
 	// Kill relayed connection support
@@ -378,8 +380,8 @@ void CSteamNetworkingSockets::Kill()
 
 	// Clear identity and crypto stuff.
 	// If we are re-initialized, we might get new ones
+	m_identity.Clear();
 	#ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
-		m_steamID.Clear();
 		m_eLogonStatus = k_ELogonStatus_InitialConnecting;
 	#endif
 	m_msgSignedCert.Clear();
@@ -401,9 +403,9 @@ void CSteamNetworkingSockets::Kill()
 
 bool CSteamNetworkingSockets::BHasAnyConnections() const
 {
-	for ( CSteamNetworkConnectionBase *pConn: g_listConnections )
+	for ( const auto &item: g_mapConnections )
 	{
-		if ( pConn->m_pSteamNetworkingSocketsInterface == this )
+		if ( item.elem->m_pSteamNetworkingSocketsInterface == this )
 			return true;
 	}
 	return false;
@@ -411,9 +413,9 @@ bool CSteamNetworkingSockets::BHasAnyConnections() const
 
 bool CSteamNetworkingSockets::BHasAnyListenSockets() const
 {
-	for ( CSteamNetworkListenSocketBase *pSock: g_listListenSockets )
+	for ( const auto &item: g_mapListenSockets )
 	{
-		if ( pSock->m_pSteamNetworkingSocketsInterface == this )
+		if ( item.elem->m_pSteamNetworkingSocketsInterface == this )
 			return true;
 	}
 	return false;
@@ -424,11 +426,11 @@ void CSteamNetworkingSockets::OnCallback( SteamServersConnected_t *param )
 {
 	SteamDatagramTransportLock lock;
 	m_eLogonStatus = k_ELogonStatus_Connected;
-	GetSteamID();
+	GetIdentity();
 
 	if ( m_bGameServer )
 	{
-		SpewMsg( "Gameserver logged on to Steam, assigned SteamID %s\n", GetSteamID().Render() );
+		SpewMsg( "Gameserver logged on to Steam, assigned identity %s\n", SteamNetworkingIdentityRender( GetIdentity() ).c_str() );
 	}
 
 	// See if we should make a cert request now.  We only need to do this if we have
@@ -461,35 +463,40 @@ void CSteamNetworkingSockets::OnCallback( SteamServersDisconnected_t *param )
 			CertRequestFailed( k_ESteamNetConnectionEnd_Misc_SteamConnectivity, "Lost connection to steam" );
 	}
 }
-
-CSteamID CSteamNetworkingSockets::GetSteamID()
-{
-	if ( !m_steamID.IsValid() )
-	{
-		if ( m_bGameServer )
-		{
-			if ( g_pSteamGameServer )
-				m_steamID = g_pSteamGameServer->GetSteamID();
-		}
-		else 
-		{
-			if ( g_pSteamUser )
-				m_steamID = g_pSteamUser->GetSteamID();
-		}
-	}
-
-	return m_steamID;
-}
 #endif
 
-HSteamListenSocket CSteamNetworkingSockets::CreateListenSocket( int nSteamConnectVirtualPort, uint32 nIP, uint16 nPort )
+const SteamNetworkingIdentity &CSteamNetworkingSockets::GetIdentity()
+{
+	// FIXME SteamNetworkingIdentity
+	// Should eventually support other types
+	if ( m_identity.IsInvalid() )
+	{
+		#ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
+			if ( m_bGameServer )
+			{
+				if ( g_pSteamGameServer && g_pSteamGameServer->GetSteamID().IsValid() )
+					m_identity.SetSteamID( g_pSteamGameServer->GetSteamID() );
+			}
+			else
+			{
+				if ( g_pSteamUser && g_pSteamUser->GetSteamID().IsValid() )
+					m_identity.SetSteamID( g_pSteamUser->GetSteamID() );
+			}
+		#else
+			m_identity.SetLocalHost();
+		#endif
+	}
+	return m_identity;
+}
+
+HSteamListenSocket CSteamNetworkingSockets::CreateListenSocketIP( const SteamNetworkingIPAddr &localAddr )
 {
 	SteamDatagramTransportLock scopeLock;
 	SteamDatagramErrMsg errMsg;
 
 	// Might we want a cert?  If so, make sure async process to get one is in
 	// progress (or try again if we tried earlier and failed)
-	if ( nSteamConnectVirtualPort >= 0 || steamdatagram_ip_allow_connections_without_auth == 0 )
+	if ( steamdatagram_ip_allow_connections_without_auth == 0 )
 	{
 		#ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
 			SpewError( "Need cert authority!" );
@@ -499,35 +506,10 @@ HSteamListenSocket CSteamNetworkingSockets::CreateListenSocket( int nSteamConnec
 		#endif
 	}
 
-	// If they are asking fior P2P functionality, then we'll need SDR functionality, including the ability to
-	// measure ping times to relays.  Start getting those resources ready now.
-	if ( nSteamConnectVirtualPort != -1 )
-	{
-		#ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
-			SpewError( "Relayed connections require Steam!" );
-			return k_HSteamListenSocket_Invalid;
-		#else
-
-			// Despite the API argument being an int, we'd like to reserve most of the address space.
-			if ( nSteamConnectVirtualPort < 0 || nSteamConnectVirtualPort > 0xffff )
-			{
-				SpewError( "Virtual port number must be a small, positive number" );
-				return k_HSteamListenSocket_Invalid;
-			}
-
-			// We need SDR functionality in order to support P2P
-			if ( !BSDRClientInit( errMsg ) )
-			{
-				SpewError( "Cannot initialize SDR clientfunctionality to create P2P listen socket.  %s", errMsg );
-				return k_HSteamListenSocket_Invalid;
-			}
-		#endif
-	}
-
-	CSteamNetworkListenSocketStandard *pSock = new CSteamNetworkListenSocketStandard( this );
+	CSteamNetworkListenSocketDirectUDP *pSock = new CSteamNetworkListenSocketDirectUDP( this );
 	if ( !pSock )
 		return k_HSteamListenSocket_Invalid;
-	if ( !pSock->BInit( nSteamConnectVirtualPort, nIP, nPort, errMsg ) )
+	if ( !pSock->BInit( localAddr, errMsg ) )
 	{
 		SpewError( "Cannot create listen socket.  %s", errMsg );
 		delete pSock;
@@ -537,12 +519,63 @@ HSteamListenSocket CSteamNetworkingSockets::CreateListenSocket( int nSteamConnec
 	return AddListenSocket( pSock );
 }
 
-#ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
-HSteamNetConnection CSteamNetworkingSockets::ConnectBySteamID( CSteamID steamIDTarget, int nVirtualPort )
+HSteamNetConnection CSteamNetworkingSockets::ConnectByIPAddress( const SteamNetworkingIPAddr &address )
 {
-	if ( !steamIDTarget.IsValid() || !( steamIDTarget.BIndividualAccount() || steamIDTarget.BGameServerAccount() ) )
+	SteamDatagramTransportLock scopeLock;
+	CSteamNetworkConnectionUDP *pConn = new CSteamNetworkConnectionUDP( this );
+	if ( !pConn )
+		return k_HSteamNetConnection_Invalid;
+	SteamDatagramErrMsg errMsg;
+	if ( !pConn->BInitConnect( address, errMsg ) )
 	{
-		AssertMsg( false, "Invalid SteamID" );
+		SpewError( "Cannot create IPv4 connection.  %s", errMsg );
+		pConn->FreeResources();
+		delete pConn;
+		return k_HSteamNetConnection_Invalid;
+	}
+
+	return pConn->m_hConnectionSelf;
+}
+
+#ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
+
+HSteamListenSocket CSteamNetworkingSockets::CreateListenSocketP2P( int nVirtualPort )
+{
+	SteamDatagramTransportLock scopeLock;
+	SteamDatagramErrMsg errMsg;
+
+	// We'll need a cert.  Start sure async process to get one is in
+	// progress (or try again if we tried earlier and failed)
+	AsyncCertRequest();
+
+	// We'll need SDR functionality, including the ability to measure ping
+	// times to relays.  Start getting those resources ready now.
+
+	// Despite the API argument being an int, we'd like to reserve most of the address space.
+	if ( nVirtualPort < 0 || nVirtualPort > 0xffff )
+	{
+		SpewError( "Virtual port number must be a small, positive number" );
+		return k_HSteamListenSocket_Invalid;
+	}
+
+	CSteamNetworkListenSocketP2P *pSock = new CSteamNetworkListenSocketP2P( this );
+	if ( !pSock )
+		return k_HSteamListenSocket_Invalid;
+	if ( !pSock->BInit( nVirtualPort, errMsg ) )
+	{
+		SpewError( "Cannot create listen socket.  %s", errMsg );
+		delete pSock;
+		return k_HSteamListenSocket_Invalid;
+	}
+
+	return AddListenSocket( pSock );
+}
+
+HSteamNetConnection CSteamNetworkingSockets::ConnectP2P( const SteamNetworkingIdentity &identityRemote, int nVirtualPort )
+{
+	if ( identityRemote.IsInvalid() )
+	{
+		AssertMsg( false, "Invalid identity" );
 		return k_HSteamNetConnection_Invalid;
 	}
 
@@ -559,9 +592,10 @@ HSteamNetConnection CSteamNetworkingSockets::ConnectBySteamID( CSteamID steamIDT
 	if ( !pConn )
 		return k_HSteamNetConnection_Invalid;
 	SteamDatagramErrMsg errMsg;
-	if ( !pConn->BInitConnect( steamIDTarget, nVirtualPort, errMsg ) )
+	if ( !pConn->BInitConnect( identityRemote, nVirtualPort, errMsg ) )
 	{
-		SpewError( "Cannot create P2P connection to %s.  %s", steamIDTarget.Render(), errMsg );
+		SpewError( "Cannot create P2P connection to %s.  %s", SteamNetworkingIdentityRender( identityRemote ).c_str(), errMsg );
+		pConn->FreeResources();
 		delete pConn;
 		return k_HSteamNetConnection_Invalid;
 	}
@@ -569,23 +603,6 @@ HSteamNetConnection CSteamNetworkingSockets::ConnectBySteamID( CSteamID steamIDT
 	return pConn->m_hConnectionSelf;
 }
 #endif
-
-HSteamNetConnection CSteamNetworkingSockets::ConnectByIPv4Address( uint32 nIP, uint16 nPort )
-{
-	SteamDatagramTransportLock scopeLock;
-	CSteamNetworkConnectionIPv4 *pConn = new CSteamNetworkConnectionIPv4( this );
-	if ( !pConn )
-		return k_HSteamNetConnection_Invalid;
-	SteamDatagramErrMsg errMsg;
-	if ( !pConn->BInitConnect( netadr_t( nIP, nPort ), errMsg ) )
-	{
-		SpewError( "Cannot create IPv4 connection.  %s", errMsg );
-		delete pConn;
-		return k_HSteamNetConnection_Invalid;
-	}
-
-	return pConn->m_hConnectionSelf;
-}
 
 EResult CSteamNetworkingSockets::AcceptConnection( HSteamNetConnection hConn )
 {
@@ -619,25 +636,22 @@ bool CSteamNetworkingSockets::CloseConnection( HSteamNetConnection hConn, int nR
 	return true;
 }
 
-bool CSteamNetworkingSockets::CloseListenSocket( HSteamListenSocket hSocket, const char *pszNotifyRemoteReason )
+bool CSteamNetworkingSockets::CloseListenSocket( HSteamListenSocket hSocket )
 {
 	SteamDatagramTransportLock scopeLock;
 	CSteamNetworkListenSocketBase *pSock = GetListenSockedByHandle( hSocket );
 	if ( !pSock )
 		return false;
 	int idx = hSocket & 0xffff;
-	Assert( g_listListenSockets[ idx ] == pSock );
-
-	// !FIXME! Need to handle putting connections into the linger state!
-	//AssertMsg( !pszNotifyRemoteReason, "Closing connections gracefully not yet implemented!" );
+	Assert( g_mapListenSockets.IsValidIndex( idx ) && g_mapListenSockets[ idx ] == pSock );
 
 	// Delete the socket itself
 	// NOTE: If you change this, look at CSteamSocketNetworking::Kill()!
 	pSock->Destroy();
 
 	// Remove from our data structures
-	g_listListenSockets[ idx ] = nullptr; // Just for grins
-	g_listListenSockets.Remove( idx );
+	g_mapListenSockets[ idx ] = nullptr; // Just for grins
+	g_mapListenSockets.RemoveAt( idx );
 	return true;
 }
 
@@ -666,7 +680,7 @@ void CSteamNetworkingSockets::SetConnectionName( HSteamNetConnection hPeer, cons
 	CSteamNetworkConnectionBase *pConn = GetConnectionByHandle( hPeer );
 	if ( !pConn )
 		return;
-	pConn->SetName( pszName );
+	pConn->SetAppName( pszName );
 }
 
 bool CSteamNetworkingSockets::GetConnectionName( HSteamNetConnection hPeer, char *pszName, int nMaxLen )
@@ -675,7 +689,7 @@ bool CSteamNetworkingSockets::GetConnectionName( HSteamNetConnection hPeer, char
 	CSteamNetworkConnectionBase *pConn = GetConnectionByHandle( hPeer );
 	if ( !pConn )
 		return false;
-	V_strncpy( pszName, pConn->GetName(), nMaxLen );
+	V_strncpy( pszName, pConn->GetAppName(), nMaxLen );
 	return true;
 }
 
@@ -760,17 +774,13 @@ int CSteamNetworkingSockets::GetDetailedConnectionStatus( HSteamNetConnection hC
 	return r;
 }
 
-bool CSteamNetworkingSockets::GetListenSocketInfo( HSteamListenSocket hSocket, uint32 *pnIP, uint16 *pnPort )
+bool CSteamNetworkingSockets::GetListenSocketAddress( HSteamListenSocket hSocket, SteamNetworkingIPAddr *pAddress )
 {
 	SteamDatagramTransportLock scopeLock;
 	CSteamNetworkListenSocketBase *pSock = GetListenSockedByHandle( hSocket );
 	if ( !pSock )
 		return false;
-	if ( pnIP )
-		*pnIP = pSock->m_unIP;
-	if ( pnPort )
-		*pnPort = pSock->m_unPort;
-	return true;
+	return pSock->APIGetAddress( pAddress );
 }
 
 bool CSteamNetworkingSockets::CreateSocketPair( HSteamNetConnection *pOutConnection1, HSteamNetConnection *pOutConnection2, bool bUseNetworkLoopback )
@@ -805,6 +815,14 @@ bool CSteamNetworkingSockets::CreateSocketPair( HSteamNetConnection *pOutConnect
 		*pOutConnection2 = pConn[1]->m_hConnectionSelf;
 	}
 	return true;
+}
+
+bool CSteamNetworkingSockets::BCertHasIdentity() const
+{
+	// We should actually have a cert, otherwise this question cannot be answered
+	Assert( m_msgSignedCert.has_cert() );
+	Assert( m_msgCert.has_key_data() );
+	return m_msgCert.has_identity() || m_msgCert.has_legacy_steam_id();
 }
 
 #ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
@@ -858,7 +876,8 @@ void CSteamNetworkingSockets::AsyncCertRequest()
 		return;
 
 	// We must know our SteamID
-	CSteamID steamID = GetSteamID();
+	// FIXME SteamNetworkingIdentity - only works for SteamIDs
+	CSteamID steamID = GetIdentity().GetSteamID();
 	if ( !steamID.IsValid() )
 	{
 		CertRequestFailed( k_ESteamNetConnectionEnd_Misc_InternalError, "Cannot request a cert; we don't know our SteamID (yet?)." );
@@ -974,7 +993,7 @@ void CSteamNetworkingSockets::OnCallback( SteamNetworkingSocketsCert_t *param, b
 	m_keyPrivateKey.Set( param->m_privKey, param->m_cbPrivKey );
 
 	// Notify connections, so they can advance their state machine
-	SpewVerbose( "Got cert for %s from Steam\n", GetSteamID().Render() );
+	SpewVerbose( "Got cert for %s from Steam\n", SteamNetworkingIdentityRender( GetIdentity() ).c_str() );
 	AsyncCertRequestFinished();
 }
 
@@ -982,16 +1001,16 @@ void CSteamNetworkingSockets::AsyncCertRequestFinished()
 {
 
 	// Check for any connections that we own that are waiting on a cert
-	for ( CSteamNetworkConnectionBase *pConn: g_listConnections )
+	for ( const auto &item: g_mapConnections )
 	{
-		if ( pConn->m_pSteamNetworkingSocketsInterface == this )
-			pConn->InterfaceGotCert();
+		if ( item.elem->m_pSteamNetworkingSocketsInterface == this )
+			item.elem->InterfaceGotCert();
 	}
 }
 
 void CSteamNetworkingSockets::CertRequestFailed( ESteamNetConnectionEnd nConnectionEndReason, const char *pszMsg )
 {
-	SpewWarning( "Cert request for %s failed with reason code %d.  %s\n", GetSteamID().Render(), nConnectionEndReason, pszMsg );
+	SpewWarning( "Cert request for %s failed with reason code %d.  %s\n", SteamNetworkingIdentityRender( GetIdentity() ).c_str(), nConnectionEndReason, pszMsg );
 
 	if ( m_msgSignedCert.has_cert() )
 	{
@@ -999,10 +1018,10 @@ void CSteamNetworkingSockets::CertRequestFailed( ESteamNetConnectionEnd nConnect
 		AsyncCertRequestFinished();
 	}
 
-	for ( CSteamNetworkConnectionBase *pConn: g_listConnections )
+	for ( const auto &item: g_mapConnections )
 	{
-		if ( pConn->m_pSteamNetworkingSocketsInterface == this )
-			pConn->CertRequestFailed( nConnectionEndReason, pszMsg );
+		if ( item.elem->m_pSteamNetworkingSocketsInterface == this )
+			item.elem->CertRequestFailed( nConnectionEndReason, pszMsg );
 	}
 
 	// FIXME If we have any listen sockets, we might need to let them know about this as well.
@@ -1149,28 +1168,21 @@ HSteamListenSocket CSteamNetworkingSockets::CreateHostedDedicatedServerListenSoc
 		AssertMsg( false, "CreateHostedDedicatedServerListenSocket should be called thorugh a gameserver's ISteamSocketNetworking" );
 		return k_HSteamListenSocket_Invalid;
 	}
-	uint16 nPort = GetHostedDedicatedServerPort();
-	if ( nPort == 0 )
-	{
-		AssertMsg( false, "SDR_LISTEN_PORT not set, should not call CreateHostedDedicatedServerListenSocket" );
-		return k_HSteamListenSocket_Invalid;
-	}
 	CSteamNetworkListenSocketSDRServer *pSock = new CSteamNetworkListenSocketSDRServer( this );
 	if ( !pSock )
 		return k_HSteamListenSocket_Invalid;
 	SteamDatagramErrMsg errMsg;
-	if ( !pSock->BInit( nPort, nVirtualPort, errMsg ) )
+	if ( !pSock->BInit( nVirtualPort, errMsg ) )
 	{
 		SpewError( "Cannot create hosted dedicated server listen socket.  %s", errMsg );
 		delete pSock;
 		return k_HSteamListenSocket_Invalid;
 	}
 
-	SpewMsg( "Listening for SDR relayed traffic on UDP port %d (virtual port %d).", nPort, nVirtualPort );
 	return AddListenSocket( pSock );
 }
 
-HSteamNetConnection CSteamNetworkingSockets::ConnectToHostedDedicatedServer( CSteamID steamIDTarget, int nVirtualPort )
+HSteamNetConnection CSteamNetworkingSockets::ConnectToHostedDedicatedServer( const SteamNetworkingIdentity &identityTarget, int nVirtualPort )
 {
 	SteamDatagramTransportLock scopeLock;
 	AssertMsg( !m_bGameServer, "ConnectToHostedDedicatedServer should not be called thorugh a gameserver's ISteamSocketNetworking" );
@@ -1178,7 +1190,7 @@ HSteamNetConnection CSteamNetworkingSockets::ConnectToHostedDedicatedServer( CSt
 	if ( !pConn )
 		return k_HSteamNetConnection_Invalid;
 	SteamDatagramErrMsg errMsg;
-	if ( !pConn->BInitConnect( steamIDTarget, nVirtualPort, errMsg ) )
+	if ( !pConn->BInitConnect( identityTarget, nVirtualPort, errMsg ) )
 	{
 		SpewError( "Cannot create SDR connection to hosted dedicated server.  %s", errMsg );
 		pConn->Destroy();
@@ -1325,20 +1337,19 @@ void CSteamNetworkingSockets::RunCallbacks( ISteamNetworkingSocketsCallbacks *pC
 	}
 
 	// Only hold lock for a brief period
-	CUtlLinkedList<QueuedCallback> listTemp;
+	std::vector<QueuedCallback> listTemp;
 	{
 		SteamDatagramTransportLock scopeLock;
 
 		// Swap list with the temp one
-		listTemp.Swap( m_listPendingCallbacks );
+		listTemp.swap( m_vecPendingCallbacks );
 
 		// Release the lock
 	}
 
 	// Dispatch the callbacks
-	FOR_EACH_LL( listTemp, idx )
+	for ( QueuedCallback &x: listTemp )
 	{
-		QueuedCallback &x = listTemp[ idx ];
 		switch ( x.nCallback )
 		{
 			case SteamNetConnectionStatusChangedCallback_t::k_iCallback:
@@ -1370,9 +1381,9 @@ void CSteamNetworkingSockets::InternalQueueCallback( int nCallback, int cbCallba
 		AssertMsg( false, "Callback doesn't fit!" );
 		return;
 	}
-	AssertMsg( m_listPendingCallbacks.Count() < 100, "Callbacks backing up and not being checked.  Need to check them more frequently!" );
+	AssertMsg( len( m_vecPendingCallbacks ) < 100, "Callbacks backing up and not being checked.  Need to check them more frequently!" );
 
-	QueuedCallback &q = m_listPendingCallbacks[ m_listPendingCallbacks.AddToTail() ];
+	QueuedCallback &q = *push_back_get_ptr( m_vecPendingCallbacks );
 	q.nCallback = nCallback;
 	memcpy( q.data, pvCallback, cbCallback );
 }
@@ -1441,16 +1452,12 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamDatagramClient_Internal_SteamAPIKludg
 //#undef STEAMCLIENT_INTERFACE_VERSION
 //#define STEAMCLIENT_INTERFACE_VERSION		"SteamClient017"
 
-STEAMNETWORKINGSOCKETS_INTERFACE void SteamDatagramClient_SetPartner( const char *pszLauncher, int iLegcayPartnerMask )
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamDatagramClient_SetLauncher( const char *pszLauncher )
 {
 	AssertMsg( !g_SteamNetworkingSocketsUser.BInitted(), "Called SteamDatagramClient_SetPartner too late!" );
 
 	g_sLauncherPartner = pszLauncher;
 	Assert( !g_sLauncherPartner.empty() );
-
-	// Save partner mask
-	g_iPartnerMask = iLegcayPartnerMask;
-	Assert( g_iPartnerMask != 0 );
 }
 
 STEAMNETWORKINGSOCKETS_INTERFACE bool SteamDatagramClient_Init_InternalV6( SteamDatagramErrMsg &errMsg, FSteamInternal_CreateInterface fnCreateInterface, HSteamUser hSteamUser, HSteamPipe hSteamPipe )
@@ -1709,7 +1716,7 @@ STEAMNETWORKINGSOCKETS_INTERFACE bool SteamDatagramServer_Init_Internal( SteamDa
 
 		// Parse
 		SteamDatagramErrMsg msgConfig;
-		int r = g_SteamDatagramNetwork.SetupFromJSON( (const char *)buf.Base(), buf.TellPut(), msgConfig, g_iPartnerMask );
+		int r = g_SteamDatagramNetwork.SetupFromJSON( (const char *)buf.Base(), buf.TellPut(), msgConfig );
 		if ( r < 0 )
 		{
 			V_sprintf_safe( errMsg, "Failed to parse '%s' as per SDR_NETWORK_CONFIG.  %s", pszNetworkConfigFile, msgConfig );

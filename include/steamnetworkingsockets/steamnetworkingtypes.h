@@ -10,6 +10,7 @@
 #pragma once
 #endif
 
+#include <string.h>
 #include "steamnetworkingsockets_config.h"
 #include <steam/steamtypes.h>
 #include <steam/steamclientpublic.h>
@@ -41,6 +42,160 @@ const int k_nSteamNetworkingSendFlags_NoNagle = 1;
 const int k_nSteamNetworkingSendFlags_NoDelay = 2;
 const int k_nSteamNetworkingSendFlags_Reliable = 8;
 
+/// Different methods of describing the identity of a network host
+enum ESteamNetworkingIdentityType
+{
+	// Dummy/unknown/invalid
+	k_ESteamNetworkingIdentityType_Invalid = 0,
+
+	//
+	// Basic platform-specific identifiers.
+	//
+	k_ESteamNetworkingIdentityType_SteamID = 16, // 64-bit CSteamID
+
+	//
+	// Special identifiers.
+	//
+
+	// Use their IP address (and port) as their "identity".
+	// These types of identities are always unauthenticated.
+	// They are useful for porting plain sockets code, and other
+	// situations where you don't care about authentication.  In this
+	// case, the local identity will be "localhost",
+	// and the remote address will be their network address.
+	//
+	// We use the same type for either IPv4 or IPv6, and
+	// the address is always store as IPv6.  We use IPv4
+	// mapped addresses to handle IPv4.
+	k_ESteamNetworkingIdentityType_IPAddress = 1,
+
+	// Generic string/binary blobs.  It's up to your app to interpret this.
+	// This library can tell you if the remote host presented a certificate
+	// signed by somebody you have chosen to trust, with this identity on it.
+	// It's up to you to ultimately decide what this identity means.
+	k_ESteamNetworkingIdentityType_GenericString = 2,
+	k_ESteamNetworkingIdentityType_GenericBytes = 3,
+
+	// Make sure this enum is stored in an int.
+	k_ESteamNetworkingIdentityType__Force32bit = 0x7fffffff,
+};
+
+#pragma pack(push,1)
+
+/// Store an IP and port.  IPv6 is always used; IPv4 is represented using
+/// "IPv4-mapped" addresses: IPv4 aa.bb.cc.dd => IPv6 ::ffff:aabb:ccdd
+/// (RFC 4291 section 2.5.5.2.)
+struct SteamNetworkingIPAddr
+{
+	void Clear(); // Set everything to zero.  E.g. [::]:0
+	bool IsIPv6AllZeros() const;  // Return true if the IP is ::0.  (Doesn't check port.)
+	void SetIPv6( const uint8 *ipv6, uint16 nPort ); // Set IPv6 address.  IP is interpreted as bytes, so there are no endian issues.  (Same as inaddr_in6.)  The IP can be a mapped IPv4 address
+	void SetIPv4( uint32 nIP, uint16 nPort ); // Sets to IPv4 mapped address.  IP and port are in host byte order.
+	bool IsIPv4() const; // Return true if IP is mapped IPv4
+	uint32 GetIPv4() const; // Returns IP in host byte order (e.g. aa.bb.cc.dd as 0xaabbccdd).  Returns 0 if IP is not mapped IPv4.
+	void SetIPv6LocalHost( uint16 nPort = 0); // Set to the IPv6 localhost address ::1, and the specified port.
+	bool IsLocalHost() const; // Return true if this identity is localhost.  (Either IPv6 ::1, or IPv4 127.0.0.1)
+
+	// Max length of the buffer needed to hold IP formatted using ToString, including '\0'
+	// ([0123:4567:89ab:cdef:0123:4567:89ab:cdef]:12345)
+	enum { k_cchMaxString = 48 };
+
+	/// Print to a string, with or without the port.  Mapped IPv4 addresses are printed
+	/// as dotted decimal (12.34.56.78), otherwise this will print the canonical
+	/// form according to RFC5952.  If you include the port, IPv6 will be surrounded by
+	/// brackets, e.g. [::1:2]:80.  Your buffer should be at least k_cchMaxString bytes
+	/// to avoid truncation
+	void ToString( char *buf, size_t cbBuf, bool bWithPort ) const;
+
+	/// Parse an IP address and optional port.  If a port is not present, it is set to 0.
+	/// (This means that you cannot tell if a zero port was explicitly specified.)
+	bool ParseString( const char *pszStr );
+
+	union
+	{
+		uint8 m_ipv6[ 16 ];
+		struct // IPv4 "mapped address" (rfc4038 section 4.2)
+		{
+			uint64 m_8zeros;
+			uint16 m_ffff;
+			uint8 m_ip[ 4 ]; // NOTE: As bytes, i.e. network byte order
+		} m_ipv4;
+	};
+	uint16 m_port; // Host byte order
+};
+
+/// An abstract way to represent the identity of a network host
+struct SteamNetworkingIdentity
+{
+	/// Type of identity.
+	ESteamNetworkingIdentityType m_eType;
+
+	//
+	// Get/Set in various formats.
+	//
+
+	void Clear();
+	bool IsInvalid() const; // Return true if we are the invalid type.  Does not make any other validity checks (e.g. is SteamID actually valid)
+
+	void SetSteamID( CSteamID steamID );
+	CSteamID GetSteamID() const; // Return black CSteamID (!IsValid()) if identity is not a SteamID
+	void SetSteamID64( uint64 steamID ); // Takes SteamID as raw 64-bit number
+	uint64 GetSteamID64() const; // Returns 0 if identity is not SteamID
+
+	void SetIPAddr( const SteamNetworkingIPAddr &addr ); // Set to specified IP:port
+	const SteamNetworkingIPAddr *GetIPAddr() const; // returns null if we are not an IP address.
+
+	// "localhost" is equivalent for many purposes to "anonymous."  Our remote
+	// will identify us by the network address we use.
+	void SetLocalHost(); // Set to localhost.  (We always use IPv6 ::1 for this, not 127.0.0.1)
+	bool IsLocalHost() const; // Return true if this identity is localhost.
+
+	bool SetGenericString( const char *pszString ); // Returns false if invalid length
+	const char *GetGenericString() const; // Returns nullptr if not generic string type
+
+	bool SetGenericBytes( const void *data, size_t cbLen ); // Returns false if invalid size.
+	const uint8 *GetGenericBytes( int &cbLen ) const; // Returns null if not generic bytes type
+
+	/// See if two identities are identical
+	bool operator==(const SteamNetworkingIdentity &x ) const;
+
+	/// Calculate hash of identity.  NOTE: This is just a reference implementation.
+	/// There is no "official" hash calculation that must be used, and these values
+	/// should never be persisted or used outside of the current process.
+	struct Hash { uint32 operator()( const SteamNetworkingIdentity &x ) const; };
+
+	/// Print to a human-readable string.  This is suitable for debug messages
+	/// or any other time you need to encode the identity as a string.  It has a
+	/// URL-like format (type:<type-data>).  Your buffer should be at least
+	/// k_cchMaxString bytes big to avoid truncation.
+	void ToString( char *buf, size_t cbBuf ) const;
+
+	/// Parse back a string that was generated using ToString
+	bool ParseString( const char *pszStr );
+
+	// Max sizes
+	enum {
+		k_cchMaxString = 128, // Max length of the buffer needed to hold any identity, formatted in string format by ToString
+		k_cchMaxGenericString = 32, // Max length of the string for generic string identities.  Including terminating '\0'
+		k_cbMaxGenericBytes = 32,
+	};
+
+	//
+	// Internal representation.  Don't access this directly, use the accessors!
+	//
+	// Number of bytes that are relevant below.  This MUST ALWAYS be
+	// set.  (Use the accessors!)  This is important to enable old code to work
+	// with new identity types.
+	int m_cbSize;
+	union {
+		uint64 m_steamID64;
+		char m_szGenericString[ k_cchMaxGenericString ];
+		uint8 m_genericBytes[ k_cbMaxGenericBytes ];
+		SteamNetworkingIPAddr m_ip;
+	};
+};
+#pragma pack(pop)
+
 /// Different methods that messages can be sent
 enum ESteamNetworkingSendType
 {
@@ -55,14 +210,14 @@ enum ESteamNetworkingSendType
 	//       Any time there is enough buffered data to fill a packet, the packets will be pushed out immediately, but
 	//       partially-full packets not be sent until the Nagle timer expires.
 	//       See k_ESteamNetworkingSendType_UnreliableNoNagle, ISteamNetworkingSockets::FlushMessagesOnConnection,
-	//       ISteamNetworkingP2P::FlushMessagesToUser
+	//       ISteamNetworkingMessages::FlushMessagesToUser
 	//
-	// This is not exactly the same as k_EP2PSendUnreliable!  You probably want k_ESteamNetworkingSendType_UnreliableNoNagle
+	// Migration note: This is not exactly the same as k_EP2PSendUnreliable!  You probably want k_ESteamNetworkingSendType_UnreliableNoNagle
 	k_ESteamNetworkingSendType_Unreliable = 0,
 
 	// Send a message unreliably, bypassing Nagle's algorithm for this message and any messages currently pending on the Nagle timer.
 	// This is equivalent to using k_ESteamNetworkingSendType_Unreliable,
-	// and then immediately flushing the messages using ISteamNetworkingSockets::FlushMessagesOnConnection or ISteamNetworkingP2P::FlushMessagesToUser.
+	// and then immediately flushing the messages using ISteamNetworkingSockets::FlushMessagesOnConnection or ISteamNetworkingMessages::FlushMessagesToUser.
 	// (But this is more efficient.)
 	k_ESteamNetworkingSendType_UnreliableNoNagle = k_nSteamNetworkingSendFlags_NoNagle,
 
@@ -79,21 +234,21 @@ enum ESteamNetworkingSendType
 	// if a message is dropped for these reasons, k_EResultIgnored will be returned.
 	k_ESteamNetworkingSendType_UnreliableNoDelay = k_nSteamNetworkingSendFlags_NoDelay|k_nSteamNetworkingSendFlags_NoNagle,
 
-	// Reliable message send. Can send up to 512kb of data in a single message. 
+	// Reliable message send. Can send up to k_cbMaxSteamNetworkingSocketsMessageSizeSend bytes in a single message. 
 	// Does fragmentation/re-assembly of messages under the hood, as well as a sliding window for
 	// efficient sends of large chunks of data.
 	//
 	// The Nagle algorithm is used.  See notes on k_ESteamNetworkingSendType_Unreliable for more details.
 	// See k_ESteamNetworkingSendType_ReliableNoNagle, ISteamNetworkingSockets::FlushMessagesOnConnection,
-	// ISteamNetworkingP2P::FlushMessagesToUser
+	// ISteamNetworkingMessages::FlushMessagesToUser
 	//
-	// This is NOT the same as k_EP2PSendReliable, it's more like k_EP2PSendReliableWithBuffering
+	// Migration note: This is NOT the same as k_EP2PSendReliable, it's more like k_EP2PSendReliableWithBuffering
 	k_ESteamNetworkingSendType_Reliable = k_nSteamNetworkingSendFlags_Reliable,
 
 	// Send a message reliably, but bypass Nagle's algorithm.
 	// See k_ESteamNetworkingSendType_UnreliableNoNagle for more info.
 	//
-	// This is equivalent to k_EP2PSendReliable
+	// Migration note: This is equivalent to k_EP2PSendReliable
 	k_ESteamNetworkingSendType_ReliableNoNagle = k_nSteamNetworkingSendFlags_Reliable|k_nSteamNetworkingSendFlags_NoNagle,
 };
 
@@ -264,8 +419,8 @@ const int k_cbMaxSteamNetworkingSocketsMessageSizeSend = 512 * 1024;
 typedef struct _SteamNetworkingMessage_t
 {
 
-	/// SteamID that sent this to us.
-	CSteamID m_steamIDSender;
+	/// Who sent this to us?
+	SteamNetworkingIdentity m_sender;
 
 	/// The user data associated with the connection.
 	///
@@ -298,7 +453,7 @@ typedef struct _SteamNetworkingMessage_t
 	/// Size of the payload.
 	uint32 m_cbSize;
 
-	/// The connection this came from.  (Not used when using the P2P calls)
+	/// The connection this came from.  (Not used when using the ISteamMessages interface)
 	HSteamNetConnection m_conn;
 
 	/// The channel number the message was received on.
@@ -320,7 +475,6 @@ typedef struct _SteamNetworkingMessage_t
 		// For code compatibility, some accessors
 		inline uint32 GetSize() const { return m_cbSize; }
 		inline const void *GetData() const { return m_pData; }
-		inline CSteamID GetSenderSteamID() const { return m_steamIDSender; }
 		inline int GetChannel() const { return m_nChannel; }
 		inline HSteamNetConnection GetConnection() const { return m_conn; }
 		inline int64 GetConnectionUserData() const { return m_nConnUserData; }
@@ -520,11 +674,15 @@ typedef char SteamDatagramErrMsg[ k_cchMaxSteamDatagramErrMsg ];
 /// when a connection is closed.
 const int k_cchSteamNetworkingMaxConnectionCloseReason = 128;
 
+/// Max length, in bytes (include null terminator) of debug description
+/// of a connection.
+const int k_cchSteamNetworkingMaxConnectionDescription = 128;
+
 struct SteamNetConnectionInfo_t
 {
 
-	/// Who is on the other end.  Depending on the connection type and phase of the connection, we might not know
-	CSteamID m_steamIDRemote;
+	/// Who is on the other end?  Depending on the connection type and phase of the connection, we might not know
+	SteamNetworkingIdentity m_identityRemote;
 
 	// FIXME - some sort of connection type enum?
 
@@ -562,6 +720,11 @@ struct SteamNetConnectionInfo_t
 	/// diagnostic purposes only, not to display to users.  It might
 	/// have some details specific to the issue.
 	char m_szEndDebug[ k_cchSteamNetworkingMaxConnectionCloseReason ];
+
+	/// Debug description.  This includes the connection handle,
+	/// connection type (and peer information), and the app name.
+	/// This string is used in various internal logging messages
+	char m_szConnectionDescription[ k_cchSteamNetworkingMaxConnectionDescription ];
 };
 
 /// Quick connection state, pared down to something you could call
@@ -805,11 +968,47 @@ enum ESteamNetworkingConnectionConfigurationValue
 	k_ESteamNetworkingConnectionConfigurationValue_Count,
 };
 
-enum ESteamDatagramPartner
-{
-	k_ESteamDatagramPartner_None = -1,
-	k_ESteamDatagramPartner_Steam = 0,
-	k_ESteamDatagramPartner_China = 1,
-};
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingIPAddr_ToString( const SteamNetworkingIPAddr &addr, char *buf, size_t cbBuf, bool bWithPort );
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamNetworkingIPAddr_ParseString( SteamNetworkingIPAddr *pAddr, const char *pszStr );
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingIdentity_ToString( const SteamNetworkingIdentity &identity, char *buf, size_t cbBuf );
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamNetworkingIdentity_ParseString( SteamNetworkingIdentity *pIdentity, size_t sizeofIdentity, const char *pszStr );
+STEAMNETWORKINGSOCKETS_INTERFACE uint32 SteamNetworking_Hash( const void *data, size_t len );
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Definitions of inline functions declared above
+
+inline void SteamNetworkingIPAddr::Clear() { memset( this, 0, sizeof(*this) ); }
+inline bool SteamNetworkingIPAddr::IsIPv6AllZeros() const { const uint64 *q = (const uint64 *)m_ipv6; return q[0] == 0 && q[1] == 0; }
+inline void SteamNetworkingIPAddr::SetIPv6( const uint8 *ipv6, uint16 nPort ) { memcpy( m_ipv6, ipv6, 16 ); m_port = nPort; }
+inline void SteamNetworkingIPAddr::SetIPv4( uint32 nIP, uint16 nPort ) { m_ipv4.m_8zeros = 0; m_ipv4.m_ffff = 0xffff; m_ipv4.m_ip[0] = uint8(nIP>>24); m_ipv4.m_ip[1] = uint8(nIP>>16); m_ipv4.m_ip[2] = uint8(nIP>>8); m_ipv4.m_ip[3] = uint8(nIP); m_port = nPort; }
+inline bool SteamNetworkingIPAddr::IsIPv4() const { return m_ipv4.m_8zeros == 0 && m_ipv4.m_ffff == 0xffff; }
+inline uint32 SteamNetworkingIPAddr::GetIPv4() const { return IsIPv4() ? ( (uint32(m_ipv4.m_ip[0])<<24) | (uint32(m_ipv4.m_ip[1])<<16) | (uint32(m_ipv4.m_ip[2])<<8) | uint32(m_ipv4.m_ip[3]) ) : 0; }
+inline void SteamNetworkingIPAddr::SetIPv6LocalHost( uint16 nPort ) { m_ipv4.m_8zeros = 0; m_ipv4.m_ffff = 0; m_ipv6[14] = 0; m_ipv6[15] = 1; m_port = nPort; }
+inline bool SteamNetworkingIPAddr::IsLocalHost() const { return ( m_ipv4.m_8zeros == 0 && m_ipv4.m_ffff == 0 && m_ipv6[14] == 0 && m_ipv6[15] == 1 ) || ( GetIPv4() == 0x7f000001 ); }
+inline void SteamNetworkingIPAddr::ToString( char *buf, size_t cbBuf, bool bWithPort ) const { SteamNetworkingIPAddr_ToString( *this, buf, cbBuf, bWithPort ); }
+inline bool SteamNetworkingIPAddr::ParseString( const char *pszStr ) { return SteamNetworkingIPAddr_ParseString( this, pszStr ); }
+
+inline void SteamNetworkingIdentity::Clear() { memset( this, 0, sizeof(*this) ); }
+inline bool SteamNetworkingIdentity::IsInvalid() const { return m_eType == k_ESteamNetworkingIdentityType_Invalid; }
+inline void SteamNetworkingIdentity::SetSteamID( CSteamID steamID ) { SetSteamID64( steamID.ConvertToUint64() ); }
+inline CSteamID SteamNetworkingIdentity::GetSteamID() const { return CSteamID( GetSteamID64() ); }
+inline void SteamNetworkingIdentity::SetSteamID64( uint64 steamID ) { m_eType = k_ESteamNetworkingIdentityType_SteamID; m_cbSize = sizeof( m_steamID64 ); m_steamID64 = steamID; }
+inline uint64 SteamNetworkingIdentity::GetSteamID64() const { return m_eType == k_ESteamNetworkingIdentityType_SteamID ? m_steamID64 : 0; }
+inline void SteamNetworkingIdentity::SetIPAddr( const SteamNetworkingIPAddr &addr ) { m_eType = k_ESteamNetworkingIdentityType_IPAddress; m_cbSize = (int)sizeof(m_ip); m_ip = addr; }
+inline const SteamNetworkingIPAddr *SteamNetworkingIdentity::GetIPAddr() const { return m_eType == k_ESteamNetworkingIdentityType_IPAddress ? &m_ip : nullptr; }
+inline void SteamNetworkingIdentity::SetLocalHost() { m_eType = k_ESteamNetworkingIdentityType_IPAddress; m_cbSize = (int)sizeof(m_ip); m_ip.SetIPv6LocalHost(); }
+inline bool SteamNetworkingIdentity::IsLocalHost() const { return m_eType == k_ESteamNetworkingIdentityType_IPAddress && m_ip.IsLocalHost(); }
+inline bool SteamNetworkingIdentity::SetGenericString( const char *pszString ) { size_t l = strlen( pszString ); if ( l >= sizeof(m_szGenericString) ) return false;
+	m_eType = k_ESteamNetworkingIdentityType_GenericString; m_cbSize = int(l+1); memcpy( m_szGenericString, pszString, m_cbSize ); return true; }
+inline const char *SteamNetworkingIdentity::GetGenericString() const { return m_eType == k_ESteamNetworkingIdentityType_GenericString ? m_szGenericString : nullptr; }
+inline bool SteamNetworkingIdentity::SetGenericBytes( const void *data, size_t cbLen ) { if ( cbLen > sizeof(m_genericBytes) ) return false;
+	m_eType = k_ESteamNetworkingIdentityType_GenericBytes; m_cbSize = int(cbLen); memcpy( m_genericBytes, data, m_cbSize ); return true; }
+inline const uint8 *SteamNetworkingIdentity::GetGenericBytes( int &cbLen ) const { if ( m_eType != k_ESteamNetworkingIdentityType_GenericBytes ) return nullptr;
+	cbLen = m_cbSize; return m_genericBytes; }
+inline bool SteamNetworkingIdentity::operator==(const SteamNetworkingIdentity &x ) const { return m_eType == x.m_eType && m_cbSize == x.m_cbSize && memcmp( m_genericBytes, x.m_genericBytes, m_cbSize ) == 0; }
+inline void SteamNetworkingIdentity::ToString( char *buf, size_t cbBuf ) const { SteamNetworkingIdentity_ToString( *this, buf, cbBuf ); }
+inline bool SteamNetworkingIdentity::ParseString( const char *pszStr ) { return SteamNetworkingIdentity_ParseString( this, sizeof(*this), pszStr ); }
+inline uint32 SteamNetworkingIdentity::Hash::operator()( const SteamNetworkingIdentity &x ) const { return SteamNetworking_Hash( &x, sizeof( x.m_eType ) + sizeof( x.m_cbSize ) + x.m_cbSize ); }
 
 #endif // #ifndef STEAMNETWORKINGTYPES

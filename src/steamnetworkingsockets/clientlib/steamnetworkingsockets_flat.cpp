@@ -5,22 +5,27 @@
 
 extern "C" {
 
-STEAMNETWORKINGSOCKETS_INTERFACE HSteamListenSocket SteamAPI_ISteamNetworkingSockets_CreateListenSocket( intptr_t instancePtr, int nSteamConnectVirtualPort, uint32 nIP, uint16 nPort )
+STEAMNETWORKINGSOCKETS_INTERFACE HSteamListenSocket SteamAPI_ISteamNetworkingSockets_CreateListenSocketIP( intptr_t instancePtr, const SteamNetworkingIPAddr *pAddress )
 {
-	return ((ISteamNetworkingSockets*)instancePtr)->CreateListenSocket( nSteamConnectVirtualPort, nIP, nPort );
+	return ((ISteamNetworkingSockets*)instancePtr)->CreateListenSocketIP( *pAddress );
+}
+
+STEAMNETWORKINGSOCKETS_INTERFACE HSteamNetConnection SteamAPI_ISteamNetworkingSockets_ConnectByIPAddress( intptr_t instancePtr, const SteamNetworkingIPAddr *pAddress )
+{
+	return ((ISteamNetworkingSockets*)instancePtr)->ConnectByIPAddress( *pAddress );
 }
 
 #ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
-STEAMNETWORKINGSOCKETS_INTERFACE HSteamNetConnection SteamAPI_ISteamNetworkingSockets_ConnectBySteamID( intptr_t instancePtr, CSteamID steamIDTarget, int nVirtualPort )
+STEAMNETWORKINGSOCKETS_INTERFACE HSteamNetConnection SteamAPI_ISteamNetworkingSockets_CreateListenSocketP2P( intptr_t instancePtr, int nVirtualPort )
 {
-	return ((ISteamNetworkingSockets*)instancePtr)->ConnectBySteamID( steamIDTarget, nVirtualPort );
+	return ((ISteamNetworkingSockets*)instancePtr)->CreateListenSocketP2P( nVirtualPort );
+}
+
+STEAMNETWORKINGSOCKETS_INTERFACE HSteamNetConnection SteamAPI_ISteamNetworkingSockets_ConnectP2P( intptr_t instancePtr, const SteamNetworkingIdentity *pIdentity, int nVirtualPort )
+{
+	return ((ISteamNetworkingSockets*)instancePtr)->ConnectP2P( *pIdentity, nVirtualPort );
 }
 #endif
-
-STEAMNETWORKINGSOCKETS_INTERFACE HSteamNetConnection SteamAPI_ISteamNetworkingSockets_ConnectByIPv4Address( intptr_t instancePtr, uint32 nIP, uint16 nPort )
-{
-	return ((ISteamNetworkingSockets*)instancePtr)->ConnectByIPv4Address( nIP, nPort ); 
-}
 
 STEAMNETWORKINGSOCKETS_INTERFACE EResult SteamAPI_ISteamNetworkingSockets_AcceptConnection( intptr_t instancePtr, HSteamNetConnection hConn )
 {
@@ -32,9 +37,9 @@ STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_CloseConn
 	return ((ISteamNetworkingSockets*)instancePtr)->CloseConnection( hPeer, nReason, pszDebug, bEnableLinger );
 }
 
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_CloseListenSocket( intptr_t instancePtr, HSteamListenSocket hSocket, const char *pszNotifyRemoteReason )
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_CloseListenSocket( intptr_t instancePtr, HSteamListenSocket hSocket )
 {
-	return ((ISteamNetworkingSockets*)instancePtr)->CloseListenSocket( hSocket, pszNotifyRemoteReason );
+	return ((ISteamNetworkingSockets*)instancePtr)->CloseListenSocket( hSocket );
 }
 
 STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_SetConnectionUserData( intptr_t instancePtr, HSteamNetConnection hPeer, int64 nUserData )
@@ -92,9 +97,9 @@ STEAMNETWORKINGSOCKETS_INTERFACE int SteamAPI_ISteamNetworkingSockets_GetDetaile
 	return ((ISteamNetworkingSockets*)instancePtr)->GetDetailedConnectionStatus( hConn, pszBuf, cbBuf );
 }
 
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_GetListenSocketInfo( intptr_t instancePtr, HSteamListenSocket hSocket, uint32 *pnIP, uint16 *pnPort )
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_GetListenSocketAddress( intptr_t instancePtr, HSteamListenSocket hSocket, SteamNetworkingIPAddr *pAddress )
 {
-	return ((ISteamNetworkingSockets*)instancePtr)->GetListenSocketInfo( hSocket, pnIP, pnPort );
+	return ((ISteamNetworkingSockets*)instancePtr)->GetListenSocketAddress( hSocket, pAddress );
 }
 
 STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_CreateSocketPair( intptr_t instancePtr, HSteamNetConnection *pOutConnection1, HSteamNetConnection *pOutConnection2, bool bUseNetworkLoopback )
@@ -109,14 +114,14 @@ STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_ReceivedR
 	return ((ISteamNetworkingSockets*)instancePtr)->ReceivedRelayAuthTicket( pvTicket, cbTicket, pOutParsedTicket );
 }
 
-STEAMNETWORKINGSOCKETS_INTERFACE int SteamAPI_ISteamNetworkingSockets_FindRelayAuthTicketForServer( intptr_t instancePtr, CSteamID steamID, int nVirtualPort, SteamDatagramRelayAuthTicket *pOutParsedTicket )
+STEAMNETWORKINGSOCKETS_INTERFACE int SteamAPI_ISteamNetworkingSockets_FindRelayAuthTicketForServer( intptr_t instancePtr, const SteamNetworkingIdentity *pIdentityGameserver, int nVirtualPort, SteamDatagramRelayAuthTicket *pOutParsedTicket )
 {
-	return ((ISteamNetworkingSockets*)instancePtr)->FindRelayAuthTicketForServer( steamID, nVirtualPort, pOutParsedTicket );
+	return ((ISteamNetworkingSockets*)instancePtr)->FindRelayAuthTicketForServer( *pIdentityGameserver, nVirtualPort, pOutParsedTicket );
 }
 
-STEAMNETWORKINGSOCKETS_INTERFACE HSteamNetConnection SteamAPI_ISteamNetworkingSockets_ConnectToHostedDedicatedServer( intptr_t instancePtr, CSteamID steamIDTarget, int nVirtualPort )
+STEAMNETWORKINGSOCKETS_INTERFACE HSteamNetConnection SteamAPI_ISteamNetworkingSockets_ConnectToHostedDedicatedServer( intptr_t instancePtr, const SteamNetworkingIdentity *pIdentityTarget, int nVirtualPort )
 {
-	return ((ISteamNetworkingSockets*)instancePtr)->ConnectToHostedDedicatedServer( steamIDTarget, nVirtualPort );
+	return ((ISteamNetworkingSockets*)instancePtr)->ConnectToHostedDedicatedServer( *pIdentityTarget, nVirtualPort );
 }
 
 STEAMNETWORKINGSOCKETS_INTERFACE uint16 SteamAPI_ISteamNetworkingSockets_GetHostedDedicatedServerPort( intptr_t instancePtr )

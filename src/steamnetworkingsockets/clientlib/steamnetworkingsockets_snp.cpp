@@ -316,8 +316,8 @@ EResult CSteamNetworkConnectionBase::SNP_SendMessage( SteamNetworkingMicrosecond
 
 	// Add to pending list
 	m_senderState.m_messagesQueued.push_back( pSendMessage );
-	SpewType( steamdatagram_snp_log_message, "%s: SendMessage %s: MsgNum=%lld sz=%d\n",
-				 m_sName.c_str(),
+	SpewType( steamdatagram_snp_log_message, "[%s] SendMessage %s: MsgNum=%lld sz=%d\n",
+				 GetDescription(),
 				 ( eSendType & k_nSteamNetworkingSendFlags_Reliable ) ? "RELIABLE" : "UNRELIABLE",
 				 (long long)pSendMessage->m_nMsgNum,
 				 pSendMessage->m_cbSize );
@@ -339,9 +339,8 @@ EResult CSteamNetworkConnectionBase::SNP_SendMessage( SteamNetworkingMicrosecond
 		// If we are rate limiting, spew about it
 		if ( m_senderState.m_messagesQueued.m_pFirst->m_usecNagle == 0 && usecNextThink > usecNow )
 		{
-			SpewVerbose( "%12llu %s: RATELIM QueueTime is %.1fms, SendRate=%.1fk, BytesQueued=%d\n", 
-				usecNow,
-				m_sName.c_str(),
+			SpewVerbose( "[%s] RATELIM QueueTime is %.1fms, SendRate=%.1fk, BytesQueued=%d\n", 
+				GetDescription(),
 				m_senderState.CalcTimeUntilNextSend() * 1e-3,
 				m_senderState.m_n_x * ( 1.0/1024.0),
 				m_senderState.PendingBytesTotal()
@@ -459,8 +458,7 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 	// Make sure we have initialized the connection
 	Assert( BStateIsConnectedForWirePurposes() );
 
-	SpewType( steamdatagram_snp_log_packet, "%s decode pkt %lld\n",
-		m_sName.c_str(), (long long)nPktNum );
+	SpewType( steamdatagram_snp_log_packet, "[%s] decode pkt %lld\n", GetDescription(), (long long)nPktNum );
 
 	// Decode frames until we get to the end of the payload
 	const byte *pDecode = (const byte *)pChunk;
@@ -661,8 +659,8 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 				}
 				continue;
 			}
-			SpewType( steamdatagram_snp_log_packet+1, "  %s decode pkt %lld stop waiting: %lld (was %lld)",
-				m_sName.c_str(),
+			SpewType( steamdatagram_snp_log_packet+1, "[%s]   decode pkt %lld stop waiting: %lld (was %lld)",
+				GetDescription(),
 				(long long)nPktNum,
 				(long long)nMinPktNumToSendAcks, (long long)m_receiverState.m_nMinPktNumToSendAcks );
 			m_receiverState.m_nMinPktNumToSendAcks = nMinPktNumToSendAcks;
@@ -733,8 +731,8 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 				}
 			}
 
-			SpewType( steamdatagram_snp_log_packet+1, "  %s decode pkt %lld latest recv %lld\n",
-				m_sName.c_str(),
+			SpewType( steamdatagram_snp_log_packet+1, "[%s]   decode pkt %lld latest recv %lld\n",
+				GetDescription(),
 				(long long)nPktNum, (long long)nLatestRecvSeqNum
 			);
 
@@ -771,8 +769,8 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 						// Either they are lying or some weird timer stuff is happening.
 						// Either way, discard it.
 
-						SpewType( steamdatagram_snp_log_ackrtt, "%s decode pkt %lld latest recv %lld delay %lluusec INVALID ping %lldusec\n",
-							m_sName.c_str(),
+						SpewType( steamdatagram_snp_log_ackrtt, "[%s] decode pkt %lld latest recv %lld delay %lluusec INVALID ping %lldusec\n",
+							GetDescription(),
 							(long long)nPktNum, (long long)nLatestRecvSeqNum,
 							(unsigned long long)usecDelay,
 							(long long)usecElapsed
@@ -786,8 +784,8 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 						m_statsEndToEnd.m_ping.ReceivedPing( msPing, usecNow );
 
 						// Spew
-						SpewType( steamdatagram_snp_log_ackrtt, "%s decode pkt %lld latest recv %lld delay %.1fms ping %.1fms\n",
-							m_sName.c_str(),
+						SpewType( steamdatagram_snp_log_ackrtt, "[%s] decode pkt %lld latest recv %lld delay %.1fms ping %.1fms\n",
+							GetDescription(),
 							(long long)nPktNum, (long long)nLatestRecvSeqNum,
 							(float)(usecDelay * 1e-3 ),
 							(float)(usecElapsed * 1e-3 )
@@ -833,8 +831,8 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 
 					nPktNumAckBegin = m_senderState.m_nMinPktWaitingOnAck;
 					nPktNumNackBegin = nPktNumAckBegin;
-					SpewType( steamdatagram_snp_log_packet+1, "  %s decode pkt %lld ack last block ack begin %lld\n",
-						m_sName.c_str(),
+					SpewType( steamdatagram_snp_log_packet+1, "[%s]   decode pkt %lld ack last block ack begin %lld\n",
+						GetDescription(),
 						(long long)nPktNum, (long long)nPktNumAckBegin );
 				}
 				else
@@ -870,8 +868,8 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 					if ( nPktNumNackBegin < 0 )
 						DECODE_ERROR( "Nack range underflow, end=%lld, num=%lld", (long long)nPktNumAckBegin, (long long)numAcks );
 
-					SpewType( steamdatagram_snp_log_packet+1, "  %s decode pkt %lld nack [%lld,%lld) ack [%lld,%lld)\n",
-						m_sName.c_str(),
+					SpewType( steamdatagram_snp_log_packet+1, "[%s]   decode pkt %lld nack [%lld,%lld) ack [%lld,%lld)\n",
+						GetDescription(),
 						(long long)nPktNum,
 						(long long)nPktNumNackBegin, (long long)( nPktNumNackBegin + numNacks ),
 						(long long)nPktNumAckBegin, (long long)( nPktNumAckBegin + numAcks )
@@ -956,8 +954,8 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 					if ( !m_senderState.m_listReadyRetryReliableRange.empty() )
 						nPeerReliablePos = std::min( nPeerReliablePos, m_senderState.m_listReadyRetryReliableRange.begin()->first.m_nBegin );
 
-					SpewType( steamdatagram_snp_log_packet+1, "  %s decode pkt %lld peer reliable pos = %lld\n",
-						m_sName.c_str(),
+					SpewType( steamdatagram_snp_log_packet+1, "[%s]   decode pkt %lld peer reliable pos = %lld\n",
+						GetDescription(),
 						(long long)nPktNum, (long long)nPeerReliablePos );
 				}
 			}
@@ -965,8 +963,8 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 			// Check if any of this was new info, then advance our stop_waiting value.
 			if ( nLatestRecvSeqNum > m_senderState.m_nMinPktWaitingOnAck )
 			{
-				SpewType( steamdatagram_snp_log_packet, "  %s updating min_waiting_on_ack %lld -> %lld\n",
-					m_sName.c_str(),
+				SpewType( steamdatagram_snp_log_packet, "[%s]   updating min_waiting_on_ack %lld -> %lld\n",
+					GetDescription(),
 					(long long)m_senderState.m_nMinPktWaitingOnAck, (long long)nLatestRecvSeqNum );
 				m_senderState.m_nMinPktWaitingOnAck = nLatestRecvSeqNum;
 				//m_senderState.m_usecWhenAdvancedMinPktWaitingOnAck = usecNow;
@@ -1016,8 +1014,8 @@ void CSteamNetworkConnectionBase::SNP_SenderProcessPacketNack( int64 nPktNum, SN
 		if ( inFlightRange == m_senderState.m_listInFlightReliableRange.end() )
 			continue;
 
-		SpewType( steamdatagram_snp_log_packet, "%s pkt %lld %s, queueing retry of reliable range [%lld,%lld)\n", 
-			m_sName.c_str(),
+		SpewType( steamdatagram_snp_log_packet, "[%s] pkt %lld %s, queueing retry of reliable range [%lld,%lld)\n", 
+			GetDescription(),
 			nPktNum,
 			pszDebug,
 			relRange.m_nBegin, relRange.m_nEnd );
@@ -1279,8 +1277,8 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 	uint8 *pPayloadEnd = payload + cbMaxPlaintextPayload;
 	uint8 *pPayloadPtr = payload;
 
-	SpewType( steamdatagram_snp_log_packet, "%s encode pkt %lld",
-		m_sName.c_str(),
+	SpewType( steamdatagram_snp_log_packet, "[%s] encode pkt %lld",
+		GetDescription(),
 		(long long)m_statsEndToEnd.m_nNextSendSequenceNumber );
 
 	// Get list of ack blocks we might want to serialize
@@ -1308,11 +1306,11 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 			pPayloadPtr = pAfterAck;
 			if ( m_receiverState.m_usecWhenFlushAck == INT64_MAX )
 			{
-				SpewType( steamdatagram_snp_log_packet, "%s flushed %d acks (%d bytes)\n", m_sName.c_str(), ackHelper.m_nBlocks, cbFlushedAcks );
+				SpewType( steamdatagram_snp_log_packet, "[%s] flushed %d acks (%d bytes)\n", GetDescription(), ackHelper.m_nBlocks, cbFlushedAcks );
 			}
 			else
 			{
-				SpewType( steamdatagram_snp_log_packet, "%s flush didn't fit; rescheduling\n", m_sName.c_str() );
+				SpewType( steamdatagram_snp_log_packet, "[%s] flush didn't fit; rescheduling\n", GetDescription() );
 
 				// If we are artificially limited, then the connection
 				// type specific code initiated this packet, and so
@@ -1351,7 +1349,7 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 	// and should basically never happen in ordinary circumstances!)
 	if ( m_senderState.m_flTokenBucket < 0.0 )
 	{
-		SpewWarningRateLimited( usecNow, "%s exceeding rate limit just sending acks / stats!  Not sending any data!", m_sName.c_str() );
+		SpewWarningRateLimited( usecNow, "[%s] Exceeding rate limit just sending acks / stats!  Not sending any data!", GetDescription() );
 
 		// Serialize some acks, if we want to
 		if ( cbReserveForAcks > 0 )
@@ -1644,8 +1642,8 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 			Assert( !HasOverlappingRange( range, m_senderState.m_listReadyRetryReliableRange ) );
 
 			// Spew
-			SpewType( steamdatagram_snp_log_packet+1, "  %s encode pkt %lld reliable msg %lld offset %d+%d=%d range [%lld,%lld)\n",
-				m_sName.c_str(), (long long)m_statsEndToEnd.m_nNextSendSequenceNumber, (long long)seg.m_pMsg->m_nMsgNum,
+			SpewType( steamdatagram_snp_log_packet+1, "[%s]   encode pkt %lld reliable msg %lld offset %d+%d=%d range [%lld,%lld)\n",
+				GetDescription(), (long long)m_statsEndToEnd.m_nNextSendSequenceNumber, (long long)seg.m_pMsg->m_nMsgNum,
 				seg.m_nOffset, seg.m_cbSize, seg.m_nOffset+seg.m_cbSize,
 				(long long)range.m_nBegin, (long long)range.m_nEnd );
 
@@ -1671,8 +1669,8 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 			Assert( seg.m_pMsg->m_pPrev == nullptr ); // We should either be at the head of the queue, or detached
 
 			// Spew
-			SpewType( steamdatagram_snp_log_packet+1, "  %s encode pkt %lld unreliable msg %lld offset %d+%d=%d\n",
-				m_sName.c_str(), (long long)m_statsEndToEnd.m_nNextSendSequenceNumber, (long long)seg.m_pMsg->m_nMsgNum,
+			SpewType( steamdatagram_snp_log_packet+1, "[%s]   encode pkt %lld unreliable msg %lld offset %d+%d=%d\n",
+				GetDescription(), (long long)m_statsEndToEnd.m_nNextSendSequenceNumber, (long long)seg.m_pMsg->m_nMsgNum,
 				seg.m_nOffset, seg.m_cbSize, seg.m_nOffset+seg.m_cbSize );
 
 			// Less unreliable data pending
@@ -1832,8 +1830,8 @@ uint8 *CSteamNetworkConnectionBase::SNP_SerializeAckBlocks( const SNPAckSerializ
 		*pLatestPktNum = uint16( nLastRecvPktNum );
 		*pTimeSinceLatestPktNum = SNPAckSerializerHelper::EncodeTimeSince( usecNow, m_statsEndToEnd.m_usecTimeLastRecvSeq );
 
-		SpewType( steamdatagram_snp_log_packet+1, "  %s encode pkt %lld last recv %lld (no loss)\n",
-			m_sName.c_str(),
+		SpewType( steamdatagram_snp_log_packet+1, "[%s]   encode pkt %lld last recv %lld (no loss)\n",
+			GetDescription(),
 			(long long)m_statsEndToEnd.m_nNextSendSequenceNumber, (long long)nLastRecvPktNum
 		);
 		m_receiverState.m_usecWhenFlushAck = INT64_MAX; // Clear timer, we wrote everything we needed to
@@ -1857,8 +1855,8 @@ uint8 *CSteamNetworkConnectionBase::SNP_SerializeAckBlocks( const SNPAckSerializ
 			*pLatestPktNum = uint16( nLastRecvPktNum );
 			*pTimeSinceLatestPktNum = SNPAckSerializerHelper::EncodeTimeSince( usecNow, itOldestGap->second.m_usecWhenReceivedPktBefore );
 
-			SpewType( steamdatagram_snp_log_packet+1, "  %s encode pkt %lld last recv %lld (no blocks, actual last recv=%lld)\n",
-				m_sName.c_str(),
+			SpewType( steamdatagram_snp_log_packet+1, "[%s]   encode pkt %lld last recv %lld (no blocks, actual last recv=%lld)\n",
+				GetDescription(),
 				(long long)m_statsEndToEnd.m_nNextSendSequenceNumber, (long long)nLastRecvPktNum, (long long)m_statsEndToEnd.m_nLastRecvSequenceNumber
 			);
 			return pOut;
@@ -1899,8 +1897,8 @@ uint8 *CSteamNetworkConnectionBase::SNP_SerializeAckBlocks( const SNPAckSerializ
 	int64 nAckEnd = ( m_statsEndToEnd.m_nLastRecvSequenceNumber & ~(int64)(~(uint32)0) ) | pBlock->m_nLatestPktNum;
 	++nAckEnd;
 
-	SpewType( steamdatagram_snp_log_packet+1, "  %s encode pkt %lld last recv %lld (%d blocks, actual last recv=%lld)\n",
-		m_sName.c_str(),
+	SpewType( steamdatagram_snp_log_packet+1, "[%s]   encode pkt %lld last recv %lld (%d blocks, actual last recv=%lld)\n",
+		GetDescription(),
 		(long long)m_statsEndToEnd.m_nNextSendSequenceNumber, (long long)(nAckEnd-1), nBlocks, (long long)m_statsEndToEnd.m_nLastRecvSequenceNumber
 	);
 
@@ -1958,8 +1956,8 @@ uint8 *CSteamNetworkConnectionBase::SNP_SerializeAckBlocks( const SNPAckSerializ
 		// Debug
 		int64 nAckBegin = nAckEnd - pBlock->m_nAck;
 		int64 nNackBegin = nAckBegin - pBlock->m_nNack;
-		SpewType( steamdatagram_snp_log_packet+1, "  %s encode pkt %lld nack [%lld,%lld) ack [%lld,%lld) \n",
-			m_sName.c_str(),
+		SpewType( steamdatagram_snp_log_packet+1, "[%s]   encode pkt %lld nack [%lld,%lld) ack [%lld,%lld) \n",
+			GetDescription(),
 			(long long)m_statsEndToEnd.m_nNextSendSequenceNumber,
 			(long long)nNackBegin, (long long)nAckBegin,
 			(long long)nAckBegin, (long long)nAckEnd
@@ -1993,8 +1991,8 @@ uint8 *CSteamNetworkConnectionBase::SNP_SerializeStopWaitingFrame( uint8 *pOut, 
 	// Calculate offset from the current sequence number
 	int64 nOffset = m_statsEndToEnd.m_nNextSendSequenceNumber - m_senderState.m_nMinPktWaitingOnAck;
 	AssertMsg2( nOffset > 0, "Told peer to stop acking up to %lld, but latest packet we have sent is %lld", (long long)m_senderState.m_nMinPktWaitingOnAck, (long long)m_statsEndToEnd.m_nNextSendSequenceNumber );
-	SpewType( steamdatagram_snp_log_packet, "  %s encode pkt %lld stop_waiting offset %lld = %lld",
-		m_sName.c_str(),
+	SpewType( steamdatagram_snp_log_packet, "[%s]   encode pkt %lld stop_waiting offset %lld = %lld",
+		GetDescription(),
 		(long long)m_statsEndToEnd.m_nNextSendSequenceNumber, (long long)nOffset, (long long)m_senderState.m_nMinPktWaitingOnAck );
 
 	// Subtract one, as a *tiny* optimization, since they cannot possible have
@@ -2047,7 +2045,7 @@ uint8 *CSteamNetworkConnectionBase::SNP_SerializeStopWaitingFrame( uint8 *pOut, 
 
 void CSteamNetworkConnectionBase::SNP_ReceiveUnreliableSegment( int64 nMsgNum, int nOffset, const void *pSegmentData, int cbSegmentSize, bool bLastSegmentInMessage, SteamNetworkingMicroseconds usecNow )
 {
-	SpewType( steamdatagram_snp_log_packet+1, "%s RX msg %lld offset %d+%d=%d %02x ... %02x\n", m_sName.c_str(), nMsgNum, nOffset, cbSegmentSize, nOffset+cbSegmentSize, ((byte*)pSegmentData)[0], ((byte*)pSegmentData)[cbSegmentSize-1] );
+	SpewType( steamdatagram_snp_log_packet+1, "[%s] RX msg %lld offset %d+%d=%d %02x ... %02x\n", GetDescription(), nMsgNum, nOffset, cbSegmentSize, nOffset+cbSegmentSize, ((byte*)pSegmentData)[0], ((byte*)pSegmentData)[cbSegmentSize-1] );
 
 	// Check for a common special case: non-fragmented message.
 	if ( nOffset == 0 && bLastSegmentInMessage )
@@ -2178,8 +2176,8 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 	int64 nSegEnd = nSegBegin + cbSegmentSize;
 
 	// Spew
-	SpewType( steamdatagram_snp_log_packet, "  %s decode pkt %lld reliable range [%lld,%lld)\n",
-		m_sName.c_str(),
+	SpewType( steamdatagram_snp_log_packet, "[%s]   decode pkt %lld reliable range [%lld,%lld)\n",
+		GetDescription(),
 		(long long)nPktNum,
 		(long long)nSegBegin, (long long)nSegEnd );
 
@@ -2192,8 +2190,8 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 	if ( cbSegmentSize <= 0 )
 	{
 		// Spew but rate limit in case of malicious sender
-		SpewWarningRateLimited( usecNow, "%s decode pkt %lld empty reliable segment?\n",
-			m_sName.c_str(),
+		SpewWarningRateLimited( usecNow, "[%s] decode pkt %lld empty reliable segment?\n",
+			GetDescription(),
 			(long long)nPktNum );
 		return true;
 	}
@@ -2226,8 +2224,8 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 			// Stop processing the packet, and don't ack it.
 			// This indicates the connection is in pretty bad shape,
 			// so spew about it.  But rate limit in case of malicious sender
-			SpewWarningRateLimited( usecNow, "%s decode pkt %lld abort.  %lld bytes reliable data buffered [%lld-%lld), new size would be %lld to %lld\n",
-				m_sName.c_str(),
+			SpewWarningRateLimited( usecNow, "[%s] decode pkt %lld abort.  %lld bytes reliable data buffered [%lld-%lld), new size would be %lld to %lld\n",
+				GetDescription(),
 				(long long)nPktNum,
 				(long long)m_receiverState.m_bufReliableStream.size(),
 				(long long)m_receiverState.m_nReliableStreamPos,
@@ -2254,8 +2252,8 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 					// Stop processing the packet, and don't ack it
 					// This indicates the connection is in pretty bad shape,
 					// so spew about it.  But rate limit in case of malicious sender
-					SpewWarningRateLimited( usecNow, "%s decode pkt %lld abort.  Reliable stream already has %d fragments, first is [%lld,%lld), last is [%lld,%lld), new segment is [%lld,%lld)\n",
-						m_sName.c_str(),
+					SpewWarningRateLimited( usecNow, "[%s] decode pkt %lld abort.  Reliable stream already has %d fragments, first is [%lld,%lld), last is [%lld,%lld), new segment is [%lld,%lld)\n",
+						GetDescription(),
 						(long long)nPktNum,
 						len( m_receiverState.m_mapReliableStreamGaps ),
 						(long long)m_receiverState.m_mapReliableStreamGaps.begin()->first, (long long)m_receiverState.m_mapReliableStreamGaps.begin()->second,
@@ -2338,8 +2336,8 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 							if ( len( m_receiverState.m_mapReliableStreamGaps ) >= k_nMaxReliableStreamGaps_Fragment )
 							{
 								// Stop processing the packet, and don't ack it
-								SpewWarningRateLimited( usecNow, "%s decode pkt %lld abort.  Reliable stream already has %d fragments, first is [%lld,%lld), last is [%lld,%lld).  We don't want to fragment [%lld,%lld) with new segment [%lld,%lld)\n",
-									m_sName.c_str(),
+								SpewWarningRateLimited( usecNow, "[%s] decode pkt %lld abort.  Reliable stream already has %d fragments, first is [%lld,%lld), last is [%lld,%lld).  We don't want to fragment [%lld,%lld) with new segment [%lld,%lld)\n",
+									GetDescription(),
 									(long long)nPktNum,
 									len( m_receiverState.m_mapReliableStreamGaps ),
 									(long long)m_receiverState.m_mapReliableStreamGaps.begin()->first, (long long)m_receiverState.m_mapReliableStreamGaps.begin()->second,
@@ -2420,8 +2418,8 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 		uint8 *pReliableEnd = pReliableDecode + nNumReliableBytes;
 
 		// Spew
-		SpewType( steamdatagram_snp_log_packet+1, "  %s decode pkt %lld valid reliable bytes = %d [%lld,%lld)\n",
-			m_sName.c_str(),
+		SpewType( steamdatagram_snp_log_packet+1, "[%s]   decode pkt %lld valid reliable bytes = %d [%lld,%lld)\n",
+			GetDescription(),
 			(long long)nPktNum, nNumReliableBytes,
 			(long long)m_receiverState.m_nReliableStreamPos,
 			(long long)( m_receiverState.m_nReliableStreamPos + nNumReliableBytes ) );
@@ -2558,8 +2556,8 @@ bool CSteamNetworkConnectionBase::SNP_RecordReceivedPktNum( int64 nPktNum, Steam
 		gap.m_usecWhenReceivedPktBefore = m_statsEndToEnd.m_usecTimeLastRecvSeq;
 		gap.m_nEnd = nPktNum;
 
-		SpewType( steamdatagram_snp_log_packetgaps, "%s drop %d pkts [%lld-%lld)",
-			m_sName.c_str(),
+		SpewType( steamdatagram_snp_log_packetgaps, "[%s] drop %d pkts [%lld-%lld)",
+			GetDescription(),
 			(int)( nPktNum - nBegin ),
 			(long long)nBegin, (long long)nPktNum );
 
@@ -2592,7 +2590,7 @@ bool CSteamNetworkConnectionBase::SNP_RecordReceivedPktNum( int64 nPktNum, Steam
 				// Gap is totally filed
 				m_receiverState.m_mapPacketGaps.erase( itGap );
 
-				SpewType( steamdatagram_snp_log_packetgaps, "%s decode pkt %lld, single pkt gap filled", m_sName.c_str(), (long long)nPktNum );
+				SpewType( steamdatagram_snp_log_packetgaps, "[%s] decode pkt %lld, single pkt gap filled", GetDescription(), (long long)nPktNum );
 			}
 			else
 			{
@@ -2600,7 +2598,7 @@ bool CSteamNetworkConnectionBase::SNP_RecordReceivedPktNum( int64 nPktNum, Steam
 				--itGap->second.m_nEnd;
 				Assert( itGap->first < itGap->second.m_nEnd );
 
-				SpewType( steamdatagram_snp_log_packetgaps, "%s decode pkt %lld, last packet in gap, reduced to [%lld,%lld)", m_sName.c_str(),
+				SpewType( steamdatagram_snp_log_packetgaps, "[%s] decode pkt %lld, last packet in gap, reduced to [%lld,%lld)", GetDescription(),
 					(long long)nPktNum, (long long)itGap->first, (long long)itGap->second.m_nEnd );
 			}
 		}
@@ -2614,7 +2612,7 @@ bool CSteamNetworkConnectionBase::SNP_RecordReceivedPktNum( int64 nPktNum, Steam
 			Assert( itGap->first < itGap->second.m_nEnd );
 			itGap->second.m_usecWhenReceivedPktBefore = usecNow;
 
-			SpewType( steamdatagram_snp_log_packetgaps, "%s decode pkt %lld, first packet in gap, reduced to [%lld,%lld)", m_sName.c_str(),
+			SpewType( steamdatagram_snp_log_packetgaps, "[%s] decode pkt %lld, first packet in gap, reduced to [%lld,%lld)", GetDescription(),
 				(long long)nPktNum, (long long)itGap->first, (long long)itGap->second.m_nEnd );
 		}
 		else
@@ -2633,7 +2631,7 @@ bool CSteamNetworkConnectionBase::SNP_RecordReceivedPktNum( int64 nPktNum, Steam
 
 			int64 nUpperBegin = nPktNum+1;
 
-			SpewType( steamdatagram_snp_log_packetgaps, "%s decode pkt %lld, gap split [%lld,%lld) and [%lld,%lld)", m_sName.c_str(),
+			SpewType( steamdatagram_snp_log_packetgaps, "[%s] decode pkt %lld, gap split [%lld,%lld) and [%lld,%lld)", GetDescription(),
 				(long long)nPktNum, (long long)itGap->first, (long long)itGap->second.m_nEnd, nUpperBegin, nEnd );
 
 			// Insert a new gap to account for the upper end
@@ -2952,7 +2950,7 @@ void CSteamNetworkConnectionBase::GetDebugText( char *pszOut, int nOutCCH )
 				 " i_mean. . . . %d (%.8f)\n"
 				 " msgsReliable. %lld\n"
 				 " msgs. . . . . %lld\n",
-				 m_sName.c_str(),
+				 GetDescription(),
 				 m_senderState.m_n_x,
 				 //m_senderState.m_n_x_recv,
 				 m_senderState.m_n_x_calc,

@@ -7,21 +7,6 @@
 #include <steamnetworkingsockets/isteamnetworkingsockets.h>
 #ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
 #include <steam/isteamnetworkingsocketsserialized.h>
-
-class ISteamNetworkingSocketsSerialized002
-{
-public:
-	virtual void SendP2PRendezvous( CSteamID steamIDRemote, uint32 unConnectionIDSrc, const void *pMsgRendezvous, uint32 cbRendezvous ) = 0;
-	virtual void SendP2PConnectionFailure( CSteamID steamIDRemote, uint32 unConnectionIDDest, uint32 nReason, const char *pszReason ) = 0;
-	CALL_RESULT( SteamNetworkingSocketsCert_t )
-	virtual SteamAPICall_t GetCertAsync() = 0;
-	virtual int GetNetworkConfigJSON( void *buf, uint32 cbBuf ) = 0;
-	virtual void CacheRelayTicket( const void *pTicket, uint32 cbTicket ) = 0;
-	virtual uint32 GetCachedRelayTicketCount() = 0;
-	virtual int GetCachedRelayTicket( uint32 idxTicket, void *buf, uint32 cbBuf ) = 0;
-	virtual void PostConnectionStateMsg( const void *pMsg, uint32 cbMsg ) = 0;
-};
-
 #endif
 #include "steamnetworkingsockets_connections.h"
 
@@ -31,6 +16,7 @@ struct SteamDatagramHostedAddress;
 namespace SteamNetworkingSocketsLib {
 
 class CSteamNetworkConnectionP2PSDR;
+class CSteamNetworkListenSocketP2P;
 
 #pragma pack(push,1)
 struct P2PMessageHeader
@@ -132,11 +118,11 @@ public:
 	const bool m_bGameServer;
 	AppId_t m_nAppID;
 
+	const SteamNetworkingIdentity &GetIdentity();
+
 #ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
 	ISteamUtils *m_pSteamUtils;
-	ISteamNetworkingSocketsSerialized002 *m_pSteamNetworkingSocketsSerialized;
-	ISteamNetworkingSocketsSerialized *m_pSteamNetworkingSocketsSerializedV3;
-	CSteamID GetSteamID();
+	ISteamNetworkingSocketsSerialized *m_pSteamNetworkingSocketsSerialized;
 
 	enum ELogonStatus
 	{
@@ -145,13 +131,13 @@ public:
 		k_ELogonStatus_Disconnected,
 	};
 	inline ELogonStatus GetLogonStatus() { return m_eLogonStatus; }
+	CUtlHashMap<int,CSteamNetworkListenSocketP2P *,std::equal_to<int>,std::hash<int>> m_mapListenSocketsByVirtualPort;
 #endif
 
 	CMsgSteamDatagramCertificateSigned m_msgSignedCert;
 	CMsgSteamDatagramCertificate m_msgCert;
 	CECSigningPrivateKey m_keyPrivateKey;
-
-	CUtlOrderedMap<int,CSteamNetworkListenSocketStandard *> m_mapListenSocketsByVirtualPort;
+	bool BCertHasIdentity() const;
 
 	bool BHasAnyConnections() const;
 	bool BHasAnyListenSockets() const;
@@ -168,7 +154,7 @@ public:
 
 	bool BSDRClientInit( SteamDatagramErrMsg &errMsg );
 	void SDRClientKill();
-	const CachedRelayAuthTicket *FindRelayAuthTicketForServerPtr( CSteamID steamID, int nVirtualPort );
+	const CachedRelayAuthTicket *FindRelayAuthTicketForServerPtr( const SteamNetworkingIdentity &identityGameServer, int nVirtualPort );
 
 	void SendP2PConnectionFailure( CSteamID steamIDRemote, uint32 nConnectionIDDest, uint32 nReason, const char *pszReason );
 	void SendP2PNoConnection( CSteamID steamIDRemote, uint32 nConnectionIDDest );
@@ -182,11 +168,11 @@ public:
 	}
 
 	// Implements ISteamNetworkingSockets
-	virtual HSteamListenSocket CreateListenSocket( int nSteamConnectVirtualPort, uint32 nIP, uint16 nPort ) OVERRIDE;
-	virtual HSteamNetConnection ConnectByIPv4Address( uint32 nIP, uint16 nPort ) OVERRIDE;
+	virtual HSteamListenSocket CreateListenSocketIP( const SteamNetworkingIPAddr &localAddress ) OVERRIDE;
+	virtual HSteamNetConnection ConnectByIPAddress( const SteamNetworkingIPAddr &adress ) OVERRIDE;
 	virtual EResult AcceptConnection( HSteamNetConnection hConn ) OVERRIDE;
 	virtual bool CloseConnection( HSteamNetConnection hConn, int nReason, const char *pszDebug, bool bEnableLinger ) OVERRIDE;
-	virtual bool CloseListenSocket( HSteamListenSocket hSocket, const char *pszNotifyRemoteReason ) OVERRIDE;
+	virtual bool CloseListenSocket( HSteamListenSocket hSocket ) OVERRIDE;
 	virtual bool SetConnectionUserData( HSteamNetConnection hPeer, int64 nUserData ) OVERRIDE;
 	virtual int64 GetConnectionUserData( HSteamNetConnection hPeer ) OVERRIDE;
 	virtual void SetConnectionName( HSteamNetConnection hPeer, const char *pszName ) OVERRIDE;
@@ -198,7 +184,7 @@ public:
 	virtual bool GetConnectionInfo( HSteamNetConnection hConn, SteamNetConnectionInfo_t *pInfo ) OVERRIDE;
 	virtual bool GetQuickConnectionStatus( HSteamNetConnection hConn, SteamNetworkingQuickConnectionStatus *pStats ) OVERRIDE;
 	virtual int GetDetailedConnectionStatus( HSteamNetConnection hConn, char *pszBuf, int cbBuf ) OVERRIDE;
-	virtual bool GetListenSocketInfo( HSteamListenSocket hSocket, uint32 *pnIP, uint16 *pnPort ) OVERRIDE;
+	virtual bool GetListenSocketAddress( HSteamListenSocket hSocket, SteamNetworkingIPAddr *pAddress ) OVERRIDE;
 	virtual bool CreateSocketPair( HSteamNetConnection *pOutConnection1, HSteamNetConnection *pOutConnection2, bool bUseNetworkLoopback ) OVERRIDE;
 	virtual bool GetConnectionDebugText( HSteamNetConnection hConn, char *pszOut, int nOutCCH ) OVERRIDE;
 	virtual int32 GetConfigurationValue( ESteamNetworkingConfigurationValue eConfigValue ) OVERRIDE;
@@ -212,10 +198,11 @@ public:
 	virtual void RunCallbacks( ISteamNetworkingSocketsCallbacks *pCallbacks ) OVERRIDE;
 
 #ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
-	virtual HSteamNetConnection ConnectBySteamID( CSteamID steamIDTarget, int nVirtualPort ) OVERRIDE;
+	virtual HSteamListenSocket CreateListenSocketP2P( int nVirtualPort ) OVERRIDE;
+	virtual HSteamNetConnection ConnectP2P( const SteamNetworkingIdentity &identityRemote, int nVirtualPort ) OVERRIDE;
 	virtual bool ReceivedRelayAuthTicket( const void *pvTicket, int cbTicket, SteamDatagramRelayAuthTicket *pOutParsedTicket ) OVERRIDE;
-	virtual int FindRelayAuthTicketForServer( CSteamID steamID, int nVirtualPort, SteamDatagramRelayAuthTicket *pOutParsedTicket ) OVERRIDE;
-	virtual HSteamNetConnection ConnectToHostedDedicatedServer( CSteamID steamIDTarget, int nVirtualPort ) OVERRIDE;
+	virtual int FindRelayAuthTicketForServer( const SteamNetworkingIdentity &identityGameServer, int nVirtualPort, SteamDatagramRelayAuthTicket *pOutParsedTicket ) OVERRIDE;
+	virtual HSteamNetConnection ConnectToHostedDedicatedServer( const SteamNetworkingIdentity &identityTarget, int nVirtualPort ) OVERRIDE;
 	virtual uint16 GetHostedDedicatedServerPort() OVERRIDE;
 	virtual SteamNetworkingPOPID GetHostedDedicatedServerPOPID() OVERRIDE;
 	virtual bool GetHostedDedicatedServerAddress( SteamDatagramHostedAddress *pRouting ) OVERRIDE;
@@ -228,12 +215,14 @@ protected:
 
 	void InternalQueueCallback( int nCallback, int cbCallback, const void *pvCallback );
 
+	SteamNetworkingIdentity m_identity;
+
 	struct QueuedCallback
 	{
 		int nCallback;
 		char data[ sizeof(SteamNetConnectionStatusChangedCallback_t) ]; // whatever the biggest callback struct we have is
 	};
-	CUtlLinkedList<QueuedCallback> m_listPendingCallbacks;
+	std::vector<QueuedCallback> m_vecPendingCallbacks;
 
 #ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
 
@@ -256,7 +245,6 @@ protected:
 	void LoadRelayAuthTicketCache();
 	const SteamDatagramRelayAuthTicket *AddRelayAuthTicketToCache( const void *pvTicket, int cbTicket, bool bAddToSteamProcessCache );
 
-	CSteamID m_steamID;
 	ELogonStatus m_eLogonStatus;
 	bool m_bSDRClientInitted;
 #endif // STEAMNETWORKINGSOCKETS_OPENSOURCE

@@ -16,6 +16,7 @@
 	#include <winsock2.h>
 	#include <ws2tcpip.h>
 	#define MSG_NOSIGNAL 0
+	#undef SetPort
 #else
 	#include <sys/types.h>
 	#include <sys/socket.h>
@@ -100,6 +101,16 @@ struct SteamNetworkingDetailedConnectionStatus;
 
 // Internal stuff goes in a private namespace
 namespace SteamNetworkingSocketsLib {
+
+// An identity operator that always returns its operand.
+// NOTE: std::hash is an identity operator on many compilers
+//       for the basic primitives.  If you really need actual
+//       hashing, don't use std::hash!
+template <typename T >
+struct Identity
+{
+	 const T &operator()( const T &x ) const { return x; }
+};
 
 inline int GetLastSocketError()
 {
@@ -392,9 +403,6 @@ inline std::string Indent( const std::string &s ) { return Indent( s.c_str() ); 
 /// Generate a fingerprint for a public that is reasonably collision resistant,
 /// although not really cryptographically secure.  (We are in charge of the
 /// set of public keys and we expect it to be reasonably small.)
-#ifdef SDR_SUPPORT_RSA_TICKETS
-extern uint64 CalculatePublicKeyID( const CRSAPublicKey &pubKey );
-#endif
 extern uint64 CalculatePublicKeyID( const CECSigningPublicKey &pubKey );
 
 inline bool IsPrivateIP( uint32 unIP )
@@ -409,6 +417,16 @@ inline bool IsPrivateIP( uint32 unIP )
 	return false;
 }
 
+inline void SteamNetworkingIPAddrToNetAdr( netadr_t &netadr, const SteamNetworkingIPAddr &addr )
+{
+	uint32 ipv4 = addr.GetIPv4();
+	if ( ipv4 )
+		netadr.SetIP( ipv4 );
+	else
+		netadr.SetIPV6( addr.m_ipv6 );
+	netadr.SetPort( addr.m_port );
+}
+
 template <typename T>
 inline int64 NearestWithSameLowerBits( T nLowerBits, int64 nReference )
 {
@@ -417,6 +435,56 @@ inline int64 NearestWithSameLowerBits( T nLowerBits, int64 nReference )
 	T nDiff = nLowerBits - T( nReference );
 	return nReference + nDiff;
 }
+
+struct SteamNetworkingIdentityRender
+{
+	SteamNetworkingIdentityRender( const SteamNetworkingIdentity &x ) { x.ToString( buf, sizeof(buf) ); }
+	inline const char *c_str() const { return buf; }
+private:
+	char buf[ SteamNetworkingIdentity::k_cchMaxString ];
+};
+
+inline bool IsValidSteamIDForIdentity( CSteamID steamID )
+{
+	return steamID.GetAccountID() != 0 && ( steamID.BIndividualAccount() || steamID.BGameServerAccount() );
+}
+
+inline bool IsValidSteamIDForIdentity( uint64 steamid64 ) { return IsValidSteamIDForIdentity( CSteamID( steamid64 ) ); }
+
+extern bool BSteamNetworkingIdentityToProtobufInternal( const SteamNetworkingIdentity &identity, CMsgSteamNetworkingIdentity *msgIdentity, SteamDatagramErrMsg &errMsg );
+extern bool BSteamNetworkingIdentityToProtobufInternal( const SteamNetworkingIdentity &identity, std::string *bytesMsgIdentity, SteamDatagramErrMsg &errMsg );
+#define BSteamNetworkingIdentityToProtobuf( identity, msg, field_identity, field_legacy_steam_id, errMsg ) ( \
+		( (identity).GetSteamID64() ? (void)(msg).set_ ## field_legacy_steam_id( (identity).GetSteamID64() ) : (void)0 ), \
+		BSteamNetworkingIdentityToProtobufInternal( identity, (msg).mutable_ ## field_identity(), errMsg ) \
+	)
+#define SteamNetworkingIdentityToProtobuf( identity, msg, field_identity, field_legacy_steam_id ) \
+	{ SteamDatagramErrMsg identityToProtobufErrMsg; \
+		if ( !BSteamNetworkingIdentityToProtobuf( identity, msg, field_identity, field_legacy_steam_id, identityToProtobufErrMsg ) ) { \
+			AssertMsg2( false, "Failed to serialize identity to %s message.  %s", msg.GetTypeName().c_str(), identityToProtobufErrMsg ); \
+		} \
+	}
+
+extern bool BSteamNetworkingIdentityFromProtobufBytes( SteamNetworkingIdentity &identity, const std::string &bytesMsgIdentity, uint64 legacy_steam_id, SteamDatagramErrMsg &errMsg );
+extern bool BSteamNetworkingIdentityFromProtobufMsg( SteamNetworkingIdentity &identity, const CMsgSteamNetworkingIdentity &msgIdentity, SteamDatagramErrMsg &errMsg );
+extern bool BSteamNetworkingIdentityFromLegacySteamID( SteamNetworkingIdentity &identity, uint64 legacy_steam_id, SteamDatagramErrMsg &errMsg );
+
+// Returns:
+// <0 Bad data
+// 0  No data
+// >0 OK
+#define SteamNetworkingIdentityFromProtobuf( identity, msg, field_identity, field_legacy_steam_id, errMsg ) \
+	( \
+		(msg).has_ ##field_identity() ? ( BSteamNetworkingIdentityFromProtobufMsg( identity, (msg).field_identity(), errMsg ) ? +1 : -1 ) \
+		: (msg).has_ ##field_legacy_steam_id() ? ( BSteamNetworkingIdentityFromLegacySteamID( identity, (msg).field_legacy_steam_id(), errMsg ) ? +1 : -1 ) \
+		: ( V_strcpy_safe( errMsg, "No identity data" ), 0 ) \
+	)
+inline int SteamNetworkingIdentityFromCert( SteamNetworkingIdentity &result, const CMsgSteamDatagramCertificate &msgCert, SteamDatagramErrMsg &errMsg )
+{
+	return SteamNetworkingIdentityFromProtobuf( result, msgCert, identity, legacy_steam_id, errMsg );
+}
+
+// NOTE: Does NOT check the cert signature!
+extern int SteamNetworkingIdentityFromSignedCert( SteamNetworkingIdentity &result, const CMsgSteamDatagramCertificateSigned &msgCertSigned, SteamDatagramErrMsg &errMsg );
 
 } // namespace SteamNetworkingSocketsLib
 
@@ -528,6 +596,28 @@ template< typename V>
 inline bool has_element( const V &vec, const typename vstd::LikeStdVectorTraits<V>::ElemType &x )
 {
 	return std::find( vec.begin(), vec.end(), x ) != vec.end();
+}
+
+template< typename V>
+inline bool find_and_remove_element( V &vec, const typename vstd::LikeStdVectorTraits<V>::ElemType &x )
+{
+	auto iter = std::find( vec.begin(), vec.end(), x );
+	if ( iter == vec.end() )
+		return false;
+	vec.erase( iter );
+	return true;
+}
+
+template< typename V>
+inline int index_of( const V &vec, const typename vstd::LikeStdVectorTraits<V>::ElemType &x )
+{
+	int l = len( vec );
+	for ( int i = 0 ; i < l ; ++i )
+	{
+		if ( vec[i] == x )
+			return i;
+	}
+	return -1;
 }
 
 namespace vstd
@@ -680,9 +770,8 @@ namespace vstd
 	template< typename T, int N >
 	void small_vector<T,N>::erase( T *it )
 	{
-		T *b = begin();
 		T *e = end();
-		assert( b <= it );
+		assert( begin() <= it );
 		assert( it < e );
 
 		if ( std::is_trivial<T>::value )

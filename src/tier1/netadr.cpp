@@ -1,4 +1,4 @@
-//========= Copyright 1996-2005, Valve Corporation, All rights reserved. ============//
+//========= Copyright Valve Corporation, All rights reserved. =================//
 //
 // Purpose: 
 //
@@ -6,306 +6,545 @@
 //
 //=============================================================================//
 
+#include <functional>
 #include <tier1/netadr.h>
 
 #ifdef WIN32
-	#include <winsock.h>
+	#include <ws2tcpip.h>
+	#undef SetPort
 #else
 	#include <sys/socket.h>
 	#include <netinet/in.h>
 #endif
 
-#undef SetPort
+#include <vstdlib/strtools.h>
+#include "ipv6text.h"
+
+const byte k_ipv6Bytes_LinkLocalAllNodes[16] = { 0xff, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01 }; // ff02:1
+const byte k_ipv6Bytes_Loopback[16]          = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01 }; // ::1
+const byte k_ipv6Bytes_Any[16]               = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 }; // ::0
+
+//////////////////////////////////////////////////////////////////////
+// Construction/Destruction
+//////////////////////////////////////////////////////////////////////
 
 void netadr_t::ToString( char *pchBuffer, uint32 unBufferSize, bool baseOnly ) const
 {
-	strncpy (pchBuffer, "unknown", unBufferSize );
-
-	if (type == NA_LOOPBACK)
+	if (type == NA_LOOPBACK_DEPRECATED)
 	{
-		strncpy (pchBuffer, "loopback", unBufferSize );
+		V_strncpy (pchBuffer, "loopback", unBufferSize );
 	}
-	else if (type == NA_BROADCAST)
+	else if (type == NA_BROADCAST_DEPRECATED)
 	{
-		strncpy (pchBuffer, "broadcast", unBufferSize );
+		V_strncpy (pchBuffer, "broadcast", unBufferSize );
 	}
 	else if (type == NA_IP)
 	{
 		if ( baseOnly)
 		{
-#ifdef VALVE_BIG_ENDIAN
-			_snprintf (pchBuffer, unBufferSize, "%i.%i.%i.%i", ipByte[0], ipByte[1], ipByte[2], ipByte[3] );
-#else
-			_snprintf (pchBuffer, unBufferSize, "%i.%i.%i.%i", ipByte[3], ipByte[2], ipByte[1], ipByte[0] );
-#endif
+			V_snprintf(pchBuffer, unBufferSize, "%i.%i.%i.%i", ipv4.b1, ipv4.b2, ipv4.b3, ipv4.b4 );
 		}
 		else
 		{
-#ifdef VALVE_BIG_ENDIAN
-			_snprintf (pchBuffer, unBufferSize, "%i.%i.%i.%i:%i", ipByte[0], ipByte[1], ipByte[2], ipByte[3], port );
-#else
-			_snprintf (pchBuffer, unBufferSize, "%i.%i.%i.%i:%i", ipByte[3], ipByte[2], ipByte[1], ipByte[0], port );
-#endif
+			V_snprintf(pchBuffer, unBufferSize, "%i.%i.%i.%i:%i", ipv4.b1, ipv4.b2, ipv4.b3, ipv4.b4, port );
 		}
 	}
-}
-
-
-void netadr_t::ToSockadr (struct sockaddr * s) const
-{
-	memset ( s, 0, sizeof(struct sockaddr));
-	
-	// Note: we use htonl/s to convert IP & port from host (little-endian) to network (big-endian) order
-
-	((struct sockaddr_in*)s)->sin_family = AF_INET;
-	((struct sockaddr_in*)s)->sin_port = htons( port );
-
-	if (type == NA_BROADCAST)
+	else if (type == NA_IPV6)
 	{
-		((struct sockaddr_in*)s)->sin_addr.s_addr = htonl( INADDR_BROADCAST );
-	}
-	else if (type == NA_IP)
-	{
-		((struct sockaddr_in*)s)->sin_addr.s_addr = htonl( ip );
-	}
-	else if (type == NA_LOOPBACK )
-	{
-		((struct sockaddr_in*)s)->sin_addr.s_addr =  htonl( INADDR_LOOPBACK );
-	}
-}
+		// Format IP into a temp that we know is big enough
+		char temp[ k_ncchMaxIPV6AddrStringWithPort ];
+		if ( baseOnly )
+			IPv6IPToString( temp, ipv6Byte );
+		else
+			IPv6AddrToString( temp, ipv6Byte, port, ipv6Scope );
 
-bool netadr_t::SetFromSockadr(const struct sockaddr * s)
-{
-	if (s->sa_family == AF_INET)
-	{
-		type = NA_IP;
-		// Note: we use ntohl/s to convert IP & port from network (big-endian) to host (little-endian) order
-		ip = ntohl ( ((struct sockaddr_in *)s)->sin_addr.s_addr );
-		port = ntohs( ((struct sockaddr_in *)s)->sin_port );
-		return true;
+		// Now put into caller's buffer, and handle truncation
+		V_strncpy( pchBuffer, temp, unBufferSize );
 	}
 	else
 	{
-		Clear();
-		return false;
+		V_strncpy(pchBuffer, "unknown", unBufferSize );
 	}
 }
 
-
-bool netadr_t::SetFromString( const char *pch )
+// Is the IP part of one of the reserved blocks?
+bool netadr_t::IsReservedAdr () const
 {
-	ip = 0;
-	port = 0;
-	type = NA_IP;
+	switch ( type )
+	{
+		case NA_LOOPBACK_DEPRECATED:
+			return true;
 
-	if ( !pch || pch[0] == 0 )			// but let's not crash
+		case NA_BROADCAST_DEPRECATED:
+			// Makes no sense to me, but this is what the old code did
+			return false;
+
+		case NA_IP:
+			if ( (ipv4.b1 == 10) ||									// 10.x.x.x is reserved
+				(ipv4.b1 == 127) ||									// 127.x.x.x 
+				(ipv4.b1 == 172 && ipv4.b2 >= 16 && ipv4.b2 <= 31) ||	// 172.16.x.x  - 172.31.x.x 
+				(ipv4.b1 == 192 && ipv4.b2 >= 168) ) 					// 192.168.x.x
+			{
+				return true;
+			}
+			else
+			{
+				return false;
+			}
+
+		case NA_IPV6:
+			// Private addresses, fc00::/7
+			// Range is fc00:: to fdff:ffff:etc
+			if ( ipv6Byte[0] >= 0xFC && ipv6Byte[1] <= 0xFD )
+			{
+				return true;
+			}
+			
+			// Link-local fe80::/10
+			// Range is fe80:: to febf::
+			if ( ipv6Byte[0] == 0xFE
+				&& ( ipv6Byte[1] >= 0x80 && ipv6Byte[1] <= 0xBF ) )
+			{
+				return true;
+			}
+			
+			return false;
+
+		default:
+			Assert( false );
+	}
+	return false;
+}
+
+bool netadr_t::HasIP() const
+{
+	switch ( type )
+	{
+		default:
+			Assert( false );
+		case NA_NULL:
+			return false;
+		case NA_IP:
+			if ( ip == 0 )
+				return false;
+			break;
+		case NA_IPV6:
+			if ( ipv6Qword[0] == 0 && ipv6Qword[1] == 0 )
+				return false;
+			break;
+	}
+
+	return true;
+}
+
+bool netadr_t::HasPort() const
+{
+	return ( port != 0 );
+}
+
+bool netadr_t::IsValid() const
+{
+	return HasIP() && HasPort();
+}
+
+bool netadr_t::CompareAdr(const netadr_t &a, bool onlyBase) const
+{
+	if ( a.type != type )
 		return false;
 
-	if ( pch[0] >= '0' && pch[0] <= '9' && strchr( pch, '.' ) )
+	if ( type == NA_IP )
 	{
-		int n1, n2, n3, n4, n5;
-		int nRes = sscanf( pch, "%d.%d.%d.%d:%d", &n1, &n2, &n3, &n4, &n5 );
-		if ( nRes >= 4 )
+		if ( !onlyBase && (port != a.port) )
+			return false;
+
+		if ( a.ip == ip )
+			return true;
+	}
+	else if ( type == NA_IPV6 )
+	{
+		if ( !onlyBase )
 		{
-			SetIP( n1, n2, n3, n4 );
+			if ( port != a.port )
+				return false;
+
+			// NOTE: We are intentionally not comparing the scope here.
+			//       The examples where comparing the scope breaks simple
+			//       stuff in unexpected ways seems more common than examples
+			//       where you need to compare the scope.  If you need to compare
+			//       them, then do it yourself.
 		}
 
-		if ( nRes == 5 )
-		{
-			SetPort( ( uint16 ) n5 );
-		}
-
-		if ( nRes >= 4 )
+		if ( a.ipv6Qword[0] == ipv6Qword[0] && a.ipv6Qword[1] == ipv6Qword[1] )
 			return true;
 	}
 
 	return false;
 }
 
-/* SDR_PUBLIC 
-bool netadr_t::BlockingResolveAndSetFromString( const char *psz )
+bool netadr_t::operator<(const netadr_t &netadr) const
 {
-	if ( !psz[0] )
-		return false;
-
-	if ( SetFromString( psz ) )
-		return true;
-
-	char szHostName[ 256 ];
-	strncpy( szHostName, psz, sizeof(szHostName) );
-	szHostName[ V_ARRAYSIZE(szHostName) - 1 ] = 0;
-
-	char *pchColon = strchr( szHostName, ':' );
-	if ( pchColon )
+	// NOTE: This differs from behaviour in Steam branch,
+	//       because Steam has some legacy behaviour it needed
+	//       to maintain.  We don't have this baggage and can
+	//       do the sane thing.
+	if ( type < netadr.type ) return true;
+	if ( type > netadr.type ) return false;
+	switch ( type )
 	{
-		*pchColon = 0;
-	}
-
-	Clear();
-
-	if ( ThreadInMainThread() )
-	{
-		Msg( "about to perform blocking dns call from the main thread.  consider refactoring.\n");
-	}
-
-	type = NA_IP;
-
-	// Check our tiny hostname lookup cache.
-	{
-		time_t now = time( NULL );
-
-		AUTO_LOCK( GetNetAdrResolveCacheMutex() );
-		for ( auto &entry : s_netadrResolveCache )
+		case NA_IPV6:
 		{
-			if ( entry.ipv4 && entry.expire > now && stricmp( szHostName, entry.hostname ) == 0 )
-			{
-				SetIP( entry.ipv4 );
-				break;
-			}
+			int c = memcmp( ipv6Byte, netadr.ipv6Byte, sizeof(ipv6Byte) );
+			if ( c < 0 ) return true;
+			if ( c > 0 ) return false;
+				
+			// NOTE: Do not compare scope
+			break;
 		}
+			
+		case NA_IP:
+			if ( ip < netadr.ip ) return true;
+			if ( ip > netadr.ip ) return false;
+			break;
 	}
 
-	// If we didn't get a valid IP from the cache, call gethostbyname
-	if ( GetIP() == 0 )
-	{
-		struct hostent *h = gethostbyname( szHostName );
-		if ( !h || !h->h_addr_list || !h->h_addr_list[0] )
-		{
-			// Put a reference to s_netadrResolveCacheMutexEnforceConstruction in an unlikely code 
-			// path so that the compiler can't optimize its global initializer away; we need it to
-			// run before there is any chance of threaded access.
-			return ( (intp)s_netadrResolveCacheMutexEnforceConstruction == 0x01 ); // aka "return false;"
-		}
-
-		SetIP( ntohl( *(int *)h->h_addr_list[0] ) );
-
-		COMPILE_TIME_ASSERT( sizeof( s_netadrResolveCache[0].hostname ) == sizeof( szHostName ) );
-
-		// Store in our tiny hostname lookup cache for five seconds.
-		time_t expire = time( NULL ) + 5;
-
-		AUTO_LOCK( GetNetAdrResolveCacheMutex() );
-		uint32 counter = s_netadrResolveCacheCounter++;
-		auto &entry = s_netadrResolveCache[ counter % V_ARRAYSIZE( s_netadrResolveCache ) ];
-		strcpy( entry.hostname, szHostName );
-		entry.expire = expire;
-		entry.ipv4 = this->ip;
-	}
-
-	if ( pchColon ) 
-	{
-		SetPort( atoi( ++pchColon ) );
-	}
-	return true;
-
+	// Break tie using port
+	return port < netadr.port;
 }
 
-void netadr_t::SetFromSocket( int hSocket )
-{	
-	port = ip = 0;
-	type = NA_IP;
-		
-	struct sockaddr address;
-	int namelen = sizeof(address);
-	if ( getsockname( hSocket, (struct sockaddr *)&address, (socklen_t *)&namelen) == 0 )
-	{
-		SetFromSockadr( &address );
-	}
-}
-*/
-
-//---------------------------------------------------------------------------------
-//
-// netmask_t
-//
-//---------------------------------------------------------------------------------
-
-
-bool	netmask_t::SetFromString( const char *pchCIDR )
+unsigned int netadr_t::GetHashKey( const netadr_t &netadr )
 {
-	if ( !pchCIDR )			// but let's not crash
-		return false;
-
-	uint uFirstByte = 0;
-	uint uSecondByte = 0;
-	uint uThirdByte = 0;
-	uint uFourthByte = 0;
-	uint uNumNetworkBits;
-	uint uNumCharsConsumed = 0;
-
-	char buf[32];
-	// This is an MS extension (the regexp), it'll compile but not likely work under other platforms
-	int NumMatches = sscanf(pchCIDR, "%16[^/]/%u%n", buf, &uNumNetworkBits, &uNumCharsConsumed);
-
-	if ( NumMatches != 2 )
+	// See: boost::hash_combine
+	size_t result;
+	switch ( netadr.type )
 	{
-		return false;
-	}
+		default:
+			result = std::hash<int>{}( netadr.type );
 
-	if ( uNumNetworkBits > 32 )
-	{
-		//AssertMsg( false, "Invalid CIDR mask size" );	
-		return false;
-	}
-
-	// Guarantee null-termination.
-	buf[ V_ARRAYSIZE(buf) - 1 ] = 0;
-
-	if ( sscanf( buf, "%d.%d.%d.%d", &uFirstByte, &uSecondByte, &uThirdByte, &uFourthByte ) < (int)( ( uNumNetworkBits + 7 ) / 8 ) )
-	{
-		return false;
-	}
-	SetBaseIP( uFirstByte, uSecondByte, uThirdByte, uFourthByte );
-
-	uint unMask = uNumNetworkBits ? ( ~0u << (32 - uNumNetworkBits) ) : 0;
-	SetMask( unMask );
-
-	return true;
-}
-
-bool	netmask_t::SetFromString( const char *pchBaseIP, const char *pchMask )
-{
-	if ( !pchBaseIP )			// but let's not crash
-		return false;
-
-	if ( !pchMask )			// but let's not crash
-		return false;
-
-	SetBaseIP( 0, 0, 0, 0 );
-	SetMask( 255, 255, 255, 255 );
-	int n1 = 0, n2 = 0, n3 = 0, n4 = 0;
-	if ( sscanf( pchBaseIP, "%d.%d.%d.%d", &n1, &n2, &n3, &n4 ) < 4 )
-		return false;
-
-	SetBaseIP( n1, n2, n3, n4 );
-
-	
-	if ( sscanf( pchMask, "%d.%d.%d.%d", &n1, &n2, &n3, &n4 ) < 4 )
-		return false;
-
-	SetMask( n1, n2, n3, n4 );
-
-	return true;
-}
-
-
-const char* netmask_t::ToCIDRString( char *pchBuffer, uint32 unBufferSize ) const // returns xxx.xxx.xxx.xxx/xx 
-{
-	uint uMask = ~m_Mask; // invert, so looks like 0000111
-	uint uNumNetworkBits = 0;
-	while ( uNumNetworkBits <= 32 )
-	{
-		if ( !uMask )
+		case NA_IP:
+			result = std::hash<uint32>{}( netadr.ip );
+			result ^= std::hash<uint16>{}( netadr.port ) + 0x9e3779b9 + (result << 6) + (result >> 2);
 			break;
 
-		uMask >>= 1;
-		uNumNetworkBits++;
+		case NA_IPV6:
+			result = std::hash<uint64>{}( netadr.ipv6Qword[0] );
+			result ^= std::hash<uint64>{}( netadr.ipv6Qword[1] ) + 0x9e3779b9 + (result << 6) + (result >> 2);
+			result ^= std::hash<uint16>{}( netadr.port ) + 0x9e3779b9 + (result << 6) + (result >> 2);
+			break;
 	}
 
-	uNumNetworkBits = 32 - uNumNetworkBits;
-
-	_snprintf (pchBuffer, unBufferSize, "%i.%i.%i.%i/%i", m_BaseIPByte[3], m_BaseIPByte[2], m_BaseIPByte[1], m_BaseIPByte[0], uNumNetworkBits );
-
-	return pchBuffer;
+	return (unsigned int)result;
 }
 
+bool netadr_t::IsLoopback() const
+{
+	switch ( type )
+	{
+		case NA_NULL:
+		case NA_BROADCAST_DEPRECATED:
+			return false;
+		case NA_LOOPBACK_DEPRECATED:
+			return true;
+		case NA_IP:
+			return ( ip & 0xff000000 ) == 0x7f000000; // 127.x.x.x
+		case NA_IPV6:
+			return ipv6Qword[0] == 0 &&
+			#ifdef VALVE_BIG_ENDIAN
+				ipv6Qword[1] == 1;
+			#else
+				ipv6Qword[1] == 0x0100000000000000ull;
+			#endif
+	}
+	Assert( false );
+	return false;
+}
+
+bool netadr_t::IsBroadcast() const
+{
+	switch ( type )
+	{
+		case NA_NULL:
+		case NA_LOOPBACK_DEPRECATED:
+			return false;
+		case NA_BROADCAST_DEPRECATED:
+			return true;
+		case NA_IP:
+			return ip == 0xffffffff; // 255.255.255.255
+		case NA_IPV6:
+			// There might other IPs than could be construed as "broadcast",
+			// but just check for the one used by SetIPV6Broadcast()
+			return memcmp( ipv6Byte, k_ipv6Bytes_LinkLocalAllNodes, 16 ) == 0;
+	}
+	Assert( false );
+	return false;
+}
+
+size_t netadr_t::ToSockadr(void *addr, size_t addr_size) const
+{
+	size_t struct_size = 0;
+	memset( addr, 0, addr_size);
+
+	switch ( type )
+	{
+		default:
+		case NA_NULL:
+			Assert( false );
+			break;
+
+		case NA_LOOPBACK_DEPRECATED:
+		{
+			if ( addr_size < sizeof(sockaddr_in) )
+			{
+				AssertMsg( false, "Address too small!" );
+				return struct_size;
+			}
+			auto *s = (struct sockaddr_in*)addr;
+			s->sin_family = AF_INET;
+			s->sin_addr.s_addr =  htonl( INADDR_LOOPBACK );
+			s->sin_port = htons( port );
+			struct_size = sizeof(sockaddr_in);
+		}
+		break;
+
+		case NA_BROADCAST_DEPRECATED:
+		{
+			if ( addr_size < sizeof(sockaddr_in) )
+			{
+				AssertMsg( false, "Address too small!" );
+				return struct_size;
+			}
+			auto *s = (struct sockaddr_in*)addr;
+			s->sin_family = AF_INET;
+			s->sin_addr.s_addr =  htonl( INADDR_BROADCAST );
+			s->sin_port = htons( port );
+			struct_size = sizeof(sockaddr_in);
+		}
+		break;
+
+		case NA_IP:
+		{
+			if ( addr_size < sizeof(sockaddr_in) )
+			{
+				AssertMsg( false, "Address too small!" );
+				return struct_size;
+			}
+			auto *s = (struct sockaddr_in*)addr;
+			s->sin_family = AF_INET;
+			s->sin_addr.s_addr = htonl( ip );
+			s->sin_port = htons( port );
+			struct_size = sizeof(sockaddr_in);
+		}
+		break;
+
+		case NA_IPV6:
+		{
+			if ( addr_size < sizeof(sockaddr_in6) )
+			{
+				AssertMsg( false, "Address too small!" );
+				return struct_size;
+			}
+			auto *s = (struct sockaddr_in6*)addr;
+			s->sin6_family = AF_INET6;
+			COMPILE_TIME_ASSERT( sizeof(s->sin6_addr) == sizeof(ipv6Byte) );
+			memcpy( &s->sin6_addr, ipv6Byte, sizeof(s->sin6_addr) );
+			s->sin6_scope_id = ipv6Scope;
+			s->sin6_port = htons( port );
+			struct_size = sizeof(sockaddr_in6);
+		}
+		break;
+	}
+
+	return struct_size;
+}
+
+void netadr_t::GetIPV6( byte *result ) const
+{
+	switch ( type )
+	{
+		default:
+			Assert( false );
+		case NA_NULL:
+			// ::
+			memset( result, 0, 16 );
+			break;
+
+		case NA_LOOPBACK_DEPRECATED:
+			// ::1
+			memset( result, 0, 16 );
+			result[15] = 1;
+			return;
+
+		case NA_BROADCAST_DEPRECATED:
+			memcpy( result, k_ipv6Bytes_LinkLocalAllNodes, 16 );
+			break;
+
+		case NA_IP:
+			// ::ffff:aabb.ccdd
+			memset( result, 0, 10 );
+			result[10] = 0xff;
+			result[11] = 0xff;
+			result[12] = ipv4.b1;
+			result[13] = ipv4.b2;
+			result[14] = ipv4.b3;
+			result[15] = ipv4.b4;
+			break;
+
+		case NA_IPV6:
+			memcpy( result, ipv6Byte, 16 );
+			break;
+	}
+}
+
+bool netadr_t::IsMappedIPv4() const
+{
+	if ( type != NA_IPV6 )
+		return false;
+	if (
+		ipv6Qword[0] != 0 // 0...7
+		|| ipv6Byte[8] != 0
+		|| ipv6Byte[9] != 0
+		|| ipv6Byte[10] != 0xff
+		|| ipv6Byte[11] != 0xff
+	) {
+		return false;
+	}
+	return true;
+}
+
+bool netadr_t::BConvertMappedToIPv4()
+{
+	if ( !IsMappedIPv4() )
+		return false;
+	SetIP( ipv6Byte[12], ipv6Byte[13], ipv6Byte[14], ipv6Byte[15] );
+	return true;
+}
+
+bool netadr_t::BConvertIPv4ToMapped()
+{
+	if ( type != NA_IP )
+		return false;
+
+	// Copy off IPv4 address, since it shares the same memory
+	// as the IPv6 bytes.  And we don't want to write code that depends
+	// on how the memory is laid out or try to be clever.
+	uint8 b1 = ipv4.b1;
+	uint8 b2 = ipv4.b2;
+	uint8 b3 = ipv4.b3;
+	uint8 b4 = ipv4.b4;
+
+	type = NA_IPV6;
+
+	// ::ffff:aabb.ccdd
+	memset( ipv6Byte, 0, 10 );
+	ipv6Byte[10] = 0xff;
+	ipv6Byte[11] = 0xff;
+	ipv6Byte[12] = b1;
+	ipv6Byte[13] = b2;
+	ipv6Byte[14] = b3;
+	ipv6Byte[15] = b4;
+
+	ipv6Scope = 0;
+
+	return true;
+}
+
+void netadr_t::ToSockadrIPV6(void *addr, size_t addr_size) const
+{
+	memset( addr, 0, addr_size);
+	if ( addr_size < sizeof(sockaddr_in6) )
+	{
+		AssertMsg( false, "Address too small!" );
+		return;
+	}
+	auto *s = (struct sockaddr_in6*)addr;
+	s->sin6_family = AF_INET6;
+	GetIPV6( s->sin6_addr.s6_addr );
+	if ( type == NA_IPV6 )
+		s->sin6_scope_id = ipv6Scope;
+	s->sin6_port = htons( port );
+}
+
+bool netadr_t::SetFromSockadr(const void *addr, size_t addr_size)
+{
+	Clear();
+	const auto *s = (const sockaddr *)addr;
+	if (!s || addr_size < sizeof(s->sa_family) )
+	{
+		Assert( false );
+		return false;
+	}
+	switch ( s->sa_family )
+	{
+		case AF_INET:
+		{
+			if ( addr_size < sizeof(sockaddr_in) )
+			{
+				Assert( false );
+				return false;
+			}
+			const auto *sin = (const sockaddr_in *)addr;
+			type = NA_IP;
+			ip = ntohl ( sin->sin_addr.s_addr );
+			port = ntohs( sin->sin_port );
+			return true;
+		}
+
+		case AF_INET6:
+		{
+			if ( addr_size < sizeof(sockaddr_in6) )
+			{
+				Assert( false );
+				return false;
+			}
+			const auto *sin6 = (const sockaddr_in6 *)addr;
+			type = NA_IPV6;
+			COMPILE_TIME_ASSERT( sizeof(sin6->sin6_addr) == sizeof(ipv6Byte) );
+			memcpy( ipv6Byte, &sin6->sin6_addr, sizeof(ipv6Byte) );
+			ipv6Scope = sin6->sin6_scope_id;
+			port = ntohs( sin6->sin6_port );
+			return true;
+		}
+	}
+	return false;
+}
+
+
+bool netadr_t::SetFromString( const char *pch )
+{
+	Clear();
+
+	if ( !pch || pch[0] == 0 )			// but let's not crash
+		return false;
+
+	if ( pch[0] >= '0' && pch[0] <= '9' && strchr( pch, '.' ) )
+	{
+		int n1, n2, n3, n4, n5 = 0;
+		int nRes = sscanf( pch, "%d.%d.%d.%d:%d", &n1, &n2, &n3, &n4, &n5 );
+		if ( nRes >= 4 )
+		{
+			// Make sure octets are in range 0...255 and port number is legit
+			if ( ( ( n1 | n2 | n3 | n4 ) & ~0xff ) || (uint16)n5 != n5 )
+				return false;
+
+			SetIP( n1, n2, n3, n4 );
+			SetPort( ( uint16 ) n5 );
+			return true;
+		}
+	}
+
+	// IPv6?
+	int tmpPort;
+	uint32_t tmpScope;
+	if ( ParseIPv6Addr( pch, ipv6Byte, &tmpPort, &tmpScope ) )
+	{
+		type = NA_IPV6;
+		if ( tmpPort >= 0 )
+			port = (uint16)tmpPort;
+        ipv6Scope = tmpScope;
+		return true;
+	}
+
+	//	clobber partial state possibly left by ParseIPv6Addr
+	Clear();
+
+	return false;
+}

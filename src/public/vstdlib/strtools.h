@@ -58,7 +58,7 @@ template <size_t maxLenInChars> void V_strcpy_safe( OUT_Z_ARRAY char (&pDest)[ma
 
 extern int V_vsnprintf( OUT_Z_CAP(maxLen) char *pDest, int maxLen, const char *pFormat, va_list params );
 extern int V_vsnprintfRet( OUT_Z_CAP(maxLen) char *pDest, int maxLen, const char *pFormat, va_list params, bool *pbTruncated );
-extern int V_snprintf( OUT_Z_CAP(destLen) char *pDest, int destLen, PRINTF_FORMAT_STRING const char *pFormat, ... ) FMTFUNCTION( 3, 4 );
+extern int V_snprintf( OUT_Z_CAP(destLen) char *pDest, size_t destLen, PRINTF_FORMAT_STRING const char *pFormat, ... ) FMTFUNCTION( 3, 4 );
 template <size_t maxLenInChars> int V_sprintf_safe( OUT_Z_ARRAY char (&pDest)[maxLenInChars], PRINTF_FORMAT_STRING const char *pFormat, ... )
 {
 	va_list params;
@@ -92,50 +92,6 @@ extern void V_StripTrailingWhitespaceASCII( char *pch );
 
 // trim whitespace from both ends of the string
 extern int V_StrTrim( char *pStr );
-
-//
-// Tools for working with filenames
-//
-
-// Per-platform path separators
-#ifdef _WIN32
-#define CORRECT_PATH_SEPARATOR '\\'
-#define CORRECT_PATH_SEPARATOR_S "\\"
-#define INCORRECT_PATH_SEPARATOR '/'
-#define INCORRECT_PATH_SEPARATOR_S "/"
-#define CORRECT_PATH_SEPARATOR_W L'\\'
-#define CORRECT_PATH_SEPARATOR_W_S L"\\"
-#define INCORRECT_PATH_SEPARATOR_W L'/'
-#define INCORRECT_PATH_SEPARATOR_W_S L"/"
-#elif defined(POSIX)
-#define CORRECT_PATH_SEPARATOR '/'
-#define CORRECT_PATH_SEPARATOR_S "/"
-#define INCORRECT_PATH_SEPARATOR '\\'
-#define INCORRECT_PATH_SEPARATOR_S "\\"
-#define CORRECT_PATH_SEPARATOR_W '/'
-#define CORRECT_PATH_SEPARATOR_W_S "/"
-#define INCORRECT_PATH_SEPARATOR_W '\\'
-#define INCORRECT_PATH_SEPARATOR_W_S "\\"
-#endif
-
-// Adds a path separator to the end of the string if there isn't one already. Returns false if it would run out of space.
-extern void V_AppendSlash( OUT_Z_CAP(strSize) char *pStr, int strSize );
-
-// Force slashes of either type to be = separator character
-extern void V_FixSlashes( char *pname, char separator = CORRECT_PATH_SEPARATOR );
-
-// This removes "./" and "../" from the pathname. pFilename should be a full pathname.
-// Returns false if it tries to ".." past the root directory in the drive (in which case 
-// it is an invalid path).
-extern bool V_RemoveDotSlashes( char *pFilename, char separator = CORRECT_PATH_SEPARATOR );
-
-// Given a path and a filename, composes "path\filename", inserting the (OS correct) separator if necessary
-extern void V_ComposeFileName( const char *path, const char *filename, OUT_Z_CAP(destSize) char *dest, int destSize );
-
-// If pPath is a relative path, this function makes it into an absolute path
-// using the current working directory as the base, or pStartingDir if it's non-NULL.
-// Returns false if it runs out of room in the string, or if pPath tries to ".." past the root directory.
-extern void V_MakeAbsolutePath( OUT_Z_CAP(outLen) char *pOut, int outLen, const char *pPath, const char *pStartingDir = NULL );
 
 #ifdef POSIX
 #ifdef ANDROID

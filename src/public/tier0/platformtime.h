@@ -38,6 +38,7 @@ PLATFORMTIME_INTERFACE uint64			Plat_RelativeTickFrequency();	// Frequency of ra
 // avoid overflows in math.	 Milliseconds have 1,000 more tolerance but are not immune.
 PLATFORMTIME_INTERFACE uint64			Plat_TickDiffMilliSec( uint64 StartTicks, uint64 EndTicks );
 PLATFORMTIME_INTERFACE uint64			Plat_TickDiffMicroSec( uint64 StartTicks, uint64 EndTicks );
+PLATFORMTIME_INTERFACE uint64			Plat_TickAddMicroSec( uint64 StartTicks, int64 lMicroSec );
 
 PLATFORMTIME_INTERFACE double			Plat_FloatTime();		// Relative ticks to seconds (double).
 PLATFORMTIME_INTERFACE uint32			Plat_MSTime();			// Relative ticks to milliseconds (32-bit).

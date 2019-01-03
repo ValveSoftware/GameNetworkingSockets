@@ -47,43 +47,61 @@ class ISteamNetworkingSockets
 {
 public:
 
-	/// Creates a "server" socket that listens for clients to connect to, either by calling
-	/// ConnectSocketBySteamID or ConnectSocketByIPv4Address.
+	/// Creates a "server" socket that listens for clients to connect to by 
+	/// calling ConnectByIPAddress, over order UDP (IPv4 or IPv6)
 	///
-	/// nSteamConnectVirtualPort specifies how clients can connect to this socket using
-	/// ConnectBySteamID.  A negative value indicates that this functionality is
-	/// disabled and clients must connect by IP address.  It's very common for applications
-	/// to only have one listening socket; in that case, use zero.  If you need to open
-	/// multiple listen sockets and have clients be able to connect to one or the other, then
-	/// nSteamConnectVirtualPort should be a small integer constant unique to each listen socket
-	/// you create.
+	/// You must select a specific local port to listen on and set it
+	/// the port field of the local address.
 	///
-	/// In the open-source version of this API, you must pass -1 for nSteamConnectVirtualPort
-	///
-	/// If you want clients to connect to you by your IPv4 addresses using
-	/// ConnectByIPv4Address, then you must set nPort to be nonzero.  Steam will
-	/// bind a UDP socket to the specified local port, and clients will send packets using
-	/// ordinary IP routing.  It's up to you to take care of NAT, protecting your server
-	/// from DoS, etc.  If you don't need clients to connect to you by IP, then set nPort=0.
-	/// Use nIP if you wish to bind to a particular local interface.  Typically you will use 0,
-	/// which means to listen on all interfaces, and accept the default outbound IP address.
-	/// If nPort is zero, then nIP must also be zero.
+	/// Usually you wil set the IP portion of the address to zero, (SteamNetworkingIPAddr::Clear()).
+	/// This means that you will not bind to any particular local interface.  In addition,
+	/// if possible the socket will be bound in "dual stack" mode, which means that it can
+	/// accept both IPv4 and IPv6 clients.  If you wish to bind a particular interface, then
+	/// set the local address to the appropriate IPv4 or IPv6 IP.
 	///
 	/// A SocketStatusCallback_t callback when another client attempts a connection.
-	virtual HSteamListenSocket CreateListenSocket( int nSteamConnectVirtualPort, uint32 nIP, uint16 nPort ) = 0;
+	virtual HSteamListenSocket CreateListenSocketIP( const SteamNetworkingIPAddr &localAddress ) = 0;
 
-	/// Creates a connection and begins talking to a remote destination.  The remote host
-	/// must be listening with a matching call to CreateListenSocket.
+	/// Creates a connection and begins talking to a "server" over UDP at the
+	/// given IPv4 or IPv6 address.  The remote host must be listening with a
+	/// matching call to CreateListenSocket on the specified port.
 	///
-	/// Use ConnectBySteamID to connect using the SteamID (client or game server) as the network address.
-	/// Use ConnectByIPv4Address to connect by IP address.
+	/// A SteamNetConnectionStatusChangedCallback_t callback will be triggered when we start
+	/// connecting, and then another one on either timeout or successful connection.
 	///
-	/// A SteamNetConnectionStatusChangedCallback_t callback will be triggered when we start connecting,
-	/// and then another one on timeout or successful connection
+	/// If the server does not have any identity configured, then heir network address
+	/// will be the only identity in use.  Or, the network host may provide a platform-specific
+	/// identity with or without a valid certificate to authenticate that identity.  (These
+	/// details will be contained in the SteamNetConnectionStatusChangedCallback_t.)  It's
+	/// up to your application to decide whether to allow the connection.
+	///
+	/// By default, all connections will get basic encryption sufficient to prevent
+	/// casual eavesdropping.  But note that without certificates (or a shared secret
+	/// distributed through some other out-of-band mechanism), you don't have any
+	/// way of knowing who is actually on the other end, and thus are vulnerable to
+	/// man-in-the-middle attacks.
+	virtual HSteamNetConnection ConnectByIPAddress( const SteamNetworkingIPAddr &address ) = 0;
+
 #ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
-	virtual HSteamNetConnection ConnectBySteamID( CSteamID steamIDTarget, int nVirtualPort ) = 0;
+	/// Like CreateListenSocketIP, but clients will connect using ConnectP2P
+	///
+	/// nVirtualPort specifies how clients can connect to this socket using
+	/// ConnectP2P.  It's very common for applications to only have one listening socket;
+	/// in that case, use zero.  If you need to open multiple listen sockets and have clients
+	/// be able to connect to one or the other, then nVirtualPort should be a small integer (<1000)
+	/// unique to each listen socket you create.
+	virtual HSteamListenSocket CreateListenSocketP2P( int nVirtualPort ) = 0;
+
+	/// Begin connecting to a server that is identified using a platform-specific identifier.
+	/// This requires some sort of third party rendezvous service, and will depend on the
+	/// platform and what other libraries and services you are integrating with.
+	///
+	/// At the time of this writing, there is only one supported rendezvous service: Steam.
+	/// Set the SteamID (whether "user" or "gameserver") and Steam will determine if the
+	/// client is online and facilitate a relay connection.  Note that all P2P connections on
+	/// Steam are currently relayed.
+	virtual HSteamNetConnection ConnectP2P( const SteamNetworkingIdentity &identityRemote, int nVirtualPort ) = 0;
 #endif
-	virtual HSteamNetConnection ConnectByIPv4Address( uint32 nIP, uint16 nPort ) = 0;
 
 	/// Accept an incoming connection that has been received on a listen socket.
 	///
@@ -143,16 +161,9 @@ public:
 	/// ignored.
 	virtual bool CloseConnection( HSteamNetConnection hPeer, int nReason, const char *pszDebug, bool bEnableLinger ) = 0;
 
-	/// Destroy a listen socket, and all the client sockets generated by accepting connections
-	/// on the listen socket.
-	///
-	/// pszNotifyRemoteReason determines what cleanup actions are performed on the client
-	/// sockets being destroyed.  (See DestroySocket for more details.)
-	///
-	/// Note that if cleanup is requested and you have requested the listen socket bound to a
-	/// particular local port to facilitate direct UDP/IPv4 connections, then the underlying UDP
-	/// socket must remain open until all clients have been cleaned up.
-	virtual bool CloseListenSocket( HSteamListenSocket hSocket, const char *pszNotifyRemoteReason ) = 0;
+	/// Destroy a listen socket.  All the client sockets generated by accepting connections
+	/// on the listen socket are closed ungracefully.
+	virtual bool CloseListenSocket( HSteamListenSocket hSocket ) = 0;
 
 	/// Set connection user data.  Returns false if the handle is invalid.
 	virtual bool SetConnectionUserData( HSteamNetConnection hPeer, int64 nUserData ) = 0;
@@ -187,15 +198,15 @@ public:
 	/// work the same, since reliable message semantics are more 
 	/// strict than stream semantics.  The only caveat is related to 
 	/// performance: there is per-message overhead to retain the 
-	/// messages sizes, and so if your code sends many small chunks 
+	/// message sizes, and so if your code sends many small chunks 
 	/// of data, performance will suffer. Any code based on stream 
 	/// sockets that does not write excessively small chunks will 
 	/// work without any changes. 
 	virtual EResult SendMessageToConnection( HSteamNetConnection hConn, const void *pData, uint32 cbData, ESteamNetworkingSendType eSendType ) = 0;
 
-	/// If Nagle is enabled (its on by default) then when calling 
-	/// SendMessageToConnection the message will be queued up the Nagle time
-	/// before being sent to merge small messages into the same packet.
+	/// If Nagle is enabled (it's on by default) then when calling 
+	/// SendMessageToConnection the message will be buffered, up to the Nagle time
+	/// before being sent, to merge small messages into the same packet.
 	///
 	/// Call this function to flush any queued messages and send them immediately
 	/// on the next transmission time (often that means right now).
@@ -209,10 +220,9 @@ public:
 	/// Reliable messages will be received in the order they were sent (and with the
 	/// same sizes --- see SendMessageToConnection for on this subtle difference from a stream socket).
 	///
-	/// FIXME - We're still debating the exact set of guarantees for unreliable, so this might change.
-	/// Unreliable messages may not be received.  The order of delivery of unreliable messages
-	/// is NOT specified.  They may be received out of order with respect to each other or
-	/// reliable messages.  They may be received multiple times!
+	/// Unreliable messages may be dropped, or delivered out of order withrespect to
+	/// each other or with respect to reliable messages.  The same unreliable message
+	/// may be received multiple times.
 	///
 	/// If any messages are returned, you MUST call Release() to each of them free up resources
 	/// after you are done.  It is safe to keep the object alive for a little while (put it
@@ -242,17 +252,15 @@ public:
 	/// Returns:
 	/// -1 failure (bad connection handle)
 	/// 0 OK, your buffer was filled in and '\0'-terminated
-	/// >0 Your buffer was either nullptr, or it was too small and the text got truncated.  Try again with a buffer of at least N bytes.
+	/// >0 Your buffer was either nullptr, or it was too small and the text got truncated.
+	///    Try again with a buffer of at least N bytes.
 	virtual int GetDetailedConnectionStatus( HSteamNetConnection hConn, char *pszBuf, int cbBuf ) = 0;
 
-	/// Returns information about the listen socket.
+	/// Returns local IP and port that a listen socket created using CreateListenSocketIP is bound to.
 	///
-	/// *pnIP and *pnPort will be 0 if the socket is set to listen for connections based
-	/// on SteamID only.  If your listen socket accepts connections on IPv4, then both
-	/// fields will return nonzero, even if you originally passed a zero IP.  However,
-	/// note that the address returned may be a private address (e.g. 10.0.0.x or 192.168.x.x),
-	/// and may not be reachable by a general host on the Internet.
-	virtual bool GetListenSocketInfo( HSteamListenSocket hSocket, uint32 *pnIP, uint16 *pnPort ) = 0;
+	/// An IPv6 address of ::0 means "any IPv4 or IPv6"
+	/// An IPv6 address of ::ffff:0000:0000 means "any IPv4"
+	virtual bool GetListenSocketAddress( HSteamListenSocket hSocket, SteamNetworkingIPAddr *address ) = 0;
 
 	/// Create a pair of connections that are talking to each other, e.g. a loopback connection.
 	/// This is very useful for testing, or so that your client/server code can work the same
@@ -292,7 +300,7 @@ public:
 	///
 	/// Typically this is useful just to confirm that you have a ticket, before you
 	/// call ConnectToHostedDedicatedServer to connect to the server.
-	virtual int FindRelayAuthTicketForServer( CSteamID steamID, int nVirtualPort, SteamDatagramRelayAuthTicket *pOutParsedTicket ) = 0;
+	virtual int FindRelayAuthTicketForServer( const SteamNetworkingIdentity &identityGameServer, int nVirtualPort, SteamDatagramRelayAuthTicket *pOutParsedTicket ) = 0;
 
 	/// Client call to connect to a server hosted in a Valve data center, on the specified virtual
 	/// port.  You should have received a ticket for this server, or else this connect call will fail!
@@ -300,7 +308,7 @@ public:
 	/// You may wonder why tickets are stored in a cache, instead of simply being passed as an argument
 	/// here.  The reason is to make reconnection to a gameserver robust, even if the client computer loses
 	/// connection to Steam or the central backend, or the app is restarted or crashes, etc.
-	virtual HSteamNetConnection ConnectToHostedDedicatedServer( CSteamID steamIDTarget, int nVirtualPort ) = 0;
+	virtual HSteamNetConnection ConnectToHostedDedicatedServer( const SteamNetworkingIdentity &identityTarget, int nVirtualPort ) = 0;
 
 	//
 	// Servers hosted in Valve data centers
@@ -408,7 +416,7 @@ STEAMNETWORKINGSOCKETS_INTERFACE void GameNetworkingSockets_Kill();
 	typedef void ( S_CALLTYPE *FSteamAPI_UnregisterCallback)( class CCallbackBase *pCallback );
 	typedef void ( S_CALLTYPE *FSteamAPI_RegisterCallResult)( class CCallbackBase *pCallback, SteamAPICall_t hAPICall );
 	typedef void ( S_CALLTYPE *FSteamAPI_UnregisterCallResult)( class CCallbackBase *pCallback, SteamAPICall_t hAPICall );
-	STEAMNETWORKINGSOCKETS_INTERFACE void SteamDatagramClient_SetPartner( const char *pszLauncher, int iLegcayPartnerMask ); // Call this before SteamDatagramClient_Init
+	STEAMNETWORKINGSOCKETS_INTERFACE void SteamDatagramClient_SetLauncher( const char *pszLauncher ); // Call this before SteamDatagramClient_Init
 	STEAMNETWORKINGSOCKETS_INTERFACE void SteamDatagramClient_Internal_SteamAPIKludge( FSteamAPI_RegisterCallback fnRegisterCallback, FSteamAPI_UnregisterCallback fnUnregisterCallback, FSteamAPI_RegisterCallResult fnRegisterCallResult, FSteamAPI_UnregisterCallResult fnUnregisterCallResult );
 	STEAMNETWORKINGSOCKETS_INTERFACE bool SteamDatagramClient_Init_InternalV6( SteamDatagramErrMsg &errMsg, FSteamInternal_CreateInterface fnCreateInterface, HSteamUser hSteamUser, HSteamPipe hSteamPipe );
 	STEAMNETWORKINGSOCKETS_INTERFACE bool SteamDatagramServer_Init_Internal( SteamDatagramErrMsg &errMsg, FSteamInternal_CreateInterface fnCreateInterface, HSteamUser hSteamUser, HSteamPipe hSteamPipe );

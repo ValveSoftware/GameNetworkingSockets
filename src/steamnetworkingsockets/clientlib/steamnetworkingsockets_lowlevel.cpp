@@ -31,8 +31,6 @@
 
 namespace SteamNetworkingSocketsLib {
 
-// Fake loss
-
 int g_nSteamDatagramSocketBufferSize = 128*1024;
 
 /// Global lock for all local data structures
@@ -70,12 +68,11 @@ void SteamDatagramTransportLock::Lock()
 
 void SteamDatagramTransportLock::Unlock()
 {
-	Assert( s_nLocked > 0 );
+	AssertHeldByCurrentThread();
 	SteamNetworkingMicroseconds usecElapsed = 0;
 	if ( s_nLocked == 1 )
 	{
 		usecElapsed = SteamNetworkingSockets_GetLocalTimestamp() - s_usecWhenLocked;
-		s_threadIDLockOwner = std::thread::id();
 	}
 	--s_nLocked;
 	#ifdef MSVC_STL_MUTEX_WORKAROUND
@@ -90,8 +87,6 @@ void SteamDatagramTransportLock::Unlock()
 
 void SteamDatagramTransportLock::AssertHeldByCurrentThread()
 {
-	// !FIXME! This is probably good enough to catch bugs, but
-	// won't fire if the lock is held by another thread.
 	Assert( s_nLocked > 0 );
 	Assert( s_threadIDLockOwner == std::this_thread::get_id() );
 }
@@ -131,6 +126,9 @@ public:
 	/// Descriptor from the OS
 	SOCKET m_socket;
 
+	/// What address families are supported by this socket?
+	int m_nAddressFamilies;
+
 	/// Who to notify when we receive a packet on this socket.
 	/// This is set to null when we are asked to close the socket.
 	CRecvPacketCallback m_callback;
@@ -146,8 +144,11 @@ public:
 		Assert( m_socket != INVALID_SOCKET );
 
 		// Convert address to BSD interface
-		struct sockaddr destAddress;
-		adrTo.ToSockadr( &destAddress );
+		struct sockaddr_storage destAddress;
+		if ( m_nAddressFamilies & k_nAddressFamily_IPv6 )
+			adrTo.ToSockadrIPV6( &destAddress );
+		else
+			adrTo.ToSockadr( &destAddress );
 
 		//const uint8 *pbPkt = (const uint8 *)pPkt;
 		//Log_Detailed( LOG_STEAMDATAGRAM_CLIENT, "%4db -> %s %02x %02x %02x %02x %02x ...\n",
@@ -166,7 +167,7 @@ public:
 				(DWORD)nChunks,
 				&numberOfBytesSent,
 				0, // flags
-				&destAddress,
+				(const sockaddr *)&destAddress,
 				sizeof(destAddress),
 				nullptr, // lpOverlapped
 				nullptr // lpCompletionRoutine
@@ -174,7 +175,7 @@ public:
 			return ( r == 0 );
 		#else
 			msghdr msg;
-			msg.msg_name = &destAddress;
+			msg.msg_name = (sockaddr *)&destAddress;
 			msg.msg_namelen = sizeof( destAddress );
 			msg.msg_iov = const_cast<struct iovec *>( pChunks );
 			msg.msg_iovlen = nChunks;
@@ -454,74 +455,224 @@ void IRawUDPSocket::Close()
 	}
 }
 
-static CRawUDPSocketImpl *OpenRawUDPSocketInternal( uint32 nIP, uint16 nPort, CRecvPacketCallback callback, SteamDatagramErrMsg &errMsg )
+static SOCKET OpenUDPSocketBoundToSockAddr( const void *sockaddr, size_t len, SteamDatagramErrMsg &errMsg, int *pnIPv6AddressFamilies )
 {
+	unsigned int opt;
 
-	// We're going to need a background thread running to poll this guy
-	if ( !BSteamNetworkingSocketsInitCommon( errMsg ) )
-		return nullptr;
+	const sockaddr_in *inaddr = (const sockaddr_in *)sockaddr;
 
-	// For linux, use the "close on exec" flag, so that the socket will not be inherited
-	// by any child process that we spawn.
+	// Select socket type.  For linux, use the "close on exec" flag, so that the
+	// socket will not be inherited by any child process that we spawn.
 	int sockType = SOCK_DGRAM;
 	#ifdef LINUX
 		sockType |= SOCK_CLOEXEC;
 	#endif
 
-	// Try to create a UDP socket
-	SOCKET sock = socket( AF_INET, sockType, IPPROTO_UDP );
+	// Try to create a UDP socket using the specified family
+	SOCKET sock = socket( inaddr->sin_family, sockType, IPPROTO_UDP );
 	if ( sock == INVALID_SOCKET )
 	{
 		V_sprintf_safe( errMsg, "socket() call failed.  Error code 0x%08x.", GetLastSocketError() );
-		return nullptr;
+		return INVALID_SOCKET;
 	}
 
-	unsigned int opt;
-
+	// We always use nonblocking IO
 	opt = 1;
 	if ( ioctlsocket( sock, FIONBIO, (unsigned long*)&opt ) == -1 )
 	{
 		V_sprintf_safe( errMsg, "Failed to set socket nonblocking mode.  Error code 0x%08x.", GetLastSocketError() );
 		closesocket( sock );
-		return nullptr;
+		return INVALID_SOCKET;
 	}
 
+	// Set buffer sizes
 	opt = g_nSteamDatagramSocketBufferSize;
 	if ( setsockopt( sock, SOL_SOCKET, SO_SNDBUF, (char *)&opt, sizeof(opt) ) )
 	{
 		V_sprintf_safe( errMsg, "Failed to set socket send buffer size.  Error code 0x%08x.", GetLastSocketError() );
 		closesocket( sock );
-		return nullptr;
+		return INVALID_SOCKET;
 	}
-
 	opt = g_nSteamDatagramSocketBufferSize;
 	if ( setsockopt( sock, SOL_SOCKET, SO_RCVBUF, (char *)&opt, sizeof(opt) ) == -1 )
 	{
 		V_sprintf_safe( errMsg, "Failed to set socket recv buffer size.  Error code 0x%08x.", GetLastSocketError() );
 		closesocket( sock );
-		return nullptr;
+		return INVALID_SOCKET;
 	}
 
-	// Set bind address
-	struct sockaddr_in	address;
-	memset( &address, 0, sizeof(address) );
-	address.sin_family = AF_INET;
-	address.sin_addr.s_addr = BigDWord( nIP );
-	address.sin_port = BigWord( nPort );
+	// Handle IP v6 dual stack?
+	if ( pnIPv6AddressFamilies )
+	{
 
-	// Bind it
-	if ( bind( sock, (struct sockaddr *)&address, sizeof(address) ) == -1 )
+		// Enable dual stack?
+		opt = ( *pnIPv6AddressFamilies == k_nAddressFamily_IPv6 ) ? 1 : 0;
+		if ( setsockopt( sock, IPPROTO_IPV6, IPV6_V6ONLY, (char *)&opt, sizeof( opt ) ) != 0 )
+		{
+			if ( *pnIPv6AddressFamilies == k_nAddressFamily_IPv6 )
+			{
+				// Spew a warning, but continue
+				SpewWarning( "Failed to set socket for IPv6 only (IPV6_V6ONLY=1).  Error code 0x%08X.  Continuing anyway.\n", GetLastSocketError() );
+			}
+			else
+			{
+				// Dual stack required, or only requested?
+				if ( *pnIPv6AddressFamilies == k_nAddressFamily_DualStack )
+				{
+					V_sprintf_safe( errMsg, "Failed to set socket for dual stack (IPV6_V6ONLY=0).  Error code 0x%08X.", GetLastSocketError() );
+					closesocket( sock );
+					return INVALID_SOCKET;
+				}
+
+				// Let caller know we're IPv6 only, and spew about this.
+				SpewWarning( "Failed to set socket for dual stack (IPV6_V6ONLY=0).  Error code 0x%08X.  Continuing using IPv6 only!\n", GetLastSocketError() );
+				*pnIPv6AddressFamilies = k_nAddressFamily_IPv6;
+			}
+		}
+		else
+		{
+			// Tell caller what they've got
+			*pnIPv6AddressFamilies = opt ? k_nAddressFamily_IPv6 : k_nAddressFamily_DualStack;
+		}
+	}
+
+	// Bind it to specific desired port and/or interfaces
+	if ( bind( sock, (struct sockaddr *)sockaddr, (socklen_t)len ) == -1 )
 	{
 		V_sprintf_safe( errMsg, "Failed to bind socket.  Error code 0x%08X.", GetLastSocketError() );
 		closesocket( sock );
-		return nullptr;
+		return INVALID_SOCKET;
 	}
 
-	// Read back the port we bound to
-	socklen_t cbAddress = sizeof(address);
-	if ( getsockname( sock, (struct sockaddr *)&address, &cbAddress ) != 0 )
+	// All good
+	return sock;
+}
+
+static CRawUDPSocketImpl *OpenRawUDPSocketInternal( CRecvPacketCallback callback, SteamDatagramErrMsg &errMsg, const SteamNetworkingIPAddr *pAddrLocal, int *pnAddressFamilies )
+{
+	// We're going to need a background thread running to poll this guy
+	if ( !BSteamNetworkingSocketsInitCommon( errMsg ) )
+		return nullptr;
+
+	// Supply defaults
+	int nAddressFamilies = pnAddressFamilies ? *pnAddressFamilies : k_nAddressFamily_Auto;
+	SteamNetworkingIPAddr addrLocal;
+	if ( pAddrLocal )
+		addrLocal = *pAddrLocal;
+	else
+		addrLocal.Clear();
+
+	// Check that the request makes sense
+	if ( addrLocal.IsIPv4() )
+	{
+		// Only IPv4 family allowed, don't even try IPv6
+		if ( nAddressFamilies == k_nAddressFamily_Auto )
+		{
+			nAddressFamilies = k_nAddressFamily_IPv4;
+		}
+		else if ( nAddressFamilies != k_nAddressFamily_IPv4 )
+		{
+			V_strcpy_safe( errMsg, "Invalid address family request when binding to IPv4 address" );
+			return nullptr;
+		}
+	}
+	else if ( addrLocal.IsIPv6AllZeros() )
+	{
+		// We can try IPv6 dual stack, and fallback to IPv4 if requested.
+		// Just make sure they didn't request a totally bogus value
+		if ( nAddressFamilies == 0 )
+		{
+			V_strcpy_safe( errMsg, "Invalid address families" );
+			return nullptr;
+		}
+	}
+	else
+	{
+		// Only IPv6 family allowed, cannot try IPv4
+		if ( nAddressFamilies == k_nAddressFamily_Auto )
+		{
+			nAddressFamilies = k_nAddressFamily_IPv6;
+		}
+		else if ( nAddressFamilies != k_nAddressFamily_IPv6 )
+		{
+			V_strcpy_safe( errMsg, "Invalid address family request when binding to IPv6 address" );
+			return nullptr;
+		}
+	}
+
+	// Try IPv6?
+	SOCKET sock = INVALID_SOCKET;
+	if ( nAddressFamilies & k_nAddressFamily_IPv6 )
+	{
+		sockaddr_in6 address6;
+		memset( &address6, 0, sizeof(address6) );
+		address6.sin6_family = AF_INET6;
+		memcpy( address6.sin6_addr.s6_addr, addrLocal.m_ipv6, 16 );
+		address6.sin6_port = BigWord( addrLocal.m_port );
+
+		// Try to get socket
+		int nIPv6AddressFamilies = nAddressFamilies;
+		sock = OpenUDPSocketBoundToSockAddr( &address6, sizeof(address6), errMsg, &nIPv6AddressFamilies );
+
+		if ( sock == INVALID_SOCKET )
+		{
+			// Allowing fallback to IPv4?
+			if ( nAddressFamilies != k_nAddressFamily_Auto )
+				return nullptr;
+
+			// Continue below, we'll try IPv4
+		}
+		else
+		{
+			nAddressFamilies = nIPv6AddressFamilies;
+		}
+	}
+
+	// Try IPv4?
+	if ( sock == INVALID_SOCKET )
+	{
+		Assert( nAddressFamilies & k_nAddressFamily_IPv4 ); // Otherwise, we should have already failed above
+
+		sockaddr_in address4;
+		memset( &address4, 0, sizeof(address4) );
+		address4.sin_family = AF_INET;
+		address4.sin_addr.s_addr = BigDWord( addrLocal.GetIPv4() );
+		address4.sin_port = BigWord( addrLocal.m_port );
+
+		// Try to get socket
+		sock = OpenUDPSocketBoundToSockAddr( &address4, sizeof(address4), errMsg, nullptr );
+
+		// If we failed, well, we have no other options left to try.
+		if ( sock == INVALID_SOCKET )
+			return nullptr;
+
+		// We re IPv4 only
+		nAddressFamilies = k_nAddressFamily_IPv4;
+	}
+
+	// Read back address we actually bound to.
+	sockaddr_storage addrBound;
+	socklen_t cbAddress = sizeof(addrBound);
+	if ( getsockname( sock, (struct sockaddr *)&addrBound, &cbAddress ) != 0 )
 	{
 		V_sprintf_safe( errMsg, "getsockname failed.  Error code 0x%08X.", GetLastSocketError() );
+		closesocket( sock );
+		return nullptr;
+	}
+	if ( addrBound.ss_family == AF_INET )
+	{
+		const sockaddr_in *boundaddr4 = (const sockaddr_in *)&addrBound;
+		addrLocal.SetIPv4( BigDWord( boundaddr4->sin_addr.s_addr ), BigWord( boundaddr4->sin_port ) );
+	}
+	else if ( addrBound.ss_family == AF_INET6 )
+	{
+		const sockaddr_in6 *boundaddr6 = (const sockaddr_in6 *)&addrBound;
+		addrLocal.SetIPv6( boundaddr6->sin6_addr.s6_addr, BigWord( boundaddr6->sin6_port ) );
+	}
+	else
+	{
+		Assert( false );
+		V_sprintf_safe( errMsg, "getsockname returned address with unexpected family %d", addrBound.ss_family );
 		closesocket( sock );
 		return nullptr;
 	}
@@ -529,8 +680,9 @@ static CRawUDPSocketImpl *OpenRawUDPSocketInternal( uint32 nIP, uint16 nPort, CR
 	// Allocate a bookkeeping structure
 	CRawUDPSocketImpl *pSock = new CRawUDPSocketImpl;
 	pSock->m_socket = sock;
-	pSock->m_nPort = BigWord( address.sin_port );
+	pSock->m_boundAddr = addrLocal;
 	pSock->m_callback = callback;
+	pSock->m_nAddressFamilies = nAddressFamilies;
 
 	// On windows, create an event used to poll efficiently
 	#ifdef _WIN32
@@ -551,13 +703,17 @@ static CRawUDPSocketImpl *OpenRawUDPSocketInternal( uint32 nIP, uint16 nPort, CR
 	// Wake up background thread so we can start receiving packets on this socket immediately
 	WakeSteamDatagramThread();
 
+	// Give back info on address families
+	if ( pnAddressFamilies )
+		*pnAddressFamilies = nAddressFamilies;
+
 	// Give them something they can use
 	return pSock;
 }
 
-IRawUDPSocket *OpenRawUDPSocket( uint32 nIP, uint16 nPort, CRecvPacketCallback callback, SteamDatagramErrMsg &errMsg )
+IRawUDPSocket *OpenRawUDPSocket( CRecvPacketCallback callback, SteamDatagramErrMsg &errMsg, SteamNetworkingIPAddr *pAddrLocal, int *pnAddressFamilies )
 {
-	return OpenRawUDPSocketInternal( nIP, nPort, callback, errMsg );
+	return OpenRawUDPSocketInternal( callback, errMsg, pAddrLocal, pnAddressFamilies );
 }
 
 /// Poll all of our sockets, and dispatch the packets received.
@@ -708,7 +864,7 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS )
 			if ( !g_bWantThreadRunning )
 				return true; // current thread owns the lock
 
-			sockaddr_in from;
+			sockaddr_storage from;
 			socklen_t fromlen = sizeof(from);
 			int ret = ::recvfrom( pSock->m_socket, buf, sizeof( buf ), 0, (sockaddr *)&from, &fromlen );
 
@@ -724,7 +880,7 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS )
 			// NOTE 2: 0 byte datagram is possible, and in this case recvfrom will return 0.
 			// (But all of our protocols enforce a minimum packet size, so if we get a zero byte packet,
 			// it's a bogus.  We could drop it here but let's send it through the normal mechanism to
-			// be handled/reported int he same way as any other bogus packet.)
+			// be handled/reported in the same way as any other bogus packet.)
 			if ( ret < 0 )
 				break;
 
@@ -733,7 +889,11 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS )
 				continue;
 
 			netadr_t adr;
-			adr.SetFromSockadr( (sockaddr*)&from );
+			adr.SetFromSockadr( &from );
+
+			// If we're dual stack, convert mapped IPv4 back to ordinary IPv4
+			if ( pSock->m_nAddressFamilies == k_nAddressFamily_DualStack )
+				adr.BConvertMappedToIPv4();
 
 			int32 nPacketFakeLagTotal = steamdatagram_fakepacketlag_recv;
 
@@ -1333,7 +1493,7 @@ static void DedicatedBoundSocketCallback( const void *pPkt, int cbPkt, const net
 		// Packets from random internet hosts happen all the time,
 		// especially on a LAN where all sorts of people have broadcast
 		// discovery protocols.  So this probably isn't a bug or a problem.
-		SpewVerbose( "Ignoring stray packet from %s received on port %d.  Should only be talking to %s on that port.\n", CUtlNetAdrRender( adrFrom ).String(), pSock->GetRawSock()->m_nPort, CUtlNetAdrRender( pSock->GetRemoteHostAddr() ).String() );
+		SpewVerbose( "Ignoring stray packet from %s received on port %d.  Should only be talking to %s on that port.\n", CUtlNetAdrRender( adrFrom ).String(), pSock->GetRawSock()->m_boundAddr.m_port, CUtlNetAdrRender( pSock->GetRemoteHostAddr() ).String() );
 		return;
 	}
 
@@ -1345,13 +1505,18 @@ static void DedicatedBoundSocketCallback( const void *pPkt, int cbPkt, const net
 	pSock->m_callback( pPkt, cbPkt, adrFrom );
 }
 
-IBoundUDPSocket *OpenUDPSocketBoundToHost( uint32 nLocalIP, uint16 nLocalPort, const netadr_t &adrRemote, CRecvPacketCallback callback, SteamDatagramErrMsg &errMsg )
+IBoundUDPSocket *OpenUDPSocketBoundToHost( const netadr_t &adrRemote, CRecvPacketCallback callback, SteamDatagramErrMsg &errMsg )
 {
-	SteamDatagramTransportLock scopeLock;
+	SteamDatagramTransportLock::AssertHeldByCurrentThread();
+
+	// Select local address to use.
+	// Since we know the remote host, let's just always use a single-stack socket
+	// with the specified family
+	int nAddressFamilies = ( adrRemote.GetType() == NA_IPV6 ) ? k_nAddressFamily_IPv6 : k_nAddressFamily_IPv4;
 
 	// Create a socket, bind it to the desired local address
 	CDedicatedBoundSocket *pTempContext = nullptr; // don't yet know the context
-	CRawUDPSocketImpl *pRawSock = OpenRawUDPSocketInternal( nLocalIP, nLocalPort, CRecvPacketCallback( DedicatedBoundSocketCallback, pTempContext ), errMsg );
+	CRawUDPSocketImpl *pRawSock = OpenRawUDPSocketInternal( CRecvPacketCallback( DedicatedBoundSocketCallback, pTempContext ), errMsg, nullptr, &nAddressFamilies );
 	if ( !pRawSock )
 		return nullptr;
 
@@ -1365,16 +1530,20 @@ IBoundUDPSocket *OpenUDPSocketBoundToHost( uint32 nLocalIP, uint16 nLocalPort, c
 
 bool CreateBoundSocketPair( CRecvPacketCallback callback1, CRecvPacketCallback callback2, IBoundUDPSocket **ppOutSockets, SteamDatagramErrMsg &errMsg )
 {
-	SteamDatagramTransportLock scopeLock;
+	SteamDatagramTransportLock::AssertHeldByCurrentThread();
 
-	// Create two socket UDP sockets, bound to loopback IP, but allow OS to choose ephemeral port
+	SteamNetworkingIPAddr localAddr;
+
+	// Create two socket UDP sockets, bound to (IPv4) loopback IP, but allow OS to choose ephemeral port
 	CRawUDPSocketImpl *pRawSock[2];
 	uint32 nLocalIP = 0x7f000001; // 127.0.0.1
 	CDedicatedBoundSocket *pTempContext = nullptr; // don't yet know the context
-	pRawSock[0] = OpenRawUDPSocketInternal( nLocalIP, 0, CRecvPacketCallback( DedicatedBoundSocketCallback, pTempContext ), errMsg );
+	localAddr.SetIPv4( nLocalIP, 0 );
+	pRawSock[0] = OpenRawUDPSocketInternal( CRecvPacketCallback( DedicatedBoundSocketCallback, pTempContext ), errMsg, &localAddr, nullptr );
 	if ( !pRawSock[0] )
 		return false;
-	pRawSock[1] = OpenRawUDPSocketInternal( nLocalIP, 0, CRecvPacketCallback( DedicatedBoundSocketCallback, pTempContext ), errMsg );
+	localAddr.SetIPv4( nLocalIP, 0 );
+	pRawSock[1] = OpenRawUDPSocketInternal( CRecvPacketCallback( DedicatedBoundSocketCallback, pTempContext ), errMsg, &localAddr, nullptr );
 	if ( !pRawSock[1] )
 	{
 		delete pRawSock[0];
@@ -1384,7 +1553,7 @@ bool CreateBoundSocketPair( CRecvPacketCallback callback1, CRecvPacketCallback c
 	// Return wrapper interfaces that can only talk to each other
 	for ( int i = 0 ; i < 2 ; ++i )
 	{
-		auto s = new CDedicatedBoundSocket( pRawSock[i], netadr_t( nLocalIP, pRawSock[1-i]->m_nPort ) );
+		auto s = new CDedicatedBoundSocket( pRawSock[i], netadr_t( nLocalIP, pRawSock[1-i]->m_boundAddr.m_port ) );
 		pRawSock[i]->m_callback.m_pContext = s;
 		s->m_callback = (i == 0 ) ? callback1 : callback2;
 		ppOutSockets[i] = s;
@@ -1415,13 +1584,14 @@ void CSharedSocket::CallbackRecvPacket( const void *pPkt, int cbPkt, const netad
 	callback( pPkt, cbPkt, adrFrom );
 }
 
-bool CSharedSocket::BInit( uint32 nIP, uint16 nPort, CRecvPacketCallback callbackDefault, SteamDatagramErrMsg &errMsg )
+bool CSharedSocket::BInit( const SteamNetworkingIPAddr &localAddr, CRecvPacketCallback callbackDefault, SteamDatagramErrMsg &errMsg )
 {
 	SteamDatagramTransportLock::AssertHeldByCurrentThread();
 
 	Kill();
 
-	m_pRawSock = OpenRawUDPSocket( nIP, nPort, CRecvPacketCallback( CallbackRecvPacket, this ), errMsg );
+	SteamNetworkingIPAddr bindAddr = localAddr;
+	m_pRawSock = OpenRawUDPSocket( CRecvPacketCallback( CallbackRecvPacket, this ), errMsg, &bindAddr, nullptr );
 	if ( m_pRawSock == nullptr )
 		return false;
 
@@ -1439,7 +1609,7 @@ void CSharedSocket::Kill()
 		m_pRawSock->Close();
 		m_pRawSock = nullptr;
 	}
-	FOR_EACH_MAP_FAST( m_mapRemoteHosts, idx )
+	FOR_EACH_HASHMAP( m_mapRemoteHosts, idx )
 	{
 		CloseRemoteHostByIndex( idx );
 	}

@@ -208,7 +208,7 @@ protected:
 //-----------------------------------------------------------------------------
 
 template <class T, class I>
-CUtlLinkedList<T,I>::CUtlLinkedList( int growSize, int initSize ) :
+inline CUtlLinkedList<T,I>::CUtlLinkedList( int growSize, int initSize ) :
 	m_Memory(growSize, initSize) 
 {
 	ConstructList();
@@ -216,7 +216,7 @@ CUtlLinkedList<T,I>::CUtlLinkedList( int growSize, int initSize ) :
 }
 
 template <class T, class I>
-CUtlLinkedList<T,I>::CUtlLinkedList( void* pMemory, int memsize ) : 
+inline CUtlLinkedList<T,I>::CUtlLinkedList( void* pMemory, int memsize ) :
 	m_Memory((ListElem_t *)pMemory, memsize/sizeof(ListElem_t))
 {
 	ConstructList();
@@ -224,13 +224,13 @@ CUtlLinkedList<T,I>::CUtlLinkedList( void* pMemory, int memsize ) :
 }
 
 template <class T, class I>
-CUtlLinkedList<T,I>::~CUtlLinkedList() 
+inline CUtlLinkedList<T,I>::~CUtlLinkedList()
 {
 	RemoveAll();
 }
 
 template <class T, class I>
-void CUtlLinkedList<T,I>::ConstructList()
+inline void CUtlLinkedList<T,I>::ConstructList()
 {
 	m_Head = InvalidIndex(); 
 	m_Tail = InvalidIndex();
@@ -343,7 +343,7 @@ inline bool CUtlLinkedList<T,I>::IsInList( I i ) const
 //-----------------------------------------------------------------------------
 
 template< class T, class I >
-void CUtlLinkedList<T, I>::EnsureCapacity( int num )
+inline void CUtlLinkedList<T, I>::EnsureCapacity( int num )
 {
 	m_Memory.EnsureCapacity(num);
 	ResetDbgInfo();
@@ -355,7 +355,7 @@ void CUtlLinkedList<T, I>::EnsureCapacity( int num )
 //-----------------------------------------------------------------------------
 
 template <class T, class I>
-void  CUtlLinkedList<T,I>::Purge()
+inline void  CUtlLinkedList<T,I>::Purge()
 {
 	RemoveAll();
 	m_Memory.Purge();
@@ -367,7 +367,7 @@ void  CUtlLinkedList<T,I>::Purge()
 
 
 template<class T, class I>
-void CUtlLinkedList<T, I>::PurgeAndDeleteElements()
+inline void CUtlLinkedList<T, I>::PurgeAndDeleteElements()
 {
 	int iNext;
 	for( int i=Head(); i != InvalidIndex(); i=iNext )
@@ -384,7 +384,7 @@ void CUtlLinkedList<T, I>::PurgeAndDeleteElements()
 // Node allocation/deallocation
 //-----------------------------------------------------------------------------
 template <class T, class I>
-I CUtlLinkedList<T,I>::AllocInternal( bool multilist )
+inline I CUtlLinkedList<T,I>::AllocInternal( bool multilist )
 {
 	I elem;
 	if (m_FirstFree == InvalidIndex())
@@ -422,7 +422,7 @@ I CUtlLinkedList<T,I>::AllocInternal( bool multilist )
 }
 
 template <class T, class I>
-I CUtlLinkedList<T,I>::Alloc( bool multilist )
+inline I CUtlLinkedList<T,I>::Alloc( bool multilist )
 {
 	I elem = AllocInternal( multilist );
 	Construct( &Element(elem) );
@@ -431,7 +431,7 @@ I CUtlLinkedList<T,I>::Alloc( bool multilist )
 }
 
 template <class T, class I>
-void  CUtlLinkedList<T,I>::Free( I elem )
+inline void  CUtlLinkedList<T,I>::Free( I elem )
 {
 	Assert( IsValidIndex(elem) );
 	Unlink(elem);
@@ -447,7 +447,7 @@ void  CUtlLinkedList<T,I>::Free( I elem )
 //-----------------------------------------------------------------------------
 
 template <class T, class I>
-I CUtlLinkedList<T,I>::InsertBefore( I before )
+inline I CUtlLinkedList<T,I>::InsertBefore( I before )
 {
 	// Make a new node
 	I   newNode = AllocInternal();
@@ -462,7 +462,7 @@ I CUtlLinkedList<T,I>::InsertBefore( I before )
 }
 
 template <class T, class I>
-I CUtlLinkedList<T,I>::InsertAfter( I after )
+inline I CUtlLinkedList<T,I>::InsertAfter( I after )
 {
 	// Make a new node
 	I   newNode = AllocInternal();
@@ -494,7 +494,7 @@ inline I CUtlLinkedList<T,I>::AddToTail()
 //-----------------------------------------------------------------------------
 
 template <class T, class I>
-void CUtlLinkedList<T,I>::Swap( CUtlLinkedList< T, I >  &list )
+inline void CUtlLinkedList<T,I>::Swap( CUtlLinkedList< T, I >  &list )
 {
 	m_Memory.Swap( list.m_Memory );
 
@@ -513,7 +513,7 @@ void CUtlLinkedList<T,I>::Swap( CUtlLinkedList< T, I >  &list )
 //-----------------------------------------------------------------------------
 
 template <class T, class I>
-I CUtlLinkedList<T,I>::InsertBefore( I before, T const& src )
+inline I CUtlLinkedList<T,I>::InsertBefore( I before, T const& src )
 {
 	// Make a new node
 	I   newNode = AllocInternal();
@@ -528,7 +528,7 @@ I CUtlLinkedList<T,I>::InsertBefore( I before, T const& src )
 }
 
 template <class T, class I>
-I CUtlLinkedList<T,I>::InsertAfter( I after, T const& src )
+inline I CUtlLinkedList<T,I>::InsertAfter( I after, T const& src )
 {
 	// Make a new node
 	I   newNode = AllocInternal();
@@ -560,7 +560,7 @@ inline I CUtlLinkedList<T,I>::AddToTail( T const& src )
 //-----------------------------------------------------------------------------
 
 template<class T, class I>
-I CUtlLinkedList<T,I>::Find( const T &src ) const
+inline I CUtlLinkedList<T,I>::Find( const T &src ) const
 {
 	for ( I i=Head(); i != InvalidIndex(); i = Next( i ) )
 	{
@@ -572,7 +572,7 @@ I CUtlLinkedList<T,I>::Find( const T &src ) const
 
 
 template<class T, class I>
-bool CUtlLinkedList<T,I>::FindAndRemove( const T &src )
+inline bool CUtlLinkedList<T,I>::FindAndRemove( const T &src )
 {
 	I i = Find( src );
 	if ( i == InvalidIndex() )
@@ -587,7 +587,7 @@ bool CUtlLinkedList<T,I>::FindAndRemove( const T &src )
 }
 
 template <class T, class I>
-T	CUtlLinkedList<T,I>::RemoveFromHead()
+inline T	CUtlLinkedList<T,I>::RemoveFromHead()
 {
 	T element = Element( Head() );
 	Remove( Head() );
@@ -595,7 +595,7 @@ T	CUtlLinkedList<T,I>::RemoveFromHead()
 }
 
 template <class T, class I>
-T	CUtlLinkedList<T,I>::RemoveFromTail()
+inline T	CUtlLinkedList<T,I>::RemoveFromTail()
 {
 	T element = Element( Tail() );
 	Remove( Tail() );
@@ -603,13 +603,13 @@ T	CUtlLinkedList<T,I>::RemoveFromTail()
 }
 
 template <class T, class I>
-void  CUtlLinkedList<T,I>::Remove( I elem )
+inline void  CUtlLinkedList<T,I>::Remove( I elem )
 {
 	Free( elem );
 }
 
 template <class T, class I>
-void  CUtlLinkedList<T,I>::RemoveAll()
+inline void  CUtlLinkedList<T,I>::RemoveAll()
 {
 	if (m_TotalElements == 0)
 		return;
@@ -645,7 +645,7 @@ void  CUtlLinkedList<T,I>::RemoveAll()
 //-----------------------------------------------------------------------------
 
 template <class T, class I>
-void  CUtlLinkedList<T,I>::LinkBefore( I before, I elem )
+inline void  CUtlLinkedList<T,I>::LinkBefore( I before, I elem )
 {
 	Assert( IsValidIndex(elem) );
 	
@@ -684,7 +684,7 @@ void  CUtlLinkedList<T,I>::LinkBefore( I before, I elem )
 }
 
 template <class T, class I>
-void  CUtlLinkedList<T,I>::LinkAfter( I after, I elem )
+inline void  CUtlLinkedList<T,I>::LinkAfter( I after, I elem )
 {
 	Assert( IsValidIndex(elem) );
 	
@@ -723,7 +723,7 @@ void  CUtlLinkedList<T,I>::LinkAfter( I after, I elem )
 }
 
 template <class T, class I>
-void  CUtlLinkedList<T,I>::Unlink( I elem )
+inline void  CUtlLinkedList<T,I>::Unlink( I elem )
 {
 	Assert( IsValidIndex(elem) );
 	if (IsInList(elem))

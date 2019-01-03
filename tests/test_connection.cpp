@@ -501,7 +501,12 @@ static void RunSteamDatagramConnectionTest()
 	// Command line options:
 	// -connect:ip -- don't create a server, just try to connect to the given ip
 	// -serveronly -- don't create a client only create a server and wait for connection
-	uint32 nConnectIP = 0x7f000001; // 127.0.0.1
+	SteamNetworkingIPAddr bindServerAddress;
+	bindServerAddress.Clear();
+	bindServerAddress.m_port = PORT_SERVER;
+
+	SteamNetworkingIPAddr connectToServerAddress;
+	connectToServerAddress.SetIPv4( 0x7f000001, PORT_SERVER );
 
 	//const char *s_pszConnectParm = "-connect:";
 	//for ( int i = 0; i < CommandLine()->ParmCount(); ++i )
@@ -515,8 +520,8 @@ static void RunSteamDatagramConnectionTest()
 	//}
 
 	// Initiate connection
-	g_hSteamListenSocket = pSteamSocketNetworking->CreateListenSocket( -1, 0x0u, PORT_SERVER );
-	g_peerClient.m_hSteamNetConnection = pSteamSocketNetworking->ConnectByIPv4Address( nConnectIP, PORT_SERVER );
+	g_hSteamListenSocket = pSteamSocketNetworking->CreateListenSocketIP( bindServerAddress );
+	g_peerClient.m_hSteamNetConnection = pSteamSocketNetworking->ConnectByIPAddress( connectToServerAddress );
 	pSteamSocketNetworking->SetConnectionName( g_peerClient.m_hSteamNetConnection, "Client" );
 
 //	// Send a few random message, before we get connected, just to test that case

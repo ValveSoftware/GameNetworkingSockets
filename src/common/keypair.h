@@ -4,7 +4,8 @@
 #define KEYPAIR_H
 #pragma once
 
-#include "steam/steamuniverse.h"
+#include <steam/steamuniverse.h>
+#include <tier0/platform.h>
 
 #include <stdint.h>
 #include "minbase/minbase_securezeromemory_impl.h"
@@ -216,16 +217,6 @@ public:
 	bool IsValid() const { return m_eKeyType == k_ECryptoKeyTypeSigningPublic && m_cubKey == 32 && m_pbKey; }
 
 	bool GetAsOpenSSHAuthorizedKeys( char *pchData, uint32 cubData, uint32 *pcubData, const char *pszComment = "" ) const;
-};
-
-
-// callback interface to implement to use encryption or authentication
-class INetFilterKeyCallback
-{
-public:
-	virtual const CRSAPublicKey *GetPublicKey( EUniverse eUniverse, const char *pchKeyName ) = 0;
-	virtual const CRSAPrivateKey *GetPrivateKey( EUniverse eUniverse, const char *pchKeyName ) = 0;
-	virtual EUniverse GetUniverse() = 0;
 };
 
 #endif // KEYPAIR_H

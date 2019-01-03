@@ -206,12 +206,6 @@ public:
 		return BaseClass::m_szBuf;
 	}
 
-	// Use this for pass-through formatting
-	void FormatV( const char **ppszFormat, ... )
-	{
-		FmtStrVSNPrintf( BaseClass::m_szBuf, SIZE_BUF, m_nLength, QT, *ppszFormat, ppszFormat );
-	}
-
 	// Use for access
 	operator const char *() const				{ return BaseClass::m_szBuf; }
 	const char *Get() const						{ return BaseClass::m_szBuf; }

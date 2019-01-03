@@ -90,20 +90,20 @@ typedef unsigned int uintp;
 # define CLANG_ATTR(ATTR)
 #endif
 
-#define METHOD_DESC(DESC) CLANG_ATTR( "desc:" #DESC ";" )
-#define IGNOREATTR() CLANG_ATTR( "ignore" )
-#define OUT_STRUCT() CLANG_ATTR( "out_struct: ;" )
-#define OUT_STRING() CLANG_ATTR( "out_string: ;" )
-#define OUT_ARRAY_CALL(COUNTER,FUNCTION,PARAMS) CLANG_ATTR( "out_array_call:" #COUNTER "," #FUNCTION "," #PARAMS ";" )
-#define OUT_ARRAY_COUNT(COUNTER, DESC) CLANG_ATTR( "out_array_count:" #COUNTER  ";desc:" #DESC )
-#define ARRAY_COUNT(COUNTER) CLANG_ATTR( "array_count:" #COUNTER ";" )
-#define ARRAY_COUNT_D(COUNTER, DESC) CLANG_ATTR( "array_count:" #COUNTER ";desc:" #DESC )
-#define BUFFER_COUNT(COUNTER) CLANG_ATTR( "buffer_count:" #COUNTER ";" )
-#define OUT_BUFFER_COUNT(COUNTER) CLANG_ATTR( "out_buffer_count:" #COUNTER ";" )
-#define OUT_STRING_COUNT(COUNTER) CLANG_ATTR( "out_string_count:" #COUNTER ";" )
-#define DESC(DESC) CLANG_ATTR("desc:" #DESC ";")
-#define CALL_RESULT(RESULT_TYPE) CLANG_ATTR("callresult:" #RESULT_TYPE ";")
-#define CALL_BACK(RESULT_TYPE) CLANG_ATTR("callback:" #RESULT_TYPE ";")
+#define STEAM_METHOD_DESC(DESC) CLANG_ATTR( "desc:" #DESC ";" )
+#define STEAM_IGNOREATTR() CLANG_ATTR( "ignore" )
+#define STEAM_OUT_STRUCT() CLANG_ATTR( "out_struct: ;" )
+#define STEAM_OUT_STRING() CLANG_ATTR( "out_string: ;" )
+#define STEAM_OUT_ARRAY_CALL(COUNTER,FUNCTION,PARAMS) CLANG_ATTR( "out_array_call:" #COUNTER "," #FUNCTION "," #PARAMS ";" )
+#define STEAM_OUT_ARRAY_COUNT(COUNTER, DESC) CLANG_ATTR( "out_array_count:" #COUNTER  ";desc:" #DESC )
+#define STEAM_ARRAY_COUNT(COUNTER) CLANG_ATTR( "array_count:" #COUNTER ";" )
+#define STEAM_ARRAY_COUNT_D(COUNTER, DESC) CLANG_ATTR( "array_count:" #COUNTER ";desc:" #DESC )
+#define STEAM_BUFFER_COUNT(COUNTER) CLANG_ATTR( "buffer_count:" #COUNTER ";" )
+#define STEAM_OUT_BUFFER_COUNT(COUNTER) CLANG_ATTR( "out_buffer_count:" #COUNTER ";" )
+#define STEAM_OUT_STRING_COUNT(COUNTER) CLANG_ATTR( "out_string_count:" #COUNTER ";" )
+#define STEAM_DESC(DESC) CLANG_ATTR("desc:" #DESC ";")
+#define STEAM_CALL_RESULT(RESULT_TYPE) CLANG_ATTR("callresult:" #RESULT_TYPE ";")
+#define STEAM_CALL_BACK(RESULT_TYPE) CLANG_ATTR("callback:" #RESULT_TYPE ";")
 
 const int k_cubSaltSize   = 8;
 typedef	uint8 Salt_t[ k_cubSaltSize ];
@@ -176,6 +176,12 @@ const PartnerId_t k_uPartnerIdInvalid = 0;
 typedef uint64 ManifestId_t; 
 const ManifestId_t k_uManifestIdInvalid = 0;
 
+// ID for cafe sites
+typedef uint64 SiteId_t;
+const SiteId_t k_ulSiteIdInvalid = 0;
 
+// Party Beacon ID
+typedef uint64 PartyBeaconID_t;
+const PartyBeaconID_t k_ulPartyBeaconIdInvalid = 0;
 
 #endif // STEAMTYPES_H

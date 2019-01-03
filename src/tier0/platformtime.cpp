@@ -158,6 +158,14 @@ uint64 Plat_TickDiffMicroSec( uint64 StartTicks, uint64 EndTicks )
 	return (ulSeconds * 1000000) + (ulRemainder * 1000000 / g_TickFrequency);
 }
 
+uint64 Plat_TickAddMicroSec( uint64 StartTicks, int64 lMicroSec )
+{
+	if ( g_TickBase == 0 )
+		InitTicks();
+
+	return StartTicks + (int64)( lMicroSec * g_TickFrequencyDouble / 1000000.0 );
+}
+
 double Plat_FloatTime()
 {
 	// We subtract off the tick base to keep the diff as small

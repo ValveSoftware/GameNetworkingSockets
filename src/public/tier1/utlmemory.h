@@ -15,7 +15,6 @@
 #endif
 
 #include "tier0/dbg.h"
-#include "tier0/validator.h"
 #include <string.h>
 #include "tier0/platform.h"
 #include "tier0/memdbgon.h"
@@ -90,10 +89,6 @@ public:
 
 	// Set the size by which the memory grows
 	void SetGrowSize( int size );
-
-#ifdef DBGFLAG_VALIDATE
-	void Validate( CValidator &validator, const char *pchName );		// Validate our internal structures
-#endif // DBGFLAG_VALIDATE
 
 protected:
 
@@ -193,10 +188,6 @@ public:
 	// Set the size by which the memory grows
 	void SetGrowSize( int size )							{}
 
-#ifdef DBGFLAG_VALIDATE
-	void Validate( CValidator &validator, const char *pchName ) { }		// Validate our internal structures
-#endif // DBGFLAG_VALIDATE
-
 private:
 	uint8 m_Memory[SIZE*sizeof(T)];
 };
@@ -206,27 +197,27 @@ private:
 //-----------------------------------------------------------------------------
 
 template< class T >
-CUtlMemory<T>::CUtlMemory( int nGrowSize, int nInitAllocationCount ) : CUtlMemoryBase( sizeof( T ), nGrowSize, nInitAllocationCount  )
+inline CUtlMemory<T>::CUtlMemory( int nGrowSize, int nInitAllocationCount ) : CUtlMemoryBase( sizeof( T ), nGrowSize, nInitAllocationCount  )
 {
 	
 }
 
 
 template< class T >
-CUtlMemory<T>::CUtlMemory( T* pMemory, int numElements ) : CUtlMemoryBase( sizeof( T ), (void*)pMemory, numElements )
+inline CUtlMemory<T>::CUtlMemory( T* pMemory, int numElements ) : CUtlMemoryBase( sizeof( T ), (void*)pMemory, numElements )
 {
 }
 
 
 template< class T >
-CUtlMemory<T>::CUtlMemory( const T* pMemory, int numElements ) : CUtlMemoryBase( sizeof( T ), pMemory, numElements )
+inline CUtlMemory<T>::CUtlMemory( const T* pMemory, int numElements ) : CUtlMemoryBase( sizeof( T ), pMemory, numElements )
 {
 }
 
 
 #ifdef VALVE_RVALUE_REFS
 template< class T >
-CUtlMemory<T>::CUtlMemory( CUtlMemory<T>&& src ) : CUtlMemoryBase( std::move( src ) )
+inline CUtlMemory<T>::CUtlMemory( CUtlMemory<T>&& src ) : CUtlMemoryBase( std::move( src ) )
 {
 	static_assert( sizeof( CUtlMemory<T> ) == sizeof( CUtlMemoryBase ), "Move constructor needs to be updated if there are inline members in CUtlMemory." );
 }

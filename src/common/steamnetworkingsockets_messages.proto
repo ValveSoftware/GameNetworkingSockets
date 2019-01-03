@@ -1,116 +1,14 @@
 //====== Copyright Valve Corporation, All rights reserved. ====================
 //
-// Wire format messages for Steam datagram transport
+// Wire format messages for Steam networking sockets.
+// These messages are used for all connection types (relayed and direct)
 //
 //=============================================================================
 syntax = "proto2";
-
-// Note about encoding:
-//	http://code.google.com/apis/protocolbuffers/docs/encoding.html
-//
-// TL;DR: Use sint32/sint64 for values that may be negative.
-//
-// There is an important difference between the signed int types (sint32 and sint64)
-// and the "standard" int types (int32 and int64) when it comes to encoding negative
-// numbers.  If you use int32 or int64 as the type for a negative number, the
-// resulting varint is always ten bytes long – it is, effectively, treated like a
-// very large unsigned integer.  If you use one of the signed types, the resulting
-// varint uses ZigZag encoding, which is much more efficient.
-
-
-// Commenting this out allows it to be compiled for SPEED or LITE_RUNTIME.
-// option optimize_for = SPEED;
+option optimize_for = SPEED;
 
 // We don't use the service generation functionality
 option cc_generic_services = false;
-
-// 
-// STYLE NOTES:
-//
-// Use CamelCase CMsgMyMessageName style names for messages.
-// 
-// Use lowercase _ delimited names like my_steam_id for field names, this is non-standard for Steam,
-// but plays nice with the Google formatted code generation.  
-// 
-// Try not to use required fields ever. Only do so if you are really really sure you'll never want them removed. 
-// Optional should be preffered as it will make versioning easier and cleaner in the future if someone refactors
-// your message and wants to remove or rename fields.
-//
-// Use fixed64 for JobId_t, GID_t, or SteamID.  This is appropriate for any field that is normally
-// going to be larger than 2^56.  Otherwise use int64 for 64 bit values that are frequently smaller
-// than 2^56 as it will safe space on the wire in those cases.
-//
-// Similar to fixed64, use fixed32 for RTime32 or other 32 bit values that are frequently larger than
-// 2^28.  It will safe space in those cases, otherwise use int32 which will safe space for smaller values.
-// An exception to this rule for RTime32 is if the value will frequently be zero rather than set to an actual 
-// time.
-//
-
-/// Control message ID.
-enum ESteamDatagramMsgID
-{
-	k_ESteamDatagramMsg_Invalid = 0;						// Reserved
-	k_ESteamDatagramMsg_RouterPingRequest = 1;				// Client -> Router
-	k_ESteamDatagramMsg_RouterPingReply = 2;				// Router -> Client
-	k_ESteamDatagramMsg_GameserverPingRequest = 3;			// Router -> Server
-	k_ESteamDatagramMsg_GameserverPingReply = 4;			// Server -> Router -> Client
-	k_ESteamDatagramMsg_GameserverSessionRequest = 5;		// Client -> Router
-	k_ESteamDatagramMsg_GameserverSessionEstablished = 6;	// Router -> Client
-	k_ESteamDatagramMsg_NoSession = 7;						// Router -> Server, Router -> Client
-	k_ESteamDatagramMsg_Diagnostic = 8;						// Diagnostic / status message Router -> Client
-	k_ESteamDatagramMsg_DataClientToRouter = 9;				// Client -> Router
-	k_ESteamDatagramMsg_DataRouterToServer = 10;			// Router -> Server
-	k_ESteamDatagramMsg_DataServerToRouter = 11;			// Server -> Router
-	k_ESteamDatagramMsg_DataRouterToClient = 12;			// Server -> Router
-	k_ESteamDatagramMsg_Stats = 13;							// Any -> Any
-	k_ESteamDatagramMsg_ClientPingSampleRequest = 14;		// Router->client
-	k_ESteamDatagramMsg_ClientPingSampleReply = 15;			// Client->router
-	k_ESteamDatagramMsg_ClientToRouterSwitchedPrimary = 16;	// Client->router
-	k_ESteamDatagramMsg_RelayHealth = 17;					// router->router
-	k_ESteamDatagramMsg_ConnectRequest = 18;				// Client->router->server
-	k_ESteamDatagramMsg_ConnectOK = 19;						// Server->router->client.
-	k_ESteamDatagramMsg_ConnectionClosed = 20;				// Server<->router<->client.  A reply is requested to this packet
-	k_ESteamDatagramMsg_NoConnection = 21;					// Server<->router<->client.  A reply should never be sent to this packet
-	k_ESteamDatagramMsg_RelayToRelayPingRequest = 22;		// Relay<->Relay.  Measure latency between relays
-	k_ESteamDatagramMsg_RelayToRelayPingReply = 23;			// Relay<->Relay.  ... reply
-	k_ESteamDatagramMsg_P2PSessionRequest = 24;				// Client->Relay Request a P2P session
-	k_ESteamDatagramMsg_P2PSessionEstablished = 25;			// Relay->Client Response
-	k_ESteamDatagramMsg_P2PStatsClient = 26;				// Client<->Relay
-	k_ESteamDatagramMsg_P2PStatsRelay = 27;					// Relay<->Relay
-	k_ESteamDatagramMsg_P2PBadRoute = 28;					// Relat->Relay, or Relay->Client
-};
-
-// k_ESteamDatagramMsg_RouterPingReply
-//
-// NOTE: The SDR code pre-serializes these and generally mucks with them at a low level.
-//       Don't change this without looking at the server code carefully.
-//
-message CMsgSteamDatagramRouterPingReply
-{
-	optional fixed32 client_timestamp = 1;						// The timestamp you gave me
-	repeated fixed32 latency_datacenter_ids = 2 [packed=true];	// List of service ID's I can route to.  (If route is not allowed, it won't be listed here.)
-	repeated uint32 latency_ping_ms = 3 [packed=true];			// Latency from this router to the corresponding service ID.  (Parallel with latency_datacenter_ids)
-	optional fixed32 your_public_ip = 4;						// The IP address I received this packet from.  Used to secure / check proof-of-work and auth ticket.
-	optional fixed32 server_time = 5;							// Current wall clock time according to me.  Used for proof-of-work and auth ticket.
-	optional fixed64 challenge = 6;								// Challenge value.  If you want a session, you'll need to reply with this guy, and the wall clock time I just gave you
-	optional uint32 seconds_until_shutdown = 7;					// We're replying to your query so you will have the requested data, and so you don't have to time us out, but we're going down soon, so you shouldn't ask for a session.
-	optional fixed32 client_cookie = 8;							// The challenge that the client sent.
-
-	// Global scoring penalty value for the entire relay cluster, no
-	// matter what data center we want to talk to.
-	optional uint32 scoring_penalty_relay_cluster = 9;
-
-	// Assume that the route to each data center will go over our
-	// backbone and there is no unusual congestion, except for data
-	// centers listed here
-	message RouteException
-	{
-		optional fixed32 data_center_id = 1;
-		optional uint32 flags = 2;
-		optional uint32 penalty = 3;
-	};
-	repeated RouteException route_exceptions = 10;
-};
 
 // Session keys used in key exchange
 message CMsgSteamDatagramSessionCryptInfo
@@ -148,8 +46,9 @@ message	CMsgSteamDatagramDiagnostic
 };
 
 /// Wire version of SteamDatagramLinkInstantaneousStats.
-/// We use integers to send this stuff so that most fields take
-/// 1 or 2 bytes, instead of always taking 4.
+/// We use integers instead of floats to send this stuff,
+/// so that most fields take 1 or 2 bytes, instead of
+/// always taking 4.
 message CMsgSteamDatagramLinkInstantaneousStats
 {
 	optional uint32 out_packets_per_sec_x10 = 1;
