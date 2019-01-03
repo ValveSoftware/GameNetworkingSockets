@@ -1,0 +1,11 @@
+{
+	"folders": [
+		{
+			"path": "."
+		}
+	],
+	"settings": {
+		"cmake.buildDirectory": "${workspaceRoot}/build",
+		"C_Cpp.default.compileCommands": "${workspaceFolder}/build/compile_commands.json",
+	}
+}

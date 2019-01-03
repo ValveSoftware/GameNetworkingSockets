@@ -211,6 +211,26 @@ C:\dev\GameNetworkingSockets\build> cmake -G Ninja ..
 C:\dev\GameNetworkingSockets\build> ninja
 ```
 
+### Visual Studio Code
+If you're using Visual Studio Code, we have a few extensions to recommend
+installing, which will help build the project. Once you have these extensions
+installed, open up the .code-workspace file in Visual Studio Code.
+
+#### C/C++ by Microsoft
+This extension provides IntelliSense support for C/C++.
+
+VS Marketplace Link: https://marketplace.visualstudio.com/items?itemName=ms-vscode.cpptools
+
+#### CMake Tools by vector-of-bool
+This extension allows for configuring the CMake project and building it from
+within the Visual Studio Code IDE.
+
+VS Marketplace Link: https://marketplace.visualstudio.com/items?itemName=vector-of-bool.cmake-tools
+
+#### Meson by Ali Sabil
+This extension comes in handy if you're editing the Meson build files.
+
+VS Marketplace Link: https://marketplace.visualstudio.com/items?itemName=asabil.meson
 
 ## Work in progress!
 
