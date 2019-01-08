@@ -576,7 +576,7 @@ inline void NetLog( ... ) {}
 
 #endif // #if 0 // SDR_PUBLIC
 
-#ifdef _DEBUG
+#if defined( _DEBUG ) && !defined( STEAMNETWORKINGSOCKETS_OPENSOURCE )
 template<typename DEST_POINTER_TYPE, typename SOURCE_POINTER_TYPE>
 inline DEST_POINTER_TYPE assert_cast(SOURCE_POINTER_TYPE* pSource)
 {

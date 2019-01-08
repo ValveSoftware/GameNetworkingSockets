@@ -1,7 +1,7 @@
 //====== Copyright Valve Corporation, All rights reserved. ====================
 
 #include <steamnetworkingsockets/steamnetworkingsockets_flat.h>
-#include <steamnetworkingsockets/isteamnetworkingsockets.h>
+#include <steamnetworkingsockets/steamnetworkingsockets.h>
 
 extern "C" {
 
@@ -102,9 +102,9 @@ STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_GetListen
 	return ((ISteamNetworkingSockets*)instancePtr)->GetListenSocketAddress( hSocket, pAddress );
 }
 
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_CreateSocketPair( intptr_t instancePtr, HSteamNetConnection *pOutConnection1, HSteamNetConnection *pOutConnection2, bool bUseNetworkLoopback )
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_CreateSocketPair( intptr_t instancePtr, HSteamNetConnection *pOutConnection1, HSteamNetConnection *pOutConnection2, bool bUseNetworkLoopback, const SteamNetworkingIdentity *pIdentity1, const SteamNetworkingIdentity *pIdentity2 )
 {
-	return ((ISteamNetworkingSockets*)instancePtr)->CreateSocketPair( pOutConnection1, pOutConnection2, bUseNetworkLoopback );
+	return ((ISteamNetworkingSockets*)instancePtr)->CreateSocketPair( pOutConnection1, pOutConnection2, bUseNetworkLoopback, pIdentity1, pIdentity2 );
 }
 
 #ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE

@@ -584,7 +584,7 @@ class CSteamNetworkConnectionPipe : public CSteamNetworkConnectionBase
 {
 public:
 
-	static bool APICreateSocketPair( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface, CSteamNetworkConnectionPipe **pOutConnections );
+	static bool APICreateSocketPair( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface, CSteamNetworkConnectionPipe **pOutConnections, const SteamNetworkingIdentity pIdentity[2] );
 
 	/// The guy who is on the other end.
 	CSteamNetworkConnectionPipe *m_pPartner;
@@ -606,7 +606,7 @@ public:
 private:
 
 	// Use CreateSocketPair!
-	CSteamNetworkConnectionPipe( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface );
+	CSteamNetworkConnectionPipe( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface, const SteamNetworkingIdentity &identity );
 	virtual ~CSteamNetworkConnectionPipe();
 
 	/// Act like we sent a sequenced packet

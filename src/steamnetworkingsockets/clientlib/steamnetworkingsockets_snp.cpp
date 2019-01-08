@@ -4,6 +4,11 @@
 #include "steamnetworkingsockets_connections.h"
 #include "crypto.h"
 
+#ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
+// FIXME For P2P stats stuff
+#include <steam/isteamnetworking.h>
+#endif
+
 #include "steamnetworkingconfig.h"
 
 // Ug

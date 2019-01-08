@@ -78,7 +78,7 @@ const TrustedKey s_arTrustedKeys[1] = {
 //		bufText.AppendFormat("\\x%02x", key.GetData()[i] );
 //	}
 //	SHA256Digest_t digest;
-//	DbgVerify( CCrypto::GenerateSHA256Digest( key.GetData(), key.GetLength(), &digest ) );
+//	CCrypto::GenerateSHA256Digest( key.GetData(), key.GetLength(), &digest );
 //	SpewWarning( "TrustedKey( %llullu, \"%s\" )\n", LittleQWord( *(uint64*)&digest ), bufText.String() );
 //}
 
@@ -471,7 +471,16 @@ bool CSteamNetworkConnectionBase::BInitConnection( uint32 nPeerProtocolVersion, 
 	Assert( m_hConnectionSelf == k_HSteamNetConnection_Invalid );
 
 	Assert( m_pParentListenSocket == nullptr || m_pSteamNetworkingSocketsInterface == m_pParentListenSocket->m_pSteamNetworkingSocketsInterface );
-	m_identityLocal = m_pSteamNetworkingSocketsInterface->GetIdentity();
+
+	// We need to know who we are
+	if ( m_identityLocal.IsInvalid() )
+	{
+		if ( !m_pSteamNetworkingSocketsInterface->GetIdentity( &m_identityLocal ) )
+		{
+			V_strcpy_safe( errMsg, "We don't know our local identity." );
+			return false;
+		}
+	}
 
 	m_eEndReason = k_ESteamNetConnectionEnd_Invalid;
 	m_szEndDebug[0] = '\0';
@@ -580,6 +589,15 @@ bool CSteamNetworkConnectionBase::BThinkCryptoReady( SteamNetworkingMicroseconds
 	// Do we already have a cert?
 	if ( m_msgSignedCertLocal.has_cert() )
 		return true;
+
+	// If we are using an anonymous identity, then always use self-signed.
+	// CA's should never issue a certificate for this identity, because that
+	// is meaningless.  No peer should ever honor such a certificate.
+	if ( m_identityLocal.IsLocalHost() )
+	{
+		InitLocalCryptoWithUnsignedCert();
+		return true;
+	}
 
 	// Already have a a signed cert?
 	if ( m_pSteamNetworkingSocketsInterface->m_msgSignedCert.has_ca_signature() )
@@ -1020,7 +1038,8 @@ bool CSteamNetworkConnectionBase::BRecvCryptoHandshake( const CMsgSteamDatagramC
 
 bool CSteamNetworkConnectionBase::BAllowLocalUnsignedCert() const
 {
-	// !KLUDGE! For now, assume this is OK.  We need to make this configurable and lock it down
+	// Base class will assume this is OK.  Derived connection
+	// types can override.
 	return true;
 }
 
@@ -1976,13 +1995,13 @@ void CSteamNetworkConnectionBase::UpdateSpeeds( int nTXSpeed, int nRXSpeed )
 //
 /////////////////////////////////////////////////////////////////////////////
 
-bool CSteamNetworkConnectionPipe::APICreateSocketPair( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface, CSteamNetworkConnectionPipe *pConn[2] )
+bool CSteamNetworkConnectionPipe::APICreateSocketPair( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface, CSteamNetworkConnectionPipe *pConn[2], const SteamNetworkingIdentity pIdentity[2] )
 {
 	SteamDatagramErrMsg errMsg;
 	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 
-	pConn[1] = new CSteamNetworkConnectionPipe( pSteamNetworkingSocketsInterface );
-	pConn[0] = new CSteamNetworkConnectionPipe( pSteamNetworkingSocketsInterface );
+	pConn[1] = new CSteamNetworkConnectionPipe( pSteamNetworkingSocketsInterface, pIdentity[0] );
+	pConn[0] = new CSteamNetworkConnectionPipe( pSteamNetworkingSocketsInterface, pIdentity[1] );
 	if ( !pConn[0] || !pConn[1] )
 	{
 failed:
@@ -2029,10 +2048,11 @@ failed:
 	return true;
 }
 
-CSteamNetworkConnectionPipe::CSteamNetworkConnectionPipe( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface )
+CSteamNetworkConnectionPipe::CSteamNetworkConnectionPipe( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface, const SteamNetworkingIdentity &identity )
 : CSteamNetworkConnectionBase( pSteamNetworkingSocketsInterface )
 , m_pPartner( nullptr )
 {
+	m_identityLocal = identity;
 }
 
 CSteamNetworkConnectionPipe::~CSteamNetworkConnectionPipe()

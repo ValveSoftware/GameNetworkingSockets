@@ -23,12 +23,9 @@
 #error "Must define VALVE_CALLBACK_PACK_SMALL or VALVE_CALLBACK_PACK_LARGE"
 #endif
 
-struct SteamNetworkPingLocation_t;
 struct SteamDatagramRelayAuthTicket;
 struct SteamDatagramHostedAddress;
 struct SteamNetConnectionStatusChangedCallback_t;
-struct P2PSessionRequest_t;
-struct P2PSessionConnectFail_t;
 
 /// Handle used to identify a connection to a remote host.
 typedef uint32 HSteamNetConnection;
@@ -360,7 +357,7 @@ enum ESteamNetworkingConnectionState
 	k_ESteamNetworkingConnectionState_Dead = -3,
 };
 
-/// Identifier used for a network location point of presence.
+/// Identifier used for a network location point of presence.  (E.g. a Valve data center.)
 /// Typically you won't need to directly manipulate these.
 typedef uint32 SteamNetworkingPOPID;
 
@@ -482,9 +479,6 @@ typedef struct _SteamNetworkingMessage_t
 		inline int64 GetMessageNumber() const { return m_nMessageNumber; }
 	#endif
 } SteamNetworkingMessage_t;
-
-// For code compatibility
-typedef SteamNetworkingMessage_t ISteamNetworkingMessage;
 
 /// Object that describes a "location" on the Internet with sufficient
 /// detail that we can reasonably estimate an upper bound on the ping between
@@ -664,11 +658,11 @@ enum ESteamNetConnectionEnd
 };
 
 /// Max length of diagnostic error message
-const int k_cchMaxSteamDatagramErrMsg = 1024;
+const int k_cchMaxSteamNetworkingErrMsg = 1024;
 
 /// Used to return English-language diagnostic error messages to caller.
 /// (For debugging or spewing to a console, etc.  Not intended for UI.)
-typedef char SteamDatagramErrMsg[ k_cchMaxSteamDatagramErrMsg ];
+typedef char SteamNetworkingErrMsg[ k_cchMaxSteamNetworkingErrMsg ];
 
 /// Max length, in bytes (including null terminator) of the reason string
 /// when a connection is closed.
@@ -968,15 +962,35 @@ enum ESteamNetworkingConnectionConfigurationValue
 	k_ESteamNetworkingConnectionConfigurationValue_Count,
 };
 
+enum ESteamNetworkingSocketsDebugOutputType
+{
+	k_ESteamNetworkingSocketsDebugOutputType_None,
+	k_ESteamNetworkingSocketsDebugOutputType_Bug, // You used the API incorrectly, or an internal error happened
+	k_ESteamNetworkingSocketsDebugOutputType_Error, // Run-time error condition that isn't the result of a bug.  (E.g. we are offline, cannot bind a port, etc)
+	k_ESteamNetworkingSocketsDebugOutputType_Important, // Nothing is wrong, but this is an important notification
+	k_ESteamNetworkingSocketsDebugOutputType_Warning,
+	k_ESteamNetworkingSocketsDebugOutputType_Msg, // Recommended amount
+	k_ESteamNetworkingSocketsDebugOutputType_Verbose, // Quite a bit
+	k_ESteamNetworkingSocketsDebugOutputType_Debug, // Practically everything
+	k_ESteamNetworkingSocketsDebugOutputType_Everything, // Everything
+};
+
+/// Setup callback for debug output, and the desired verbosity you want.
+typedef void (*FSteamNetworkingSocketsDebugOutput)( /* ESteamNetworkingSocketsDebugOutputType */ int nType, const char *pszMsg );
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Internal stuff
+
+// For code compatibility
+typedef SteamNetworkingMessage_t ISteamNetworkingMessage;
+typedef SteamNetworkingErrMsg SteamDatagramErrMsg;
+
 STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingIPAddr_ToString( const SteamNetworkingIPAddr &addr, char *buf, size_t cbBuf, bool bWithPort );
 STEAMNETWORKINGSOCKETS_INTERFACE bool SteamNetworkingIPAddr_ParseString( SteamNetworkingIPAddr *pAddr, const char *pszStr );
 STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingIdentity_ToString( const SteamNetworkingIdentity &identity, char *buf, size_t cbBuf );
 STEAMNETWORKINGSOCKETS_INTERFACE bool SteamNetworkingIdentity_ParseString( SteamNetworkingIdentity *pIdentity, size_t sizeofIdentity, const char *pszStr );
 STEAMNETWORKINGSOCKETS_INTERFACE uint32 SteamNetworking_Hash( const void *data, size_t len );
-
-///////////////////////////////////////////////////////////////////////////////
-//
-// Definitions of inline functions declared above
 
 inline void SteamNetworkingIPAddr::Clear() { memset( this, 0, sizeof(*this) ); }
 inline bool SteamNetworkingIPAddr::IsIPv6AllZeros() const { const uint64 *q = (const uint64 *)m_ipv6; return q[0] == 0 && q[1] == 0; }

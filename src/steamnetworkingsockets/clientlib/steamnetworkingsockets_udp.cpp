@@ -747,6 +747,26 @@ bool CSteamNetworkConnectionUDP::BInitConnect( const SteamNetworkingIPAddr &addr
 	Assert( m_identityRemote.IsInvalid() );
 	m_identityRemote.Clear();
 
+	// We should know our own identity, unless the app has said it's OK to go without this.
+	if ( m_identityLocal.IsInvalid() ) // Specific identity hasn't already been set (by derived class, etc)
+	{
+
+		// Use identity from the interface, if we have one
+		m_identityLocal = m_pSteamNetworkingSocketsInterface->InternalGetIdentity();
+		if ( m_identityLocal.IsInvalid())
+		{
+
+			// We don't know who we are.  Should we attempt anonymous?
+			if ( steamdatagram_ip_allow_connections_without_auth == 0 )
+			{
+				V_strcpy_safe( errMsg, "Unable to determine local identity, and auth required.  Not logged in?" );
+				return false;
+			}
+
+			m_identityLocal.SetLocalHost();
+		}
+	}
+
 	// Let base class do some common initialization
 	uint32 nPeerProtocolVersion = 0; // don't know yet
 	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
@@ -754,13 +774,6 @@ bool CSteamNetworkConnectionUDP::BInitConnect( const SteamNetworkingIPAddr &addr
 	{
 		m_pSocket->Close();
 		m_pSocket = nullptr;
-		return false;
-	}
-
-	// We should know our own identity, unless the app has said it's OK to go without this.
-	if ( m_identityLocal.IsInvalid() && steamdatagram_ip_allow_connections_without_auth == 0 )
-	{
-		V_strcpy_safe( errMsg, "Unable to determine local identity.  Not logged into Steam?" );
 		return false;
 	}
 
@@ -1728,9 +1741,10 @@ CSteamNetworkConnectionBase::ERemoteUnsignedCert CSteamNetworkConnectionUDP::All
 //
 /////////////////////////////////////////////////////////////////////////////
 
-CSteamNetworkConnectionlocalhostLoopback::CSteamNetworkConnectionlocalhostLoopback( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface )
+CSteamNetworkConnectionlocalhostLoopback::CSteamNetworkConnectionlocalhostLoopback( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface, const SteamNetworkingIdentity &identity )
 : CSteamNetworkConnectionUDP( pSteamNetworkingSocketsInterface )
 {
+	m_identityLocal = identity;
 }
 
 void CSteamNetworkConnectionlocalhostLoopback::InitConnectionCrypto( SteamNetworkingMicroseconds usecNow )
@@ -1748,14 +1762,14 @@ void CSteamNetworkConnectionlocalhostLoopback::PostConnectionStateChangedCallbac
 	CSteamNetworkConnectionUDP::PostConnectionStateChangedCallback( eOldAPIState, eNewAPIState );
 }
 
-bool CSteamNetworkConnectionlocalhostLoopback::APICreateSocketPair( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface, CSteamNetworkConnectionlocalhostLoopback *pConn[2] )
+bool CSteamNetworkConnectionlocalhostLoopback::APICreateSocketPair( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface, CSteamNetworkConnectionlocalhostLoopback *pConn[2], const SteamNetworkingIdentity pIdentity[2] )
 {
 	SteamDatagramTransportLock::AssertHeldByCurrentThread();
 
 	SteamDatagramErrMsg errMsg;
 
-	pConn[1] = new CSteamNetworkConnectionlocalhostLoopback( pSteamNetworkingSocketsInterface );
-	pConn[0] = new CSteamNetworkConnectionlocalhostLoopback( pSteamNetworkingSocketsInterface );
+	pConn[1] = new CSteamNetworkConnectionlocalhostLoopback( pSteamNetworkingSocketsInterface, pIdentity[0] );
+	pConn[0] = new CSteamNetworkConnectionlocalhostLoopback( pSteamNetworkingSocketsInterface, pIdentity[1] );
 	if ( !pConn[0] || !pConn[1] )
 	{
 failed:

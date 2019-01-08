@@ -6,6 +6,7 @@
 
 #include <steamnetworkingsockets/isteamnetworkingsockets.h>
 #ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
+#include <steam/steam_api.h> // FIXME - could use a more narrow header
 #include <steam/isteamnetworkingsocketsserialized.h>
 #endif
 #include "steamnetworkingsockets_connections.h"
@@ -118,7 +119,7 @@ public:
 	const bool m_bGameServer;
 	AppId_t m_nAppID;
 
-	const SteamNetworkingIdentity &GetIdentity();
+	const SteamNetworkingIdentity &InternalGetIdentity();
 
 #ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
 	ISteamUtils *m_pSteamUtils;
@@ -146,7 +147,7 @@ public:
 	void Kill();
 
 #ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
-	bool BInitNonSteam( SteamDatagramErrMsg &errMsg );
+	bool BInitNonSteam( const SteamNetworkingIdentity *pIdentity, SteamDatagramErrMsg &errMsg );
 #else
 	bool BInit( ISteamClient *pClient, HSteamUser hSteamUser, HSteamPipe hSteamPipe, SteamDatagramErrMsg &errMsg );
 	void AsyncCertRequest();
@@ -185,7 +186,7 @@ public:
 	virtual bool GetQuickConnectionStatus( HSteamNetConnection hConn, SteamNetworkingQuickConnectionStatus *pStats ) OVERRIDE;
 	virtual int GetDetailedConnectionStatus( HSteamNetConnection hConn, char *pszBuf, int cbBuf ) OVERRIDE;
 	virtual bool GetListenSocketAddress( HSteamListenSocket hSocket, SteamNetworkingIPAddr *pAddress ) OVERRIDE;
-	virtual bool CreateSocketPair( HSteamNetConnection *pOutConnection1, HSteamNetConnection *pOutConnection2, bool bUseNetworkLoopback ) OVERRIDE;
+	virtual bool CreateSocketPair( HSteamNetConnection *pOutConnection1, HSteamNetConnection *pOutConnection2, bool bUseNetworkLoopback, const SteamNetworkingIdentity *pIdentity1, const SteamNetworkingIdentity *pIdentity2 ) OVERRIDE;
 	virtual bool GetConnectionDebugText( HSteamNetConnection hConn, char *pszOut, int nOutCCH ) OVERRIDE;
 	virtual int32 GetConfigurationValue( ESteamNetworkingConfigurationValue eConfigValue ) OVERRIDE;
 	virtual bool SetConfigurationValue( ESteamNetworkingConfigurationValue eConfigValue, int32 nValue ) OVERRIDE;
@@ -196,6 +197,7 @@ public:
 	virtual int32 GetConnectionConfigurationValue( HSteamNetConnection hConn, ESteamNetworkingConnectionConfigurationValue eConfigValue ) OVERRIDE;
 	virtual bool SetConnectionConfigurationValue( HSteamNetConnection hConn, ESteamNetworkingConnectionConfigurationValue eConfigValue, int32 nValue ) OVERRIDE;
 	virtual void RunCallbacks( ISteamNetworkingSocketsCallbacks *pCallbacks ) OVERRIDE;
+	virtual bool GetIdentity( SteamNetworkingIdentity *pIdentity ) OVERRIDE;
 
 #ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
 	virtual HSteamListenSocket CreateListenSocketP2P( int nVirtualPort ) OVERRIDE;
@@ -250,7 +252,10 @@ protected:
 #endif // STEAMNETWORKINGSOCKETS_OPENSOURCE
 };
 extern CSteamNetworkingSockets g_SteamNetworkingSocketsUser;
+
+#ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
 extern CSteamNetworkingSockets g_SteamNetworkingSocketsGameServer;
+#endif
 
 } // namespace SteamNetworkingSocketsLib
 

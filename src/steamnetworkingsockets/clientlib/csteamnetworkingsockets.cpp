@@ -1,6 +1,7 @@
 //====== Copyright Valve Corporation, All rights reserved. ====================
 
 #include "csteamnetworkingsockets.h"
+#include <steamnetworkingsockets/steamnetworkingsockets.h>
 #include "steamnetworkingsockets_lowlevel.h"
 #include "steamnetworkingsockets_connections.h"
 #include "steamnetworkingsockets_udp.h"
@@ -265,13 +266,16 @@ CSteamNetworkingSockets::CSteamNetworkingSockets( bool bGameServer )
 static int s_nSteamNetworkingSocketsInitted = 0;
 
 #ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
-bool CSteamNetworkingSockets::BInitNonSteam( SteamDatagramErrMsg &errMsg )
+bool CSteamNetworkingSockets::BInitNonSteam( const SteamNetworkingIdentity *pIdentity, SteamDatagramErrMsg &errMsg )
 {
 	AssertMsg( !m_bInitted, "Initted interface twice?" );
 
 	// Make sure low level socket support is ready
 	if ( !BSteamNetworkingSocketsInitCommon( errMsg) )
 		return false;
+
+	if ( pIdentity )
+		m_identity = *pIdentity;
 
 	m_bInitted = true;
 	++s_nSteamNetworkingSocketsInitted;
@@ -329,7 +333,7 @@ bool CSteamNetworkingSockets::BInit( ISteamClient *pClient, HSteamUser hSteamUse
 
 	// Cache our identity, if we're online
 	m_identity.Clear();
-	GetIdentity();
+	InternalGetIdentity();
 
 	m_bInitted = true;
 	++s_nSteamNetworkingSocketsInitted;
@@ -426,11 +430,11 @@ void CSteamNetworkingSockets::OnCallback( SteamServersConnected_t *param )
 {
 	SteamDatagramTransportLock lock;
 	m_eLogonStatus = k_ELogonStatus_Connected;
-	GetIdentity();
+	InternalGetIdentity();
 
 	if ( m_bGameServer )
 	{
-		SpewMsg( "Gameserver logged on to Steam, assigned identity %s\n", SteamNetworkingIdentityRender( GetIdentity() ).c_str() );
+		SpewMsg( "Gameserver logged on to Steam, assigned identity %s\n", SteamNetworkingIdentityRender( InternalGetIdentity() ).c_str() );
 	}
 
 	// See if we should make a cert request now.  We only need to do this if we have
@@ -444,6 +448,7 @@ void CSteamNetworkingSockets::OnCallback( SteamServersConnected_t *param )
 
 void CSteamNetworkingSockets::OnCallback( SteamServerConnectFailure_t *param )
 {
+	SteamDatagramTransportLock scopeLock;
 	ELogonStatus eSaveStatus = m_eLogonStatus;
 	m_eLogonStatus = k_ELogonStatus_Disconnected;
 	if ( eSaveStatus == CSteamNetworkingSockets::k_ELogonStatus_InitialConnecting )
@@ -455,6 +460,7 @@ void CSteamNetworkingSockets::OnCallback( SteamServerConnectFailure_t *param )
 
 void CSteamNetworkingSockets::OnCallback( SteamServersDisconnected_t *param )
 {
+	SteamDatagramTransportLock scopeLock;
 	ELogonStatus eSaveStatus = m_eLogonStatus;
 	m_eLogonStatus = k_ELogonStatus_Disconnected;
 	if ( eSaveStatus == CSteamNetworkingSockets::k_ELogonStatus_InitialConnecting )
@@ -465,7 +471,7 @@ void CSteamNetworkingSockets::OnCallback( SteamServersDisconnected_t *param )
 }
 #endif
 
-const SteamNetworkingIdentity &CSteamNetworkingSockets::GetIdentity()
+const SteamNetworkingIdentity &CSteamNetworkingSockets::InternalGetIdentity()
 {
 	// FIXME SteamNetworkingIdentity
 	// Should eventually support other types
@@ -487,6 +493,15 @@ const SteamNetworkingIdentity &CSteamNetworkingSockets::GetIdentity()
 		#endif
 	}
 	return m_identity;
+}
+
+bool CSteamNetworkingSockets::GetIdentity( SteamNetworkingIdentity *pIdentity )
+{
+	SteamDatagramTransportLock scopeLock;
+	InternalGetIdentity();
+	if ( pIdentity )
+		*pIdentity = m_identity;
+	return !m_identity.IsInvalid();
 }
 
 HSteamListenSocket CSteamNetworkingSockets::CreateListenSocketIP( const SteamNetworkingIPAddr &localAddr )
@@ -783,20 +798,29 @@ bool CSteamNetworkingSockets::GetListenSocketAddress( HSteamListenSocket hSocket
 	return pSock->APIGetAddress( pAddress );
 }
 
-bool CSteamNetworkingSockets::CreateSocketPair( HSteamNetConnection *pOutConnection1, HSteamNetConnection *pOutConnection2, bool bUseNetworkLoopback )
+bool CSteamNetworkingSockets::CreateSocketPair( HSteamNetConnection *pOutConnection1, HSteamNetConnection *pOutConnection2, bool bUseNetworkLoopback, const SteamNetworkingIdentity *pIdentity1, const SteamNetworkingIdentity *pIdentity2 )
 {
 	SteamDatagramTransportLock scopeLock;
 
 	// Assume failure
 	*pOutConnection1 = k_HSteamNetConnection_Invalid;
 	*pOutConnection2 = k_HSteamNetConnection_Invalid;
+	SteamNetworkingIdentity identity[2];
+	if ( pIdentity1 )
+		identity[0] = *pIdentity1;
+	else
+		identity[0].SetLocalHost();
+	if ( pIdentity2 )
+		identity[1] = *pIdentity2;
+	else
+		identity[1].SetLocalHost();
 
 	// Create network connections?
 	if ( bUseNetworkLoopback )
 	{
 		// Create two connection objects
 		CSteamNetworkConnectionlocalhostLoopback *pConn[2];
-		if ( !CSteamNetworkConnectionlocalhostLoopback::APICreateSocketPair( this, pConn ) )
+		if ( !CSteamNetworkConnectionlocalhostLoopback::APICreateSocketPair( this, pConn, identity ) )
 			return false;
 
 		// Return their handles
@@ -807,7 +831,7 @@ bool CSteamNetworkingSockets::CreateSocketPair( HSteamNetConnection *pOutConnect
 	{
 		// Create two connection objects
 		CSteamNetworkConnectionPipe *pConn[2];
-		if ( !CSteamNetworkConnectionPipe::APICreateSocketPair( this, pConn ) )
+		if ( !CSteamNetworkConnectionPipe::APICreateSocketPair( this, pConn, identity ) )
 			return false;
 
 		// Return their handles
@@ -877,7 +901,7 @@ void CSteamNetworkingSockets::AsyncCertRequest()
 
 	// We must know our SteamID
 	// FIXME SteamNetworkingIdentity - only works for SteamIDs
-	CSteamID steamID = GetIdentity().GetSteamID();
+	CSteamID steamID = InternalGetIdentity().GetSteamID();
 	if ( !steamID.IsValid() )
 	{
 		CertRequestFailed( k_ESteamNetConnectionEnd_Misc_InternalError, "Cannot request a cert; we don't know our SteamID (yet?)." );
@@ -993,7 +1017,7 @@ void CSteamNetworkingSockets::OnCallback( SteamNetworkingSocketsCert_t *param, b
 	m_keyPrivateKey.Set( param->m_privKey, param->m_cbPrivKey );
 
 	// Notify connections, so they can advance their state machine
-	SpewVerbose( "Got cert for %s from Steam\n", SteamNetworkingIdentityRender( GetIdentity() ).c_str() );
+	SpewVerbose( "Got cert for %s from Steam\n", SteamNetworkingIdentityRender( InternalGetIdentity() ).c_str() );
 	AsyncCertRequestFinished();
 }
 
@@ -1010,7 +1034,7 @@ void CSteamNetworkingSockets::AsyncCertRequestFinished()
 
 void CSteamNetworkingSockets::CertRequestFailed( ESteamNetConnectionEnd nConnectionEndReason, const char *pszMsg )
 {
-	SpewWarning( "Cert request for %s failed with reason code %d.  %s\n", SteamNetworkingIdentityRender( GetIdentity() ).c_str(), nConnectionEndReason, pszMsg );
+	SpewWarning( "Cert request for %s failed with reason code %d.  %s\n", SteamNetworkingIdentityRender( InternalGetIdentity() ).c_str(), nConnectionEndReason, pszMsg );
 
 	if ( m_msgSignedCert.has_cert() )
 	{
@@ -1389,7 +1413,16 @@ void CSteamNetworkingSockets::InternalQueueCallback( int nCallback, int cbCallba
 }
 
 CSteamNetworkingSockets SteamNetworkingSocketsLib::g_SteamNetworkingSocketsUser(false);
+
+#ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
 CSteamNetworkingSockets SteamNetworkingSocketsLib::g_SteamNetworkingSocketsGameServer(true);
+
+STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets *SteamNetworkingSocketsGameServer()
+{
+	return &g_SteamNetworkingSocketsGameServer;
+}
+
+#endif
 
 /////////////////////////////////////////////////////////////////////////////
 //
@@ -1402,21 +1435,14 @@ STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets *SteamNetworkingSockets
 	return &g_SteamNetworkingSocketsUser;
 }
 
-STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets *SteamNetworkingSocketsGameServer()
-{
-	return &g_SteamNetworkingSocketsGameServer;
-}
-
 #ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
 
-STEAMNETWORKINGSOCKETS_INTERFACE bool GameNetworkingSockets_Init( SteamDatagramErrMsg &errMsg )
+STEAMNETWORKINGSOCKETS_INTERFACE bool GameNetworkingSockets_Init( const SteamNetworkingIdentity *pIdentity, SteamDatagramErrMsg &errMsg )
 {
 	SteamDatagramTransportLock lock;
 
 	// Init basic functionality
-	if ( !g_SteamNetworkingSocketsUser.BInitNonSteam( errMsg ) )
-		return false;
-	if ( !g_SteamNetworkingSocketsGameServer.BInitNonSteam( errMsg ) )
+	if ( !g_SteamNetworkingSocketsUser.BInitNonSteam( pIdentity, errMsg ) )
 		return false;
 
 	return true;
@@ -1426,7 +1452,6 @@ STEAMNETWORKINGSOCKETS_INTERFACE void GameNetworkingSockets_Kill()
 {
 	SteamDatagramTransportLock lock;
 	g_SteamNetworkingSocketsUser.Kill();
-	g_SteamNetworkingSocketsGameServer.Kill();
 }
 
 #else
@@ -1460,7 +1485,7 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamDatagramClient_SetLauncher( const cha
 	Assert( !g_sLauncherPartner.empty() );
 }
 
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamDatagramClient_Init_InternalV6( SteamDatagramErrMsg &errMsg, FSteamInternal_CreateInterface fnCreateInterface, HSteamUser hSteamUser, HSteamPipe hSteamPipe )
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamDatagramClient_Init_InternalV7( SteamDatagramErrMsg &errMsg, FSteamInternal_CreateInterface fnCreateInterface, HSteamUser hSteamUser, HSteamPipe hSteamPipe )
 {
 	SteamDatagramTransportLock lock;
 	if ( g_pSteamUser )

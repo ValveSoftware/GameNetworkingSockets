@@ -7,7 +7,7 @@
 #include <chrono>
 #include <thread>
 
-#include <steamnetworkingsockets/isteamnetworkingsockets.h>
+#include <steamnetworkingsockets/steamnetworkingsockets.h>
 #include <steamnetworkingsockets/isteamnetworkingutils.h>
 #ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
 #include <steam/steam_api.h>
@@ -66,7 +66,7 @@ static void InitSteamDatagramConnectionSockets()
 {
 	#ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
 		SteamDatagramErrMsg errMsg;
-		if ( !GameNetworkingSockets_Init( errMsg ) )
+		if ( !GameNetworkingSockets_Init( nullptr, errMsg ) )
 		{
 			fprintf( stderr, "GameNetworkingSockets_Init failed.  %s", errMsg );
 			exit(1);
