@@ -535,7 +535,7 @@ bool CCryptoKeyBase::LoadFromAndWipeBuffer( void *pBuffer, size_t cBytes )
 			) {
 				m_cubKey = 64;
 
-				#ifdef ENABLE_CRYPTO_25519
+				#if defined(ENABLE_CRYPTO_25519) || defined(ENABLE_CRYPTO_25519_LIBSODIUM)
 
 					// Check that the public key matches the private one.
 					// (And also that all of our code works.)

@@ -1,5 +1,8 @@
 find_package(Protobuf REQUIRED)
 find_package(OpenSSL REQUIRED)
+if (USE_LIBSODIUM)
+	find_package(sodium REQUIRED)
+endif()
 find_package(Threads REQUIRED)
 
 include(CheckCCompilerFlag)
@@ -12,13 +15,10 @@ set(GNS_PROTOS
 )
 
 set(GNS_SRCS
-	"external/curve25519-donna/curve25519.c"
-	"external/curve25519-donna/curve25519_VALVE_sse2.c"
-	"external/ed25519-donna/ed25519_VALVE.c"
-	"external/ed25519-donna/ed25519_VALVE_sse2.c"
 	"common/crypto.cpp"
 	"common/crypto_textencode.cpp"
 	"common/crypto_25519.cpp"
+	"common/crypto_25519_libsodium.cpp"
 	"common/keypair.cpp"
 	"common/opensslwrapper.cpp"
 	"common/steamid.cpp"
@@ -40,6 +40,15 @@ set(GNS_SRCS
 	"tier1/ipv6text.c"
 	"vstdlib/strtools.cpp"
 )
+
+if (NOT USE_LIBSODIUM)
+	set(GNS_SRCS
+		${GNS_SRCS}
+		"external/curve25519-donna/curve25519.c"
+		"external/curve25519-donna/curve25519_VALVE_sse2.c"
+		"external/ed25519-donna/ed25519_VALVE.c"
+		"external/ed25519-donna/ed25519_VALVE_sse2.c")
+endif(NOT USE_LIBSODIUM)
 
 set(C99_FEATURES
 	c_restrict
@@ -101,16 +110,29 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 		Threads::Threads
 	)
 
+	if(USE_LIBSODIUM)
+		target_link_libraries(${GNS_TARGET} PUBLIC
+			${sodium_LIBRARY_RELEASE})
+		target_include_directories(${GNS_TARGET} PRIVATE
+			${sodium_INCLUDE_DIR})
+	endif(USE_LIBSODIUM)
+
 	target_compile_definitions(${GNS_TARGET} PRIVATE
 		STEAMDATAGRAMLIB_FOREXPORT
 		STATIC_TIER0
-		# needed for ed25519-donna
-		ENABLE_CRYPTO_25519
 		HAVE_OPENSSL
 		ENABLE_OPENSSLCONNECTION
 		CRYPTO_DISABLE_ENCRYPT_WITH_PASSWORD
 		GOOGLE_PROTOBUF_NO_RTTI
 	)
+
+	if(USE_LIBSODIUM)
+		target_compile_definitions(${GNS_TARGET} PRIVATE
+			ENABLE_CRYPTO_25519_LIBSODIUM)
+	else()
+		target_compile_definitions(${GNS_TARGET} PRIVATE
+			ENABLE_CRYPTO_25519)
+	endif()
 
 	## Needs CMake 3.8, then we could get rid of the workaround below it.
 	#target_compile_features(${GNS_TARGET} PUBLIC c_std_99 cxx_std_11)

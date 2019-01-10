@@ -12,6 +12,9 @@
 //SDR_PUBLIC 	#include <openssl/err.h>
 #include <openssl/crypto.h>
 #include <openssl/rand.h>
+#ifdef ENABLE_CRYPTO_25519_LIBSODIUM
+#include <sodium.h>
+#endif
 
 #include <mutex>
 #include <thread>
@@ -83,6 +86,8 @@ extern "C" int pthread_atfork(void (*prepare)(void), void (*parent)(void), void(
 //-----------------------------------------------------------------------------
 void COpenSSLWrapper::Initialize()
 {
+	int iStatus;
+
 	// If this is the first instance then we need to do some one time initialization of the OpenSSL library
 	if ( m_nInstances++ == 0 )
 	{
@@ -111,6 +116,10 @@ void COpenSSLWrapper::Initialize()
 //SDR_PUBLIC
 //SDR_PUBLIC		COpenSSLWrapper::s_nContextDataIndex = SSL_get_ex_new_index(0, (void*)"COpenSSLContext", NULL, NULL, NULL);
 //SDR_PUBLIC		COpenSSLWrapper::s_nConnectionDataIndex = SSL_get_ex_new_index(0, (void*)"COpenSSLConnection", NULL, NULL, NULL);
+#ifdef ENABLE_CRYPTO_25519_LIBSODIUM
+		iStatus = sodium_init();
+		AssertMsg( iStatus == 0, "libsodium_init failed" );
+#endif
 
 #ifdef _WIN32
 		RAND_set_rand_method( &RAND_Win32CryptoGenRandom );
@@ -122,7 +131,7 @@ void COpenSSLWrapper::Initialize()
 		pthread_atfork( NULL, NULL, []{ RAND_poll(); } );
 #endif
 
-		int iStatus = RAND_status();
+		iStatus = RAND_status();
 		AssertMsg( iStatus == 1, "OpenSSL random number system reports not enough entropy" );
 	}
 }
