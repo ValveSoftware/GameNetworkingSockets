@@ -12,7 +12,7 @@
 //SDR_PUBLIC 	#include <openssl/err.h>
 #include <openssl/crypto.h>
 #include <openssl/rand.h>
-#ifdef ENABLE_CRYPTO_25519_LIBSODIUM
+#ifdef USE_LIBSODIUM
 #include <sodium.h>
 #endif
 
@@ -116,7 +116,7 @@ void COpenSSLWrapper::Initialize()
 //SDR_PUBLIC
 //SDR_PUBLIC		COpenSSLWrapper::s_nContextDataIndex = SSL_get_ex_new_index(0, (void*)"COpenSSLContext", NULL, NULL, NULL);
 //SDR_PUBLIC		COpenSSLWrapper::s_nConnectionDataIndex = SSL_get_ex_new_index(0, (void*)"COpenSSLConnection", NULL, NULL, NULL);
-#ifdef ENABLE_CRYPTO_25519_LIBSODIUM
+#ifdef USE_LIBSODIUM
 		iStatus = sodium_init();
 		AssertMsg( iStatus == 0, "libsodium_init failed" );
 #endif

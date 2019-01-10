@@ -7,7 +7,7 @@
 
 #include "crypto.h"
 
-#ifdef ENABLE_CRYPTO_25519
+#if !defined(USE_LIBSODIUM)
 extern "C" {
 // external headers for curve25519 and ed25519 support, plus alternate 32-bit SSE2 versions
 // (for x64, pure-C performance is on par with SSE2, so we don't compile the SSE2 versions)

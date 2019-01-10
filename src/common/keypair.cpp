@@ -535,19 +535,16 @@ bool CCryptoKeyBase::LoadFromAndWipeBuffer( void *pBuffer, size_t cBytes )
 			) {
 				m_cubKey = 64;
 
-				#if defined(ENABLE_CRYPTO_25519) || defined(ENABLE_CRYPTO_25519_LIBSODIUM)
-
-					// Check that the public key matches the private one.
-					// (And also that all of our code works.)
-					uint8 arCheckPublic[ 32 ];
-					V_memcpy( arCheckPublic, m_pbKey, 32 );
-					(( CEC25519PrivateKeyBase * )this )->RebuildFromPrivateData( m_pbKey+32 );
-					if ( V_memcmp( arCheckPublic, m_pbKey, 32 ) != 0 )
-					{
-						AssertMsg( false, "Ed25519 key public doesn't match private!" );
-						Wipe();
-					}
-				#endif
+				// Check that the public key matches the private one.
+				// (And also that all of our code works.)
+				uint8 arCheckPublic[ 32 ];
+				V_memcpy( arCheckPublic, m_pbKey, 32 );
+				(( CEC25519PrivateKeyBase * )this )->RebuildFromPrivateData( m_pbKey+32 );
+				if ( V_memcmp( arCheckPublic, m_pbKey, 32 ) != 0 )
+				{
+					AssertMsg( false, "Ed25519 key public doesn't match private!" );
+					Wipe();
+				}
 			}
 			else
 			{

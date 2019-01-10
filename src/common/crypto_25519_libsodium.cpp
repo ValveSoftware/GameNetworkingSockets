@@ -2,7 +2,7 @@
 
 #include "crypto.h"
 
-#ifdef ENABLE_CRYPTO_25519_LIBSODIUM
+#ifdef USE_LIBSODIUM
 
 #include <sodium.h>
 

@@ -128,10 +128,7 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 
 	if(USE_LIBSODIUM)
 		target_compile_definitions(${GNS_TARGET} PRIVATE
-			ENABLE_CRYPTO_25519_LIBSODIUM)
-	else()
-		target_compile_definitions(${GNS_TARGET} PRIVATE
-			ENABLE_CRYPTO_25519)
+			USE_LIBSODIUM)
 	endif()
 
 	## Needs CMake 3.8, then we could get rid of the workaround below it.

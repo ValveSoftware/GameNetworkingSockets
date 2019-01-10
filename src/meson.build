@@ -33,9 +33,7 @@ cpp_flags = [
 ]
 
 if use_libsodium
-  cpp_flags += [ '-DENABLE_CRYPTO_25519_LIBSODIUM' ]
-else
-  cpp_flags += [ '-DENABLE_CRYPTO_25519' ]
+  cpp_flags += [ '-DUSE_LIBSODIUM' ]
 endif
 
 target_os = target_machine.system()
