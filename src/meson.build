@@ -7,25 +7,36 @@ protoc = generator(protoc_bin,
   output    : ['@BASENAME@.pb.cc', '@BASENAME@.pb.h'],
   arguments : ['-I@CURRENT_SOURCE_DIR@/common', '--proto_path=@CURRENT_SOURCE_DIR@', '--cpp_out=@BUILD_DIR@', '@INPUT@'])
 
+use_libsodium = get_option('use_libsodium')
+
 dependencies += [
   dependency('threads'),
   dependency('libcrypto'),
   dependency('protobuf'),
 ]
 
+if use_libsodium
+  dependencies += [
+	dependency('libsodium'),
+  ]
+endif
+
 incdirs = include_directories('.', '../include', 'common', 'public')
 
 cpp_flags = [
   '-DSTEAMDATAGRAMLIB_FOREXPORT',
   '-DSTATIC_TIER0',
-  
-  # needed for ed25519-donna
-  '-DENABLE_CRYPTO_25519',
   '-DHAVE_OPENSSL',
   '-DENABLE_OPENSSLCONNECTION',
   '-DCRYPTO_DISABLE_ENCRYPT_WITH_PASSWORD',
   '-DGOOGLE_PROTOBUF_NO_RTTI',
 ]
+
+if use_libsodium
+  cpp_flags += [ '-DENABLE_CRYPTO_25519_LIBSODIUM' ]
+else
+  cpp_flags += [ '-DENABLE_CRYPTO_25519' ]
+endif
 
 target_os = target_machine.system()
 
@@ -54,12 +65,9 @@ protobuf_sources = [
 ]
 
 sources = [
-  'external/curve25519-donna/curve25519.c',
-  'external/curve25519-donna/curve25519_VALVE_sse2.c',
-  'external/ed25519-donna/ed25519_VALVE.c',
-  'external/ed25519-donna/ed25519_VALVE_sse2.c',
   'common/crypto.cpp',
   'common/crypto_25519.cpp',
+  'common/crypto_25519_libsodium.cpp',
   'common/crypto_textencode.cpp',
   'common/keypair.cpp',
   'common/opensslwrapper.cpp',
@@ -82,6 +90,15 @@ sources = [
   'tier1/utlmemory.cpp',
   'vstdlib/strtools.cpp',
 ]
+
+if not use_libsodium
+  sources += [
+	'external/curve25519-donna/curve25519.c',
+	'external/curve25519-donna/curve25519_VALVE_sse2.c',
+	'external/ed25519-donna/ed25519_VALVE.c',
+	'external/ed25519-donna/ed25519_VALVE_sse2.c',
+  ]
+endif
 
 protobufs = protoc.process(protobuf_sources)
 

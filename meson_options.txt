@@ -1,0 +1,4 @@
+option('use_libsodium',
+  type: 'boolean',
+  value: true,
+  description: 'Use libsodium for ed25519/curve25519 crypto')
