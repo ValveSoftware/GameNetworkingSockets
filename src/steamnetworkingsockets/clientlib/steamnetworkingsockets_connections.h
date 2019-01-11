@@ -7,7 +7,7 @@
 #include "../steamnetworkingsockets_internal.h"
 #ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
 #include "../steamdatagram_internal.h"
-#include <steamnetworkingsockets/steamdatagram_tickets.h>
+#include <steam/steamdatagram_tickets.h>
 #endif
 #include "../steamnetworking_statsutils.h"
 #include <tier1/utlhashmap.h>
@@ -626,6 +626,7 @@ extern std::string g_sLauncherPartner;
 
 extern bool BCheckGlobalSpamReplyRateLimit( SteamNetworkingMicroseconds usecNow );
 extern CSteamNetworkConnectionBase *FindConnectionByLocalID( uint32 nLocalConnectionID );
+extern HSteamListenSocket AddListenSocket( CSteamNetworkListenSocketBase *pSock );
 
 } // namespace SteamNetworkingSocketsLib
 

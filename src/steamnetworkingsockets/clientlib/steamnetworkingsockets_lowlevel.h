@@ -8,8 +8,7 @@
 
 #include <cstdint>
 #include <functional>
-#include <steamnetworkingsockets/steamnetworkingtypes.h>
-#include <steamnetworkingsockets/isteamnetworkingsockets.h>
+#include <steam/steamnetworkingtypes.h>
 #include <tier1/netadr.h>
 #include <tier1/utlhashmap.h>
 

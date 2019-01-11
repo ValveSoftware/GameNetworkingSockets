@@ -11,9 +11,37 @@
 #endif
 
 #include <string.h>
-#include "steamnetworkingsockets_config.h"
-#include <steam/steamtypes.h>
-#include <steam/steamclientpublic.h>
+
+//----------------------------------------
+// SteamNetworkingSockets library config
+// Opensource version
+//
+#ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
+#define STEAMNETWORKINGSOCKETS_OPENSOURCE
+#endif
+#define STEAMNETWORKINGSOCKETS_STANDALONELIB
+
+#include <minbase/minbase_identify.h>
+#include <minbase/minbase_decls.h>
+#include "steamtypes.h"
+#include "steamclientpublic.h"
+
+#if defined( STEAMDATAGRAMLIB_STATIC_LINK )
+	#define STEAMNETWORKINGSOCKETS_INTERFACE extern
+#elif defined( STEAMDATAGRAMLIB_FOREXPORT )
+	#define STEAMNETWORKINGSOCKETS_INTERFACE DLL_EXPORT
+#else
+	#define STEAMNETWORKINGSOCKETS_INTERFACE DLL_IMPORT
+#endif
+
+// Doesn't really matter what these values are, but they need
+// to be defined, and we might as well use the same values as Steam.
+enum { k_iSteamNetworkingSocketsCallbacks = 1220 };
+enum { k_iSteamNetworkingMessagesCallbacks = 1250 };
+
+// 
+//----------------------------------------
+
 
 #if defined( VALVE_CALLBACK_PACK_SMALL )
 #pragma pack( push, 4 )

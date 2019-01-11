@@ -10,7 +10,7 @@
 #pragma once
 #endif
 
-#include <steamnetworkingsockets/steamnetworkingtypes.h>
+#include <steam/steamnetworkingtypes.h>
 
 #pragma pack(push)
 #pragma pack(8)

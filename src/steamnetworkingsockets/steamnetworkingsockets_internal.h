@@ -43,7 +43,7 @@
 #include <tier0/basetypes.h>
 #include <tier0/t0constants.h>
 #include <tier0/platform.h>
-#include <steamnetworkingsockets/steamnetworkingtypes.h>
+#include <steam/steamnetworkingtypes.h>
 #include <tier1/netadr.h>
 #include <vstdlib/strtools.h>
 #include <tier1/utlvector.h>

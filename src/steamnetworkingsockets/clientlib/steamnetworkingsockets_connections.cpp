@@ -1,6 +1,6 @@
 //====== Copyright Valve Corporation, All rights reserved. ====================
 
-#include <steamnetworkingsockets/isteamnetworkingsockets.h>
+#include <steam/isteamnetworkingsockets.h>
 #include "steamnetworkingsockets_connections.h"
 #include "steamnetworkingsockets_lowlevel.h"
 #include "csteamnetworkingsockets.h"

@@ -1,7 +1,7 @@
 //====== Copyright Valve Corporation, All rights reserved. ====================
 
-#include <steamnetworkingsockets/steamnetworkingsockets_flat.h>
-#include <steamnetworkingsockets/steamnetworkingsockets.h>
+#include <steam/steamnetworkingsockets_flat.h>
+#include <steam/steamnetworkingsockets.h>
 
 extern "C" {
 

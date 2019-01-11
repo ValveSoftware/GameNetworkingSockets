@@ -326,7 +326,9 @@ public:
 	// Eventually this function will go away, and callbacks will be ordinary Steamworks callbacks.
 	// You should call this at the same time you call SteamAPI_RunCallbacks and SteamGameServer_RunCallbacks
 	// to minimize potential changes in timing when that change happens.
+#ifdef STEAMNETWORKINGSOCKETS_STANDALONELIB
 	virtual void RunCallbacks( ISteamNetworkingSocketsCallbacks *pCallbacks ) = 0;
+#endif
 protected:
 	~ISteamNetworkingSockets(); // Silence some warnings
 };
