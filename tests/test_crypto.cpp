@@ -47,8 +47,6 @@ static void V_hextobinary( char const *in, int numchars, byte *out, int maxoutpu
         // Make sure it's even
         numchars = ( numchars ) & ~0x1;
 
-        DbgAssert( V_isvalidhex( in, numchars ) );
-
         memset( out, 0x00, maxoutputbytes );
 
         byte *p;
@@ -376,7 +374,7 @@ void TestOpenSSHEd25519()
 		// Should fail if we tell it the buffer is too small
 		CHECK( !pubKey.GetAsOpenSSHAuthorizedKeys( buf, 16, &cbBuf, "" ) );
 		CHECK( pubKey.GetAsOpenSSHAuthorizedKeys( buf, sizeof(buf), &cbBuf, "" ) );
-		CHECK( cbBuf == V_strlen( buf )+1 );
+		CHECK( (int)cbBuf == V_strlen( buf )+1 );
 		CHECK( 75 <= cbBuf && cbBuf <= 85 ); // typical size (assuming no password or key comment).  Not necessarily a bug if this assert fires, but maybe something suspicious
 
 		// Parse it back out, make sure it matches
@@ -388,7 +386,7 @@ void TestOpenSSHEd25519()
 		// Should fail if we tell it the buffer is too small
 		CHECK( !privKey.GetAsPEM( buf, 64, &cbBuf ) );
 		CHECK( privKey.GetAsPEM( buf, sizeof(buf), &cbBuf ) );
-		CHECK( cbBuf == V_strlen( buf )+1 );
+		CHECK( (int)cbBuf == V_strlen( buf )+1 );
 		CHECK( 370 <= cbBuf && cbBuf <= 390 ); // typical size (assuming no password or key comment).  Not necessarily a bug if this assert fires, but maybe something suspicious
 
 		// Parse it back out, make sure it matches
