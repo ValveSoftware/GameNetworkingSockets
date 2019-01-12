@@ -145,10 +145,16 @@ public:
 
 		// Convert address to BSD interface
 		struct sockaddr_storage destAddress;
+		socklen_t addrSize;
 		if ( m_nAddressFamilies & k_nAddressFamily_IPv6 )
+		{
+			addrSize = sizeof(sockaddr_in6);
 			adrTo.ToSockadrIPV6( &destAddress );
+		}
 		else
-			adrTo.ToSockadr( &destAddress );
+		{
+			addrSize = (socklen_t)adrTo.ToSockadr( &destAddress );
+		}
 
 		//const uint8 *pbPkt = (const uint8 *)pPkt;
 		//Log_Detailed( LOG_STEAMDATAGRAM_CLIENT, "%4db -> %s %02x %02x %02x %02x %02x ...\n",
@@ -168,7 +174,7 @@ public:
 				&numberOfBytesSent,
 				0, // flags
 				(const sockaddr *)&destAddress,
-				sizeof(destAddress),
+				addrSize,
 				nullptr, // lpOverlapped
 				nullptr // lpCompletionRoutine
 			);
@@ -176,7 +182,7 @@ public:
 		#else
 			msghdr msg;
 			msg.msg_name = (sockaddr *)&destAddress;
-			msg.msg_namelen = sizeof( destAddress );
+			msg.msg_namelen = addrSize;
 			msg.msg_iov = const_cast<struct iovec *>( pChunks );
 			msg.msg_iovlen = nChunks;
 			msg.msg_control = nullptr;
