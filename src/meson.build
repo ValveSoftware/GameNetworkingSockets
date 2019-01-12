@@ -38,22 +38,10 @@ endif
 
 target_os = target_machine.system()
 
-if target_os == 'linux'
-  cpp_flags += ['-DPOSIX', '-DLINUX']
-elif target_os == 'darwin'
-  cpp_flags += ['-DPOSIX', '-DOSX']
-elif target_os == 'windows'
-  cpp_flags += ['-D_WIN32', '-DWIN32', '-D__STDC_FORMAT_MACROS=1', '-D__USE_MINGW_ANSI_STDIO=0']
+if target_os == 'windows'
   dependencies += [
     c_compiler.find_library('ws2_32'),
   ]
-else
-  error('Could not identify your target operating system')
-endif
-
-target_compiler = c_compiler.get_id()
-if target_compiler == 'gcc' or target_compiler == 'clang'
-  cpp_flags += ['-DGNUC', '-DGNU_COMPILER']
 endif
 
 protobuf_sources = [
