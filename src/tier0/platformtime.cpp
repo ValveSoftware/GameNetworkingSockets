@@ -1,10 +1,4 @@
-//========= Copyright 1996-2013, Valve Corporation, All rights reserved. ============//
-//
-// Purpose: 
-//
-// $NoKeywords: $
-//=============================================================================//
-
+//========= Copyright Valve Corporation, All rights reserved. ============//
 #include "../public/tier0/platformtime.h"
 
 #ifdef WIN32
@@ -122,50 +116,6 @@ uint64 Plat_RelativeTicks()
 	return Ticks;
 }
 
-uint64 Plat_RelativeTickFrequency()
-{
-	if ( g_TickBase == 0 )
-		InitTicks();
-	
-	return g_TickFrequency;
-}
-
-uint64 Plat_TickDiffMilliSec( uint64 StartTicks, uint64 EndTicks )
-{
-	// Calculate in parts to avoid overflow and lack of precision when dividing
-	uint64 ulTicks = EndTicks - StartTicks;
-
-	if ( g_TickBase == 0 )
-		InitTicks();
-		
-	uint64 ulSeconds = ulTicks / g_TickFrequency;
-	uint64 ulRemainder = ulTicks % g_TickFrequency;
-
-	return (ulSeconds * 1000) + (ulRemainder * 1000 / g_TickFrequency);
-}
-
-uint64 Plat_TickDiffMicroSec( uint64 StartTicks, uint64 EndTicks )
-{
-	// Calculate in parts to avoid overflow and lack of precision when dividing
-	uint64 ulTicks = EndTicks - StartTicks;
-
-	if ( g_TickBase == 0 )
-		InitTicks();
-
-	uint64 ulSeconds = ulTicks / g_TickFrequency;
-	uint64 ulRemainder = ulTicks % g_TickFrequency;
-	
-	return (ulSeconds * 1000000) + (ulRemainder * 1000000 / g_TickFrequency);
-}
-
-uint64 Plat_TickAddMicroSec( uint64 StartTicks, int64 lMicroSec )
-{
-	if ( g_TickBase == 0 )
-		InitTicks();
-
-	return StartTicks + (int64)( lMicroSec * g_TickFrequencyDouble / 1000000.0 );
-}
-
 double Plat_FloatTime()
 {
 	// We subtract off the tick base to keep the diff as small
@@ -174,160 +124,10 @@ double Plat_FloatTime()
 	return ((double)(int64)(Ticks - g_TickBase)) / g_TickFrequencyDouble;
 }
 
-uint32 Plat_MSTime()
-{
-	// We subtract off the tick base to keep the diff as small
-	// as possible so that our conversion math is more accurate.
-	uint64 Ticks = Plat_RelativeTicks(); // NOTE: inits globals
-	return (uint32)(((Ticks - g_TickBase) * 1000) / g_TickFrequency);
-}
-
 uint64 Plat_USTime()
 {
 	// We subtract off the tick base to keep the diff as small
 	// as possible so that our conversion math is more accurate.
 	uint64 Ticks = Plat_RelativeTicks(); // NOTE: inits globals
 	return (uint64)( (Ticks - g_TickBase) * g_TicksToUS );
-}
-
-uint64 Plat_MSTime64()
-{
-	// We subtract off the tick base to keep the diff as small
-	// as possible so that our conversion math is more accurate.
-	uint64 Ticks = Plat_RelativeTicks(); // NOTE: inits globals
-	return ((Ticks - g_TickBase) * 1000) / g_TickFrequency;
-}
-
-
-#ifdef WIN32
-// Wraps the thread-safe versions of asctime. buf must be at least 26 bytes 
-char *Plat_asctime( const struct tm *tm, char *buf, size_t bufsize )
-{
-	if ( EINVAL == asctime_s( buf, bufsize, tm ) )
-		return NULL;
-	else
-		return buf;
-}
-#else
-// Wraps the thread-safe versions of asctime. buf must be at least 26 bytes 
-char *Plat_asctime( const struct tm *tm, char *buf, size_t bufsize )
-{
-	return asctime_r( tm, buf );
-}
-#endif
-
-
-#ifdef WIN32
-// Wraps the thread-safe versions of ctime. buf must be at least 26 bytes 
-char *Plat_ctime( const time_t *timep, char *buf, size_t bufsize )
-{
-	if ( EINVAL == ctime_s( buf, bufsize, timep ) )
-		return NULL;
-	else
-		return buf;
-}
-#else
-// Wraps the thread-safe versions of ctime. buf must be at least 26 bytes 
-char *Plat_ctime( const time_t *timep, char *buf, size_t bufsize )
-{
-	return ctime_r( timep, buf );
-}
-#endif
-
-// timezone
-int32 Plat_timezone( void )
-{
-#if _MSC_VER < 1900
-	return timezone;
-#else
-	long timeZone = 0;
-	_get_timezone( &timeZone );
-	return timeZone;
-#endif
-}
-
-// daylight savings
-int32 Plat_daylight( void )
-{
-#if _MSC_VER < 1900
-	return daylight;
-#else
-	int daylight = 0;
-	_get_daylight( &daylight );
-	return daylight;
-#endif
-}
-
-#ifdef WIN32
-// Wraps the thread-safe versions of gmtime
-struct tm *Plat_gmtime( const time_t *timep, struct tm *result )
-{
-	if ( EINVAL == gmtime_s( result, timep ) )
-		return NULL;
-	else
-		return result;
-}
-#else
-// Wraps the thread-safe versions of gmtime
-struct tm *Plat_gmtime( const time_t *timep, struct tm *result )
-{
-	return gmtime_r( timep, result );
-}
-#endif
-
-#ifdef WIN32
-time_t Plat_timegm( struct tm *timeptr )
-{
-	return _mkgmtime( timeptr );
-}
-#else
-time_t Plat_timegm( struct tm *timeptr )
-{
-	return timegm( timeptr );
-}
-#endif
-
-
-#ifdef WIN32
-// Wraps the thread-safe versions of localtime
-struct tm *Plat_localtime( const time_t *timep, struct tm *result )
-{
-	if ( EINVAL == localtime_s( result, timep ) )
-		return NULL;
-	else
-		return result;
-}
-#else
-// Wraps the thread-safe versions of localtime
-struct tm *Plat_localtime( const time_t *timep, struct tm *result )
-{
-	return localtime_r( timep, result );
-}
-#endif
-
-#ifdef WIN32
-uint64 Plat_AbsoluteTime( void )
-{
-	FILETIME WinTime;
-
-	GetSystemTimeAsFileTime( &WinTime );
-	return (((uint64)WinTime.dwHighDateTime) << 32) | WinTime.dwLowDateTime;
-}
-#else
-uint64 Plat_AbsoluteTime( void )
-{
-	struct timeval UnixTime;
-
-	gettimeofday( &UnixTime, NULL );
-
-	// Convert from seconds since 1/1/1970 to filetime (100 nanoseconds since 1/1/1601) with this magic formula courtesy of MSDN.
-	return (uint64)UnixTime.tv_sec * 10000000 +
-		(uint64)UnixTime.tv_usec * 10 +
-		(uint64)116444736000000000;
-}
-#endif
-
-double Plat_AbsoluteTimeToFloat( uint64 abstime )
-{
-	return abstime * 1.0e-7 - 11644473600;
 }

@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <inttypes.h>
+#include <time.h>
 
 #include "../steamnetworkingsockets_internal.h"
 #include "crypto.h"
@@ -171,11 +172,11 @@ void PrintCertInfo( const CMsgSteamDatagramCertificateSigned &msgSigned, std::st
 	time_t timeExpiry = msgCert.time_expiry();
 
 	char szTimeCreated[ 128 ];
-	Plat_ctime( &timeCreated, szTimeCreated, sizeof(szTimeCreated) );
+	V_strcpy_safe( szTimeCreated, ctime( &timeCreated ) );
 	V_StripTrailingWhitespaceASCII( szTimeCreated );
 
 	char szTimeExpiry[ 128 ];
-	Plat_ctime( &timeExpiry, szTimeExpiry, sizeof(szTimeExpiry) );
+	V_strcpy_safe( szTimeExpiry, ctime( &timeExpiry ) );
 	V_StripTrailingWhitespaceASCII( szTimeExpiry );
 
 	std::string sDataCenterIDs;
