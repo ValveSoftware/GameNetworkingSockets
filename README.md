@@ -237,24 +237,6 @@ This extension comes in handy if you're editing the Meson build files.
 
 VS Marketplace Link: https://marketplace.visualstudio.com/items?itemName=asabil.meson
 
-## Work in progress!
-
-We're still in the process of extracting the code from our proprietary build
-toolchain and making everything more open-source friendly.  Bear with us.
-
-* The test compiles and runs, but generates lots of spew that looks like bugs
-  but is actually normal.  We also don't have it working in any standard
-  framework.  It isn't really a narrowly targeted unit test, it is designed to
-  exercise almost all of the reliability, rate limiting, and serialization
-  layers, by connecting two peers and enabling some packet loss and reordering,
-  and then delivering a bunch of random-sized packets.  Exercising specific
-  patterns of packet misdelivery and checking the exact behaviour more strictly
-  would be great, since certain classes of bugs can just cause poor performance
-  or miscalculation of the rate, while still appearing to be "working."
-* We don't have a good, simple client/server example of how to use the code.
-  (The unit test is not a good example, please don't cut and paste it.)
-
-
 ## Roadmap
 Here are some areas we're actively working on improving.
 
