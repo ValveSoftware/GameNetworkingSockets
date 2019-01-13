@@ -191,6 +191,12 @@ STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_SetConnec
 	return ((ISteamNetworkingSockets*)instancePtr)->SetConnectionConfigurationValue( hConn, eConfigValue, nValue );
 }
 
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingMessage_t_Release( SteamNetworkingMessage_t *pMsg )
+{
+	pMsg->Release();
+}
+
+
 STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_ISteamNetworkingSockets_RunConnectionStatusChangedCallbacks( intptr_t instancePtr, FSteamNetConnectionStatusChangedCallback callback, intptr_t context )
 {
 	struct CallbackAdapter : ISteamNetworkingSocketsCallbacks
