@@ -243,10 +243,20 @@ void CSteamNetworkListenSocketDirectUDP::ReceivedFromUnknownHost( const void *pv
 	}
 }
 
-uint64 CSteamNetworkListenSocketDirectUDP::GenerateChallenge( uint16 nTime, uint32 nIP ) const
+uint64 CSteamNetworkListenSocketDirectUDP::GenerateChallenge( uint16 nTime, const netadr_t &adr ) const
 {
-	uint32 data[2] = { nTime, nIP };
-	uint64 nChallenge = siphash( (const uint8_t *)data, sizeof(data), m_argbChallengeSecret );
+	#pragma pack(push,1)
+	struct
+	{
+		uint16 nTime;
+		uint16 nPort;
+		uint8 ipv6[16];
+	} data;
+	#pragma pack(pop)
+	data.nTime = nTime;
+	data.nPort = adr.GetPort();
+	adr.GetIPV6( data.ipv6 );
+	uint64 nChallenge = siphash( (const uint8_t *)&data, sizeof(data), m_argbChallengeSecret );
 	return ( nChallenge & 0xffffffffffff0000ull ) | nTime;
 }
 
@@ -273,7 +283,7 @@ void CSteamNetworkListenSocketDirectUDP::Received_ChallengeRequest( const CMsgSt
 	uint16 nTime = GetChallengeTime( usecNow );
 
 	// Generate a challenge
-	uint64 nChallenge = GenerateChallenge( nTime, adrFrom.GetIP() );
+	uint64 nChallenge = GenerateChallenge( nTime, adrFrom );
 
 	// Send them a reply
 	CMsgSteamSockets_UDP_ChallengeReply msgReply;
@@ -298,7 +308,7 @@ void CSteamNetworkListenSocketDirectUDP::Received_ConnectRequest( const CMsgStea
 	}
 
 	// Assuming we sent them this time value, re-create the challenge we would have sent them.
-	if ( GenerateChallenge( nTimeThen, adrFrom.GetIP() ) != msg.challenge() )
+	if ( GenerateChallenge( nTimeThen, adrFrom ) != msg.challenge() )
 	{
 		ReportBadPacket( "ConnectRequest", "Incorrect challenge.  Could be spoofed." );
 		return;

@@ -35,7 +35,7 @@ private:
 	uint8_t m_argbChallengeSecret[ 16 ];
 
 	/// Generate a challenge
-	uint64 GenerateChallenge( uint16 nTime, uint32 nIP ) const;
+	uint64 GenerateChallenge( uint16 nTime, const netadr_t &adr ) const;
 
 	// Callback to handle a packet when it doesn't match
 	// any known address
