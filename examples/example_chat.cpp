@@ -43,7 +43,7 @@ SteamNetworkingMicroseconds g_logTimeZero;
 // down the thread that is reading from stdin.
 static void NukeProcess( int rc )
 {
-	#ifdef WINDOWS
+	#ifdef WIN32
 		ExitProcess( rc );
 	#else
 		kill( getpid(), SIGKILL );
