@@ -196,6 +196,116 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingMessage_t_Release(
 	pMsg->Release();
 }
 
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIPAddr_Clear( SteamNetworkingIPAddr *pThis )
+{
+	pThis->Clear();
+}
+
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIPAddr_IsIPv6AllZeros( const SteamNetworkingIPAddr *pThis )
+{
+	return pThis->IsIPv6AllZeros();
+}
+
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIPAddr_SetIPv6( SteamNetworkingIPAddr *pThis, const uint8 *ipv6, uint16 nPort )
+{
+	pThis->SetIPv6( ipv6, nPort );
+}
+
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIPAddr_SetIPv4( SteamNetworkingIPAddr *pThis, uint32 nIP, uint16 nPort )
+{
+	pThis->SetIPv4( nIP, nPort );
+}
+
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIPAddr_IsIPv4( const SteamNetworkingIPAddr *pThis )
+{
+	return pThis->IsIPv4();
+}
+
+STEAMNETWORKINGSOCKETS_INTERFACE uint32 SteamAPI_SteamNetworkingIPAddr_GetIPv4( const SteamNetworkingIPAddr *pThis )
+{
+	return pThis->GetIPv4();
+}
+
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIPAddr_SetIPv6LocalHost( SteamNetworkingIPAddr *pThis, uint16 nPort )
+{
+	pThis->SetIPv6LocalHost( nPort );
+}
+
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIPAddr_IsLocalHost( const SteamNetworkingIPAddr *pThis )
+{
+	return pThis->IsLocalHost();
+}
+
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIdentity_Clear( SteamNetworkingIdentity *pThis )
+{
+	pThis->Clear();
+}
+
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIdentity_IsInvalid( const SteamNetworkingIdentity *pThis )
+{
+	return pThis->IsInvalid();
+}
+
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIdentity_SetSteamID64( SteamNetworkingIdentity *pThis, uint64 steamID )
+{
+	pThis->SetSteamID64( steamID );
+}
+
+STEAMNETWORKINGSOCKETS_INTERFACE uint64 SteamAPI_SteamNetworkingIdentity_GetSteamID64( const SteamNetworkingIdentity *pThis )
+{
+	return pThis->GetSteamID64();
+}
+
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIdentity_SetIPAddr( SteamNetworkingIdentity *pThis, const SteamNetworkingIPAddr *pAddr )
+{
+	pThis->SetIPAddr( *pAddr );
+}
+
+STEAMNETWORKINGSOCKETS_INTERFACE const SteamNetworkingIPAddr *SteamAPI_SteamNetworkingIdentity_GetIPAddr( SteamNetworkingIdentity *pThis )
+{
+	return pThis->GetIPAddr();
+}
+
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIdentity_SetLocalHost( SteamNetworkingIdentity *pThis )
+{
+	pThis->SetLocalHost();
+}
+
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIdentity_IsLocalHost( const SteamNetworkingIdentity *pThis )
+{
+	return pThis->IsLocalHost();
+}
+
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIdentity_SetGenericString( SteamNetworkingIdentity *pThis, const char *pszString )
+{
+	return pThis->SetGenericString( pszString );
+}
+
+STEAMNETWORKINGSOCKETS_INTERFACE const char *SteamAPI_SteamNetworkingIdentity_GetGenericString( const SteamNetworkingIdentity *pThis )
+{
+	return pThis->GetGenericString();
+}
+
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIdentity_SetGenericBytes( SteamNetworkingIdentity *pThis, const void *data, size_t cbLen )
+{
+	return pThis->SetGenericBytes( data, cbLen );
+}
+
+STEAMNETWORKINGSOCKETS_INTERFACE const uint8 *SteamAPI_SteamNetworkingIdentity_GetGenericBytes( const SteamNetworkingIdentity *pThis, int *pOutLen )
+{
+	return pThis->GetGenericBytes( *pOutLen );
+}
+
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIdentity_EqualTo( const SteamNetworkingIdentity *a, const SteamNetworkingIdentity *b )
+{
+	return (*a == *b );
+}
+
+STEAMNETWORKINGSOCKETS_INTERFACE uint32 SteamAPI_SteamNetworkingIdentity_Hash( const SteamNetworkingIdentity *pThis )
+{
+	SteamNetworkingIdentity::Hash hash;
+	return hash( *pThis );
+}
 
 STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_ISteamNetworkingSockets_RunConnectionStatusChangedCallbacks( intptr_t instancePtr, FSteamNetConnectionStatusChangedCallback callback, intptr_t context )
 {

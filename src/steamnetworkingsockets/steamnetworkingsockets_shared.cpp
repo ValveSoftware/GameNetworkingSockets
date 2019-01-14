@@ -1587,23 +1587,23 @@ int SteamNetworkingDetailedConnectionStatus::Print( char *pszBuf, int cbBuf )
 //
 ///////////////////////////////////////////////////////////////////////////////
 
-STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingIPAddr_ToString( const SteamNetworkingIPAddr &addr, char *buf, size_t cbBuf, bool bWithPort )
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIPAddr_ToString( const SteamNetworkingIPAddr *pAddr, char *buf, size_t cbBuf, bool bWithPort )
 {
-	if ( addr.IsIPv4() )
+	if ( pAddr->IsIPv4() )
 	{
-		const uint8 *ip4 = addr.m_ipv4.m_ip;
+		const uint8 *ip4 = pAddr->m_ipv4.m_ip;
 		if ( bWithPort )
-			V_snprintf( buf, cbBuf, "%u.%u.%u.%u:%u", ip4[0], ip4[1], ip4[2], ip4[3], addr.m_port );
+			V_snprintf( buf, cbBuf, "%u.%u.%u.%u:%u", ip4[0], ip4[1], ip4[2], ip4[3], pAddr->m_port );
 		else
 			V_snprintf( buf, cbBuf, "%u.%u.%u.%u", ip4[0], ip4[1], ip4[2], ip4[3] );
 	}
 	else
 	{
 		char temp[ k_ncchMaxIPV6AddrStringWithoutPort ];
-		IPv6IPToString( temp, addr.m_ipv6 );
+		IPv6IPToString( temp, pAddr->m_ipv6 );
 		if ( bWithPort )
 		{
-			V_snprintf( buf, cbBuf, "[%s]:%u", temp, addr.m_port );
+			V_snprintf( buf, cbBuf, "[%s]:%u", temp, pAddr->m_port );
 		}
 		else
 		{
@@ -1612,7 +1612,7 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingIPAddr_ToString( const Stea
 	}
 }
 
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamNetworkingIPAddr_ParseString( SteamNetworkingIPAddr *pAddr, const char *pszStr )
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIPAddr_ParseString( SteamNetworkingIPAddr *pAddr, const char *pszStr )
 {
 	// IPv4?
 	{
@@ -1654,7 +1654,7 @@ STEAMNETWORKINGSOCKETS_INTERFACE bool SteamNetworkingIPAddr_ParseString( SteamNe
 	return true;
 }
 
-STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingIdentity_ToString( const SteamNetworkingIdentity &identity, char *buf, size_t cbBuf )
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIdentity_ToString( const SteamNetworkingIdentity &identity, char *buf, size_t cbBuf )
 {
 	switch ( identity.m_eType )
 	{
@@ -1698,13 +1698,13 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingIdentity_ToString( const St
 	}
 }
 
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamNetworkingIdentity_ParseString( SteamNetworkingIdentity *pIdentity, size_t sizeofIdentity, const char *pszStr )
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIdentity_ParseString( SteamNetworkingIdentity *pIdentity, size_t sizeofIdentity, const char *pszStr )
 {
 	AssertMsg( false, "FIXME!" );
 	return false;
 }
 
-STEAMNETWORKINGSOCKETS_INTERFACE uint32 SteamNetworking_Hash( const void *data, size_t len )
+STEAMNETWORKINGSOCKETS_INTERFACE uint32 SteamAPI_GenericHash( const void *data, size_t len )
 {
   // Murmorhash32
   uint32 h = 0;

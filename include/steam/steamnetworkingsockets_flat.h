@@ -64,6 +64,36 @@ STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_SetConnec
 
 STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingMessage_t_Release( SteamNetworkingMessage_t *pMsg );
 
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIPAddr_Clear( SteamNetworkingIPAddr *pThis );
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIPAddr_IsIPv6AllZeros( const SteamNetworkingIPAddr *pThis );
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIPAddr_SetIPv6( SteamNetworkingIPAddr *pThis, const uint8 *ipv6, uint16 nPort );
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIPAddr_SetIPv4( SteamNetworkingIPAddr *pThis, uint32 nIP, uint16 nPort );
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIPAddr_IsIPv4( const SteamNetworkingIPAddr *pThis );
+STEAMNETWORKINGSOCKETS_INTERFACE uint32 SteamAPI_SteamNetworkingIPAddr_GetIPv4( const SteamNetworkingIPAddr *pThis );
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIPAddr_SetIPv6LocalHost( SteamNetworkingIPAddr *pThis, uint16 nPort );
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIPAddr_IsLocalHost( const SteamNetworkingIPAddr *pThis );
+// Note: in steamnetworkingtypes.h:
+// SteamAPI_SteamNetworkingIPAddr_ToString
+// SteamAPI_SteamNetworkingIPAddr_ParseString
+
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIdentity_Clear( SteamNetworkingIdentity *pThis );
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIdentity_IsInvalid( const SteamNetworkingIdentity *pThis );
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIdentity_SetSteamID64( SteamNetworkingIdentity *pThis, uint64 steamID );
+STEAMNETWORKINGSOCKETS_INTERFACE uint64 SteamAPI_SteamNetworkingIdentity_GetSteamID64( const SteamNetworkingIdentity *pThis );
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIdentity_SetIPAddr( SteamNetworkingIdentity *pThis, const SteamNetworkingIPAddr *pAddr );
+STEAMNETWORKINGSOCKETS_INTERFACE const SteamNetworkingIPAddr *SteamAPI_SteamNetworkingIdentity_GetIPAddr( SteamNetworkingIdentity *pThis );
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIdentity_SetLocalHost( SteamNetworkingIdentity *pThis );
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIdentity_IsLocalHost( const SteamNetworkingIdentity *pThis );
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIdentity_SetGenericString( SteamNetworkingIdentity *pThis, const char *pszString );
+STEAMNETWORKINGSOCKETS_INTERFACE const char *SteamAPI_SteamNetworkingIdentity_GetGenericString( const SteamNetworkingIdentity *pThis );
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIdentity_SetGenericBytes( SteamNetworkingIdentity *pThis, const void *data, size_t cbLen );
+STEAMNETWORKINGSOCKETS_INTERFACE const uint8 *SteamAPI_SteamNetworkingIdentity_GetGenericBytes( const SteamNetworkingIdentity *pThis, int *pOutLen );
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIdentity_EqualTo( const SteamNetworkingIdentity *a, const SteamNetworkingIdentity *b );
+STEAMNETWORKINGSOCKETS_INTERFACE uint32 SteamAPI_SteamNetworkingIdentity_Hash( const SteamNetworkingIdentity *pThis );
+// Note: in steamnetworkingtypes.h
+// SteamAPI_SteamNetworkingIdentity_ToString
+// SteamAPI_SteamNetworkingIdentity_ParseString
+
 // Temporarily callback dispatch mechanism.  Eventually in Steamworks
 // this function won't exist, the callbacks will be dispatched through the
 // SteamAPI_RunCallbacks method, and this will only be used in the opensource

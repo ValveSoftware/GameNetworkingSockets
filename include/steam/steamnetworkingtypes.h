@@ -810,7 +810,7 @@ struct SteamNetworkingQuickConnectionStatus
 	///
 	/// plus or minus one MTU.  It depends on how much time has elapsed since the last
 	/// packet was put on the wire.  For example, the queue might have *just* been emptied,
-	/// and the last packet placed ont he wire, and we are exactly up against the send
+	/// and the last packet placed on the wire, and we are exactly up against the send
 	/// rate limit.  In that case we might need to wait for one packet's worth of time to
 	/// elapse before we can send again.  On the other extreme, the queue might have data
 	/// in it waiting for Nagle.  (This will always be less than one packet, because as soon
@@ -882,7 +882,7 @@ enum ESteamNetworkingConfigurationValue
 	/// is allowed to reach.  Default is 0 (no-limit)
 	k_ESteamNetworkingConfigurationValue_MinRate = 11,
 
-	/// Set the nagle timer.  When SendMessage is called, if the outgoing message 
+	/// Set the Nagle timer.  When SendMessage is called, if the outgoing message 
 	/// is less than the size of the MTU, it will be queued for a delay equal to 
 	/// the Nagle timer value.  This is to ensure that if the application sends
 	/// several small messages rapidly, they are coalesced into a single packet.
@@ -1014,11 +1014,11 @@ typedef void (*FSteamNetworkingSocketsDebugOutput)( /* ESteamNetworkingSocketsDe
 typedef SteamNetworkingMessage_t ISteamNetworkingMessage;
 typedef SteamNetworkingErrMsg SteamDatagramErrMsg;
 
-STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingIPAddr_ToString( const SteamNetworkingIPAddr &addr, char *buf, size_t cbBuf, bool bWithPort );
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamNetworkingIPAddr_ParseString( SteamNetworkingIPAddr *pAddr, const char *pszStr );
-STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingIdentity_ToString( const SteamNetworkingIdentity &identity, char *buf, size_t cbBuf );
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamNetworkingIdentity_ParseString( SteamNetworkingIdentity *pIdentity, size_t sizeofIdentity, const char *pszStr );
-STEAMNETWORKINGSOCKETS_INTERFACE uint32 SteamNetworking_Hash( const void *data, size_t len );
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIPAddr_ToString( const SteamNetworkingIPAddr *pAddr, char *buf, size_t cbBuf, bool bWithPort );
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIPAddr_ParseString( SteamNetworkingIPAddr *pAddr, const char *pszStr );
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIdentity_ToString( const SteamNetworkingIdentity &identity, char *buf, size_t cbBuf );
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIdentity_ParseString( SteamNetworkingIdentity *pIdentity, size_t sizeofIdentity, const char *pszStr );
+STEAMNETWORKINGSOCKETS_INTERFACE uint32 SteamAPI_GenericHash( const void *data, size_t len );
 
 inline void SteamNetworkingIPAddr::Clear() { memset( this, 0, sizeof(*this) ); }
 inline bool SteamNetworkingIPAddr::IsIPv6AllZeros() const { const uint64 *q = (const uint64 *)m_ipv6; return q[0] == 0 && q[1] == 0; }
@@ -1028,8 +1028,8 @@ inline bool SteamNetworkingIPAddr::IsIPv4() const { return m_ipv4.m_8zeros == 0 
 inline uint32 SteamNetworkingIPAddr::GetIPv4() const { return IsIPv4() ? ( (uint32(m_ipv4.m_ip[0])<<24) | (uint32(m_ipv4.m_ip[1])<<16) | (uint32(m_ipv4.m_ip[2])<<8) | uint32(m_ipv4.m_ip[3]) ) : 0; }
 inline void SteamNetworkingIPAddr::SetIPv6LocalHost( uint16 nPort ) { m_ipv4.m_8zeros = 0; m_ipv4.m_ffff = 0; m_ipv6[14] = 0; m_ipv6[15] = 1; m_port = nPort; }
 inline bool SteamNetworkingIPAddr::IsLocalHost() const { return ( m_ipv4.m_8zeros == 0 && m_ipv4.m_ffff == 0 && m_ipv6[14] == 0 && m_ipv6[15] == 1 ) || ( GetIPv4() == 0x7f000001 ); }
-inline void SteamNetworkingIPAddr::ToString( char *buf, size_t cbBuf, bool bWithPort ) const { SteamNetworkingIPAddr_ToString( *this, buf, cbBuf, bWithPort ); }
-inline bool SteamNetworkingIPAddr::ParseString( const char *pszStr ) { return SteamNetworkingIPAddr_ParseString( this, pszStr ); }
+inline void SteamNetworkingIPAddr::ToString( char *buf, size_t cbBuf, bool bWithPort ) const { SteamAPI_SteamNetworkingIPAddr_ToString( this, buf, cbBuf, bWithPort ); }
+inline bool SteamNetworkingIPAddr::ParseString( const char *pszStr ) { return SteamAPI_SteamNetworkingIPAddr_ParseString( this, pszStr ); }
 
 inline void SteamNetworkingIdentity::Clear() { memset( this, 0, sizeof(*this) ); }
 inline bool SteamNetworkingIdentity::IsInvalid() const { return m_eType == k_ESteamNetworkingIdentityType_Invalid; }
@@ -1049,8 +1049,8 @@ inline bool SteamNetworkingIdentity::SetGenericBytes( const void *data, size_t c
 inline const uint8 *SteamNetworkingIdentity::GetGenericBytes( int &cbLen ) const { if ( m_eType != k_ESteamNetworkingIdentityType_GenericBytes ) return nullptr;
 	cbLen = m_cbSize; return m_genericBytes; }
 inline bool SteamNetworkingIdentity::operator==(const SteamNetworkingIdentity &x ) const { return m_eType == x.m_eType && m_cbSize == x.m_cbSize && memcmp( m_genericBytes, x.m_genericBytes, m_cbSize ) == 0; }
-inline void SteamNetworkingIdentity::ToString( char *buf, size_t cbBuf ) const { SteamNetworkingIdentity_ToString( *this, buf, cbBuf ); }
-inline bool SteamNetworkingIdentity::ParseString( const char *pszStr ) { return SteamNetworkingIdentity_ParseString( this, sizeof(*this), pszStr ); }
-inline uint32 SteamNetworkingIdentity::Hash::operator()( const SteamNetworkingIdentity &x ) const { return SteamNetworking_Hash( &x, sizeof( x.m_eType ) + sizeof( x.m_cbSize ) + x.m_cbSize ); }
+inline void SteamNetworkingIdentity::ToString( char *buf, size_t cbBuf ) const { SteamAPI_SteamNetworkingIdentity_ToString( *this, buf, cbBuf ); }
+inline bool SteamNetworkingIdentity::ParseString( const char *pszStr ) { return SteamAPI_SteamNetworkingIdentity_ParseString( this, sizeof(*this), pszStr ); }
+inline uint32 SteamNetworkingIdentity::Hash::operator()( const SteamNetworkingIdentity &x ) const { return SteamAPI_GenericHash( &x, sizeof( x.m_eType ) + sizeof( x.m_cbSize ) + x.m_cbSize ); }
 
 #endif // #ifndef STEAMNETWORKINGTYPES
