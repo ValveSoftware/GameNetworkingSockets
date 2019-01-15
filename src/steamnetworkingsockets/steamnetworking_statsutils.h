@@ -57,7 +57,7 @@ const SteamNetworkingMicroseconds k_usecKeepAliveInterval = 10*k_nMillion;
 /// Track the rate that something is happening
 struct Rate_t
 {
-	Rate_t()  { memset( this, 0, sizeof(*this) ); }
+	void Reset() { memset( this, 0, sizeof(*this) ); }
 
 	int64	m_nTotal;
 	int64	m_nCurrentInterval;
