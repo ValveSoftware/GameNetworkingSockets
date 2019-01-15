@@ -36,7 +36,11 @@ void CCrypto::PerformKeyExchange( const CECKeyExchangePrivateKey &localPrivateKe
 	}
 
 	uint8 bufSharedSecret[32];
-	crypto_scalarmult_curve25519( bufSharedSecret, localPrivateKey.GetData() + 32, remotePublicKey.GetData() );
+	if (crypto_scalarmult_curve25519( bufSharedSecret, localPrivateKey.GetData() + 32, remotePublicKey.GetData() ) != 0)
+	{
+		// Fail securely - generate something that won't be the same on both sides!
+		GenerateRandomBlock( bufSharedSecret, 32 );
+	}
 	GenerateSHA256Digest( bufSharedSecret, sizeof(bufSharedSecret), pSharedSecretOut );
 	SecureZeroMemory( bufSharedSecret, 32 );
 }
