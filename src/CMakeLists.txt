@@ -220,4 +220,5 @@ gamenetworkingsockets_common(GameNetworkingSockets)
 
 add_library(GameNetworkingSockets_s STATIC "")
 add_library(GameNetworkingSockets::static ALIAS GameNetworkingSockets_s)
+target_compile_definitions(GameNetworkingSockets_s INTERFACE STEAMDATAGRAMLIB_STATIC_LINK)
 gamenetworkingsockets_common(GameNetworkingSockets_s)
