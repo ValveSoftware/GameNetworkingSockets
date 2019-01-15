@@ -30,12 +30,20 @@ flags_cxx = [
 warn_flags_common = [
   '-Wall',
   '-Wextra',
-  '-Wno-unknown-pragmas',
-  '-Wno-sign-compare',
+  '-Weverything',
+  '-pedantic',
+
+  # Explicitly disable noisy warnings
+  '-Wno-documentation',
   '-Wno-implicit-fallthrough',
-  '-Wno-unused-parameter',
-  '-Wno-unused-local-typedef',
+  '-Wno-padded',
+  '-Wno-sign-compare',
+  '-Wno-sign-conversion',
+  '-Wno-signed-enum-bitfield',
+  '-Wno-unknown-pragmas',
   '-Wno-unused-const-variable',
+  '-Wno-unused-local-typedef',
+  '-Wno-unused-parameter',
 ]
 
 warn_flags_c = [
@@ -44,9 +52,16 @@ warn_flags_c = [
 ]
 
 warn_flags_cxx = [
-  '-Wno-reorder',
+  '-Wno-c++98-compat',
+  '-Wno-c++98-compat-pedantic',
+  '-Wno-exit-time-destructors',
+  '-Wno-global-constructors',
   '-Wno-non-virtual-dtor',
-  #'-Wweak-vtables',
+  '-Wno-old-style-cast',
+  '-Wno-reorder',
+
+  # TODO: Known problem with some GNS classes for now.
+  '-Wno-class-memaccess',
 ]
 
 c_compiler = meson.get_compiler('c')
