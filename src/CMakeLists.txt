@@ -103,7 +103,7 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 		${Protobuf_INCLUDE_DIRS}
 	)
 
-	target_link_libraries(${GNS_TARGET} PRIVATE
+	target_link_libraries(${GNS_TARGET} PUBLIC
 		# protobuf::libprotobuf
 		${PROTOBUF_LIBRARIES}
 		OpenSSL::Crypto
@@ -159,13 +159,11 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 	endif()
 
 	if(CMAKE_SYSTEM_NAME MATCHES Linux)
-		target_compile_definitions(${GNS_TARGET} PRIVATE POSIX LINUX)
+		target_compile_definitions(${GNS_TARGET} PUBLIC POSIX LINUX)
 	elseif(CMAKE_SYSTEM_NAME MATCHES Darwin)
-		target_compile_definitions(${GNS_TARGET} PRIVATE POSIX OSX)
+		target_compile_definitions(${GNS_TARGET} PUBLIC POSIX OSX)
 	elseif(CMAKE_SYSTEM_NAME MATCHES Windows)
-		target_compile_definitions(${GNS_TARGET} PRIVATE
-			WIN32
-		)
+		target_compile_definitions(${GNS_TARGET} PUBLIC WIN32)
 		if(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
 			target_compile_definitions(${GNS_TARGET} PRIVATE
 				_CRT_SECURE_NO_WARNINGS
@@ -205,7 +203,7 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 
 	if(CMAKE_CXX_COMPILER_ID MATCHES "GNU"
 	OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-		target_compile_definitions(${GNS_TARGET} PRIVATE GNUC GNU_COMPILER)
+		target_compile_definitions(${GNS_TARGET} PUBLIC GNUC GNU_COMPILER)
 	endif()
 
 	set_target_properties(${GNS_TARGET} PROPERTIES
