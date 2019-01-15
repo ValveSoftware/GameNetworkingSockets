@@ -1,5 +1,7 @@
 cxx_compiler = meson.get_compiler('cpp')
 
+common_deps = [ dependency('threads') ]
+
 warn_flags_tests = [
   '-Wall',
   '-Wextra',
@@ -31,13 +33,13 @@ endforeach
 
 executable('test_connection',
   'test_connection.cpp',
-  dependencies: [ dependency('threads'), dep_GameNetworkingSockets_so ],
+  dependencies: common_deps + [ dep_GameNetworkingSockets_so ],
   cpp_args: cxx_flags
 )
 
 executable('test_crypto',
   'test_crypto.cpp',
-  dependencies: [ dependency('threads'), dep_GameNetworkingSockets_static ],
+  dependencies: common_deps + [ dep_GameNetworkingSockets_static ],
   cpp_args: cxx_flags,
   include_directories: include_directories('../src', '../src/public', '../src/common')
 )
