@@ -52,7 +52,7 @@ public:
 	explicit	netadr_t( const char *pch ) { memset(this, 0, sizeof(*this) ); SetFromString( pch ); }
 
 	/// Set to invalid address (NA_NULL)
-	void	Clear() { memset( this, 0, sizeof(*this) ); }
+	void	Clear() { memset((void *)this, 0, sizeof(*this)); }
 
 	/// Get address type
 	netadrtype_t GetType() const { return netadrtype_t( type ); }

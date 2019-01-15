@@ -59,9 +59,6 @@ warn_flags_cxx = [
   '-Wno-non-virtual-dtor',
   '-Wno-old-style-cast',
   '-Wno-reorder',
-
-  # TODO: Known problem with some GNS classes for now.
-  '-Wno-class-memaccess',
 ]
 
 c_compiler = meson.get_compiler('c')
