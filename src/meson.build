@@ -87,12 +87,17 @@ endif
 
 protobufs = protoc.process(protobuf_sources)
 
-static_library('GameNetworkingSockets',
+GameNetworkingSockets_static = static_library('GameNetworkingSockets',
   sources, protobufs,
   c_args: cpp_flags,
   cpp_args: cpp_flags,
   include_directories: incdirs,
   dependencies: dependencies)
+
+dep_GameNetworkingSockets_static = declare_dependency(
+  include_directories: include_directories( '../include' ),
+  compile_args: ['-DSTEAMDATAGRAMLIB_STATIC_LINK'],
+  link_with: GameNetworkingSockets_static )
 
 GameNetworkingSockets_so = library('GameNetworkingSockets',
   sources, protobufs,
@@ -100,7 +105,6 @@ GameNetworkingSockets_so = library('GameNetworkingSockets',
   cpp_args: cpp_flags,
   include_directories: incdirs,
   dependencies: dependencies)
-
 
 dep_GameNetworkingSockets_so = declare_dependency(
   include_directories: include_directories( '../include' ),
