@@ -10,8 +10,22 @@ protoc = generator(protoc_bin,
 use_libsodium = get_option('use_libsodium')
 
 dependencies += [
-  dependency('threads'),
   dependency('libcrypto'),
+]
+
+code = '''#include <openssl/evp.h>
+int main(int argc, char **argv) {
+  EVP_MD_CTX_free(NULL);
+  return 0;
+}
+'''
+result = c_compiler.links(code, dependencies: dependencies, name: 'OpenSSL version test')
+if not result
+  error('Your OpenSSL version appears to be too old. Check that you\'re using OpenSSL 1.1.0 or later.')
+endif
+
+dependencies += [
+  dependency('threads'),
   dependency('protobuf'),
 ]
 
