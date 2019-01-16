@@ -1,3 +1,7 @@
+if(LIGHT_TESTS)
+    add_compile_definitions(LIGHT_TESTS)
+endif()
+
 add_executable(
 	test_connection
 	test_connection.cpp)

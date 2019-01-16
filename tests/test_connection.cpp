@@ -542,6 +542,7 @@ static void RunSteamDatagramConnectionTest()
 	};
 
 	Test( 64000, 20, 100, 4, 50 );
+#ifndef LIGHT_TESTS
 	Test( 128000, 20, 100, 4, 40 );
 	Test( 500000, 20, 100, 4, 30 );
 	Test( 1000000, 20, 100, 4, 10 );
@@ -558,6 +559,7 @@ static void RunSteamDatagramConnectionTest()
 
 	Test( 64000, 5, 50, 2, 50 );
 	Test( 1000000, 5, 50, 2, 10 );
+#endif
 }
 
 int main(  )
