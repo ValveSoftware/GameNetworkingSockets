@@ -277,7 +277,11 @@ This extension comes in handy if you're editing the Meson build files.
 VS Marketplace Link: https://marketplace.visualstudio.com/items?itemName=asabil.meson
 
 ## Roadmap
-Here are some areas we're actively working on improving.
+the current focus is to get a stable release that matches the first release of
+this interface in the public Steamworks SDK.
+
+After that, here are some large features that we expect to add to a future
+release:
 
 ### Bandwidth estimation
 An earlier version of this code implemented TCP-friendly rate control (RFC
@@ -300,21 +304,6 @@ not have any support for piercing NAT or relaying packets.  But since the
 Steamworks code already has those concepts, it should be pretty easy to add
 support for this.  You'd still be responsible for running the STUN/TURN servers
 and doing the rendezvous/signalling, but the code could use them.
-
-### OpenSSL bloat
-Our use of OpenSSL is extremely limited; basically just AES encryption.  We use
-Ed25519 keys for signatures and key exchange and we do not support X.509
-certificates.  However, because the code is going through a wrapper layer that
-is part of Steam, we are linking in much more code than strictly necessary.
-And each time we encrypt and decrypt a packet, this wrapper layer is doing some
-work which could be avoided.
-
-A recent refactor made it possible to replace OpenSSL with libsodium, and we
-should be able to configure that to have much less waste.
-
-### Use of STL causing more dynamic memory allocations than necessary
-There are a few STL maps and such that could be significantly optimized by the
-use of custom data structures or allocators.
 
 ### Non-connection-oriented interface
 The Steam version has ISteamMessages, which is a UDP-like interface.  Messages
