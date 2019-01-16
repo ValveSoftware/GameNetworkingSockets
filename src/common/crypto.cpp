@@ -54,20 +54,9 @@ class EVPCTXPointer
 public:
 	CTXType ctx;
 
-	EVPCTXPointer()
-	{
-		this->ctx = NULL;
-	}
-
-	EVPCTXPointer(CTXType ctx)
-	{
-		this->ctx = ctx;
-	}
-
-	~EVPCTXPointer()
-	{
-		CleanupFunc(ctx);
-	}
+	EVPCTXPointer() { this->ctx = NULL; }
+	EVPCTXPointer(CTXType ctx) { this->ctx = ctx; }
+	~EVPCTXPointer() { CleanupFunc(ctx); }
 };
 
 static bool SymmetricEncryptHelper( const uint8 *pubPlaintextData, const uint32 cubPlaintextData_, 
