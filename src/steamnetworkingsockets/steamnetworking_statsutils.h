@@ -269,8 +269,39 @@ struct LinkStatsTrackerBase
 	//
 	// Incoming
 	//
-	int64 m_nLastRecvSequenceNumber;
+
+	/// Highest (valid!) packet number we have ever processed
+	int64 m_nMaxRecvPktNum;
+
+	/// Packet and data rate trackers for inbound flow
 	PacketRate_t m_recv;
+
+	/// Setup state to expect the next packet to be nPktNum+1,
+	/// and discard all packets <= nPktNum
+	void InitMaxRecvPktNum( int64 nPktNum );
+
+	/// Bitmask of recently received packets, used to reject duplicate packets.
+	/// (Important for preventing replay attacks.)
+	///
+	/// Let B be m_nMaxRecvPktNum & ~63.  (The largest multiple of 64
+	/// that is <= m_nMaxRecvPktNum.)   Then m_recvPktNumberMask[1] bit n
+	/// corresponds to B + n.  (Some of these bits may represent packet numbers
+	/// higher than m_nMaxRecvPktNum.)  m_recvPktNumberMask[0] bit n
+	/// corresponds to B - 64 + n.
+	uint64 m_recvPktNumberMask[2];
+
+	/// Called when we receive a packet with a sequence number.
+	/// This expands the wire packet number to its full value,
+	/// and checks if it is a duplicate or out of range.
+	/// Stats are also updated
+	int64 ExpandWirePacketNumberAndCheck( uint16 nWireSeqNum )
+	{
+		int16 nGap = (int16)( nWireSeqNum - (uint16)m_nMaxRecvPktNum );
+		int64 nPktNum = m_nMaxRecvPktNum + nGap;
+		if ( !BCheckPacketNumberOldOrDuplicate( nPktNum ) )
+			return 0;
+		return nPktNum;
+	}
 
 	/// Packets that we receive that exceed the rate limit.
 	/// (We might drop these, or we might just want to be interested in how often it happens.)
@@ -293,11 +324,11 @@ struct LinkStatsTrackerBase
 		m_usecWhenTimeoutStarted = 0;
 	}
 
-	/// Called when we receive a packet with a sequence number, to update estimated
-	/// number of dropped packets, etc.  Returns the full 64-bit sequence number
-	/// for the flow.
-	void TrackRecvSequencedPacket( uint16 unWireSequenceNumber, SteamNetworkingMicroseconds usecNow, int usecSenderTimeSincePrev );
-	void TrackRecvSequencedPacketGap( int16 nGap, SteamNetworkingMicroseconds usecNow, int usecSenderTimeSincePrev );
+	/// Called when we have processed a packet with a sequence number, to update estimated
+	/// number of dropped packets, etc.  This MUST only be called after we have
+	/// called ExpandWirePacketNumberAndCheck, to ensure that the packet number is not a
+	/// duplicate or out of range.
+	void TrackProcessSequencedPacket( int64 nPktNum, SteamNetworkingMicroseconds usecNow, int usecSenderTimeSincePrev );
 
 	//
 	// Instantaneous stats
@@ -560,6 +591,9 @@ private:
 	void UpdateInterval( SteamNetworkingMicroseconds usecNow );
 
 	void StartNextInterval( SteamNetworkingMicroseconds usecNow );
+
+	/// Do internal stats handling and checking on packet number
+	bool BCheckPacketNumberOldOrDuplicate( int64 nPktNum );
 };
 
 struct LinkStatsTrackerEndToEnd : public LinkStatsTrackerBase

@@ -205,7 +205,7 @@ void LinkStatsTrackerBase::InitInternal( SteamNetworkingMicroseconds usecNow )
 	m_ping.Reset();
 	m_nNextSendSequenceNumber = 1;
 	m_usecTimeLastSentSeq = 0;
-	m_nLastRecvSequenceNumber = 0;
+	InitMaxRecvPktNum( 0 );
 	m_flInPacketsDroppedPct = -1.0f;
 	m_usecMaxJitterPreviousInterval = -1;
 	m_flInPacketsWeirdSequencePct = -1.0f;
@@ -391,27 +391,94 @@ void LinkStatsTrackerBase::UpdateInterval( SteamNetworkingMicroseconds usecNow )
 	StartNextInterval( usecNow );
 }
 
-void LinkStatsTrackerBase::TrackRecvSequencedPacket( uint16 unWireSequenceNumber, SteamNetworkingMicroseconds usecNow, int usecSenderTimeSincePrev )
+void LinkStatsTrackerBase::InitMaxRecvPktNum( int64 nPktNum )
 {
-	int16 nGap = unWireSequenceNumber - uint16( m_nLastRecvSequenceNumber );
-	int64 nFullSequenceNumber = m_nLastRecvSequenceNumber + nGap;
-	Assert( uint16( nFullSequenceNumber ) == unWireSequenceNumber );
+	Assert( nPktNum >= 0 );
+	m_nMaxRecvPktNum = nPktNum;
 
-	TrackRecvSequencedPacketGap( nGap, usecNow, usecSenderTimeSincePrev );
+	// Set bits, to mark that all values <= this packet number have been
+	// received.
+	m_recvPktNumberMask[0] = ~(uint64)0;
+	unsigned nBitsToSet = (unsigned)( nPktNum & 63 ) + 1;
+	if ( nBitsToSet == 64 )
+		m_recvPktNumberMask[1] = ~(uint64)0;
+	else
+		m_recvPktNumberMask[1] = ( (uint64)1 << nBitsToSet ) - 1;
 }
 
-void LinkStatsTrackerBase::TrackRecvSequencedPacketGap( int16 nGap, SteamNetworkingMicroseconds usecNow, int usecSenderTimeSincePrev )
+bool LinkStatsTrackerBase::BCheckPacketNumberOldOrDuplicate( int64 nPktNum )
 {
-
+	// We've received a packet with a sequence number.
 	// Update stats
 	++m_nPktsRecvSequencedCurrentInterval;
 	++m_nPktsRecvSequenced;
 	++m_nPktsRecvSeqSinceSentLifetime;
 	++m_nPktsRecvSeqSinceSentInstantaneous;
 
+	// Packet number is increasing?
+	// (Maybe by a lot -- we don't handle that here.)
+	if ( nPktNum > m_nMaxRecvPktNum )
+		return true;
+
+	// Which block of 64-bit packets is it in?
+	int64 B = m_nMaxRecvPktNum & ~int64{63};
+	int64 idxRecvBitmask = ( ( nPktNum - B ) >> 6 ) + 1;
+	Assert( idxRecvBitmask < 2 );
+	if ( idxRecvBitmask < 0 )
+	{
+		// Too old (at least 64 packets old, maybe up to 128).
+		// Track stats, both lifetime and current interval
+		++m_nPktsRecvSequenceNumberLurch; // Should we track this under a different stat?
+		++m_nPktsRecvWeirdSequenceCurrentInterval;
+		return false;
+	}
+	uint64 bit = uint64{1} << ( nPktNum & 63 );
+	if ( m_recvPktNumberMask[ idxRecvBitmask ] & bit )
+	{
+		// Duplicate
+		// Track stats, both lifetime and current interval
+		++m_nPktsRecvDuplicate;
+		++m_nPktsRecvWeirdSequenceCurrentInterval;
+		return false;
+	}
+
+	// We have an out of order packet.  We'll update that
+	// stat in TrackProcessSequencedPacket
+	Assert( nPktNum > 0 && nPktNum < m_nMaxRecvPktNum );
+	return true;
+}
+
+void LinkStatsTrackerBase::TrackProcessSequencedPacket( int64 nPktNum, SteamNetworkingMicroseconds usecNow, int usecSenderTimeSincePrev )
+{
+	Assert( nPktNum > 0 );
+
+	// Update bitfield of received packets
+	int64 B = m_nMaxRecvPktNum & ~int64{63};
+	int64 idxRecvBitmask = ( ( nPktNum - B ) >> 6 ) + 1;
+	Assert( idxRecvBitmask >= 0 ); // We should have discarded very old packets already
+	if ( idxRecvBitmask >= 2 ) // Most common case is 0 or 1
+	{
+		if ( idxRecvBitmask == 2 )
+		{
+			// Crossed to the next 64-packet block.  Shift bitmasks forward by one.
+			m_recvPktNumberMask[0] = m_recvPktNumberMask[1];
+		}
+		else
+		{
+			// Large packet number jump, we skipped a whole block
+			m_recvPktNumberMask[0] = 0;
+		}
+		m_recvPktNumberMask[1] = 0;
+		idxRecvBitmask = 1;
+	}
+	uint64 bit = uint64{1} << ( nPktNum & 63 );
+	Assert( !( m_recvPktNumberMask[ idxRecvBitmask ] & bit ) ); // Should not have already been marked!  We should have already discarded duplicates
+	m_recvPktNumberMask[ idxRecvBitmask ] |= bit;
+
 	// Check for dropped packet.  Since we hope that by far the most common
 	// case will be packets delivered in order, we optimize this logic
 	// for that case.
+	int64 nGap = nPktNum - m_nMaxRecvPktNum;
 	if ( nGap == 1 )
 	{
 
@@ -450,7 +517,7 @@ void LinkStatsTrackerBase::TrackRecvSequencedPacketGap( int16 nGap, SteamNetwork
 	else
 	{
 		// Classify imperfection based on gap size.
-		if ( nGap < -10 || nGap >= 100 )
+		if ( nGap >= 100 )
 		{
 			// Very weird.
 			++m_nPktsRecvSequenceNumberLurch;
@@ -468,28 +535,31 @@ void LinkStatsTrackerBase::TrackRecvSequencedPacketGap( int16 nGap, SteamNetwork
 		}
 		else if ( nGap == 0 )
 		{
-			// Same sequence number as last time.
-			// Packet was delivered multiple times.
-			++m_nPktsRecvDuplicate;
-			++m_nPktsRecvWeirdSequenceCurrentInterval;
-
-			// NOTE: There is no mechanism in this layer
-			// of the code to prevent the processing of
-			// the duplicate by the application layer!
+			// We should have already rejected duplicates
+			Assert( false );
 		}
 		else
 		{
-			// Small negative gap.  Looks like packets were delivered
-			// out of order (or multiple times).
+			// Packet number moving in reverse.
+			// It should be a *small* negative step, e.g. packets delivered out of order.
+			// If the packet is really old, we should have already discarded it earlier.
+			Assert( nGap >= -8 * (int64)sizeof(m_recvPktNumberMask) );
 			++m_nPktsRecvOutOfOrder;
 			++m_nPktsRecvWeirdSequenceCurrentInterval;
+
+			// We previously counted this packet as dropped.  Undo that, it wasn't dropped.
+			Assert( m_nPktsRecvDropped > 0 );
+			--m_nPktsRecvDropped;
+			if ( m_nPktsRecvDroppedCurrentInterval > 0 ) // Might have marked it in the previous interval.  Our stats will be slightly off in this case.  Not worth it tro try to get this exactly right.
+				--m_nPktsRecvDroppedCurrentInterval;
+
 		}
 	}
 
 	// Save highest known sequence number for next time.
 	if ( nGap > 0 )
 	{
-		m_nLastRecvSequenceNumber += nGap;
+		m_nMaxRecvPktNum += nGap;
 		m_usecTimeLastRecvSeq = usecNow;
 	}
 }

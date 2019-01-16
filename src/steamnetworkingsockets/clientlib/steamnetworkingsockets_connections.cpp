@@ -560,26 +560,16 @@ void CSteamNetworkConnectionBase::ClearCrypto()
 	m_cryptIVRecv.Wipe();
 }
 
-bool CSteamNetworkConnectionBase::RecvNonDataSequencedPacket( uint16 nWireSeqNum, SteamNetworkingMicroseconds usecNow )
+bool CSteamNetworkConnectionBase::RecvNonDataSequencedPacket( int64 nPktNum, SteamNetworkingMicroseconds usecNow )
 {
-	// Get the full end-to-end packet number
-	int16 nGap = nWireSeqNum - uint16( m_statsEndToEnd.m_nLastRecvSequenceNumber );
-	int64 nFullSequenceNumber = m_statsEndToEnd.m_nLastRecvSequenceNumber + nGap;
-	Assert( uint16( nFullSequenceNumber ) == nWireSeqNum );
-
-	// Check the packet gap.  If it's too old, just discard it immediately.
-	if ( nGap < -16 )
-		return false;
-	if ( nFullSequenceNumber <= 0 ) // Sequence number 0 is not used, and we don't allow negative sequence numbers
-		return false;
 
 	// Let SNP know when we received it, so we can track loss events and send acks
-	if ( SNP_RecordReceivedPktNum( nFullSequenceNumber, usecNow ) )
+	if ( SNP_RecordReceivedPktNum( nPktNum, usecNow ) )
 	{
 
 		// And also the general purpose sequence number/stats tracker
 		// for the end-to-end flow.
-		m_statsEndToEnd.TrackRecvSequencedPacketGap( nGap, usecNow, 0 );
+		m_statsEndToEnd.TrackProcessSequencedPacket( nPktNum, usecNow, 0 );
 	}
 
 	return true;
@@ -1226,20 +1216,17 @@ int CSteamNetworkConnectionBase::APIReceiveMessages( SteamNetworkingMessage_t **
 	return m_queueRecvMessages.RemoveMessages( ppOutMessages, nMaxMessages );
 }
 
-int64 CSteamNetworkConnectionBase::DecryptDataChunk( uint16 nWireSeqNum, const void *pChunk, int cbChunk, void *pDecrypted, uint32 &cbDecrypted, SteamNetworkingMicroseconds usecNow )
+int64 CSteamNetworkConnectionBase::DecryptDataChunk( uint16 nWireSeqNum, int cbPacketSize, const void *pChunk, int cbChunk, void *pDecrypted, uint32 &cbDecrypted, SteamNetworkingMicroseconds usecNow )
 {
 	Assert( m_bCryptKeysValid );
 	Assert( cbDecrypted >= k_cbSteamNetworkingSocketsMaxPlaintextPayloadRecv );
 
-	// Get the full end-to-end packet number
-	int16 nGap = nWireSeqNum - uint16( m_statsEndToEnd.m_nLastRecvSequenceNumber );
-	int64 nFullSequenceNumber = m_statsEndToEnd.m_nLastRecvSequenceNumber + nGap;
-	Assert( uint16( nFullSequenceNumber ) == nWireSeqNum );
+	// Track flow, even if we end up discarding this
+	m_statsEndToEnd.TrackRecvPacket( cbPacketSize, usecNow );
 
-	// Check the packet gap.  If it's too old, just discard it immediately.
-	if ( nGap < -16 )
-		return 0;
-	if ( nFullSequenceNumber <= 0 ) // Sequence number 0 is not used, and we don't allow negative sequence numbers
+	// Get the full end-to-end packet number, check if we should process it
+	int64 nFullSequenceNumber = m_statsEndToEnd.ExpandWirePacketNumberAndCheck( nWireSeqNum );
+	if ( nFullSequenceNumber <= 0 )
 		return 0;
 
 	// Put full 64-bit packet number into the IV
@@ -1279,11 +1266,12 @@ int64 CSteamNetworkConnectionBase::DecryptDataChunk( uint16 nWireSeqNum, const v
 	// with a lower rate.  If the app is really trying to fill the pipe and blasting a large
 	// amount of data (and not forcing us to send small packets), then our code should be sending
 	// mostly full packets, which means that this is closer to a gap of around ~18MB.
+	int64 nGap = nFullSequenceNumber - m_statsEndToEnd.m_nMaxRecvPktNum;
 	if ( nGap > 0x4000 )
 	{
 		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_Generic,
-			"Pkt number lurch by %d; %04x->%04x",
-			nGap, (uint16)m_statsEndToEnd.m_nLastRecvSequenceNumber, nWireSeqNum);
+			"Pkt number lurch by %lld; %04x->%04x",
+			(long long)nGap, (uint16)m_statsEndToEnd.m_nMaxRecvPktNum, nWireSeqNum);
 		return 0;
 	}
 
@@ -1291,33 +1279,19 @@ int64 CSteamNetworkConnectionBase::DecryptDataChunk( uint16 nWireSeqNum, const v
 	return nFullSequenceNumber;
 }
 
-bool CSteamNetworkConnectionBase::RecvEncryptedDataChunk( uint16 nWireSeqNum, const void *pChunk, int cbChunk, int cbPacketSize, int usecTimeSinceLast, SteamNetworkingMicroseconds usecNow )
-{
-	uint8 arDecryptedChunk[ k_cbSteamNetworkingSocketsMaxPlaintextPayloadRecv ];
-	uint32 cbDecrypted = sizeof(arDecryptedChunk);
-	int64 nFullSequenceNumber = DecryptDataChunk( nWireSeqNum, pChunk, cbChunk, arDecryptedChunk, cbDecrypted, usecNow );
-	if ( nFullSequenceNumber <= 0 )
-		return false;
-
-	return ProcessPlainTextDataChunk( nFullSequenceNumber, arDecryptedChunk, cbDecrypted, cbPacketSize, usecTimeSinceLast, usecNow );
-}
-
-bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int64 nFullSequenceNumber, const void *pDecrypted, uint32 cbDecrypted, int cbPacketSize, int usecTimeSinceLast, SteamNetworkingMicroseconds usecNow )
+bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int64 nFullSequenceNumber, const void *pDecrypted, uint32 cbDecrypted, int usecTimeSinceLast, SteamNetworkingMicroseconds usecNow )
 {
 
 	// Pass on to reassembly/reliability layer.  It may instruct us to act like we never received this
 	// packet
-	if ( !SNP_RecvDataChunk( nFullSequenceNumber, pDecrypted, cbDecrypted, cbPacketSize, usecNow ) )
+	if ( !SNP_RecvDataChunk( nFullSequenceNumber, pDecrypted, cbDecrypted, usecNow ) )
 	{
 		SpewDebug( "[%s] discarding pkt %lld\n", GetDescription(), (long long)nFullSequenceNumber );
 		return false;
 	}
 
-	int16 nGap = int16( nFullSequenceNumber - m_statsEndToEnd.m_nLastRecvSequenceNumber );
-
 	// Packet is OK.  Track end-to-end flow.
-	m_statsEndToEnd.TrackRecvPacket( cbPacketSize, usecNow );
-	m_statsEndToEnd.TrackRecvSequencedPacketGap( nGap, usecNow, usecTimeSinceLast );
+	m_statsEndToEnd.TrackProcessSequencedPacket( nFullSequenceNumber, usecNow, usecTimeSinceLast );
 	return true;
 }
 
@@ -2105,15 +2079,19 @@ void CSteamNetworkConnectionPipe::FakeSendStats( SteamNetworkingMicroseconds use
 	if ( !m_pPartner )
 		return;
 
-	// Fake us sending a packet imediately
+	// Get the next packet number we would have sent
 	uint16 nSeqNum = m_statsEndToEnd.GetNextSendSequenceNumber( usecNow );
-	m_statsEndToEnd.TrackSentPacket( cbPktSize );
 
 	// And the peer receiving it immediately.  And assume every packet represents
 	// a ping measurement.
-	m_pPartner->m_statsEndToEnd.TrackRecvSequencedPacket( nSeqNum, usecNow, -1 );
+	int64 nPktNum = m_pPartner->m_statsEndToEnd.ExpandWirePacketNumberAndCheck( nSeqNum );
+	Assert( nPktNum == m_statsEndToEnd.m_nNextSendSequenceNumber );
+	m_pPartner->m_statsEndToEnd.TrackProcessSequencedPacket( nSeqNum, usecNow, -1 );
 	m_pPartner->m_statsEndToEnd.TrackRecvPacket( cbPktSize, usecNow );
 	m_pPartner->m_statsEndToEnd.m_ping.ReceivedPing( 0, usecNow );
+
+	// Fake sending stats
+	m_statsEndToEnd.TrackSentPacket( cbPktSize );
 }
 
 void CSteamNetworkConnectionPipe::SendEndToEndPing( bool bUrgent, SteamNetworkingMicroseconds usecNow )

@@ -1279,13 +1279,23 @@ void CSteamNetworkConnectionUDP::Received_Data( const uint8 *pPkt, int cbPkt, St
 		pIn += cbStatsMsgIn;
 	}
 
-	if ( RecvEncryptedDataChunk( nWirePktNumber, pIn, pPktEnd - pIn, cbPkt, 0, usecNow ) )
-	{
+	const void *pChunk = pIn;
+	int cbChunk = pPktEnd - pIn;
 
-		// Process the stats, if any
-		if ( pMsgStatsIn )
-			RecvStats( *pMsgStatsIn, true, usecNow );
-	}
+	// Decrypt it, and check packet number
+	uint8 arDecryptedChunk[ k_cbSteamNetworkingSocketsMaxPlaintextPayloadRecv ];
+	uint32 cbDecrypted = sizeof(arDecryptedChunk);
+	int64 nFullSequenceNumber = DecryptDataChunk( nWirePktNumber, cbPkt, pChunk, cbChunk, arDecryptedChunk, cbDecrypted, usecNow );
+	if ( nFullSequenceNumber <= 0 )
+		return;
+
+	// Process plaintext
+	if ( !ProcessPlainTextDataChunk( nFullSequenceNumber, arDecryptedChunk, cbDecrypted, 0, usecNow ) )
+		return;
+
+	// Process the stats, if any
+	if ( pMsgStatsIn )
+		RecvStats( *pMsgStatsIn, true, usecNow );
 }
 
 void CSteamNetworkConnectionUDP::Received_ChallengeReply( const CMsgSteamSockets_UDP_ChallengeReply &msg, SteamNetworkingMicroseconds usecNow )
