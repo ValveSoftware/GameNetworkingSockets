@@ -1,13 +1,21 @@
 common_deps = [ dep_threads ]
+cppflags = []
+
+light_tests= get_option('light_tests')
+if light_tests
+  cppflags += ['-DLIGHT_TESTS']
+endif
 
 executable('test_connection',
   'test_connection.cpp',
   dependencies: common_deps + [ dep_GameNetworkingSockets_so ],
+  cpp_args: cppflags,
 )
 
 executable('test_crypto',
   'test_crypto.cpp',
   dependencies: common_deps + [ dep_GameNetworkingSockets_static ],
+  cpp_args: cppflags,
   include_directories: include_directories('../src', '../src/public', '../src/common')
 )
 
