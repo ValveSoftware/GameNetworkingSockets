@@ -26,7 +26,7 @@ endif
 
 dependencies += [
   dep_threads,
-  dependency('protobuf', version: '>=3.4.0'),
+  dependency('protobuf', version: '>=3.0.0'),
 ]
 
 if use_libsodium
