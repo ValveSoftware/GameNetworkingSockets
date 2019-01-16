@@ -948,6 +948,16 @@ enum ESteamNetworkingConfigurationValue
 	/// Timeout value (in seconds) to use after connection is established
 	k_ESteamNetworkingConfigurationValue_Timeout_Seconds_Connected = 25,
 
+	/// Globally duplicate some percentage of packets we send
+	k_ESteamNetworkingConfigurationValue_FakePacketDup_Send = 26,
+
+	/// Globally duplicate some percentage of packets we receive
+	k_ESteamNetworkingConfigurationValue_FakePacketDup_Recv = 27,
+
+	/// Amount of delay, in ms, to delay duplicated packets.
+	/// (We chose a random delay between 0 and this value)
+	k_ESteamNetworkingConfigurationValue_FakePacketDup_TimeMax = 28,
+
 	/// Number of k_ESteamNetworkingConfigurationValue defines
 	k_ESteamNetworkingConfigurationValue_Count,
 };
