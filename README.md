@@ -69,6 +69,7 @@ properly or you see a security or performance issue, please let us know.
 
 * CMake or Meson, and build tool like Ninja, GNU Make or Visual Studio
 * OpenSSL
+* libsodium (optional, strongly recommended)
 * Google protobuf
 * ed25519-donna and curve25519-donna.  We've made some minor changes, so the
   source is included in this project.
@@ -104,6 +105,40 @@ OpenSSL binaries from these installers, which makes building a lot easier. Be
 sure to pick the installers **without** the "Light"suffix. In this instance,
 "Light" means no development libraries or headers.
 
+#### libsodium
+libsodium is an optional dependency, but strongly recommended for performance
+reasons. The curve25519/ed25519 sources in this repository are a slow
+reference implementation, but can act as a fallback if libsodium is
+unavailable for some reason. If you want to build *without* libsodium, just
+add `-DUSE_LIBSODIUM:BOOL=OFF` to your CMake arguments, or
+`-Duse_libsodium=false` if you're using Meson.
+
+If you're building on Linux or Mac, just install the appropriate packages from
+your package manager.
+
+Ubuntu/Debian:
+```
+# apt install libsodium-dev
+```
+
+Arch Linux:
+```
+# pacman -S libsodium
+```
+
+Mac OS X, using [Homebrew](https://brew.sh):
+```
+$ brew install libsodium
+$ export PKG_CONFIG_PATH=$PKG_CONFIG_PATH:/usr/local/lib/pkgconfig
+```
+
+For MSYS2, see the [MSYS2](#msys2) section. There are packages available in
+the MinGW repositories for i686 and x86_64.
+
+For Visual Studio, you can download the latest available libsodium SDK from
+the [libsodium releases page](https://github.com/jedisct1/libsodium/releases/latest).
+Look for the zip file ending in `-msvc.zip`. Extract the zip file to
+`C:\sdk\libsodium`.
 
 #### protobuf
 
@@ -172,17 +207,21 @@ You can also build this project on [MSYS2](https://www.msys2.org). First,
 follow the [instructions](https://github.com/msys2/msys2/wiki/MSYS2-installation) on the
 MSYS2 website for updating your MSYS2 install.
 
+**Be sure to follow the instructions at the site above to update MSYS2 before
+you continue. A fresh install is *not* up to date by default.**
+
 Next install the dependencies for building GameNetworkingSockets (if you want
 a 32-bit build, install the i686 versions of these packages):
 
 ```
 $ pacman -S \
     git \
-    mingw-w64-x86_64-protobuf \
+    mingw-w64-x86_64-gcc \
+    mingw-w64-x86_64-libsodium \
     mingw-w64-x86_64-meson \
     mingw-w64-x86_64-openssl \
-    mingw-w64-x86_64-gcc \
-    mingw-w64-x86_64-pkg-config
+    mingw-w64-x86_64-pkg-config \
+    mingw-w64-x86_64-protobuf
 ```
 
 And finally, clone the repository and build it:
@@ -212,7 +251,7 @@ C:\dev\GameNetworkingSockets> mkdir build
 C:\dev\GameNetworkingSockets> cd build
 C:\dev\GameNetworkingSockets\build> set PATH=%PATH%;C:\sdk\protobuf-amd64\bin
 C:\dev\GameNetworkingSockets\build> vcvarsall amd64
-C:\dev\GameNetworkingSockets\build> cmake -G Ninja ..
+C:\dev\GameNetworkingSockets\build> cmake -G Ninja -Dsodium_DIR=C:\sdk\libsodium ..
 C:\dev\GameNetworkingSockets\build> ninja
 ```
 
