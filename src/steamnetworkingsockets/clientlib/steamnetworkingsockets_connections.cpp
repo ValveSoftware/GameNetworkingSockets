@@ -1079,8 +1079,7 @@ void CSteamNetworkConnectionBase::PopulateConnectionInfo( SteamNetConnectionInfo
 {
 	info.m_eState = CollapseConnectionStateToAPIState( m_eConnectionState );
 	info.m_hListenSocket = m_pParentListenSocket ? m_pParentListenSocket->m_hListenSocketSelf : k_HSteamListenSocket_Invalid;
-	info.m_unIPRemote = m_netAdrRemote.GetIP();
-	info.m_unPortRemote = m_netAdrRemote.GetPort();
+	NetAdrToSteamNetworkingIPAddr( info.m_addrRemote, m_netAdrRemote );
 	info.m_idPOPRemote = 0;
 	info.m_idPOPRelay = 0;
 	info.m_identityRemote = m_identityRemote;

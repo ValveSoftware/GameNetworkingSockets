@@ -424,6 +424,12 @@ inline void SteamNetworkingIPAddrToNetAdr( netadr_t &netadr, const SteamNetworki
 	netadr.SetPort( addr.m_port );
 }
 
+inline void NetAdrToSteamNetworkingIPAddr( SteamNetworkingIPAddr &addr, const netadr_t &netadr )
+{
+	netadr.GetIPV6( addr.m_ipv6 );
+	addr.m_port = netadr.GetPort();
+}
+
 template <typename T>
 inline int64 NearestWithSameLowerBits( T nLowerBits, int64 nReference )
 {

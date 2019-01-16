@@ -714,9 +714,9 @@ struct SteamNetConnectionInfo_t
 	/// Handle to listen socket this was connected on, or k_HSteamListenSocket_Invalid if we initiated the connection
 	HSteamListenSocket m_hListenSocket;
 
-	/// Remote address.  Might be 0 if we don't know it
-	uint32 m_unIPRemote;
-	uint16 m_unPortRemote;
+	/// Remote address.  Might be all 0's if we don't know ir or if this N/A.
+	/// (E.g. Basically everything except direct UDP connection.)
+	SteamNetworkingIPAddr m_addrRemote;
 	uint16 m__pad1;
 
 	/// What data center is the remote host in?  (0 if we don't know.)
