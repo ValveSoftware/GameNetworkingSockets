@@ -158,7 +158,7 @@ struct SFakePeer
 		Printf( "%-10s:  %8d pending  %4d ping  %5.1f%% qual\n",
 			m_sName.c_str(), m_info.m_cbPendingReliable + m_info.m_cbPendingUnreliable, 
 			m_info.m_nPing, m_info.m_flConnectionQualityLocal*100.0f );
-		Printf( "%-10s reliable %5.1fKB out %5.1fKB in  msg: %6lld out %6lld in %4.0fms delay\n",
+		Printf( "%-10s reliable %9.1fKB out %9.1fKB in  msg: %6lld out %6lld in %4.0fms delay\n",
 			"", m_flSendReliableRate, m_flRecvReliableRate,
 			(long long)m_nReliableSendMsgCount, (long long)m_nReliableExpectedRecvMsg,
 			m_flReliableMsgDelay*1000.0f
@@ -440,12 +440,14 @@ static void TestNetworkConditions( int rate, int loss, int lag, int reorderPct, 
 					usecWhenStateEnd = g_usecTestElapsed + ( bQuiet ? usecQuietDuration : usecActiveDuration );
 					if ( nIterations-- <= 0 )
 						break;
+					Printf( "Entering active time (sending enabled)\n" );
 				}
 			}
 			else
 			{
 				bQuiet = true;
-				usecWhenStateEnd = g_usecTestElapsed + ( bQuiet ? usecQuietDuration : usecActiveDuration );
+				usecWhenStateEnd = g_usecTestElapsed + usecQuietDuration;
+				Printf( "Entering quiet time (no sending) to see how fast queues drain\n" );
 			}
 		}
 
@@ -539,6 +541,11 @@ static void RunSteamDatagramConnectionTest()
 		TestNetworkConditions( rate, loss, lag, reorderPct, reorderLag, false );
 	};
 
+	Test( 64000, 20, 100, 4, 50 );
+	Test( 128000, 20, 100, 4, 40 );
+	Test( 500000, 20, 100, 4, 30 );
+	Test( 1000000, 20, 100, 4, 10 );
+
 	Test( 64000, 0, 0, 0, 0 );
 	Test( 128000, 0, 0, 0, 0 );
 	Test( 256000, 0, 0, 0, 0 );
@@ -551,11 +558,6 @@ static void RunSteamDatagramConnectionTest()
 
 	Test( 64000, 5, 50, 2, 50 );
 	Test( 1000000, 5, 50, 2, 10 );
-
-	Test( 64000, 20, 100, 4, 50 );
-	Test( 128000, 20, 100, 4, 40 );
-	Test( 500000, 20, 100, 4, 30 );
-	Test( 1000000, 20, 100, 4, 10 );
 }
 
 int main(  )
