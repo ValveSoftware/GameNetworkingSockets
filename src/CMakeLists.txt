@@ -167,10 +167,6 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 	elseif(CMAKE_SYSTEM_NAME MATCHES Windows)
 		target_compile_definitions(${GNS_TARGET} PUBLIC WIN32)
 		if(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
-			target_compile_definitions(${GNS_TARGET} PRIVATE
-				_CRT_SECURE_NO_WARNINGS
-				_ITERATOR_DEBUG_LEVEL=0
-			)
 			if(NOT Protobuf_USE_STATIC_LIBS)
 				target_compile_definitions(${GNS_TARGET} PRIVATE
 					PROTOBUF_USE_DLLS)
