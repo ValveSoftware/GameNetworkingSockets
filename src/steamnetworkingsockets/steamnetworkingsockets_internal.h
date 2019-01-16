@@ -245,9 +245,6 @@ COMPILE_TIME_ASSERT( ( k_usecTimeSinceLastPacketMaxReasonable >> k_usecTimeSince
 const uint32 k_usecTimeSinceLastPacketMinReasonable = k_nMillion/250;
 COMPILE_TIME_ASSERT( ( k_usecTimeSinceLastPacketMinReasonable >> k_usecTimeSinceLastPacketSerializedPrecisionShift ) > 64 ); // make sure the minimum reasonable value can be serialized with sufficient precision.
 
-/// What universe are we running in?  Set at init time
-extern EUniverse g_eUniverse;
-
 /// Protocol version of this code
 const uint32 k_nCurrentProtocolVersion = 5;
 const uint32 k_nMinRequiredProtocolVersion = 5;

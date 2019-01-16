@@ -343,10 +343,10 @@ extern void ReallySpewType( ESteamNetworkingSocketsDebugOutputType eType, PRINTF
 #define SpewBugRateLimited( usecNow, ... ) SpewTypeRateLimited( usecNow, k_ESteamNetworkingSocketsDebugOutputType_Bug, __VA_ARGS__ )
 
 /// Make sure stuff is initialized
-extern bool BSteamNetworkingSocketsInitCommon( SteamDatagramErrMsg &errMsg );
+extern bool BSteamNetworkingSocketsLowLevelAddRef( SteamDatagramErrMsg &errMsg );
 
 /// Nuke common stuff
-extern void SteamNetworkingSocketsKillCommon();
+extern void SteamNetworkingSocketsLowLevelDecRef();
 
 /// Scope lock object used to synchronize access to internal data structures.  We use a global lock,
 /// even though in some cases it might not be necessary, to simplify the code, since in most cases

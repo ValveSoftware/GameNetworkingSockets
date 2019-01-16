@@ -103,6 +103,8 @@ static void SeedWeakRandomGenerator()
 static std::atomic<long long> s_usecTimeLastReturned;
 static std::atomic<long long> s_usecTimeOffset( (long long)( k_nMillion*24*3600*30 ) ); // Start with an offset so that a timestamp of zero is always pretty far in the past
 
+static int s_nLowLevelSupportRefCount = 0;
+
 /////////////////////////////////////////////////////////////////////////////
 //
 // Raw sockets
@@ -556,9 +558,13 @@ static SOCKET OpenUDPSocketBoundToSockAddr( const void *sockaddr, size_t len, St
 
 static CRawUDPSocketImpl *OpenRawUDPSocketInternal( CRecvPacketCallback callback, SteamDatagramErrMsg &errMsg, const SteamNetworkingIPAddr *pAddrLocal, int *pnAddressFamilies )
 {
-	// We're going to need a background thread running to poll this guy
-	if ( !BSteamNetworkingSocketsInitCommon( errMsg ) )
+	// Make sure have been initialized
+	if ( s_nLowLevelSupportRefCount <= 0 )
+	{
+		V_strcpy_safe( errMsg, "Internal order of operations bug.  Can't create socket, because low level systems not initialized" );
+		AssertMsg( false, errMsg );
 		return nullptr;
+	}
 
 	// Supply defaults
 	int nAddressFamilies = pnAddressFamilies ? *pnAddressFamilies : k_nAddressFamily_Auto;
@@ -1742,57 +1748,61 @@ static SpewRetval_t SDRSpewFunc( SpewType_t type, tchar const *pMsg )
 	return SPEW_CONTINUE;
 }
 
-static bool s_bSteamDatagramInitted = false;
-
-bool BSteamNetworkingSocketsInitCommon( SteamDatagramErrMsg &errMsg )
+bool BSteamNetworkingSocketsLowLevelAddRef( SteamDatagramErrMsg &errMsg )
 {
 	SteamDatagramTransportLock::AssertHeldByCurrentThread();
 
-	if ( s_bSteamDatagramInitted )
-		return true;
+	// First time init?
+	if ( s_nLowLevelSupportRefCount == 0 )
+	{
 
-	// Init sockets
-	#ifdef _WIN32
-		WSAData wsaData;
-		if ( ::WSAStartup( MAKEWORD(2, 2), &wsaData ) != 0 ) 
-		{
-			V_strcpy_safe( errMsg, "WSAStartup failed" );
-			return false;
-		}
-	#endif
+		// Init sockets
+		#ifdef _WIN32
+			WSAData wsaData;
+			if ( ::WSAStartup( MAKEWORD(2, 2), &wsaData ) != 0 ) 
+			{
+				V_strcpy_safe( errMsg, "WSAStartup failed" );
+				return false;
+			}
+		#endif
 
-	// Latch Steam codebase's logging system so we get spew and asserts
-	SpewOutputFunc( SDRSpewFunc );
+		// Latch Steam codebase's logging system so we get spew and asserts
+		SpewOutputFunc( SDRSpewFunc );
 
-	// Make sure random number generator is seeded
-	SeedWeakRandomGenerator();
+		// Make sure random number generator is seeded
+		SeedWeakRandomGenerator();
+	}
 
 	//extern void KludgePrintPublicKey();
 	//KludgePrintPublicKey();
 
-	s_bSteamDatagramInitted = true;
+	++s_nLowLevelSupportRefCount;
 
 	// Fire up the thread
 	if ( !BEnsureSteamDatagramThreadRunning( errMsg ) )
 	{
-		SteamNetworkingSocketsKillCommon();
+		SteamNetworkingSocketsLowLevelDecRef();
 		return false;
 	}
 
 	return true;
 }
 
-void SteamNetworkingSocketsKillCommon()
+void SteamNetworkingSocketsLowLevelDecRef()
 {
+	SteamDatagramTransportLock::AssertHeldByCurrentThread();
+	Assert( s_nLowLevelSupportRefCount > 0 );
+
+	// Last user is now done?
+	--s_nLowLevelSupportRefCount;
+	if ( s_nLowLevelSupportRefCount > 0 )
+		return;
+
 	// Shutdown the thread
 	StopSteamDatagramThread();
 
 	ProcessPendingDestroyClosedRawUDPSockets();
-	AssertMsg( s_vecRawSockets.IsEmpty(), "SteamDatagramKillCommon() called, but sockets left open!" );
-
-	if ( !s_bSteamDatagramInitted )
-		return;
-	s_bSteamDatagramInitted = false;
+	AssertMsg( s_vecRawSockets.IsEmpty(), "ProcessPendingDestroyClosedRawUDPSockets() called, but sockets left open!" );
 
 	// Nuke sockets
 	#ifdef _WIN32

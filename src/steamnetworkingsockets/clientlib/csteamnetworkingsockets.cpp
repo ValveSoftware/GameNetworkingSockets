@@ -179,22 +179,22 @@ HSteamListenSocket AddListenSocket( CSteamNetworkListenSocketBase *pSock )
 //
 /////////////////////////////////////////////////////////////////////////////
 
-int CSteamNetworkingSocketsBase::s_nSteamNetworkingSocketsInitted = 0;
+int CSteamNetworkingSockets::s_nSteamNetworkingSocketsInitted = 0;
 
-CSteamNetworkingSocketsBase::CSteamNetworkingSocketsBase()
-: m_bInittedSocketsCommon( false )
+CSteamNetworkingSockets::CSteamNetworkingSockets()
+: m_bHaveLowLevelRef( false )
 {}
 
 #ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
-bool CSteamNetworkingSocketsBase::BInitGameNetworkingSockets( const SteamNetworkingIdentity *pIdentity, SteamDatagramErrMsg &errMsg )
+bool CSteamNetworkingSockets::BInitGameNetworkingSockets( const SteamNetworkingIdentity *pIdentity, SteamDatagramErrMsg &errMsg )
 {
-	AssertMsg( !m_bInittedSocketsCommon, "Initted interface twice?" );
+	AssertMsg( !m_bHaveLowLevelRef, "Initted interface twice?" );
 
 	// Make sure low level socket support is ready
-	if ( !BSteamNetworkingSocketsInitCommon( errMsg) )
+	if ( !BSteamNetworkingSocketsLowLevelAddRef( errMsg ) )
 		return false;
+	m_bHaveLowLevelRef = true;
 
-	m_bInittedSocketsCommon = true;
 	++s_nSteamNetworkingSocketsInitted;
 
 	if ( pIdentity )
@@ -206,7 +206,7 @@ bool CSteamNetworkingSocketsBase::BInitGameNetworkingSockets( const SteamNetwork
 }
 #endif
 
-void CSteamNetworkingSocketsBase::KillConnections()
+void CSteamNetworkingSockets::KillConnections()
 {
 
 	// Destroy all of my connections
@@ -232,7 +232,7 @@ void CSteamNetworkingSocketsBase::KillConnections()
 	}
 }
 
-void CSteamNetworkingSocketsBase::KillBase()
+void CSteamNetworkingSockets::KillBase()
 {
 	KillConnections();
 
@@ -244,19 +244,14 @@ void CSteamNetworkingSocketsBase::KillBase()
 	m_keyPrivateKey.Wipe();
 
 	// Mark us as no longer being setup
-	if ( m_bInittedSocketsCommon )
+	if ( m_bHaveLowLevelRef )
 	{
-		m_bInittedSocketsCommon = false;
-
-		// Are we the last extant interface?  If so, then do global cleanup
-		Assert( s_nSteamNetworkingSocketsInitted > 0 );
-		--s_nSteamNetworkingSocketsInitted;
-		if ( s_nSteamNetworkingSocketsInitted <= 0 )
-			SteamNetworkingSocketsKillCommon();
+		m_bHaveLowLevelRef = false;
+		SteamNetworkingSocketsLowLevelDecRef();
 	}
 }
 
-bool CSteamNetworkingSocketsBase::BHasAnyConnections() const
+bool CSteamNetworkingSockets::BHasAnyConnections() const
 {
 	for ( const auto &item: g_mapConnections )
 	{
@@ -266,7 +261,7 @@ bool CSteamNetworkingSocketsBase::BHasAnyConnections() const
 	return false;
 }
 
-bool CSteamNetworkingSocketsBase::BHasAnyListenSockets() const
+bool CSteamNetworkingSockets::BHasAnyListenSockets() const
 {
 	for ( const auto &item: g_mapListenSockets )
 	{
@@ -276,7 +271,7 @@ bool CSteamNetworkingSocketsBase::BHasAnyListenSockets() const
 	return false;
 }
 
-bool CSteamNetworkingSocketsBase::GetIdentity( SteamNetworkingIdentity *pIdentity )
+bool CSteamNetworkingSockets::GetIdentity( SteamNetworkingIdentity *pIdentity )
 {
 	SteamDatagramTransportLock scopeLock;
 	InternalGetIdentity();
@@ -285,7 +280,7 @@ bool CSteamNetworkingSocketsBase::GetIdentity( SteamNetworkingIdentity *pIdentit
 	return !m_identity.IsInvalid();
 }
 
-HSteamListenSocket CSteamNetworkingSocketsBase::CreateListenSocketIP( const SteamNetworkingIPAddr &localAddr )
+HSteamListenSocket CSteamNetworkingSockets::CreateListenSocketIP( const SteamNetworkingIPAddr &localAddr )
 {
 	SteamDatagramTransportLock scopeLock;
 	SteamDatagramErrMsg errMsg;
@@ -302,7 +297,7 @@ HSteamListenSocket CSteamNetworkingSocketsBase::CreateListenSocketIP( const Stea
 		#endif
 	}
 
-	CSteamNetworkListenSocketDirectUDP *pSock = new CSteamNetworkListenSocketDirectUDP( static_cast<CSteamNetworkingSockets*>( this ) );
+	CSteamNetworkListenSocketDirectUDP *pSock = new CSteamNetworkListenSocketDirectUDP( this );
 	if ( !pSock )
 		return k_HSteamListenSocket_Invalid;
 	if ( !pSock->BInit( localAddr, errMsg ) )
@@ -315,10 +310,10 @@ HSteamListenSocket CSteamNetworkingSocketsBase::CreateListenSocketIP( const Stea
 	return AddListenSocket( pSock );
 }
 
-HSteamNetConnection CSteamNetworkingSocketsBase::ConnectByIPAddress( const SteamNetworkingIPAddr &address )
+HSteamNetConnection CSteamNetworkingSockets::ConnectByIPAddress( const SteamNetworkingIPAddr &address )
 {
 	SteamDatagramTransportLock scopeLock;
-	CSteamNetworkConnectionUDP *pConn = new CSteamNetworkConnectionUDP( static_cast<CSteamNetworkingSockets*>( this ) );
+	CSteamNetworkConnectionUDP *pConn = new CSteamNetworkConnectionUDP( this );
 	if ( !pConn )
 		return k_HSteamNetConnection_Invalid;
 	SteamDatagramErrMsg errMsg;
@@ -334,7 +329,7 @@ HSteamNetConnection CSteamNetworkingSocketsBase::ConnectByIPAddress( const Steam
 }
 
 
-EResult CSteamNetworkingSocketsBase::AcceptConnection( HSteamNetConnection hConn )
+EResult CSteamNetworkingSockets::AcceptConnection( HSteamNetConnection hConn )
 {
 	SteamDatagramTransportLock scopeLock;
 	CSteamNetworkConnectionBase *pConn = GetConnectionByHandle( hConn );
@@ -354,7 +349,7 @@ EResult CSteamNetworkingSocketsBase::AcceptConnection( HSteamNetConnection hConn
 	return pConn->APIAcceptConnection();
 }
 
-bool CSteamNetworkingSocketsBase::CloseConnection( HSteamNetConnection hConn, int nReason, const char *pszDebug, bool bEnableLinger )
+bool CSteamNetworkingSockets::CloseConnection( HSteamNetConnection hConn, int nReason, const char *pszDebug, bool bEnableLinger )
 {
 	SteamDatagramTransportLock scopeLock;
 	CSteamNetworkConnectionBase *pConn = GetConnectionByHandle( hConn );
@@ -366,7 +361,7 @@ bool CSteamNetworkingSocketsBase::CloseConnection( HSteamNetConnection hConn, in
 	return true;
 }
 
-bool CSteamNetworkingSocketsBase::CloseListenSocket( HSteamListenSocket hSocket )
+bool CSteamNetworkingSockets::CloseListenSocket( HSteamListenSocket hSocket )
 {
 	SteamDatagramTransportLock scopeLock;
 	CSteamNetworkListenSocketBase *pSock = GetListenSockedByHandle( hSocket );
@@ -385,7 +380,7 @@ bool CSteamNetworkingSocketsBase::CloseListenSocket( HSteamListenSocket hSocket 
 	return true;
 }
 
-bool CSteamNetworkingSocketsBase::SetConnectionUserData( HSteamNetConnection hPeer, int64 nUserData )
+bool CSteamNetworkingSockets::SetConnectionUserData( HSteamNetConnection hPeer, int64 nUserData )
 {
 	SteamDatagramTransportLock scopeLock;
 	CSteamNetworkConnectionBase *pConn = GetConnectionByHandle( hPeer );
@@ -395,7 +390,7 @@ bool CSteamNetworkingSocketsBase::SetConnectionUserData( HSteamNetConnection hPe
 	return true;
 }
 
-int64 CSteamNetworkingSocketsBase::GetConnectionUserData( HSteamNetConnection hPeer )
+int64 CSteamNetworkingSockets::GetConnectionUserData( HSteamNetConnection hPeer )
 {
 	SteamDatagramTransportLock scopeLock;
 	CSteamNetworkConnectionBase *pConn = GetConnectionByHandle( hPeer );
@@ -404,7 +399,7 @@ int64 CSteamNetworkingSocketsBase::GetConnectionUserData( HSteamNetConnection hP
 	return pConn->GetUserData();
 }
 
-void CSteamNetworkingSocketsBase::SetConnectionName( HSteamNetConnection hPeer, const char *pszName )
+void CSteamNetworkingSockets::SetConnectionName( HSteamNetConnection hPeer, const char *pszName )
 {
 	SteamDatagramTransportLock scopeLock;
 	CSteamNetworkConnectionBase *pConn = GetConnectionByHandle( hPeer );
@@ -413,7 +408,7 @@ void CSteamNetworkingSocketsBase::SetConnectionName( HSteamNetConnection hPeer, 
 	pConn->SetAppName( pszName );
 }
 
-bool CSteamNetworkingSocketsBase::GetConnectionName( HSteamNetConnection hPeer, char *pszName, int nMaxLen )
+bool CSteamNetworkingSockets::GetConnectionName( HSteamNetConnection hPeer, char *pszName, int nMaxLen )
 {
 	SteamDatagramTransportLock scopeLock;
 	CSteamNetworkConnectionBase *pConn = GetConnectionByHandle( hPeer );
@@ -423,7 +418,7 @@ bool CSteamNetworkingSocketsBase::GetConnectionName( HSteamNetConnection hPeer, 
 	return true;
 }
 
-EResult CSteamNetworkingSocketsBase::SendMessageToConnection( HSteamNetConnection hConn, const void *pData, uint32 cbData, ESteamNetworkingSendType eSendType )
+EResult CSteamNetworkingSockets::SendMessageToConnection( HSteamNetConnection hConn, const void *pData, uint32 cbData, ESteamNetworkingSendType eSendType )
 {
 	SteamDatagramTransportLock scopeLock;
 	CSteamNetworkConnectionBase *pConn = GetConnectionByHandle( hConn );
@@ -432,7 +427,7 @@ EResult CSteamNetworkingSocketsBase::SendMessageToConnection( HSteamNetConnectio
 	return pConn->APISendMessageToConnection( pData, cbData, eSendType );
 }
 
-EResult CSteamNetworkingSocketsBase::FlushMessagesOnConnection( HSteamNetConnection hConn )
+EResult CSteamNetworkingSockets::FlushMessagesOnConnection( HSteamNetConnection hConn )
 {
 	SteamDatagramTransportLock scopeLock;
 	CSteamNetworkConnectionBase *pConn = GetConnectionByHandle( hConn );
@@ -441,7 +436,7 @@ EResult CSteamNetworkingSocketsBase::FlushMessagesOnConnection( HSteamNetConnect
 	return pConn->APIFlushMessageOnConnection();
 }
 	
-int CSteamNetworkingSocketsBase::ReceiveMessagesOnConnection( HSteamNetConnection hConn, SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages )
+int CSteamNetworkingSockets::ReceiveMessagesOnConnection( HSteamNetConnection hConn, SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages )
 {
 	SteamDatagramTransportLock scopeLock;
 	CSteamNetworkConnectionBase *pConn = GetConnectionByHandle( hConn );
@@ -450,7 +445,7 @@ int CSteamNetworkingSocketsBase::ReceiveMessagesOnConnection( HSteamNetConnectio
 	return pConn->APIReceiveMessages( ppOutMessages, nMaxMessages );
 }
 
-int CSteamNetworkingSocketsBase::ReceiveMessagesOnListenSocket( HSteamListenSocket hSocket, SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages )
+int CSteamNetworkingSockets::ReceiveMessagesOnListenSocket( HSteamListenSocket hSocket, SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages )
 {
 	SteamDatagramTransportLock scopeLock;
 	CSteamNetworkListenSocketBase *pSock = GetListenSockedByHandle( hSocket );
@@ -459,7 +454,7 @@ int CSteamNetworkingSocketsBase::ReceiveMessagesOnListenSocket( HSteamListenSock
 	return pSock->APIReceiveMessages( ppOutMessages, nMaxMessages );
 }
 
-bool CSteamNetworkingSocketsBase::GetConnectionInfo( HSteamNetConnection hConn, SteamNetConnectionInfo_t *pInfo )
+bool CSteamNetworkingSockets::GetConnectionInfo( HSteamNetConnection hConn, SteamNetConnectionInfo_t *pInfo )
 {
 	SteamDatagramTransportLock scopeLock;
 	CSteamNetworkConnectionBase *pConn = GetConnectionByHandle( hConn );
@@ -470,7 +465,7 @@ bool CSteamNetworkingSocketsBase::GetConnectionInfo( HSteamNetConnection hConn, 
 	return true;
 }
 
-bool CSteamNetworkingSocketsBase::GetQuickConnectionStatus( HSteamNetConnection hConn, SteamNetworkingQuickConnectionStatus *pStats )
+bool CSteamNetworkingSockets::GetQuickConnectionStatus( HSteamNetConnection hConn, SteamNetworkingQuickConnectionStatus *pStats )
 {
 	SteamDatagramTransportLock scopeLock;
 	CSteamNetworkConnectionBase *pConn = GetConnectionByHandle( hConn );
@@ -481,7 +476,7 @@ bool CSteamNetworkingSocketsBase::GetQuickConnectionStatus( HSteamNetConnection 
 	return true;
 }
 
-int CSteamNetworkingSocketsBase::GetDetailedConnectionStatus( HSteamNetConnection hConn, char *pszBuf, int cbBuf )
+int CSteamNetworkingSockets::GetDetailedConnectionStatus( HSteamNetConnection hConn, char *pszBuf, int cbBuf )
 {
 	SteamNetworkingDetailedConnectionStatus stats;
 
@@ -504,7 +499,7 @@ int CSteamNetworkingSocketsBase::GetDetailedConnectionStatus( HSteamNetConnectio
 	return r;
 }
 
-bool CSteamNetworkingSocketsBase::GetListenSocketAddress( HSteamListenSocket hSocket, SteamNetworkingIPAddr *pAddress )
+bool CSteamNetworkingSockets::GetListenSocketAddress( HSteamListenSocket hSocket, SteamNetworkingIPAddr *pAddress )
 {
 	SteamDatagramTransportLock scopeLock;
 	CSteamNetworkListenSocketBase *pSock = GetListenSockedByHandle( hSocket );
@@ -513,7 +508,7 @@ bool CSteamNetworkingSocketsBase::GetListenSocketAddress( HSteamListenSocket hSo
 	return pSock->APIGetAddress( pAddress );
 }
 
-bool CSteamNetworkingSocketsBase::CreateSocketPair( HSteamNetConnection *pOutConnection1, HSteamNetConnection *pOutConnection2, bool bUseNetworkLoopback, const SteamNetworkingIdentity *pIdentity1, const SteamNetworkingIdentity *pIdentity2 )
+bool CSteamNetworkingSockets::CreateSocketPair( HSteamNetConnection *pOutConnection1, HSteamNetConnection *pOutConnection2, bool bUseNetworkLoopback, const SteamNetworkingIdentity *pIdentity1, const SteamNetworkingIdentity *pIdentity2 )
 {
 	SteamDatagramTransportLock scopeLock;
 
@@ -535,7 +530,7 @@ bool CSteamNetworkingSocketsBase::CreateSocketPair( HSteamNetConnection *pOutCon
 	{
 		// Create two connection objects
 		CSteamNetworkConnectionlocalhostLoopback *pConn[2];
-		if ( !CSteamNetworkConnectionlocalhostLoopback::APICreateSocketPair( static_cast<CSteamNetworkingSockets*>( this ), pConn, identity ) )
+		if ( !CSteamNetworkConnectionlocalhostLoopback::APICreateSocketPair( this, pConn, identity ) )
 			return false;
 
 		// Return their handles
@@ -546,7 +541,7 @@ bool CSteamNetworkingSocketsBase::CreateSocketPair( HSteamNetConnection *pOutCon
 	{
 		// Create two connection objects
 		CSteamNetworkConnectionPipe *pConn[2];
-		if ( !CSteamNetworkConnectionPipe::APICreateSocketPair( static_cast<CSteamNetworkingSockets*>( this ), pConn, identity ) )
+		if ( !CSteamNetworkConnectionPipe::APICreateSocketPair( this, pConn, identity ) )
 			return false;
 
 		// Return their handles
@@ -556,7 +551,7 @@ bool CSteamNetworkingSocketsBase::CreateSocketPair( HSteamNetConnection *pOutCon
 	return true;
 }
 
-bool CSteamNetworkingSocketsBase::BCertHasIdentity() const
+bool CSteamNetworkingSockets::BCertHasIdentity() const
 {
 	// We should actually have a cert, otherwise this question cannot be answered
 	Assert( m_msgSignedCert.has_cert() );
@@ -565,7 +560,7 @@ bool CSteamNetworkingSocketsBase::BCertHasIdentity() const
 }
 
 
-bool CSteamNetworkingSocketsBase::SetCertificate( const void *pCert, int cbCert, void *pPrivateKey, int cbPrivateKey, SteamDatagramErrMsg &errMsg )
+bool CSteamNetworkingSockets::SetCertificate( const void *pCert, int cbCert, void *pPrivateKey, int cbPrivateKey, SteamDatagramErrMsg &errMsg )
 {
 	m_msgCert.Clear();
 	m_msgSignedCert.Clear();
@@ -634,7 +629,7 @@ bool CSteamNetworkingSocketsBase::SetCertificate( const void *pCert, int cbCert,
 	return true;
 }
 
-bool CSteamNetworkingSocketsBase::GetConnectionDebugText( HSteamNetConnection hConn, char *pszOut, int nOutCCH )
+bool CSteamNetworkingSockets::GetConnectionDebugText( HSteamNetConnection hConn, char *pszOut, int nOutCCH )
 {
 	SteamDatagramTransportLock scopeLock;
 	CSteamNetworkConnectionBase *pConn = GetConnectionByHandle( hConn );
@@ -644,7 +639,7 @@ bool CSteamNetworkingSocketsBase::GetConnectionDebugText( HSteamNetConnection hC
 	return true;
 }
 
-int32 CSteamNetworkingSocketsBase::GetConfigurationValue( ESteamNetworkingConfigurationValue eConfigValue )
+int32 CSteamNetworkingSockets::GetConfigurationValue( ESteamNetworkingConfigurationValue eConfigValue )
 {
 	for ( int i = 0; i < V_ARRAYSIZE( sConfigurationValueEntryList ); ++i )
 	{
@@ -657,7 +652,7 @@ int32 CSteamNetworkingSocketsBase::GetConfigurationValue( ESteamNetworkingConfig
 	return -1;
 }
 
-bool CSteamNetworkingSocketsBase::SetConfigurationValue( ESteamNetworkingConfigurationValue eConfigValue, int32 nValue )
+bool CSteamNetworkingSockets::SetConfigurationValue( ESteamNetworkingConfigurationValue eConfigValue, int32 nValue )
 {
 	for ( int i = 0; i < V_ARRAYSIZE( sConfigurationValueEntryList ); ++i )
 	{
@@ -670,7 +665,7 @@ bool CSteamNetworkingSocketsBase::SetConfigurationValue( ESteamNetworkingConfigu
 	return false;
 }
 
-const char *CSteamNetworkingSocketsBase::GetConfigurationValueName( ESteamNetworkingConfigurationValue eConfigValue )
+const char *CSteamNetworkingSockets::GetConfigurationValueName( ESteamNetworkingConfigurationValue eConfigValue )
 {
 	for ( int i = 0; i < V_ARRAYSIZE( sConfigurationValueEntryList ); ++i )
 	{
@@ -680,7 +675,7 @@ const char *CSteamNetworkingSocketsBase::GetConfigurationValueName( ESteamNetwor
 	return nullptr;
 }
 
-int32 CSteamNetworkingSocketsBase::GetConfigurationString( ESteamNetworkingConfigurationString eConfigString, char *pDest, int32 destSize )
+int32 CSteamNetworkingSockets::GetConfigurationString( ESteamNetworkingConfigurationString eConfigString, char *pDest, int32 destSize )
 {
 	for ( int i = 0; i < V_ARRAYSIZE( sConfigurationStringEntryList ); ++i )
 	{
@@ -698,7 +693,7 @@ int32 CSteamNetworkingSocketsBase::GetConfigurationString( ESteamNetworkingConfi
 	return -1;
 }
 
-bool CSteamNetworkingSocketsBase::SetConfigurationString( ESteamNetworkingConfigurationString eConfigString, const char *pString )
+bool CSteamNetworkingSockets::SetConfigurationString( ESteamNetworkingConfigurationString eConfigString, const char *pString )
 {
 	for ( int i = 0; i < V_ARRAYSIZE( sConfigurationStringEntryList ); ++i )
 	{
@@ -711,7 +706,7 @@ bool CSteamNetworkingSocketsBase::SetConfigurationString( ESteamNetworkingConfig
 	return false;
 }
 
-const char *CSteamNetworkingSocketsBase::GetConfigurationStringName( ESteamNetworkingConfigurationString eConfigString )
+const char *CSteamNetworkingSockets::GetConfigurationStringName( ESteamNetworkingConfigurationString eConfigString )
 {
 	for ( int i = 0; i < V_ARRAYSIZE( sConfigurationStringEntryList ); ++i )
 	{
@@ -721,7 +716,7 @@ const char *CSteamNetworkingSocketsBase::GetConfigurationStringName( ESteamNetwo
 	return nullptr;
 }
 
-int32 CSteamNetworkingSocketsBase::GetConnectionConfigurationValue( HSteamNetConnection hConn, ESteamNetworkingConnectionConfigurationValue eConfigValue )
+int32 CSteamNetworkingSockets::GetConnectionConfigurationValue( HSteamNetConnection hConn, ESteamNetworkingConnectionConfigurationValue eConfigValue )
 {
 	SteamDatagramTransportLock scopeLock;
 	CSteamNetworkConnectionBase *pConn = GetConnectionByHandle( hConn );
@@ -739,7 +734,7 @@ int32 CSteamNetworkingSocketsBase::GetConnectionConfigurationValue( HSteamNetCon
 	return -1;
 }
 
-bool CSteamNetworkingSocketsBase::SetConnectionConfigurationValue( HSteamNetConnection hConn, ESteamNetworkingConnectionConfigurationValue eConfigValue, int32 nValue )
+bool CSteamNetworkingSockets::SetConnectionConfigurationValue( HSteamNetConnection hConn, ESteamNetworkingConnectionConfigurationValue eConfigValue, int32 nValue )
 {
 	SteamDatagramTransportLock scopeLock;
 	CSteamNetworkConnectionBase *pConn = GetConnectionByHandle( hConn );
@@ -761,7 +756,7 @@ bool CSteamNetworkingSocketsBase::SetConnectionConfigurationValue( HSteamNetConn
 }
 
 #ifdef STEAMNETWORKINGSOCKETS_STANDALONELIB
-void CSteamNetworkingSocketsBase::RunCallbacks( ISteamNetworkingSocketsCallbacks *pCallbacks )
+void CSteamNetworkingSockets::RunCallbacks( ISteamNetworkingSocketsCallbacks *pCallbacks )
 {
 	// !KLUDGE! If in special debug mode, do work now
 	if ( g_bThreadInMainThread )
@@ -805,7 +800,7 @@ void CSteamNetworkingSocketsBase::RunCallbacks( ISteamNetworkingSocketsCallbacks
 	}
 }
 
-void CSteamNetworkingSocketsBase::InternalQueueCallback( int nCallback, int cbCallback, const void *pvCallback )
+void CSteamNetworkingSockets::InternalQueueCallback( int nCallback, int cbCallback, const void *pvCallback )
 {
 	SteamDatagramTransportLock::AssertHeldByCurrentThread();
 
@@ -819,6 +814,11 @@ void CSteamNetworkingSocketsBase::InternalQueueCallback( int nCallback, int cbCa
 	QueuedCallback &q = *push_back_get_ptr( m_vecPendingCallbacks );
 	q.nCallback = nCallback;
 	memcpy( q.data, pvCallback, cbCallback );
+}
+#else
+void CSteamNetworkingSockets::InternalQueueCallback( int nCallback, int cbCallback, const void *pvCallback )
+{
+	AssertMsg( false, "Should never be used" );
 }
 #endif
 

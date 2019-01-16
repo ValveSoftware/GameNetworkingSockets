@@ -4,7 +4,14 @@
 #define CSTEAMNETWORKINGSOCKETS_H
 #pragma once
 
-#include "iclientnetworkingsockets.h"
+#include <steam/steamnetworkingsockets.h>
+
+#ifdef STEAMNETWORKINGSOCKETS_STEAM
+	#include <common/steam/iclientnetworkingsockets.h>
+#else
+	typedef ISteamNetworkingSockets IClientNetworkingSockets;
+#endif
+
 #include "steamnetworkingsockets_connections.h"
 
 namespace SteamNetworkingSocketsLib {
@@ -15,12 +22,12 @@ namespace SteamNetworkingSocketsLib {
 //
 /////////////////////////////////////////////////////////////////////////////
 
-class CSteamNetworkingSocketsBase : public IClientNetworkingSockets
+class CSteamNetworkingSockets : public IClientNetworkingSockets
 {
 public:
-	CSteamNetworkingSocketsBase();
+	CSteamNetworkingSockets();
 
-	bool m_bInittedSocketsCommon;
+	bool m_bHaveLowLevelRef;
 	AppId_t m_nAppID;
 
 	CMsgSteamDatagramCertificateSigned m_msgSignedCert;
@@ -31,7 +38,7 @@ public:
 
 	bool BHasAnyConnections() const;
 	bool BHasAnyListenSockets() const;
-	bool BInitted() const { return m_bInittedSocketsCommon; }
+	bool BInitted() const { return m_bHaveLowLevelRef; }
 
 #ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
 	bool BInitGameNetworkingSockets( const SteamNetworkingIdentity *pIdentity, SteamDatagramErrMsg &errMsg );
@@ -98,7 +105,7 @@ protected:
 
 	SteamNetworkingIdentity m_identity;
 
-	void InternalQueueCallback( int nCallback, int cbCallback, const void *pvCallback );
+	virtual void InternalQueueCallback( int nCallback, int cbCallback, const void *pvCallback );
 #ifdef STEAMNETWORKINGSOCKETS_STANDALONELIB
 	struct QueuedCallback
 	{
@@ -110,16 +117,5 @@ protected:
 };
 
 } // namespace SteamNetworkingSocketsLib
-
-// Include the header to define the concrete subclass we will use
-#if defined( STEAMNETWORKINGSOCKETS_OPENSOURCE)
-	// ???
-	// #include "csteamnetworkingsockets_opensource.h"
-    namespace SteamNetworkingSocketsLib {
-        class CSteamNetworkingSockets : public CSteamNetworkingSocketsBase {};
-    }
-#else
-	#include "csteamnetworkingsockets_steam.h"
-#endif
 
 #endif // CSTEAMNETWORKINGSOCKETS_H

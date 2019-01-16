@@ -10,9 +10,6 @@
 
 using namespace SteamNetworkingSocketsLib;
 
-/// What universe are we running in?
-EUniverse SteamNetworkingSocketsLib::g_eUniverse = k_EUniverseInvalid;
-
 ///////////////////////////////////////////////////////////////////////////////
 //
 // LinkStatsTracker

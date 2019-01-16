@@ -8,7 +8,8 @@
 #include "csteamnetworkingsockets.h"
 #include "crypto.h"
 #ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
-#include <steam/steam_gameserver.h>
+	#include <steam/steam_gameserver.h>
+	#include "csteamnetworkingsockets_steam.h"
 #endif
 
 #include "steamnetworkingconfig.h"
@@ -867,9 +868,10 @@ bool CSteamNetworkConnectionBase::BRecvCryptoHandshake( const CMsgSteamDatagramC
 
 		long rtNow = time( nullptr );
 		#ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
-		if ( m_pSteamNetworkingSocketsInterface->m_pSteamUtils )
+		auto *pSteamNetworkingSocketsSteamBase = assert_cast<CSteamNetworkingSocketsSteamBase *>( m_pSteamNetworkingSocketsInterface );
+		if ( pSteamNetworkingSocketsSteamBase->m_pSteamUtils )
 		{
-			rtNow = m_pSteamNetworkingSocketsInterface->m_pSteamUtils->GetServerRealTime();
+			rtNow = pSteamNetworkingSocketsSteamBase->m_pSteamUtils->GetServerRealTime();
 		}
 		else
 		{
