@@ -7,6 +7,18 @@ find_package(Threads REQUIRED)
 
 include(CheckCCompilerFlag)
 include(CheckCXXCompilerFlag)
+include(CheckSymbolExists)
+include(CMakePushCheckState)
+
+# Ensure the OpenSSL version is recent enough. We need a bunch of EVP
+# functionality.
+cmake_push_check_state()
+set(CMAKE_REQUIRED_LIBRARIES OpenSSL::Crypto)
+check_symbol_exists(EVP_MD_CTX_free openssl/evp.h OPENSSL_NEW_ENOUGH)
+if (NOT OPENSSL_NEW_ENOUGH)
+	message(FATAL_ERROR "Your OpenSSL version appears to be too old. Check that you're using OpenSSL 1.1.0 or later.")
+endif()
+cmake_pop_check_state()
 
 set(GNS_PROTOS
 	"common/steamnetworkingsockets_messages_certs.proto"
