@@ -126,8 +126,10 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 	)
 
 	if(USE_LIBSODIUM)
-		target_compile_definitions(${GNS_TARGET} PRIVATE
-			USE_LIBSODIUM)
+		target_compile_definitions(${GNS_TARGET} PRIVATE USE_LIBSODIUM)
+		if(sodium_USE_STATIC_LIBS)
+			target_compile_definitions(${GNS_TARGET} PRIVATE SODIUM_STATIC)
+		endif()
 	endif()
 
 	## Needs CMake 3.8, then we could get rid of the workaround below it.
