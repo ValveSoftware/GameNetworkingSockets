@@ -594,6 +594,7 @@ void TestSymmetricCryptoPerf()
 	usecStart = Plat_USTime();
 	SymmetricEncryptRepeatedly( k_cIterations, rgubData, k_cubPktBig, rgubIV, k_nSymmetricBlockSize, rgubKey, V_ARRAYSIZE( rgubKey ) );
 	int cMicroSecPerEncryptBig = Plat_USTime() - usecStart;
+	double dRateLargeEncrypt = double( k_cubPktBig ) * k_cIterations / cMicroSecPerEncryptBig;
 
 	// try a bunch of iterations decrypting small packets
 	uint cubEncrypted = V_ARRAYSIZE( rgubEncrypted );
@@ -616,11 +617,14 @@ void TestSymmetricCryptoPerf()
 	usecStart = Plat_USTime();
 	SymmetricDecryptRepeatedly( k_cIterations, rgubEncrypted, cubEncrypted, rgubIV, k_nSymmetricBlockSize, rgubKey, V_ARRAYSIZE( rgubKey ) );
 	int cMicroSecPerDecryptBig = Plat_USTime() - usecStart;
+	double dRateLargeDecrypt = double( k_cubPktBig ) * k_cIterations / cMicroSecPerDecryptBig;
 
 	printf( "\tSymmetric encrypt (small):\t\t%d microsec (%d iterations)\n", cMicroSecPerEncryptSmall, k_cIterations );
 	printf( "\tSymmetric encrypt (big):\t\t%d microsec (%d iterations)\n", cMicroSecPerEncryptBig, k_cIterations );
+	printf( "\tSymmetric encrypt (big):\t\t%f MB/sec (%d iterations)\n", dRateLargeEncrypt, k_cIterations );
 	printf( "\tSymmetric decrypt (small):\t\t%d microsec (%d iterations)\n", cMicroSecPerDecryptSmall, k_cIterations );
 	printf( "\tSymmetric decrypt (big):\t\t%d microsec (%d iterations)\n", cMicroSecPerDecryptBig, k_cIterations );
+	printf( "\tSymmetric decrypt (big):\t\t%f MB/sec (%d iterations)\n", dRateLargeDecrypt, k_cIterations );
 }
 
 int main()
