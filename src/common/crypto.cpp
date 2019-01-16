@@ -30,8 +30,6 @@
 
 #include "opensslwrapper.h"
 
-typedef const EVP_CIPHER *(*EVP_cipherdef_t)(void);
-
 void OneTimeCryptoInitOpenSSL()
 {
 	static bool once;
@@ -91,16 +89,16 @@ static bool SymmetricEncryptHelper( const uint8 *pubPlaintextData, const uint32 
 	if (!ctx.ctx)
 		return false;
 
-	EVP_cipherdef_t cipher = NULL;
+	const EVP_CIPHER *cipher = NULL;
 	switch(cubKey * 8) {
-		case 128: cipher = EVP_aes_128_cbc; break;
-		case 256: cipher = EVP_aes_256_cbc; break;
+		case 128: cipher = EVP_aes_128_cbc(); break;
+		case 256: cipher = EVP_aes_256_cbc(); break;
 	}
 
 	if (!cipher)
 		return false;
 
-	if (EVP_EncryptInit_ex(ctx.ctx, cipher(), NULL, pubKey, pIV) != 1)
+	if (EVP_EncryptInit_ex(ctx.ctx, cipher, NULL, pubKey, pIV) != 1)
 		return false;
 
 	int ciphertext_len, len;
@@ -168,16 +166,16 @@ static bool BDecryptAESUsingOpenSSL( const uint8 *pubEncryptedData,
 	if (!ctx.ctx)
 		return false;
 
-	EVP_cipherdef_t cipher = NULL;
+	const EVP_CIPHER *cipher = NULL;
 	switch(cubKey * 8) {
-		case 128: cipher = EVP_aes_128_cbc; break;
-		case 256: cipher = EVP_aes_256_cbc; break;
+		case 128: cipher = EVP_aes_128_cbc(); break;
+		case 256: cipher = EVP_aes_256_cbc(); break;
 	}
 
 	if (!cipher)
 		return false;
 
-	if (EVP_DecryptInit_ex(ctx.ctx, cipher(), NULL, pubKey, pIV) != 1)
+	if (EVP_DecryptInit_ex(ctx.ctx, cipher, NULL, pubKey, pIV) != 1)
 		return false;
 
 	int plaintext_len, len;
