@@ -62,6 +62,10 @@ SDT_EXTERNAL int32 steamdatagram_fakepacketreorder_send SDT_DEFAULT( 0 ); // 0-1
 SDT_EXTERNAL int32 steamdatagram_fakepacketreorder_recv SDT_DEFAULT( 0 ); // 0-100 Randomly redorder N pct of packets received
 SDT_EXTERNAL int32 steamdatagram_fakepacketreorder_time SDT_DEFAULT( 15 ); // How many ms to delay reordered packets.
 
+SDT_EXTERNAL int32 steamdatagram_fakepacketdup_send SDT_DEFAULT( 0 ); // 0-100 Randomly duplicate N pct of packets sent
+SDT_EXTERNAL int32 steamdatagram_fakepacketdup_recv SDT_DEFAULT( 0 ); // 0-100 Randomly duplicate N pct of packets received
+SDT_EXTERNAL int32 steamdatagram_fakepacketdup_timemax SDT_DEFAULT( 5 ); // Max delay of duplicated packets.
+
 SDT_EXTERNAL int32 steamdatagram_snp_send_buffer_size SDT_DEFAULT( 524288 ); // Upper limit of buffered pending bytes to be sent
 SDT_EXTERNAL int32 steamdatagram_snp_max_rate SDT_DEFAULT( 1000000 ); // Maximum send rate clamp, 0 is no limit
 SDT_EXTERNAL int32 steamdatagram_snp_min_rate SDT_DEFAULT( 128000 ); // Mininum send rate clamp, 0 is no limit

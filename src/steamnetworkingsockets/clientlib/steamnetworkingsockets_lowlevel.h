@@ -58,11 +58,12 @@ class IRawUDPSocket
 public:
 	/// A thin wrapper around ::sendto
 	///
-	/// Packets sent through this method are subject to fake loss (steamdatagram_fakepacketloss_send)
-	/// and fake lag (steamdatagram_fakepacketlag_send)
+	/// Packets sent through this method are subject to fake loss (steamdatagram_fakepacketloss_send),
+	/// lag (steamdatagram_fakepacketlag_send and steamdatagram_fakepacketreorder_send), and
+	/// duplication (steamdatagram_fakepacketdup_send)
 	bool BSendRawPacket( const void *pPkt, int cbPkt, const netadr_t &adrTo ) const;
 
-	/// Gather-based send
+	/// Gather-based send.  Simulated lag, loss, etc are applied
 	bool BSendRawPacketGather( int nChunks, const iovec *pChunks, const netadr_t &adrTo ) const;
 
 	/// Logically close the socket.  This might not actually close the socket IMMEDIATELY,
@@ -78,7 +79,7 @@ protected:
 	~IRawUDPSocket();
 };
 
-const int k_nAddressFamily_Auto = -1; // Wil try to use IPv6 dual stack if possible.  Falls back to IPv4 if necessary (and possible for your requested bind address)
+const int k_nAddressFamily_Auto = -1; // Will try to use IPv6 dual stack if possible.  Falls back to IPv4 if necessary (and possible for your requested bind address)
 const int k_nAddressFamily_IPv4 = 1;
 const int k_nAddressFamily_IPv6 = 2;
 const int k_nAddressFamily_DualStack = k_nAddressFamily_IPv4|k_nAddressFamily_IPv6;

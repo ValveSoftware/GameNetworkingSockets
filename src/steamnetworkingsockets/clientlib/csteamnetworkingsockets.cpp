@@ -46,7 +46,9 @@ static SConfigurationValueEntry sConfigurationValueEntryList[] =
 	{ k_ESteamNetworkingConfigurationValue_FakePacketReorder_Send,                     "FakePacketReorder_Send",                     &steamdatagram_fakepacketreorder_send },
 	{ k_ESteamNetworkingConfigurationValue_FakePacketReorder_Recv,                     "FakePacketReorder_Recv",                     &steamdatagram_fakepacketreorder_recv },
 	{ k_ESteamNetworkingConfigurationValue_FakePacketReorder_Time,                     "FakePacketReorder_Time",                     &steamdatagram_fakepacketreorder_time },
-
+	{ k_ESteamNetworkingConfigurationValue_FakePacketDup_Send,                         "FakePacketDup_Send",                         &steamdatagram_fakepacketdup_send },
+	{ k_ESteamNetworkingConfigurationValue_FakePacketDup_Recv,                         "FakePacketDup_Recv",                         &steamdatagram_fakepacketdup_recv },
+	{ k_ESteamNetworkingConfigurationValue_FakePacketDup_TimeMax,                      "FakePacketDup_Time",                         &steamdatagram_fakepacketdup_timemax },
 	{ k_ESteamNetworkingConfigurationValue_SendBufferSize,                             "SendBufferSize",                             &steamdatagram_snp_send_buffer_size },
 	{ k_ESteamNetworkingConfigurationValue_MaxRate,                                    "MaxRate",                                    &steamdatagram_snp_max_rate },
 	{ k_ESteamNetworkingConfigurationValue_MinRate,                                    "MinRate",                                    &steamdatagram_snp_min_rate },

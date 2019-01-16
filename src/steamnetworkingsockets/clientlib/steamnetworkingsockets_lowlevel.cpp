@@ -418,12 +418,21 @@ bool IRawUDPSocket::BSendRawPacketGather( int nChunks, const iovec *pChunks, con
 	// Fake lag?
 	int32 nPacketFakeLagTotal = steamdatagram_fakepacketlag_send;
 
-	// Check for simulation random packet reordering
-	if ( ( steamdatagram_fakepacketreorder_send ) > 0 && WeakRandomFloat( 0, 100.0 ) < steamdatagram_fakepacketreorder_send )
+	// Check for simulating random packet reordering
+	if ( steamdatagram_fakepacketreorder_send > 0 && WeakRandomFloat( 0, 100.0 ) < steamdatagram_fakepacketreorder_send )
 	{
 		nPacketFakeLagTotal += steamdatagram_fakepacketreorder_time;
 	}
 
+	// Check for simulating random packet duplication
+	if ( steamdatagram_fakepacketdup_send > 0 && WeakRandomFloat( 0, 100.0 ) < steamdatagram_fakepacketdup_send )
+	{
+		int32 nDupLag = nPacketFakeLagTotal + WeakRandomInt( 0, steamdatagram_fakepacketdup_timemax );
+		nDupLag = std::max( 1, nDupLag );
+		s_packetLagQueue.LagPacket( true, self, adrTo, nDupLag, nChunks, pChunks );
+	}
+
+	// Lag the original packet?
 	if ( nPacketFakeLagTotal > 0 )
 	{
 		s_packetLagQueue.LagPacket( true, self, adrTo, nPacketFakeLagTotal, nChunks, pChunks );
@@ -909,10 +918,21 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS )
 
 			int32 nPacketFakeLagTotal = steamdatagram_fakepacketlag_recv;
 
-			// Check for simulation random packet reordering
-			if ( ( steamdatagram_fakepacketreorder_recv ) > 0 && WeakRandomFloat( 0, 100.0 ) < steamdatagram_fakepacketreorder_recv )
+			// Check for simulating random packet reordering
+			if ( steamdatagram_fakepacketreorder_recv > 0 && WeakRandomFloat( 0, 100.0 ) < steamdatagram_fakepacketreorder_recv )
 			{
 				nPacketFakeLagTotal += steamdatagram_fakepacketreorder_time;
+			}
+
+			// Check for simulating random packet duplication
+			if ( steamdatagram_fakepacketdup_recv > 0 && WeakRandomFloat( 0, 100.0 ) < steamdatagram_fakepacketdup_recv )
+			{
+				int32 nDupLag = nPacketFakeLagTotal + WeakRandomInt( 0, steamdatagram_fakepacketdup_timemax );
+				nDupLag = std::max( 1, nDupLag );
+				iovec temp;
+				temp.iov_len = ret;
+				temp.iov_base = buf;
+				s_packetLagQueue.LagPacket( false, pSock, adr, nDupLag, 1, &temp );
 			}
 
 			// Check for simulating lag
