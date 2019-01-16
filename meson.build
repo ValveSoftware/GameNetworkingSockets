@@ -104,6 +104,8 @@ endif
 add_project_arguments(cpp_flags, language: 'c')
 add_project_arguments(cpp_flags, language: 'cpp')
 
+dep_threads = dependency('threads')
+
 subdir('src')
 subdir('tests')
 subdir('examples')

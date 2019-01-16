@@ -1,4 +1,4 @@
-common_deps = [ dependency('threads') ]
+common_deps = [ dep_threads ]
 
 executable('test_connection',
   'test_connection.cpp',

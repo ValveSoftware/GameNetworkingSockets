@@ -25,7 +25,7 @@ if not result
 endif
 
 dependencies += [
-  dependency('threads'),
+  dep_threads,
   dependency('protobuf', version: '>=3.4.0'),
 ]
 

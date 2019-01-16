@@ -1,7 +1,7 @@
 cxx_compiler = meson.get_compiler('cpp')
 
 dependencies = [
-  dependency('threads'),
+  dep_threads,
   dep_GameNetworkingSockets_so # Declared in the other project
 ]
 
