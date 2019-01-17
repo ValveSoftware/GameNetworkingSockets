@@ -14,7 +14,7 @@ env:
   - CONTAINER=disco CXX=clang++
 
 before_install:
-  - docker run -d --name bionic -e LC_ALL="en_US.UTF-8" -e LANG="en_US.UTF-8" -v $(pwd):/travis -w /travis ubuntu:bionic tail -f /dev/null
+  - docker run -d --name $CONTAINER -e LC_ALL="en_US.UTF-8" -e LANG="en_US.UTF-8" -v $(pwd):/travis -w /travis ubuntu:$CONTAINER tail -f /dev/null
   - docker ps
 
 install:
