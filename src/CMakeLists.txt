@@ -190,6 +190,7 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 				/EHs-c-   # Disable C++ exceptions
 				/GR-      # Disable RTTI
 				/wd4146   # include/google/protobuf/wire_format_lite.h(863): warning C4146: unary minus operator applied to unsigned type, result still unsigned
+				/wd4251   # 'google::protobuf::io::CodedOutputStream::default_serialization_deterministic_': struct 'std::atomic<bool>' needs to have dll-interface to be used by clients of class 
 				)
 			if(NOT TARGET_TYPE STREQUAL STATIC_LIBRARY)
 				target_compile_options(${GNS_TARGET} PRIVATE
