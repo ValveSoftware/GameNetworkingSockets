@@ -43,13 +43,13 @@ warn_flags_common = [
   '-Wno-unused-const-variable',
   '-Wno-unused-local-typedef',
   '-Wno-unused-parameter',
-  '-Wno-missing-prototypes',
   '-Wno-nested-anon-types',
 ]
 
 warn_flags_c = [
   '-Wimplicit',
   '-Wstrict-prototypes',
+  '-Wno-missing-prototypes',
 ]
 
 warn_flags_cxx = [
