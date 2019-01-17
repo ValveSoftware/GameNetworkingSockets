@@ -9,9 +9,9 @@ configure_msvc_runtime()
 print_default_msvc_flags()
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
-    add_compile_definitions(
-        _CRT_SECURE_NO_WARNINGS
-        _ITERATOR_DEBUG_LEVEL=0
+    add_definitions(
+        -D_CRT_SECURE_NO_WARNINGS
+        -D_ITERATOR_DEBUG_LEVEL=0
     )
 endif()
 
