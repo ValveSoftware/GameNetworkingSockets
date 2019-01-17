@@ -760,11 +760,6 @@ bool CSteamNetworkingSockets::SetConnectionConfigurationValue( HSteamNetConnecti
 #ifdef STEAMNETWORKINGSOCKETS_STANDALONELIB
 void CSteamNetworkingSockets::RunCallbacks( ISteamNetworkingSocketsCallbacks *pCallbacks )
 {
-	// !KLUDGE! If in special debug mode, do work now
-	if ( g_bThreadInMainThread )
-	{
-		CallDatagramThreadProc();
-	}
 
 	// Only hold lock for a brief period
 	std::vector<QueuedCallback> listTemp;

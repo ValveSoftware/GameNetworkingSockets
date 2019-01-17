@@ -39,17 +39,21 @@ int g_nSteamDatagramSocketBufferSize = 128*1024;
 #else
 	static std::recursive_timed_mutex s_steamDatagramTransportMutex;
 #endif
-std::atomic<int> SteamDatagramTransportLock::s_nLocked;
+int SteamDatagramTransportLock::s_nLocked;
 static SteamNetworkingMicroseconds s_usecWhenLocked;
 static std::thread::id s_threadIDLockOwner;
+static int64 s_usecLongLockWarningThreshold;
 
 void SteamDatagramTransportLock::OnLocked()
 {
-	int lockState = s_nLocked.fetch_add(1);
-	if ( lockState == 0 )
+	++s_nLocked;
+	if ( s_nLocked == 1 )
 	{
 		s_usecWhenLocked = SteamNetworkingSockets_GetLocalTimestamp();
 		s_threadIDLockOwner = std::this_thread::get_id();
+
+		// By default, complain if we hold the lock for more than this long
+		s_usecLongLockWarningThreshold = 20*1000;
 	}
 }
 
@@ -69,24 +73,43 @@ void SteamDatagramTransportLock::Lock()
 void SteamDatagramTransportLock::Unlock()
 {
 	AssertHeldByCurrentThread();
-	SteamNetworkingMicroseconds usecElapsed = 0;
-	if ( s_nLocked.fetch_sub(1) == 1 )
+	SteamNetworkingMicroseconds usecElapsedTooLong = 0;
+	if ( s_nLocked == 1 )
 	{
-		usecElapsed = SteamNetworkingSockets_GetLocalTimestamp() - s_usecWhenLocked;
+
+		// We're about to do the final release.  How long did we hold the lock?
+		usecElapsedTooLong = SteamNetworkingSockets_GetLocalTimestamp() - s_usecWhenLocked;
+
+		// If that duration is acceptable, then clear it.  We need to check the
+		// threshold here because the threshold could change by another thread
+		// immediately after we release the lock.  Also, if we're debugging, all bets are
+		// off.  They could have hit a breakpoint, and we don't want to create a bunch
+		// of confusing spew with spurious asserts
+		if ( usecElapsedTooLong < s_usecLongLockWarningThreshold || Plat_IsInDebugSession() )
+			usecElapsedTooLong = 0;
 	}
+	--s_nLocked;
 	#ifdef MSVC_STL_MUTEX_WORKAROUND
 		DbgVerify( ReleaseMutex( s_hSteamDatagramTransportMutex ) );
 	#else
 		s_steamDatagramTransportMutex.unlock();
 	#endif
 
-	// Yelp if we hold the lock for along time
-	AssertMsg1( usecElapsed < 300*1000 || Plat_IsInDebugSession(), "SteamDatagramTransportLock held for %.1fms!", usecElapsed*1e-3 );
+	// Yelp if we held the lock for longer than the threshold.
+	AssertMsg1( usecElapsedTooLong == 0, "SteamDatagramTransportLock held for %.1fms!", usecElapsedTooLong*1e-3 );
+}
+
+void SteamDatagramTransportLock::SetLongLockWarningThresholdMS( int msWarningThreshold )
+{
+	AssertHeldByCurrentThread();
+	SteamNetworkingMicroseconds usecWarningThreshold = SteamNetworkingMicroseconds{msWarningThreshold}*1000;
+	if ( s_usecLongLockWarningThreshold < usecWarningThreshold )
+		s_usecLongLockWarningThreshold = usecWarningThreshold;
 }
 
 void SteamDatagramTransportLock::AssertHeldByCurrentThread()
 {
-	Assert( s_nLocked > 0 );
+	Assert( s_nLocked > 0 ); // NOTE: This could succeed even if another thread has the lock
 	Assert( s_threadIDLockOwner == std::this_thread::get_id() );
 }
 
@@ -566,6 +589,10 @@ static SOCKET OpenUDPSocketBoundToSockAddr( const void *sockaddr, size_t len, St
 
 static CRawUDPSocketImpl *OpenRawUDPSocketInternal( CRecvPacketCallback callback, SteamDatagramErrMsg &errMsg, const SteamNetworkingIPAddr *pAddrLocal, int *pnAddressFamilies )
 {
+	// Creating a socket *should* be fast, but sometimes the OS might need to do some work.
+	// We shouldn't do this too often, give it a little extra time.
+	SteamDatagramTransportLock::SetLongLockWarningThresholdMS( 100 );
+
 	// Make sure have been initialized
 	if ( s_nLowLevelSupportRefCount <= 0 )
 	{
@@ -714,8 +741,6 @@ static CRawUDPSocketImpl *OpenRawUDPSocketInternal( CRecvPacketCallback callback
 			return nullptr;
 		}
 	#endif
-
-	SteamDatagramTransportLock scopeLock;
 
 	// Add to master list.  (Hopefully we usually won't have that many.)
 	s_vecRawSockets.AddToTail( pSock );
@@ -1201,7 +1226,6 @@ void ProcessThinkers()
 /////////////////////////////////////////////////////////////////////////////
 
 std::atomic<bool> g_bWantThreadRunning;
-std::atomic<bool> g_bThreadInMainThread;
 
 static void SteamDatagramThreadProc()
 {
@@ -1343,23 +1367,7 @@ static void SteamDatagramThreadProc()
 		// We can close the sockets safely now, because we know we're
 		// not polling on them and we know we hold the lock
 		ProcessPendingDestroyClosedRawUDPSockets();
-
-		if ( g_bThreadInMainThread )
-		{
-			SteamDatagramTransportLock::Unlock();
-			break; // We'll get called again shortly
-		}
 	}
-}
-
-// If we're in a debugger, we don't run it as a thread, run in the main thread to make debugging easier
-void CallDatagramThreadProc()
-{
-	if ( !g_bThreadInMainThread )
-	{
-		return;
-	}
-	SteamDatagramThreadProc();
 }
 
 static bool BEnsureSteamDatagramThreadRunning( SteamDatagramErrMsg &errMsg )
@@ -1370,12 +1378,6 @@ static bool BEnsureSteamDatagramThreadRunning( SteamDatagramErrMsg &errMsg )
 	// on our first reading after the thread is running and
 	// take action to correct this.
 	SteamNetworkingSockets_GetLocalTimestamp();
-
-	if ( g_bThreadInMainThread )
-	{
-		Assert( !s_pThreadSteamDatagram );
-		return true;
-	}
 
 	if ( s_pThreadSteamDatagram )
 	{
@@ -1429,16 +1431,6 @@ static bool BEnsureSteamDatagramThreadRunning( SteamDatagramErrMsg &errMsg )
 
 	// Create the thread and start socket processing
 	g_bWantThreadRunning = true;
-
-	// When running under the debugger, don't create a thread, just pump it through calls via
-	// Temp_DispatchsSteamNetConnectionStatusChangedCallbacks which we should rename to 
-	// SteamDatagramRunFrame() or something
-// !FIXME!
-//	if ( CommandLine()->HasParm( "-nosgthread" ) )
-//	{
-//		g_bThreadInMainThread = true;
-//		return true;
-//	}
 
 	s_pThreadSteamDatagram = new std::thread( SteamDatagramThreadProc );
 
@@ -1775,6 +1767,10 @@ bool BSteamNetworkingSocketsLowLevelAddRef( SteamDatagramErrMsg &errMsg )
 	if ( s_nLowLevelSupportRefCount == 0 )
 	{
 
+		// Give us a extra time here.  This is a one-time init function and the OS might
+		// need to load up libraries and stuff.
+		SteamDatagramTransportLock::SetLongLockWarningThresholdMS( 500 );
+
 		// Init sockets
 		#ifdef _WIN32
 			WSAData wsaData;
@@ -1817,11 +1813,19 @@ void SteamNetworkingSocketsLowLevelDecRef()
 	if ( s_nLowLevelSupportRefCount > 0 )
 		return;
 
+	// Give us a extra time here.  This is a one-time shutdown function.
+	// There is a potential race condition / deadlock with the service thread,
+	// that might cause us to have to wait for it to timeout.  And the OS
+	// might need to do stuff when we close a bunch of sockets (and WSACleanup)
+	SteamDatagramTransportLock::SetLongLockWarningThresholdMS( 500 );
+
+	AssertMsg( s_vecRawSockets.IsEmpty(), "Trying to close low level socket support, but we still have sockets open!" );
+
 	// Shutdown the thread
 	StopSteamDatagramThread();
 
+	// Make sure we actually destroy socket objects.  It's safe to do so now.
 	ProcessPendingDestroyClosedRawUDPSockets();
-	AssertMsg( s_vecRawSockets.IsEmpty(), "ProcessPendingDestroyClosedRawUDPSockets() called, but sockets left open!" );
 
 	// Nuke sockets
 	#ifdef _WIN32
@@ -1878,7 +1882,7 @@ STEAMNETWORKINGSOCKETS_INTERFACE SteamNetworkingMicroseconds SteamNetworkingSock
 			// Should be the common case - only a relatively small of time has elapsed
 			break;
 		}
-		if ( !SteamNetworkingSocketsLib::g_bWantThreadRunning && !SteamNetworkingSocketsLib::g_bThreadInMainThread )
+		if ( !SteamNetworkingSocketsLib::g_bWantThreadRunning )
 		{
 			// We don't have any expectation that we should be updating the timer frequently,
 			// so  a big jump in the value just means they aren't calling it very often

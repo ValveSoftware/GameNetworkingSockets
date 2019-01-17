@@ -306,10 +306,6 @@ private:
 /// we haven't activated a service that needs the service thread, or
 /// we've failed to initialize, or we're shutting down.
 extern std::atomic<bool> g_bWantThreadRunning;
-extern std::atomic<bool> g_bThreadInMainThread;
-
-/// If running in main thread pump the thread
-extern void CallDatagramThreadProc();
 
 /// Called when we know it's safe to actually destroy sockets pending deletion.
 /// This is when: 1.) We own the lock and 2.) we aren't polling in the service thread.
@@ -361,7 +357,8 @@ struct SteamDatagramTransportLock
 	static void Unlock();
 	static void OnLocked();
 	static void AssertHeldByCurrentThread();
-	static std::atomic<int> s_nLocked;
+	static void SetLongLockWarningThresholdMS( int msWarningThreshold );
+	static int s_nLocked;
 };
 
 } // namespace SteamNetworkingSocketsLib
