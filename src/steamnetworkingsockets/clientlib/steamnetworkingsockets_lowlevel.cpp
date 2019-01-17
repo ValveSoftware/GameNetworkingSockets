@@ -1201,8 +1201,8 @@ void ProcessThinkers()
 //
 /////////////////////////////////////////////////////////////////////////////
 
-volatile bool g_bWantThreadRunning;
-volatile bool g_bThreadInMainThread;
+std::atomic<bool> g_bWantThreadRunning;
+std::atomic<bool> g_bThreadInMainThread;
 
 static void SteamDatagramThreadProc()
 {

@@ -6,6 +6,7 @@
 #pragma once
 #endif
 
+#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <steam/steamnetworkingtypes.h>
@@ -304,8 +305,8 @@ private:
 /// Flag to signal that we want to be active.  If this is false, either
 /// we haven't activated a service that needs the service thread, or
 /// we've failed to initialize, or we're shutting down.
-extern volatile bool g_bWantThreadRunning;
-extern volatile bool g_bThreadInMainThread;
+extern std::atomic<bool> g_bWantThreadRunning;
+extern std::atomic<bool> g_bThreadInMainThread;
 
 /// If running in main thread pump the thread
 extern void CallDatagramThreadProc();
