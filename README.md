@@ -63,6 +63,15 @@ people will use it to ship their games on non-Steam platforms.  If there is
 something about this code that makes it awkward to use, or if it doesn't work
 properly or you see a security or performance issue, please let us know.
 
+### Language bindings
+
+The library was written in C++, but there is also a plain C interface
+to facilitate binding to other languages.
+
+Third party language bindings:
+
+* C#: https://github.com/nxrighthere/ValveSockets-CSharp
+
 ## Building
 
 ### Dependencies
