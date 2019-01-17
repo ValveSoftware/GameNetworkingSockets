@@ -78,9 +78,9 @@ Third party language bindings:
 ### Dependencies
 
 * CMake or Meson, and build tool like Ninja, GNU Make or Visual Studio
-* OpenSSL
-* libsodium (optional, strongly recommended)
-* Google protobuf
+* OpenSSL 1.1.0 or later
+* libsodium 1.0.16 or later (optional, strongly recommended)
+* Google protobuf (3.0+ recommended, but 2.6.1+ should work)
 * ed25519-donna and curve25519-donna.  We've made some minor changes, so the
   source is included in this project.
 
