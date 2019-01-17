@@ -15,7 +15,7 @@ install:
   - $SH "apt-get update"
   - $SH "apt-get install -y locales"
   - $SH "locale-gen en_US.UTF-8"
-  - $SH "apt-get install -y build-essential cmake meson libsodium-dev libssl-dev libprotobuf-dev protobuf-compiler"
+  - $SH "apt-get install -y build-essential pkg-config cmake meson libsodium-dev libssl-dev libprotobuf-dev protobuf-compiler"
 
 script:
   - $SH "mkdir build-cmake && cd build-cmake && cmake -G Ninja .."
