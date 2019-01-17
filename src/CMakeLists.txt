@@ -80,6 +80,7 @@ set(GNS_COMMON_FLAGS
 	-Wno-sign-compare
 	-Wno-unused-local-typedef
 	-Wno-unused-const-variable
+	-Wno-nested-anon-types
 )
 
 set(GNS_C_FLAGS
@@ -90,6 +91,7 @@ set(GNS_CXX_FLAGS
 	-fvisibility-inlines-hidden
 	-Wno-reorder
 	-Wno-non-virtual-dtor
+	-Wno-zero-as-null-pointer-constant
 	-fno-rtti
 	-fno-exceptions
 )

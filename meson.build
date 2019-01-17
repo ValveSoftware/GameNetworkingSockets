@@ -30,7 +30,6 @@ flags_cxx = [
 warn_flags_common = [
   '-Wall',
   '-Wextra',
-  '-Weverything',
   '-pedantic',
 
   # Explicitly disable noisy warnings
@@ -44,6 +43,8 @@ warn_flags_common = [
   '-Wno-unused-const-variable',
   '-Wno-unused-local-typedef',
   '-Wno-unused-parameter',
+  '-Wno-missing-prototypes',
+  '-Wno-nested-anon-types',
 ]
 
 warn_flags_c = [
@@ -59,6 +60,11 @@ warn_flags_cxx = [
   '-Wno-non-virtual-dtor',
   '-Wno-old-style-cast',
   '-Wno-reorder',
+
+  # These ones are prolific but don't really matter. Most are in generated
+  # protobuf code.
+  '-Wno-zero-as-null-pointer-constant',
+  '-Wno-missing-variable-declarations',
 ]
 
 c_compiler = meson.get_compiler('c')
