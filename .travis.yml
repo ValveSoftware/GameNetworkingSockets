@@ -5,23 +5,23 @@ sudo: required
 services:
   - docker
 
+compiler:
+  - gcc
+  - clang
+
 env:
-  - CONTAINER=bionic CXX_COMPILER=g++
-  - CONTAINER=bionic CXX_COMPILER=clang++
-  - CONTAINER=cosmic CXX_COMPILER=g++
-  - CONTAINER=cosmic CXX_COMPILER=clang++
-  - CONTAINER=disco CXX_COMPILER=g++
-  - CONTAINER=disco CXX_COMPILER=clang++
+  - CONTAINER=bionic
+  - CONTAINER=cosmic
+  - CONTAINER=disco
 
 before_install:
   - docker run -d --name $CONTAINER -e LC_ALL="en_US.UTF-8" -e LANG="en_US.UTF-8" -v $(pwd):/travis -w /travis ubuntu:$CONTAINER tail -f /dev/null
   - docker ps
-  - export CXX=$CXX_COMPILER
 
 install:
-  - docker exec -e CXX=$CXX -t $CONTAINER bash .travis/install.sh
+  - docker exec -e CC=$CC -e CXX=$CXX -t $CONTAINER bash .travis/install.sh
 
 script:
-  - docker exec -e CXX=$CXX -t $CONTAINER bash .travis/script.sh
+  - docker exec -e CC=$CC -e CXX=$CXX -t $CONTAINER bash .travis/script.sh
 
 # vim: set ts=2 sts=2 sw=2 et:
