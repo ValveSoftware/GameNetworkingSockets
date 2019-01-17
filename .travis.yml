@@ -6,16 +6,17 @@ services:
   - docker
 
 env:
-  - CONTAINER=bionic CXX=g++
-  - CONTAINER=bionic CXX=clang++
-  - CONTAINER=cosmic CXX=g++
-  - CONTAINER=cosmic CXX=clang++
-  - CONTAINER=disco CXX=g++
-  - CONTAINER=disco CXX=clang++
+  - CONTAINER=bionic CXX_COMPILER=g++
+  - CONTAINER=bionic CXX_COMPILER=clang++
+  - CONTAINER=cosmic CXX_COMPILER=g++
+  - CONTAINER=cosmic CXX_COMPILER=clang++
+  - CONTAINER=disco CXX_COMPILER=g++
+  - CONTAINER=disco CXX_COMPILER=clang++
 
 before_install:
   - docker run -d --name $CONTAINER -e LC_ALL="en_US.UTF-8" -e LANG="en_US.UTF-8" -v $(pwd):/travis -w /travis ubuntu:$CONTAINER tail -f /dev/null
   - docker ps
+  - export CXX=$CXX_COMPILER
 
 install:
   - docker exec -e CXX=$CXX -t $CONTAINER bash .travis/install.sh
