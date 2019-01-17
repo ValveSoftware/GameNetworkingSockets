@@ -5,6 +5,10 @@ set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
 find_package(Sanitizers)
 
+if(SANITIZE_ADDRESS OR SANITIZE_THREAD OR SANITIZE_MEMORY OR SANITIZE_UNDEFINED)
+	set(SANITIZE ON)
+endif()
+
 include(FlagsMSVC)
 set(MSVC_RUNTIME "dynamic")
 configure_msvc_runtime()
