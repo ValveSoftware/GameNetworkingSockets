@@ -147,6 +147,14 @@ static int GetInitialRate( SteamNetworkingMicroseconds usecPing )
 	return Max( steamdatagram_snp_min_rate, rate );
 }
 
+void SSNPSenderState::Reset()
+{
+	while ( !m_unackedReliableMessages.empty() )
+	{
+		delete m_unackedReliableMessages.pop_front();
+	}
+}
+
 //-----------------------------------------------------------------------------
 void SSNPSenderState::RemoveAckedReliableMessageFromUnackedList()
 {

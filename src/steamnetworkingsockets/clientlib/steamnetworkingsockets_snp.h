@@ -193,6 +193,10 @@ struct SSNPSendMessageList
 
 struct SSNPSenderState
 {
+	~SSNPSenderState() {
+		Reset();
+	}
+	void Reset();
 
 	// Sender TFRC control values and timers
 
