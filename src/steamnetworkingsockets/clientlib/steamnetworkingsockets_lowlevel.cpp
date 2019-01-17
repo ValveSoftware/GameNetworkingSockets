@@ -82,7 +82,7 @@ void SteamDatagramTransportLock::Unlock()
 	#endif
 
 	// Yelp if we hold the lock for along time
-	AssertMsg1( usecElapsed < 20*1000 || Plat_IsInDebugSession(), "SteamDatagramTransportLock held for %.1fms!", usecElapsed*1e-3 );
+	AssertMsg1( usecElapsed < 300*1000 || Plat_IsInDebugSession(), "SteamDatagramTransportLock held for %.1fms!", usecElapsed*1e-3 );
 }
 
 void SteamDatagramTransportLock::AssertHeldByCurrentThread()
