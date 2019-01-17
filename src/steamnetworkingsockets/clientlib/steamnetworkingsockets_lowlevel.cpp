@@ -39,14 +39,14 @@ int g_nSteamDatagramSocketBufferSize = 128*1024;
 #else
 	static std::recursive_timed_mutex s_steamDatagramTransportMutex;
 #endif
-volatile int SteamDatagramTransportLock::s_nLocked;
+std::atomic<int> SteamDatagramTransportLock::s_nLocked;
 static SteamNetworkingMicroseconds s_usecWhenLocked;
 static std::thread::id s_threadIDLockOwner;
 
 void SteamDatagramTransportLock::OnLocked()
 {
-	++s_nLocked;
-	if ( s_nLocked == 1 )
+	int lockState = s_nLocked.fetch_add(1);
+	if ( lockState == 0 )
 	{
 		s_usecWhenLocked = SteamNetworkingSockets_GetLocalTimestamp();
 		s_threadIDLockOwner = std::this_thread::get_id();
@@ -70,11 +70,10 @@ void SteamDatagramTransportLock::Unlock()
 {
 	AssertHeldByCurrentThread();
 	SteamNetworkingMicroseconds usecElapsed = 0;
-	if ( s_nLocked == 1 )
+	if ( s_nLocked.fetch_sub(1) == 1 )
 	{
 		usecElapsed = SteamNetworkingSockets_GetLocalTimestamp() - s_usecWhenLocked;
 	}
-	--s_nLocked;
 	#ifdef MSVC_STL_MUTEX_WORKAROUND
 		DbgVerify( ReleaseMutex( s_hSteamDatagramTransportMutex ) );
 	#else

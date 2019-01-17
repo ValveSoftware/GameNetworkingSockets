@@ -361,7 +361,7 @@ struct SteamDatagramTransportLock
 	static void Unlock();
 	static void OnLocked();
 	static void AssertHeldByCurrentThread();
-	static volatile int s_nLocked;
+	static std::atomic<int> s_nLocked;
 };
 
 } // namespace SteamNetworkingSocketsLib
