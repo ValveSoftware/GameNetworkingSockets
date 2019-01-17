@@ -403,11 +403,17 @@ static void TestNetworkConditions( int rate, int loss, int lag, int reorderPct, 
 
 	//SteamNetworkingMicroseconds usecLastNow = usecWhenStarted;
 
-	SteamNetworkingMicroseconds usecQuietDuration = 5000000;
-	SteamNetworkingMicroseconds usecActiveDuration = 10000000;
+#ifdef LIGHT_TESTS
+	const SteamNetworkingMicroseconds usecQuietDuration = 5000000;
+	const SteamNetworkingMicroseconds usecActiveDuration = 5000000;
+	int nIterations = 2;
+#else
+	const SteamNetworkingMicroseconds usecQuietDuration = 5000000;
+	const SteamNetworkingMicroseconds usecActiveDuration = 10000000;
+	int nIterations = 5;
+#endif
 	bool bQuiet = true;
 	SteamNetworkingMicroseconds usecWhenStateEnd = 0;
-	int nIterations = 5;
 	SteamNetworkingMicroseconds usecLastPrint = SteamNetworkingUtils()->GetLocalTimestamp();
 
 	while ( true )
