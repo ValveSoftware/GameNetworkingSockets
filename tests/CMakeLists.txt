@@ -6,6 +6,7 @@ add_executable(
     test_connection
     test_connection.cpp)
 target_link_libraries(test_connection GameNetworkingSockets)
+add_sanitizers(test_connection)
 
 add_executable(
        test_crypto
@@ -13,3 +14,4 @@ add_executable(
        )
 target_include_directories(test_crypto PRIVATE ../src ../src/public ../src/common ../include)
 target_link_libraries(test_crypto GameNetworkingSockets_s)
+add_sanitizers(test_crypto)
