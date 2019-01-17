@@ -24,7 +24,7 @@ set(GNS_PROTOS
 	"common/steamnetworkingsockets_messages_certs.proto"
 	"common/steamnetworkingsockets_messages.proto"
 	"common/steamnetworkingsockets_messages_udp.proto"
-)
+	)
 
 set(GNS_SRCS
 	"common/crypto.cpp"
@@ -51,7 +51,7 @@ set(GNS_SRCS
 	"tier1/utlmemory.cpp"
 	"tier1/ipv6text.c"
 	"vstdlib/strtools.cpp"
-)
+	)
 
 if (NOT USE_LIBSODIUM)
 	set(GNS_SRCS
@@ -81,11 +81,11 @@ set(GNS_COMMON_FLAGS
 	-Wno-unused-local-typedef
 	-Wno-unused-const-variable
 	-Wno-nested-anon-types
-)
+	)
 
 set(GNS_C_FLAGS
 	-Wstrict-prototypes
-)
+	)
 
 set(GNS_CXX_FLAGS
 	-fvisibility-inlines-hidden
@@ -94,7 +94,7 @@ set(GNS_CXX_FLAGS
 	-Wno-zero-as-null-pointer-constant
 	-fno-rtti
 	-fno-exceptions
-)
+	)
 
 protobuf_generate_cpp(GNS_PROTO_SRCS GNS_PROTO_HDRS ${GNS_PROTOS})
 
@@ -105,7 +105,7 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 
 	target_include_directories(${GNS_TARGET} PUBLIC
 		"../include"
-	)
+		)
 
 	target_include_directories(${GNS_TARGET} PRIVATE
 		"common"
@@ -115,14 +115,14 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 		# Only necessary if we're not using protobuf::libprotobuf
 		# But that's not supported until CMake 3.9
 		${Protobuf_INCLUDE_DIRS}
-	)
+		)
 
 	target_link_libraries(${GNS_TARGET} PUBLIC
 		# protobuf::libprotobuf
 		${PROTOBUF_LIBRARIES}
 		OpenSSL::Crypto
 		Threads::Threads
-	)
+		)
 
 	if(USE_LIBSODIUM)
 		target_link_libraries(${GNS_TARGET} PUBLIC
@@ -137,7 +137,7 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 		ENABLE_OPENSSLCONNECTION
 		CRYPTO_DISABLE_ENCRYPT_WITH_PASSWORD
 		GOOGLE_PROTOBUF_NO_RTTI
-	)
+		)
 
 	if(USE_LIBSODIUM)
 		target_compile_definitions(${GNS_TARGET} PRIVATE USE_LIBSODIUM)
@@ -153,7 +153,7 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 	endif()
 
 	if(CMAKE_CXX_COMPILER_ID MATCHES "GNU"
-	OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+			OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 		foreach(FLAG ${GNS_COMMON_FLAGS} ${GNS_C_FLAGS})
 			string(MAKE_C_IDENTIFIER ${FLAG} FLAG_ID)
 			check_c_compiler_flag(${FLAG} ${FLAG_ID}_TEST)
@@ -168,9 +168,9 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 			check_cxx_compiler_flag(${FLAG} ${FLAG_ID}_TEST)
 			if(${FLAG_ID}_TEST)
 				target_compile_options(${GNS_TARGET} PRIVATE
-				$<$<COMPILE_LANGUAGE:CXX>:${FLAG}>
-			)
-		endif()
+					$<$<COMPILE_LANGUAGE:CXX>:${FLAG}>
+					)
+			endif()
 		endforeach()
 	endif()
 
@@ -190,18 +190,18 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 				/EHs-c-   # Disable C++ exceptions
 				/GR-      # Disable RTTI
 				/wd4146   # include/google/protobuf/wire_format_lite.h(863): warning C4146: unary minus operator applied to unsigned type, result still unsigned
-			)
+				)
 			if(NOT TARGET_TYPE STREQUAL STATIC_LIBRARY)
 				target_compile_options(${GNS_TARGET} PRIVATE
 					/GL       # Enable link-time code generation
-				)
+					)
 				set_target_properties(${GNS_TARGET} PROPERTIES LINK_FLAGS "/LTCG /SUBSYSTEM:WINDOWS")
 			endif()
 		else()
 			target_compile_definitions(${GNS_TARGET} PRIVATE
 				__STDC_FORMAT_MACROS=1
 				__USE_MINGW_ANSI_STDIO=0
-			)
+				)
 			target_compile_options(${GNS_TARGET} PRIVATE -fno-stack-protector)
 		endif()
 		target_link_libraries(${GNS_TARGET} PRIVATE ws2_32)
@@ -214,13 +214,13 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 	endif()
 
 	if(CMAKE_CXX_COMPILER_ID MATCHES "GNU"
-	OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+			OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 		target_compile_definitions(${GNS_TARGET} PUBLIC GNUC GNU_COMPILER)
 	endif()
 
 	set_target_properties(${GNS_TARGET} PROPERTIES
 		CXX_STANDARD 11
-	)
+		)
 
 endmacro()
 
@@ -234,3 +234,5 @@ add_library(GameNetworkingSockets::static ALIAS GameNetworkingSockets_s)
 target_compile_definitions(GameNetworkingSockets_s INTERFACE STEAMDATAGRAMLIB_STATIC_LINK)
 gamenetworkingsockets_common(GameNetworkingSockets_s)
 add_sanitizers(GameNetworkingSockets_s)
+
+# vim: set ts=4 sts=4 sw=4 noet:

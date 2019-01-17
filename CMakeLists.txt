@@ -15,10 +15,10 @@ configure_msvc_runtime()
 print_default_msvc_flags()
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
-    add_definitions(
-        -D_CRT_SECURE_NO_WARNINGS
-        -D_ITERATOR_DEBUG_LEVEL=0
-    )
+	add_definitions(
+		-D_CRT_SECURE_NO_WARNINGS
+		-D_ITERATOR_DEBUG_LEVEL=0
+		)
 endif()
 
 option(Protobuf_USE_STATIC_LIBS "Build with a static Protobuf library" OFF)
@@ -29,3 +29,5 @@ option(LIGHT_TESTS "Use smaller/shorter tests for simple integration testing (e.
 add_subdirectory(examples)
 add_subdirectory(src)
 add_subdirectory(tests)
+
+# vim: set ts=4 sts=4 sw=4 noet:
