@@ -1,0 +1,29 @@
+language: cpp
+
+sudo: required
+
+services:
+  - docker
+
+env: SH="docker exec -t bionic bash -c"
+
+before_install:
+  - docker run -d --name bionic -e LC_ALL="en_US.UTF-8" -e LANG="en_US.UTF-8" -v $(pwd):/travis -w /travis ubuntu:bionic tail -f /dev/null
+  - docker ps
+
+install:
+  - $SH "apt-get update"
+  - $SH "apt-get install -y locales"
+  - $SH "locale-gen en_US.UTF-8"
+  - $SH "apt-get install -y build-essential cmake meson libsodium-dev libssl-dev libprotobuf-dev protobuf-compiler"
+
+script:
+  - $SH "mkdir build-cmake && cd build-cmake && cmake -G Ninja .."
+  - $SH "meson . build-meson"
+  - $SH "ninja -C build-cmake"
+  - $SH "ninja -C build-meson"
+  - $SH "build-meson/tests/test_crypto"
+  - $SH "build-cmake/tests/test_crypto"
+  - $SH "build-cmake/tests/test_connection"
+
+# vim: set ts=2 sts=2 sw=2 et:
