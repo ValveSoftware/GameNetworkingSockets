@@ -546,7 +546,6 @@ private:
 
 	HSteamNetConnection m_hConnection;
 	ISteamNetworkingSockets *m_pInterface;
-	bool m_bConnected = false;
 
 	void PollIncomingMessages()
 	{
