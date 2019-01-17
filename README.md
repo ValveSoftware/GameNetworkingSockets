@@ -78,6 +78,10 @@ Third party language bindings:
 ### Dependencies
 
 * CMake or Meson, and build tool like Ninja, GNU Make or Visual Studio
+* A C++11-compliant compiler, such as:
+  * GCC 7.3 or later
+  * Clang 3.3 or later
+  * Visual Studio 2017 or later
 * OpenSSL 1.1.0 or later
 * libsodium 1.0.16 or later (optional, strongly recommended)
 * Google protobuf (3.0+ recommended, but 2.6.1+ should work)
