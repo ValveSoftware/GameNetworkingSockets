@@ -10,16 +10,20 @@ compiler:
   - clang
 
 env:
-  - CONTAINER=bionic
-  - CONTAINER=cosmic
-  - CONTAINER=disco
+  - IMAGE=ubuntu IMAGE_TAG=bionic
+  - IMAGE=ubuntu IMAGE_TAG=cosmic
+  - IMAGE=ubuntu IMAGE_TAG=disco
+  - IMAGE=fedora IMAGE_TAG=latest
+  - IMAGE=fedora IMAGE_TAG=rawhide
 
 before_install:
-  - docker run -d --name $CONTAINER -e LC_ALL="en_US.UTF-8" -e LANG="en_US.UTF-8" -v $(pwd):/travis -w /travis ubuntu:$CONTAINER tail -f /dev/null
+  - export CONTAINER=${IMAGE}-${IMAGE_TAG}
+  - docker run -d --name $CONTAINER -e LC_ALL="en_US.UTF-8" -e LANG="en_US.UTF-8" -v $(pwd):/travis -w /travis $IMAGE:$IMAGE_TAG tail -f /dev/null
   - docker ps
 
 install:
-  - docker exec -e CC=$CC -e CXX=$CXX -t $CONTAINER bash .travis/install.sh
+  - docker exec -e CC=$CC -e CXX=$CXX -t $CONTAINER bash .travis/install-$IMAGE.sh
+  - docker exec -e CC=$CC -e CXX=$CXX -t $CONTAINER bash .travis/install-post.sh
 
 script:
   - docker exec -e CC=$CC -e CXX=$CXX -t $CONTAINER bash .travis/script.sh

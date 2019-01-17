@@ -1,4 +1,9 @@
 #!/bin/bash
+#
+# This is a distribution-agnostic build script. Do not use "apt-get", "dnf", or
+# similar in here. Add any package installation gunk into the appropriate
+# install script instead.
+#
 set -ex
 mkdir build-cmake
 (cd build-cmake && cmake -G Ninja -DLIGHT_TESTS:BOOL=ON ..)
