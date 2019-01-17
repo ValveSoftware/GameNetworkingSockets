@@ -8,6 +8,10 @@ services:
 env:
   - CONTAINER=bionic CXX=g++
   - CONTAINER=bionic CXX=clang++
+  - CONTAINER=cosmic CXX=g++
+  - CONTAINER=cosmic CXX=clang++
+  - CONTAINER=disco CXX=g++
+  - CONTAINER=disco CXX=clang++
 
 before_install:
   - docker run -d --name bionic -e LC_ALL="en_US.UTF-8" -e LANG="en_US.UTF-8" -v $(pwd):/travis -w /travis ubuntu:bionic tail -f /dev/null
