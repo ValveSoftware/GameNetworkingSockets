@@ -403,7 +403,12 @@ static void TestNetworkConditions( int rate, int loss, int lag, int reorderPct, 
 
 	//SteamNetworkingMicroseconds usecLastNow = usecWhenStarted;
 
-#ifdef LIGHT_TESTS
+#if defined(SANITIZER)
+	// Very fast, going for coverage more than runtime.
+	const SteamNetworkingMicroseconds usecQuietDuration = 2500000;
+	const SteamNetworkingMicroseconds usecActiveDuration = 2500000;
+	int nIterations = 2;
+#elif defined(LIGHT_TESTS)
 	const SteamNetworkingMicroseconds usecQuietDuration = 5000000;
 	const SteamNetworkingMicroseconds usecActiveDuration = 5000000;
 	int nIterations = 2;
