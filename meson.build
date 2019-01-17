@@ -18,6 +18,7 @@ if target_os == 'windows'
 else
   flags_common += [
     '-fstack-protector-strong',
+    '-fstack-clash-protection',
   ]
 endif
 
