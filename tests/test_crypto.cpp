@@ -294,7 +294,7 @@ void TestSymmetricAuthCrypto_EncryptTestVectorFile( const char *pszFilename )
 		RETURNIFNOT( ct.length() <= sizeof(encrypted) );
 
 		// Encrypt it
-		CHECK( CCrypto::SymmetricAuthEncryptChosenIV(
+		CHECK( CCrypto::SymmetricAuthEncryptWithIV(
 			pt.c_str(), pt.length(),
 			iv.c_str(), iv.length(),
 			encrypted, &cbEncrypted,

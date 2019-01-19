@@ -262,7 +262,7 @@ static const EVP_CIPHER *GetAESGCMCipherForKeyLength( size_t cbKey )
 }
 
 //-----------------------------------------------------------------------------
-bool CCrypto::SymmetricAuthEncryptChosenIV(
+bool CCrypto::SymmetricAuthEncryptWithIV(
 	const void *pPlaintextData, size_t cbPlaintextData,
 	const void *pIV, size_t cbIV,
 	void *pEncryptedDataAndTag, uint32 *pcbEncryptedDataAndTag,

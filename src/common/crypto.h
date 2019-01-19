@@ -53,7 +53,7 @@ namespace CCrypto
 										const uint8 * pubKey, uint32 cubKey, bool bVerifyPaddingBytes = true );
 
 	// Symmetric encryption and authentication using AES-GCM.
-	bool SymmetricAuthEncryptChosenIV(
+	bool SymmetricAuthEncryptWithIV(
 		const void *pPlaintextData, size_t cbPlaintextData,
 		const void *pIV, size_t cbIV,
 		void *pEncryptedDataAndTag, uint32 *pcbEncryptedDataAndTag,
