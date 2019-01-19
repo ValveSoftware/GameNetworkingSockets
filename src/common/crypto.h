@@ -51,6 +51,26 @@ namespace CCrypto
 										const uint8 * pIV, uint32 cubIV,
 										uint8 * pubPlaintextData, uint32 * pcubPlaintextData,
 										const uint8 * pubKey, uint32 cubKey, bool bVerifyPaddingBytes = true );
+
+	// Symmetric encryption and authentication using AES-GCM.
+	bool SymmetricAuthEncryptChosenIV(
+		const void *pPlaintextData, size_t cbPlaintextData,
+		const void *pIV, size_t cbIV,
+		void *pEncryptedDataAndTag, uint32 *pcbEncryptedDataAndTag,
+		const void *pKey, size_t cbKey,
+		const void *pAdditionalAuthenticationData, size_t cbAuthenticationData, // Optional additional authentication data.  Not encrypted, but will be included in the tag, so it can be authenticated.
+		size_t cbTag // Number of tag bytes to append to the end of the buffer
+	);
+
+	// Symmetric decryption and check authentication tag using AES-GCM.
+	bool SymmetricAuthDecryptWithIV(
+		const void *pEncryptedDataAndTag, size_t cbEncryptedDataAndTag,
+		const void *pIV, size_t cbIV,
+		void *pPlaintextData, uint32 *pcbPlaintextData,
+		const void *pKey, size_t cbKey,
+		const void *pAdditionalAuthenticationData, size_t cbAuthenticationData, // Optional additional authentication data.  Not encrypted, but will be included in the tag, so it can be authenticated.
+		size_t cbTag // Last N bytes in your buffer are assumed to be a tag, and will be checked
+	);
 	
 	//
 	// Secure key exchange (curve25519 elliptic-curve Diffie-Hellman key exchange)

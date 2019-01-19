@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <string>
 
 #include <tier1/utlbuffer.h>
 #include <crypto.h>
@@ -8,6 +9,8 @@
 // A little compatibility glue so I don't have to make any changes to them.
 #define CHECK(x) Assert(x)
 #define CHECK_EQUAL(a,b) Assert((a)==(b))
+#define RETURNIFNOT(x) { if ( !(x) ) { AssertMsg( false, #x ); return; } }
+#define RETURNFALSEIFNOT(x) { if ( !(x) ) { AssertMsg( false, #x ); return false; } }
 const int k_cSmallBuff = 255;					// smallish buffer
 const int k_cMedBuff = 1024;
 
@@ -217,6 +220,136 @@ void TestSymmetricCrypto()
 	CHECK( bRet );
 	CHECK_EQUAL( cubInplace, V_ARRAYSIZE( rgchSrc ) );
 	CHECK( !V_strcmp( rgchSrc, (const char *)rgubInplace ) );
+}
+
+// https://csrc.nist.gov/Projects/Cryptographic-Algorithm-Validation-Program/CAVP-TESTING-BLOCK-CIPHER-MODES
+// https://csrc.nist.gov/CSRC/media/Projects/Cryptographic-Algorithm-Validation-Program/documents/mac/gcmtestvectors.zip
+class NISTTestVectorFile
+{
+	FILE *f = nullptr;
+public:
+	NISTTestVectorFile( const char *pszFilename )
+	{
+		f = fopen( pszFilename, "rt" );
+		CHECK(f);
+	}
+	~NISTTestVectorFile() { if ( f ) fclose( f ); }
+
+	bool FindNextTest()
+	{
+		if ( !f )
+			return false;
+		char line[2048];
+		while ( fgets( line, sizeof(line), f ) )
+		{
+			if ( V_strnicmp( line, "count", 5 ) == 0 )
+				return true;
+		}
+		return false;
+	}
+
+	bool GetBinaryBlob( const char *pszTag, std::string &blob )
+	{
+		char line[2048];
+		RETURNFALSEIFNOT( fgets( line, sizeof(line), f ) );
+		int lTag = V_strlen(pszTag);
+		RETURNFALSEIFNOT( V_strnicmp( line, pszTag, lTag ) == 0 );
+		const char *p = line + lTag;
+		while ( isspace(*p) )
+			++p;
+		CHECK_EQUAL( *p, '=' );
+		++p;
+		while ( isspace(*p) )
+			++p;
+
+		uint8 decodedData[ 1024 ];
+		uint32 cbDecodedData = sizeof(decodedData);
+		RETURNFALSEIFNOT( CCrypto::HexDecode( p, decodedData, &cbDecodedData ) );
+		blob.assign( (char *)decodedData, cbDecodedData );
+		return true;
+	}
+};
+
+void TestSymmetricAuthCrypto_EncryptTestVectorFile( const char *pszFilename )
+{
+	NISTTestVectorFile file( pszFilename );
+
+	while ( file.FindNextTest() )
+	{
+		std::string key;
+		RETURNIFNOT( file.GetBinaryBlob( "key", key ) );
+		std::string iv;
+		RETURNIFNOT( file.GetBinaryBlob( "iv", iv ) );
+		std::string pt;
+		RETURNIFNOT( file.GetBinaryBlob( "pt", pt ) );
+		std::string aad;
+		RETURNIFNOT( file.GetBinaryBlob( "aad", aad ) );
+		std::string ct;
+		RETURNIFNOT( file.GetBinaryBlob( "ct", ct ) );
+		std::string tag;
+		RETURNIFNOT( file.GetBinaryBlob( "tag", tag ) );
+
+		uint8 encrypted[ 2048 ];
+		uint32 cbEncrypted = sizeof(encrypted);
+		RETURNIFNOT( ct.length() <= sizeof(encrypted) );
+
+		// Encrypt it
+		CHECK( CCrypto::SymmetricAuthEncryptChosenIV(
+			pt.c_str(), pt.length(),
+			iv.c_str(), iv.length(),
+			encrypted, &cbEncrypted,
+			key.c_str(), key.length(),
+			aad.c_str(), aad.length(),
+			tag.length()
+		) );
+
+		// Confirm it matches the test vector
+		CHECK( cbEncrypted == ct.length() + tag.length() );
+		CHECK( memcmp( ct.c_str(), encrypted, ct.length() ) == 0 );
+		CHECK( memcmp( tag.c_str(), encrypted+ct.length(), tag.length() ) == 0 );
+
+		// Make sure we can decrypt it successfully
+		uint8 decrypted[ 2048 ];
+		uint32 cbDecrypted = sizeof(decrypted);
+		CHECK( CCrypto::SymmetricAuthDecryptWithIV(
+			encrypted, cbEncrypted,
+			iv.c_str(), iv.length(),
+			decrypted, &cbDecrypted,
+			key.c_str(), key.length(),
+			aad.c_str(), aad.length(),
+			tag.length()
+		) );
+
+		CHECK( cbDecrypted == pt.length() );
+		CHECK( memcmp( pt.c_str(), decrypted, cbDecrypted ) == 0 );
+
+		// Flip a random bit in the ciphertext+tag blob
+		encrypted[ rand() % cbEncrypted ] ^= ( 1 << (rand() & 7 ) );
+
+		// It should fail to decrypt
+		cbDecrypted = sizeof(decrypted);
+		CHECK( !CCrypto::SymmetricAuthDecryptWithIV(
+			encrypted, cbEncrypted,
+			iv.c_str(), iv.length(),
+			decrypted, &cbDecrypted,
+			key.c_str(), key.length(),
+			aad.c_str(), aad.length(),
+			tag.length()
+		) );
+	}
+}
+
+//-----------------------------------------------------------------------------
+// Purpose: Test AES-GCM crypto against known vectors
+//-----------------------------------------------------------------------------
+void TestSymmetricAuthCryptoVectors()
+{
+	#define TEST_VECTOR_DIR "../../tests/aesgcmtestvectors/"
+
+	// Check against known test vectors
+	TestSymmetricAuthCrypto_EncryptTestVectorFile( TEST_VECTOR_DIR "gcmEncryptExtIV128.rsp" );
+	TestSymmetricAuthCrypto_EncryptTestVectorFile( TEST_VECTOR_DIR "gcmEncryptExtIV192.rsp" );
+	TestSymmetricAuthCrypto_EncryptTestVectorFile( TEST_VECTOR_DIR "gcmEncryptExtIV256.rsp" );
 }
 
 //-----------------------------------------------------------------------------
@@ -633,6 +766,7 @@ int main()
 
 	TestCryptoEncoding();
 	TestSymmetricCrypto();
+	TestSymmetricAuthCryptoVectors();
 	TestEllipticCrypto();
 	TestOpenSSHEd25519();
 	TestEllipticPerf();
