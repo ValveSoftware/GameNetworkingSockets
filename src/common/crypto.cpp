@@ -27,6 +27,7 @@
 #include <openssl/evp.h>
 #include <openssl/pem.h>
 #include <openssl/evp.h>
+#include <sodium.h>
 #include "tier0/memdbgon.h"
 
 #include "opensslwrapper.h"
@@ -38,6 +39,8 @@ void OneTimeCryptoInitOpenSSL()
 	{
 		once = true; // Not thread-safe
 		COpenSSLWrapper::Initialize();
+		Assert( sodium_init() != -1 );
+        
 		atexit( &COpenSSLWrapper::Shutdown );
 	}
 }
@@ -262,7 +265,7 @@ static const EVP_CIPHER *GetAESGCMCipherForKeyLength( size_t cbKey )
 }
 
 //-----------------------------------------------------------------------------
-bool CCrypto::SymmetricAuthEncryptWithIV(
+bool OpenSSL_SymmetricAuthEncryptWithIV(
 	const void *pPlaintextData, size_t cbPlaintextData,
 	const void *pIV, size_t cbIV,
 	void *pEncryptedDataAndTag, uint32 *pcbEncryptedDataAndTag,
@@ -353,8 +356,63 @@ bool CCrypto::SymmetricAuthEncryptWithIV(
 	return true;
 }
 
+static bool libsodium_SymmetricAuthEncryptWithIV(
+	const void *pPlaintextData, size_t cbPlaintextData,
+	const void *pIV, size_t cbIV,
+	void *pEncryptedDataAndTag, uint32 *pcbEncryptedDataAndTag,
+	const void *pKey, size_t cbKey,
+	const void *pAdditionalAuthenticationData, size_t cbAuthenticationData,
+	size_t cbTag
+) {
+	
+	if ( cbKey != crypto_aead_aes256gcm_keybytes() )
+	{
+		AssertMsg( false, "Invalid Key size" );
+		return false;
+	}
+	
+	if( cbIV != crypto_aead_aes256gcm_npubbytes() )
+	{
+		AssertMsg( false, "Invalid IV size" );
+		return false;
+	}
+	
+	if(cbPlaintextData + crypto_aead_aes256gcm_abytes() > *pcbEncryptedDataAndTag)
+	{
+		AssertMsg( false, "Not enough space to store encrypted data and tag!" );
+	}
+	
+	unsigned char* pMac = reinterpret_cast<unsigned char*>(pEncryptedDataAndTag) + cbPlaintextData;
+	unsigned long long cbMac = *pcbEncryptedDataAndTag - cbPlaintextData;
+	
+	crypto_aead_aes256gcm_encrypt_detached(reinterpret_cast<unsigned char*>(pEncryptedDataAndTag), pMac, &cbMac, reinterpret_cast<const unsigned char*>(pPlaintextData), cbPlaintextData, reinterpret_cast<const unsigned char*>(pAdditionalAuthenticationData), cbAuthenticationData, nullptr, reinterpret_cast<const unsigned char*>(pIV), reinterpret_cast<const unsigned char*>(pKey));
+	
+	*pcbEncryptedDataAndTag = cbPlaintextData + cbTag;
+	
+	return true;
+}
+
 //-----------------------------------------------------------------------------
-bool CCrypto::SymmetricAuthDecryptWithIV(
+bool CCrypto::SymmetricAuthEncryptWithIV(
+	const void *pPlaintextData, size_t cbPlaintextData,
+	const void *pIV, size_t cbIV,
+	void *pEncryptedDataAndTag, uint32 *pcbEncryptedDataAndTag,
+	const void *pKey, size_t cbKey,
+	const void *pAdditionalAuthenticationData, size_t cbAuthenticationData,
+	size_t cbTag
+) {
+	
+	cbIV = 12;
+
+	return OpenSSL_SymmetricAuthEncryptWithIV( pPlaintextData, cbPlaintextData, pIV, cbIV, pEncryptedDataAndTag, pcbEncryptedDataAndTag, pKey, cbKey, pAdditionalAuthenticationData, cbAuthenticationData, cbTag );
+
+	// return libsodium_SymmetricAuthEncryptWithIV( pPlaintextData, cbPlaintextData, pIV, cbIV, pEncryptedDataAndTag, pcbEncryptedDataAndTag, pKey, cbKey, pAdditionalAuthenticationData, cbAuthenticationData, cbTag );
+
+	return true;
+}
+
+//-----------------------------------------------------------------------------
+static bool OpenSSL_SymmetricAuthDecryptWithIV(
 	const void *pEncryptedDataAndTag, size_t cbEncryptedDataAndTag,
 	const void *pIV, size_t cbIV,
 	void *pPlaintextData, uint32 *pcbPlaintextData,
@@ -454,6 +512,53 @@ bool CCrypto::SymmetricAuthDecryptWithIV(
 	// Success.
 	// NOTE: EVP_CIPHER_CTX_safe destructor cleans up
 	return true;
+}
+
+static bool libsodium_SymmetricAuthDecryptWithIV(
+	const void *pEncryptedDataAndTag, size_t cbEncryptedDataAndTag,
+	const void *pIV, size_t cbIV,
+	void *pPlaintextData, uint32 *pcbPlaintextData,
+	const void *pKey, size_t cbKey,
+	const void *pAdditionalAuthenticationData, size_t cbAuthenticationData,
+	size_t cbTag
+	) {
+    
+	if ( cbKey != crypto_aead_aes256gcm_keybytes() )
+	{
+		AssertMsg( false, "Invalid Key size" );
+		return false;
+	}
+	
+	if( cbIV != crypto_aead_aes256gcm_npubbytes() )
+	{
+		AssertMsg( false, "Invalid IV size" );
+		return false;
+	}
+	
+	unsigned long long PlaintextDataSize = *pcbPlaintextData;
+	
+	const int decryptResult = crypto_aead_aes256gcm_decrypt(reinterpret_cast<unsigned char*>(pPlaintextData), &PlaintextDataSize, nullptr, reinterpret_cast<const unsigned char*>(pEncryptedDataAndTag), cbEncryptedDataAndTag, reinterpret_cast<const unsigned char*>(pAdditionalAuthenticationData), cbAuthenticationData, reinterpret_cast<const unsigned char*>(pIV), reinterpret_cast<const unsigned char*>(pKey));
+	
+	*pcbPlaintextData = PlaintextDataSize;
+	
+	return decryptResult == 0;
+}
+
+//-----------------------------------------------------------------------------
+bool CCrypto::SymmetricAuthDecryptWithIV(
+	const void *pEncryptedDataAndTag, size_t cbEncryptedDataAndTag,
+	const void *pIV, size_t cbIV,
+	void *pPlaintextData, uint32 *pcbPlaintextData,
+	const void *pKey, size_t cbKey,
+	const void *pAdditionalAuthenticationData, size_t cbAuthenticationData,
+	size_t cbTag
+	) {
+    
+    cbIV = 12;
+    
+    // return OpenSSL_SymmetricAuthDecryptWithIV( pEncryptedDataAndTag, cbEncryptedDataAndTag, pIV, cbIV, pPlaintextData, pcbPlaintextData, pKey, cbKey, pAdditionalAuthenticationData, cbAuthenticationData, cbTag );
+    
+    return libsodium_SymmetricAuthDecryptWithIV( pEncryptedDataAndTag, cbEncryptedDataAndTag, pIV, cbIV, pPlaintextData, pcbPlaintextData, pKey, cbKey, pAdditionalAuthenticationData, cbAuthenticationData, cbTag );
 }
 
 //-----------------------------------------------------------------------------

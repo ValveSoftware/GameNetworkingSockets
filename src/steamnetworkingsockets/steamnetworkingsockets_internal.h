@@ -161,7 +161,7 @@ const int k_cbSteamNetworkingSocketsEncryptionBlockSize = 16;
 /// if he corrupts a packet, he has a 2^-tagbits chance of it decrypting
 /// successfully and us attempting to process that corrupted data higher
 /// up the stack.  But he doesn't know which packets decrypted successfully.
-const int k_cbSteamNetwokingSocketsEncrytionTagSize = 4;
+const int k_cbSteamNetwokingSocketsEncrytionTagSize = 16;
 
 /// Max length of plaintext and encrypted payload we will send.  AES-GCM does
 /// not use padding (but it does have the security tag).  So this can be
