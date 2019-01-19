@@ -151,25 +151,32 @@ const int k_cbSteamNetworkingSocketsMaxReliableMessageSegment = k_cbSteamNetwork
 /// frame in the packet and thus no explicit size field will be needed.
 const int k_cbSteamNetworkingSocketsMaxReliableMessageSegmentFrame = k_cbSteamNetworkingSocketsMaxReliableMessageSegment + 7;
 
-/// Currently 16-byte AES
+/// Currently we always use AES Rijndael for symmetric encryption,
+/// which has a block size of 128 bits.  This is not configurable.
 const int k_cbSteamNetworkingSocketsEncryptionBlockSize = 16;
 
-/// Max length of encrypted payload we will send.
-const int k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend = 1248;
-COMPILE_TIME_ASSERT( k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend % k_cbSteamNetworkingSocketsEncryptionBlockSize == 0 );
+/// Size of security tag for AES-GCM.  Remember, the attacker does not have
+/// access to the per-packet IV, so our situation is more difficult for him
+/// than the standard analysis of minimum recommended tag lengths.  So
+/// if he corrupts a packet, he has a 2^-tagbits chance of it decrypting
+/// successfully and us attempting to process that corrupted data higher
+/// up the stack.  But he doesn't know which packets decrypted successfully.
+const int k_cbSteamNetwokingSocketsEncrytionTagSize = 4;
 
-/// Max length of plaintext payload we could send.  We need at least
-/// one byte of pad, so an exact multiple of the key size would
-/// basically be guaranteeing a full key's worth of pad and would
-/// be bad.  Leaving exactly one byte would be OK.  Maybe that's
-/// ideal?  For some reason I'd like to use a more round number.  That might be misguided, but it feels right.
-const int k_cbSteamNetworkingSocketsMaxPlaintextPayloadSend = k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend-4;
+/// Max length of plaintext and encrypted payload we will send.  AES-GCM does
+/// not use padding (but it does have the security tag).  So this can be
+/// arbitrary, it does not need to account for the block size.
+const int k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend = 1248;
+const int k_cbSteamNetworkingSocketsMaxPlaintextPayloadSend = k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend-k_cbSteamNetwokingSocketsEncrytionTagSize;
 
 /// Use larger limits for what we are willing to receive.
 const int k_cbSteamNetworkingSocketsMaxEncryptedPayloadRecv = k_cbSteamNetworkingSocketsMaxUDPMsgLen;
 const int k_cbSteamNetworkingSocketsMaxPlaintextPayloadRecv = k_cbSteamNetworkingSocketsMaxUDPMsgLen;
 
 /// Make sure we have enough room for our headers and occasional inline pings and stats and such
+/// FIXME - For relayed connections, we send some of the stats outside the encrypted block, so that
+/// they can be observed by the relay.  For direct connections, we put it in the encrypted block.
+/// So we might need to adjust this to be per connection type instead off constant.
 COMPILE_TIME_ASSERT( k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend + 50 < k_cbSteamNetworkingSocketsMaxUDPMsgLen );
 
 /// Min size of raw UDP message.
@@ -245,9 +252,17 @@ COMPILE_TIME_ASSERT( ( k_usecTimeSinceLastPacketMaxReasonable >> k_usecTimeSince
 const uint32 k_usecTimeSinceLastPacketMinReasonable = k_nMillion/250;
 COMPILE_TIME_ASSERT( ( k_usecTimeSinceLastPacketMinReasonable >> k_usecTimeSinceLastPacketSerializedPrecisionShift ) > 64 ); // make sure the minimum reasonable value can be serialized with sufficient precision.
 
-/// Protocol version of this code
-const uint32 k_nCurrentProtocolVersion = 5;
-const uint32 k_nMinRequiredProtocolVersion = 5;
+/// Protocol version of this code.  This is a blunt instrument, which is incremented when we
+/// wish to change the wire protocol in a way that doesn't have some other easy
+/// mechanism for dealing with compatibility (e.g. using protobuf's robust mechanisms).
+const uint32 k_nCurrentProtocolVersion = 6;
+
+/// Minimum required version we will accept from a peer.  We increment this
+/// when we introduce wire breaking protocol changes and do not wish to be
+/// backward compatible.  This has been fine before the	first major release,
+/// but once we make a big public release, we probably won't ever be able to
+/// do this again, and we'll need to have more sophisticated mechanisms. 
+const uint32 k_nMinRequiredProtocolVersion = 6;
 
 // Serialize an UNSIGNED quantity.  Returns pointer to the next byte.
 // https://developers.google.com/protocol-buffers/docs/encoding

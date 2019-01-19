@@ -1229,17 +1229,25 @@ int64 CSteamNetworkConnectionBase::DecryptDataChunk( uint16 nWireSeqNum, int cbP
 	if ( nFullSequenceNumber <= 0 )
 		return 0;
 
-	// Put full 64-bit packet number into the IV
-	*(uint64 *)&m_cryptIVRecv.m_buf = LittleQWord( nFullSequenceNumber );
+	// Adjust the IV by the packet number
+	*(uint64 *)&m_cryptIVRecv.m_buf += LittleQWord( nFullSequenceNumber );
 	//SpewMsg( "Recv decrypt IV %llu + %02x%02x%02x%02x, key %02x%02x%02x%02x\n", *(uint64 *)&m_cryptIVRecv.m_buf, m_cryptIVRecv.m_buf[8], m_cryptIVRecv.m_buf[9], m_cryptIVRecv.m_buf[10], m_cryptIVRecv.m_buf[11], m_cryptKeyRecv.m_buf[0], m_cryptKeyRecv.m_buf[1], m_cryptKeyRecv.m_buf[2], m_cryptKeyRecv.m_buf[3] );
 
-	// Decrypt the chunk
-	if ( !CCrypto::SymmetricDecryptWithIV(
-		(const uint8 *)pChunk, cbChunk, // encrypted
+	// Decrypt the chunk and check the auth tag
+	bool bDecryptOK = CCrypto::SymmetricAuthDecryptWithIV(
+		pChunk, cbChunk, // encrypted
 		m_cryptIVRecv.m_buf, m_cryptIVRecv.k_nSize, // IV
-		(uint8 *)pDecrypted, &cbDecrypted, // output
-		m_cryptKeyRecv.m_buf, m_cryptKeyRecv.k_nSize // Key
-	) ) {
+		pDecrypted, &cbDecrypted, // output
+		m_cryptKeyRecv.m_buf, m_cryptKeyRecv.k_nSize, // Key
+		nullptr, 0, // no AAD
+		k_cbSteamNetwokingSocketsEncrytionTagSize
+	);
+
+	// Restore the IV to the base value
+	*(uint64 *)&m_cryptIVRecv.m_buf -= LittleQWord( nFullSequenceNumber );
+	
+	// Did decryption fail?
+	if ( !bDecryptOK ) {
 
 		// Just drop packet.
 		// The assumption is that we either have a bug or some weird thing,

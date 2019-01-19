@@ -1711,20 +1711,24 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 
 	Assert( m_bCryptKeysValid );
 
-	// Make sure sizes are reasonable.
-	COMPILE_TIME_ASSERT( k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend % k_cbSteamNetworkingSocketsEncryptionBlockSize == 0 );
-	COMPILE_TIME_ASSERT( k_cbSteamNetworkingSocketsMaxPlaintextPayloadSend >= k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend - 4 );
+	// Adjust the IV by the packet number
+	*(uint64 *)&m_cryptIVSend.m_buf += LittleQWord( m_statsEndToEnd.m_nNextSendSequenceNumber );
 
 	// Encrypt the chunk
 	uint8 arEncryptedChunk[ k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend + 64 ]; // Should not need pad
-	*(uint64 *)&m_cryptIVSend.m_buf = LittleQWord( m_statsEndToEnd.m_nNextSendSequenceNumber );
 	uint32 cbEncrypted = sizeof(arEncryptedChunk);
-	DbgVerify( CCrypto::SymmetricEncryptWithIV(
-		(const uint8 *)payload, cbPlainText, // plaintext
+	DbgVerify( CCrypto::SymmetricAuthEncryptWithIV(
+		payload, cbPlainText, // plaintext
 		m_cryptIVSend.m_buf, m_cryptIVSend.k_nSize, // IV
 		arEncryptedChunk, &cbEncrypted, // output
-		m_cryptKeySend.m_buf, m_cryptKeySend.k_nSize // Key
+		m_cryptKeySend.m_buf, m_cryptKeySend.k_nSize, // Key
+		nullptr, 0, // no AAD
+		k_cbSteamNetwokingSocketsEncrytionTagSize
 	) );
+
+	// Restore the IV to the base value
+	*(uint64 *)&m_cryptIVSend.m_buf -= LittleQWord( m_statsEndToEnd.m_nNextSendSequenceNumber );
+
 	Assert( (int)cbEncrypted >= cbPlainText );
 	Assert( (int)cbEncrypted <= k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend ); // confirm that pad above was not necessary and we never exceed k_nMaxSteamDatagramTransportPayload, even after encrypting
 

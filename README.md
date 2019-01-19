@@ -18,7 +18,7 @@ GameNetworkingSockets is a basic transport layer for games.  The features are:
   the status of every packet number (whether or not a packet was received
   with that number).  By remembering what segments were sent in each packet,
   the sender can deduce which individual segments need to be retransmitted.
-* Encryption. AES per packet, Ed25519 crypto for key exchange and cert
+* Encryption. AES-GCM-256 per packet, Ed25519 crypto for key exchange and cert
   signatures. The details for shared key derivation and per-packet IV are
   based on the [design](https://docs.google.com/document/d/1g5nIXAIkN_Y-7XJW5K45IblHd_L2f5LTaDUDwvZ5L6g/edit?usp=sharing)
   used by Google's QUIC protocol.
