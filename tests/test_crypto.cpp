@@ -690,6 +690,54 @@ void SymmetricDecryptRepeatedly( int cIterations, uint8 *pubEncrypted, int cubEn
 }
 
 //-----------------------------------------------------------------------------
+// Purpose: Performs specified # of symmetric encryptions
+//-----------------------------------------------------------------------------
+void SymmetricAuthEncryptRepeatedly( int cIterations, uint8 *pubData, int cubToEncrypt, uint8 *pubIV, uint cubIV, uint8 *pubKey, uint cubKey )
+{
+	int nBufSize = cubToEncrypt * 32;				// 16 = AES block size.. worst case for padded data
+	uint8 *pEncrypted = new uint8[ nBufSize ];
+
+	// try a bunch of iterations of symmetric encrypting big packets
+	for ( int iIteration = 0; iIteration < cIterations; iIteration++ )
+	{
+		uint cubEncrypted = nBufSize;
+		bool bRet = CCrypto::SymmetricAuthEncryptWithIV(
+			&pubData[iIteration], cubToEncrypt,
+			pubIV, cubIV,
+			pEncrypted, &cubEncrypted,
+			pubKey, cubKey,
+			nullptr, 0, 4 );
+		CHECK( bRet );	// must succeed
+	}
+
+	delete [] pEncrypted;
+}
+
+//-----------------------------------------------------------------------------
+// Purpose: Performs specified # of symmetric descryptions
+//-----------------------------------------------------------------------------
+void SymmetricAuthDecryptRepeatedly( int cIterations, uint8 *pubEncrypted, int cubEncrypted, uint8 *pubIV, uint cubIV, uint8 *pubKey, uint cubKey )
+{
+	int nBufSize = cubEncrypted * 32;				// 16 = AES block size.. worst case for padded data
+	uint8 *pEncrypted = new uint8[ nBufSize ];
+
+	// try a bunch of iterations of symmetric encrypting big packets
+	for ( int iIteration = 0; iIteration < cIterations; iIteration++ )
+	{
+		uint cubOutput = nBufSize;
+		bool bRet = CCrypto::SymmetricAuthDecryptWithIV(
+			pubEncrypted, cubEncrypted,
+			pubIV, cubIV,
+			pEncrypted, &cubOutput,
+			pubKey, cubKey,
+			nullptr, 0, 4 );
+		CHECK( bRet );												// must succeed
+	}
+
+	delete [] pEncrypted;
+}
+
+//-----------------------------------------------------------------------------
 // Purpose: Tests symmetric crypto perf
 //-----------------------------------------------------------------------------
 void TestSymmetricCryptoPerf()
@@ -760,6 +808,82 @@ void TestSymmetricCryptoPerf()
 	printf( "\tSymmetric decrypt (big):\t\t%f MB/sec (%d iterations)\n", dRateLargeDecrypt, k_cIterations );
 }
 
+//-----------------------------------------------------------------------------
+// Purpose: Tests symmetric crypto perf
+//-----------------------------------------------------------------------------
+void TestSymmetricAuthCryptoPerf()
+{
+	uint64 usecStart;
+
+	// generate a random key
+	uint8 rgubKey[k_nSymmetricKeyLen];
+	uint8 rgubIV[k_nSymmetricBlockSize];
+
+	CCrypto::GenerateRandomBlock( rgubKey, V_ARRAYSIZE( rgubKey ) );
+
+	const int k_cIterations = 10000;
+
+	const int k_cMaxData = 800;
+	const int k_cBufs = 5;
+	const int k_cubTestBuf = k_cMaxData * k_cBufs + k_cIterations;
+
+	const int k_cubPktBig = 2000;
+	const int k_cubPktSmall = 40;
+	uint8 rgubData[k_cubTestBuf];
+
+	CCrypto::GenerateRandomBlock( rgubIV, V_ARRAYSIZE( rgubIV ) );
+
+	// fill data buffer with arbitrary data
+	uint8 rgubEncrypted[ k_cubPktBig + 32 ];		// 16 = AES block size.. worst case for padded data
+	for ( int iubData = 0; iubData < V_ARRAYSIZE( rgubData ); iubData ++ )
+			rgubData[iubData] = (uint8) iubData;
+
+	// try a bunch of iterations of symmetric encrypting small packets
+	usecStart = Plat_USTime();
+	SymmetricAuthEncryptRepeatedly( k_cIterations, rgubData, k_cubPktSmall, rgubIV, k_nSymmetricBlockSize, rgubKey, V_ARRAYSIZE( rgubKey ) );
+	int cMicroSecPerEncryptSmall = Plat_USTime() - usecStart;
+
+	// try a bunch of iterations of symmetric encrypting big packets
+	usecStart = Plat_USTime();
+	SymmetricAuthEncryptRepeatedly( k_cIterations, rgubData, k_cubPktBig, rgubIV, k_nSymmetricBlockSize, rgubKey, V_ARRAYSIZE( rgubKey ) );
+	int cMicroSecPerEncryptBig = Plat_USTime() - usecStart;
+	double dRateLargeEncrypt = double( k_cubPktBig ) * k_cIterations / cMicroSecPerEncryptBig;
+
+	// try a bunch of iterations decrypting small packets
+	uint cubEncrypted = V_ARRAYSIZE( rgubEncrypted );
+	bool bRet = CCrypto::SymmetricAuthEncryptWithIV(
+			rgubData, k_cubPktSmall,
+			rgubIV, k_nSymmetricBlockSize,
+			rgubEncrypted, &cubEncrypted,
+			rgubKey, V_ARRAYSIZE( rgubKey ),
+			nullptr, 0, 4 );
+	CHECK( bRet );
+	usecStart = Plat_USTime();
+	SymmetricAuthDecryptRepeatedly( k_cIterations, rgubEncrypted, cubEncrypted, rgubIV, k_nSymmetricBlockSize, rgubKey, V_ARRAYSIZE( rgubKey ) );
+	int cMicroSecPerDecryptSmall = Plat_USTime() - usecStart;
+
+	// try a bunch of iterations decrypting big packets
+	cubEncrypted = V_ARRAYSIZE( rgubEncrypted );
+	bRet = CCrypto::SymmetricAuthEncryptWithIV(
+			rgubData, k_cubPktBig,
+			rgubIV, k_nSymmetricBlockSize,
+			rgubEncrypted, &cubEncrypted,
+			rgubKey, V_ARRAYSIZE( rgubKey ),
+			nullptr, 0, 4 );
+	CHECK( bRet );
+	usecStart = Plat_USTime();
+	SymmetricAuthDecryptRepeatedly( k_cIterations, rgubEncrypted, cubEncrypted, rgubIV, k_nSymmetricBlockSize, rgubKey, V_ARRAYSIZE( rgubKey ) );
+	int cMicroSecPerDecryptBig = Plat_USTime() - usecStart;
+	double dRateLargeDecrypt = double( k_cubPktBig ) * k_cIterations / cMicroSecPerDecryptBig;
+
+	printf( "\tSymmetric GCM encrypt (small):\t\t%d microsec (%d iterations)\n", cMicroSecPerEncryptSmall, k_cIterations );
+	printf( "\tSymmetric GCM encrypt (big):\t\t%d microsec (%d iterations)\n", cMicroSecPerEncryptBig, k_cIterations );
+	printf( "\tSymmetric GCM encrypt (big):\t\t%f MB/sec (%d iterations)\n", dRateLargeEncrypt, k_cIterations );
+	printf( "\tSymmetric GCM decrypt (small):\t\t%d microsec (%d iterations)\n", cMicroSecPerDecryptSmall, k_cIterations );
+	printf( "\tSymmetric GCM decrypt (big):\t\t%d microsec (%d iterations)\n", cMicroSecPerDecryptBig, k_cIterations );
+	printf( "\tSymmetric GCM decrypt (big):\t\t%f MB/sec (%d iterations)\n", dRateLargeDecrypt, k_cIterations );
+}
+
 int main()
 {
 	CCrypto::Init();
@@ -771,6 +895,7 @@ int main()
 	TestOpenSSHEd25519();
 	TestEllipticPerf();
 	TestSymmetricCryptoPerf();
+	TestSymmetricAuthCryptoPerf();
 
 	return 0;
 }
