@@ -11,8 +11,8 @@
 #define CHECK_EQUAL(a,b) Assert((a)==(b))
 #define RETURNIFNOT(x) { if ( !(x) ) { AssertMsg( false, #x ); return; } }
 #define RETURNFALSEIFNOT(x) { if ( !(x) ) { AssertMsg( false, #x ); return false; } }
-const int k_cSmallBuff = 255;					// smallish buffer
-const int k_cMedBuff = 1024;
+const int k_cSmallBuff = 100;					// smallish buffer
+const int k_cMedBuff = 1200;
 
 static unsigned char Q_nibble( char c )
 {
