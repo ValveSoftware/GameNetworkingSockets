@@ -12,7 +12,6 @@
 //SDR_PUBLIC 	#include <openssl/err.h>
 #include <openssl/crypto.h>
 #include <openssl/rand.h>
-#include "openssl_stack_allocator.h"
 #ifdef USE_LIBSODIUM
 #include <sodium.h>
 #endif
@@ -112,9 +111,6 @@ void COpenSSLWrapper::Initialize()
 		CRYPTO_set_dynlock_create_callback( COpenSSLWrapper::OpenSSLDynLockCreateCallback );
 		CRYPTO_set_dynlock_destroy_callback( COpenSSLWrapper::OpenSSLDynLockDestroyCallback );
 		CRYPTO_set_dynlock_lock_callback( COpenSSLWrapper::OpenSSLDynLockLockCallback );
-
-		// Use our stack-based allocators for short-term crypto allocations
-		VerifyFatal( CRYPTO_set_mem_functions( OpenSSLStackAllocator::Malloc, OpenSSLStackAllocator::Realloc, OpenSSLStackAllocator::Free ) );
 
 //SDR_PUBLIC		OpenSSL_add_all_algorithms();
 //SDR_PUBLIC

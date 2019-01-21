@@ -70,7 +70,6 @@ sources = [
   'common/crypto_textencode.cpp',
   'common/keypair.cpp',
   'common/opensslwrapper.cpp',
-  'common/openssl_stack_allocator.cpp',
   'common/steamid.cpp',
   'steamnetworkingsockets/clientlib/csteamnetworkingsockets.cpp',
   'steamnetworkingsockets/clientlib/steamnetworkingsockets_flat.cpp',

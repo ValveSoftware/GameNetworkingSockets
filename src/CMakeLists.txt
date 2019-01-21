@@ -33,7 +33,6 @@ set(GNS_SRCS
 	"common/crypto_25519_libsodium.cpp"
 	"common/keypair.cpp"
 	"common/opensslwrapper.cpp"
-	"common/openssl_stack_allocator.cpp"
 	"common/steamid.cpp"
 	"steamnetworkingsockets/clientlib/csteamnetworkingsockets.cpp"
 	"steamnetworkingsockets/clientlib/steamnetworkingsockets_flat.cpp"

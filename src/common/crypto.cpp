@@ -30,7 +30,6 @@
 #include "tier0/memdbgon.h"
 
 #include "opensslwrapper.h"
-#include "openssl_stack_allocator.h"
 
 void OneTimeCryptoInitOpenSSL()
 {
@@ -47,35 +46,24 @@ void OneTimeCryptoInitOpenSSL()
 // using RAII
 struct EVP_CIPHER_CTX_safe
 {
-	OpenSSLStackAllocator::StackArenaFixed<2048> arena;
+//	#if OPENSSL_API_LEVEL < 2
+//
+//		// Nice, we can allocate on the stack, super simple and fast
+//		EVP_CIPHER_CTX_safe() { EVP_CIPHER_CTX_init( &ctx ); }
+//		~EVP_CIPHER_CTX_safe() { EVP_CIPHER_CTX_cleanup( &ctx ); }
+//		inline EVP_CIPHER_CTX *Ptr() { return &ctx; } 
+//		EVP_CIPHER_CTX ctx;
+//	#else
 
-	#if OPENSSL_VERSION_NUMBER < 0x10100000
-
-		// Nice, we can allocate on the stack, super simple and fast.
-		// Although note that OpenSSL might still do more dynamic
-		// allocations
-		EVP_CIPHER_CTX_safe() { EVP_CIPHER_CTX_init( &ctx ); }
-		~EVP_CIPHER_CTX_safe()
-		{
-			EVP_CIPHER_CTX_cleanup( &ctx );
-			Assert( arena.overflow_total == 0 );
-		}
-		inline EVP_CIPHER_CTX *Ptr() { return &ctx; }
-		EVP_CIPHER_CTX ctx;
-	#else
-
-		// We have to go though the generic allocator.
-		// We'll use our allocation hooks to make this as fast
-		// as possible.
+		// Ug, we have to go through a generic allocator!  What the heck
+		// guys, we need a way to do this efficiently!  I don't want to be
+		// doing heap allocations just to encrypt 1000 bytes!  Do they
+		// expect you to use a thread-local allocation and reuse it?
 		EVP_CIPHER_CTX_safe() { ctx = EVP_CIPHER_CTX_new(); }
-		~EVP_CIPHER_CTX_safe()
-		{
-			EVP_CIPHER_CTX_free( ctx );
-			Assert( arena.overflow_total == 0 );
-		}
+		~EVP_CIPHER_CTX_safe() { EVP_CIPHER_CTX_free( ctx ); }
 		inline EVP_CIPHER_CTX *Ptr() { return ctx; } 
 		EVP_CIPHER_CTX *ctx;
-	#endif
+//	#endif
 };
 
 void CCrypto::Init()
