@@ -83,9 +83,15 @@ set(GNS_CXX_FLAGS
 	-Wno-reorder
 	-Wno-non-virtual-dtor
 	-Wno-zero-as-null-pointer-constant
-	-fno-rtti
 	-fno-exceptions
 	)
+
+if(NOT SANITIZE_UNDEFINED)
+set(GNS_CXX_FLAGS
+	${GNS_CXX_FLAGS}
+	-fno-rtti
+	)
+endif()
 
 protobuf_generate_cpp(GNS_PROTO_SRCS GNS_PROTO_HDRS ${GNS_PROTOS})
 
