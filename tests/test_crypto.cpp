@@ -277,6 +277,9 @@ public:
 
 void TestSymmetricAuthCrypto_EncryptTestVectorFile( const char *pszFilename )
 {
+	bool bRet;
+	AES_GCM_EncryptContext ctxEnc;
+	AES_GCM_DecryptContext ctxDec;
 	NISTTestVectorFile file( pszFilename );
 
 	while ( file.FindNextTest() )
@@ -294,19 +297,26 @@ void TestSymmetricAuthCrypto_EncryptTestVectorFile( const char *pszFilename )
 		std::string tag;
 		RETURNIFNOT( file.GetBinaryBlob( "tag", tag ) );
 
+		ctxEnc.Init(
+			key.c_str(), key.length(),
+			iv.length(),
+			tag.length() );
+
+		ctxDec.Init(
+			key.c_str(), key.length(),
+			iv.length(),
+			tag.length() );
+
+		// Encrypt it
 		uint8 encrypted[ 2048 ];
 		uint32 cbEncrypted = sizeof(encrypted);
 		RETURNIFNOT( ct.length() <= sizeof(encrypted) );
-
-		// Encrypt it
-		CHECK( CCrypto::SymmetricAuthEncryptWithIV(
+		bRet = ctxEnc.Encrypt(
 			pt.c_str(), pt.length(),
-			iv.c_str(), iv.length(),
+			iv.c_str(),
 			encrypted, &cbEncrypted,
-			key.c_str(), key.length(),
-			aad.c_str(), aad.length(),
-			tag.length()
-		) );
+			aad.c_str(), aad.length() );
+		CHECK( bRet );
 
 		// Confirm it matches the test vector
 		CHECK( cbEncrypted == ct.length() + tag.length() );
@@ -316,14 +326,12 @@ void TestSymmetricAuthCrypto_EncryptTestVectorFile( const char *pszFilename )
 		// Make sure we can decrypt it successfully
 		uint8 decrypted[ 2048 ];
 		uint32 cbDecrypted = sizeof(decrypted);
-		CHECK( CCrypto::SymmetricAuthDecryptWithIV(
+		bRet = ctxDec.Decrypt(
 			encrypted, cbEncrypted,
-			iv.c_str(), iv.length(),
+			iv.c_str(),
 			decrypted, &cbDecrypted,
-			key.c_str(), key.length(),
-			aad.c_str(), aad.length(),
-			tag.length()
-		) );
+			aad.c_str(), aad.length() );
+		CHECK( bRet );
 
 		CHECK( cbDecrypted == pt.length() );
 		CHECK( memcmp( pt.c_str(), decrypted, cbDecrypted ) == 0 );
@@ -333,14 +341,12 @@ void TestSymmetricAuthCrypto_EncryptTestVectorFile( const char *pszFilename )
 
 		// It should fail to decrypt
 		cbDecrypted = sizeof(decrypted);
-		CHECK( !CCrypto::SymmetricAuthDecryptWithIV(
+		bRet = ctxDec.Decrypt(
 			encrypted, cbEncrypted,
-			iv.c_str(), iv.length(),
+			iv.c_str(),
 			decrypted, &cbDecrypted,
-			key.c_str(), key.length(),
-			aad.c_str(), aad.length(),
-			tag.length()
-		) );
+			aad.c_str(), aad.length() );
+		CHECK( !bRet );
 	}
 }
 
