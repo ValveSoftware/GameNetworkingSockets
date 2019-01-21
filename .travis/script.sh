@@ -20,8 +20,8 @@ fi
 
 # Build lightweight test builds
 mkdir build-cmake
-(cd build-cmake && cmake -G Ninja -DLIGHT_TESTS:BOOL=ON ..)
-meson . build-meson -Dlight_tests=true
+(cd build-cmake && cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -DLIGHT_TESTS:BOOL=ON ..)
+meson . build-meson -Dlight_tests=true -Db_lto=true --optimization 3
 
 # Build all targets of CMake/meson, ensuring everything can build.
 ninja -C build-meson
