@@ -55,7 +55,7 @@ if (USE_LIBSODIUM)
 	set(GNS_SRCS
 		${GNS_SRCS}
 		"common/crypto_25519_libsodium.cpp")
-else
+else()
 	set(GNS_SRCS
 		${GNS_SRCS}
 		"common/crypto_25519_donna.cpp"
@@ -63,7 +63,7 @@ else
 		"external/curve25519-donna/curve25519_VALVE_sse2.c"
 		"external/ed25519-donna/ed25519_VALVE.c"
 		"external/ed25519-donna/ed25519_VALVE_sse2.c")
-endif(USE_LIBSODIUM)
+endif()
 
 set(C99_FEATURES
 	c_restrict
@@ -147,6 +147,8 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 		if(sodium_USE_STATIC_LIBS)
 			target_compile_definitions(${GNS_TARGET} PRIVATE SODIUM_STATIC)
 		endif()
+	else()
+		target_compile_definitions(${GNS_TARGET} PRIVATE VALVE_CRYPTO_25519_DONNA)
 	endif()
 
 	## Needs CMake 3.8, then we could get rid of the workaround below it.
