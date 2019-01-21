@@ -39,7 +39,7 @@ enum ECryptoKeyType
 class CCryptoKeyBase 
 {
 public:
-	virtual ~CCryptoKeyBase() {}
+	virtual ~CCryptoKeyBase();
 
 	bool operator==( const CCryptoKeyBase &rhs ) const;
 	bool operator!=( const CCryptoKeyBase &rhs ) const { return !operator==( rhs ); }
@@ -144,6 +144,8 @@ protected:
 //-----------------------------------------------------------------------------
 class CEC25519PublicKeyBase : public CEC25519KeyBase
 {
+public:
+	virtual ~CEC25519PublicKeyBase();
 protected:
 	CEC25519PublicKeyBase( ECryptoKeyType eType ) : CEC25519KeyBase( eType ) { }
 };

@@ -322,6 +322,8 @@ static bool GetBinaryDataAsPEM( char *pchPEMData, uint32_t cubPEMData, uint32_t 
 	return true;
 }
 
+CCryptoKeyBase::~CCryptoKeyBase() {}
+
 bool CCryptoKeyBase::GetRawDataAsStdString( std::string *pString ) const
 {
 	pString->clear();
@@ -523,6 +525,8 @@ bool CEC25519PrivateKeyBase::SetRawData( const void *pData, size_t cbData )
 	Wipe();
 	return false;
 }
+
+CEC25519PublicKeyBase::~CEC25519PublicKeyBase() {}
 
 //-----------------------------------------------------------------------------
 // CECSigningPrivateKey
