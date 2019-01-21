@@ -35,13 +35,13 @@ if [ -d build-tsan ]; then
 fi
 
 # Run basic tests
-build-meson/tests/test_crypto
-build-cmake/tests/test_crypto
+(cd build-meson/tests && ./test_crypto)
+(cd build-cmake/tests && ./test_crypto)
 build-cmake/tests/test_connection
 
 # Run sanitized builds
 for SANITIZER in asan ubsan tsan; do
 	[ -d build-${SANITIZER} ] || continue
-	build-${SANITIZER}/tests/test_crypto
+	(cd build-${SANITIZER}/tests && ./test_crypto)
 	build-${SANITIZER}/tests/test_connection
 done
