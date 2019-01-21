@@ -249,31 +249,110 @@ bool CCrypto::SymmetricDecryptWithIV( const uint8 *pubEncryptedData, uint32 cubE
 	return BDecryptAESUsingOpenSSL( pubEncryptedData, cubEncryptedData, pubPlaintextData, pcubPlaintextData, pubKey, cubKey, pIV, bVerifyPaddingBytes );
 }
 
-static const EVP_CIPHER *GetAESGCMCipherForKeyLength( size_t cbKey )
+SymmetricCryptContextBase::SymmetricCryptContextBase()
 {
-	switch ( cbKey )
-	{
-		case 128/8: return EVP_aes_128_gcm();
-		case 192/8: return EVP_aes_192_gcm();
-		case 256/8: return EVP_aes_256_gcm();
-		default:
-			return nullptr;
-	}
+	evp_cipher_ctx = nullptr;
+	m_cbIV = 0;
+	m_cbTag = 0;
 }
 
-//-----------------------------------------------------------------------------
-bool CCrypto::SymmetricAuthEncryptWithIV(
+void SymmetricCryptContextBase::Wipe()
+{
+	if ( evp_cipher_ctx )
+	{
+		EVP_CIPHER_CTX *ctx = (EVP_CIPHER_CTX*)evp_cipher_ctx;
+		#if OPENSSL_VERSION_NUMBER < 0x10100000
+			EVP_CIPHER_CTX_cleanup( ctx );
+			delete ctx;
+		#else
+			EVP_CIPHER_CTX_free( ctx );
+		#endif
+		evp_cipher_ctx = nullptr;
+	}
+	m_cbIV = 0;
+	m_cbTag = 0;
+}
+
+bool AES_GCM_CipherContext::InitCipher( const void *pKey, size_t cbKey, size_t cbIV, size_t cbTag, bool bEncrypt )
+{
+	EVP_CIPHER_CTX *ctx = (EVP_CIPHER_CTX*)evp_cipher_ctx;
+	if ( ctx )
+	{
+		#if OPENSSL_VERSION_NUMBER < 0x10100000
+			EVP_CIPHER_CTX_cleanup( ctx );
+			EVP_CIPHER_CTX_init( ctx );
+		#else
+			EVP_CIPHER_CTX_reset( ctx );
+		#endif
+	}
+	else
+	{
+		#if OPENSSL_VERSION_NUMBER < 0x10100000
+			ctx = new EVP_CIPHER_CTX;
+			if ( !ctx )
+				return false;
+			EVP_CIPHER_CTX_init( ctx );
+		#else
+			ctx = EVP_CIPHER_CTX_new();
+			if ( !ctx )
+				return false;
+		#endif
+		evp_cipher_ctx = ctx;
+	}
+
+	// Select the cipher based on the size of the key
+	const EVP_CIPHER *cipher = nullptr;
+	switch ( cbKey )
+	{
+		case 128/8: cipher = EVP_aes_128_gcm(); break;
+		case 192/8: cipher = EVP_aes_192_gcm(); break;
+		case 256/8: cipher = EVP_aes_256_gcm(); break;
+	}
+	if ( cipher == nullptr )
+	{
+		AssertMsg( false, "Invalid AES-GCM key size" );
+		Wipe();
+		return false;
+	}
+
+	// Setup for encryption setting the key
+	if ( EVP_CipherInit_ex( ctx, cipher, nullptr, (const uint8*)pKey, nullptr, bEncrypt ? 1 : 0 ) != 1 )
+	{
+		Wipe();
+		return false;
+	}
+
+	// Set IV length
+	if ( EVP_CIPHER_CTX_ctrl( ctx, EVP_CTRL_GCM_SET_IVLEN, (int)cbIV, NULL) != 1 )
+	{
+		AssertMsg( false, "Bad IV size" );
+		Wipe();
+		return false;
+	}
+
+	// Remember parameters
+	m_cbIV = (uint32)cbIV;
+	m_cbTag = (uint32)cbTag;
+	return true;
+}
+
+bool AES_GCM_EncryptContext::Encrypt(
 	const void *pPlaintextData, size_t cbPlaintextData,
-	const void *pIV, size_t cbIV,
+	const void *pIV,
 	void *pEncryptedDataAndTag, uint32 *pcbEncryptedDataAndTag,
-	const void *pKey, size_t cbKey,
-	const void *pAdditionalAuthenticationData, size_t cbAuthenticationData,
-	size_t cbTag
+	const void *pAdditionalAuthenticationData, size_t cbAuthenticationData // Optional additional authentication data.  Not encrypted, but will be included in the tag, so it can be authenticated.
 ) {
+	EVP_CIPHER_CTX *ctx = (EVP_CIPHER_CTX*)evp_cipher_ctx;
+	if ( !ctx )
+	{
+		AssertMsg( false, "Not initialized!" );
+		*pcbEncryptedDataAndTag = 0;
+		return false;
+	}
 
 	// Calculate size of encrypted data.  Note that GCM does not use padding.
 	uint32 cbEncryptedWithoutTag = (uint32)cbPlaintextData;
-	uint32 cbEncryptedTotal = cbEncryptedWithoutTag + (uint32)cbTag;
+	uint32 cbEncryptedTotal = cbEncryptedWithoutTag + m_cbTag;
 
 	// Make sure their buffer is big enough
 	if ( cbEncryptedTotal > *pcbEncryptedDataAndTag )
@@ -282,44 +361,20 @@ bool CCrypto::SymmetricAuthEncryptWithIV(
 		return false;
 	}
 
-	// This function really shouldn't fail unless you have a bug
-	// and pass a bad IV, key, or tag size.  So people might not
-	// check the return value.  So make sure if we do fail, they
-	// don't think anything was encrypted.
+	// This function really shouldn't fail unless we have a bug,
+	// so people might not check the return value.  So make sure
+	// if we do fail, they don't think anything was encrypted.
 	*pcbEncryptedDataAndTag = 0;
 
-	// Select the cipher based on the size of the key
-	const EVP_CIPHER *cipher = GetAESGCMCipherForKeyLength( cbKey );
-	if ( cipher == nullptr )
-	{
-		AssertMsg( false, "Invalid AES-GCM key size" );
-		return false;
-	}
-
-	// Reference:
-	// https://wiki.openssl.org/index.php/EVP_Authenticated_Encryption_and_Decryption
-
-	// Setup a context.  Don't set the IV right now, since the default size
-	// might not be the size of the IV they are using.
-	EVP_CIPHER_CTX_safe ctx;
-	VerifyFatal( EVP_EncryptInit_ex( ctx.Ptr(), cipher, nullptr, nullptr, nullptr ) == 1 );
-
-	// Set IV length
-	if ( EVP_CIPHER_CTX_ctrl( ctx.Ptr(), EVP_CTRL_GCM_SET_IVLEN, (int)cbIV, NULL) != 1 )
-	{
-		AssertMsg( false, "Bad IV size" );
-		return false;
-	}
-
-	// Set key and IV
-	VerifyFatal( EVP_EncryptInit_ex( ctx.Ptr(), nullptr, nullptr, (const uint8*)pKey, (const uint8*)pIV ) == 1 );
+	// Set IV
+	VerifyFatal( EVP_EncryptInit_ex( ctx, nullptr, nullptr, nullptr, (const uint8*)pIV ) == 1 );
 
 	int nBytesWritten;
 
 	// AAD, if any
 	if ( cbAuthenticationData > 0 && pAdditionalAuthenticationData )
 	{
-		VerifyFatal( EVP_EncryptUpdate( ctx.Ptr(), nullptr, &nBytesWritten, (const uint8*)pAdditionalAuthenticationData, (int)cbAuthenticationData ) == 1 );
+		VerifyFatal( EVP_EncryptUpdate( ctx, nullptr, &nBytesWritten, (const uint8*)pAdditionalAuthenticationData, (int)cbAuthenticationData ) == 1 );
 	}
 	else
 	{
@@ -328,18 +383,18 @@ bool CCrypto::SymmetricAuthEncryptWithIV(
 
 	// Now the actual plaintext to be encrypted
 	uint8 *pOut = (uint8 *)pEncryptedDataAndTag;
-	VerifyFatal( EVP_EncryptUpdate( ctx.Ptr(), pOut, &nBytesWritten, (const uint8*)pPlaintextData, (int)cbPlaintextData ) == 1 );
+	VerifyFatal( EVP_EncryptUpdate( ctx, pOut, &nBytesWritten, (const uint8*)pPlaintextData, (int)cbPlaintextData ) == 1 );
 	pOut += nBytesWritten;
 
 	// Finish up
-	VerifyFatal( EVP_EncryptFinal_ex( ctx.Ptr(), pOut, &nBytesWritten ) == 1 );
+	VerifyFatal( EVP_EncryptFinal_ex( ctx, pOut, &nBytesWritten ) == 1 );
 	pOut += nBytesWritten;
 
 	// Make sure that we have the expected number of encrypted bytes at this point
 	VerifyFatal( (uint8 *)pEncryptedDataAndTag + cbEncryptedWithoutTag == pOut );
 
 	// Append the tag
-	if ( EVP_CIPHER_CTX_ctrl( ctx.Ptr(), EVP_CTRL_GCM_GET_TAG, (int)cbTag, pOut ) != 1 )
+	if ( EVP_CIPHER_CTX_ctrl( ctx, EVP_CTRL_GCM_GET_TAG, (int)m_cbTag, pOut ) != 1 )
 	{
 		AssertMsg( false, "Bad tag size" );
 		return false;
@@ -349,34 +404,39 @@ bool CCrypto::SymmetricAuthEncryptWithIV(
 	*pcbEncryptedDataAndTag = cbEncryptedTotal;
 
 	// Success.
-	// NOTE: EVP_CIPHER_CTX_safe destructor cleans up
 	return true;
 }
 
-//-----------------------------------------------------------------------------
-bool CCrypto::SymmetricAuthDecryptWithIV(
+bool AES_GCM_DecryptContext::Decrypt(
 	const void *pEncryptedDataAndTag, size_t cbEncryptedDataAndTag,
-	const void *pIV, size_t cbIV,
+	const void *pIV,
 	void *pPlaintextData, uint32 *pcbPlaintextData,
-	const void *pKey, size_t cbKey,
-	const void *pAdditionalAuthenticationData, size_t cbAuthenticationData,
-	size_t cbTag
+	const void *pAdditionalAuthenticationData, size_t cbAuthenticationData
 ) {
 
-	// Make sure buffer and tag sizes aren't totally bogus
-	if ( cbTag > cbEncryptedDataAndTag )
+	EVP_CIPHER_CTX *ctx = (EVP_CIPHER_CTX*)evp_cipher_ctx;
+	if ( !ctx )
 	{
-		//AssertMsg( false, "Encrypted size doesn't make sense for tag size" );
+		AssertMsg( false, "Not initialized!" );
 		*pcbPlaintextData = 0;
 		return false;
 	}
-	uint32 cbEncryptedDataWithoutTag = uint32( cbEncryptedDataAndTag - cbTag );
+
+	// Make sure buffer and tag sizes aren't totally bogus
+	if ( m_cbTag > cbEncryptedDataAndTag )
+	{
+		AssertMsg( false, "Encrypted size doesn't make sense for tag size" );
+		*pcbPlaintextData = 0;
+		return false;
+	}
+	uint32 cbEncryptedDataWithoutTag = uint32( cbEncryptedDataAndTag - m_cbTag );
 
 	// Make sure their buffer is big enough.  Remember that in GCM mode,
 	// there is no padding, so if this fails, we indeed would have overflowed
 	if ( cbEncryptedDataWithoutTag > *pcbPlaintextData )
 	{
 		AssertMsg( false, "Buffer might not be big enough to hold decrypted data" );
+		*pcbPlaintextData = 0;
 		return false;
 	}
 
@@ -384,28 +444,8 @@ bool CCrypto::SymmetricAuthDecryptWithIV(
 	// don't, make sure they don't think we decrypted any data
 	*pcbPlaintextData = 0;
 
-	// Select the cipher based on the size of the key
-	const EVP_CIPHER *cipher = GetAESGCMCipherForKeyLength( cbKey );
-	if ( cipher == nullptr )
-	{
-		AssertMsg( false, "Invalid AES-GCM key size" );
-		return false;
-	}
-
-	// Setup a context.  Don't set the IV right now, since the default size
-	// might not be the size of the IV they are using.
-	EVP_CIPHER_CTX_safe ctx;
-	VerifyFatal( EVP_DecryptInit_ex( ctx.Ptr(), cipher, nullptr, nullptr, nullptr ) == 1 );
-
-	// Set IV length
-	if ( EVP_CIPHER_CTX_ctrl( ctx.Ptr(), EVP_CTRL_GCM_SET_IVLEN, (int)cbIV, NULL) != 1 )
-	{
-		AssertMsg( false, "Bad IV size" );
-		return false;
-	}
-
-	// Set key and IV
-	VerifyFatal( EVP_DecryptInit_ex( ctx.Ptr(), nullptr, nullptr, (const uint8*)pKey, (const uint8*)pIV ) == 1 );
+	// Set IV
+	VerifyFatal( EVP_DecryptInit_ex( ctx, nullptr, nullptr, nullptr, (const uint8*)pIV ) == 1 );
 
 	int nBytesWritten;
 
@@ -415,7 +455,7 @@ bool CCrypto::SymmetricAuthDecryptWithIV(
 		// I don't think it's actually possible to failed here, but
 		// since the caller really must be checking the return value,
 		// let's not make this fatal
-		if ( EVP_DecryptUpdate( ctx.Ptr(), nullptr, &nBytesWritten, (const uint8*)pAdditionalAuthenticationData, (int)cbAuthenticationData ) != 1 )
+		if ( EVP_DecryptUpdate( ctx, nullptr, &nBytesWritten, (const uint8*)pAdditionalAuthenticationData, (int)cbAuthenticationData ) != 1 )
 		{
 			AssertMsg( false, "EVP_DecryptUpdate failed?" );
 			return false;
@@ -430,20 +470,20 @@ bool CCrypto::SymmetricAuthDecryptWithIV(
 	const uint8 *pIn = (const uint8 *)pEncryptedDataAndTag;
 
 	// Now the actual ciphertext to be decrypted
-	if ( EVP_DecryptUpdate( ctx.Ptr(), pOut, &nBytesWritten, pIn, (int)cbEncryptedDataWithoutTag ) != 1 )
+	if ( EVP_DecryptUpdate( ctx, pOut, &nBytesWritten, pIn, (int)cbEncryptedDataWithoutTag ) != 1 )
 		return false;
 	pOut += nBytesWritten;
 	pIn += cbEncryptedDataWithoutTag;
 
 	// Set expected tag value
-	if( EVP_CIPHER_CTX_ctrl( ctx.Ptr(), EVP_CTRL_GCM_SET_TAG, (int)cbTag, const_cast<uint8*>( pIn ) ) != 1)
+	if( EVP_CIPHER_CTX_ctrl( ctx, EVP_CTRL_GCM_SET_TAG, (int)m_cbTag, const_cast<uint8*>( pIn ) ) != 1)
 	{
 		AssertMsg( false, "Bad tag size" );
 		return false;
 	}
 
 	// Finish up, and check tag
-	if ( EVP_DecryptFinal_ex( ctx.Ptr(), pOut, &nBytesWritten ) <= 0 )
+	if ( EVP_DecryptFinal_ex( ctx, pOut, &nBytesWritten ) <= 0 )
 		return false; // data has been tamped with
 	pOut += nBytesWritten;
 
@@ -452,8 +492,46 @@ bool CCrypto::SymmetricAuthDecryptWithIV(
 	*pcbPlaintextData = cbEncryptedDataWithoutTag;
 
 	// Success.
-	// NOTE: EVP_CIPHER_CTX_safe destructor cleans up
 	return true;
+}
+
+//-----------------------------------------------------------------------------
+bool CCrypto::SymmetricAuthEncryptWithIV(
+	const void *pPlaintextData, size_t cbPlaintextData,
+	const void *pIV, size_t cbIV,
+	void *pEncryptedDataAndTag, uint32 *pcbEncryptedDataAndTag,
+	const void *pKey, size_t cbKey,
+	const void *pAdditionalAuthenticationData, size_t cbAuthenticationData,
+	size_t cbTag
+) {
+
+	// Setup a context.  If you are going to be encrypting many buffers with the same parameters,
+	// you should create a context and reuse it, to avoid this setup cost
+	AES_GCM_EncryptContext ctx;
+	if ( !ctx.Init( pKey, cbKey, cbIV, cbTag ) )
+		return false;
+
+	// Encrypt it, and cleanup
+	return ctx.Encrypt( pPlaintextData, cbPlaintextData, pIV, pEncryptedDataAndTag, pcbEncryptedDataAndTag, pAdditionalAuthenticationData, cbAuthenticationData );
+}
+
+//-----------------------------------------------------------------------------
+bool CCrypto::SymmetricAuthDecryptWithIV(
+	const void *pEncryptedDataAndTag, size_t cbEncryptedDataAndTag,
+	const void *pIV, size_t cbIV,
+	void *pPlaintextData, uint32 *pcbPlaintextData,
+	const void *pKey, size_t cbKey,
+	const void *pAdditionalAuthenticationData, size_t cbAuthenticationData,
+	size_t cbTag
+) {
+	// Setup a context.  If you are going to be decrypting many buffers with the same parameters,
+	// you should create a context and reuse it, to avoid this setup cost
+	AES_GCM_DecryptContext ctx;
+	if ( !ctx.Init( pKey, cbKey, cbIV, cbTag ) )
+		return false;
+
+	// Decrypt it, and cleanup
+	return ctx.Decrypt( pEncryptedDataAndTag, cbEncryptedDataAndTag, pIV, pPlaintextData, pcbPlaintextData, pAdditionalAuthenticationData, cbAuthenticationData );
 }
 
 //-----------------------------------------------------------------------------

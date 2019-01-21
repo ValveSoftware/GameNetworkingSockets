@@ -21,6 +21,79 @@ typedef unsigned char CryptoSignature_t[ k_cubCryptoSignature ];
 const unsigned int k_cubSHA1Hash = 20;
 typedef	uint8 SHADigest_t[ k_cubSHA1Hash ];
 
+#define VALVE_CRYPTO_SYMMETRIC_OPENSSLEVP
+
+// Base class for symmetric encryption and decryption context.
+// A context is used when you want to use the same encryption
+// parameters repeatedly:
+// - encrypt or decrypt
+// - key
+// - IV size (but not the IV itself, that should vary per packet!)
+// - tag size (if AES-GCM)
+class SymmetricCryptContextBase
+{
+public:
+	SymmetricCryptContextBase();
+	~SymmetricCryptContextBase() { Wipe(); }
+	void Wipe();
+
+protected:
+	#ifdef VALVE_CRYPTO_SYMMETRIC_OPENSSLEVP
+		void *evp_cipher_ctx;
+	#else
+		#error "No can do!"
+	#endif
+
+	uint32 m_cbIV, m_cbTag;
+};
+
+// Base class for AES-GCM encryption and ddecryption
+class AES_GCM_CipherContext : public SymmetricCryptContextBase
+{
+protected:
+
+	// Initialize context with the specified private key, IV size, and tag size
+	bool InitCipher( const void *pKey, size_t cbKey, size_t cbIV, size_t cbTag, bool bEncrypt );
+};
+
+class AES_GCM_EncryptContext : public AES_GCM_CipherContext
+{
+public:
+
+	// Initialize context with the specified private key, IV size, and tag size
+	inline bool Init( const void *pKey, size_t cbKey, size_t cbIV, size_t cbTag )
+	{
+		return InitCipher( pKey, cbKey, cbIV, cbTag, true );
+	}
+
+	// Encrypt data and append auth tag
+	bool Encrypt(
+		const void *pPlaintextData, size_t cbPlaintextData,
+		const void *pIV,
+		void *pEncryptedDataAndTag, uint32 *pcbEncryptedDataAndTag,
+		const void *pAdditionalAuthenticationData, size_t cbAuthenticationData // Optional additional authentication data.  Not encrypted, but will be included in the tag, so it can be authenticated.
+	);
+};
+
+class AES_GCM_DecryptContext : public AES_GCM_CipherContext
+{
+public:
+
+	// Initialize context with the specified private key, IV size, and tag size
+	inline bool Init( const void *pKey, size_t cbKey, size_t cbIV, size_t cbTag )
+	{
+		return InitCipher( pKey, cbKey, cbIV, cbTag, false );
+	}
+
+	// Decrypt data and check auth tag, which is assumed to be at the end
+	bool Decrypt(
+		const void *pEncryptedDataAndTag, size_t cbEncryptedDataAndTag,
+		const void *pIV,
+		void *pPlaintextData, uint32 *pcbPlaintextData,
+		const void *pAdditionalAuthenticationData, size_t cbAuthenticationData // Optional additional authentication data.  Not encrypted, but will be included in the tag, so it can be authenticated.
+	);
+};
+
 namespace CCrypto
 {
 	enum ECDSACurve {
