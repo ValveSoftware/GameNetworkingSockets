@@ -187,6 +187,7 @@ class CECKeyExchangePrivateKey : public CEC25519PrivateKeyBase
 {
 public:
 	CECKeyExchangePrivateKey() : CEC25519PrivateKeyBase( k_ECryptoKeyTypeKeyExchangePrivate ) { }
+	virtual ~CECKeyExchangePrivateKey();
 };
 
 
@@ -198,6 +199,7 @@ class CECKeyExchangePublicKey : public CEC25519PublicKeyBase
 {
 public:
 	CECKeyExchangePublicKey() : CEC25519PublicKeyBase( k_ECryptoKeyTypeKeyExchangePublic ) { }
+	virtual ~CECKeyExchangePublicKey();
 };
 
 

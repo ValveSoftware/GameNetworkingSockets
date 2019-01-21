@@ -527,6 +527,8 @@ bool CEC25519PrivateKeyBase::SetRawData( const void *pData, size_t cbData )
 }
 
 CEC25519PublicKeyBase::~CEC25519PublicKeyBase() {}
+CECKeyExchangePrivateKey::~CECKeyExchangePrivateKey() {}
+CECKeyExchangePublicKey::~CECKeyExchangePublicKey() {}
 
 //-----------------------------------------------------------------------------
 // CECSigningPrivateKey
