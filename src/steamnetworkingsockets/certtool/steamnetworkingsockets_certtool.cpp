@@ -166,7 +166,8 @@ void PrintCertInfo( const CMsgSteamDatagramCertificateSigned &msgSigned, std::st
 	msgCert.ParseFromString( msgSigned.cert() );
 
 	CECSigningPublicKey pubKey;
-	pubKey.Set( msgCert.key_data().c_str(), (uint32)msgCert.key_data().length() );
+	if ( !pubKey.SetRawDataWithoutWipingInput( msgCert.key_data().c_str(), msgCert.key_data().length() ) )
+		Plat_FatalError( "Cert has bad public key" );
 
 	time_t timeCreated = msgCert.time_created();
 	time_t timeExpiry = msgCert.time_expiry();
@@ -250,7 +251,7 @@ void CreateCert()
 
 	CMsgSteamDatagramCertificate msgCert;
 	msgCert.set_key_type( CMsgSteamDatagramCertificate_EKeyType_ED25519 );
-	msgCert.set_key_data( s_keyCertPub.GetData(), s_keyCertPub.GetLength() );
+	DbgVerify( s_keyCertPub.GetRawDataAsStdString( msgCert.mutable_key_data() ) );
 	msgCert.set_time_created( time( nullptr ) );
 	msgCert.set_time_expiry( msgCert.time_created() + s_nExpiryDays*24*3600 );
 	for ( uint32 id: s_vecDataCenterIDs )
@@ -369,7 +370,7 @@ int main( int argc, char **argv )
 		if ( !V_stricmp( pszSwitch, "--pub-key" ) )
 		{
 			GET_ARG();
-			if ( !s_keyCertPub.Set( pszArg, V_strlen(pszArg) ) )
+			if ( !s_keyCertPub.SetFromOpenSSHAuthorizedKeys( pszArg, V_strlen(pszArg) ) )
 				Plat_FatalError( "'%s' isn't a valid authorized_keys style public Ed25519 keyfile.  (Try exporting from OpenSSH)\n", pszArg );
 			continue;
 		}

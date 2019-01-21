@@ -617,7 +617,7 @@ bool CSteamNetworkingSockets::SetCertificate( const void *pCert, int cbCert, voi
 	//
 
 	CECSigningPublicKey pubKey;
-	if ( !pubKey.Set( m_msgCert.key_data().c_str(), (uint32)m_msgCert.key_data().length() ) )
+	if ( !pubKey.SetRawDataWithoutWipingInput( m_msgCert.key_data().c_str(), m_msgCert.key_data().length() ) )
 	{
 		V_strcpy_safe( errMsg, "Invalid public key" );
 		return false;

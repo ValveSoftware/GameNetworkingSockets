@@ -53,7 +53,7 @@ struct TrustedKey
 	typedef char KeyData[33];
 	TrustedKey( uint64 id, const KeyData &data ) : m_id( id )
 	{
-		m_key.Set( &data[0], sizeof(KeyData)-1 );
+		m_key.SetRawDataWithoutWipingInput( &data[0], sizeof(KeyData)-1 );
 	}
 	const uint64 m_id;
 	CECSigningPublicKey m_key;
@@ -66,7 +66,7 @@ struct TrustedKey
 // Obviously they can tamper with the process or modify the executable,
 // but that puts them into VAC territory.
 const TrustedKey s_arTrustedKeys[1] = {
-	TrustedKey( 18220590129359924542llu, "\x9a\xec\xa0\x4e\x17\x51\xce\x62\x68\xd5\x69\x00\x2c\xa1\xe1\xfa\x1b\x2d\xbc\x26\xd3\x6b\x4e\xa3\xa0\x08\x3a\xd3\x72\x82\x9b\x84" )
+	{ 18220590129359924542llu, "\x9a\xec\xa0\x4e\x17\x51\xce\x62\x68\xd5\x69\x00\x2c\xa1\xe1\xfa\x1b\x2d\xbc\x26\xd3\x6b\x4e\xa3\xa0\x08\x3a\xd3\x72\x82\x9b\x84" }
 };
 
 // Hack code used to generate C++ code to add a new CA key to the table above
@@ -657,7 +657,7 @@ void CSteamNetworkConnectionBase::InitLocalCrypto( const CMsgSteamDatagramCertif
 	CECKeyExchangePublicKey publicKeyLocal;
 	CCrypto::GenerateKeyExchangeKeyPair( &publicKeyLocal, &m_keyExchangePrivateKeyLocal );
 	m_msgCryptLocal.set_key_type( CMsgSteamDatagramSessionCryptInfo_EKeyType_CURVE25519 );
-	m_msgCryptLocal.set_key_data( publicKeyLocal.GetData(), publicKeyLocal.GetLength() );
+	publicKeyLocal.GetRawDataAsStdString( m_msgCryptLocal.mutable_key_data() );
 
 	// Generate some more randomness for the secret key
 	uint64 crypt_nonce;
@@ -681,7 +681,7 @@ void CSteamNetworkConnectionBase::InitLocalCryptoWithUnsignedCert()
 
 	// Generate a cert
 	CMsgSteamDatagramCertificate msgCert;
-	msgCert.set_key_data( keyPublic.GetData(), keyPublic.GetLength() );
+	keyPublic.GetRawDataAsStdString( msgCert.mutable_key_data() );
 	msgCert.set_key_type( CMsgSteamDatagramCertificate_EKeyType_ED25519 );
 	SteamNetworkingIdentityToProtobuf( m_identityLocal, msgCert, identity, legacy_steam_id );
 	msgCert.set_app_id( m_pSteamNetworkingSocketsInterface->m_nAppID );
@@ -753,7 +753,7 @@ bool CSteamNetworkConnectionBase::BRecvCryptoHandshake( const CMsgSteamDatagramC
 		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCrypt, "Unsupported identity key type" );
 		return false;
 	}
-	if ( !keySigningPublicKeyRemote.Set( m_msgCertRemote.key_data().c_str(), (uint32)m_msgCertRemote.key_data().length() ) || !keySigningPublicKeyRemote.IsValid() )
+	if ( !keySigningPublicKeyRemote.SetRawDataWithoutWipingInput( m_msgCertRemote.key_data().c_str(), m_msgCertRemote.key_data().length() ) )
 	{
 		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCrypt, "Cert has invalid identity key" );
 		return false;
@@ -922,7 +922,7 @@ bool CSteamNetworkConnectionBase::BRecvCryptoHandshake( const CMsgSteamDatagramC
 		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCrypt, "Unsupported DH key type" );
 		return false;
 	}
-	if ( !keyExchangePublicKeyRemote.Set( m_msgCryptRemote.key_data().c_str(), (uint32)m_msgCryptRemote.key_data().length() ) || !keyExchangePublicKeyRemote.IsValid() )
+	if ( !keyExchangePublicKeyRemote.SetRawDataWithoutWipingInput( m_msgCryptRemote.key_data().c_str(), m_msgCryptRemote.key_data().length() ) )
 	{
 		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCrypt, "Invalid DH key" );
 		return false;

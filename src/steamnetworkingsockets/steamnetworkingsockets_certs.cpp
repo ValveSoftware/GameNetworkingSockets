@@ -15,7 +15,9 @@ extern uint64 CalculatePublicKeyID( const CECSigningPublicKey &pubKey )
 
 	// SHA over the whole public key.
 	SHA256Digest_t digest;
-	CCrypto::GenerateSHA256Digest( pubKey.GetData(), pubKey.GetLength(), &digest );
+	uint8 data[32];
+	DbgVerify( pubKey.GetRawData( data ) == sizeof(data) );
+	CCrypto::GenerateSHA256Digest( data, sizeof(data), &digest );
 
 	// First 8 bytes
 	return LittleQWord( *(uint64*)&digest );

@@ -45,10 +45,6 @@ cpp_flags = [
   '-DGOOGLE_PROTOBUF_NO_RTTI',
 ]
 
-if use_libsodium
-  cpp_flags += [ '-DUSE_LIBSODIUM' ]
-endif
-
 target_os = target_machine.system()
 
 if target_os == 'windows'
@@ -65,8 +61,6 @@ protobuf_sources = [
 
 sources = [
   'common/crypto.cpp',
-  'common/crypto_25519.cpp',
-  'common/crypto_25519_libsodium.cpp',
   'common/crypto_textencode.cpp',
   'common/keypair.cpp',
   'common/opensslwrapper.cpp',
@@ -90,8 +84,15 @@ sources = [
   'vstdlib/strtools.cpp',
 ]
 
-if not use_libsodium
+if use_libsodium
+  cpp_flags += [ '-DUSE_LIBSODIUM' ]
   sources += [
+  	'common/crypto_25519_libsodium.cpp',
+  ]
+else
+  cpp_flags += [ '-DVALVE_CRYPTO_25519_DONNA' ]
+  sources += [
+  	'common/crypto_25519_donna.cpp',
 	'external/curve25519-donna/curve25519.c',
 	'external/curve25519-donna/curve25519_VALVE_sse2.c',
 	'external/ed25519-donna/ed25519_VALVE.c',

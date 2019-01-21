@@ -1,13 +1,8 @@
 //========= Copyright Valve LLC, All rights reserved. ========================
-
-
-// Note: not using precompiled headers! This file is included directly by
-// several different projects and may include Crypto++ headers depending
-// on compile-time defines, which in turn pulls in other odd dependencies
-
 #include "crypto.h"
 
-#if !defined(USE_LIBSODIUM)
+#ifdef VALVE_CRYPTO_25519_DONNA
+
 extern "C" {
 // external headers for curve25519 and ed25519 support, plus alternate 32-bit SSE2 versions
 // (for x64, pure-C performance is on par with SSE2, so we don't compile the SSE2 versions)
@@ -39,14 +34,10 @@ void ed25519_sign_sse2( const unsigned char *m, size_t mlen, const ed25519_secre
 //-----------------------------------------------------------------------------
 void CCrypto::GenerateKeyExchangeKeyPair( CECKeyExchangePublicKey *pPublicKey, CECKeyExchangePrivateKey *pPrivateKey )
 {
-	pPrivateKey->Wipe();
-	pPublicKey->Wipe();
-
 	uint8 rgubSecretData[32];
 	GenerateRandomBlock( rgubSecretData, 32 );
-	pPrivateKey->RebuildFromPrivateData( rgubSecretData );
-	SecureZeroMemory( rgubSecretData, 32 );
-	pPrivateKey->GetPublicKey( pPublicKey );
+	VerifyFatal( pPrivateKey->SetRawDataAndWipeInput( rgubSecretData, 32 ) );
+	VerifyFatal( pPrivateKey->GetPublicKey( pPublicKey ) );
 }
 
 //-----------------------------------------------------------------------------
@@ -64,7 +55,7 @@ void CCrypto::PerformKeyExchange( const CECKeyExchangePrivateKey &localPrivateKe
 	}
 
 	uint8 bufSharedSecret[32];
-	CHOOSE_25519_IMPL( curve25519_donna )( bufSharedSecret, localPrivateKey.GetData() + 32, remotePublicKey.GetData() );
+	CHOOSE_25519_IMPL( curve25519_donna )( bufSharedSecret, localPrivateKey.GetRawDataPtr(), remotePublicKey.GetRawDataPtr() );
 	GenerateSHA256Digest( bufSharedSecret, sizeof(bufSharedSecret), pSharedSecretOut );
 	SecureZeroMemory( bufSharedSecret, 32 );
 }
@@ -75,14 +66,10 @@ void CCrypto::PerformKeyExchange( const CECKeyExchangePrivateKey &localPrivateKe
 //-----------------------------------------------------------------------------
 void CCrypto::GenerateSigningKeyPair( CECSigningPublicKey *pPublicKey, CECSigningPrivateKey *pPrivateKey )
 {
-	pPrivateKey->Wipe();
-	pPublicKey->Wipe();
-
 	uint8 rgubSecretData[32];
 	GenerateRandomBlock( rgubSecretData, 32 );
-	pPrivateKey->RebuildFromPrivateData( rgubSecretData );
-	SecureZeroMemory( rgubSecretData, 32 );
-	pPrivateKey->GetPublicKey( pPublicKey );
+	VerifyFatal( pPrivateKey->SetRawDataAndWipeInput( rgubSecretData, 32 ) );
+	VerifyFatal( pPrivateKey->GetPublicKey( pPublicKey ) );
 }
 
 
@@ -97,7 +84,7 @@ void CCrypto::GenerateSignature( const uint8 *pubData, uint32 cubData, const CEC
 		memset( pSignatureOut, 0, sizeof( CryptoSignature_t ) );
 		return;
 	}
-	CHOOSE_25519_IMPL( ed25519_sign )( pubData, cubData, privateKey.GetData() + 32, privateKey.GetData(), *pSignatureOut );
+	CHOOSE_25519_IMPL( ed25519_sign )( pubData, cubData, privateKey.GetRawDataPtr(), privateKey.GetPublicKeyRawData(), *pSignatureOut );
 }
 
 
@@ -107,41 +94,41 @@ void CCrypto::GenerateSignature( const uint8 *pubData, uint32 cubData, const CEC
 bool CCrypto::VerifySignature( const uint8 *pubData, uint32 cubData, const CECSigningPublicKey &publicKey, const CryptoSignature_t &signature )
 {
 	Assert( publicKey.IsValid() );
-	return publicKey.IsValid() && CHOOSE_25519_IMPL( ed25519_sign_open )( pubData, cubData, publicKey.GetData(), signature ) == 0;
+	return publicKey.IsValid() && CHOOSE_25519_IMPL( ed25519_sign_open )( pubData, cubData, publicKey.GetRawDataPtr(), signature ) == 0;
 }
 
-//-----------------------------------------------------------------------------
-// Purpose: Generate a 25519 key pair (either x25519 or ed25519)
-//-----------------------------------------------------------------------------
-void CEC25519PrivateKeyBase::RebuildFromPrivateData( const uint8 privateKeyData[32] )
+bool CEC25519KeyBase::SetRawData( const void *pData, size_t cbData )
 {
-	union {
-		uint8 bufComplete[64];
-		struct {
-			uint8 bufPublic[32];
-			uint8 bufPrivate[32];
-		} alias;
-	};
-	V_memcpy( alias.bufPrivate, privateKeyData, 32 );
+	if ( cbData != 32 )
+		return false;
+	return CCryptoKeyBase_RawBuffer::SetRawBufferData( pData, cbData );
+}
+
+bool CEC25519PrivateKeyBase::CachePublicKey()
+{
+	if ( !IsValid() )
+		return false;
+
 	if ( m_eKeyType == k_ECryptoKeyTypeKeyExchangePrivate )
 	{
 		// Ed25519 codebase provides a faster version of curve25519_donna_basepoint.
 		//CHOOSE_25519_IMPL( curve25519_donna_basepoint )( alias.bufPublic, alias.bufPrivate );
-		CHOOSE_25519_IMPL( curved25519_scalarmult_basepoint )(alias.bufPublic, alias.bufPrivate);
-		this->Set( bufComplete, 64 );
+		CHOOSE_25519_IMPL( curved25519_scalarmult_basepoint )( m_publicKey, GetRawDataPtr() );
 	}
 	else if ( m_eKeyType == k_ECryptoKeyTypeSigningPrivate )
 	{
 		// all bits are meaningful in the ed25519 scheme, which internally constructs
 		// a curve-25519 private key by hashing all 32 bytes of private key material.
-		CHOOSE_25519_IMPL( ed25519_publickey )( alias.bufPrivate, alias.bufPublic );
-		this->Set( bufComplete, 64 );
+		CHOOSE_25519_IMPL( ed25519_publickey )( GetRawDataPtr(), m_publicKey );
 	}
 	else
 	{
-		this->Wipe();
+		Assert( false );
+		return false;
 	}
-	SecureZeroMemory( bufComplete, 64 );
+
+	return true;
 }
 
-#endif
+#endif // #ifdef VALVE_CRYPTO_25519_DONNA
+

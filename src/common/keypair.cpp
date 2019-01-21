@@ -49,9 +49,9 @@ static bool DecodeBase64ToBuf( const char *pszEncoded, uint32 cbEncoded, CAutoWi
 	return true;
 }
 
-static bool DecodePEMBody( const char *pszPem, uint32 cch, CAutoWipeBuffer &buf )
+static bool DecodePEMBody( const char *pszPem, uint32 cch, CAutoWipeBuffer &buf, const char *pszExpectedType )
 {
-	const char *pszBody = CCrypto::LocatePEMBody( pszPem, &cch, nullptr );
+	const char *pszBody = CCrypto::LocatePEMBody( pszPem, &cch, pszExpectedType );
 	if ( !pszBody )
 		return false;
 	return DecodeBase64ToBuf( pszBody, cch, buf );
@@ -112,7 +112,7 @@ static void OpenSSHBinaryWriteFixedSizeKey( CUtlBuffer &buf, const void *pData, 
 	buf.Put( pData, cbSize );
 }
 
-static bool BParseOpenSSHBinaryEd25519Private( CUtlBuffer &buf, uint8 *pKey )
+static bool BParseOpenSSHBinaryEd25519Private( CUtlBuffer &buf, uint8 *pPrivateThenPublicKey )
 {
 
 	// OpenSSH source sshkey.c, sshkey_private_to_blob2():
@@ -200,19 +200,14 @@ static bool BParseOpenSSHBinaryEd25519Private( CUtlBuffer &buf, uint8 *pKey )
 			return false;
 
 		// And now the entire secret key
-		if ( !BOpenSSHBinaryReadFixedSizeKey( bufPrivKey, pKey, 64 ) )
+		if ( !BOpenSSHBinaryReadFixedSizeKey( bufPrivKey, pPrivateThenPublicKey, 64 ) )
 			return false;
 
 		// The "secret" actually consists of the real secret key
 		// followed by the public key.  Check that this third
 		// copy of the public key matches the other two.
-		if ( V_memcmp( arbPubKey1, pKey+32, sizeof(arbPubKey1) ) != 0 )
+		if ( V_memcmp( arbPubKey1, pPrivateThenPublicKey+32, sizeof(arbPubKey1) ) != 0 )
 			return false;
-
-		// OpenSSH stores the key as private first, then public.
-		// We want it the other way around
-		for ( int i = 0 ; i < 32 ; ++i )
-			std::swap( pKey[i], pKey[i+32] );
 
 		// Comment and padding comes after this, but we don't care
 	}
@@ -234,15 +229,11 @@ static void OpenSSHBinaryEndSubBlock( CUtlBuffer &buf, int nSaveTell )
 	*(uint32 *)( (uint8 *)buf.Base() + nSaveTell ) = BigDWord( uint32(nBytesWritten) );
 }
 
-static void OpenSSHBinaryWriteEd25519Private( CUtlBuffer &buf, const uint8 *pKey )
+static void OpenSSHBinaryWriteEd25519Private( CUtlBuffer &buf, const uint8 *pPrivKey, const uint8 *pPubKey )
 {
 	// Make sure we don't realloc, so that if we wipe afterwards we don't
 	// leave key material lying around.
 	buf.EnsureCapacity( 2048 );
-
-	// We store the key as public first, then private
-	const uint8 *pPubKey = pKey;
-	const uint8 *pPrivKey = pKey+32;
 
 	buf.Put( "openssh-key-v1", 15 );
 	buf.Put( "\x00\x00\x00\x04none\x00\x00\x00\x04none\x00\x00\x00\x00", 20 );
@@ -304,114 +295,9 @@ static void OpenSSHBinaryEd25519WritePublic( CUtlBuffer &buf, const uint8 *pKey 
 	OpenSSHBinaryWriteFixedSizeKey( buf, pKey, 32 );
 }
 
-//-----------------------------------------------------------------------------
-// Purpose: Initialize an RSA key object from a hex encoded string
-// Input:	pchEncodedKey -		Pointer to the hex encoded key string
-// Output:  true if successful, false if initialization failed
-//-----------------------------------------------------------------------------
-bool CCryptoKeyBase::SetFromHexEncodedString( const char *pchEncodedKey )
+static bool GetBinaryDataAsPEM( char *pchPEMData, uint32_t cubPEMData, uint32_t *pcubPEMData, const void *pBinaryData, uint32 cbBinaryData, const char *pchPrefix, const char *pchSuffix )
 {
-	uint32 cubKey = V_strlen( pchEncodedKey ) / 2 + 1;
-	EnsureCapacity( cubKey );
-
-	bool bSuccess = CCrypto::HexDecode( pchEncodedKey, m_pbKey, &cubKey );
-	if ( bSuccess )
-	{
-		m_cubKey = cubKey;
-	}
-	else
-	{
-		Wipe();
-	}
-	return bSuccess;
-}
-
-
-//-----------------------------------------------------------------------------
-// Purpose: Initialize an RSA key object from a base-64 encoded string
-// Input:	pchEncodedKey -		Pointer to the base-64 encoded key string
-// Output:  true if successful, false if initialization failed
-//-----------------------------------------------------------------------------
-bool CCryptoKeyBase::SetFromBase64EncodedString( const char *pchEncodedKey )
-{
-	uint32 cubKey = V_strlen( pchEncodedKey ) * 3 / 4 + 1;
-	EnsureCapacity( cubKey );
-
-	bool bSuccess = CCrypto::Base64Decode( pchEncodedKey, m_pbKey, &cubKey );
-	if ( bSuccess )
-	{
-		m_cubKey = cubKey;
-	}
-	else
-	{
-		Wipe();
-	}
-	return bSuccess;
-}
-
-
-//-----------------------------------------------------------------------------
-// Purpose: Initialize an RSA key object from a buffer
-// Input:	pData -				Pointer to the buffer
-//			cbData -			Length of the buffer
-// Output:  true if successful, false if initialization failed
-//-----------------------------------------------------------------------------
-bool CCryptoKeyBase::Set( const void* pData, const uint32 cbData )
-{
-	if ( pData == m_pbKey )
-		return true;
-	Wipe();
-	EnsureCapacity( cbData );
-	V_memcpy( m_pbKey, pData, cbData );
-	m_cubKey = cbData;
-	return true;
-}
-
-
-//-----------------------------------------------------------------------------
-// Purpose: Serialize an RSA key object to a buffer, in PEM format
-// Input:	pchPEMData -		Pointer to string buffer to store output in (or NULL to just calculate required size)
-//			cubPEMData -		Size of pchPEMData buffer
-//			pcubPEMData -		Pointer to number of bytes written to pchPEMData (including terminating nul), or
-//								required size of pchPEMData if it is NULL or not big enough.
-// Output:  true if successful, false if it failed
-//-----------------------------------------------------------------------------
-bool CCryptoKeyBase::GetAsPEM( char *pchPEMData, uint32_t cubPEMData, uint32_t *pcubPEMData ) const
-{
-	CAutoWipeBuffer bufTemp;
-
-	if ( !IsValid() )
-		return false;
-
-	const char *pchPrefix = "", *pchSuffix = "";
-	uint32 cubBinary = m_cubKey;
-	const uint8 *pbBinary = m_pbKey;
-	if ( m_eKeyType == k_ECryptoKeyTypeRSAPublic )
-	{
-		pchPrefix = "-----BEGIN PUBLIC KEY-----";
-		pchSuffix = "-----END PUBLIC KEY-----";
-	}
-	else if ( m_eKeyType == k_ECryptoKeyTypeRSAPrivate )
-	{
-		pchPrefix = "-----BEGIN PRIVATE KEY-----";
-		pchSuffix = "-----END PRIVATE KEY-----";
-	}
-	else if ( m_eKeyType == k_ECryptoKeyTypeSigningPrivate )
-	{
-		pchPrefix = k_szOpenSSHPrivatKeyPEMHeader;
-		pchSuffix = k_szOpenSSHPrivatKeyPEMFooter;
-
-		OpenSSHBinaryWriteEd25519Private( bufTemp, m_pbKey );
-		cubBinary = bufTemp.TellPut();
-		pbBinary = (const uint8 *)bufTemp.Base();
-	}
-	else
-	{
-		Assert( false ); // nonsensical to call this on non-RSA keys
-		return false;
-	}
-	
-	uint32_t uRequiredBytes = V_strlen( pchPrefix ) + 2 + V_strlen( pchSuffix ) + 2 + CCrypto::Base64EncodeMaxOutput( cubBinary, "\r\n" );
+	uint32_t uRequiredBytes = V_strlen( pchPrefix ) + 2 + V_strlen( pchSuffix ) + 2 + CCrypto::Base64EncodeMaxOutput( cbBinaryData, "\r\n" );
 	if ( pcubPEMData )
 		*pcubPEMData = uRequiredBytes;
 
@@ -424,7 +310,7 @@ bool CCryptoKeyBase::GetAsPEM( char *pchPEMData, uint32_t cubPEMData, uint32_t *
 		V_strncat( pchPEMData, "\r\n", cubPEMData );
 		uint32_t uRemainingBytes = cubPEMData - V_strlen( pchPEMData );
 	
-		if ( !CCrypto::Base64Encode( pbBinary, cubBinary, pchPEMData + V_strlen( pchPEMData ), &uRemainingBytes, "\r\n" ) )
+		if ( !CCrypto::Base64Encode( pBinaryData, cbBinaryData, pchPEMData + V_strlen( pchPEMData ), &uRemainingBytes, "\r\n" ) )
 			return false;
 
 		V_strncat( pchPEMData, pchSuffix, cubPEMData );
@@ -436,6 +322,261 @@ bool CCryptoKeyBase::GetAsPEM( char *pchPEMData, uint32_t cubPEMData, uint32_t *
 	return true;
 }
 
+bool CCryptoKeyBase::GetRawDataAsStdString( std::string *pString ) const
+{
+	pString->clear();
+	uint32 cbSize = GetRawData(nullptr);
+	if ( cbSize == 0 )
+		return false;
+	void *tmp = alloca( cbSize );
+	if ( GetRawData( tmp ) != cbSize )
+	{
+		Assert( false );
+		return false;
+	}
+	pString->assign( (const char *)tmp, cbSize );
+	SecureZeroMemory( tmp, cbSize );
+	return true;
+}
+
+bool CCryptoKeyBase::SetRawDataAndWipeInput( void *pData, size_t cbData )
+{
+	bool bResult = SetRawDataWithoutWipingInput( pData, cbData );
+	SecureZeroMemory( pData, cbData );
+	return bResult;
+}
+
+bool CCryptoKeyBase::SetRawDataWithoutWipingInput( const void *pData, size_t cbData )
+{
+	Wipe();
+	return SetRawData( pData, cbData ); // Call type-specific function
+}
+
+bool CCryptoKeyBase::SetFromHexEncodedString( const char *pchEncodedKey )
+{
+	Wipe();
+
+	uint32 cubKey = V_strlen( pchEncodedKey ) / 2 + 1;
+	void *buf = alloca( cubKey );
+
+	if ( !CCrypto::HexDecode( pchEncodedKey, buf, &cubKey ) )
+	{
+		SecureZeroMemory( buf, cubKey );
+		return false;
+	}
+
+	return SetRawDataAndWipeInput( buf, cubKey );
+}
+
+
+//-----------------------------------------------------------------------------
+// Purpose: Initialize a key object from a base-64 encoded string of the raw key bytes
+// Input:	pchEncodedKey -		Pointer to the base-64 encoded key string
+// Output:  true if successful, false if initialization failed
+//-----------------------------------------------------------------------------
+bool CCryptoKeyBase::SetFromBase64EncodedString( const char *pchEncodedKey )
+{
+	Wipe();
+	uint32 cubKey = V_strlen( pchEncodedKey ) * 3 / 4 + 1;
+
+	void *buf = alloca( cubKey );
+	if ( !CCrypto::Base64Decode( pchEncodedKey, buf, &cubKey ) )
+	{
+		SecureZeroMemory( buf, cubKey );
+		return false;
+	}
+
+	return SetRawDataAndWipeInput( buf, cubKey );
+}
+
+//-----------------------------------------------------------------------------
+// Purpose: Compare two keys for equality
+// Output:  true if the keys are identical
+//-----------------------------------------------------------------------------
+bool CCryptoKeyBase::operator==( const CCryptoKeyBase &rhs ) const
+{
+	if ( m_eKeyType != rhs.m_eKeyType ) return false;
+	uint32 cbRawData = GetRawData(nullptr);
+	if ( cbRawData != rhs.GetRawData(nullptr) ) return false;
+
+	CAutoWipeBuffer bufLHS( cbRawData );
+	CAutoWipeBuffer bufRHS( cbRawData );
+	DbgVerify( GetRawData( bufLHS.Base() ) == cbRawData );
+	DbgVerify( rhs.GetRawData( bufRHS.Base() ) == cbRawData );
+
+	return memcmp( bufLHS.Base(), bufRHS.Base(), cbRawData ) == 0;
+}
+
+
+bool CCryptoKeyBase::LoadFromAndWipeBuffer( void *pBuffer, size_t cBytes )
+{
+	AssertMsg1( false, "Key type %d doesn't know how to load from buffer", m_eKeyType );
+	Wipe();
+	SecureZeroMemory( pBuffer, cBytes );
+	return false;
+}
+
+//-----------------------------------------------------------------------------
+// CCryptoKeyBase_RawBuffer
+//-----------------------------------------------------------------------------
+CCryptoKeyBase_RawBuffer::~CCryptoKeyBase_RawBuffer()
+{
+	Wipe();
+}
+
+bool CCryptoKeyBase_RawBuffer::IsValid() const
+{
+	return m_pData != nullptr && m_cbData > 0;
+}
+
+uint32 CCryptoKeyBase_RawBuffer::GetRawData( void *pData ) const
+{
+	if ( pData )
+		memcpy( pData, m_pData, m_cbData );
+	return m_cbData;
+}
+
+bool CCryptoKeyBase_RawBuffer::SetRawBufferData( const void *pData, size_t cbData )
+{
+	Wipe();
+	m_pData = (uint8*)malloc( cbData );
+	if ( !m_pData )
+		return false;
+	memcpy( m_pData, pData, cbData );
+	m_cbData = (uint32)cbData;
+	return true;
+}
+
+void CCryptoKeyBase_RawBuffer::Wipe()
+{
+	if ( m_pData )
+	{
+		free( m_pData );
+		m_pData = nullptr;
+	}
+	m_cbData = 0;
+}
+
+//-----------------------------------------------------------------------------
+// CEC25519PrivateKeyBase
+//-----------------------------------------------------------------------------
+
+CEC25519PrivateKeyBase::~CEC25519PrivateKeyBase()
+{
+	Wipe();
+}
+
+void CEC25519PrivateKeyBase::Wipe()
+{
+	CEC25519KeyBase::Wipe();
+
+	// A public key is not sensitive, by definition, but let's zero it anyway
+	SecureZeroMemory( m_publicKey, sizeof(m_publicKey) );
+}
+
+bool CEC25519PrivateKeyBase::GetPublicKey( CEC25519PublicKeyBase *pPublicKey ) const
+{
+	pPublicKey->Wipe();
+
+	if ( m_eKeyType == k_ECryptoKeyTypeKeyExchangePrivate )
+	{
+		Assert( pPublicKey->GetKeyType() == k_ECryptoKeyTypeKeyExchangePublic );
+		if ( pPublicKey->GetKeyType() != k_ECryptoKeyTypeKeyExchangePublic )
+			return false;
+	}
+	else if ( m_eKeyType == k_ECryptoKeyTypeSigningPrivate )
+	{
+		Assert( pPublicKey->GetKeyType() == k_ECryptoKeyTypeSigningPublic );
+		if ( pPublicKey->GetKeyType() != k_ECryptoKeyTypeSigningPublic )
+			return false;
+	}
+	else
+	{
+		Assert( false ); // impossible, we must be one or the other if valid
+		return false;
+	}
+
+	return pPublicKey->SetRawDataWithoutWipingInput( m_publicKey, 32 );
+}
+
+bool CEC25519PrivateKeyBase::MatchesPublicKey( const CEC25519PublicKeyBase &publicKey ) const
+{
+	if ( m_eKeyType == k_ECryptoKeyTypeKeyExchangePrivate && publicKey.GetKeyType() != k_ECryptoKeyTypeKeyExchangePublic )
+		return false;
+	if ( m_eKeyType == k_ECryptoKeyTypeSigningPrivate && publicKey.GetKeyType() != k_ECryptoKeyTypeSigningPublic )
+		return false;
+	if ( !IsValid() || !publicKey.IsValid() )
+		return false;
+
+	uint8 pubKey2[32];
+	DbgVerify( publicKey.GetRawData( pubKey2 ) == 32 );
+
+	return memcmp( GetPublicKeyRawData(), pubKey2, 32 ) == 0;
+}
+
+bool CEC25519PrivateKeyBase::SetRawData( const void *pData, size_t cbData )
+{
+	if ( !CEC25519KeyBase::SetRawData( pData, cbData ) )
+		return false;
+	if ( CachePublicKey() )
+		return true;
+	Wipe();
+	return false;
+}
+
+//-----------------------------------------------------------------------------
+// CECSigningPrivateKey
+//-----------------------------------------------------------------------------
+
+bool CECSigningPrivateKey::GetAsPEM( char *pchPEMData, uint32_t cubPEMData, uint32_t *pcubPEMData ) const
+{
+	if ( !IsValid() )
+		return false;
+	uint8 privateKey[ 32 ];
+	VerifyFatal( GetRawData( privateKey ) == 32 );
+
+	CAutoWipeBuffer bufTemp;
+	OpenSSHBinaryWriteEd25519Private( bufTemp, privateKey, GetPublicKeyRawData() );
+	SecureZeroMemory( privateKey, sizeof(privateKey) );
+
+	return GetBinaryDataAsPEM( pchPEMData, cubPEMData, pcubPEMData, bufTemp.Base(), bufTemp.TellPut(), k_szOpenSSHPrivatKeyPEMHeader, k_szOpenSSHPrivatKeyPEMFooter ); 
+}
+
+bool CECSigningPrivateKey::LoadFromAndWipeBuffer( void *pBuffer, size_t cBytes )
+{
+	bool bResult = ParsePEM( (const char *)pBuffer, cBytes );
+	SecureZeroMemory( pBuffer, cBytes );
+	return bResult;
+}
+
+bool CECSigningPrivateKey::ParsePEM( const char *pBuffer, size_t cBytes )
+{
+	Wipe();
+
+	CAutoWipeBuffer buf;
+	if ( !DecodePEMBody( pBuffer, (uint32)cBytes, buf, "OPENSSH PRIVATE KEY" ) )
+		return false;
+	uint8 privateThenPublic[64];
+	if ( !BParseOpenSSHBinaryEd25519Private( buf, privateThenPublic ) )
+		return false;
+
+	if ( !SetRawDataAndWipeInput( privateThenPublic, 32 ) )
+		return false;
+
+	// Check that the public key matches the private one.
+	// (And also that all of our code works.)
+	if ( V_memcmp( m_publicKey, privateThenPublic+32, 32 ) == 0 )
+		return true;
+
+	AssertMsg( false, "Ed25519 key public doesn't match private!" );
+	Wipe();
+	return false;
+}
+
+//-----------------------------------------------------------------------------
+// CECSigningPublicKey
+//-----------------------------------------------------------------------------
+
 bool CECSigningPublicKey::GetAsOpenSSHAuthorizedKeys( char *pchData, uint32 cubData, uint32 *pcubData, const char *pszComment ) const
 {
 	if ( !IsValid() )
@@ -443,8 +584,11 @@ bool CECSigningPublicKey::GetAsOpenSSHAuthorizedKeys( char *pchData, uint32 cubD
 
 	int cchComment = pszComment ? V_strlen( pszComment ) : 0;
 
+	uint8 publicKey[ 32 ];
+	VerifyFatal( GetRawData( publicKey ) == 32 );
+
 	CUtlBuffer bufBinary;
-	OpenSSHBinaryEd25519WritePublic( bufBinary, m_pbKey );
+	OpenSSHBinaryEd25519WritePublic( bufBinary, publicKey );
 
 	static const char pchPrefix[] = "ssh-ed25519 ";
 
@@ -480,177 +624,34 @@ bool CECSigningPublicKey::GetAsOpenSSHAuthorizedKeys( char *pchData, uint32 cubD
 	return true;
 }
 
-
-//-----------------------------------------------------------------------------
-// Purpose: Compare two keys for equality
-// Output:  true if the keys are identical
-//-----------------------------------------------------------------------------
-bool CCryptoKeyBase::operator==( const CCryptoKeyBase &rhs ) const
+bool CECSigningPublicKey::LoadFromAndWipeBuffer( void *pBuffer, size_t cBytes )
 {
-	return ( m_eKeyType == rhs.m_eKeyType ) && ( m_cubKey == rhs.m_cubKey ) && ( V_memcmp( m_pbKey, rhs.m_pbKey, m_cubKey ) == 0 );
-}
-
-
-//-----------------------------------------------------------------------------
-// Purpose: Make sure there's enough space in the allocated key buffer
-//			for the designated data size.
-//-----------------------------------------------------------------------------
-void CCryptoKeyBase::EnsureCapacity( uint32 cbData )
-{
-	Wipe();
-	m_pbKey = new uint8[cbData];
-
-	//
-	// Note: Intentionally not setting m_cubKey here - it's the size
-	// of the key not the size of the allocation.
-	//
-}
-
-//-----------------------------------------------------------------------------
-// Purpose: Load key from file (best-guess at PKCS#8 PEM, Base64, hex, or binary)
-//-----------------------------------------------------------------------------
-bool CCryptoKeyBase::LoadFromAndWipeBuffer( void *pBuffer, size_t cBytes )
-{
-	Wipe();
-
-	Assert( cBytes < 1024*1024*10 ); // sanity check: 10 MB key? no thanks
-	if ( cBytes > 0 && cBytes < 1024*1024*10 )
-	{
-
-		// Ensure null termination
-		char *pchBase = (char*) malloc( cBytes + 1 );
-		V_memcpy( pchBase, pBuffer, cBytes );
-		pchBase[cBytes] = '\0';
-
-		if ( m_eKeyType == k_ECryptoKeyTypeSigningPrivate )
-		{
-			// Fixed key size
-			EnsureCapacity( 64 );
-
-			CAutoWipeBuffer buf;
-			if (
-				V_strstr( pchBase, k_szOpenSSHPrivatKeyPEMHeader )
-				&& DecodePEMBody( pchBase, (uint32)cBytes, buf )
-				&& BParseOpenSSHBinaryEd25519Private( buf, m_pbKey )
-			) {
-				m_cubKey = 64;
-
-				// Check that the public key matches the private one.
-				// (And also that all of our code works.)
-				uint8 arCheckPublic[ 32 ];
-				V_memcpy( arCheckPublic, m_pbKey, 32 );
-				(( CEC25519PrivateKeyBase * )this )->RebuildFromPrivateData( m_pbKey+32 );
-				if ( V_memcmp( arCheckPublic, m_pbKey, 32 ) != 0 )
-				{
-					AssertMsg( false, "Ed25519 key public doesn't match private!" );
-					Wipe();
-				}
-			}
-			else
-			{
-				Wipe();
-			}
-		}
-		else if ( m_eKeyType == k_ECryptoKeyTypeSigningPublic )
-		{
-			// Fixed key size
-			EnsureCapacity( 32 );
-
-			// OpenSSH authorized_keys format?
-
-			CAutoWipeBuffer buf;
-			int idxStart = -1, idxEnd = -1;
-			sscanf( pchBase, "ssh-ed25519 %nAAAA%*s%n", &idxStart, &idxEnd );
-			if (
-				idxStart > 0
-				&& idxEnd > idxStart
-				&& DecodeBase64ToBuf( pchBase + idxStart, idxEnd-idxStart, buf )
-				&& BParseOpenSSHBinaryEd25519Public( buf, m_pbKey )
-			)
-			{
-				// OK
-				m_cubKey = 32;
-			}
-			else
-			{
-				Wipe();
-			}
-		}
-		else if ( m_eKeyType != k_ECryptoKeyTypeRSAPublic && m_eKeyType != k_ECryptoKeyTypeRSAPrivate )
-		{
-			// TODO?
-		}
-		else
-		{
-			// strip PEM header if we find it
-			const char *pchPEMPrefix = ( m_eKeyType == k_ECryptoKeyTypeRSAPrivate ) ? "-----BEGIN PRIVATE KEY-----" : "-----BEGIN PUBLIC KEY-----";
-			if ( const char *pchData = V_strstr( pchBase, pchPEMPrefix ) )
-			{
-				SetFromBase64EncodedString( V_strstr( pchData, "KEY-----" ) + 8 );
-			}
-			else if ( pchBase[0] == 'M' && pchBase[1] == 'I' )
-			{
-				SetFromBase64EncodedString( pchBase );
-			}
-			else if ( pchBase[0] == 0x30 && (uint8)pchBase[1] == 0x82 )
-			{
-				Set( (const uint8*)pchBase, (uint32)cBytes );
-			}
-			else if ( pchBase[0] == '3' && pchBase[1] == '0' && pchBase[2] == '8' && pchBase[3] == '2' )
-			{
-				SetFromHexEncodedString( pchBase );
-			}
-		}
-
-		SecureZeroMemory( pchBase, cBytes );
-		free( pchBase );
-	}
-
-	// Wipe input buffer
+	bool bResult = SetFromOpenSSHAuthorizedKeys( (const char *)pBuffer, cBytes );
 	SecureZeroMemory( pBuffer, cBytes );
-	return IsValid();
+	return bResult;
 }
 
-//-----------------------------------------------------------------------------
-// Purpose: Retrieve the public half of our internal (public,private) pair
-//-----------------------------------------------------------------------------
-void CEC25519PrivateKeyBase::GetPublicKey( CCryptoPublicKeyBase *pPublicKey ) const
+bool CECSigningPublicKey::SetFromOpenSSHAuthorizedKeys( const char *pchData, size_t cbData )
 {
-	pPublicKey->Wipe();
-	Assert( IsValid() );
-	if ( !IsValid() )
-		return;
-	if ( m_eKeyType == k_ECryptoKeyTypeKeyExchangePrivate )
-	{
-		Assert( pPublicKey->GetKeyType() == k_ECryptoKeyTypeKeyExchangePublic );
-		if ( pPublicKey->GetKeyType() != k_ECryptoKeyTypeKeyExchangePublic )
-			return;
-	}
-	else if ( m_eKeyType == k_ECryptoKeyTypeSigningPrivate )
-	{
-		Assert( pPublicKey->GetKeyType() == k_ECryptoKeyTypeSigningPublic );
-		if ( pPublicKey->GetKeyType() != k_ECryptoKeyTypeSigningPublic )
-			return;
-	}
-	else
-	{
-		Assert( false ); // impossible, we must be one or the other if valid
-		return;
-	}
-	pPublicKey->Set( GetData(), 32 );
-}
+	Wipe();
 
+	// Gah, we need to make a copy to '\0'-terminate it, to make parsing below easier
+	CAutoWipeBuffer bufText( int( cbData + 8 ) );
+	bufText.Put( pchData, int(cbData) );
+	bufText.PutChar(0);
+	pchData = (const char *)bufText.Base();
 
-//-----------------------------------------------------------------------------
-// Purpose: Verify that a set of public and private curve25519 keys are matched
-//-----------------------------------------------------------------------------
-bool CEC25519PrivateKeyBase::MatchesPublicKey( const CCryptoPublicKeyBase &publicKey ) const
-{
-	if ( m_eKeyType == k_ECryptoKeyTypeKeyExchangePrivate && publicKey.GetKeyType() != k_ECryptoKeyTypeKeyExchangePublic )
+	int idxStart = -1, idxEnd = -1;
+	sscanf( pchData, "ssh-ed25519 %nAAAA%*s%n", &idxStart, &idxEnd );
+	if ( idxStart <= 0 || idxEnd <= idxStart )
 		return false;
-	if ( m_eKeyType == k_ECryptoKeyTypeSigningPrivate && publicKey.GetKeyType() != k_ECryptoKeyTypeSigningPublic )
+
+	CAutoWipeBuffer bufBinary;
+	if ( !DecodeBase64ToBuf( pchData + idxStart, idxEnd-idxStart, bufBinary ) )
 		return false;
-	if ( !IsValid() || !publicKey.IsValid() || publicKey.GetLength() != 32 )
+
+	uint8 pubKey[ 32 ];
+	if ( !BParseOpenSSHBinaryEd25519Public( bufBinary, pubKey ) )
 		return false;
-	return memcmp( GetData(), publicKey.GetData(), 32 ) == 0;
-}
+	return SetRawDataAndWipeInput( pubKey, 32 );
+ }
