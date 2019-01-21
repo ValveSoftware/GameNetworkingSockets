@@ -554,8 +554,8 @@ void CSteamNetworkConnectionBase::ClearCrypto()
 
 	m_bCertHasIdentity = false;
 	m_bCryptKeysValid = false;
-	m_cryptKeySend.Wipe();
-	m_cryptKeyRecv.Wipe();
+	m_cryptContextSend.Wipe();
+	m_cryptContextRecv.Wipe();
 	m_cryptIVSend.Wipe();
 	m_cryptIVRecv.Wipe();
 }
@@ -964,13 +964,15 @@ bool CSteamNetworkConnectionBase::BRecvCryptoHandshake( const CMsgSteamDatagramC
 	// 2. Expand: Use PRK as seed to generate all the different keys we need, mixing with connection-specific context
 	//
 
-	COMPILE_TIME_ASSERT( sizeof( m_cryptKeyRecv ) == sizeof(SHA256Digest_t) );
-	COMPILE_TIME_ASSERT( sizeof( m_cryptKeySend ) == sizeof(SHA256Digest_t) );
+	AutoWipeFixedSizeBuffer<32> cryptKeySend;
+	AutoWipeFixedSizeBuffer<32> cryptKeyRecv;
+	COMPILE_TIME_ASSERT( sizeof( cryptKeyRecv ) == sizeof(SHA256Digest_t) );
+	COMPILE_TIME_ASSERT( sizeof( cryptKeySend ) == sizeof(SHA256Digest_t) );
 	COMPILE_TIME_ASSERT( sizeof( m_cryptIVRecv ) <= sizeof(SHA256Digest_t) );
 	COMPILE_TIME_ASSERT( sizeof( m_cryptIVSend ) <= sizeof(SHA256Digest_t) );
 
-	uint8 *expandOrder[4] = { m_cryptKeySend.m_buf, m_cryptKeyRecv.m_buf, m_cryptIVSend.m_buf, m_cryptIVRecv.m_buf };
-	int expandSize[4] = { m_cryptKeySend.k_nSize, m_cryptKeyRecv.k_nSize, m_cryptIVSend.k_nSize, m_cryptIVRecv.k_nSize };
+	uint8 *expandOrder[4] = { cryptKeySend.m_buf, cryptKeyRecv.m_buf, m_cryptIVSend.m_buf, m_cryptIVRecv.m_buf };
+	int expandSize[4] = { cryptKeySend.k_nSize, cryptKeyRecv.k_nSize, m_cryptIVSend.k_nSize, m_cryptIVRecv.k_nSize };
 	const std::string *context[4] = { &msgCert.cert(), &m_msgSignedCertLocal.cert(), &msgSessionInfo.info(), &m_msgSignedCryptLocal.info() };
 	uint32 unConnectionIDContext[2] = { LittleDWord( m_unConnectionIDLocal ), LittleDWord( m_unConnectionIDRemote ) };
 
@@ -1013,6 +1015,15 @@ bool CSteamNetworkConnectionBase::BRecvCryptoHandshake( const CMsgSteamDatagramC
 		// Copy previous digest to use in generating the next one
 		pStart = (uint8 *)bufContext.Base();
 		V_memcpy( pStart, &expandTemp, sizeof(SHA256Digest_t) );
+	}
+
+	// Set encryption keys into the contexts, and set parameters
+	if (
+		!m_cryptContextSend.Init( cryptKeySend.m_buf, cryptKeySend.k_nSize, m_cryptIVSend.k_nSize, k_cbSteamNetwokingSocketsEncrytionTagSize )
+		|| !m_cryptContextRecv.Init( cryptKeyRecv.m_buf, cryptKeyRecv.k_nSize, m_cryptIVRecv.k_nSize, k_cbSteamNetwokingSocketsEncrytionTagSize ) )
+	{
+		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCrypt, "Error initializing crypto" );
+		return false;
 	}
 
 	//
@@ -1234,13 +1245,11 @@ int64 CSteamNetworkConnectionBase::DecryptDataChunk( uint16 nWireSeqNum, int cbP
 	//SpewMsg( "Recv decrypt IV %llu + %02x%02x%02x%02x, key %02x%02x%02x%02x\n", *(uint64 *)&m_cryptIVRecv.m_buf, m_cryptIVRecv.m_buf[8], m_cryptIVRecv.m_buf[9], m_cryptIVRecv.m_buf[10], m_cryptIVRecv.m_buf[11], m_cryptKeyRecv.m_buf[0], m_cryptKeyRecv.m_buf[1], m_cryptKeyRecv.m_buf[2], m_cryptKeyRecv.m_buf[3] );
 
 	// Decrypt the chunk and check the auth tag
-	bool bDecryptOK = CCrypto::SymmetricAuthDecryptWithIV(
+	bool bDecryptOK = m_cryptContextRecv.Decrypt(
 		pChunk, cbChunk, // encrypted
-		m_cryptIVRecv.m_buf, m_cryptIVRecv.k_nSize, // IV
+		m_cryptIVRecv.m_buf, // IV
 		pDecrypted, &cbDecrypted, // output
-		m_cryptKeyRecv.m_buf, m_cryptKeyRecv.k_nSize, // Key
-		nullptr, 0, // no AAD
-		k_cbSteamNetwokingSocketsEncrytionTagSize
+		nullptr, 0 // no AAD
 	);
 
 	// Restore the IV to the base value

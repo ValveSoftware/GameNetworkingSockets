@@ -14,6 +14,7 @@
 #include <tier1/netadr.h>
 #include "steamnetworkingsockets_lowlevel.h"
 #include "keypair.h"
+#include "crypto.h"
 #include <tier0/memdbgoff.h>
 #include <steamnetworkingsockets_messages.pb.h>
 #include <tier0/memdbgon.h>
@@ -492,10 +493,11 @@ protected:
 
 	// AES keys and used in each direction
 	bool m_bCryptKeysValid;
-	AutoWipeFixedSizeBuffer<32> m_cryptKeySend;
-	AutoWipeFixedSizeBuffer<32> m_cryptKeyRecv;
+	AES_GCM_EncryptContext m_cryptContextSend;
+	AES_GCM_DecryptContext m_cryptContextRecv;
 
-	// AES "initialization vector".  These are combined with the packet number
+	// Initialization vector for AES-GCM.  These are combined with
+	// the packet number so that the effective IV is unique per packert.
 	AutoWipeFixedSizeBuffer<16> m_cryptIVSend;
 	AutoWipeFixedSizeBuffer<16> m_cryptIVRecv;
 

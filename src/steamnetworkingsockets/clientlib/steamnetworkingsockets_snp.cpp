@@ -1717,13 +1717,11 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 	// Encrypt the chunk
 	uint8 arEncryptedChunk[ k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend + 64 ]; // Should not need pad
 	uint32 cbEncrypted = sizeof(arEncryptedChunk);
-	DbgVerify( CCrypto::SymmetricAuthEncryptWithIV(
+	DbgVerify( m_cryptContextSend.Encrypt(
 		payload, cbPlainText, // plaintext
-		m_cryptIVSend.m_buf, m_cryptIVSend.k_nSize, // IV
+		m_cryptIVSend.m_buf, // IV
 		arEncryptedChunk, &cbEncrypted, // output
-		m_cryptKeySend.m_buf, m_cryptKeySend.k_nSize, // Key
-		nullptr, 0, // no AAD
-		k_cbSteamNetwokingSocketsEncrytionTagSize
+		nullptr, 0 // no AAD
 	) );
 
 	// Restore the IV to the base value
