@@ -29,8 +29,6 @@ set(GNS_PROTOS
 set(GNS_SRCS
 	"common/crypto.cpp"
 	"common/crypto_textencode.cpp"
-	"common/crypto_25519.cpp"
-	"common/crypto_25519_libsodium.cpp"
 	"common/keypair.cpp"
 	"common/opensslwrapper.cpp"
 	"common/steamid.cpp"
@@ -53,14 +51,19 @@ set(GNS_SRCS
 	"vstdlib/strtools.cpp"
 	)
 
-if (NOT USE_LIBSODIUM)
+if (USE_LIBSODIUM)
 	set(GNS_SRCS
 		${GNS_SRCS}
+		"common/crypto_25519_libsodium.cpp")
+else
+	set(GNS_SRCS
+		${GNS_SRCS}
+		"common/crypto_25519_donna.cpp"
 		"external/curve25519-donna/curve25519.c"
 		"external/curve25519-donna/curve25519_VALVE_sse2.c"
 		"external/ed25519-donna/ed25519_VALVE.c"
 		"external/ed25519-donna/ed25519_VALVE_sse2.c")
-endif(NOT USE_LIBSODIUM)
+endif(USE_LIBSODIUM)
 
 set(C99_FEATURES
 	c_restrict
