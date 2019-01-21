@@ -125,6 +125,10 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 
 	target_compile_definitions(${GNS_TARGET} PRIVATE VALVE_CRYPTO_25519_DONNA)
 
+	if(SANITIZE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+		target_compile_definitions(${GNS_TARGET} PRIVATE ED25519_NO_INLINE_ASM)
+	endif()
+
 	## Needs CMake 3.8, then we could get rid of the workaround below it.
 	#target_compile_features(${GNS_TARGET} PUBLIC c_std_99 cxx_std_11)
 	if(NOT CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
