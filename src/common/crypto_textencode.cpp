@@ -14,10 +14,10 @@
 //			pchEncodedData -	Pointer to string buffer to store output in
 //			cchEncodedData -	Size of pchEncodedData buffer
 //-----------------------------------------------------------------------------
-bool CCrypto::HexEncode( const uint8 *pubData, const uint32 cubData, char *pchEncodedData, uint32 cchEncodedData )
+bool CCrypto::HexEncode( const void *pData, const uint32 cubData, char *pchEncodedData, uint32 cchEncodedData )
 {
 	VPROF_BUDGET( "CCrypto::HexEncode", VPROF_BUDGETGROUP_ENCRYPTION );
-	Assert( pubData );
+	Assert( pData );
 	Assert( cubData );
 	Assert( pchEncodedData );
 	Assert( cchEncodedData > 0 );
@@ -29,6 +29,7 @@ bool CCrypto::HexEncode( const uint8 *pubData, const uint32 cubData, char *pchEn
 		return false;
 	}
 
+	const uint8 *pubData = (const uint8 *)pData;
 	for ( uint32 i = 0; i < cubData; ++i )
 	{
 		uint8 c = *pubData++;
@@ -49,17 +50,18 @@ bool CCrypto::HexEncode( const uint8 *pubData, const uint32 cubData, char *pchEn
 //								output buffer.  At exit, is filled in with actual size
 //								of decoded data.
 //-----------------------------------------------------------------------------
-bool CCrypto::HexDecode( const char *pchData, uint8 *pubDecodedData, uint32 *pcubDecodedData )
+bool CCrypto::HexDecode( const char *pchData, void *pDecodedData, uint32 *pcubDecodedData )
 {
 	VPROF_BUDGET( "CCrypto::HexDecode", VPROF_BUDGETGROUP_ENCRYPTION );
 	Assert( pchData );
-	Assert( pubDecodedData );
+	Assert( pDecodedData );
 	Assert( pcubDecodedData );
 	Assert( *pcubDecodedData );
 
 	const char *pchDataOrig = pchData;
 
 	// Crypto++ HexDecoder silently skips unrecognized characters. So we do the same.
+	uint8 *pubDecodedData = (uint8 *)pDecodedData;
 	uint32 cubOut = 0;
 	uint32 cubOutMax = *pcubDecodedData;
 	while ( cubOut < cubOutMax )
@@ -161,7 +163,7 @@ uint32 CCrypto::Base64EncodeMaxOutput( const uint32 cubData, const char *pszLine
 //			cchEncodedData -	Size of pchEncodedData buffer
 //			bInsertLineBreaks -	If "\n" line breaks should be inserted automatically
 //-----------------------------------------------------------------------------
-bool CCrypto::Base64Encode( const uint8 *pubData, uint32 cubData, char *pchEncodedData, uint32 cchEncodedData, bool bInsertLineBreaks )
+bool CCrypto::Base64Encode( const void *pubData, uint32 cubData, char *pchEncodedData, uint32 cchEncodedData, bool bInsertLineBreaks )
 {
 	const char *pszLineBreak = bInsertLineBreaks ? "\n" : NULL;
 	uint32 cchRequired = Base64EncodeMaxOutput( cubData, pszLineBreak );
@@ -180,7 +182,7 @@ bool CCrypto::Base64Encode( const uint8 *pubData, uint32 cubData, char *pchEncod
 // Note: if pchEncodedData is NULL and *pcchEncodedData is zero, *pcchEncodedData is filled with the actual required length
 // for output. A simpler approximation for maximum output size is (cubData * 4 / 3) + 5 if there are no linebreaks.
 //-----------------------------------------------------------------------------
-bool CCrypto::Base64Encode( const uint8 *pubData, uint32 cubData, char *pchEncodedData, uint32* pcchEncodedData, const char *pszLineBreak )
+bool CCrypto::Base64Encode( const void *pData, uint32 cubData, char *pchEncodedData, uint32* pcchEncodedData, const char *pszLineBreak )
 {
 	VPROF_BUDGET( "CCrypto::Base64Encode", VPROF_BUDGETGROUP_ENCRYPTION );
 	
@@ -191,6 +193,7 @@ bool CCrypto::Base64Encode( const uint8 *pubData, uint32 cubData, char *pchEncod
 		return true;
 	}
 	
+	const uint8 *pubData = (const uint8 *)pData;
 	const uint8 *pubDataEnd = pubData + cubData;
 	char *pchEncodedDataStart = pchEncodedData;
 	str_size unLineBreakLen = pszLineBreak ? V_strlen( pszLineBreak ) : 0;
@@ -292,7 +295,7 @@ out_of_space:
 // will calculate the actual required size and place it in *pcubDecodedData. A simpler upper
 // bound on the required size is ( strlen(pchData)*3/4 + 1 ).
 //-----------------------------------------------------------------------------
-bool CCrypto::Base64Decode( const char *pchData, uint8 *pubDecodedData, uint32 *pcubDecodedData, bool bIgnoreInvalidCharacters )
+bool CCrypto::Base64Decode( const char *pchData, void *pubDecodedData, uint32 *pcubDecodedData, bool bIgnoreInvalidCharacters )
 {
 	return Base64Decode( pchData, ~0u, pubDecodedData, pcubDecodedData, bIgnoreInvalidCharacters );
 }
@@ -309,10 +312,11 @@ bool CCrypto::Base64Decode( const char *pchData, uint8 *pubDecodedData, uint32 *
 // will calculate the actual required size and place it in *pcubDecodedData. A simpler upper
 // bound on the required size is ( strlen(pchData)*3/4 + 2 ).
 //-----------------------------------------------------------------------------
-bool CCrypto::Base64Decode( const char *pchData, uint32 cchDataMax, uint8 *pubDecodedData, uint32 *pcubDecodedData, bool bIgnoreInvalidCharacters )
+bool CCrypto::Base64Decode( const char *pchData, uint32 cchDataMax, void *pDecodedData, uint32 *pcubDecodedData, bool bIgnoreInvalidCharacters )
 {
 	VPROF_BUDGET( "CCrypto::Base64Decode", VPROF_BUDGETGROUP_ENCRYPTION );
 	
+	uint8 *pubDecodedData = (uint8 *)pDecodedData;
 	uint32 cubDecodedData = *pcubDecodedData;
 	uint32 cubDecodedDataOrig = cubDecodedData;
 

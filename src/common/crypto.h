@@ -85,16 +85,16 @@ namespace CCrypto
 	void GenerateSignature( const uint8 *pubData, uint32 cubData, const CECSigningPrivateKey &privateKey, CryptoSignature_t *pSignatureOut );
 	bool VerifySignature( const uint8 *pubData, uint32 cubData, const CECSigningPublicKey &publicKey, const CryptoSignature_t &signature );
 
-	bool HexEncode( const uint8 *pubData, const uint32 cubData, char *pchEncodedData, uint32 cchEncodedData );
-	bool HexDecode( const char *pchData, uint8 *pubDecodedData, uint32 *pcubDecodedData );
+	bool HexEncode( const void *pubData, const uint32 cubData, char *pchEncodedData, uint32 cchEncodedData );
+	bool HexDecode( const char *pchData, void *pubDecodedData, uint32 *pcubDecodedData );
 
 	uint32 Base64EncodeMaxOutput( uint32 cubData, const char *pszLineBreakOrNull );
-	bool Base64Encode( const uint8 *pubData, uint32 cubData, char *pchEncodedData, uint32 cchEncodedData, bool bInsertLineBreaks = true ); // legacy, deprecated
-	bool Base64Encode( const uint8 *pubData, uint32 cubData, char *pchEncodedData, uint32 *pcchEncodedData, const char *pszLineBreak = "\n" );
+	bool Base64Encode( const void *pubData, uint32 cubData, char *pchEncodedData, uint32 cchEncodedData, bool bInsertLineBreaks = true ); // legacy, deprecated
+	bool Base64Encode( const void *pubData, uint32 cubData, char *pchEncodedData, uint32 *pcchEncodedData, const char *pszLineBreak = "\n" );
 
 	inline uint32 Base64DecodeMaxOutput( uint32 cubData ) { return ( (cubData + 3 ) / 4) * 3 + 1; }
-	bool Base64Decode( const char *pchEncodedData, uint8 *pubDecodedData, uint32 *pcubDecodedData, bool bIgnoreInvalidCharacters = true ); // legacy, deprecated
-	bool Base64Decode( const char *pchEncodedData, uint32 cchEncodedData, uint8 *pubDecodedData, uint32 *pcubDecodedData, bool bIgnoreInvalidCharacters = true );
+	bool Base64Decode( const char *pchEncodedData, void *pubDecodedData, uint32 *pcubDecodedData, bool bIgnoreInvalidCharacters = true ); // legacy, deprecated
+	bool Base64Decode( const char *pchEncodedData, uint32 cchEncodedData, void *pubDecodedData, uint32 *pcubDecodedData, bool bIgnoreInvalidCharacters = true );
 
 	/// Parse a PEM-like thing, locating the hex-encoded body (but not parsing it.)
 	/// On success, will returns a pointer to the first character of the body,
