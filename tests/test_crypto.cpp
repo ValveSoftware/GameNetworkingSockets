@@ -11,12 +11,13 @@
 
 // I copied these tests from the Steam branch.
 // A little compatibility glue so I don't have to make any changes to them.
-#define CHECK(x) Assert(x)
-#define CHECK_EQUAL(a,b) Assert((a)==(b))
+#define CHECK(x) do { bool _check_result; Assert(_check_result = (x)); g_failed |= !_check_result; } while(0)
+#define CHECK_EQUAL(a,b) do { bool _check_eq_result; Assert(_check_eq_result = ((a)==(b))); g_failed |= !_check_eq_result; } while(0)
 #define RETURNIFNOT(x) { if ( !(x) ) { AssertMsg( false, #x ); return; } }
 #define RETURNFALSEIFNOT(x) { if ( !(x) ) { AssertMsg( false, #x ); return false; } }
 const int k_cSmallBuff = 100;					// smallish buffer
 const int k_cMedBuff = 1200;
+bool g_failed = false;
 
 static unsigned char Q_nibble( char c )
 {
@@ -906,5 +907,5 @@ int main()
 	TestSymmetricCryptoPerf();
 	TestSymmetricAuthCryptoPerf();
 
-	return 0;
+	return g_failed ? 1 : 0;
 }
