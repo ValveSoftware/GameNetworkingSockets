@@ -15,7 +15,7 @@ executable('test_connection',
 executable('test_crypto',
   'test_crypto.cpp',
   dependencies: common_deps + [ dep_GameNetworkingSockets_static ],
-  cpp_args: cppflags,
+  cpp_args: cppflags + ['-DTEST_VECTOR_DIR="' + join_paths(meson.source_root(), 'tests/aesgcmtestvectors') + '/"'],
   include_directories: include_directories('../src', '../src/public', '../src/common')
 )
 

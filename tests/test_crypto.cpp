@@ -5,6 +5,10 @@
 #include <crypto.h>
 #include <crypto_constants.h>
 
+#ifdef LINUX
+#include <unistd.h>
+#endif
+
 // I copied these tests from the Steam branch.
 // A little compatibility glue so I don't have to make any changes to them.
 #define CHECK(x) Assert(x)
@@ -344,7 +348,9 @@ void TestSymmetricAuthCrypto_EncryptTestVectorFile( const char *pszFilename )
 //-----------------------------------------------------------------------------
 void TestSymmetricAuthCryptoVectors()
 {
-	#define TEST_VECTOR_DIR "../../tests/aesgcmtestvectors/"
+	#ifndef TEST_VECTOR_DIR
+	#define TEST_VECTOR_DIR "./aesgcmtestvectors/"
+	#endif
 
 	// Check against known test vectors
 	TestSymmetricAuthCrypto_EncryptTestVectorFile( TEST_VECTOR_DIR "gcmEncryptExtIV128.rsp" );
@@ -871,8 +877,24 @@ void TestSymmetricAuthCryptoPerf()
 	printf( "\tSymmetric GCM decrypt (big):\t\t%f MB/sec (%d iterations)\n", dRateLargeDecrypt, k_cIterations );
 }
 
+void chdir_to_bindir()
+{
+#ifdef LINUX
+	char rgchPath[PATH_MAX], *pchPathTail;
+	memset(rgchPath, 0, sizeof(rgchPath));
+	readlink("/proc/self/exe", rgchPath, sizeof(rgchPath));
+	pchPathTail = strrchr(rgchPath, '/');
+	if (pchPathTail) {
+		*pchPathTail = 0;
+		chdir(rgchPath);
+	}
+#endif
+}
+
 int main()
 {
+	chdir_to_bindir();
+
 	CCrypto::Init();
 
 	TestCryptoEncoding();

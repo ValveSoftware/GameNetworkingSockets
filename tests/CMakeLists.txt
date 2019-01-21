@@ -23,4 +23,6 @@ target_include_directories(test_crypto PRIVATE ../src ../src/public ../src/commo
 target_link_libraries(test_crypto GameNetworkingSockets_s)
 add_sanitizers(test_crypto)
 
+file(COPY aesgcmtestvectors DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
+
 # vim: set ts=4 sts=4 sw=4 noet:
