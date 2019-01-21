@@ -11,6 +11,5 @@ PACKAGES=(build-essential pkg-config cmake meson clang)
 
 PACKAGES+=(libprotobuf-dev protobuf-compiler)
 PACKAGES+=(libssl-dev)
-PACKAGES+=(libsodium-dev)
 
 apt-get install -y "${PACKAGES[@]}"

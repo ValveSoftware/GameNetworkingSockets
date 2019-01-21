@@ -22,8 +22,6 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
 endif()
 
 option(Protobuf_USE_STATIC_LIBS "Build with a static Protobuf library" OFF)
-option(sodium_USE_STATIC_LIBS "Build with static libsodium" OFF)
-option(USE_LIBSODIUM "Use libsodium for ed25519/curve25519" OFF)
 option(LIGHT_TESTS "Use smaller/shorter tests for simple integration testing (e.g. Travis)" OFF)
 
 add_subdirectory(examples)

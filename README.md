@@ -118,6 +118,7 @@ OpenSSL binaries from these installers, which makes building a lot easier. Be
 sure to pick the installers **without** the "Light"suffix. In this instance,
 "Light" means no development libraries or headers.
 
+
 #### protobuf
 
 If you're building on Linux or Mac, just install the appropriate packages from

@@ -14,7 +14,6 @@ PACKAGES=(
 )
 
 PACKAGES+=(protobuf-compiler protobuf-devel)
-PACKAGES+=(libsodium-devel)
 PACKAGES+=(openssl-devel)
 
 dnf install -y "${PACKAGES[@]}"

@@ -1,8 +1,3 @@
-option('use_libsodium',
-  type: 'boolean',
-  value: false,
-  description: 'Use libsodium for ed25519/curve25519 crypto')
-
 option('light_tests',
   type: 'boolean',
   value: true,
