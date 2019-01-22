@@ -151,15 +151,15 @@ void CECSigningPrivateKey::GenerateSignature( const void *pData, size_t cbData, 
 		return;
 	}
 
-	EVP_PKEY_CTX *ctx = EVP_PKEY_CTX_new( pkey, nullptr );
+	EVP_MD_CTX *ctx = EVP_MD_CTX_create();
 	VerifyFatal( ctx );
-	VerifyFatal( EVP_PKEY_sign_init( ctx ) == 1 );
+	VerifyFatal( EVP_DigestSignInit( ctx, nullptr, nullptr, nullptr, pkey ) == 1 );
 
 	size_t siglen = sizeof(*pSignatureOut);
-	VerifyFatal( EVP_PKEY_sign( ctx, (unsigned char *)pSignatureOut, &siglen, (const unsigned char *)pData, cbData ) == 1 );
-	AssertFatal( siglen == sizeof(*pSignatureOut) );
+	VerifyFatal( EVP_DigestSign( ctx, (unsigned char *)pSignatureOut, &siglen, (const unsigned char *)pData, cbData ) == 1 );
+	VerifyFatal( siglen == sizeof(*pSignatureOut) );
 
-	EVP_PKEY_CTX_free(ctx);
+	EVP_MD_CTX_free(ctx);
 }
 
 bool CECSigningPublicKey::VerifySignature( const void *pData, size_t cbData, const CryptoSignature_t &signature ) const
@@ -171,13 +171,13 @@ bool CECSigningPublicKey::VerifySignature( const void *pData, size_t cbData, con
 		return false;
 	}
 
-	EVP_PKEY_CTX *ctx = EVP_PKEY_CTX_new( pkey, nullptr );
+	EVP_MD_CTX *ctx = EVP_MD_CTX_create();
 	VerifyFatal( ctx );
-	VerifyFatal( EVP_PKEY_verify_init( ctx ) == 1 );
+	VerifyFatal( EVP_DigestVerifyInit( ctx, nullptr, nullptr, nullptr, pkey ) == 1 );
 
-	int r = EVP_PKEY_verify( ctx, (const unsigned char *)signature, sizeof(signature), (const unsigned char *)pData, cbData );
+	int r = EVP_DigestVerify( ctx, (const unsigned char *)signature, sizeof(signature), (const unsigned char *)pData, cbData );
 
-	EVP_PKEY_CTX_free(ctx);
+	EVP_MD_CTX_free(ctx);
 
 	return r == 1;
 }
