@@ -392,8 +392,8 @@ void TestEllipticCrypto()
 	SHA256Digest_t expectedResult;
 	CCrypto::GenerateSHA256Digest( buf, 32, &expectedResult );
 
-	SHA256Digest_t aliceSharedSecret;
-	SHA256Digest_t bobSharedSecret;
+	SHA256Digest_t aliceSharedSecret = {0};
+	SHA256Digest_t bobSharedSecret = {1};
 	CCrypto::PerformKeyExchange( alicePriv, bobPub, &aliceSharedSecret );
 	CCrypto::PerformKeyExchange( bobPriv, alicePub, &bobSharedSecret );
 
