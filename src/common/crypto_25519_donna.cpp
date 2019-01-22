@@ -32,7 +32,7 @@ void ed25519_sign_sse2( const unsigned char *m, size_t mlen, const ed25519_secre
 //-----------------------------------------------------------------------------
 // Purpose: Generate a shared secret from two exchanged curve25519 keys
 //-----------------------------------------------------------------------------
-void CCrypto::PerformKeyExchange( const CECKeyExchangePrivateKey &localPrivateKey, const CECKeyExchangePublicKey &remotePublicKey, SHA256Digest_t *pSharedSecretOut )
+bool CCrypto::PerformKeyExchange( const CECKeyExchangePrivateKey &localPrivateKey, const CECKeyExchangePublicKey &remotePublicKey, SHA256Digest_t *pSharedSecretOut )
 {
 	Assert( localPrivateKey.IsValid() );
 	Assert( remotePublicKey.IsValid() );
@@ -40,13 +40,15 @@ void CCrypto::PerformKeyExchange( const CECKeyExchangePrivateKey &localPrivateKe
 	{
 		// Fail securely - generate something that won't be the same on both sides!
 		GenerateRandomBlock( *pSharedSecretOut, sizeof( SHA256Digest_t ) );
-		return;
+		return false;
 	}
 
 	uint8 bufSharedSecret[32];
 	CHOOSE_25519_IMPL( curve25519_donna )( bufSharedSecret, localPrivateKey.GetRawDataPtr(), remotePublicKey.GetRawDataPtr() );
 	GenerateSHA256Digest( bufSharedSecret, sizeof(bufSharedSecret), pSharedSecretOut );
 	SecureZeroMemory( bufSharedSecret, 32 );
+
+	return true;
 }
 
 

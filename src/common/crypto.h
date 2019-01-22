@@ -148,7 +148,7 @@ namespace CCrypto
 
 	// Generate a curve25519 key pair for Diffie-Hellman secure key exchange
 	void GenerateKeyExchangeKeyPair( CECKeyExchangePublicKey *pPublicKey, CECKeyExchangePrivateKey *pPrivateKey );
-	void PerformKeyExchange( const CECKeyExchangePrivateKey &localPrivateKey, const CECKeyExchangePublicKey &remotePublicKey, SHA256Digest_t *pSharedSecretOut );
+	bool PerformKeyExchange( const CECKeyExchangePrivateKey &localPrivateKey, const CECKeyExchangePublicKey &remotePublicKey, SHA256Digest_t *pSharedSecretOut );
 
 	//
 	// Signing and verification (ed25519 elliptic-curve signature scheme)

@@ -55,7 +55,7 @@ uint32 CEC25519KeyBase::GetRawData( void *pData ) const
 			}
 			break;
 
-		default;
+		default:
 			AssertMsg( false, "Invalid 25519 key type" );
 			return 0;
 	}
@@ -131,17 +131,17 @@ bool CCrypto::PerformKeyExchange( const CECKeyExchangePrivateKey &localPrivateKe
 	VerifyFatal( EVP_PKEY_derive_init(ctx) == 1 );
 	VerifyFatal( EVP_PKEY_derive_set_peer(ctx, peerkey) == 1 );
 
-	size_t skeylen = sizeof(*pSharedSecretout) );
+	size_t skeylen = sizeof(*pSharedSecretOut);
 	VerifyFatal( EVP_PKEY_derive(ctx, nullptr, &skeylen ) == 1 );
 	AssertFatal( skeylen == sizeof(*pSharedSecretOut) );
 
-	EVP_PKEY_CTX_free(cxt);
+	EVP_PKEY_CTX_free(ctx);
 
 	return true;
 }
 
 
-void CECSigningPrivateKey::GenerateSignature( const void *pData, size_t cbData, CryptoSignature_t *pSignatureOut )
+void CECSigningPrivateKey::GenerateSignature( const void *pData, size_t cbData, CryptoSignature_t *pSignatureOut ) const
 {
 	EVP_PKEY *pkey = (EVP_PKEY*)m_evp_pkey;
 	if ( !pkey )
@@ -156,13 +156,13 @@ void CECSigningPrivateKey::GenerateSignature( const void *pData, size_t cbData, 
 	VerifyFatal( EVP_PKEY_sign_init( ctx ) == 1 );
 
 	size_t siglen = sizeof(*pSignatureOut);
-	VerifyFatal( EVP_PKEY_sign( ctx, (unsigned char *)pSignatureOut, &siglen, pData, cbData ) == 1 )
+	VerifyFatal( EVP_PKEY_sign( ctx, (unsigned char *)pSignatureOut, &siglen, (const unsigned char *)pData, cbData ) == 1 );
 	AssertFatal( siglen == sizeof(*pSignatureOut) );
 
-	EVP_PKEY_CTX_free(cxt);
+	EVP_PKEY_CTX_free(ctx);
 }
 
-bool CECSigningPublicKey::VerifySignature( const void *pData, size_t cbData, const CryptoSignature_t &signature )
+bool CECSigningPublicKey::VerifySignature( const void *pData, size_t cbData, const CryptoSignature_t &signature ) const
 {
 	EVP_PKEY *pkey = (EVP_PKEY*)m_evp_pkey;
 	if ( !pkey )
@@ -175,9 +175,9 @@ bool CECSigningPublicKey::VerifySignature( const void *pData, size_t cbData, con
 	VerifyFatal( ctx );
 	VerifyFatal( EVP_PKEY_verify_init( ctx ) == 1 );
 
-	int r = EVP_PKEY_Verify( ctx, (const unsigned char *)signature, sizeof(signature), (const unsigned char *)pData, cbData );
+	int r = EVP_PKEY_verify( ctx, (const unsigned char *)signature, sizeof(signature), (const unsigned char *)pData, cbData );
 
-	EVP_PKEY_CTX_free(cxt);
+	EVP_PKEY_CTX_free(ctx);
 
 	return r == 1;
 }
