@@ -70,6 +70,10 @@ uint32 CEC25519KeyBase::GetRawData( void *pData ) const
 
 void CEC25519KeyBase::Wipe()
 {
+	// We should never be using the raw buffer
+	Assert( CCryptoKeyBase_RawBuffer::m_pData == nullptr );
+	Assert( CCryptoKeyBase_RawBuffer::m_cbData == 0 );
+
 	EVP_PKEY_free( (EVP_PKEY*)m_evp_pkey );
 	m_evp_pkey = nullptr;
 }

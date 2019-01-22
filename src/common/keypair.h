@@ -91,10 +91,34 @@ private:
 	CCryptoKeyBase & operator=(const CCryptoKeyBase &rhs) = delete;
 };
 
+// Base class for when we might store the key in a buffer,
+// instead of handing it off to the crypto provider and
+// using their interfaces.
+//
+// Since we don't have a configure script, the application
+// code doesn't have a mechanism to know how this library
+// was compiled, so we need a consistent ABI for these
+// classes, no matter how it's implemented.
+class CCryptoKeyBase_RawBuffer : public CCryptoKeyBase
+{
+public:
+	virtual ~CCryptoKeyBase_RawBuffer();
+	virtual bool IsValid() const override;
+	virtual uint32 GetRawData( void *pData ) const override;
+	virtual void Wipe() override;
 
-class CEC25519PublicKeyBase;
+	const uint8 *GetRawDataPtr() const { return m_pData; }
+	uint32 GetRawDataSize() const { return m_cbData; }
 
-class CEC25519KeyBase : public CCryptoKeyBase 
+protected:
+	virtual bool SetRawData( const void *pData, size_t cbData ) override;
+	inline CCryptoKeyBase_RawBuffer( ECryptoKeyType keyType ) : CCryptoKeyBase( keyType ), m_pData( nullptr ), m_cbData( 0 ) {}
+
+	uint8 *m_pData;
+	uint32 m_cbData;
+};
+
+class CEC25519KeyBase : public CCryptoKeyBase_RawBuffer
 {
 public:
 	virtual ~CEC25519KeyBase();
@@ -105,13 +129,11 @@ public:
 	void *evp_pkey() const { return m_evp_pkey; }
 protected:
 	virtual bool SetRawData( const void *pData, size_t cbData ) override;
-	inline CEC25519KeyBase( ECryptoKeyType keyType ) : CCryptoKeyBase( keyType ), m_evp_pkey(nullptr) {}
+	inline CEC25519KeyBase( ECryptoKeyType keyType ) : CCryptoKeyBase_RawBuffer( keyType ), m_evp_pkey(nullptr) {}
 
-	union {
-		uint8 *m_pData;
-		void *m_evp_pkey; // It's not easy to forward declare EVP_PKEY.
-	};
-	uint32 m_cbData;
+	// Actually EVP_PKEY*, but we don't want to include OpenSSL headers here,
+	// especially since we might not actually be using OpenSSL for this at all!
+	void *m_evp_pkey;
 };
 
 //-----------------------------------------------------------------------------
