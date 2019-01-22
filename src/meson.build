@@ -7,9 +7,14 @@ protoc = generator(protoc_bin,
   output    : ['@BASENAME@.pb.cc', '@BASENAME@.pb.h'],
   arguments : ['-I@CURRENT_SOURCE_DIR@/common', '--proto_path=@CURRENT_SOURCE_DIR@', '--cpp_out=@BUILD_DIR@', '@INPUT@'])
 
-dependencies += [
-  dependency('libcrypto', version: '>=1.1.0'),
-]
+min_libcrypto = dependency('libcrypto', version: '>=1.1.0')
+good_libcrypto = dependency('libcrypto', version: '>=1.1.1', required: false)
+
+if good_libcrypto.found()
+  dependencies += [ good_libcrypto ]
+else
+  dependencies += [ min_libcrypto ]
+endif
 
 code = '''#include <openssl/evp.h>
 int main(int argc, char **argv) {
@@ -77,7 +82,7 @@ sources = [
 ]
 
 # Select 25519 crypto provider
-if false
+if good_libcrypto.found()
   cpp_flags += [ '-DVALVE_CRYPTO_25519_OPENSSLEVP' ]
   sources += [
     'common/crypto_25519_openssl.cpp',
