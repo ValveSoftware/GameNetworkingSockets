@@ -451,11 +451,8 @@ bool CCryptoKeyBase_RawBuffer::SetRawBufferData( const void *pData, size_t cbDat
 
 void CCryptoKeyBase_RawBuffer::Wipe()
 {
-	if ( m_pData )
-	{
-		free( m_pData );
-		m_pData = nullptr;
-	}
+	free( m_pData );
+	m_pData = nullptr;
 	m_cbData = 0;
 }
 
