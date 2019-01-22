@@ -120,22 +120,22 @@ bool CCrypto::PerformKeyExchange( const CECKeyExchangePrivateKey &localPrivateKe
 		return false;
 	}
 
-	// Unless we have a bug, all other errors "should never happen".
-
-	EVP_PKEY_CTX *ctx = EVP_PKEY_CTX_new( pkey, nullptr );
-	VerifyFatal( ctx );
-
-	VerifyFatal( EVP_PKEY_derive_init(ctx) == 1 );
-	VerifyFatal( EVP_PKEY_derive_set_peer(ctx, peerkey) == 1 );
-
 	size_t skeylen = sizeof(*pSharedSecretOut);
 	uint8 bufSharedSecret[32];
+
+	EVP_PKEY_CTX *ctx = EVP_PKEY_CTX_new( pkey, nullptr );
+
+	// Unless we have a bug, all these errors "should never happen".
+	VerifyFatal( ctx );
+	VerifyFatal( EVP_PKEY_derive_init(ctx) == 1 );
+	VerifyFatal( EVP_PKEY_derive_set_peer(ctx, peerkey) == 1 );
 	VerifyFatal( EVP_PKEY_derive(ctx, bufSharedSecret, &skeylen ) == 1 );
 	VerifyFatal( skeylen == sizeof(*pSharedSecretOut) );
-	GenerateSHA256Digest( bufSharedSecret, sizeof(bufSharedSecret), pSharedSecretOut );
-	SecureZeroMemory( bufSharedSecret, 32 );
 
 	EVP_PKEY_CTX_free(ctx);
+
+	GenerateSHA256Digest( bufSharedSecret, sizeof(bufSharedSecret), pSharedSecretOut );
+	SecureZeroMemory( bufSharedSecret, 32 );
 
 	return true;
 }
