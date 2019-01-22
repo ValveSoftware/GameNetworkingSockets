@@ -131,12 +131,6 @@ protected:
 };
 
 #else
-	// FIXME - Need t configure meson/cmake to always set one or the other.
-	//         We really shouldn't have a default, in this context
-	#ifndef VALVE_CRYPTO_25519_DONNA
-		#define VALVE_CRYPTO_25519_DONNA
-	#endif
-
 class CEC25519KeyBase : public CCryptoKeyBase_RawBuffer
 {
 protected:
