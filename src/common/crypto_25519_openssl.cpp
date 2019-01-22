@@ -70,11 +70,8 @@ uint32 CEC25519KeyBase::GetRawData( void *pData ) const
 
 void CEC25519KeyBase::Wipe()
 {
-	if ( m_evp_pkey )
-	{
-		EVP_PKEY_free( (EVP_PKEY*)m_evp_pkey );
-		m_evp_pkey = nullptr;
-	}
+	EVP_PKEY_free( (EVP_PKEY*)m_evp_pkey );
+	m_evp_pkey = nullptr;
 }
 
 bool CEC25519KeyBase::SetRawData( const void *pData, size_t cbData )
