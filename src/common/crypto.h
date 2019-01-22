@@ -93,35 +93,8 @@ public:
 
 namespace CCrypto
 {
-	enum ECDSACurve {
-		k_ECDSACurve_secp256k1,
-		k_ECDSACurve_secp256r1,
-	};
-
 	void Init();
 	
-	// SymmetricEncryptWithIV is NOT compatible with SymmetricDecrypt, because it does not write
-	// the IV into the data stream - it is assumed that the IV is communicated or agreed upon by
-	// some other out-of-band method. Pair it with SymmetricDecryptWithIV to decrpyt. Output is
-	// always 1-16 bytes longer than input due to PKCS#7 block padding.
-	bool SymmetricEncryptWithIV( const uint8 * pubPlaintextData, uint32 cubPlaintextData,
-										const uint8 * pIV, uint32 cubIV,
-										uint8 * pubEncryptedData, uint32 * pcubEncryptedData,
-										const uint8 * pubKey, uint32 cubKey );
-
-	bool SymmetricDecryptRecoverIV( const uint8 * pubEncryptedData, uint32 cubEncryptedData,
-		uint8 * pubPlaintextData, uint32 * pcubPlaintextData, uint8 *pIV, uint32 cubIV,
-		const uint8 * pubKey, uint32 cubKey, bool bVerifyPaddingBytes = true );
-
-	
-	// SymmetricDecryptWithIV assumes that the encrypted data does not begin with an IV.
-	// If you created the encrypted data with SymmetricEncryptChosenIV, you must discard
-	// the first 16 bytes of encrypted output before passing it to SymmetricDecryptWithIV.
-	bool SymmetricDecryptWithIV( const uint8 * pubEncryptedData, uint32 cubEncryptedData, 
-										const uint8 * pIV, uint32 cubIV,
-										uint8 * pubPlaintextData, uint32 * pcubPlaintextData,
-										const uint8 * pubKey, uint32 cubKey, bool bVerifyPaddingBytes = true );
-
 	// Symmetric encryption and authentication using AES-GCM.
 	bool SymmetricAuthEncryptWithIV(
 		const void *pPlaintextData, size_t cbPlaintextData,

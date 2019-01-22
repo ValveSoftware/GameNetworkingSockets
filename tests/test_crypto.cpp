@@ -11,8 +11,8 @@
 
 // I copied these tests from the Steam branch.
 // A little compatibility glue so I don't have to make any changes to them.
-#define CHECK(x) do { bool _check_result; Assert(_check_result = (x)); g_failed |= !_check_result; } while(0)
-#define CHECK_EQUAL(a,b) do { bool _check_eq_result; Assert(_check_eq_result = ((a)==(b))); g_failed |= !_check_eq_result; } while(0)
+#define CHECK(x) do { bool _check_result; Assert( (_check_result = (x)) != false ); g_failed |= !_check_result; } while(0)
+#define CHECK_EQUAL(a,b) do { bool _check_eq_result; Assert( (_check_eq_result = ((a)==(b))) != false ); g_failed |= !_check_eq_result; } while(0)
 #define RETURNIFNOT(x) { if ( !(x) ) { AssertMsg( false, #x ); return; } }
 #define RETURNFALSEIFNOT(x) { if ( !(x) ) { AssertMsg( false, #x ); return false; } }
 const int k_cSmallBuff = 100;					// smallish buffer
@@ -169,64 +169,6 @@ void TestCryptoEncoding()
 	}
 }
 
-void TestSymmetricCrypto()
-{
-	bool bRet;
-	uint8 rgubIV[ k_nSymmetricBlockSize ];
-	uint8 rgubKey[k_nSymmetricKeyLen];
-	uint8 rgubKey2[k_nSymmetricKeyLen];
-
-	// Generate a couple of random keys and an IV.
-	CCrypto::GenerateRandomBlock( rgubKey, V_ARRAYSIZE( rgubKey ) );
-	CCrypto::GenerateRandomBlock( rgubKey2, V_ARRAYSIZE( rgubKey2 ) );
-	CCrypto::GenerateRandomBlock( rgubIV, V_ARRAYSIZE( rgubIV ) );
-
-	const char rgchSrc[] = "This is a test of symmetric encryption! It is at least 160 bytes long "
-		"to trigger at least two iterations of the 64-byte AES-NI optimized path on systems that "
-		"support AES-NI instructions. Blah blah blah blah blah. Blah blah blah blah blah. 12345 ";
-	uint8 rgubEncrypted[k_cMedBuff];
-	uint cubEncrypted = V_ARRAYSIZE( rgubEncrypted );
-	uint8 rgubOutput[k_cMedBuff];
-
-	// Repeat the same test but this time using ...WithIV so as to not prepend the IV at all.
-	cubEncrypted = V_ARRAYSIZE( rgubEncrypted );
-	bRet = CCrypto::SymmetricEncryptWithIV( (const uint8*)rgchSrc, V_ARRAYSIZE( rgchSrc ),
-		rgubIV, sizeof(rgubIV),
-		rgubEncrypted, &cubEncrypted,
-		rgubKey, V_ARRAYSIZE( rgubKey ) );
-	CHECK( bRet );	// must succeed
-	uint cubOutput = V_ARRAYSIZE( rgubOutput );
-	bRet = CCrypto::SymmetricDecryptWithIV( rgubEncrypted, cubEncrypted, rgubIV, sizeof(rgubIV),
-		rgubOutput, &cubOutput, rgubKey, V_ARRAYSIZE( rgubKey ) );
-	CHECK( bRet );												// must succeed
-	CHECK( cubOutput == V_ARRAYSIZE( rgchSrc ) );					// output length must be same as input length
-	CHECK( !V_strcmp( rgchSrc, (const char *) rgubOutput ) );	// output must be the same as input
-
-	//
-	// In-place decryption.  Make sure that we get correct results if the destination buffer and
-	// source buffer are identical.
-	//
-	uint8 rgubInplace[k_cMedBuff];
-	uint cubInplace = V_ARRAYSIZE( rgubInplace );
-
-	// Now try ...WithIV in place as well
-	V_memcpy( rgubInplace, rgchSrc, V_ARRAYSIZE(rgchSrc) );
-	cubInplace = V_ARRAYSIZE( rgubInplace );
-	bRet = CCrypto::SymmetricEncryptWithIV( rgubInplace, V_ARRAYSIZE( rgchSrc ), rgubIV, sizeof(rgubIV), rgubInplace,
-		&cubInplace, rgubKey, V_ARRAYSIZE( rgubKey ) );
-	CHECK( bRet );
-	// In place encryption with ...WithIV should result in identical ciphertext again
-	CHECK( cubEncrypted == cubInplace );
-	CHECK( !V_memcmp( rgubEncrypted, rgubInplace, cubEncrypted ) );
-
-	// In-place ...WithIV decryption
-	bRet = CCrypto::SymmetricDecryptWithIV( rgubInplace, cubInplace, rgubIV, sizeof( rgubIV ), rgubInplace,
-		&cubInplace, rgubKey, V_ARRAYSIZE( rgubKey ) );
-	CHECK( bRet );
-	CHECK_EQUAL( cubInplace, V_ARRAYSIZE( rgchSrc ) );
-	CHECK( !V_strcmp( rgchSrc, (const char *)rgubInplace ) );
-}
-
 // https://csrc.nist.gov/Projects/Cryptographic-Algorithm-Validation-Program/CAVP-TESTING-BLOCK-CIPHER-MODES
 // https://csrc.nist.gov/CSRC/media/Projects/Cryptographic-Algorithm-Validation-Program/documents/mac/gcmtestvectors.zip
 class NISTTestVectorFile
@@ -356,7 +298,7 @@ void TestSymmetricAuthCrypto_EncryptTestVectorFile( const char *pszFilename )
 void TestSymmetricAuthCryptoVectors()
 {
 	#ifndef TEST_VECTOR_DIR
-	#define TEST_VECTOR_DIR "./aesgcmtestvectors/"
+	#define TEST_VECTOR_DIR "aesgcmtestvectors/"
 	#endif
 
 	// Check against known test vectors
@@ -394,8 +336,8 @@ void TestEllipticCrypto()
 
 	SHA256Digest_t aliceSharedSecret = {0};
 	SHA256Digest_t bobSharedSecret = {1};
-	CCrypto::PerformKeyExchange( alicePriv, bobPub, &aliceSharedSecret );
-	CCrypto::PerformKeyExchange( bobPriv, alicePub, &bobSharedSecret );
+	CHECK( CCrypto::PerformKeyExchange( alicePriv, bobPub, &aliceSharedSecret ) );
+	CHECK( CCrypto::PerformKeyExchange( bobPriv, alicePub, &bobSharedSecret ) );
 
 	CHECK( V_memcmp( aliceSharedSecret, bobSharedSecret, sizeof(SHA256Digest_t) ) == 0 );
 	CHECK( V_memcmp( expectedResult, aliceSharedSecret, sizeof(SHA256Digest_t) ) == 0 );
@@ -419,8 +361,8 @@ void TestEllipticCrypto()
 	CCrypto::GenerateKeyExchangeKeyPair( &alicePub, &alicePriv );
 	CCrypto::GenerateKeyExchangeKeyPair( &bobPub, &bobPriv );
 	// alice and bob send each other only their public keys.
-	CCrypto::PerformKeyExchange( alicePriv, bobPub, &aliceSharedSecret );
-	CCrypto::PerformKeyExchange( bobPriv, alicePub, &bobSharedSecret );
+	CHECK( CCrypto::PerformKeyExchange( alicePriv, bobPub, &aliceSharedSecret ) );
+	CHECK( CCrypto::PerformKeyExchange( bobPriv, alicePub, &bobSharedSecret ) );
 	// alice and bob should have computed the same shared secret.
 	CHECK( V_memcmp( aliceSharedSecret, bobSharedSecret, sizeof( bobSharedSecret ) ) == 0 );
 
@@ -586,7 +528,7 @@ void TestEllipticPerf()
 		CECKeyExchangePublicKey pub;
 		CECKeyExchangePrivateKey priv;
 		CCrypto::GenerateKeyExchangeKeyPair( &pub, &priv );
-		CCrypto::PerformKeyExchange( priv, lastPub, &sharedsecret );
+		CHECK( CCrypto::PerformKeyExchange( priv, lastPub, &sharedsecret ) );
 		x ^= sharedsecret[0] ^ sharedsecret[sizeof(sharedsecret)-1];
 	}
 	double dMicrosecPerECDH = double( Plat_USTime() - usecStart ) / k_cIterationsECDH;
@@ -650,50 +592,6 @@ void TestEllipticPerf()
 //-----------------------------------------------------------------------------
 // Purpose: Performs specified # of symmetric encryptions
 //-----------------------------------------------------------------------------
-void SymmetricEncryptRepeatedly( int cIterations, uint8 *pubData, int cubToEncrypt, uint8 *pubIV, uint cubIV, uint8 *pubKey, uint cubKey )
-{
-	int nBufSize = cubToEncrypt + 32;				// 16 = AES block size.. worst case for padded data
-	uint8 *pEncrypted = new uint8[ nBufSize ];
-
-	// try a bunch of iterations of symmetric encrypting big packets
-	for ( int iIteration = 0; iIteration < cIterations; iIteration++ )
-	{
-		uint cubEncrypted = nBufSize;
-		bool bRet = CCrypto::SymmetricEncryptWithIV( &pubData[iIteration], cubToEncrypt,
-			pubIV, cubIV,
-			pEncrypted, &cubEncrypted,
-			pubKey, cubKey );
-		CHECK( bRet );	// must succeed
-	}
-
-	delete [] pEncrypted;
-}
-
-//-----------------------------------------------------------------------------
-// Purpose: Performs specified # of symmetric descryptions
-//-----------------------------------------------------------------------------
-void SymmetricDecryptRepeatedly( int cIterations, uint8 *pubEncrypted, int cubEncrypted, uint8 *pubIV, uint cubIV, uint8 *pubKey, uint cubKey )
-{
-	int nBufSize = cubEncrypted + 32;				// 16 = AES block size.. worst case for padded data
-	uint8 *pEncrypted = new uint8[ nBufSize ];
-
-	// try a bunch of iterations of symmetric encrypting big packets
-	for ( int iIteration = 0; iIteration < cIterations; iIteration++ )
-	{
-		uint cubOutput = nBufSize;
-		bool bRet = CCrypto::SymmetricDecryptWithIV( pubEncrypted, cubEncrypted,
-			pubIV, cubIV,
-			pEncrypted, &cubOutput,
-			pubKey, cubKey );
-		CHECK( bRet );												// must succeed
-	}
-
-	delete [] pEncrypted;
-}
-
-//-----------------------------------------------------------------------------
-// Purpose: Performs specified # of symmetric encryptions
-//-----------------------------------------------------------------------------
 void SymmetricAuthEncryptRepeatedly( int cIterations, AES_GCM_EncryptContext &ctxEnc, uint8 *pubData, int cubToEncrypt, uint8 *pubIV )
 {
 	int nBufSize = cubToEncrypt + 32;				// 16 = AES block size.. worst case for padded data
@@ -735,77 +633,6 @@ void SymmetricAuthDecryptRepeatedly( int cIterations, AES_GCM_DecryptContext &ct
 	}
 
 	delete [] pDecrypted;
-}
-
-//-----------------------------------------------------------------------------
-// Purpose: Tests symmetric crypto perf
-//-----------------------------------------------------------------------------
-void TestSymmetricCryptoPerf()
-{
-	uint64 usecStart;
-
-	// generate a random key
-	uint8 rgubKey[k_nSymmetricKeyLen];
-	uint8 rgubIV[ k_nSymmetricBlockSize ];
-	CCrypto::GenerateRandomBlock( rgubKey, V_ARRAYSIZE( rgubKey ) );
-
-	const int k_cIterations = 10000;
-
-	const int k_cMaxData = 800;
-	const int k_cBufs = 5;
-	const int k_cubTestBuf = k_cMaxData * k_cBufs + k_cIterations;
-
-	const int k_cubPktBig = 1200;
-	const int k_cubPktSmall = 100;
-	uint8 rgubData[k_cubTestBuf];
-
-	CCrypto::GenerateRandomBlock( rgubIV, V_ARRAYSIZE( rgubIV ) );
-
-	// fill data buffer with arbitrary data
-	uint8 rgubEncrypted[ k_cubPktBig + 32 ];		// 16 = AES block size.. worst case for padded data
-	for ( int iubData = 0; iubData < V_ARRAYSIZE( rgubData ); iubData ++ )
-			rgubData[iubData] = (uint8) iubData;
-
-	// try a bunch of iterations of symmetric encrypting small packets
-	usecStart = Plat_USTime();
-	SymmetricEncryptRepeatedly( k_cIterations, rgubData, k_cubPktSmall, rgubIV, k_nSymmetricBlockSize, rgubKey, V_ARRAYSIZE( rgubKey ) );
-	int cMicroSecPerEncryptSmall = Plat_USTime() - usecStart;
-
-	// try a bunch of iterations of symmetric encrypting big packets
-	usecStart = Plat_USTime();
-	SymmetricEncryptRepeatedly( k_cIterations, rgubData, k_cubPktBig, rgubIV, k_nSymmetricBlockSize, rgubKey, V_ARRAYSIZE( rgubKey ) );
-	int cMicroSecPerEncryptBig = Plat_USTime() - usecStart;
-	double dRateLargeEncrypt = double( k_cubPktBig ) * k_cIterations / cMicroSecPerEncryptBig;
-
-	// try a bunch of iterations decrypting small packets
-	uint cubEncrypted = V_ARRAYSIZE( rgubEncrypted );
-	bool bRet = CCrypto::SymmetricEncryptWithIV( rgubData, k_cubPktSmall,
-			rgubIV, k_nSymmetricBlockSize,
-			rgubEncrypted, &cubEncrypted,
-			rgubKey, V_ARRAYSIZE( rgubKey ) );
-	CHECK( bRet );
-	usecStart = Plat_USTime();
-	SymmetricDecryptRepeatedly( k_cIterations, rgubEncrypted, cubEncrypted, rgubIV, k_nSymmetricBlockSize, rgubKey, V_ARRAYSIZE( rgubKey ) );
-	int cMicroSecPerDecryptSmall = Plat_USTime() - usecStart;
-
-	// try a bunch of iterations decrypting big packets
-	cubEncrypted = V_ARRAYSIZE( rgubEncrypted );
-	bRet = CCrypto::SymmetricEncryptWithIV( rgubData, k_cubPktBig,
-			rgubIV, k_nSymmetricBlockSize,
-			rgubEncrypted, &cubEncrypted,
-			rgubKey, V_ARRAYSIZE( rgubKey ) );
-	CHECK( bRet );
-	usecStart = Plat_USTime();
-	SymmetricDecryptRepeatedly( k_cIterations, rgubEncrypted, cubEncrypted, rgubIV, k_nSymmetricBlockSize, rgubKey, V_ARRAYSIZE( rgubKey ) );
-	int cMicroSecPerDecryptBig = Plat_USTime() - usecStart;
-	double dRateLargeDecrypt = double( k_cubPktBig ) * k_cIterations / cMicroSecPerDecryptBig;
-
-	printf( "\tSymmetric encrypt (small):\t\t%d microsec (%d iterations)\n", cMicroSecPerEncryptSmall, k_cIterations );
-	printf( "\tSymmetric encrypt (big):\t\t%d microsec (%d iterations)\n", cMicroSecPerEncryptBig, k_cIterations );
-	printf( "\tSymmetric encrypt (big):\t\t%f MB/sec (%d iterations)\n", dRateLargeEncrypt, k_cIterations );
-	printf( "\tSymmetric decrypt (small):\t\t%d microsec (%d iterations)\n", cMicroSecPerDecryptSmall, k_cIterations );
-	printf( "\tSymmetric decrypt (big):\t\t%d microsec (%d iterations)\n", cMicroSecPerDecryptBig, k_cIterations );
-	printf( "\tSymmetric decrypt (big):\t\t%f MB/sec (%d iterations)\n", dRateLargeDecrypt, k_cIterations );
 }
 
 //-----------------------------------------------------------------------------
@@ -916,12 +743,10 @@ int main()
 	CCrypto::Init();
 
 	TestCryptoEncoding();
-	TestSymmetricCrypto();
 	TestSymmetricAuthCryptoVectors();
 	TestEllipticCrypto();
 	TestOpenSSHEd25519();
 	TestEllipticPerf();
-	TestSymmetricCryptoPerf();
 	TestSymmetricAuthCryptoPerf();
 
 	return g_failed ? 1 : 0;
