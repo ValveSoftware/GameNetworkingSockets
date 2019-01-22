@@ -57,6 +57,7 @@ sources = [
   'common/keypair.cpp',
   'common/opensslwrapper.cpp',
   'common/steamid.cpp',
+  'steamnetworkingsockets/clientlib/csteamnetworkingsockets.cpp',
   'steamnetworkingsockets/clientlib/steamnetworkingsockets_flat.cpp',
   'steamnetworkingsockets/clientlib/steamnetworkingsockets_connections.cpp',
   'steamnetworkingsockets/clientlib/steamnetworkingsockets_lowlevel.cpp',
@@ -89,7 +90,6 @@ else
     'external/curve25519-donna/curve25519_VALVE_sse2.c',
     'external/ed25519-donna/ed25519_VALVE.c',
     'external/ed25519-donna/ed25519_VALVE_sse2.c',
-    'steamnetworkingsockets/clientlib/csteamnetworkingsockets.cpp',
   ]
 endif
 
