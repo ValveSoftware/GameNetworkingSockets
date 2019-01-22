@@ -94,27 +94,6 @@ private:
 
 class CEC25519PublicKeyBase;
 
-// Base class for when we just do our own storage of the key
-class CCryptoKeyBase_RawBuffer : public CCryptoKeyBase
-{
-public:
-	virtual ~CCryptoKeyBase_RawBuffer();
-	virtual bool IsValid() const override;
-	virtual uint32 GetRawData( void *pData ) const override;
-	virtual void Wipe() override;
-
-	const uint8 *GetRawDataPtr() const { return m_pData; }
-	uint32 GetRawDataSize() const { return m_cbData; }
-protected:
-	bool SetRawBufferData( const void *pData, size_t cbData );
-	inline CCryptoKeyBase_RawBuffer( ECryptoKeyType keyType ) : CCryptoKeyBase( keyType ), m_pData( nullptr ), m_cbData( 0 ) {}
-
-	uint8 *m_pData;
-	uint32 m_cbData;
-};
-
-#if defined( VALVE_CRYPTO_25519_OPENSSLEVP )
-
 class CEC25519KeyBase : public CCryptoKeyBase 
 {
 public:
@@ -126,21 +105,14 @@ public:
 	void *evp_pkey() const { return m_evp_pkey; }
 protected:
 	virtual bool SetRawData( const void *pData, size_t cbData ) override;
-	void *m_evp_pkey; // It's not easy to forward declare EVP_PKEY.
 	inline CEC25519KeyBase( ECryptoKeyType keyType ) : CCryptoKeyBase( keyType ), m_evp_pkey(nullptr) {}
-};
 
-#else
-class CEC25519KeyBase : public CCryptoKeyBase_RawBuffer
-{
-protected:
-	virtual bool SetRawData( const void *pData, size_t cbData ) override;
-	inline CEC25519KeyBase( ECryptoKeyType keyType ) : CCryptoKeyBase_RawBuffer( keyType ) {}
+	union {
+		uint8 *m_pData;
+		void *m_evp_pkey; // It's not easy to forward declare EVP_PKEY.
+	};
+	uint32 m_cbData;
 };
-
-//#else
-//	#error "Must select 25519 crypto implementation"
-#endif
 
 //-----------------------------------------------------------------------------
 // Purpose: Common base for x25519 and ed25519 public keys on the 25519 curve

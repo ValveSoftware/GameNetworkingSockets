@@ -419,44 +419,6 @@ bool CCryptoKeyBase::LoadFromAndWipeBuffer( void *pBuffer, size_t cBytes )
 }
 
 //-----------------------------------------------------------------------------
-// CCryptoKeyBase_RawBuffer
-//-----------------------------------------------------------------------------
-CCryptoKeyBase_RawBuffer::~CCryptoKeyBase_RawBuffer()
-{
-	Wipe();
-}
-
-bool CCryptoKeyBase_RawBuffer::IsValid() const
-{
-	return m_pData != nullptr && m_cbData > 0;
-}
-
-uint32 CCryptoKeyBase_RawBuffer::GetRawData( void *pData ) const
-{
-	if ( pData )
-		memcpy( pData, m_pData, m_cbData );
-	return m_cbData;
-}
-
-bool CCryptoKeyBase_RawBuffer::SetRawBufferData( const void *pData, size_t cbData )
-{
-	Wipe();
-	m_pData = (uint8*)malloc( cbData );
-	if ( !m_pData )
-		return false;
-	memcpy( m_pData, pData, cbData );
-	m_cbData = (uint32)cbData;
-	return true;
-}
-
-void CCryptoKeyBase_RawBuffer::Wipe()
-{
-	free( m_pData );
-	m_pData = nullptr;
-	m_cbData = 0;
-}
-
-//-----------------------------------------------------------------------------
 // CEC25519PrivateKeyBase
 //-----------------------------------------------------------------------------
 

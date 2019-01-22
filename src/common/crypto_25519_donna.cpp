@@ -44,7 +44,13 @@ bool CCrypto::PerformKeyExchange( const CECKeyExchangePrivateKey &localPrivateKe
 	}
 
 	uint8 bufSharedSecret[32];
-	CHOOSE_25519_IMPL( curve25519_donna )( bufSharedSecret, localPrivateKey.GetRawDataPtr(), remotePublicKey.GetRawDataPtr() );
+	uint8 bufLocalPrivate[32];
+	uint8 bufRemotePublic[32];
+	localPrivateKey.GetRawData(bufLocalPrivate);
+	remotePublicKey.GetRawData(bufRemotePublic);
+	CHOOSE_25519_IMPL( curve25519_donna )( bufSharedSecret, bufLocalPrivate, bufRemotePublic );
+	SecureZeroMemory( bufLocalPrivate, 32 );
+	SecureZeroMemory( bufRemotePublic, 32 );
 	GenerateSHA256Digest( bufSharedSecret, sizeof(bufSharedSecret), pSharedSecretOut );
 	SecureZeroMemory( bufSharedSecret, 32 );
 
@@ -61,7 +67,7 @@ void CECSigningPrivateKey::GenerateSignature( const void *pData, size_t cbData, 
 		return;
 	}
 
-	CHOOSE_25519_IMPL( ed25519_sign )( (const uint8 *)pData, cbData, GetRawDataPtr(), GetPublicKeyRawData(), *pSignatureOut );
+	CHOOSE_25519_IMPL( ed25519_sign )( (const uint8 *)pData, cbData, m_pData, GetPublicKeyRawData(), *pSignatureOut );
 }
 
 
@@ -73,14 +79,46 @@ bool CECSigningPublicKey::VerifySignature( const void *pData, size_t cbData, con
 		return false;
 	}
 
-	return CHOOSE_25519_IMPL( ed25519_sign_open )( (const uint8 *)pData, cbData, GetRawDataPtr(), signature ) == 0;
+	bool ret = CHOOSE_25519_IMPL( ed25519_sign_open )( (const uint8 *)pData, cbData, m_pData, signature ) == 0;
+	return ret;
 }
 
 bool CEC25519KeyBase::SetRawData( const void *pData, size_t cbData )
 {
 	if ( cbData != 32 )
 		return false;
-	return CCryptoKeyBase_RawBuffer::SetRawBufferData( pData, cbData );
+
+	Wipe();
+	m_pData = (uint8*)malloc( cbData );
+	if ( !m_pData )
+		return false;
+	memcpy( m_pData, pData, cbData );
+	m_cbData = (uint32)cbData;
+	return true;
+}
+
+CEC25519KeyBase::~CEC25519KeyBase()
+{
+	Wipe();
+}
+
+void CEC25519KeyBase::Wipe()
+{
+	free( m_pData );
+	m_pData = nullptr;
+	m_cbData = 0;
+}
+
+bool CEC25519KeyBase::IsValid() const
+{
+	return m_pData != nullptr && m_cbData > 0;
+}
+
+uint32 CEC25519KeyBase::GetRawData( void *pData ) const
+{
+	if ( pData )
+		memcpy( pData, m_pData, m_cbData );
+	return m_cbData;
 }
 
 bool CEC25519PrivateKeyBase::CachePublicKey()
@@ -92,13 +130,13 @@ bool CEC25519PrivateKeyBase::CachePublicKey()
 	{
 		// Ed25519 codebase provides a faster version of curve25519_donna_basepoint.
 		//CHOOSE_25519_IMPL( curve25519_donna_basepoint )( alias.bufPublic, alias.bufPrivate );
-		CHOOSE_25519_IMPL( curved25519_scalarmult_basepoint )( m_publicKey, GetRawDataPtr() );
+		CHOOSE_25519_IMPL( curved25519_scalarmult_basepoint )( m_publicKey, m_pData );
 	}
 	else if ( m_eKeyType == k_ECryptoKeyTypeSigningPrivate )
 	{
 		// all bits are meaningful in the ed25519 scheme, which internally constructs
 		// a curve-25519 private key by hashing all 32 bytes of private key material.
-		CHOOSE_25519_IMPL( ed25519_publickey )( GetRawDataPtr(), m_publicKey );
+		CHOOSE_25519_IMPL( ed25519_publickey )( m_pData, m_publicKey );
 	}
 	else
 	{
