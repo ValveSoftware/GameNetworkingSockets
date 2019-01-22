@@ -34,7 +34,7 @@ uint32 CEC25519KeyBase::GetRawData( void *pData ) const
 	// Using a switch here instead of overriding virtual functions
 	// seems kind of messy, but given the other crypto providers,
 	// it's probably the simplest, cleanest thing.
-	size_t len;
+	size_t len = 32;
 	switch ( m_eKeyType )
 	{
 		case k_ECryptoKeyTypeSigningPublic:
@@ -188,7 +188,7 @@ bool CEC25519PrivateKeyBase::CachePublicKey()
 	if ( !pkey )
 		return false;
 
-	size_t len;
+	size_t len = 32;
 	if ( !EVP_PKEY_get_raw_public_key( pkey, m_publicKey, &len ) )
 	{
 		AssertMsg( false, "EVP_PKEY_get_raw_public_key failed?!" );
