@@ -16,6 +16,10 @@ if (NOT OPENSSL_NEW_ENOUGH)
 	message(FATAL_ERROR "Your OpenSSL version appears to be too old. Check that you're using OpenSSL 1.1.0 or later.")
 endif()
 cmake_pop_check_state()
+cmake_push_check_state()
+set(CMAKE_REQUIRED_LIBRARIES OpenSSL::Crypto)
+check_symbol_exists(EVP_PKEY_get_raw_public_key openssl/evp.h OPENSSL_HAS_25519_RAW)
+cmake_pop_check_state()
 
 set(GNS_PROTOS
 	"common/steamnetworkingsockets_messages_certs.proto"
@@ -29,11 +33,6 @@ set(GNS_SRCS
 	"common/keypair.cpp"
 	"common/opensslwrapper.cpp"
 	"common/steamid.cpp"
-	"common/crypto_25519_donna.cpp"
-	"external/curve25519-donna/curve25519.c"
-	"external/curve25519-donna/curve25519_VALVE_sse2.c"
-	"external/ed25519-donna/ed25519_VALVE.c"
-	"external/ed25519-donna/ed25519_VALVE_sse2.c"
 	"steamnetworkingsockets/clientlib/csteamnetworkingsockets.cpp"
 	"steamnetworkingsockets/clientlib/steamnetworkingsockets_flat.cpp"
 	"steamnetworkingsockets/clientlib/steamnetworkingsockets_connections.cpp"
@@ -52,6 +51,20 @@ set(GNS_SRCS
 	"tier1/ipv6text.c"
 	"vstdlib/strtools.cpp"
 	)
+
+if(OPENSSL_HAS_25519_RAW)
+	set(GNS_SRCS ${GNS_SRCS}
+		"common/crypto_25519_openssl.cpp"
+	)
+else()
+	set(GNS_SRCS ${GNS_SRCS}
+		"common/crypto_25519_donna.cpp"
+		"external/curve25519-donna/curve25519.c"
+		"external/curve25519-donna/curve25519_VALVE_sse2.c"
+		"external/ed25519-donna/ed25519_VALVE.c"
+		"external/ed25519-donna/ed25519_VALVE_sse2.c"
+	)
+endif()
 
 set(C99_FEATURES
 	c_restrict
@@ -129,7 +142,11 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 		GOOGLE_PROTOBUF_NO_RTTI
 		)
 
-	target_compile_definitions(${GNS_TARGET} PRIVATE VALVE_CRYPTO_25519_DONNA)
+	if(OPENSSL_HAS_25519_RAW)
+		target_compile_definitions(${GNS_TARGET} PRIVATE VALVE_CRYPTO_25519_OPENSSLEVP)
+	else()
+		target_compile_definitions(${GNS_TARGET} PRIVATE VALVE_CRYPTO_25519_DONNA)
+	endif()
 
 	if(SANITIZE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 		target_compile_definitions(${GNS_TARGET} PRIVATE ED25519_NO_INLINE_ASM)
