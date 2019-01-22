@@ -15,9 +15,6 @@ typedef	unsigned char MD5Digest_t[k_cubMD5Hash];
 const unsigned int k_cubSHA256Hash = 32;
 typedef	unsigned char SHA256Digest_t[ k_cubSHA256Hash ];
 
-const unsigned int k_cubCryptoSignature = 64;
-typedef unsigned char CryptoSignature_t[ k_cubCryptoSignature ];
-
 const unsigned int k_cubSHA1Hash = 20;
 typedef	uint8 SHADigest_t[ k_cubSHA1Hash ];
 
@@ -148,15 +145,21 @@ namespace CCrypto
 	//
 	// Secure key exchange (curve25519 elliptic-curve Diffie-Hellman key exchange)
 	//
+
+	// Generate a curve25519 key pair for Diffie-Hellman secure key exchange
 	void GenerateKeyExchangeKeyPair( CECKeyExchangePublicKey *pPublicKey, CECKeyExchangePrivateKey *pPrivateKey );
 	void PerformKeyExchange( const CECKeyExchangePrivateKey &localPrivateKey, const CECKeyExchangePublicKey &remotePublicKey, SHA256Digest_t *pSharedSecretOut );
 
 	//
 	// Signing and verification (ed25519 elliptic-curve signature scheme)
 	//
+
+	// Generate an ed25519 key pair for public-key signature generation
 	void GenerateSigningKeyPair( CECSigningPublicKey *pPublicKey, CECSigningPrivateKey *pPrivateKey );
-	void GenerateSignature( const uint8 *pubData, uint32 cubData, const CECSigningPrivateKey &privateKey, CryptoSignature_t *pSignatureOut );
-	bool VerifySignature( const uint8 *pubData, uint32 cubData, const CECSigningPublicKey &publicKey, const CryptoSignature_t &signature );
+
+	// Legacy compatibility - use the key methods
+	inline void GenerateSignature( const void *pData, size_t cbData, const CECSigningPrivateKey &privateKey, CryptoSignature_t *pSignatureOut ) { privateKey.GenerateSignature( pData, cbData, pSignatureOut ); }
+	inline bool VerifySignature( const void *pData, size_t cbData, const CECSigningPublicKey &publicKey, const CryptoSignature_t &signature ) { return publicKey.VerifySignature( pData, cbData, signature ); }
 
 	bool HexEncode( const void *pubData, const uint32 cubData, char *pchEncodedData, uint32 cchEncodedData );
 	bool HexDecode( const char *pchData, void *pubDecodedData, uint32 *pcubDecodedData );

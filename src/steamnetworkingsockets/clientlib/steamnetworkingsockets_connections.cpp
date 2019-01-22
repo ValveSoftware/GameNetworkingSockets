@@ -667,7 +667,7 @@ void CSteamNetworkConnectionBase::InitLocalCrypto( const CMsgSteamDatagramCertif
 	// Serialize and sign the crypt key with the private key that matches this cert
 	m_msgSignedCryptLocal.set_info( m_msgCryptLocal.SerializeAsString() );
 	CryptoSignature_t sig;
-	CCrypto::GenerateSignature( (const uint8 *)m_msgSignedCryptLocal.info().c_str(), (uint32)m_msgSignedCryptLocal.info().length(), keyPrivate, &sig );
+	keyPrivate.GenerateSignature( m_msgSignedCryptLocal.info().c_str(), m_msgSignedCryptLocal.info().length(), &sig );
 	m_msgSignedCryptLocal.set_signature( &sig, sizeof(sig) );
 }
 
@@ -842,7 +842,7 @@ bool CSteamNetworkConnectionBase::BRecvCryptoHandshake( const CMsgSteamDatagramC
 				continue;
 			if (
 				msgCert.ca_signature().length() == sizeof(CryptoSignature_t)
-				&& CCrypto::VerifySignature( (const uint8*)msgCert.cert().c_str(), (uint32)msgCert.cert().length(), k.m_key, *(const CryptoSignature_t *)msgCert.ca_signature().c_str() ) )
+				&& k.m_key.VerifySignature( msgCert.cert().c_str(), msgCert.cert().length(), *(const CryptoSignature_t *)msgCert.ca_signature().c_str() ) )
 			{
 				bTrusted = true;
 				break;

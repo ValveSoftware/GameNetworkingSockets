@@ -57,12 +57,6 @@ sources = [
   'common/keypair.cpp',
   'common/opensslwrapper.cpp',
   'common/steamid.cpp',
-  'common/crypto_25519_donna.cpp',
-  'external/curve25519-donna/curve25519.c',
-  'external/curve25519-donna/curve25519_VALVE_sse2.c',
-  'external/ed25519-donna/ed25519_VALVE.c',
-  'external/ed25519-donna/ed25519_VALVE_sse2.c',
-  'steamnetworkingsockets/clientlib/csteamnetworkingsockets.cpp',
   'steamnetworkingsockets/clientlib/steamnetworkingsockets_flat.cpp',
   'steamnetworkingsockets/clientlib/steamnetworkingsockets_connections.cpp',
   'steamnetworkingsockets/clientlib/steamnetworkingsockets_lowlevel.cpp',
@@ -81,7 +75,23 @@ sources = [
   'vstdlib/strtools.cpp',
 ]
 
-cpp_flags += [ '-DVALVE_CRYPTO_25519_DONNA' ]
+# Select 25519 crypto provider
+if false
+  cpp_flags += [ '-DVALVE_CRYPTO_25519_OPENSSLEVP' ]
+  sources += [
+    'common/crypto_25519_openssl.cpp',
+  ]
+else
+  cpp_flags += [ '-DVALVE_CRYPTO_25519_DONNA' ]
+  sources += [
+    'common/crypto_25519_donna.cpp',
+    'external/curve25519-donna/curve25519.c',
+    'external/curve25519-donna/curve25519_VALVE_sse2.c',
+    'external/ed25519-donna/ed25519_VALVE.c',
+    'external/ed25519-donna/ed25519_VALVE_sse2.c',
+    'steamnetworkingsockets/clientlib/csteamnetworkingsockets.cpp',
+  ]
+endif
 
 protobufs = protoc.process(protobuf_sources)
 

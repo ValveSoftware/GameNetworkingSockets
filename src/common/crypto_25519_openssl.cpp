@@ -4,6 +4,13 @@
 
 #ifdef VALVE_CRYPTO_25519_OPENSSLEVP
 
+#include <openssl/evp.h>
+
+#if OPENSSL_VERSION_NUMBER < 0x10101000
+	// https://www.openssl.org/docs/man1.1.1/man3/EVP_PKEY_get_raw_private_key.html
+	#error "Raw access to 25519 keys requires OpenSSL 1.1.1"
+#endif
+
 CEC25519KeyBase::~CEC25519KeyBase()
 {
 	Wipe();
@@ -16,90 +23,178 @@ bool CEC25519KeyBase::IsValid() const
 
 uint32 CEC25519KeyBase::GetRawData( void *pData ) const
 {
-	// FIXME
+	EVP_PKEY *pkey = (EVP_PKEY*)m_evp_pkey;
+	if ( !pkey )
+		return 0;
+
+	// All 25519 keys are the same size
+	if ( !pData )
+		return 32;
+
+	// Using a switch here instead of overriding virtual functions
+	// seems kind of messy, but given the other crypto providers,
+	// it's probably the simplest, cleanest thing.
+	size_t len;
+	switch ( m_eKeyType )
+	{
+		case k_ECryptoKeyTypeSigningPublic:
+		case k_ECryptoKeyTypeKeyExchangePublic:
+			if ( EVP_PKEY_get_raw_public_key( pkey, (unsigned char *)pData, &len ) != 1 )
+			{
+				AssertMsg( false, "EVP_PKEY_get_raw_public_key failed?" );
+				return 0;
+			}
+			break;
+
+		case k_ECryptoKeyTypeSigningPrivate:
+		case k_ECryptoKeyTypeKeyExchangePrivate:
+			if ( EVP_PKEY_get_raw_private_key( pkey, (unsigned char *)pData, &len ) != 1 )
+			{
+				AssertMsg( false, "EVP_PKEY_get_raw_public_key failed?" );
+				return 0;
+			}
+			break;
+
+		default;
+			AssertMsg( false, "Invalid 25519 key type" );
+			return 0;
+	}
+
+	if ( len != 32 )
+	{
+		AssertMsg1( false, "unexpected raw key size %d", (int)len );
+		return 0;
+	}
+	return 32;
 }
 
 void CEC25519KeyBase::Wipe()
 {
-	// FIXME free m_evp_pkey
+	if ( m_evp_pkey )
+	{
+		EVP_PKEY_free( (EVP_PKEY*)m_evp_pkey );
+		m_evp_pkey = nullptr;
+	}
 }
 
 bool CEC25519KeyBase::SetRawData( const void *pData, size_t cbData )
 {
 	Wipe();
 
-	// FIXME
-}
+	EVP_PKEY *pkey = nullptr;
+	switch ( m_eKeyType )
+	{
+		case k_ECryptoKeyTypeSigningPublic:
+			pkey = EVP_PKEY_new_raw_public_key( EVP_PKEY_ED25519, nullptr, (const unsigned char *)pData, cbData );
+			break;
 
-//-----------------------------------------------------------------------------
-// Purpose: Generate a curve25519 key pair for Diffie-Hellman secure key exchange
-//-----------------------------------------------------------------------------
-void CCrypto::GenerateKeyExchangeKeyPair( CECKeyExchangePublicKey *pPublicKey, CECKeyExchangePrivateKey *pPrivateKey )
-{
-	// FIXME
-}
+		case k_ECryptoKeyTypeSigningPrivate:
+			pkey = EVP_PKEY_new_raw_private_key( EVP_PKEY_ED25519, nullptr, (const unsigned char *)pData, cbData );
+			break;
 
-//-----------------------------------------------------------------------------
-// Purpose: Generate a shared secret from two exchanged curve25519 keys
-//-----------------------------------------------------------------------------
-void CCrypto::PerformKeyExchange( const CECKeyExchangePrivateKey &localPrivateKey, const CECKeyExchangePublicKey &remotePublicKey, SHA256Digest_t *pSharedSecretOut )
-{
-	// FIXME
-}
+		case k_ECryptoKeyTypeKeyExchangePublic:
+			pkey = EVP_PKEY_new_raw_public_key( EVP_PKEY_X25519, nullptr, (const unsigned char *)pData, cbData );
+			break;
 
-
-//-----------------------------------------------------------------------------
-// Purpose: Generate an ed25519 key pair for public-key signature generation
-//-----------------------------------------------------------------------------
-void CCrypto::GenerateSigningKeyPair( CECSigningPublicKey *pPublicKey, CECSigningPrivateKey *pPrivateKey )
-{
-	// FIXME
-}
-
-
-//-----------------------------------------------------------------------------
-// Purpose: Generate an ed25519 public-key signature
-//-----------------------------------------------------------------------------
-void CCrypto::GenerateSignature( const uint8 *pubData, uint32 cubData, const CECSigningPrivateKey &privateKey, CryptoSignature_t *pSignatureOut )
-{
-	// FIXME
-}
-
-
-//-----------------------------------------------------------------------------
-// Purpose: Generate an ed25519 public-key signature
-//-----------------------------------------------------------------------------
-bool CCrypto::VerifySignature( const uint8 *pubData, uint32 cubData, const CECSigningPublicKey &publicKey, const CryptoSignature_t &signature )
-{
-	Assert( publicKey.IsValid() );
-	return publicKey.IsValid() && CHOOSE_25519_IMPL( ed25519_sign_open )( pubData, cubData, publicKey.GetRawDataPtr(), signature ) == 0;
-}
-
-bool CEC25519KeyBase::SetRawData( const void *pData, size_t cbData )
-{
-	if ( cbData != 32 )
+		case k_ECryptoKeyTypeKeyExchangePrivate:
+			pkey = EVP_PKEY_new_raw_private_key( EVP_PKEY_X25519, nullptr, (const unsigned char *)pData, cbData );
+			break;
+	}
+	if ( pkey == nullptr )
+	{
+		AssertMsg1( false, "EVP_PKEY_new_raw_xxx_key failed for key type %d", (int)m_eKeyType );
 		return false;
-	return CCryptoKeyBase_RawBuffer::SetRawBufferData( pData, cbData );
+	}
+
+	// Success
+	m_evp_pkey = pkey;
+	return true;
+}
+
+bool CCrypto::PerformKeyExchange( const CECKeyExchangePrivateKey &localPrivateKey, const CECKeyExchangePublicKey &remotePublicKey, SHA256Digest_t *pSharedSecretOut )
+{
+	// Check if caller didn't provide valid keys
+	EVP_PKEY *pkey = (EVP_PKEY*)localPrivateKey.evp_pkey();
+	EVP_PKEY *peerkey = (EVP_PKEY*)remotePublicKey.evp_pkey();
+	if ( !pkey || !peerkey )
+	{
+		AssertMsg( false, "Cannot perform key exchange, keys not valid" );
+		GenerateRandomBlock( pSharedSecretOut, sizeof(*pSharedSecretOut) ); // In case caller isn't checking return value
+		return false;
+	}
+
+	// Unless we have a bug, all other errors "should never happen".
+
+	EVP_PKEY_CTX *ctx = EVP_PKEY_CTX_new( pkey, nullptr );
+	VerifyFatal( ctx );
+
+	VerifyFatal( EVP_PKEY_derive_init(ctx) == 1 );
+	VerifyFatal( EVP_PKEY_derive_set_peer(ctx, peerkey) == 1 );
+
+	size_t skeylen = sizeof(*pSharedSecretout) );
+	VerifyFatal( EVP_PKEY_derive(ctx, nullptr, &skeylen ) == 1 );
+	AssertFatal( skeylen == sizeof(*pSharedSecretOut) );
+
+	EVP_PKEY_CTX_free(cxt);
+
+	return true;
+}
+
+
+void CECSigningPrivateKey::GenerateSignature( const void *pData, size_t cbData, CryptoSignature_t *pSignatureOut )
+{
+	EVP_PKEY *pkey = (EVP_PKEY*)m_evp_pkey;
+	if ( !pkey )
+	{
+		AssertMsg( false, "Key not initialized, cannot generate signature" );
+		memset( pSignatureOut, 0, sizeof( CryptoSignature_t ) );
+		return;
+	}
+
+	EVP_PKEY_CTX *ctx = EVP_PKEY_CTX_new( pkey, nullptr );
+	VerifyFatal( ctx );
+	VerifyFatal( EVP_PKEY_sign_init( ctx ) == 1 );
+
+	size_t siglen = sizeof(*pSignatureOut);
+	VerifyFatal( EVP_PKEY_sign( ctx, (unsigned char *)pSignatureOut, &siglen, pData, cbData ) == 1 )
+	AssertFatal( siglen == sizeof(*pSignatureOut) );
+
+	EVP_PKEY_CTX_free(cxt);
+}
+
+bool CECSigningPublicKey::VerifySignature( const void *pData, size_t cbData, const CryptoSignature_t &signature )
+{
+	EVP_PKEY *pkey = (EVP_PKEY*)m_evp_pkey;
+	if ( !pkey )
+	{
+		AssertMsg( false, "Key not initialized, cannot verify signature" );
+		return false;
+	}
+
+	EVP_PKEY_CTX *ctx = EVP_PKEY_CTX_new( pkey, nullptr );
+	VerifyFatal( ctx );
+	VerifyFatal( EVP_PKEY_verify_init( ctx ) == 1 );
+
+	int r = EVP_PKEY_Verify( ctx, (const unsigned char *)signature, sizeof(signature), (const unsigned char *)pData, cbData );
+
+	EVP_PKEY_CTX_free(cxt);
+
+	return r == 1;
 }
 
 bool CEC25519PrivateKeyBase::CachePublicKey()
 {
-	if ( !IsValid() )
+	EVP_PKEY *pkey = (EVP_PKEY*)m_evp_pkey;
+	if ( !pkey )
 		return false;
 
-	if ( m_eKeyType == k_ECryptoKeyTypeKeyExchangePrivate )
+	size_t len;
+	if ( !EVP_PKEY_get_raw_public_key( pkey, m_publicKey, &len ) )
 	{
-		// FIXME
-	}
-	else if ( m_eKeyType == k_ECryptoKeyTypeSigningPrivate )
-	{
-		// FIXME
-	}
-	else
-	{
-		Assert( false );
+		AssertMsg( false, "EVP_PKEY_get_raw_public_key failed?!" );
 		return false;
 	}
+	Assert( len == 32 );
 
 	return true;
 }

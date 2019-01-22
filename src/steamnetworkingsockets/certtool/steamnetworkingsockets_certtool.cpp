@@ -262,7 +262,7 @@ void CreateCert()
 	msgSigned.set_cert( msgCert.SerializeAsString() );
 
 	CryptoSignature_t sig;
-	CCrypto::GenerateSignature( (const uint8 *)msgSigned.cert().c_str(), (uint32)msgSigned.cert().length(), s_keyCAPriv, &sig );
+	s_keyCAPriv.GenerateSignature( msgSigned.cert().c_str(), msgSigned.cert().length(), &sig );
 	msgSigned.set_ca_key_id( nCAKeyID );
 	msgSigned.set_ca_signature( &sig, sizeof(sig) );
 

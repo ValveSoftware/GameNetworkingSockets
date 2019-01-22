@@ -30,17 +30,6 @@ void ed25519_sign_sse2( const unsigned char *m, size_t mlen, const ed25519_secre
 }
 
 //-----------------------------------------------------------------------------
-// Purpose: Generate a curve25519 key pair for Diffie-Hellman secure key exchange
-//-----------------------------------------------------------------------------
-void CCrypto::GenerateKeyExchangeKeyPair( CECKeyExchangePublicKey *pPublicKey, CECKeyExchangePrivateKey *pPrivateKey )
-{
-	uint8 rgubSecretData[32];
-	GenerateRandomBlock( rgubSecretData, 32 );
-	VerifyFatal( pPrivateKey->SetRawDataAndWipeInput( rgubSecretData, 32 ) );
-	VerifyFatal( pPrivateKey->GetPublicKey( pPublicKey ) );
-}
-
-//-----------------------------------------------------------------------------
 // Purpose: Generate a shared secret from two exchanged curve25519 keys
 //-----------------------------------------------------------------------------
 void CCrypto::PerformKeyExchange( const CECKeyExchangePrivateKey &localPrivateKey, const CECKeyExchangePublicKey &remotePublicKey, SHA256Digest_t *pSharedSecretOut )
@@ -61,40 +50,28 @@ void CCrypto::PerformKeyExchange( const CECKeyExchangePrivateKey &localPrivateKe
 }
 
 
-//-----------------------------------------------------------------------------
-// Purpose: Generate an ed25519 key pair for public-key signature generation
-//-----------------------------------------------------------------------------
-void CCrypto::GenerateSigningKeyPair( CECSigningPublicKey *pPublicKey, CECSigningPrivateKey *pPrivateKey )
+void CECSigningPrivateKey::GenerateSignature( const void *pData, size_t cbData, CryptoSignature_t *pSignatureOut ) const
 {
-	uint8 rgubSecretData[32];
-	GenerateRandomBlock( rgubSecretData, 32 );
-	VerifyFatal( pPrivateKey->SetRawDataAndWipeInput( rgubSecretData, 32 ) );
-	VerifyFatal( pPrivateKey->GetPublicKey( pPublicKey ) );
-}
-
-
-//-----------------------------------------------------------------------------
-// Purpose: Generate an ed25519 public-key signature
-//-----------------------------------------------------------------------------
-void CCrypto::GenerateSignature( const uint8 *pubData, uint32 cubData, const CECSigningPrivateKey &privateKey, CryptoSignature_t *pSignatureOut )
-{
-	Assert( privateKey.IsValid() );
-	if ( !privateKey.IsValid() )
+	if ( !IsValid() )
 	{
+		AssertMsg( false, "Key not initialized, cannot generate signature" );
 		memset( pSignatureOut, 0, sizeof( CryptoSignature_t ) );
 		return;
 	}
-	CHOOSE_25519_IMPL( ed25519_sign )( pubData, cubData, privateKey.GetRawDataPtr(), privateKey.GetPublicKeyRawData(), *pSignatureOut );
+
+	CHOOSE_25519_IMPL( ed25519_sign )( (const uint8 *)pData, cbData, GetRawDataPtr(), GetPublicKeyRawData(), *pSignatureOut );
 }
 
 
-//-----------------------------------------------------------------------------
-// Purpose: Generate an ed25519 public-key signature
-//-----------------------------------------------------------------------------
-bool CCrypto::VerifySignature( const uint8 *pubData, uint32 cubData, const CECSigningPublicKey &publicKey, const CryptoSignature_t &signature )
+bool CECSigningPublicKey::VerifySignature( const void *pData, size_t cbData, const CryptoSignature_t &signature ) const
 {
-	Assert( publicKey.IsValid() );
-	return publicKey.IsValid() && CHOOSE_25519_IMPL( ed25519_sign_open )( pubData, cubData, publicKey.GetRawDataPtr(), signature ) == 0;
+	if ( !IsValid() )
+	{
+		AssertMsg( false, "Key not initialized, cannot verify signature" );
+		return false;
+	}
+
+	return CHOOSE_25519_IMPL( ed25519_sign_open )( (const uint8 *)pData, cbData, GetRawDataPtr(), signature ) == 0;
 }
 
 bool CEC25519KeyBase::SetRawData( const void *pData, size_t cbData )

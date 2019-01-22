@@ -11,6 +11,8 @@
 #include <stdint.h>
 #include "minbase/minbase_securezeromemory_impl.h"
 
+const unsigned int k_cubCryptoSignature = 64;
+typedef unsigned char CryptoSignature_t[ k_cubCryptoSignature ];
 
 // Ed25519 / Curve25519 (http://ed25519.cr.yp.to/) are strongly preferred over
 // RSA and ECDSA due to performance benefits, minimization of side-channel
@@ -111,16 +113,17 @@ protected:
 	uint32 m_cbData;
 };
 
-// Purpose: Common base for all keys implemented by OpenSSL
 #if defined( VALVE_CRYPTO_25519_OPENSSLEVP )
 
 class CEC25519KeyBase : public CCryptoKeyBase 
 {
 public:
-	virtual ~CEC25519KeyBase()
+	virtual ~CEC25519KeyBase();
 	virtual bool IsValid() const override;
 	virtual uint32 GetRawData( void *pData ) const override;
 	virtual void Wipe() override;
+
+	void *evp_pkey() const { return m_evp_pkey; }
 protected:
 	virtual bool SetRawData( const void *pData, size_t cbData ) override;
 	void *m_evp_pkey; // It's not easy to forward declare EVP_PKEY.
@@ -128,6 +131,11 @@ protected:
 };
 
 #else
+	// FIXME - Need t configure meson/cmake to always set one or the other.
+	//         We really shouldn't have a default, in this context
+	#ifndef VALVE_CRYPTO_25519_DONNA
+		#define VALVE_CRYPTO_25519_DONNA
+	#endif
 
 class CEC25519KeyBase : public CCryptoKeyBase_RawBuffer
 {
@@ -136,6 +144,8 @@ protected:
 	inline CEC25519KeyBase( ECryptoKeyType keyType ) : CCryptoKeyBase_RawBuffer( keyType ) {}
 };
 
+//#else
+//	#error "Must select 25519 crypto implementation"
 #endif
 
 //-----------------------------------------------------------------------------
@@ -226,6 +236,8 @@ public:
 	// WARNING: DOES NOT WIPE INPUT.
 	bool ParsePEM( const char *pBuffer, size_t cBytes );
 
+	// Generate an ed25519 public-key signature
+	void GenerateSignature( const void *pData, size_t cbData, CryptoSignature_t *pSignatureOut ) const;
 };
 
 
@@ -242,6 +254,8 @@ public:
 
 	bool GetAsOpenSSHAuthorizedKeys( char *pchData, uint32 cubData, uint32 *pcubData, const char *pszComment = "" ) const;
 	bool SetFromOpenSSHAuthorizedKeys( const char *pchData, size_t cbData );
+
+	bool VerifySignature( const void *pData, size_t cbData, const CryptoSignature_t &signature ) const;
 };
 
 #endif // KEYPAIR_H
