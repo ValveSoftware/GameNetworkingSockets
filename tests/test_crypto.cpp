@@ -397,6 +397,7 @@ void TestEllipticCrypto()
 	CCrypto::PerformKeyExchange( alicePriv, bobPub, &aliceSharedSecret );
 	CCrypto::PerformKeyExchange( bobPriv, alicePub, &bobSharedSecret );
 
+	CHECK( V_memcmp( aliceSharedSecret, bobSharedSecret, sizeof(SHA256Digest_t) ) == 0 );
 	CHECK( V_memcmp( expectedResult, aliceSharedSecret, sizeof(SHA256Digest_t) ) == 0 );
 	CHECK( V_memcmp( expectedResult, bobSharedSecret, sizeof(SHA256Digest_t) ) == 0 );
 
