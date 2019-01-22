@@ -127,7 +127,7 @@ public:
 protected:
 	virtual bool SetRawData( const void *pData, size_t cbData ) override;
 	void *m_evp_pkey; // It's not easy to forward declare EVP_PKEY.
-	inline CEC25519KeyBase( ECryptoKeyType keyType ) : CCryptoKeyBase( keyType ) {}
+	inline CEC25519KeyBase( ECryptoKeyType keyType ) : CCryptoKeyBase( keyType ), m_evp_pkey(nullptr) {}
 };
 
 #else
