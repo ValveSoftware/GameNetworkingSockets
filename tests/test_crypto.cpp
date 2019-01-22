@@ -568,6 +568,7 @@ void TestEllipticPerf()
 	CUtlBuffer bufData;
 	bufData.EnsureCapacity( k_cubPktBig );
 	bufData.SeekPut( CUtlBuffer::SEEK_HEAD, k_cubPktBig );
+	CCrypto::GenerateRandomBlock(bufData.Base(), k_cubPktBig);
 
 	int k_cIterationsECDH = 500;
 	int k_cIterationsSignSmall = 500;
