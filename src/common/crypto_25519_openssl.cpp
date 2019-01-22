@@ -132,8 +132,11 @@ bool CCrypto::PerformKeyExchange( const CECKeyExchangePrivateKey &localPrivateKe
 	VerifyFatal( EVP_PKEY_derive_set_peer(ctx, peerkey) == 1 );
 
 	size_t skeylen = sizeof(*pSharedSecretOut);
-	VerifyFatal( EVP_PKEY_derive(ctx, nullptr, &skeylen ) == 1 );
-	AssertFatal( skeylen == sizeof(*pSharedSecretOut) );
+	uint8 bufSharedSecret[32];
+	VerifyFatal( EVP_PKEY_derive(ctx, bufSharedSecret, &skeylen ) == 1 );
+	VerifyFatal( skeylen == sizeof(*pSharedSecretOut) );
+	GenerateSHA256Digest( bufSharedSecret, sizeof(bufSharedSecret), pSharedSecretOut );
+	SecureZeroMemory( bufSharedSecret, 32 );
 
 	EVP_PKEY_CTX_free(ctx);
 
