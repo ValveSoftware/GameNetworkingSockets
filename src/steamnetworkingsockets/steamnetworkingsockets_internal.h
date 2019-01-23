@@ -255,14 +255,14 @@ COMPILE_TIME_ASSERT( ( k_usecTimeSinceLastPacketMinReasonable >> k_usecTimeSince
 /// Protocol version of this code.  This is a blunt instrument, which is incremented when we
 /// wish to change the wire protocol in a way that doesn't have some other easy
 /// mechanism for dealing with compatibility (e.g. using protobuf's robust mechanisms).
-const uint32 k_nCurrentProtocolVersion = 6;
+const uint32 k_nCurrentProtocolVersion = 7;
 
 /// Minimum required version we will accept from a peer.  We increment this
 /// when we introduce wire breaking protocol changes and do not wish to be
 /// backward compatible.  This has been fine before the	first major release,
 /// but once we make a big public release, we probably won't ever be able to
 /// do this again, and we'll need to have more sophisticated mechanisms. 
-const uint32 k_nMinRequiredProtocolVersion = 6;
+const uint32 k_nMinRequiredProtocolVersion = 7;
 
 // Serialize an UNSIGNED quantity.  Returns pointer to the next byte.
 // https://developers.google.com/protocol-buffers/docs/encoding

@@ -431,7 +431,7 @@ void CSteamNetworkConnectionBase::FreeResources()
 	}
 }
 
-bool CSteamNetworkConnectionBase::BInitConnection( uint32 nPeerProtocolVersion, SteamNetworkingMicroseconds usecNow, SteamDatagramErrMsg &errMsg )
+bool CSteamNetworkConnectionBase::BInitConnection( SteamNetworkingMicroseconds usecNow, SteamDatagramErrMsg &errMsg )
 {
 	// We make sure the lower 16 bits are unique.  Make sure we don't have too many connections.
 	// This definitely could be relaxed, but honestly we don't expect this library to be used in situations
@@ -488,7 +488,6 @@ bool CSteamNetworkConnectionBase::BInitConnection( uint32 nPeerProtocolVersion, 
 	m_eEndReason = k_ESteamNetConnectionEnd_Invalid;
 	m_szEndDebug[0] = '\0';
 	m_statsEndToEnd.Init( usecNow, true ); // Until we go connected don't try to send acks, etc
-	m_statsEndToEnd.m_nPeerProtocolVersion = nPeerProtocolVersion;
 
 	// Let's use the the connection ID as the connection handle.  It's random, not reused
 	// within a short time interval, and we print it in our debugging in places, and you
@@ -650,8 +649,8 @@ void CSteamNetworkConnectionBase::InitLocalCrypto( const CMsgSteamDatagramCertif
 	m_msgSignedCertLocal = msgSignedCert;
 	m_bCertHasIdentity = bCertHasIdentity;
 
-	// Set our base protocol type
-	m_msgCryptLocal.set_is_snp( true );
+	// Set protocol version
+	m_msgCryptLocal.set_protocol_version( k_nCurrentProtocolVersion );
 
 	// Generate a keypair for key exchange
 	CECKeyExchangePublicKey publicKeyLocal;
@@ -915,6 +914,22 @@ bool CSteamNetworkConnectionBase::BRecvCryptoHandshake( const CMsgSteamDatagramC
 		return false;
 	}
 
+	// Protocol version
+	if ( m_msgCryptRemote.protocol_version() < k_nMinRequiredProtocolVersion )
+	{
+		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadProtocolVersion, "Peer is running old software and needs to be updated.  (V%u, >=V%u is required)",
+			m_msgCryptRemote.protocol_version(), k_nMinRequiredProtocolVersion );
+		return false;
+	}
+
+	// Did they already send a protocol version in an earlier message?  If so, it needs to match.
+	if ( m_statsEndToEnd.m_nPeerProtocolVersion != 0 && m_statsEndToEnd.m_nPeerProtocolVersion != m_msgCryptRemote.protocol_version() )
+	{
+		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadProtocolVersion, "Claiming protocol V%u now, but earlier was using V%u",m_msgCryptRemote.protocol_version(), m_statsEndToEnd.m_nPeerProtocolVersion );
+		return false;
+	}
+	m_statsEndToEnd.m_nPeerProtocolVersion = m_msgCryptRemote.protocol_version();
+
 	// Key exchange public key
 	CECKeyExchangePublicKey keyExchangePublicKeyRemote;
 	if ( m_msgCryptRemote.key_type() != CMsgSteamDatagramSessionCryptInfo_EKeyType_CURVE25519 )
@@ -925,13 +940,6 @@ bool CSteamNetworkConnectionBase::BRecvCryptoHandshake( const CMsgSteamDatagramC
 	if ( !keyExchangePublicKeyRemote.SetRawDataWithoutWipingInput( m_msgCryptRemote.key_data().c_str(), m_msgCryptRemote.key_data().length() ) )
 	{
 		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCrypt, "Invalid DH key" );
-		return false;
-	}
-
-	// SNP must be same on both ends
-	if ( !m_msgCryptRemote.is_snp() )
-	{
-		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCrypt, "Incompatible protocol format (SNP)" );
 		return false;
 	}
 
@@ -2014,7 +2022,7 @@ failed:
 	// Do generic base class initialization
 	for ( int i = 0 ; i < 2 ; ++i )
 	{
-		if ( !pConn[i]->BInitConnection( k_nCurrentProtocolVersion, usecNow, errMsg ) )
+		if ( !pConn[i]->BInitConnection( usecNow, errMsg ) )
 			goto failed;
 
 		// Slam in a really large SNP rate

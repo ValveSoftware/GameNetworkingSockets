@@ -373,7 +373,7 @@ protected:
 	virtual ~CSteamNetworkConnectionBase(); // hidden destructor, don't call directly.  Use Destroy()
 
 	/// Initialize connection bookkeeping
-	bool BInitConnection( uint32 nPeerProtocolVersion, SteamNetworkingMicroseconds usecNow, SteamDatagramErrMsg &errMsg );
+	bool BInitConnection( SteamNetworkingMicroseconds usecNow, SteamDatagramErrMsg &errMsg );
 
 	/// Called from BInitConnection, to start obtaining certs, etc
 	virtual void InitConnectionCrypto( SteamNetworkingMicroseconds usecNow );
@@ -491,15 +491,18 @@ protected:
 	CMsgSteamDatagramCertificateSigned m_msgSignedCertLocal;
 	bool m_bCertHasIdentity; // Does the cert contain the identity we will use for this connection?
 
-	// AES keys and used in each direction
+	// AES keys used in each direction
 	bool m_bCryptKeysValid;
 	AES_GCM_EncryptContext m_cryptContextSend;
 	AES_GCM_DecryptContext m_cryptContextRecv;
 
 	// Initialization vector for AES-GCM.  These are combined with
-	// the packet number so that the effective IV is unique per packert.
-	AutoWipeFixedSizeBuffer<16> m_cryptIVSend;
-	AutoWipeFixedSizeBuffer<16> m_cryptIVRecv;
+	// the packet number so that the effective IV is unique per
+	// packet.  We use a 96-bit IV, which is what TLS uses (RFC5288),
+	// what NIST recommends (https://dl.acm.org/citation.cfm?id=2206251),
+	// and what makes GCM the most efficient. 
+	AutoWipeFixedSizeBuffer<12> m_cryptIVSend;
+	AutoWipeFixedSizeBuffer<12> m_cryptIVRecv;
 
 	// Check the certs, save keys, etc
 	bool BRecvCryptoHandshake( const CMsgSteamDatagramCertificateSigned &msgCert, const CMsgSteamDatagramSessionCryptInfoSigned &msgSessionInfo, bool bServer );

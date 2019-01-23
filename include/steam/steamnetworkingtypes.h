@@ -650,6 +650,10 @@ enum ESteamNetConnectionEnd
 		// they aren't running the right application.
 		k_ESteamNetConnectionEnd_Remote_NotRunningApp = 4005,
 
+		// Something wrong with the protocol version you are using.
+		// (Probably the code you are running is too old.)
+		k_ESteamNetConnectionEnd_Remote_BadProtocolVersion = 4006,
+
 	k_ESteamNetConnectionEnd_Remote_Max = 4999,
 
 	// 5xxx: Connection failed for some other reason.

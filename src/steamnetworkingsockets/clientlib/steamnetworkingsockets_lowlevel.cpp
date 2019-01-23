@@ -5,6 +5,12 @@
 	// 1>C:\Program Files (x86)\Microsoft Visual Studio 12.0\VC\include\chrono(749): warning C4244: '=' : conversion from '__int64' to 'time_t', possible loss of data (steamnetworkingsockets_lowlevel.cpp)
 #endif
 
+#ifdef __GNUC__
+	// src/public/tier0/basetypes.h:104:30: error: assuming signed overflow does not occur when assuming that (X + c) < X is always false [-Werror=strict-overflow]
+	// current steamrt:scout gcc "g++ (SteamRT 4.8.4-1ubuntu15~12.04+steamrt1.2+srt1) 4.8.4" requires this at the top due to optimizations
+	#pragma GCC diagnostic ignored "-Wstrict-overflow"
+#endif
+
 #include <thread>
 #include <mutex>
 #include <atomic>
@@ -1031,6 +1037,7 @@ IThinker::~IThinker()
 }
 
 #ifdef __GNUC__
+	// older steamrt:scout gcc requires this also, probably getting confused by unbalanced push/pop
 	#pragma GCC diagnostic ignored "-Wstrict-overflow"
 #endif
 

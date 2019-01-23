@@ -89,7 +89,6 @@ public:
 		CSharedSocket *pSharedSock,
 		const SteamNetworkingIdentity &identityRemote,
 		uint32 unConnectionIDRemote,
-		uint32 nPeerProtocolVersion,
 		const CMsgSteamDatagramCertificateSigned &msgCert,
 		const CMsgSteamDatagramSessionCryptInfoSigned &msgSessionInfo,
 		SteamDatagramErrMsg &errMsg

@@ -423,8 +423,7 @@ void CSteamNetworkListenSocketDirectUDP::Received_ConnectRequest( const CMsgStea
 	CSteamNetworkConnectionUDP *pConn = new CSteamNetworkConnectionUDP( m_pSteamNetworkingSocketsInterface );
 
 	// OK, they have completed the handshake.  Accept the connection.
-	uint32 nPeerProtocolVersion = msg.has_protocol_version() ? msg.protocol_version() : 1;
-	if ( !pConn->BBeginAccept( this, adrFrom, m_pSock, identityRemote, unClientConnectionID, nPeerProtocolVersion, msg.cert(), msg.crypt(), errMsg ) )
+	if ( !pConn->BBeginAccept( this, adrFrom, m_pSock, identityRemote, unClientConnectionID, msg.cert(), msg.crypt(), errMsg ) )
 	{
 		SpewWarning( "Failed to accept connection from %s.  %s\n", CUtlNetAdrRender( adrFrom ).String(), errMsg );
 		pConn->Destroy();
@@ -778,9 +777,8 @@ bool CSteamNetworkConnectionUDP::BInitConnect( const SteamNetworkingIPAddr &addr
 	}
 
 	// Let base class do some common initialization
-	uint32 nPeerProtocolVersion = 0; // don't know yet
 	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
-	if ( !CSteamNetworkConnectionBase::BInitConnection( nPeerProtocolVersion, usecNow, errMsg ) )
+	if ( !CSteamNetworkConnectionBase::BInitConnection( usecNow, errMsg ) )
 	{
 		m_pSocket->Close();
 		m_pSocket = nullptr;
@@ -856,7 +854,6 @@ bool CSteamNetworkConnectionUDP::BBeginAccept(
 	CSharedSocket *pSharedSock,
 	const SteamNetworkingIdentity &identityRemote,
 	uint32 unConnectionIDRemote,
-	uint32 nPeerProtocolVersion,
 	const CMsgSteamDatagramCertificateSigned &msgCert,
 	const CMsgSteamDatagramSessionCryptInfoSigned &msgCryptSessionInfo,
 	SteamDatagramErrMsg &errMsg
@@ -883,7 +880,7 @@ bool CSteamNetworkConnectionUDP::BBeginAccept(
 
 	// Let base class do some common initialization
 	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
-	if ( !CSteamNetworkConnectionBase::BInitConnection( nPeerProtocolVersion, usecNow, errMsg ) )
+	if ( !CSteamNetworkConnectionBase::BInitConnection( usecNow, errMsg ) )
 	{
 		m_pSocket->Close();
 		m_pSocket = nullptr;
@@ -1345,7 +1342,7 @@ void CSteamNetworkConnectionUDP::Received_ChallengeReply( const CMsgSteamSockets
 		return;
 	}
 
-	// Remember protocol version.  They should send it again in the connect OK, but we have a valid value now,
+	// Remember protocol version.  They must send it again in the connect OK, but we have a valid value now,
 	// so we might as well save it
 	m_statsEndToEnd.m_nPeerProtocolVersion = msg.protocol_version();
 
@@ -1358,7 +1355,6 @@ void CSteamNetworkConnectionUDP::Received_ChallengeReply( const CMsgSteamSockets
 		msgConnectRequest.set_ping_est_ms( m_statsEndToEnd.m_ping.m_nSmoothedPing );
 	*msgConnectRequest.mutable_cert() = m_msgSignedCertLocal;
 	*msgConnectRequest.mutable_crypt() = m_msgSignedCryptLocal;
-	msgConnectRequest.set_protocol_version( k_nCurrentProtocolVersion );
 
 	// If the cert is generic, then we need to specify our identity
 	if ( !m_bCertHasIdentity )
@@ -1530,14 +1526,7 @@ void CSteamNetworkConnectionUDP::Received_ConnectOK( const CMsgSteamSockets_UDP_
 			break;
 	}
 
-	if ( msg.protocol_version() < k_nMinRequiredProtocolVersion )
-	{
-		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_Generic, "Peer is running old software and needs to be udpated" );
-		return;
-	}
-	m_statsEndToEnd.m_nPeerProtocolVersion = msg.protocol_version();
-
-	// New peers should send us their connection ID
+	// Connection ID
 	m_unConnectionIDRemote = msg.server_connection_id();
 	if ( ( m_unConnectionIDRemote & 0xffff ) == 0 )
 	{
@@ -1702,7 +1691,6 @@ void CSteamNetworkConnectionUDP::SendConnectOK( SteamNetworkingMicroseconds usec
 	msg.set_server_connection_id( m_unConnectionIDLocal );
 	*msg.mutable_cert() = m_msgSignedCertLocal;
 	*msg.mutable_crypt() = m_msgSignedCryptLocal;
-	msg.set_protocol_version( k_nCurrentProtocolVersion );
 
 	// If the cert is generic, then we need to specify our identity
 	if ( !m_bCertHasIdentity )
@@ -1814,7 +1802,7 @@ failed:
 	for ( int i = 0 ; i < 2 ; ++i )
 	{
 		pConn[i]->m_pSocket = sock[i];
-		if ( !pConn[i]->BInitConnection( k_nCurrentProtocolVersion, usecNow, errMsg ) )
+		if ( !pConn[i]->BInitConnection( usecNow, errMsg ) )
 			goto failed;
 	}
 

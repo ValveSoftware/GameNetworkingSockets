@@ -23,8 +23,9 @@ message CMsgSteamDatagramSessionCryptInfo
 	};
 	optional EKeyType key_type = 1;
 	optional bytes key_data = 2;
-	optional fixed64 nonce = 3;
-	optional bool is_snp = 4; // Set when this connection is using SNP, must match in order for communication to proceed
+
+	optional fixed64 nonce = 3; // Additional nonce used for key generation
+	optional uint32 protocol_version = 4; // Protocol version used.  Must match the version in the header
 };
 
 // Session keys used in key exchange

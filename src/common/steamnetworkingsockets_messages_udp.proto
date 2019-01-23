@@ -67,8 +67,9 @@ message CMsgSteamSockets_UDP_ConnectRequest
 	/// - signature of a CA, if authenticated connection is being attempted.
 	optional CMsgSteamDatagramCertificateSigned cert = 4;
 
-	// Version of the code I'm running
-	optional uint32 protocol_version = 8;
+	// Version of the code I'm running.  This has been moved into the
+	// signed crypt parameters so that it could not be forged.
+	optional uint32 legacy_protocol_version = 8;
 
 	// Identity of host making connect request is in the cert, usually.
 	// (Even if cert is unsigned.)  But, if cert was not issued to my specific
@@ -97,9 +98,6 @@ message CMsgSteamSockets_UDP_ConnectOK
 	/// Certificate used to prove my identity
 	optional CMsgSteamDatagramCertificateSigned cert = 8;
 
-	// Version of the code I'm running
-	optional uint32 protocol_version = 9;
-
 	// Identity of server is in the cert, usually.
 	// (Even if cert is unsigned.)  But, if cert was not issued to my specific
 	// identity (e.g. it is for all gameservers in a data center, etc) then
@@ -111,6 +109,7 @@ message CMsgSteamSockets_UDP_ConnectOK
 	//
 
 	optional fixed64 legacy_server_steam_id = 2;
+	//optional uint32 protocol_version = 9; // moved into crypt, to prevent tampering
 };
 
 // k_ESteamDatagramMsg_UDP_ConnectionClosed
