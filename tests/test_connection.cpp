@@ -21,7 +21,7 @@ static SteamNetworkingMicroseconds g_usecTestElapsed;
 FILE *g_fpLog = nullptr;
 SteamNetworkingMicroseconds g_logTimeZero;
 
-static void DebugOutput( int eType, const char *pszMsg )
+static void DebugOutput( ESteamNetworkingSocketsDebugOutputType eType, const char *pszMsg )
 {
 	SteamNetworkingMicroseconds time = SteamNetworkingUtils()->GetLocalTimestamp() - g_logTimeZero;
 	if ( g_fpLog )
@@ -85,9 +85,9 @@ static void InitSteamDatagramConnectionSockets()
 	g_fpLog = fopen( "log.txt", "wt" );
 	g_logTimeZero = SteamNetworkingUtils()->GetLocalTimestamp();
 
-	SteamNetworkingSockets_SetDebugOutputFunction( k_ESteamNetworkingSocketsDebugOutputType_Debug, DebugOutput );
-	//SteamNetworkingSockets_SetDebugOutputFunction( k_ESteamNetworkingSocketsDebugOutputType_Verbose, DebugOutput );
-	//SteamNetworkingSockets_SetDebugOutputFunction( k_ESteamNetworkingSocketsDebugOutputType_Msg, DebugOutput );
+	SteamNetworkingUtils()->SetDebugOutputFunction( k_ESteamNetworkingSocketsDebugOutputType_Debug, DebugOutput );
+	//SteamNetworkingUtils()->SetDebugOutputFunction( k_ESteamNetworkingSocketsDebugOutputType_Verbose, DebugOutput );
+	//SteamNetworkingUtils()->SetDebugOutputFunction( k_ESteamNetworkingSocketsDebugOutputType_Msg, DebugOutput );
 }
 
 static void ShutdownSteamDatagramConnectionSockets()

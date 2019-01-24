@@ -1849,7 +1849,7 @@ void SteamNetworkingSocketsLowLevelDecRef()
 //
 /////////////////////////////////////////////////////////////////////////////
 
-STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetDebugOutputFunction( /* ESteamDatagramSpewType */ int eDetailLevel, FSteamNetworkingSocketsDebugOutput pfnFunc )
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetDebugOutputFunction( ESteamNetworkingSocketsDebugOutputType eDetailLevel, FSteamNetworkingSocketsDebugOutput pfnFunc )
 {
 	if ( pfnFunc && eDetailLevel > k_ESteamNetworkingSocketsDebugOutputType_None )
 	{

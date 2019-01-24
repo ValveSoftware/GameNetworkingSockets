@@ -364,8 +364,12 @@ struct SteamDatagramTransportLock
 } // namespace SteamNetworkingSocketsLib
 
 extern "C" {
+
 /// Fetch current time
 STEAMNETWORKINGSOCKETS_INTERFACE SteamNetworkingMicroseconds SteamNetworkingSockets_GetLocalTimestamp();
+
+/// Set debug output hook
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetDebugOutputFunction( ESteamNetworkingSocketsDebugOutputType eDetailLevel, FSteamNetworkingSocketsDebugOutput pfnFunc );
 }
 
 #endif // STEAMNETWORKINGSOCKETS_LOWLEVEL_H

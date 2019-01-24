@@ -23,9 +23,6 @@ STEAMNETWORKINGSOCKETS_INTERFACE bool GameNetworkingSockets_Init( const SteamNet
 // Close all connections and listen sockets and free all resources
 STEAMNETWORKINGSOCKETS_INTERFACE void GameNetworkingSockets_Kill();
 
-// Set debug output hook
-STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetDebugOutputFunction( /* ESteamNetworkingSocketsDebugOutputType */ int eDetailLevel, FSteamNetworkingSocketsDebugOutput pfnFunc );
-
 }
 
 /// Callback dispatch mechanism.  Override this and then use

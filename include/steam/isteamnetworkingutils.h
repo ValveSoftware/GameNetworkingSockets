@@ -14,11 +14,8 @@
 struct SteamDatagramRelayAuthTicket;
 
 extern "C" {
-
-// Fetch local timestamp.  If you want to stay compatible with Steamworks SDK,
-// don't call this directly.  Use the ISteamnetworkingUtils interface
 STEAMNETWORKINGSOCKETS_INTERFACE SteamNetworkingMicroseconds SteamNetworkingSockets_GetLocalTimestamp();
-
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetDebugOutputFunction( ESteamNetworkingSocketsDebugOutputType eDetailLevel, FSteamNetworkingSocketsDebugOutput pfnFunc );
 }
 
 //-----------------------------------------------------------------------------
@@ -47,10 +44,33 @@ public:
 	{
 		return SteamNetworkingSockets_GetLocalTimestamp();
 	}
+
+	/// Set a function to receive network-related information that is useful for debugging.
+	/// This can be very useful during development, but it can also be useful for troubleshooting
+	/// problems with tech savvy end users.  If you have a console or other log that customers
+	/// can examine, these log messages can often be helpful to troubleshoot network issues.
+	/// (Especially any warning/error messages.)
+	///
+	/// The detail level indicates what message to invoke your callback on.  Lower numeric
+	/// value means more important, and the value you pass is the lowest priority (highest
+	/// numeric value) you wish to receive callbacks for.
+	///
+	/// Except when debugging, you should only use k_ESteamNetworkingSocketsDebugOutputType_Msg
+	/// or k_ESteamNetworkingSocketsDebugOutputType_Warning.  For best performance, do NOT
+	/// request a high detail level and then filter out messages in your callback.  Instead,
+	/// call function function to adjust the desired level of detail.
+	///
+	/// IMPORTANT: This may be called from a service thread, while we own a mutex, etc.
+	/// Your output function must be threadsafe and fast!  Do not make any other
+	/// Steamworks calls from within the handler.
+	inline static void SetDebugOutputFunction( ESteamNetworkingSocketsDebugOutputType eDetailLevel, FSteamNetworkingSocketsDebugOutput pfnFunc )
+	{
+		SteamNetworkingSockets_SetDebugOutputFunction( eDetailLevel, pfnFunc );
+	}
 };
 
 /// Dummy.  This just returns something non-null.  (In case you have code that
-/// checks if this function is returning null,)
+/// checks if this function is returning null.)
 inline ISteamNetworkingUtils *SteamNetworkingUtils() { return reinterpret_cast<ISteamNetworkingUtils*>( 1 ); }
 
 #endif // ISTEAMNETWORKINGUTILS

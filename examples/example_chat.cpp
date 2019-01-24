@@ -50,7 +50,7 @@ static void NukeProcess( int rc )
 	#endif
 }
 
-static void DebugOutput( int eType, const char *pszMsg )
+static void DebugOutput( ESteamNetworkingSocketsDebugOutputType eType, const char *pszMsg )
 {
 	SteamNetworkingMicroseconds time = SteamNetworkingUtils()->GetLocalTimestamp() - g_logTimeZero;
 	printf( "%10.6f %s\n", time*1e-6, pszMsg );
@@ -115,7 +115,7 @@ static void InitSteamDatagramConnectionSockets()
 
 	g_logTimeZero = SteamNetworkingUtils()->GetLocalTimestamp();
 
-	SteamNetworkingSockets_SetDebugOutputFunction( k_ESteamNetworkingSocketsDebugOutputType_Msg, DebugOutput );
+	SteamNetworkingUtils()->SetDebugOutputFunction( k_ESteamNetworkingSocketsDebugOutputType_Msg, DebugOutput );
 }
 
 static void ShutdownSteamDatagramConnectionSockets()
