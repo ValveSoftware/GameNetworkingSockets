@@ -96,12 +96,21 @@ CSteamNetworkingMessage *CSteamNetworkingMessage::New( CSteamNetworkConnectionBa
 	// FIXME Should avoid this dynamic memory call with some sort of pooling
 	CSteamNetworkingMessage *pMsg = new CSteamNetworkingMessage;
 
-	pMsg->m_sender = pParent->m_identityRemote;
+	if ( pParent )
+	{
+		pMsg->m_sender = pParent->m_identityRemote;
+		pMsg->m_conn = pParent->m_hConnectionSelf;
+		pMsg->m_nConnUserData = pParent->GetUserData();
+	}
+	else
+	{
+		memset( &pMsg->m_sender, 0, sizeof(pMsg->m_sender) );
+		pMsg->m_conn = k_HSteamNetConnection_Invalid;
+		pMsg->m_nConnUserData = 0;
+	}
 	pMsg->m_pData = malloc( cbSize );
 	pMsg->m_cbSize = cbSize;
 	pMsg->m_nChannel = -1;
-	pMsg->m_conn = pParent->m_hConnectionSelf;
-	pMsg->m_nConnUserData = pParent->GetUserData();
 	pMsg->m_usecTimeReceived = usecNow;
 	pMsg->m_nMessageNumber = nMsgNum;
 	pMsg->m_pfnRelease = CSteamNetworkingMessage::Delete;
@@ -344,6 +353,8 @@ CSteamNetworkConnectionBase::CSteamNetworkConnectionBase( CSteamNetworkingSocket
 	m_unConnectionIDRemote = 0;
 	m_pParentListenSocket = nullptr;
 	m_hSelfInParentListenSocketMap = -1;
+	m_pMessagesInterface = nullptr;
+	m_pMessagesSession = nullptr;
 	m_bCertHasIdentity = false;
 	m_bCryptKeysValid = false;
 	memset( m_szAppName, 0, sizeof( m_szAppName ) );
@@ -1428,6 +1439,27 @@ void CSteamNetworkConnectionBase::ReceivedMessage( const void *pData, int cbData
 		(long long)nMsgNum,
 		cbData );
 
+	// Special case for internal connections used by Messages interface
+	if ( m_pMessagesInterface )
+	{
+		// Are we still associated with our session?
+		if ( !m_pMessagesSession )
+		{
+			// How did we get here?  We should be closed, and once closed,
+			// we should not receive any more messages
+			AssertMsg2( false, "Received message for connection %s associated with Messages interface, but no session.  Connection state is %d", GetDescription(), (int)GetState() );
+		}
+		else if ( m_pMessagesSession->m_pConnection != this )
+		{
+			AssertMsg2( false, "Connection/session linkage bookkeeping bug!  %s state %d", GetDescription(), (int)GetState() );
+		}
+		else
+		{
+			m_pMessagesSession->ReceivedMessage( pData, cbData, nMsgNum, usecNow );
+		}
+		return;
+	}
+
 	// Create a message
 	CSteamNetworkingMessage *pMsg = CSteamNetworkingMessage::New( this, cbData, nMsgNum, usecNow );
 
@@ -1450,8 +1482,40 @@ void CSteamNetworkConnectionBase::ConnectionStateChanged( ESteamNetworkingConnec
 	// from the application's perspective, are not relevant
 	ESteamNetworkingConnectionState eOldAPIState = CollapseConnectionStateToAPIState( eOldState );
 	ESteamNetworkingConnectionState eNewAPIState = CollapseConnectionStateToAPIState( GetState() );
-	if ( eOldAPIState != eNewAPIState )
-		PostConnectionStateChangedCallback( eOldAPIState, eNewAPIState );
+
+	// Internal connection used by the higher-level messages interface?
+	if ( m_pMessagesInterface )
+	{
+		// Are we still associated with our session?
+		if ( m_pMessagesSession )
+		{
+			// How did we get here?  We should be closed!
+			if ( m_pMessagesSession->m_pConnection != this )
+			{
+				AssertMsg2( false, "Connection/session linkage bookkeeping bug!  %s state %d", GetDescription(), (int)GetState() );
+			}
+			else
+			{
+				m_pMessagesSession->ConnectionStateChanged( eOldState, GetState() );
+			}
+		}
+		else
+		{
+			// We should only detach after being closed or destroyed.
+			AssertMsg2( GetState() == k_ESteamNetworkingConnectionState_FinWait || GetState() == k_ESteamNetworkingConnectionState_Dead || GetState() == k_ESteamNetworkingConnectionState_None,
+				"Connection %s has detatched from messages session, but is in state %d", GetDescription(), (int)GetState() );
+		}
+	}
+	else
+	{
+
+		// Ordinary connection.  Check for posting callback, if connection state has changed from
+		// an API perspective
+		if ( eOldAPIState != eNewAPIState )
+		{
+			PostConnectionStateChangedCallback( eOldAPIState, eNewAPIState );
+		}
+	}
 
 	// Any time we switch into a state that is closed from an API perspective,
 	// discard any unread received messages
@@ -2221,7 +2285,7 @@ void CSteamNetworkConnectionPipe::ConnectionStateChanged( ESteamNetworkingConnec
 void CSteamNetworkConnectionPipe::PostConnectionStateChangedCallback( ESteamNetworkingConnectionState eOldAPIState, ESteamNetworkingConnectionState eNewAPIState )
 {
 	// Don't post any callbacks for the initial transitions.
-	if ( eNewAPIState == k_ESteamNetworkingConnectionState_Connected || eNewAPIState == k_ESteamNetworkingConnectionState_Connected )
+	if ( eNewAPIState == k_ESteamNetworkingConnectionState_Connecting || eNewAPIState == k_ESteamNetworkingConnectionState_Connected )
 		return;
 
 	// But post callbacks for these guys

@@ -23,10 +23,6 @@
 
 struct SteamNetConnectionStatusChangedCallback_t;
 class ISteamNetworkingSocketsSerialized;
-class CMsgSteamSockets_UDP_ChallengeRequest;
-class CMsgSteamSockets_UDP_ConnectRequest;
-class CMsgSteamSockets_UDP_ConnectionClosed;
-class CMsgSteamSockets_UDP_Stats;
 
 namespace SteamNetworkingSocketsLib {
 
@@ -36,6 +32,7 @@ const SteamNetworkingMicroseconds k_usecFinWaitTimeout = 5*k_nMillion;
 typedef char ConnectionEndDebugMsg[ k_cchSteamNetworkingMaxConnectionCloseReason ];
 
 class CSteamNetworkingSockets;
+class CSteamNetworkingMessages;
 class CSteamNetworkConnectionBase;
 class CSharedSocket;
 struct SteamNetworkingMessageQueue;
@@ -146,9 +143,19 @@ struct SteamNetworkingMessageQueue
 	void PurgeMessages();
 };
 
+/// Connections created through the "messages" interface are not directly exposed to the app.
+// They have different mechanisms for notifying of received messages and state changes.
+class ISteamNetworkingMessagesSession
+{
+public:
+	CSteamNetworkConnectionBase *m_pConnection; // active connection, if any.  Might be NULL!
+	virtual void ReceivedMessage( const void *pData, int cbData, int64 nMsgNum, SteamNetworkingMicroseconds usecNow ) = 0;
+	virtual void ConnectionStateChanged( ESteamNetworkingConnectionState eOldState, ESteamNetworkingConnectionState eNewState ) = 0;
+};
+
 /////////////////////////////////////////////////////////////////////////////
 //
-// Abstract base classes
+// CSteamNetworkListenSocketBase
 //
 /////////////////////////////////////////////////////////////////////////////
 
@@ -185,6 +192,12 @@ protected:
 	CSteamNetworkListenSocketBase( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface );
 	virtual ~CSteamNetworkListenSocketBase(); // hidden destructor, don't call directly.  Use Destroy()
 };
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// CSteamNetworkConnectionBase
+//
+/////////////////////////////////////////////////////////////////////////////
 
 /// Abstract interface for a connection to a remote host over any underlying
 /// transport.  Most of the common functionality for implementing reliable
@@ -303,6 +316,11 @@ public:
 
 	/// Our handle in our parent's m_listAcceptedConnections (if we were accepted on a listen socket)
 	int m_hSelfInParentListenSocketMap;
+
+	// Was this connection created as part of the "messages" interface?  If so, what interface
+	// owns us, and if so, are we still associated with an active session?
+	CSteamNetworkingMessages *m_pMessagesInterface;
+	ISteamNetworkingMessagesSession *m_pMessagesSession;
 
 	// Linked list of received messages
 	SteamNetworkingMessageQueue m_queueRecvMessages;
@@ -438,7 +456,7 @@ protected:
 	virtual int SendEncryptedDataChunk( const void *pChunk, int cbChunk, SteamNetworkingMicroseconds usecNow, void *pConnectionContext ) = 0;
 
 	/// Called when we receive a complete message.  Should allocate a message object and put it into the proper queues
-	virtual void ReceivedMessage( const void *pData, int cbData, int64 nMsgNum, SteamNetworkingMicroseconds usecNow );
+	void ReceivedMessage( const void *pData, int cbData, int64 nMsgNum, SteamNetworkingMicroseconds usecNow );
 
 	/// Called when the state changes
 	virtual void ConnectionStateChanged( ESteamNetworkingConnectionState eOldState );
