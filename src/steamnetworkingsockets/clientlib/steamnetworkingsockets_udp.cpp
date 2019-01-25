@@ -1763,7 +1763,7 @@ void CSteamNetworkConnectionlocalhostLoopback::InitConnectionCrypto( SteamNetwor
 void CSteamNetworkConnectionlocalhostLoopback::PostConnectionStateChangedCallback( ESteamNetworkingConnectionState eOldAPIState, ESteamNetworkingConnectionState eNewAPIState )
 {
 	// Don't post any callbacks for the initial transitions.
-	if ( eNewAPIState == k_ESteamNetworkingConnectionState_Connected || eNewAPIState == k_ESteamNetworkingConnectionState_Connected )
+	if ( eNewAPIState == k_ESteamNetworkingConnectionState_Connecting || eNewAPIState == k_ESteamNetworkingConnectionState_Connected )
 		return;
 
 	// But post callbacks for these guys
