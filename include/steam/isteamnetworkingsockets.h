@@ -288,11 +288,6 @@ public:
 #endif // #ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
 
 	//
-	// Gets some debug text from the connection
-	//
-	virtual bool GetConnectionDebugText( HSteamNetConnection hConn, char *pOut, int nOutCCH ) = 0;
-
-	//
 	// Set and get configuration values, see ESteamNetworkingConfigurationValue for individual descriptions.
 	//
 	// Returns the value or -1 is eConfigValue is invalid

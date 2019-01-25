@@ -631,16 +631,6 @@ bool CSteamNetworkingSockets::SetCertificate( const void *pCert, int cbCert, voi
 	return true;
 }
 
-bool CSteamNetworkingSockets::GetConnectionDebugText( HSteamNetConnection hConn, char *pszOut, int nOutCCH )
-{
-	SteamDatagramTransportLock scopeLock;
-	CSteamNetworkConnectionBase *pConn = GetConnectionByHandle( hConn );
-	if ( !pConn )
-		return false;
-	pConn->GetDebugText( pszOut, nOutCCH );
-	return true;
-}
-
 int32 CSteamNetworkingSockets::GetConfigurationValue( ESteamNetworkingConfigurationValue eConfigValue )
 {
 	for ( int i = 0; i < V_ARRAYSIZE( sConfigurationValueEntryList ); ++i )

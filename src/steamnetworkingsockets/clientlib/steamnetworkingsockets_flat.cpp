@@ -146,11 +146,6 @@ STEAMNETWORKINGSOCKETS_INTERFACE HSteamListenSocket SteamAPI_ISteamNetworkingSoc
 
 #endif // #ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
 
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_GetConnectionDebugText( intptr_t instancePtr, HSteamNetConnection hConn, char *pOut, int nOutCCH )
-{
-	return ((ISteamNetworkingSockets*)instancePtr)->GetConnectionDebugText( hConn, pOut, nOutCCH );
-}
-
 STEAMNETWORKINGSOCKETS_INTERFACE int32 SteamAPI_ISteamNetworkingSockets_GetConfigurationValue( intptr_t instancePtr, ESteamNetworkingConfigurationValue eConfigValue )
 {
 	return ((ISteamNetworkingSockets*)instancePtr)->GetConfigurationValue( eConfigValue );

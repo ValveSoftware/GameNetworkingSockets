@@ -81,7 +81,6 @@ public:
 	virtual int GetDetailedConnectionStatus( HSteamNetConnection hConn, char *pszBuf, int cbBuf ) OVERRIDE;
 	virtual bool GetListenSocketAddress( HSteamListenSocket hSocket, SteamNetworkingIPAddr *pAddress ) OVERRIDE;
 	virtual bool CreateSocketPair( HSteamNetConnection *pOutConnection1, HSteamNetConnection *pOutConnection2, bool bUseNetworkLoopback, const SteamNetworkingIdentity *pIdentity1, const SteamNetworkingIdentity *pIdentity2 ) OVERRIDE;
-	virtual bool GetConnectionDebugText( HSteamNetConnection hConn, char *pszOut, int nOutCCH ) OVERRIDE;
 	virtual int32 GetConfigurationValue( ESteamNetworkingConfigurationValue eConfigValue ) OVERRIDE;
 	virtual bool SetConfigurationValue( ESteamNetworkingConfigurationValue eConfigValue, int32 nValue ) OVERRIDE;
 	virtual const char *GetConfigurationValueName( ESteamNetworkingConfigurationValue eConfigValue ) OVERRIDE;

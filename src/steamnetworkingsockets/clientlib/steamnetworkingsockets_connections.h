@@ -347,8 +347,6 @@ public:
 	/// Called when we receive an (end-to-end) packet with a sequence number
 	bool RecvNonDataSequencedPacket( int64 nPktNum, SteamNetworkingMicroseconds usecNow );
 
-	void GetDebugText( char *pszOut, int nOutCCH );
-
 	// Called from SNP to update transmit/receive speeds
 	void UpdateSpeeds( int nTXSpeed, int nRXSpeed );
 
