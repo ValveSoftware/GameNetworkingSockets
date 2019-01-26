@@ -1722,6 +1722,7 @@ void ReallySpewType( ESteamNetworkingSocketsDebugOutputType eType, const char *p
 	pfnDebugOutput( eType, buf );
 }
 
+#ifdef STEAMNETWORKINGSOCKETS_STANDALONELIB
 static SpewRetval_t SDRSpewFunc( SpewType_t type, tchar const *pMsg )
 {
 	V_StripTrailingWhitespaceASCII( const_cast<tchar*>( pMsg ) );
@@ -1765,6 +1766,7 @@ static SpewRetval_t SDRSpewFunc( SpewType_t type, tchar const *pMsg )
 	
 	return SPEW_CONTINUE;
 }
+#endif
 
 bool BSteamNetworkingSocketsLowLevelAddRef( SteamDatagramErrMsg &errMsg )
 {
@@ -1789,7 +1791,9 @@ bool BSteamNetworkingSocketsLowLevelAddRef( SteamDatagramErrMsg &errMsg )
 		#endif
 
 		// Latch Steam codebase's logging system so we get spew and asserts
-		SpewOutputFunc( SDRSpewFunc );
+		#ifdef STEAMNETWORKINGSOCKETS_STANDALONELIB
+			SpewOutputFunc( SDRSpewFunc );
+		#endif
 
 		// Make sure random number generator is seeded
 		SeedWeakRandomGenerator();
