@@ -361,6 +361,10 @@ struct SteamDatagramTransportLock
 	static int s_nLocked;
 };
 
+#ifdef DBGFLAG_VALIDATE
+extern void SteamNetworkingSocketsLowLevelValidate( CValidator &validator );
+#endif
+
 } // namespace SteamNetworkingSocketsLib
 
 extern "C" {

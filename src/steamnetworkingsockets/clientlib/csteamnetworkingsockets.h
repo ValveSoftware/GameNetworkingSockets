@@ -26,6 +26,7 @@ class CSteamNetworkingSockets : public IClientNetworkingSockets
 {
 public:
 	CSteamNetworkingSockets();
+	virtual ~CSteamNetworkingSockets();
 
 	bool m_bHaveLowLevelRef;
 	AppId_t m_nAppID;

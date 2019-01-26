@@ -43,6 +43,10 @@
 #include <tier0/basetypes.h>
 #include <tier0/t0constants.h>
 #include <tier0/platform.h>
+#include <tier0/dbgflag.h>
+#ifdef STEAMNETWORKINGSOCKETS_STEAM
+	#include <tier0/validator.h>
+#endif
 #include <steam/steamnetworkingtypes.h>
 #include <tier1/netadr.h>
 #include <vstdlib/strtools.h>

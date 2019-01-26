@@ -187,6 +187,12 @@ CSteamNetworkingSockets::CSteamNetworkingSockets()
 : m_bHaveLowLevelRef( false )
 {}
 
+CSteamNetworkingSockets::~CSteamNetworkingSockets()
+{
+	SteamDatagramTransportLock scopeLock;
+	KillBase();
+}
+
 #ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
 bool CSteamNetworkingSockets::BInitGameNetworkingSockets( const SteamNetworkingIdentity *pIdentity, SteamDatagramErrMsg &errMsg )
 {

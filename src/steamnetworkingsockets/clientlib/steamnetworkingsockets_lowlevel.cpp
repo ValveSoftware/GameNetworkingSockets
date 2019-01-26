@@ -778,18 +778,15 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS )
 	Assert( SteamDatagramTransportLock::s_nLocked == 1 );
 
 	#ifdef _WIN32
-		static CUtlVector<HANDLE> s_vecEvents; // avoid calling malloc every time
-		s_vecEvents.SetCount(0);
-		s_vecEvents.EnsureCapacity( s_vecRawSockets.Count()+1 );
+		HANDLE *pEvents = (HANDLE*)alloca( sizeof(HANDLE) * (s_vecRawSockets.Count()+1) );
+		int nEvents = 0;
 	#else
-		static CUtlVector<pollfd> s_vecPollFD; // avoid calling malloc every time
-		s_vecPollFD.SetCount(0);
-		s_vecPollFD.EnsureCapacity( s_vecRawSockets.Count()+1 );
+		pollfd *pPollFDs = (pollfd*)alloca( sizeof(pollfd) * (s_vecRawSockets.Count()+1) ); 
+		int nPollFDs = 0;
 	#endif
 
-	static CUtlVector<CRawUDPSocketImpl *> s_vecSocketsToPoll; // avoid calling malloc every time
-	s_vecSocketsToPoll.SetCount(0);
-	s_vecSocketsToPoll.EnsureCapacity( s_vecRawSockets.Count() );
+	CRawUDPSocketImpl **pSocketsToPoll = (CRawUDPSocketImpl **)alloca( sizeof(CRawUDPSocketImpl *) * s_vecRawSockets.Count() ); 
+	int nSocketsToPoll = 0;
 
 	for ( CRawUDPSocketImpl *pSock: s_vecRawSockets )
 	{
@@ -797,12 +794,12 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS )
 		Assert( pSock->m_callback.m_fnCallback );
 		Assert( pSock->m_socket != INVALID_SOCKET );
 
-		s_vecSocketsToPoll.AddToTail( pSock );
+		pSocketsToPoll[ nSocketsToPoll++ ] = pSock;
 
 		#ifdef _WIN32
-			s_vecEvents.AddToTail( pSock->m_event );
+			pEvents[ nEvents++ ] = pSock->m_event;
 		#else
-			pollfd *p = s_vecPollFD.AddToTailGetPtr();
+			pollfd *p = &pPollFDs[ nPollFDs++ ];
 			p->fd = pSock->m_socket;
 			p->events = POLLRDNORM;
 			p->revents = 0;
@@ -811,10 +808,10 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS )
 
 	#ifdef _WIN32
 		Assert( s_hEventWakeThread != NULL && s_hEventWakeThread != INVALID_HANDLE_VALUE );
-		s_vecEvents.AddToTail( s_hEventWakeThread );
+		pEvents[ nEvents++ ] = s_hEventWakeThread;
 	#else
 		Assert( s_hSockWakeThreadRead != INVALID_SOCKET );
-		pollfd *p = s_vecPollFD.AddToTailGetPtr();
+		pollfd *p = &pPollFDs[ nPollFDs++ ];
 		p->fd = s_hSockWakeThreadRead;
 		p->events = POLLRDNORM;
 		p->revents = 0;
@@ -829,9 +826,9 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS )
 
 	// Wait for data on one of the sockets, or for us to be asked to wake up
 	#if defined( WIN32 )
-		DWORD nWaitResult = WaitForMultipleObjects( s_vecEvents.Count(), s_vecEvents.Base(), FALSE, nMaxTimeoutMS );
+		DWORD nWaitResult = WaitForMultipleObjects( nEvents, pEvents, FALSE, nMaxTimeoutMS );
 	#else
-		poll( s_vecPollFD.Base(), s_vecPollFD.Count(), nMaxTimeoutMS );
+		poll( pPollFDs, nPollFDs, nMaxTimeoutMS );
 	#endif
 
 	SteamNetworkingMicroseconds usecStartedLocking = SteamNetworkingSockets_GetLocalTimestamp();
@@ -874,10 +871,10 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS )
 	// then we will check all sockets later in the array.
 	//
 	// Note that if we get a wake request, the event has already been reset, because we used an auto-reset event
-	for ( int idx = nWaitResult - WAIT_OBJECT_0 ; (unsigned)idx < (unsigned)s_vecSocketsToPoll.Count() ; ++idx )
+	for ( int idx = nWaitResult - WAIT_OBJECT_0 ; (unsigned)idx < (unsigned)nSocketsToPoll ; ++idx )
 	{
 
-		CRawUDPSocketImpl *pSock = s_vecSocketsToPoll[ idx ];
+		CRawUDPSocketImpl *pSock = pSocketsToPoll[ idx ];
 
 		// Check if this socket has anything, and clear the event
 		WSANETWORKEVENTS wsaEvents;
@@ -889,22 +886,22 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS )
 		if ( !(wsaEvents.lNetworkEvents & FD_READ) )
 			continue;
 #else
-	for ( int idx = 0 ; idx < s_vecPollFD.Count() ; ++idx )
+	for ( int idx = 0 ; idx < nPollFDs ; ++idx )
 	{
-		if ( !( s_vecPollFD[ idx ].revents & POLLRDNORM ) )
+		if ( !( pPollFDs[ idx ].revents & POLLRDNORM ) )
 			continue;
-		if ( idx >= s_vecSocketsToPoll.Count() )
+		if ( idx >= nSocketsToPoll )
 		{
 			// It's a wake request.  Pull a single packet out of the queue.
 			// We want one wake request to always result in exactly one wake up.
 			// Wake request are relatively rare, and we don't want to skip any
 			// or combine them.  That would result in complicated race conditions
 			// where we stay asleep a lot longer than we should.
-			Assert( s_vecPollFD[idx].fd == s_hSockWakeThreadRead );
+			Assert( pPollFDs[idx].fd == s_hSockWakeThreadRead );
 			::recv( s_hSockWakeThreadRead, buf, sizeof(buf), 0 );
 			continue;
 		}
-		CRawUDPSocketImpl *pSock = s_vecSocketsToPoll[ idx ];
+		CRawUDPSocketImpl *pSock = pSocketsToPoll[ idx ];
 #endif
 
 		// Drain the socket.  But if the callback gets cleared, that
@@ -1830,7 +1827,14 @@ void SteamNetworkingSocketsLowLevelDecRef()
 	// might need to do stuff when we close a bunch of sockets (and WSACleanup)
 	SteamDatagramTransportLock::SetLongLockWarningThresholdMS( 500 );
 
-	AssertMsg( s_vecRawSockets.IsEmpty(), "Trying to close low level socket support, but we still have sockets open!" );
+	if ( s_vecRawSockets.IsEmpty() )
+	{
+		s_vecRawSockets.Purge();
+	}
+	else
+	{
+		AssertMsg( false, "Trying to close low level socket support, but we still have sockets open!" );
+	}
 
 	// Shutdown the thread
 	StopSteamDatagramThread();
@@ -1838,11 +1842,22 @@ void SteamNetworkingSocketsLowLevelDecRef()
 	// Make sure we actually destroy socket objects.  It's safe to do so now.
 	ProcessPendingDestroyClosedRawUDPSockets();
 
+	Assert( s_vecRawSocketsPendingDeletion.IsEmpty() );
+	s_vecRawSocketsPendingDeletion.Purge();
+
 	// Nuke sockets
 	#ifdef _WIN32
 		::WSACleanup();
 	#endif
 }
+
+#ifdef DBGFLAG_VALIDATE
+void SteamNetworkingSocketsLowLevelValidate( CValidator &validator )
+{
+	ValidateRecursive( s_vecRawSockets );
+	ValidateObj( s_queueThinkers );
+}
+#endif
 
 
 } // namespace SteamNetworkingSocketsLib

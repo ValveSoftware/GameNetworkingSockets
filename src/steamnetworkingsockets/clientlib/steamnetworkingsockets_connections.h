@@ -384,6 +384,11 @@ public:
 	/// Send a data packet now, even if we don't have the bandwidth available
 	int SNP_SendPacket( SteamNetworkingMicroseconds usecNow, int cbMaxEncryptedPayload, void *pConnectionData );
 
+	// Steam memory accounting
+	#ifdef DBGFLAG_VALIDATE
+	static void ValidateStatics( CValidator &validator );
+	#endif
+
 protected:
 	CSteamNetworkConnectionBase( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface );
 	virtual ~CSteamNetworkConnectionBase(); // hidden destructor, don't call directly.  Use Destroy()

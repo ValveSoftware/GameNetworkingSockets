@@ -57,6 +57,13 @@ struct TrustedKey
 	}
 	const uint64 m_id;
 	CECSigningPublicKey m_key;
+
+	#ifdef DBGFLAG_VALIDATE
+		void Validate( CValidator &validator, const char *pchName ) const
+		{
+			ValidateObj( m_key );
+		}
+	#endif
 };
 
 // !KLUDGE! For now, we only have one trusted CA key.
@@ -2291,5 +2298,16 @@ void CSteamNetworkConnectionPipe::PostConnectionStateChangedCallback( ESteamNetw
 	// But post callbacks for these guys
 	CSteamNetworkConnectionBase::PostConnectionStateChangedCallback( eOldAPIState, eNewAPIState );
 }
+
+
+#ifdef DBGFLAG_VALIDATE
+void CSteamNetworkConnectionBase::ValidateStatics( CValidator &validator )
+{
+	for ( const TrustedKey &trustedKey: s_arTrustedKeys )
+	{
+		ValidateObj( trustedKey );
+	}
+}
+#endif
 
 } // namespace SteamNetworkingSocketsLib
