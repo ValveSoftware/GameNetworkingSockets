@@ -164,6 +164,10 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 		target_compile_definitions(${GNS_TARGET} PRIVATE VALVE_CRYPTO_25519_DONNA)
 	endif()
 
+	if(USE_BCRYPT)
+		target_compile_definitions(${GNS_TARGET} PRIVATE ED25519_HASH_BCRYPT)
+	endif()
+
 	if(SANITIZE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 		target_compile_definitions(${GNS_TARGET} PRIVATE ED25519_NO_INLINE_ASM)
 	endif()
