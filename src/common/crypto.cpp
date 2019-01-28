@@ -56,6 +56,7 @@ public:
 	EVPCTXPointer(CTXType ctx) { this->ctx = ctx; }
 	~EVPCTXPointer() { CleanupFunc(ctx); }
 };
+
 SymmetricCryptContextBase::SymmetricCryptContextBase()
 {
 	evp_cipher_ctx = nullptr;
@@ -148,7 +149,8 @@ bool AES_GCM_EncryptContext::Encrypt(
 	const void *pIV,
 	void *pEncryptedDataAndTag, uint32 *pcbEncryptedDataAndTag,
 	const void *pAdditionalAuthenticationData, size_t cbAuthenticationData // Optional additional authentication data.  Not encrypted, but will be included in the tag, so it can be authenticated.
-) {
+)
+{
 	EVP_CIPHER_CTX *ctx = (EVP_CIPHER_CTX*)evp_cipher_ctx;
 	if ( !ctx )
 	{
@@ -219,7 +221,8 @@ bool AES_GCM_DecryptContext::Decrypt(
 	const void *pIV,
 	void *pPlaintextData, uint32 *pcbPlaintextData,
 	const void *pAdditionalAuthenticationData, size_t cbAuthenticationData
-) {
+)
+{
 
 	EVP_CIPHER_CTX *ctx = (EVP_CIPHER_CTX*)evp_cipher_ctx;
 	if ( !ctx )

@@ -1,25 +1,27 @@
-find_package(Protobuf REQUIRED)
-find_package(OpenSSL REQUIRED)
-find_package(Threads REQUIRED)
-
 include(CheckCCompilerFlag)
 include(CheckCXXCompilerFlag)
 include(CheckSymbolExists)
 include(CMakePushCheckState)
 
-# Ensure the OpenSSL version is recent enough. We need a bunch of EVP
-# functionality.
-cmake_push_check_state()
-set(CMAKE_REQUIRED_LIBRARIES OpenSSL::Crypto)
-check_symbol_exists(EVP_MD_CTX_free openssl/evp.h OPENSSL_NEW_ENOUGH)
-if (NOT OPENSSL_NEW_ENOUGH)
-	message(FATAL_ERROR "Your OpenSSL version appears to be too old. Check that you're using OpenSSL 1.1.0 or later.")
+find_package(Protobuf REQUIRED)
+if (NOT USE_BCRYPT)
+	find_package(OpenSSL REQUIRED)
+
+	# Ensure the OpenSSL version is recent enough. We need a bunch of EVP
+	# functionality.
+	cmake_push_check_state()
+	set(CMAKE_REQUIRED_LIBRARIES OpenSSL::Crypto)
+	check_symbol_exists(EVP_MD_CTX_free openssl/evp.h OPENSSL_NEW_ENOUGH)
+	if (NOT OPENSSL_NEW_ENOUGH)
+		message(FATAL_ERROR "Your OpenSSL version appears to be too old. Check that you're using OpenSSL 1.1.0 or later.")
+	endif()
+	cmake_pop_check_state()
+	cmake_push_check_state()
+	set(CMAKE_REQUIRED_LIBRARIES OpenSSL::Crypto)
+	check_symbol_exists(EVP_PKEY_get_raw_public_key openssl/evp.h OPENSSL_HAS_25519_RAW)
+	cmake_pop_check_state()
 endif()
-cmake_pop_check_state()
-cmake_push_check_state()
-set(CMAKE_REQUIRED_LIBRARIES OpenSSL::Crypto)
-check_symbol_exists(EVP_PKEY_get_raw_public_key openssl/evp.h OPENSSL_HAS_25519_RAW)
-cmake_pop_check_state()
+find_package(Threads REQUIRED)
 
 set(GNS_PROTOS
 	"common/steamnetworkingsockets_messages_certs.proto"
@@ -28,10 +30,8 @@ set(GNS_PROTOS
 	)
 
 set(GNS_SRCS
-	"common/crypto.cpp"
 	"common/crypto_textencode.cpp"
 	"common/keypair.cpp"
-	"common/opensslwrapper.cpp"
 	"common/steamid.cpp"
 	"steamnetworkingsockets/clientlib/csteamnetworkingsockets.cpp"
 	"steamnetworkingsockets/clientlib/steamnetworkingsockets_flat.cpp"
@@ -52,7 +52,7 @@ set(GNS_SRCS
 	"vstdlib/strtools.cpp"
 	)
 
-if(OPENSSL_HAS_25519_RAW)
+if(NOT USE_BCRYPT AND OPENSSL_HAS_25519_RAW)
 	set(GNS_SRCS ${GNS_SRCS}
 		"common/crypto_25519_openssl.cpp"
 	)
@@ -63,6 +63,17 @@ else()
 		"external/curve25519-donna/curve25519_VALVE_sse2.c"
 		"external/ed25519-donna/ed25519_VALVE.c"
 		"external/ed25519-donna/ed25519_VALVE_sse2.c"
+	)
+endif()
+
+if(USE_BCRYPT)
+	set(GNS_SRCS ${GNS_SRCS}
+		"common/crypto_bcrypt.cpp"
+	)
+else()
+	set(GNS_SRCS ${GNS_SRCS}
+		"common/crypto.cpp"
+		"common/opensslwrapper.cpp"
 	)
 endif()
 
@@ -115,7 +126,7 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 
 	target_include_directories(${GNS_TARGET} PUBLIC
 		"../include"
-		)
+	)
 
 	target_include_directories(${GNS_TARGET} PRIVATE
 		"common"
@@ -125,14 +136,19 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 		# Only necessary if we're not using protobuf::libprotobuf
 		# But that's not supported until CMake 3.9
 		${Protobuf_INCLUDE_DIRS}
-		)
+	)
 
 	target_link_libraries(${GNS_TARGET} PUBLIC
 		# protobuf::libprotobuf
 		${PROTOBUF_LIBRARIES}
-		OpenSSL::Crypto
 		Threads::Threads
+	)
+
+	if(NOT USE_BCRYPT)
+		target_link_libraries(${GNS_TARGET} PUBLIC
+			OpenSSL::Crypto
 		)
+	endif()
 
 	target_compile_definitions(${GNS_TARGET} PRIVATE
 		STEAMDATAGRAMLIB_FOREXPORT
@@ -140,9 +156,9 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 		ENABLE_OPENSSLCONNECTION
 		CRYPTO_DISABLE_ENCRYPT_WITH_PASSWORD
 		GOOGLE_PROTOBUF_NO_RTTI
-		)
+	)
 
-	if(OPENSSL_HAS_25519_RAW)
+	if(NOT USE_BCRYPT AND OPENSSL_HAS_25519_RAW)
 		target_compile_definitions(${GNS_TARGET} PRIVATE VALVE_CRYPTO_25519_OPENSSLEVP)
 	else()
 		target_compile_definitions(${GNS_TARGET} PRIVATE VALVE_CRYPTO_25519_DONNA)

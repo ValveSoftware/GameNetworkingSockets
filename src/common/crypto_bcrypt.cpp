@@ -1,7 +1,8 @@
 //========= Copyright Valve LLC, All rights reserved. ========================
 
-#include "crypto.h"
 #include <tier0/vprof.h>
+#include <tier1/utlmemory.h>
+#include "crypto.h"
 
 #include <windows.h>
 #include <stdio.h>
@@ -42,45 +43,40 @@ void CCrypto::Init()
 
 }
 
-//-----------------------------------------------------------------------------
-bool CCrypto::SymmetricEncryptWithIV( const uint8 * pubPlaintextData, uint32 cubPlaintextData,
-	const uint8 * pIV, uint32 cubIV, uint8 * pubEncryptedData,
-	uint32 * pcubEncryptedData, const uint8 * pubKey, uint32 cubKey )
+SymmetricCryptContextBase::SymmetricCryptContextBase()
 {
+	m_cbIV = 0;
+	m_cbTag = 0;
+}
 
-	// IV input into CBC must be exactly one block size
-	if ( cubIV != k_nSymmetricBlockSize )
-		return false;
+void SymmetricCryptContextBase::Wipe()
+{
+	m_cbIV = 0;
+	m_cbTag = 0;
+}
 
-	// FIXME
-	Assert( false );
+bool AES_GCM_CipherContext::InitCipher( const void *pKey, size_t cbKey, size_t cbIV, size_t cbTag, bool bEncrypt )
+{
 	return false;
 }
 
-
-
-//-----------------------------------------------------------------------------
-bool CCrypto::SymmetricDecryptWithIV( const uint8 *pubEncryptedData, uint32 cubEncryptedData, 
-								const uint8 * pIV, uint32 cubIV,
-								uint8 *pubPlaintextData, uint32 *pcubPlaintextData, 
-								const uint8 *pubKey, const uint32 cubKey, bool bVerifyPaddingBytes )
+bool AES_GCM_EncryptContext::Encrypt(
+	const void *pPlaintextData, size_t cbPlaintextData,
+	const void *pIV,
+	void *pEncryptedDataAndTag, uint32 *pcbEncryptedDataAndTag,
+	const void *pAdditionalAuthenticationData, size_t cbAuthenticationData // Optional additional authentication data.  Not encrypted, but will be included in the tag, so it can be authenticated.
+)
 {
-	Assert( pubEncryptedData );
-	Assert( cubEncryptedData);
-	Assert( pIV );
-	Assert( cubIV );
-	Assert( pubPlaintextData );
-	Assert( pcubPlaintextData );
-	Assert( *pcubPlaintextData );
-	Assert( pubKey );
-	Assert( k_nSymmetricKeyLen256 == cubKey || k_nSymmetricKeyLen128 == cubKey );
+	return false;
+}
 
-	// IV input into CBC must be exactly one block size
-	if ( cubIV != k_nSymmetricBlockSize )
-		return false;
-
-	// FIXME
-	Assert( false );
+bool AES_GCM_DecryptContext::Decrypt(
+	const void *pEncryptedDataAndTag, size_t cbEncryptedDataAndTag,
+	const void *pIV,
+	void *pPlaintextData, uint32 *pcbPlaintextData,
+	const void *pAdditionalAuthenticationData, size_t cbAuthenticationData
+)
+{
 	return false;
 }
 

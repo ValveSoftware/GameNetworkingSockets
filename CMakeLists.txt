@@ -22,6 +22,7 @@ endif()
 
 option(Protobuf_USE_STATIC_LIBS "Build with a static Protobuf library" OFF)
 option(LIGHT_TESTS "Use smaller/shorter tests for simple integration testing (e.g. Travis)" OFF)
+option(USE_BCRYPT "Use Windows BCrypt API (WIP)" OFF)
 
 add_subdirectory(examples)
 add_subdirectory(src)
