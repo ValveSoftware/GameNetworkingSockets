@@ -17,7 +17,6 @@ print_default_msvc_flags()
 if(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
 	add_definitions(
 		-D_CRT_SECURE_NO_WARNINGS
-		-D_ITERATOR_DEBUG_LEVEL=0
 		)
 endif()
 
