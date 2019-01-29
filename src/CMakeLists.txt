@@ -27,7 +27,7 @@ set(GNS_PROTOS
 	"common/steamnetworkingsockets_messages_certs.proto"
 	"common/steamnetworkingsockets_messages.proto"
 	"common/steamnetworkingsockets_messages_udp.proto"
-	)
+)
 
 set(GNS_SRCS
 	"common/crypto_textencode.cpp"
@@ -50,7 +50,7 @@ set(GNS_SRCS
 	"tier1/utlmemory.cpp"
 	"tier1/ipv6text.c"
 	"vstdlib/strtools.cpp"
-	)
+)
 
 if(NOT USE_BCRYPT AND OPENSSL_HAS_25519_RAW)
 	set(GNS_SRCS ${GNS_SRCS}
@@ -96,11 +96,11 @@ set(GNS_COMMON_FLAGS
 	-Wno-unused-local-typedef
 	-Wno-unused-const-variable
 	-Wno-nested-anon-types
-	)
+)
 
 set(GNS_C_FLAGS
 	-Wstrict-prototypes
-	)
+)
 
 set(GNS_CXX_FLAGS
 	-fvisibility-inlines-hidden
@@ -108,12 +108,12 @@ set(GNS_CXX_FLAGS
 	-Wno-non-virtual-dtor
 	-Wno-zero-as-null-pointer-constant
 	-fno-exceptions
-	)
+)
 
 if(NOT SANITIZE_UNDEFINED)
-set(GNS_CXX_FLAGS
-	${GNS_CXX_FLAGS}
-	-fno-rtti
+	set(GNS_CXX_FLAGS
+		${GNS_CXX_FLAGS}
+		-fno-rtti
 	)
 endif()
 
