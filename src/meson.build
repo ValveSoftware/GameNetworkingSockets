@@ -36,7 +36,6 @@ incdirs = include_directories('.', '../include', 'common', 'public')
 
 cpp_flags = [
   '-DSTEAMDATAGRAMLIB_FOREXPORT',
-  '-DHAVE_OPENSSL',
   '-DENABLE_OPENSSLCONNECTION',
   '-DCRYPTO_DISABLE_ENCRYPT_WITH_PASSWORD',
   '-DGOOGLE_PROTOBUF_NO_RTTI',

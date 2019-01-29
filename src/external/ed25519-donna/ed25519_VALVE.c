@@ -5,7 +5,7 @@
 
 #define ED25519_CUSTOMRNG
 
-#if !defined(ENABLE_OPENSSLCONNECTION) && !defined(HAVE_OPENSSL)
+#if !defined(ENABLE_OPENSSLCONNECTION) && !defined(HAVE_OPENSSL) && 0
 
 #define ED25519_CUSTOMHASH
 
