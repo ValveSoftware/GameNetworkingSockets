@@ -75,6 +75,19 @@ void SteamDatagramTransportLock::Lock()
 	OnLocked();
 }
 
+bool SteamDatagramTransportLock::TryLock( int msTimeout )
+{
+	#ifdef MSVC_STL_MUTEX_WORKAROUND
+		if ( ::WaitForSingleObject( s_hSteamDatagramTransportMutex, msTimeout ) != WAIT_OBJECT_0 )
+			return false;
+	#else
+		if ( !s_steamDatagramTransportMutex.try_lock_for( std::chrono::milliseconds( msTimeout ) ) )
+			return false;
+	#endif
+	OnLocked();
+	return true;
+}
+
 void SteamDatagramTransportLock::Unlock()
 {
 	AssertHeldByCurrentThread();
@@ -842,16 +855,8 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS )
 
 		// Try to acquire the lock.  But don't wait forever, in case the other thread has the lock
 		// and then makes a shutdown request while we're waiting on the lock here.
-		if (
-			#ifdef MSVC_STL_MUTEX_WORKAROUND
-				::WaitForSingleObject( s_hSteamDatagramTransportMutex, 250 ) == WAIT_OBJECT_0
-			#else
-				s_steamDatagramTransportMutex.try_lock_for( std::chrono::milliseconds( 250 ) )
-			#endif
-		) {
-			SteamDatagramTransportLock::OnLocked();
+		if ( SteamDatagramTransportLock::TryLock( 250 ) )
 			break;
-		}
 
 		// The only time this really should happen is a relatively rare race condition
 		// where the main thread is trying to shut us down.  (Or while debugging.)
@@ -1271,8 +1276,14 @@ static void SteamDatagramThreadProc()
 		// totally straightforward the correct way to do this on Linux.
 	#endif
 
-	// We will hold global lock while we're awake.
-	SteamDatagramTransportLock::Lock();
+	// In the loop, we will always hold global lock while we're awake.
+	// So go ahead and acquire it now.  But watch out for a race condition
+	// where we want to shut down immediately after starting the thread
+	do
+	{
+		if ( !g_bWantThreadRunning )
+			return;
+	} while ( !SteamDatagramTransportLock::TryLock( 10 ) );
 
 	// Random number generator may be per thread!  Make sure and see it for
 	// this thread, if so

@@ -354,6 +354,7 @@ struct SteamDatagramTransportLock
 	inline SteamDatagramTransportLock() { Lock(); }
 	inline ~SteamDatagramTransportLock() { Unlock(); }
 	static void Lock();
+	static bool TryLock( int msTimeout );
 	static void Unlock();
 	static void OnLocked();
 	static void AssertHeldByCurrentThread();
