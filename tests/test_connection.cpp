@@ -381,9 +381,9 @@ static void TestNetworkConditions( int rate, float loss, int lag, float reorderP
 	Printf( "---------------------------------------------------\n" );
 	Printf( "NETWORK CONDITIONS\n" );
 	Printf( "Rate . . . . . . : %d Bps\n", rate );
-	Printf( "Loss . . . . . . : %d%%\n", loss );
+	Printf( "Loss . . . . . . : %g%%\n", loss );
 	Printf( "Ping . . . . . . : %d\n", lag*2 );
-	Printf( "Reorder. . . . . : %d%% @ %dms\n", reorderPct, reorderLag );
+	Printf( "Reorder. . . . . : %g%% @ %dms\n", reorderPct, reorderLag );
 	Printf( "Act like game. . : %d\n", (int)bActLikeGame );
 	Printf( "---------------------------------------------------\n" );
 
