@@ -38,7 +38,8 @@ The main interface class is named SteamNetworkingSockets, and many files have
 aren't on Steam, feel free to use this code for whatever purpose you want.
 
 The reason for "Steam" in the names is that this provides a subset of the
-functionality of the API with the same name in the Steamworks SDK.  Our main
+functionality of the [API](https://partner.steamgames.com/doc/api/ISteamNetworkingSockets)
+with the same name in the Steamworks SDK.  Our main
 reason for releasing this code is so that developers won't have any hesitation
 coding to the API in the Steamworks SDK.  On Steam, you will link against the
 Steamworks version, and you can get the additional features there (access to
@@ -56,13 +57,6 @@ named  `tier0`, `tier1`, `vstdlib`, `common`, etc have especially suffered
 trauma.  Also if you see code that appears to have unnecessary layers of
 abstraction, it's probably because those layers are needed to support relayed
 connection types or some part of the Steamworks SDK.
-
-So the code has some style issues that some people probably won't like, but it
-does have the advantage of being battle tested over several years and millions
-of customers.  We aim to make this lib a solid transport library and we hope
-people will use it to ship their games on non-Steam platforms.  If there is
-something about this code that makes it awkward to use, or if it doesn't work
-properly or you see a security or performance issue, please let us know.
 
 ### Language bindings
 
@@ -83,9 +77,9 @@ Third party language bindings:
   * Clang 3.3 or later
   * Visual Studio 2017 or later
 * OpenSSL 1.1.0 or later
+* (If using OpenSSL < 1.1.1 ) ed25519-donna and curve25519-donna.  We've made some
+  minor changes, so the source is included in this project.
 * Google protobuf (3.0+ recommended, but 2.6.1+ should work)
-* ed25519-donna and curve25519-donna.  We've made some minor changes, so the
-  source is included in this project.
 
 
 #### OpenSSL
