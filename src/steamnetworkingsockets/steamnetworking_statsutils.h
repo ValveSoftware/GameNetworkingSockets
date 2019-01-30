@@ -260,7 +260,7 @@ struct LinkStatsTrackerBase
 	/// Consume the next sequence number, and record the time at which
 	/// we sent a sequenced packet.  (Don't call this unless you are sending
 	/// a sequenced packet.)
-	inline uint16 GetNextSendSequenceNumber( SteamNetworkingMicroseconds usecNow )
+	inline uint16 ConsumeSendPacketNumberAndGetWireFmt( SteamNetworkingMicroseconds usecNow )
 	{
 		m_usecTimeLastSentSeq = usecNow;
 		return uint16( m_nNextSendSequenceNumber++ );

@@ -559,7 +559,7 @@ int CSteamNetworkConnectionUDP::SendEncryptedDataChunk( const void *pChunk, int 
 	hdr->m_unMsgFlags = 0x80;
 	Assert( m_unConnectionIDRemote != 0 );
 	hdr->m_unToConnectionID = LittleDWord( m_unConnectionIDRemote );
-	hdr->m_unSeqNum = LittleWord( m_statsEndToEnd.GetNextSendSequenceNumber( usecNow ) );
+	hdr->m_unSeqNum = LittleWord( m_statsEndToEnd.ConsumeSendPacketNumberAndGetWireFmt( usecNow ) );
 
 	byte *p = (byte*)( hdr + 1 );
 

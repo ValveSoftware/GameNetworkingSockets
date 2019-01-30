@@ -2163,12 +2163,12 @@ void CSteamNetworkConnectionPipe::FakeSendStats( SteamNetworkingMicroseconds use
 		return;
 
 	// Get the next packet number we would have sent
-	uint16 nSeqNum = m_statsEndToEnd.GetNextSendSequenceNumber( usecNow );
+	uint16 nSeqNum = m_statsEndToEnd.ConsumeSendPacketNumberAndGetWireFmt( usecNow );
 
 	// And the peer receiving it immediately.  And assume every packet represents
 	// a ping measurement.
 	int64 nPktNum = m_pPartner->m_statsEndToEnd.ExpandWirePacketNumberAndCheck( nSeqNum );
-	Assert( nPktNum == m_statsEndToEnd.m_nNextSendSequenceNumber );
+	Assert( nPktNum+1 == m_statsEndToEnd.m_nNextSendSequenceNumber );
 	m_pPartner->m_statsEndToEnd.TrackProcessSequencedPacket( nSeqNum, usecNow, -1 );
 	m_pPartner->m_statsEndToEnd.TrackRecvPacket( cbPktSize, usecNow );
 	m_pPartner->m_statsEndToEnd.m_ping.ReceivedPing( 0, usecNow );
