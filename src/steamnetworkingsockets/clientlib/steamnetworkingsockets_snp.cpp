@@ -211,9 +211,7 @@ void CSteamNetworkConnectionBase::SNP_InitializeConnection( SteamNetworkingMicro
 	*/
 	Assert( usecPing > 0 );
 	int64 w_init = Clamp( 4380, 2 * k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend, 4 * k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend );
-	int rate = int( k_nMillion * w_init / usecPing );
-
-	m_senderState.m_n_x = Max( m_connectionConfig.m_SendRateMin.Get(), rate );
+	m_senderState.m_n_x = int( k_nMillion * w_init / usecPing );
 
 //	if ( steamdatagram_snp_log_x )
 //	SpewMsg( "%12llu %s: INITIAL X=%d rtt=%dms tx_s=%d\n", 
@@ -255,6 +253,7 @@ EResult CSteamNetworkConnectionBase::SNP_SendMessage( SteamNetworkingMicrosecond
 
 	// First, accumulate tokens, and also limit to reasonable burst
 	// if we weren't already waiting to send
+	SNP_ClampSendRate();
 	m_senderState.TokenBucket_Accumulate( usecNow );
 
 	// Add to the send queue
@@ -386,6 +385,7 @@ EResult CSteamNetworkConnectionBase::SNP_FlushMessage( SteamNetworkingMicrosecon
 	// if we weren't already waiting to send before this.
 	// (Clearing the Nagle timers might very well make us want to
 	// send so we want to do this first.)
+	SNP_ClampSendRate();
 	m_senderState.TokenBucket_Accumulate( usecNow );
 
 	// Clear all Nagle timers
@@ -2708,13 +2708,29 @@ void CSteamNetworkConnectionBase::SNP_UpdateX( SteamNetworkingMicroseconds usecN
 //
 //	UpdateSpeeds( m_senderState.m_n_x, m_senderState.m_n_x_recv );
 
-	m_senderState.m_n_x = Clamp( m_senderState.m_n_x, m_connectionConfig.m_SendRateMin.Get(), m_connectionConfig.m_SendRateMax.Get() );
+	// Go ahead and clamp it now
+	SNP_ClampSendRate();
+}
+
+int CSteamNetworkConnectionBase::SNP_ClampSendRate()
+{
+	// Get effective clamp limits.  We clamp the limits themselves to be safe
+	// and make sure they are sane
+	int nMin = Clamp( m_connectionConfig.m_SendRateMin.Get(), 1024, 100*1024*1024 );
+	int nMax = Clamp( m_connectionConfig.m_SendRateMax.Get(), nMin, 100*1024*1024 );
+
+	// Clamp it, adjusting the value if it's out of range
+	m_senderState.m_n_x = Clamp( m_senderState.m_n_x, nMin, nMax );
+
+	// Return value
+	return m_senderState.m_n_x;
 }
 
 // Returns next think time
 SteamNetworkingMicroseconds CSteamNetworkConnectionBase::SNP_ThinkSendState( SteamNetworkingMicroseconds usecNow )
 {
 	// Accumulate tokens based on how long it's been since last time
+	SNP_ClampSendRate();
 	m_senderState.TokenBucket_Accumulate( usecNow );
 
 	// Calculate next time we want to take action.  If it isn't right now, then we're either idle or throttled.
@@ -2847,9 +2863,9 @@ SteamNetworkingMicroseconds CSteamNetworkConnectionBase::SNP_GetNextThinkTime( S
 	return usecNextThink;
 }
 
-void CSteamNetworkConnectionBase::SNP_PopulateDetailedStats( SteamDatagramLinkStats &info ) const
+void CSteamNetworkConnectionBase::SNP_PopulateDetailedStats( SteamDatagramLinkStats &info )
 {
-	info.m_latest.m_nSendRate = m_senderState.m_n_x;
+	info.m_latest.m_nSendRate = SNP_ClampSendRate();
 	info.m_latest.m_nPendingBytes = m_senderState.m_cbPendingUnreliable + m_senderState.m_cbPendingReliable;
 	info.m_lifetime.m_nMessagesSentReliable    = m_senderState.m_nMessagesSentReliable;
 	info.m_lifetime.m_nMessagesSentUnreliable  = m_senderState.m_nMessagesSentUnreliable;
@@ -2859,7 +2875,7 @@ void CSteamNetworkConnectionBase::SNP_PopulateDetailedStats( SteamDatagramLinkSt
 
 void CSteamNetworkConnectionBase::SNP_PopulateQuickStats( SteamNetworkingQuickConnectionStatus &info, SteamNetworkingMicroseconds usecNow )
 {
-	info.m_nSendRateBytesPerSecond = m_senderState.m_n_x;
+	info.m_nSendRateBytesPerSecond = SNP_ClampSendRate();
 	info.m_cbPendingUnreliable = m_senderState.m_cbPendingUnreliable;
 	info.m_cbPendingReliable = m_senderState.m_cbPendingReliable;
 	info.m_cbSentUnackedReliable = m_senderState.m_cbSentUnackedReliable;
@@ -2889,7 +2905,7 @@ void CSteamNetworkConnectionBase::SNP_PopulateQuickStats( SteamNetworkingQuickCo
 	else
 	{
 
-		info.m_usecQueueTime = (int64)cbPendingTotal * k_nMillion / m_senderState.m_n_x;
+		info.m_usecQueueTime = (int64)cbPendingTotal * k_nMillion / SNP_ClampSendRate();
 	}
 }
 

@@ -235,7 +235,7 @@ public:
 	void APIGetQuickConnectionStatus( SteamNetworkingQuickConnectionStatus &stats );
 
 	/// Fill in detailed connection stats
-	virtual void APIGetDetailedConnectionStatus( SteamNetworkingDetailedConnectionStatus &stats, SteamNetworkingMicroseconds usecNow ) const;
+	virtual void APIGetDetailedConnectionStatus( SteamNetworkingDetailedConnectionStatus &stats, SteamNetworkingMicroseconds usecNow );
 
 //
 // Accessor
@@ -561,8 +561,9 @@ protected:
 	//void SNP_MoveSentToSend( SteamNetworkingMicroseconds usecNow );
 	//void SNP_CheckForReliable( SteamNetworkingMicroseconds usecNow );
 	void SNP_UpdateX( SteamNetworkingMicroseconds usecNow );
+	int SNP_ClampSendRate();
 	std::string SNP_GetDebugText();
-	void SNP_PopulateDetailedStats( SteamDatagramLinkStats &info ) const;
+	void SNP_PopulateDetailedStats( SteamDatagramLinkStats &info );
 	void SNP_PopulateQuickStats( SteamNetworkingQuickConnectionStatus &info, SteamNetworkingMicroseconds usecNow );
 	//bool SNP_UpdateIMean( uint16 unSeqNum, SteamNetworkingMicroseconds usecNow );
 	//bool SNP_AddLossEvent( uint16 unSeqNum, SteamNetworkingMicroseconds usecNow );

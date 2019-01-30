@@ -1147,7 +1147,7 @@ void CSteamNetworkConnectionBase::APIGetQuickConnectionStatus( SteamNetworkingQu
 	SNP_PopulateQuickStats( stats, usecNow );
 }
 
-void CSteamNetworkConnectionBase::APIGetDetailedConnectionStatus( SteamNetworkingDetailedConnectionStatus &stats, SteamNetworkingMicroseconds usecNow ) const
+void CSteamNetworkConnectionBase::APIGetDetailedConnectionStatus( SteamNetworkingDetailedConnectionStatus &stats, SteamNetworkingMicroseconds usecNow )
 {
 	stats.Clear();
 	PopulateConnectionInfo( stats.m_info );
