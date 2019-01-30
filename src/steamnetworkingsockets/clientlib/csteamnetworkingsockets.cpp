@@ -112,7 +112,7 @@ static void EnsureConfigValueTableInitted()
 		s_vecConfigValueTable[i-1]->m_pNextEntry = s_vecConfigValueTable[i];
 		AssertMsg1( s_vecConfigValueTable[i-1]->m_eValue < s_vecConfigValueTable[i]->m_eValue, "Registered duplicate config value %d", s_vecConfigValueTable[i]->m_eValue );
 	}
-	s_vecConfigValueTable[N-1] = nullptr;
+	s_vecConfigValueTable[N-1]->m_pNextEntry = nullptr;
 
 	s_pFirstGlobalConfigEntry = nullptr;
 	s_bConfigValueTableInitted = true;
