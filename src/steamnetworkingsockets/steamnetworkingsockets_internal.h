@@ -50,6 +50,7 @@
 #include <steam/steamnetworkingtypes.h>
 #include <tier1/netadr.h>
 #include <vstdlib/strtools.h>
+#include <vstdlib/random.h>
 #include <tier1/utlvector.h>
 #include <tier1/utlbuffer.h>
 #include "keypair.h"
@@ -507,6 +508,157 @@ inline int SteamNetworkingIdentityFromCert( SteamNetworkingIdentity &result, con
 
 // NOTE: Does NOT check the cert signature!
 extern int SteamNetworkingIdentityFromSignedCert( SteamNetworkingIdentity &result, const CMsgSteamDatagramCertificateSigned &msgCertSigned, SteamDatagramErrMsg &errMsg );
+
+struct ConfigValueBase
+{
+
+	// Config value we should inherit from, if we are not set
+	ConfigValueBase *m_pInherit = nullptr;
+
+	// Is the value set?
+	bool m_bValueSet = false;
+};
+
+template<typename T>
+struct ConfigValue : public ConfigValueBase
+{
+	inline ConfigValue() : m_data{} {}
+	inline explicit ConfigValue( const T &defaultValue ) : m_data(defaultValue) { m_bValueSet = true; }
+
+	T m_data;
+
+	/// Fetch the effective value
+	inline const T &Get() const
+	{
+		const ConfigValueBase *p = this;
+		while ( !p->m_bValueSet )
+		{
+			Assert( p->m_pInherit );
+			p = p->m_pInherit;
+		}
+
+		const auto *t = static_cast<const ConfigValue<T> *>( p );
+		return t->m_data;
+	}
+
+	void Set( const T &value )
+	{
+		m_data = value;
+		m_bValueSet = true;
+	}
+};
+
+template <typename T> struct ConfigDataTypeTraits {};
+template <> struct ConfigDataTypeTraits<int32> { const static ESteamNetworkingConfigDataType k_eDataType = k_ESteamNetworkingConfig_Int32; };
+template <> struct ConfigDataTypeTraits<int64> { const static ESteamNetworkingConfigDataType k_eDataType = k_ESteamNetworkingConfig_Int64; };
+template <> struct ConfigDataTypeTraits<float> { const static ESteamNetworkingConfigDataType k_eDataType = k_ESteamNetworkingConfig_Float; };
+template <> struct ConfigDataTypeTraits<std::string> { const static ESteamNetworkingConfigDataType k_eDataType = k_ESteamNetworkingConfig_String; };
+template <> struct ConfigDataTypeTraits<void*> { const static ESteamNetworkingConfigDataType k_eDataType = k_ESteamNetworkingConfig_FunctionPtr; };
+
+struct GlobalConfigValueEntry
+{
+	GlobalConfigValueEntry( ESteamNetworkingConfigValue eValue, const char *pszName, ESteamNetworkingConfigDataType eDataType, ESteamNetworkingConfigScope eScope, int cbOffsetOf );
+
+	ESteamNetworkingConfigValue const m_eValue;
+	const char *const m_pszName;
+	ESteamNetworkingConfigDataType const m_eDataType;
+	ESteamNetworkingConfigScope const m_eScope;
+	int const m_cbOffsetOf;
+	GlobalConfigValueEntry *m_pNextEntry;
+};
+
+template<typename T>
+struct GlobalConfigValueBase : GlobalConfigValueEntry
+{
+	GlobalConfigValueBase( ESteamNetworkingConfigValue eValue, const char *pszName, const T &defaultValue, ESteamNetworkingConfigScope eScope, int cbOffsetOf )
+	: GlobalConfigValueEntry( eValue, pszName, ConfigDataTypeTraits<T>::k_eDataType, eScope, cbOffsetOf )
+	, m_value{defaultValue} {}
+
+	inline const T &Get() const
+	{
+		Assert( !m_value.m_pInherit );
+		Assert( m_value.m_bValueSet );
+		return m_value.m_data;
+	}
+
+	struct Value : public ConfigValue<T>
+	{
+		inline Value( const T &defaultValue ) : ConfigValue<T>(defaultValue), m_defaultValue(defaultValue) {}
+		const T m_defaultValue;
+	};
+	Value m_value;
+};
+
+template<typename T>
+struct GlobalConfigValue : GlobalConfigValueBase<T>
+{
+	GlobalConfigValue( ESteamNetworkingConfigValue eValue, const char *pszName, const T &defaultValue )
+	: GlobalConfigValueBase<T>( eValue, pszName, defaultValue, k_ESteamNetworkingConfig_Global, 0 ) {}
+};
+
+struct ConnectionConfig
+{
+	ConfigValue<int32> m_TimeoutInitial;
+	ConfigValue<int32> m_TimeoutConnected;
+	ConfigValue<int32> m_SendBufferSize;
+	ConfigValue<int32> m_SendRateMin;
+	ConfigValue<int32> m_SendRateMax;
+	ConfigValue<int32> m_NagleTime;
+	ConfigValue<int32> m_IP_AllowWithoutAuth;
+
+	ConfigValue<int32> m_LogLevel_AckRTT;
+	ConfigValue<int32> m_LogLevel_PacketDecode;
+	ConfigValue<int32> m_LogLevel_Message;
+	ConfigValue<int32> m_LogLevel_PacketGaps;
+
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
+		ConfigValue<int32> m_LogLevel_P2PRendezvous;
+		ConfigValue<std::string> m_SDRClient_DebugTicketAddress;
+	#endif
+
+	void Init( ConnectionConfig *pInherit );
+};
+
+template<typename T>
+struct ConnectionConfigDefaultValue : GlobalConfigValueBase<T>
+{
+	ConnectionConfigDefaultValue( ESteamNetworkingConfigValue eValue, const char *pszName, const T &defaultValue, int cbOffsetOf )
+	: GlobalConfigValueBase<T>( eValue, pszName, defaultValue, k_ESteamNetworkingConfig_Connection, cbOffsetOf ) {}
+};
+
+extern GlobalConfigValue<float> g_Config_FakePacketLoss_Send;
+extern GlobalConfigValue<float> g_Config_FakePacketLoss_Recv;
+extern GlobalConfigValue<int32> g_Config_FakePacketLag_Send;
+extern GlobalConfigValue<int32> g_Config_FakePacketLag_Recv;
+extern GlobalConfigValue<float> g_Config_FakePacketReorder_Send;
+extern GlobalConfigValue<float> g_Config_FakePacketReorder_Recv;
+extern GlobalConfigValue<int32> g_Config_FakePacketReorder_Time;
+extern GlobalConfigValue<float> g_Config_FakePacketDup_Send;
+extern GlobalConfigValue<float> g_Config_FakePacketDup_Recv;
+extern GlobalConfigValue<int32> g_Config_FakePacketDup_TimeMax;
+
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
+extern GlobalConfigValue<int32> g_Config_SDRClient_ConsecutitivePingTimeoutsFailInitial;
+extern GlobalConfigValue<int32> g_Config_SDRClient_ConsecutitivePingTimeoutsFail;
+extern GlobalConfigValue<int32> g_Config_SDRClient_MinPingsBeforePingAccurate;
+extern GlobalConfigValue<int32> g_Config_SDRClient_SingleSocket;
+extern GlobalConfigValue<int32> g_Config_LogLevel_SDRRelayPings;
+extern GlobalConfigValue<std::string> g_Config_SDRClient_ForceRelayCluster;
+extern GlobalConfigValue<std::string> g_Config_SDRClient_ForceProxyAddr;
+#endif
+
+#define DEFINE_GLOBAL_CONFIGVAL( type, name, defaultVal ) \
+	GlobalConfigValue<type> g_Config_##name( k_ESteamNetworkingConfig_##name, #name, defaultVal )
+#define DEFINE_CONNECTON_DEFAULT_CONFIGVAL( type, name, defaultVal ) \
+	ConnectionConfigDefaultValue<type> g_ConfigDefault_##name( k_ESteamNetworkingConfig_##name, #name, defaultVal, (int)(intptr_t)&((ConnectionConfig*)0)->m_##name )
+
+inline bool RandomBoolWithOdds( float odds )
+{
+	Assert( odds >= 0.0f && odds <= 100.0f );
+	if ( odds <= 0.0f )
+		return false;
+	return WeakRandomFloat( 0, 100.0 ) < odds;
+}
 
 } // namespace SteamNetworkingSocketsLib
 

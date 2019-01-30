@@ -83,7 +83,7 @@ class CSteamNetworkingMessage : public SteamNetworkingMessage_t
 {
 public:
 	static CSteamNetworkingMessage *New( CSteamNetworkConnectionBase *pParent, uint32 cbSize, int64 nMsgNum, SteamNetworkingMicroseconds usecNow );
-	static void Delete( SteamNetworkingMessage_t *piMsg );
+	static void DefaultFreeData( SteamNetworkingMessage_t *pMsg );
 
 	/// Remove it from queues
 	void Unlink();
@@ -188,6 +188,9 @@ public:
 	/// What interface is responsible for this listen socket?
 	CSteamNetworkingSockets *const m_pSteamNetworkingSocketsInterface;
 
+	/// Configuration options that will apply to all connections accepted through this listen socket
+	ConnectionConfig m_connectionConfig;
+
 protected:
 	CSteamNetworkListenSocketBase( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface );
 	virtual ~CSteamNetworkListenSocketBase(); // hidden destructor, don't call directly.  Use Destroy()
@@ -215,7 +218,7 @@ public:
 	void APICloseConnection( int nReason, const char *pszDebug, bool bEnableLinger );
 
 	/// Send a message
-	EResult APISendMessageToConnection( const void *pData, uint32 cbData, ESteamNetworkingSendType eSendType );
+	EResult APISendMessageToConnection( const void *pData, uint32 cbData, int nSendFlags );
 
 	/// Flush any messages queued for Nagle
 	EResult APIFlushMessageOnConnection();
@@ -337,6 +340,9 @@ public:
 	uint64 m_ulHandshakeRemoteTimestamp;
 	SteamNetworkingMicroseconds m_usecWhenReceivedHandshakeRemoteTimestamp;
 
+	/// Connection configuration
+	ConnectionConfig m_connectionConfig;
+
 	/// Expand the packet number and decrypt a data chunk.
 	/// Returns the full 64-bit packet number, or 0 on failure.
 	int64 DecryptDataChunk( uint16 nWireSeqNum, int cbPacketSize, const void *pChunk, int cbChunk, void *pDecrypted, uint32 &cbDecrypted, SteamNetworkingMicroseconds usecNow );
@@ -349,14 +355,6 @@ public:
 
 	// Called from SNP to update transmit/receive speeds
 	void UpdateSpeeds( int nTXSpeed, int nRXSpeed );
-
-	// Connection configuration values.
-	// 0 means "use global default"
-	void SetMinimumRate( int nRate );
-	void SetMaximumRate( int nRate );
-	inline int GetMinimumRate() const { return m_senderState.m_n_minRate; }
-	inline int GetMaximumRate() const { return m_senderState.m_n_maxRate; }
-
 
 	/// Called when the async process to request a cert has failed.
 	void CertRequestFailed( ESteamNetConnectionEnd nConnectionEndReason, const char *pszMsg );
@@ -443,7 +441,7 @@ protected:
 
 	/// Hook to allow connections to customize message sending.
 	/// (E.g. loopback.)
-	virtual EResult _APISendMessageToConnection( const void *pData, uint32 cbData, ESteamNetworkingSendType eSendType );
+	virtual EResult _APISendMessageToConnection( const void *pData, uint32 cbData, int nSendFlags );
 
 	/// Base class calls this to ask derived class to surround the 
 	/// "chunk" with the appropriate framing, and route it to the 
@@ -547,14 +545,13 @@ protected:
 	};
 	virtual ERemoteUnsignedCert AllowRemoteUnsignedCert();
 
-
 	//
 	// "SNP" - Steam Networking Protocol.  (Sort of audacious to stake out this acronym, don't you think...?)
 	//         The layer that does end-to-end reliability and bandwidth estimation
 	//
 
 	void SNP_InitializeConnection( SteamNetworkingMicroseconds usecNow );
-	EResult SNP_SendMessage( SteamNetworkingMicroseconds usecNow, const void *pData, int cbData, ESteamNetworkingSendType eSendType );
+	EResult SNP_SendMessage( SteamNetworkingMicroseconds usecNow, const void *pData, int cbData, int nSendFlags );
 	SteamNetworkingMicroseconds SNP_ThinkSendState( SteamNetworkingMicroseconds usecNow );
 	SteamNetworkingMicroseconds SNP_GetNextThinkTime( SteamNetworkingMicroseconds usecNow );
 	void SNP_PrepareFeedback( SteamNetworkingMicroseconds usecNow );
@@ -581,9 +578,6 @@ protected:
 	/// Check in flight packets.  Expire any that need to be, and return the time when the
 	/// next one that is not yet expired will be expired.
 	SteamNetworkingMicroseconds SNP_SenderCheckInFlightPackets( SteamNetworkingMicroseconds usecNow );
-
-	int GetEffectiveMinRate() const;
-	int GetEffectiveMaxRate() const;
 
 	SSNPSenderState m_senderState;
 	SSNPReceiverState m_receiverState;
@@ -619,7 +613,7 @@ public:
 	virtual void SendEndToEndPing( bool bUrgent, SteamNetworkingMicroseconds usecNow ) OVERRIDE;
 	virtual EResult APIAcceptConnection() OVERRIDE;
 	virtual int SendEncryptedDataChunk( const void *pChunk, int cbChunk, SteamNetworkingMicroseconds usecNow, void *pConnectionContext ) OVERRIDE;
-	virtual EResult _APISendMessageToConnection( const void *pData, uint32 cbData, ESteamNetworkingSendType eSendType ) OVERRIDE;
+	virtual EResult _APISendMessageToConnection( const void *pData, uint32 cbData, int nSendFlags ) OVERRIDE;
 	virtual void ConnectionStateChanged( ESteamNetworkingConnectionState eOldState ) OVERRIDE;
 	virtual void PostConnectionStateChangedCallback( ESteamNetworkingConnectionState eOldAPIState, ESteamNetworkingConnectionState eNewAPIState ) OVERRIDE;
 	virtual ERemoteUnsignedCert AllowRemoteUnsignedCert() OVERRIDE;

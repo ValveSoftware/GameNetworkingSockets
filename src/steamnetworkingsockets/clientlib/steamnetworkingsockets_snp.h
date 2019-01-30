@@ -206,8 +206,6 @@ struct SSNPSenderState
 	// only rarely used.
 	int m_n_x = 32*1024;
 
-	int m_n_minRate = 0; // Minimum send rate, if 0 defaults to using the global config setting
-	int m_n_maxRate = 0; // Maximum send rate, if 0 defaults to using the global config setting
 	//int m_n_x_recv = 0; // Received rate transmitted by receiver
 	int m_n_x_calc = 0;	// Calculated rate in bytes per second
 	//uint32 m_un_p = 0;		// Current loss event rate (0-1) scaled to 0-UINT_MAX

@@ -10,24 +10,30 @@
 #pragma once
 #endif
 
+#include <stdint.h>
+
 #include "steamnetworkingtypes.h"
 struct SteamDatagramRelayAuthTicket;
 
-extern "C" {
-STEAMNETWORKINGSOCKETS_INTERFACE SteamNetworkingMicroseconds SteamNetworkingSockets_GetLocalTimestamp();
-STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetDebugOutputFunction( ESteamNetworkingSocketsDebugOutputType eDetailLevel, FSteamNetworkingSocketsDebugOutput pfnFunc );
-}
-
 //-----------------------------------------------------------------------------
+/// Misc networking utilities for checking the local networking environment
+/// and estimating pings.
 class ISteamNetworkingUtils
 {
 public:
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
+	// Ping measurement utilities using Valve's relay network
+#endif // #ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
+
+	//
+	// Misc
+	//
 
 	/// Fetch current timestamp.  This timer has the following properties:
 	///
 	/// - Monotonicity is guaranteed.
 	/// - The initial value will be at least 24*3600*30*1e6, i.e. about
-	///   30 days worth of milliseconds.  In this way, the timestamp value of
+	///   30 days worth of microseconds.  In this way, the timestamp value of
 	///   0 will always be at least "30 days ago".  Also, negative numbers
 	///   will never be returned.
 	/// - Wraparound / overflow is not a practical concern.
@@ -40,10 +46,7 @@ public:
 	///
 	/// The value is only meaningful for this run of the process.  Don't compare
 	/// it to values obtained on another computer, or other runs of the same process.
-	inline static SteamNetworkingMicroseconds GetLocalTimestamp()
-	{
-		return SteamNetworkingSockets_GetLocalTimestamp();
-	}
+	virtual SteamNetworkingMicroseconds GetLocalTimestamp() = 0;
 
 	/// Set a function to receive network-related information that is useful for debugging.
 	/// This can be very useful during development, but it can also be useful for troubleshooting
@@ -63,14 +66,79 @@ public:
 	/// IMPORTANT: This may be called from a service thread, while we own a mutex, etc.
 	/// Your output function must be threadsafe and fast!  Do not make any other
 	/// Steamworks calls from within the handler.
-	inline static void SetDebugOutputFunction( ESteamNetworkingSocketsDebugOutputType eDetailLevel, FSteamNetworkingSocketsDebugOutput pfnFunc )
-	{
-		SteamNetworkingSockets_SetDebugOutputFunction( eDetailLevel, pfnFunc );
-	}
-};
+	virtual void SetDebugOutputFunction( ESteamNetworkingSocketsDebugOutputType eDetailLevel, FSteamNetworkingSocketsDebugOutput pfnFunc ) = 0;
 
-/// Dummy.  This just returns something non-null.  (In case you have code that
-/// checks if this function is returning null.)
-inline ISteamNetworkingUtils *SteamNetworkingUtils() { return reinterpret_cast<ISteamNetworkingUtils*>( 1 ); }
+	//
+	// Set and get configuration values, see ESteamNetworkingConfigValue for individual descriptions.
+	//
+
+	// Shortcuts for common cases.  (Implemented as inline functions below)
+	bool SetGlobalConfigValueInt32( ESteamNetworkingConfigValue eValue, int32 val );
+	bool SetGlobalConfigValueFloat( ESteamNetworkingConfigValue eValue, float val );
+	bool SetGlobalConfigValueString( ESteamNetworkingConfigValue eValue, const char *val );
+	bool SetConnectionConfigValueInt32( HSteamNetConnection hConn, ESteamNetworkingConfigValue eValue, int32 val );
+	bool SetConnectionConfigValueFloat( HSteamNetConnection hConn, ESteamNetworkingConfigValue eValue, float val );
+	bool SetConnectionConfigValueString( HSteamNetConnection hConn, ESteamNetworkingConfigValue eValue, const char *val );
+
+	/// Set a configuration value.
+	/// - eValue: which value is being set
+	/// - eScope: Onto what type of object are you applying the setting?
+	/// - scopeArg: Which object you want to change?  (Ignored for global scope).  E.g. connection handle, listen socket handle, interface pointer, etc.
+	/// - eDataType: What type of data is in the buffer at pValue?  This must match the type of the variable exactly!
+	/// - pArg: Value to set it to.  You can pass NULL to remove a non-global sett at this scope,
+	///   causing the value for that object to use global defaults.  Or at global scope, passing NULL
+	///   will reset any custom value and restore it to the system default.
+	///   NOTE: When setting callback functions, do not pass the function pointer directly.
+	///   Your argument should be a pointer to a function pointer.
+	virtual bool SetConfigValue( ESteamNetworkingConfigValue eValue, ESteamNetworkingConfigScope eScopeType, intptr_t scopeObj,
+		ESteamNetworkingConfigDataType eDataType, const void *pArg ) = 0;
+
+	/// Get a configuration value.
+	/// - eValue: which value to fetch
+	/// - eScopeType: query setting on what type of object
+	/// - eScopeArg: the object to query the setting for
+	/// - pOutDataType: If non-NULL, the data type of the value is returned.
+	/// - pResult: Where to put the result.  Pass NULL to query the required buffer size.  (k_ESteamNetworkingGetConfigValue_BufferTooSmall will be returned.)
+	/// - cbResult: IN: the size of your buffer.  OUT: the number of bytes filled in or required.
+	virtual ESteamNetworkingGetConfigValueResult GetConfigValue( ESteamNetworkingConfigValue eValue, ESteamNetworkingConfigScope eScopeType, intptr_t scopeObj,
+		ESteamNetworkingConfigDataType *pOutDataType, void *pResult, size_t *cbResult ) = 0;
+
+	/// Returns info about a configuration value.  Returns false if the value does not exist.
+	/// pOutNextValue can be used to iterate through all of the known configuration values.
+	/// (Use GetFirstConfigValue() to begin the iteration, will be k_ESteamNetworkingConfig_Invalid on the last value)
+	/// Any of the output parameters can be NULL if you do not need that information.
+	virtual bool GetConfigValueInfo( ESteamNetworkingConfigValue eValue, const char **pOutName, ESteamNetworkingConfigDataType *pOutDataType, ESteamNetworkingConfigScope *pOutScope, ESteamNetworkingConfigValue *pOutNextValue ) = 0;
+
+	/// Return the lowest numbered configuration value available in the current environment.
+	virtual ESteamNetworkingConfigValue GetFirstConfigValue() = 0;
+
+protected:
+	~ISteamNetworkingUtils(); // Silence some warnings
+};
+#define STEAMNETWORKINGUTILS_INTERFACE_VERSION "SteamNetworkingUtils001"
+
+// Global accessor.
+#ifdef STEAMNETWORKINGSOCKETS_STANDALONELIB
+
+	// Standalone lib
+	STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingUtils *SteamNetworkingUtils();
+
+#else
+
+	// Steamworks SDK
+	inline ISteamNetworkingUtils *SteamNetworkingUtils();
+	STEAM_DEFINE_INTERFACE_ACCESSOR( ISteamNetworkingUtils *, SteamNetworkingUtils, SteamInternal_FindOrCreateUserInterface( 0, STEAMNETWORKINGUTILS_INTERFACE_VERSION ) );
+#endif
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Internal stuff
+
+inline bool ISteamNetworkingUtils::SetGlobalConfigValueInt32( ESteamNetworkingConfigValue eValue, int32 val ) { return SetConfigValue( eValue, k_ESteamNetworkingConfig_Global, 0, k_ESteamNetworkingConfig_Int32, &val ); }
+inline bool ISteamNetworkingUtils::SetGlobalConfigValueFloat( ESteamNetworkingConfigValue eValue, float val ) { return SetConfigValue( eValue, k_ESteamNetworkingConfig_Global, 0, k_ESteamNetworkingConfig_Float, &val ); }
+inline bool ISteamNetworkingUtils::SetGlobalConfigValueString( ESteamNetworkingConfigValue eValue, const char *val ) { return SetConfigValue( eValue, k_ESteamNetworkingConfig_Global, 0, k_ESteamNetworkingConfig_String, val ); }
+inline bool ISteamNetworkingUtils::SetConnectionConfigValueInt32( HSteamNetConnection hConn, ESteamNetworkingConfigValue eValue, int32 val ) { return SetConfigValue( eValue, k_ESteamNetworkingConfig_Connection, hConn, k_ESteamNetworkingConfig_Int32, &val ); }
+inline bool ISteamNetworkingUtils::SetConnectionConfigValueFloat( HSteamNetConnection hConn, ESteamNetworkingConfigValue eValue, float val ) { return SetConfigValue( eValue, k_ESteamNetworkingConfig_Connection, hConn, k_ESteamNetworkingConfig_Float, &val ); }
+inline bool ISteamNetworkingUtils::SetConnectionConfigValueString( HSteamNetConnection hConn, ESteamNetworkingConfigValue eValue, const char *val ) { return SetConfigValue( eValue, k_ESteamNetworkingConfig_Connection, hConn, k_ESteamNetworkingConfig_String, val ); }
 
 #endif // ISTEAMNETWORKINGUTILS

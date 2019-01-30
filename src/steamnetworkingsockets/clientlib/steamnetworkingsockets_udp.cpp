@@ -1,7 +1,6 @@
 //====== Copyright Valve Corporation, All rights reserved. ====================
 
 #include "steamnetworkingsockets_udp.h"
-#include "steamnetworkingconfig.h"
 #include "csteamnetworkingsockets.h"
 #include "crypto.h"
 
@@ -362,7 +361,7 @@ void CSteamNetworkListenSocketDirectUDP::Received_ConnectRequest( const CMsgStea
 
 		if ( identityRemote.IsLocalHost() )
 		{
-			if ( steamdatagram_ip_allow_connections_without_auth == 0 )
+			if ( m_connectionConfig.m_IP_AllowWithoutAuth.Get() == 0 )
 			{
 				// Should we send an explicit rejection here?
 				ReportBadPacket( "ConnectRequest", "Unauthenticated connections not allowed." );
@@ -766,7 +765,7 @@ bool CSteamNetworkConnectionUDP::BInitConnect( const SteamNetworkingIPAddr &addr
 		{
 
 			// We don't know who we are.  Should we attempt anonymous?
-			if ( steamdatagram_ip_allow_connections_without_auth == 0 )
+			if ( m_connectionConfig.m_IP_AllowWithoutAuth.Get() == 0 )
 			{
 				V_strcpy_safe( errMsg, "Unable to determine local identity, and auth required.  Not logged in?" );
 				return false;
@@ -1442,7 +1441,7 @@ void CSteamNetworkConnectionUDP::Received_ConnectOK( const CMsgSteamSockets_UDP_
 
 		if ( identityRemote.IsLocalHost() )
 		{
-			if ( steamdatagram_ip_allow_connections_without_auth == 0 )
+			if ( m_connectionConfig.m_IP_AllowWithoutAuth.Get() == 0 )
 			{
 				// Should we send an explicit rejection here?
 				ReportBadPacketIPv4( "ConnectOK", "Unauthenticated connections not allowed." );

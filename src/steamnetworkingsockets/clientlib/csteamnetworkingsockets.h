@@ -5,11 +5,14 @@
 #pragma once
 
 #include <steam/steamnetworkingsockets.h>
+#include <steam/isteamnetworkingutils.h>
 
 #ifdef STEAMNETWORKINGSOCKETS_STEAM
 	#include <common/steam/iclientnetworkingsockets.h>
+	#include <common/steam/iclientnetworkingutils.h>
 #else
 	typedef ISteamNetworkingSockets IClientNetworkingSockets;
+	typedef ISteamNetworkingUtils IClientNetworkingUtils;
 #endif
 
 #include "steamnetworkingsockets_connections.h"
@@ -73,7 +76,7 @@ public:
 	virtual int64 GetConnectionUserData( HSteamNetConnection hPeer ) OVERRIDE;
 	virtual void SetConnectionName( HSteamNetConnection hPeer, const char *pszName ) OVERRIDE;
 	virtual bool GetConnectionName( HSteamNetConnection hPeer, char *pszName, int nMaxLen ) OVERRIDE;
-	virtual EResult SendMessageToConnection( HSteamNetConnection hConn, const void *pData, uint32 cbData, ESteamNetworkingSendType eSendType ) OVERRIDE;
+	virtual EResult SendMessageToConnection( HSteamNetConnection hConn, const void *pData, uint32 cbData, int nSendFlags ) OVERRIDE;
 	virtual EResult FlushMessagesOnConnection( HSteamNetConnection hConn ) OVERRIDE;
 	virtual int ReceiveMessagesOnConnection( HSteamNetConnection hConn, SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages ) OVERRIDE;
 	virtual int ReceiveMessagesOnListenSocket( HSteamListenSocket hSocket, SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages ) OVERRIDE;
@@ -82,19 +85,14 @@ public:
 	virtual int GetDetailedConnectionStatus( HSteamNetConnection hConn, char *pszBuf, int cbBuf ) OVERRIDE;
 	virtual bool GetListenSocketAddress( HSteamListenSocket hSocket, SteamNetworkingIPAddr *pAddress ) OVERRIDE;
 	virtual bool CreateSocketPair( HSteamNetConnection *pOutConnection1, HSteamNetConnection *pOutConnection2, bool bUseNetworkLoopback, const SteamNetworkingIdentity *pIdentity1, const SteamNetworkingIdentity *pIdentity2 ) OVERRIDE;
-	virtual int32 GetConfigurationValue( ESteamNetworkingConfigurationValue eConfigValue ) OVERRIDE;
-	virtual bool SetConfigurationValue( ESteamNetworkingConfigurationValue eConfigValue, int32 nValue ) OVERRIDE;
-	virtual const char *GetConfigurationValueName( ESteamNetworkingConfigurationValue eConfigValue ) OVERRIDE;
-	virtual int32 GetConfigurationString( ESteamNetworkingConfigurationString eConfigString, char *pDest, int32 destSize ) OVERRIDE;
-	virtual bool SetConfigurationString( ESteamNetworkingConfigurationString eConfigString, const char *pString ) OVERRIDE;
-	virtual const char *GetConfigurationStringName( ESteamNetworkingConfigurationString eConfigString ) OVERRIDE;
-	virtual int32 GetConnectionConfigurationValue( HSteamNetConnection hConn, ESteamNetworkingConnectionConfigurationValue eConfigValue ) OVERRIDE;
-	virtual bool SetConnectionConfigurationValue( HSteamNetConnection hConn, ESteamNetworkingConnectionConfigurationValue eConfigValue, int32 nValue ) OVERRIDE;
 	virtual bool GetIdentity( SteamNetworkingIdentity *pIdentity ) OVERRIDE;
 
 #ifdef STEAMNETWORKINGSOCKETS_STANDALONELIB
 	virtual void RunCallbacks( ISteamNetworkingSocketsCallbacks *pCallbacks ) OVERRIDE;
 #endif
+
+	/// Configuration options that will apply to all connections on this interface
+	ConnectionConfig m_connectionConfig;
 
 protected:
 
@@ -114,6 +112,29 @@ protected:
 	};
 	std::vector<QueuedCallback> m_vecPendingCallbacks;
 #endif
+};
+
+class CSteamNetworkingUtils : public IClientNetworkingUtils
+{
+public:
+
+	virtual SteamNetworkingMicroseconds GetLocalTimestamp() override;
+	virtual void SetDebugOutputFunction( ESteamNetworkingSocketsDebugOutputType eDetailLevel, FSteamNetworkingSocketsDebugOutput pfnFunc ) override;
+
+	virtual bool SetConfigValue( ESteamNetworkingConfigValue eValue,
+		ESteamNetworkingConfigScope eScopeType, intptr_t scopeObj,
+		ESteamNetworkingConfigDataType eDataType, const void *pValue ) override;
+
+	virtual ESteamNetworkingGetConfigValueResult GetConfigValue(
+		ESteamNetworkingConfigValue eValue, ESteamNetworkingConfigScope eScopeType,
+		intptr_t scopeObj, ESteamNetworkingConfigDataType *pOutDataType,
+		void *pResult, size_t *cbResult ) override;
+
+	virtual bool GetConfigValueInfo( ESteamNetworkingConfigValue eValue,
+		const char **pOutName, ESteamNetworkingConfigDataType *pOutDataType,
+		ESteamNetworkingConfigScope *pOutScope, ESteamNetworkingConfigValue *pOutNextValue ) override;
+
+	virtual ESteamNetworkingConfigValue GetFirstConfigValue() override;
 };
 
 } // namespace SteamNetworkingSocketsLib

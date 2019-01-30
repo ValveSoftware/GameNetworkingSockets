@@ -110,7 +110,7 @@ static void InitSteamDatagramConnectionSockets()
 		// Authentication is disabled automatically in the open-source
 		// version since we don't have a trusted third party to issue
 		// certs.
-		SteamNetworkingSockets()->SetConfigurationValue( k_ESteamNetworkingConfigurationValue_IP_Allow_Without_Auth, 1 );
+		SteamNetworkingUtils()->SetGlobalConfigValueInt32( k_ESteamNetworkingConfig_IP_AllowWithoutAuth, 1 );
 	#endif
 
 	g_logTimeZero = SteamNetworkingUtils()->GetLocalTimestamp();
@@ -284,7 +284,7 @@ private:
 
 	void SendStringToClient( HSteamNetConnection conn, const char *str )
 	{
-		m_pInterface->SendMessageToConnection( conn, str, (uint32)strlen(str), k_ESteamNetworkingSendType_Reliable );
+		m_pInterface->SendMessageToConnection( conn, str, (uint32)strlen(str), k_nSteamNetworkingSend_Reliable );
 	}
 
 	void SendStringToAllClients( const char *str, HSteamNetConnection except = k_HSteamNetConnection_Invalid )
@@ -593,7 +593,7 @@ private:
 			}
 
 			// Anything else, just send it to the server and let them parse it
-			m_pInterface->SendMessageToConnection( m_hConnection, cmd.c_str(), (uint32)cmd.length(), k_ESteamNetworkingSendType_Reliable );
+			m_pInterface->SendMessageToConnection( m_hConnection, cmd.c_str(), (uint32)cmd.length(), k_nSteamNetworkingSend_Reliable );
 		}
 	}
 

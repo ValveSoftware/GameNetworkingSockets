@@ -12,8 +12,6 @@
 	#include "csteamnetworkingsockets_steam.h"
 #endif
 
-#include "steamnetworkingconfig.h"
-
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
 
@@ -98,6 +96,11 @@ const TrustedKey s_arTrustedKeys[1] = {
 //
 /////////////////////////////////////////////////////////////////////////////
 
+void CSteamNetworkingMessage::DefaultFreeData( SteamNetworkingMessage_t *pMsg )
+{
+	free( pMsg->m_pData );
+}
+
 CSteamNetworkingMessage *CSteamNetworkingMessage::New( CSteamNetworkConnectionBase *pParent, uint32 cbSize, int64 nMsgNum, SteamNetworkingMicroseconds usecNow )
 {
 	// FIXME Should avoid this dynamic memory call with some sort of pooling
@@ -120,29 +123,9 @@ CSteamNetworkingMessage *CSteamNetworkingMessage::New( CSteamNetworkConnectionBa
 	pMsg->m_nChannel = -1;
 	pMsg->m_usecTimeReceived = usecNow;
 	pMsg->m_nMessageNumber = nMsgNum;
-	pMsg->m_pfnRelease = CSteamNetworkingMessage::Delete;
+	pMsg->m_pfnFreeData = CSteamNetworkingMessage::DefaultFreeData;
 
 	return pMsg;
-}
-
-void CSteamNetworkingMessage::Delete( SteamNetworkingMessage_t *pIMsg )
-{
-	CSteamNetworkingMessage *pMsg = static_cast<CSteamNetworkingMessage *>( pIMsg );
-
-	free( pMsg->m_pData );
-
-	// We must not currently be in any queue.  In fact, our parent
-	// might have been destroyed.
-	Assert( !pMsg->m_linksSameConnection.m_pQueue );
-	Assert( !pMsg->m_linksSameConnection.m_pPrev );
-	Assert( !pMsg->m_linksSameConnection.m_pNext );
-	Assert( !pMsg->m_linksSecondaryQueue.m_pQueue );
-	Assert( !pMsg->m_linksSecondaryQueue.m_pPrev );
-	Assert( !pMsg->m_linksSecondaryQueue.m_pNext );
-
-	// Self destruct
-	// FIXME Should avoid this dynamic memory call with some sort of pooling
-	delete pMsg;
 }
 
 void CSteamNetworkingMessage::LinkToQueueTail( Links CSteamNetworkingMessage::*pMbrLinks, SteamNetworkingMessageQueue *pQueue )
@@ -260,6 +243,7 @@ CSteamNetworkListenSocketBase::CSteamNetworkListenSocketBase( CSteamNetworkingSo
 : m_pSteamNetworkingSocketsInterface( pSteamNetworkingSocketsInterface )
 {
 	m_hListenSocketSelf = k_HSteamListenSocket_Invalid;
+	m_connectionConfig.Init( &pSteamNetworkingSocketsInterface->m_connectionConfig );
 }
 
 CSteamNetworkListenSocketBase::~CSteamNetworkListenSocketBase()
@@ -309,6 +293,9 @@ void CSteamNetworkListenSocketBase::AddChildConnection( CSteamNetworkConnectionB
 	// Setup linkage
 	pConn->m_pParentListenSocket = this;
 	pConn->m_hSelfInParentListenSocketMap = m_mapChildConnections.Insert( key, pConn );
+
+	// Connection configuration will inherit from us
+	pConn->m_connectionConfig.Init( &m_connectionConfig );
 }
 
 void CSteamNetworkListenSocketBase::AboutToDestroyChildConnection( CSteamNetworkConnectionBase *pConn )
@@ -366,6 +353,9 @@ CSteamNetworkConnectionBase::CSteamNetworkConnectionBase( CSteamNetworkingSocket
 	m_bCryptKeysValid = false;
 	memset( m_szAppName, 0, sizeof( m_szAppName ) );
 	memset( m_szDescription, 0, sizeof( m_szDescription ) );
+
+	// Initialize configuration using parent interface for now.
+	m_connectionConfig.Init( &m_pSteamNetworkingSocketsInterface->m_connectionConfig );
 }
 
 CSteamNetworkConnectionBase::~CSteamNetworkConnectionBase()
@@ -624,7 +614,7 @@ bool CSteamNetworkConnectionBase::BThinkCryptoReady( SteamNetworkingMicroseconds
 	// might want to revisit this and make BAllowLocalUnsignedCert return
 	// slightly more nuanced return value that distinguishes between
 	// "Don't even try" from "try, but continue if we fail"
-	if ( BAllowLocalUnsignedCert() && steamdatagram_ip_allow_connections_without_auth )
+	if ( BAllowLocalUnsignedCert() && m_connectionConfig.m_IP_AllowWithoutAuth.Get() )
 	{
 		InitLocalCryptoWithUnsignedCert();
 		return true;
@@ -1169,7 +1159,7 @@ void CSteamNetworkConnectionBase::APIGetDetailedConnectionStatus( SteamNetworkin
 	SNP_PopulateDetailedStats( stats.m_statsEndToEnd );
 }
 
-EResult CSteamNetworkConnectionBase::APISendMessageToConnection( const void *pData, uint32 cbData, ESteamNetworkingSendType eSendType )
+EResult CSteamNetworkConnectionBase::APISendMessageToConnection( const void *pData, uint32 cbData, int nSendFlags )
 {
 
 	// Check connection state
@@ -1185,7 +1175,7 @@ EResult CSteamNetworkConnectionBase::APISendMessageToConnection( const void *pDa
 
 		case k_ESteamNetworkingConnectionState_Connecting:
 		case k_ESteamNetworkingConnectionState_FindingRoute:
-			if ( eSendType & k_nSteamNetworkingSendFlags_NoDelay )
+			if ( nSendFlags & k_nSteamNetworkingSend_NoDelay )
 				return k_EResultIgnored;
 			break;
 
@@ -1198,10 +1188,10 @@ EResult CSteamNetworkConnectionBase::APISendMessageToConnection( const void *pDa
 	}
 
 	// Connection-type specific logic
-	return _APISendMessageToConnection( pData, cbData, eSendType );
+	return _APISendMessageToConnection( pData, cbData, nSendFlags );
 }
 
-EResult CSteamNetworkConnectionBase::_APISendMessageToConnection( const void *pData, uint32 cbData, ESteamNetworkingSendType eSendType )
+EResult CSteamNetworkConnectionBase::_APISendMessageToConnection( const void *pData, uint32 cbData, int nSendFlags )
 {
 
 	// Message too big?
@@ -1211,16 +1201,9 @@ EResult CSteamNetworkConnectionBase::_APISendMessageToConnection( const void *pD
 		return k_EResultInvalidParam;
 	}
 
-	// Fake loss?
-	if ( !( eSendType & k_nSteamNetworkingSendFlags_Reliable ) )
-	{
-		if ( WeakRandomFloat( 0, 100.0 ) < steamdatagram_fakemessageloss_send )
-			return k_EResultOK;
-	}
-
-	// Using SNP?
+	// Pass to reliability layer
 	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
-	return SNP_SendMessage( usecNow, pData, cbData, eSendType );
+	return SNP_SendMessage( usecNow, pData, cbData, nSendFlags );
 }
 
 
@@ -1441,7 +1424,7 @@ void CSteamNetworkConnectionBase::ReceivedMessage( const void *pData, int cbData
 //		Assert( sizeof(*pTestMsg) - sizeof(pTestMsg->m_data) + pTestMsg->m_cbSize == cbData );
 //	#endif
 
-	SpewType( steamdatagram_snp_log_message, "[%s] RecvMessage MsgNum=%lld sz=%d\n",
+	SpewType( m_connectionConfig.m_LogLevel_Message.Get(), "[%s] RecvMessage MsgNum=%lld sz=%d\n",
 		GetDescription(),
 		(long long)nMsgNum,
 		cbData );
@@ -1839,7 +1822,7 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 		{
 
 			// Timeout?
-			SteamNetworkingMicroseconds usecTimeout = m_usecWhenEnteredConnectionState + (SteamNetworkingMicroseconds)steamdatagram_timeout_seconds_initial*k_nMillion;
+			SteamNetworkingMicroseconds usecTimeout = m_usecWhenEnteredConnectionState + (SteamNetworkingMicroseconds)m_connectionConfig.m_TimeoutInitial.Get()*1000;
 			if ( usecNow >= usecTimeout )
 			{
 				// Check if the application just didn't ever respond, it's probably a bug.
@@ -1920,7 +1903,7 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 	{
 		Assert( m_statsEndToEnd.m_usecTimeLastRecv > 0 ); // How did we get connected without receiving anything end-to-end?
 
-		SteamNetworkingMicroseconds usecEndToEndConnectionTimeout = m_statsEndToEnd.m_usecTimeLastRecv + (SteamNetworkingMicroseconds)steamdatagram_timeout_seconds_connected*k_nMillion;
+		SteamNetworkingMicroseconds usecEndToEndConnectionTimeout = m_statsEndToEnd.m_usecTimeLastRecv + (SteamNetworkingMicroseconds)m_connectionConfig.m_TimeoutConnected.Get()*1000;
 		if ( usecNow >= usecEndToEndConnectionTimeout )
 		{
 			if ( m_statsEndToEnd.m_nReplyTimeoutsSinceLastRecv >= 4 || !BCanSendEndToEndData() )
@@ -2098,8 +2081,8 @@ failed:
 
 		// Slam in a really large SNP rate
 		int nRate = 0x10000000;
-		pConn[i]->SetMinimumRate( nRate );
-		pConn[i]->SetMaximumRate( nRate );
+		pConn[i]->m_connectionConfig.m_SendRateMin.Set( nRate );
+		pConn[i]->m_connectionConfig.m_SendRateMax.Set( nRate );
 	}
 
 	// Exchange some dummy "connect" packets so that all of our internal variables
@@ -2153,7 +2136,7 @@ void CSteamNetworkConnectionPipe::InitConnectionCrypto( SteamNetworkingMicroseco
 	InitLocalCryptoWithUnsignedCert();
 }
 
-EResult CSteamNetworkConnectionPipe::_APISendMessageToConnection( const void *pData, uint32 cbData, ESteamNetworkingSendType eSendType )
+EResult CSteamNetworkConnectionPipe::_APISendMessageToConnection( const void *pData, uint32 cbData, int nSendFlags )
 {
 	if ( !m_pPartner )
 	{
@@ -2311,3 +2294,30 @@ void CSteamNetworkConnectionBase::ValidateStatics( CValidator &validator )
 #endif
 
 } // namespace SteamNetworkingSocketsLib
+
+using namespace SteamNetworkingSocketsLib;
+
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingMessage_t_Release( SteamNetworkingMessage_t *pIMsg )
+{
+	CSteamNetworkingMessage *pMsg = static_cast<CSteamNetworkingMessage *>( pIMsg );
+
+	// Free up the buffer, if we have one
+	if ( pMsg->m_pData )
+	{
+		(*pMsg->m_pfnFreeData)( pMsg );
+		pMsg->m_pData = nullptr;
+	}
+
+	// We must not currently be in any queue.  In fact, our parent
+	// might have been destroyed.
+	Assert( !pMsg->m_linksSameConnection.m_pQueue );
+	Assert( !pMsg->m_linksSameConnection.m_pPrev );
+	Assert( !pMsg->m_linksSameConnection.m_pNext );
+	Assert( !pMsg->m_linksSecondaryQueue.m_pQueue );
+	Assert( !pMsg->m_linksSecondaryQueue.m_pPrev );
+	Assert( !pMsg->m_linksSecondaryQueue.m_pNext );
+
+	// Self destruct
+	// FIXME Should avoid this dynamic memory call with some sort of pooling
+	delete pMsg;
+}

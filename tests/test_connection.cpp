@@ -194,7 +194,7 @@ struct SFakePeer
 			m_hSteamNetConnection, 
 			&msg,
 			cbSend,
-			msg.m_bReliable ? k_ESteamNetworkingSendType_Reliable : k_ESteamNetworkingSendType_Unreliable );
+			msg.m_bReliable ? k_nSteamNetworkingSend_Reliable : k_nSteamNetworkingSend_Unreliable );
 
 		if ( result != k_EResultOK )
 		{
@@ -332,7 +332,7 @@ struct TestSteamNetworkingSocketsCallbacks : public ISteamNetworkingSocketsCallb
 			if ( g_hSteamListenSocket != k_HSteamListenSocket_Invalid && pInfo->m_info.m_hListenSocket == g_hSteamListenSocket )
 			{
 				// Somebody's knocking
-				Printf( "Accepting Steam Net connection %x\n", pInfo->m_hConn );
+				Printf( "[%s] Accepting\n", pInfo->m_info.m_szConnectionDescription );
 				g_peerServer.m_hSteamNetConnection = pInfo->m_hConn;
 				g_peerServer.m_bIsConnected = true;
 				SteamNetworkingSockets()->AcceptConnection( pInfo->m_hConn );
@@ -346,7 +346,7 @@ struct TestSteamNetworkingSocketsCallbacks : public ISteamNetworkingSocketsCallb
 			{
 				g_peerClient.m_bIsConnected = true;
 			}
-			Printf( "Connected Steam Net connection %x\n", pInfo->m_hConn );
+			Printf( "[%s] connected\n", pInfo->m_info.m_szConnectionDescription );
 
 			break;
 		}
@@ -374,7 +374,7 @@ static void PumpCallbacksAndMakeSureStillConnected()
 	assert( g_peerClient.m_hSteamNetConnection != k_HSteamNetConnection_Invalid );
 }
 
-static void TestNetworkConditions( int rate, int loss, int lag, int reorderPct, int reorderLag, bool bActLikeGame )
+static void TestNetworkConditions( int rate, float loss, int lag, float reorderPct, int reorderLag, bool bActLikeGame )
 {
 	ISteamNetworkingSockets *pSteamSocketNetworking = SteamNetworkingSockets();
 
@@ -387,15 +387,15 @@ static void TestNetworkConditions( int rate, int loss, int lag, int reorderPct, 
 	Printf( "Act like game. . : %d\n", (int)bActLikeGame );
 	Printf( "---------------------------------------------------\n" );
 
-	pSteamSocketNetworking->SetConfigurationValue( k_ESteamNetworkingConfigurationValue_MinRate, rate );
-	pSteamSocketNetworking->SetConfigurationValue( k_ESteamNetworkingConfigurationValue_MaxRate, rate );
+	SteamNetworkingUtils()->SetGlobalConfigValueInt32( k_ESteamNetworkingConfig_SendRateMin, rate );
+	SteamNetworkingUtils()->SetGlobalConfigValueInt32( k_ESteamNetworkingConfig_SendRateMax, rate );
 
-	pSteamSocketNetworking->SetConfigurationValue( k_ESteamNetworkingConfigurationValue_FakePacketLoss_Send, loss );
-	pSteamSocketNetworking->SetConfigurationValue( k_ESteamNetworkingConfigurationValue_FakePacketLoss_Recv, 0 );
-	pSteamSocketNetworking->SetConfigurationValue( k_ESteamNetworkingConfigurationValue_FakePacketLag_Send, lag );
-	pSteamSocketNetworking->SetConfigurationValue( k_ESteamNetworkingConfigurationValue_FakePacketLag_Recv, 0 );
-	pSteamSocketNetworking->SetConfigurationValue( k_ESteamNetworkingConfigurationValue_FakePacketReorder_Send, reorderPct );
-	pSteamSocketNetworking->SetConfigurationValue( k_ESteamNetworkingConfigurationValue_FakePacketReorder_Time, reorderLag );
+	SteamNetworkingUtils()->SetGlobalConfigValueFloat( k_ESteamNetworkingConfig_FakePacketLoss_Send, loss );
+	SteamNetworkingUtils()->SetGlobalConfigValueFloat( k_ESteamNetworkingConfig_FakePacketLoss_Recv, 0 );
+	SteamNetworkingUtils()->SetGlobalConfigValueInt32( k_ESteamNetworkingConfig_FakePacketLag_Send, lag );
+	SteamNetworkingUtils()->SetGlobalConfigValueInt32( k_ESteamNetworkingConfig_FakePacketLag_Recv, 0 );
+	SteamNetworkingUtils()->SetGlobalConfigValueFloat( k_ESteamNetworkingConfig_FakePacketReorder_Send, reorderPct );
+	SteamNetworkingUtils()->SetGlobalConfigValueInt32( k_ESteamNetworkingConfig_FakePacketReorder_Time, reorderLag );
 
 	SteamNetworkingMicroseconds usecWhenStarted = SteamNetworkingUtils()->GetLocalTimestamp();
 
@@ -546,7 +546,7 @@ static void RunSteamDatagramConnectionTest()
 	while ( !g_peerClient.m_bIsConnected || !g_peerServer.m_bIsConnected )
 		PumpCallbacks();
 
-	auto Test = []( int rate, int loss, int lag, int reorderPct, int reorderLag )
+	auto Test = []( int rate, float loss, int lag, float reorderPct, int reorderLag )
 	{
 		TestNetworkConditions( rate, loss, lag, reorderPct, reorderLag, true );
 		TestNetworkConditions( rate, loss, lag, reorderPct, reorderLag, false );

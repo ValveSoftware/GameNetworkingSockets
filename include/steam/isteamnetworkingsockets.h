@@ -74,7 +74,7 @@ public:
 	/// man-in-the-middle attacks.
 	virtual HSteamNetConnection ConnectByIPAddress( const SteamNetworkingIPAddr &address ) = 0;
 
-#ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 	/// Like CreateListenSocketIP, but clients will connect using ConnectP2P
 	///
 	/// nVirtualPort specifies how clients can connect to this socket using
@@ -172,8 +172,8 @@ public:
 
 	/// Send a message to the remote host on the connected socket.
 	///
-	/// eSendType determines the delivery guarantees that will be provided,
-	/// when data should be buffered, etc.
+	/// nSendFlags determines the delivery guarantees that will be provided,
+	/// when data should be buffered, etc.  E.g. k_nSteamNetworkingSend_Unreliable
 	///
 	/// Note that the semantics we use for messages are not precisely
 	/// the same as the semantics of a standard "stream" socket.
@@ -194,7 +194,7 @@ public:
 	/// of data, performance will suffer. Any code based on stream 
 	/// sockets that does not write excessively small chunks will 
 	/// work without any changes. 
-	virtual EResult SendMessageToConnection( HSteamNetConnection hConn, const void *pData, uint32 cbData, ESteamNetworkingSendType eSendType ) = 0;
+	virtual EResult SendMessageToConnection( HSteamNetConnection hConn, const void *pData, uint32 cbData, int nSendFlags ) = 0;
 
 	/// If Nagle is enabled (it's on by default) then when calling 
 	/// SendMessageToConnection the message will be buffered, up to the Nagle time
@@ -283,56 +283,43 @@ public:
 	/// even if they are not signed into Steam.)
 	virtual bool GetIdentity( SteamNetworkingIdentity *pIdentity ) = 0;
 
-#ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
-	// Connecting to servers in known data centers, through Valve's relay network
-#endif // #ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
+#endif // #ifndef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 
-	//
-	// Set and get configuration values, see ESteamNetworkingConfigurationValue for individual descriptions.
-	//
-	// Returns the value or -1 is eConfigValue is invalid
-	virtual int32 GetConfigurationValue( ESteamNetworkingConfigurationValue eConfigValue ) = 0;
-	// Returns true if successfully set
-	virtual bool SetConfigurationValue( ESteamNetworkingConfigurationValue eConfigValue, int32 nValue ) = 0;
-
-	// Return the name of an int configuration value, or NULL if config value isn't known
-	virtual const char *GetConfigurationValueName( ESteamNetworkingConfigurationValue eConfigValue ) = 0;
-
-	//
-	// Set and get configuration strings, see ESteamNetworkingConfigurationString for individual descriptions.
-	//
-	// Get the configuration string, returns length of string needed if pDest is nullpr or destSize is 0
-	// returns -1 if the eConfigValue is invalid
-	virtual int32 GetConfigurationString( ESteamNetworkingConfigurationString eConfigString, char *pDest, int32 destSize ) = 0;
-	virtual bool SetConfigurationString( ESteamNetworkingConfigurationString eConfigString, const char *pString ) = 0;
-
-	// Return the name of a string configuration value, or NULL if config value isn't known
-	virtual const char *GetConfigurationStringName( ESteamNetworkingConfigurationString eConfigString ) = 0;
-
-	//
-	// Set and get configuration values, see ESteamNetworkingConnectionConfigurationValue for individual descriptions.
-	//
-	// Returns the value or -1 is eConfigValue is invalid
-	virtual int32 GetConnectionConfigurationValue( HSteamNetConnection hConn, ESteamNetworkingConnectionConfigurationValue eConfigValue ) = 0;
-	// Returns true if successfully set
-	virtual bool SetConnectionConfigurationValue( HSteamNetConnection hConn, ESteamNetworkingConnectionConfigurationValue eConfigValue, int32 nValue ) = 0;
-
-	// TEMP KLUDGE Call to invoke all queued callbacks.
-	// Eventually this function will go away, and callbacks will be ordinary Steamworks callbacks.
-	// You should call this at the same time you call SteamAPI_RunCallbacks and SteamGameServer_RunCallbacks
-	// to minimize potential changes in timing when that change happens.
+	// Invoke all callbacks queued for this interface.
+	// On Steam, callbacks are dispatched via the ordinary Steamworks callbacks mechanism.
+	// So if you have code that is also targeting Steam, you should call this at about the
+	// same time you would call SteamAPI_RunCallbacks and SteamGameServer_RunCallbacks.
 #ifdef STEAMNETWORKINGSOCKETS_STANDALONELIB
 	virtual void RunCallbacks( ISteamNetworkingSocketsCallbacks *pCallbacks ) = 0;
 #endif
 protected:
 	~ISteamNetworkingSockets(); // Silence some warnings
 };
-#define STEAMNETWORKINGSOCKETS_VERSION "SteamNetworkingSockets001"
+#define STEAMNETWORKINGSOCKETS_INTERFACE_VERSION "SteamNetworkingSockets001"
 
 extern "C" {
 
 // Global accessor.
-STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets *SteamNetworkingSockets();
+#if defined( STEAMNETWORKINGSOCKETS_PARTNER )
+
+	// Standalone lib
+	STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets *SteamNetworkingSockets();
+	STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets *SteamGameServerNetworkingSockets();
+
+#elif defined( STEAMNETWORKINGSOCKETS_OPENSOURCE )
+
+	// Opensource GameNetworkingSockets
+	STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets *SteamNetworkingSockets();
+
+#else
+
+	// Steamworks SDK
+	inline ISteamNetworkingSockets *SteamNetworkingSockets();
+	STEAM_DEFINE_USER_INTERFACE_ACCESSOR( ISteamNetworkingSockets *, SteamNetworkingSockets, STEAMNETWORKINGSOCKETS_INTERFACE_VERSION );
+	inline ISteamNetworking *SteamGameServerNetworkingSockets();
+	STEAM_DEFINE_GAMESERVER_INTERFACE_ACCESSOR( ISteamNetworking *, SteamGameServerNetworkingSockets, STEAMNETWORKINGSOCKETS_INTERFACE_VERSION );
+#endif
 
 /// Callback struct used to notify when a connection has changed state
 #if defined( VALVE_CALLBACK_PACK_SMALL )

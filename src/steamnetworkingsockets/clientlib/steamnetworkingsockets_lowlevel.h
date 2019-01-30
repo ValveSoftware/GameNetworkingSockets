@@ -365,15 +365,12 @@ struct SteamDatagramTransportLock
 extern void SteamNetworkingSocketsLowLevelValidate( CValidator &validator );
 #endif
 
-} // namespace SteamNetworkingSocketsLib
-
-extern "C" {
-
 /// Fetch current time
-STEAMNETWORKINGSOCKETS_INTERFACE SteamNetworkingMicroseconds SteamNetworkingSockets_GetLocalTimestamp();
+SteamNetworkingMicroseconds SteamNetworkingSockets_GetLocalTimestamp();
 
 /// Set debug output hook
-STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetDebugOutputFunction( ESteamNetworkingSocketsDebugOutputType eDetailLevel, FSteamNetworkingSocketsDebugOutput pfnFunc );
-}
+void SteamNetworkingSockets_SetDebugOutputFunction( ESteamNetworkingSocketsDebugOutputType eDetailLevel, FSteamNetworkingSocketsDebugOutput pfnFunc );
+
+} // namespace SteamNetworkingSocketsLib
 
 #endif // STEAMNETWORKINGSOCKETS_LOWLEVEL_H

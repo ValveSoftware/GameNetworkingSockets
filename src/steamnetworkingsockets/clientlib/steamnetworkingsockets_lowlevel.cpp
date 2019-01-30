@@ -20,7 +20,6 @@
 #include <vstdlib/random.h>
 #include <tier1/utlpriorityqueue.h>
 #include <tier1/utllinkedlist.h>
-#include "steamnetworkingconfig.h"
 #include "crypto.h"
 
 // Ugggggggggg MSVC VS2013 STL bug: try_lock_for doesn't actually respect the timeout, it always ends up using an infinite timeout.
@@ -438,24 +437,24 @@ bool IRawUDPSocket::BSendRawPacketGather( int nChunks, const iovec *pChunks, con
 		return true;
 
 	// Fake loss?
-	if ( ( steamdatagram_fakepacketloss_send > 0 ) && ( WeakRandomFloat( 0, 100.0 ) < steamdatagram_fakepacketloss_send ) )
+	if ( RandomBoolWithOdds( g_Config_FakePacketLoss_Send.Get() ) )
 		return true;
 
 	const CRawUDPSocketImpl *self = static_cast<const CRawUDPSocketImpl *>( this );
 
 	// Fake lag?
-	int32 nPacketFakeLagTotal = steamdatagram_fakepacketlag_send;
+	int32 nPacketFakeLagTotal = g_Config_FakePacketLag_Send.Get();
 
 	// Check for simulating random packet reordering
-	if ( steamdatagram_fakepacketreorder_send > 0 && WeakRandomFloat( 0, 100.0 ) < steamdatagram_fakepacketreorder_send )
+	if ( RandomBoolWithOdds( g_Config_FakePacketReorder_Send.Get() ) )
 	{
-		nPacketFakeLagTotal += steamdatagram_fakepacketreorder_time;
+		nPacketFakeLagTotal += g_Config_FakePacketReorder_Time.Get();
 	}
 
 	// Check for simulating random packet duplication
-	if ( steamdatagram_fakepacketdup_send > 0 && WeakRandomFloat( 0, 100.0 ) < steamdatagram_fakepacketdup_send )
+	if ( RandomBoolWithOdds( g_Config_FakePacketDup_Send.Get() ) )
 	{
-		int32 nDupLag = nPacketFakeLagTotal + WeakRandomInt( 0, steamdatagram_fakepacketdup_timemax );
+		int32 nDupLag = nPacketFakeLagTotal + WeakRandomInt( 0, g_Config_FakePacketDup_TimeMax.Get() );
 		nDupLag = std::max( 1, nDupLag );
 		s_packetLagQueue.LagPacket( true, self, adrTo, nDupLag, nChunks, pChunks );
 	}
@@ -933,7 +932,7 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS )
 				break;
 
 			// Check for simulating random packet loss
-			if ( ( steamdatagram_fakepacketloss_recv ) > 0 && ( WeakRandomFloat( 0, 100.0 ) < steamdatagram_fakepacketloss_recv ) )
+			if ( RandomBoolWithOdds( g_Config_FakePacketLoss_Recv.Get() ) )
 				continue;
 
 			netadr_t adr;
@@ -943,18 +942,18 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS )
 			if ( pSock->m_nAddressFamilies == k_nAddressFamily_DualStack )
 				adr.BConvertMappedToIPv4();
 
-			int32 nPacketFakeLagTotal = steamdatagram_fakepacketlag_recv;
+			int32 nPacketFakeLagTotal = g_Config_FakePacketLag_Recv.Get();
 
 			// Check for simulating random packet reordering
-			if ( steamdatagram_fakepacketreorder_recv > 0 && WeakRandomFloat( 0, 100.0 ) < steamdatagram_fakepacketreorder_recv )
+			if ( RandomBoolWithOdds( g_Config_FakePacketReorder_Recv.Get() ) )
 			{
-				nPacketFakeLagTotal += steamdatagram_fakepacketreorder_time;
+				nPacketFakeLagTotal += g_Config_FakePacketReorder_Time.Get();
 			}
 
 			// Check for simulating random packet duplication
-			if ( steamdatagram_fakepacketdup_recv > 0 && WeakRandomFloat( 0, 100.0 ) < steamdatagram_fakepacketdup_recv )
+			if ( RandomBoolWithOdds( g_Config_FakePacketDup_Recv.Get() ) )
 			{
-				int32 nDupLag = nPacketFakeLagTotal + WeakRandomInt( 0, steamdatagram_fakepacketdup_timemax );
+				int32 nDupLag = nPacketFakeLagTotal + WeakRandomInt( 0, g_Config_FakePacketDup_TimeMax.Get() );
 				nDupLag = std::max( 1, nDupLag );
 				iovec temp;
 				temp.iov_len = ret;
@@ -1859,16 +1858,7 @@ void SteamNetworkingSocketsLowLevelValidate( CValidator &validator )
 }
 #endif
 
-
-} // namespace SteamNetworkingSocketsLib
-
-/////////////////////////////////////////////////////////////////////////////
-//
-// API entry points
-//
-/////////////////////////////////////////////////////////////////////////////
-
-STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetDebugOutputFunction( ESteamNetworkingSocketsDebugOutputType eDetailLevel, FSteamNetworkingSocketsDebugOutput pfnFunc )
+void SteamNetworkingSockets_SetDebugOutputFunction( ESteamNetworkingSocketsDebugOutputType eDetailLevel, FSteamNetworkingSocketsDebugOutput pfnFunc )
 {
 	if ( pfnFunc && eDetailLevel > k_ESteamNetworkingSocketsDebugOutputType_None )
 	{
@@ -1882,7 +1872,7 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetDebugOutputFunct
 	}
 }
 
-STEAMNETWORKINGSOCKETS_INTERFACE SteamNetworkingMicroseconds SteamNetworkingSockets_GetLocalTimestamp()
+SteamNetworkingMicroseconds SteamNetworkingSockets_GetLocalTimestamp()
 {
 	SteamNetworkingMicroseconds usecResult;
 	long long usecLastReturned;
@@ -1936,4 +1926,6 @@ STEAMNETWORKINGSOCKETS_INTERFACE SteamNetworkingMicroseconds SteamNetworkingSock
 
 	return usecResult;
 }
+
+} // namespace SteamNetworkingSocketsLib
 

@@ -7,9 +7,6 @@
 #include "steamnetworkingsockets_udp.h"
 #include "crypto.h"
 
-#define DEFINE_CONFIG // instance the variables here
-#include "steamnetworkingconfig.h"
-
 #ifdef STEAMNETWORKINGSOCKETS_STANDALONELIB
 #include <steam/steamnetworkingsockets.h>
 #endif
@@ -18,6 +15,7 @@
 #include "tier0/memdbgon.h"
 
 ISteamNetworkingSockets::~ISteamNetworkingSockets() {}
+ISteamNetworkingUtils::~ISteamNetworkingUtils() {}
 
 // Put everything in a namespace, so we don't violate the one definition rule
 namespace SteamNetworkingSocketsLib {
@@ -28,61 +26,140 @@ namespace SteamNetworkingSocketsLib {
 //
 /////////////////////////////////////////////////////////////////////////////
 
-struct SConfigurationValueEntry
-{
-	ESteamNetworkingConfigurationValue eValue;
-	const char *pName;
-	int32 *pVar;
-};
+DEFINE_GLOBAL_CONFIGVAL( float, FakePacketLoss_Send, 0.0f );
+DEFINE_GLOBAL_CONFIGVAL( float, FakePacketLoss_Recv, 0.0f );
+DEFINE_GLOBAL_CONFIGVAL( int32, FakePacketLag_Send, 0 );
+DEFINE_GLOBAL_CONFIGVAL( int32, FakePacketLag_Recv, 0 );
+DEFINE_GLOBAL_CONFIGVAL( float, FakePacketReorder_Send, 0.0f );
+DEFINE_GLOBAL_CONFIGVAL( float, FakePacketReorder_Recv, 0.0f );
+DEFINE_GLOBAL_CONFIGVAL( int32, FakePacketReorder_Time, 15 );
+DEFINE_GLOBAL_CONFIGVAL( float, FakePacketDup_Send, 0.0f );
+DEFINE_GLOBAL_CONFIGVAL( float, FakePacketDup_Recv, 0.0f );
+DEFINE_GLOBAL_CONFIGVAL( int32, FakePacketDup_TimeMax, 10 );
 
-static SConfigurationValueEntry sConfigurationValueEntryList[] =
-{
-	{ k_ESteamNetworkingConfigurationValue_FakeMessageLoss_Send,                       "FakeMessageLoss_Send",                       &steamdatagram_fakemessageloss_send },
-	{ k_ESteamNetworkingConfigurationValue_FakeMessageLoss_Recv,                       "FakeMessageLoss_Recv",                       &steamdatagram_fakemessageloss_recv },
-	{ k_ESteamNetworkingConfigurationValue_FakePacketLoss_Send,                        "FakePacketLoss_Send",                        &steamdatagram_fakepacketloss_send },
-	{ k_ESteamNetworkingConfigurationValue_FakePacketLoss_Recv,                        "FakePacketLoss_Recv",                        &steamdatagram_fakepacketloss_recv },
-	{ k_ESteamNetworkingConfigurationValue_FakePacketLag_Send,                         "FakePacketLag_Send",                         &steamdatagram_fakepacketlag_send },
-	{ k_ESteamNetworkingConfigurationValue_FakePacketLag_Recv,                         "FakePacketLag_Recv",                         &steamdatagram_fakepacketlag_recv },
-	{ k_ESteamNetworkingConfigurationValue_FakePacketReorder_Send,                     "FakePacketReorder_Send",                     &steamdatagram_fakepacketreorder_send },
-	{ k_ESteamNetworkingConfigurationValue_FakePacketReorder_Recv,                     "FakePacketReorder_Recv",                     &steamdatagram_fakepacketreorder_recv },
-	{ k_ESteamNetworkingConfigurationValue_FakePacketReorder_Time,                     "FakePacketReorder_Time",                     &steamdatagram_fakepacketreorder_time },
-	{ k_ESteamNetworkingConfigurationValue_FakePacketDup_Send,                         "FakePacketDup_Send",                         &steamdatagram_fakepacketdup_send },
-	{ k_ESteamNetworkingConfigurationValue_FakePacketDup_Recv,                         "FakePacketDup_Recv",                         &steamdatagram_fakepacketdup_recv },
-	{ k_ESteamNetworkingConfigurationValue_FakePacketDup_TimeMax,                      "FakePacketDup_Time",                         &steamdatagram_fakepacketdup_timemax },
-	{ k_ESteamNetworkingConfigurationValue_SendBufferSize,                             "SendBufferSize",                             &steamdatagram_snp_send_buffer_size },
-	{ k_ESteamNetworkingConfigurationValue_MaxRate,                                    "MaxRate",                                    &steamdatagram_snp_max_rate },
-	{ k_ESteamNetworkingConfigurationValue_MinRate,                                    "MinRate",                                    &steamdatagram_snp_min_rate },
-	{ k_ESteamNetworkingConfigurationValue_Nagle_Time,                                 "Nagle_Time",                                 &steamdatagram_snp_nagle_time },
-	{ k_ESteamNetworkingConfigurationValue_LogLevel_AckRTT,                            "Log_AckRTT",                                 &steamdatagram_snp_log_ackrtt },
-	{ k_ESteamNetworkingConfigurationValue_LogLevel_Packet,                            "Log_Packet",                                 &steamdatagram_snp_log_packet },
-	{ k_ESteamNetworkingConfigurationValue_LogLevel_Message,                           "Log_Message",                                &steamdatagram_snp_log_message },
-	{ k_ESteamNetworkingConfigurationValue_LogLevel_PacketGaps,                        "Log_PacketGaps",                             &steamdatagram_snp_log_packetgaps },
-	{ k_ESteamNetworkingConfigurationValue_LogLevel_P2PRendezvous,                     "Log_p2prendezvous",                          &steamdatagram_snp_log_p2prendezvous },
-	{ k_ESteamNetworkingConfigurationValue_LogLevel_RelayPings,                        "Log_RelayPings",                             &steamdatagram_snp_log_relaypings },
-	{ k_ESteamNetworkingConfigurationValue_ClientConsecutitivePingTimeoutsFailInitial, "ClientConsecutitivePingTimeoutsFailInitial", &steamdatagram_client_consecutitive_ping_timeouts_fail_initial },
-	{ k_ESteamNetworkingConfigurationValue_ClientConsecutitivePingTimeoutsFail,        "ClientConsecutitivePingTimeoutsFail",        &steamdatagram_client_consecutitive_ping_timeouts_fail },
-	{ k_ESteamNetworkingConfigurationValue_ClientMinPingsBeforePingAccurate,           "ClientMinPingsBeforePingAccurate",           &steamdatagram_client_min_pings_before_ping_accurate },
-	{ k_ESteamNetworkingConfigurationValue_ClientSingleSocket,                         "ClientSingleSocket",                         &steamdatagram_client_single_socket },
-	{ k_ESteamNetworkingConfigurationValue_IP_Allow_Without_Auth,                      "IpAllowWithoutAuth",                         &steamdatagram_ip_allow_connections_without_auth },
-	{ k_ESteamNetworkingConfigurationValue_Timeout_Seconds_Initial,                    "TimeoutSecondsInitial",                      &steamdatagram_timeout_seconds_initial },
-	{ k_ESteamNetworkingConfigurationValue_Timeout_Seconds_Connected,                  "TimeoutSecondsConnected",                    &steamdatagram_timeout_seconds_connected },
-};
-COMPILE_TIME_ASSERT( sizeof( sConfigurationValueEntryList ) / sizeof( SConfigurationValueEntry ) == k_ESteamNetworkingConfigurationValue_Count );
+DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, TimeoutInitial, 10000 );
+DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, TimeoutConnected, 10000 );
+DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, SendBufferSize, 512*1024 );
+DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, SendRateMin, 128*1024 );
+DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, SendRateMax, 1024*1024 );
+DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, NagleTime, 5000 );
+#ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
+	// We don't have a trusted third party, so allow this by default.
+	DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, IP_AllowWithoutAuth, 1 );
+#else
+	DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, IP_AllowWithoutAuth, 0 );
+#endif
+DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, LogLevel_AckRTT, k_ESteamNetworkingSocketsDebugOutputType_Everything );
+DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, LogLevel_PacketDecode, k_ESteamNetworkingSocketsDebugOutputType_Everything );
+DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, LogLevel_Message, k_ESteamNetworkingSocketsDebugOutputType_Everything );
+DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, LogLevel_PacketGaps, k_ESteamNetworkingSocketsDebugOutputType_Debug );
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
+DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, LogLevel_P2PRendezvous, k_ESteamNetworkingSocketsDebugOutputType_Verbose );
+DEFINE_CONNECTON_DEFAULT_CONFIGVAL( std::string, SDRClient_DebugTicketAddress, "" );
+#endif
 
-struct SConfigurationStringEntry
-{
-	ESteamNetworkingConfigurationString eString;
-	const char *pName;
-	std::string *pVar;
-};
+static GlobalConfigValueEntry *s_pFirstGlobalConfigEntry = nullptr;
+static bool s_bConfigValueTableInitted = false;
+static std::vector<GlobalConfigValueEntry *> s_vecConfigValueTable; // Sorted by value
+static std::vector<GlobalConfigValueEntry *> s_vecConnectionConfigValueTable; // Sorted by offset
 
-static SConfigurationStringEntry sConfigurationStringEntryList[] =
+GlobalConfigValueEntry::GlobalConfigValueEntry(
+	ESteamNetworkingConfigValue eValue,
+	const char *pszName,
+	ESteamNetworkingConfigDataType eDataType,
+	ESteamNetworkingConfigScope eScope,
+	int cbOffsetOf
+) : m_eValue{ eValue }
+, m_pszName{ pszName }
+, m_eDataType{ eDataType }
+, m_eScope{ eScope }
+, m_cbOffsetOf{cbOffsetOf}
+, m_pNextEntry( s_pFirstGlobalConfigEntry )
 {
-	{ k_ESteamNetworkingConfigurationString_ClientForceRelayCluster,  "ClientForceRelayCluster",  &steamdatagram_client_force_relay_cluster },
-	{ k_ESteamNetworkingConfigurationString_ClientDebugTicketAddress, "ClientDebugTicketAddress", &steamdatagram_client_debugticket_address }, 
-	{ k_ESteamNetworkingConfigurationString_ClientForceProxyAddr,     "ClientForceProxyAddr",     &steamdatagram_client_forceproxyaddr       }, 
-};
-COMPILE_TIME_ASSERT( sizeof( sConfigurationStringEntryList ) / sizeof( SConfigurationStringEntry ) == k_ESteamNetworkingConfigurationString_Count );
+	s_pFirstGlobalConfigEntry = this;
+	AssertMsg( !s_bConfigValueTableInitted, "Attempt to register more config values after table is already initialized" );
+	s_bConfigValueTableInitted = false;
+}
+
+static void EnsureConfigValueTableInitted()
+{
+	if ( s_bConfigValueTableInitted )
+		return;
+	SteamDatagramTransportLock scopeLock;
+	if ( s_bConfigValueTableInitted )
+		return;
+
+	for ( GlobalConfigValueEntry *p = s_pFirstGlobalConfigEntry ; p ; p = p->m_pNextEntry )
+	{
+		s_vecConfigValueTable.push_back( p );
+		if ( p->m_eScope == k_ESteamNetworkingConfig_Connection )
+			s_vecConnectionConfigValueTable.push_back( p );
+	}
+
+	// Sort in ascending order by value, so we can binary search
+	std::sort( s_vecConfigValueTable.begin(), s_vecConfigValueTable.end(),
+		[]( GlobalConfigValueEntry *a, GlobalConfigValueEntry *b ) { return a->m_eValue < b->m_eValue; } );
+
+	// Sort by struct offset, so that ConnectionConfig::Init will access memory in a sane way.
+	// This doesn't really matter, though.
+	std::sort( s_vecConnectionConfigValueTable.begin(), s_vecConnectionConfigValueTable.end(),
+		[]( GlobalConfigValueEntry *a, GlobalConfigValueEntry *b ) { return a->m_cbOffsetOf < b->m_cbOffsetOf; } );
+
+	// Rebuild linked list, in order, and safety check for duplicates
+	int N = len( s_vecConfigValueTable );
+	for ( int i = 1 ; i < N ; ++i )
+	{
+		s_vecConfigValueTable[i-1]->m_pNextEntry = s_vecConfigValueTable[i];
+		AssertMsg1( s_vecConfigValueTable[i-1]->m_eValue < s_vecConfigValueTable[i]->m_eValue, "Registered duplicate config value %d", s_vecConfigValueTable[i]->m_eValue );
+	}
+	s_vecConfigValueTable[N-1] = nullptr;
+
+	s_pFirstGlobalConfigEntry = nullptr;
+	s_bConfigValueTableInitted = true;
+}
+
+static GlobalConfigValueEntry *FindConfigValueEntry( ESteamNetworkingConfigValue eSearchVal )
+{
+	EnsureConfigValueTableInitted();
+
+	// Binary search
+	int l = 0;
+	int r = len( s_vecConfigValueTable )-1;
+	while ( l <= r )
+	{
+		int m = (l+r)>>1;
+		GlobalConfigValueEntry *mp = s_vecConfigValueTable[m];
+		if ( eSearchVal < mp->m_eValue )
+			r = m-1;
+		else if ( eSearchVal > mp->m_eValue )
+			l = m+1;
+		else
+			return mp;
+	}
+
+	// Not found
+	return nullptr;
+}
+
+void ConnectionConfig::Init( ConnectionConfig *pInherit )
+{
+	EnsureConfigValueTableInitted();
+
+	for ( GlobalConfigValueEntry *pEntry : s_vecConnectionConfigValueTable )
+	{
+		ConfigValueBase *pVal = (ConfigValueBase *)((intptr_t)this + pEntry->m_cbOffsetOf );
+		if ( pInherit )
+		{
+			pVal->m_pInherit = (ConfigValueBase *)((intptr_t)pInherit + pEntry->m_cbOffsetOf );
+		}
+		else
+		{
+			// Assume the relevant members are the same, no matter
+			// what type T, so just use int32 arbitrarily
+			pVal->m_pInherit = &( static_cast< GlobalConfigValueBase<int32> * >( pEntry ) )->m_value;
+		}
+	}
+}
 
 /////////////////////////////////////////////////////////////////////////////
 //
@@ -142,7 +219,7 @@ CSteamNetworkConnectionBase *FindConnectionByLocalID( uint32 nLocalConnectionID 
 	return GetConnectionByHandle( HSteamNetConnection( nLocalConnectionID ) );
 }
 
-static CSteamNetworkListenSocketBase *GetListenSockedByHandle( HSteamListenSocket sock )
+static CSteamNetworkListenSocketBase *GetListenSocketByHandle( HSteamListenSocket sock )
 {
 	if ( sock == 0 )
 		return nullptr;
@@ -185,7 +262,9 @@ int CSteamNetworkingSockets::s_nSteamNetworkingSocketsInitted = 0;
 
 CSteamNetworkingSockets::CSteamNetworkingSockets()
 : m_bHaveLowLevelRef( false )
-{}
+{
+	m_connectionConfig.Init( nullptr );
+}
 
 CSteamNetworkingSockets::~CSteamNetworkingSockets()
 {
@@ -295,7 +374,7 @@ HSteamListenSocket CSteamNetworkingSockets::CreateListenSocketIP( const SteamNet
 
 	// Might we want a cert?  If so, make sure async process to get one is in
 	// progress (or try again if we tried earlier and failed)
-	if ( steamdatagram_ip_allow_connections_without_auth == 0 )
+	if ( m_connectionConfig.m_IP_AllowWithoutAuth.Get() == 0 )
 	{
 		#ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
 			SpewError( "Need cert authority!" );
@@ -372,7 +451,7 @@ bool CSteamNetworkingSockets::CloseConnection( HSteamNetConnection hConn, int nR
 bool CSteamNetworkingSockets::CloseListenSocket( HSteamListenSocket hSocket )
 {
 	SteamDatagramTransportLock scopeLock;
-	CSteamNetworkListenSocketBase *pSock = GetListenSockedByHandle( hSocket );
+	CSteamNetworkListenSocketBase *pSock = GetListenSocketByHandle( hSocket );
 	if ( !pSock )
 		return false;
 	int idx = hSocket & 0xffff;
@@ -426,13 +505,13 @@ bool CSteamNetworkingSockets::GetConnectionName( HSteamNetConnection hPeer, char
 	return true;
 }
 
-EResult CSteamNetworkingSockets::SendMessageToConnection( HSteamNetConnection hConn, const void *pData, uint32 cbData, ESteamNetworkingSendType eSendType )
+EResult CSteamNetworkingSockets::SendMessageToConnection( HSteamNetConnection hConn, const void *pData, uint32 cbData, int nSendFlags )
 {
 	SteamDatagramTransportLock scopeLock;
 	CSteamNetworkConnectionBase *pConn = GetConnectionByHandle( hConn );
 	if ( !pConn )
 		return k_EResultInvalidParam;
-	return pConn->APISendMessageToConnection( pData, cbData, eSendType );
+	return pConn->APISendMessageToConnection( pData, cbData, nSendFlags );
 }
 
 EResult CSteamNetworkingSockets::FlushMessagesOnConnection( HSteamNetConnection hConn )
@@ -456,7 +535,7 @@ int CSteamNetworkingSockets::ReceiveMessagesOnConnection( HSteamNetConnection hC
 int CSteamNetworkingSockets::ReceiveMessagesOnListenSocket( HSteamListenSocket hSocket, SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages )
 {
 	SteamDatagramTransportLock scopeLock;
-	CSteamNetworkListenSocketBase *pSock = GetListenSockedByHandle( hSocket );
+	CSteamNetworkListenSocketBase *pSock = GetListenSocketByHandle( hSocket );
 	if ( !pSock )
 		return -1;
 	return pSock->APIReceiveMessages( ppOutMessages, nMaxMessages );
@@ -510,7 +589,7 @@ int CSteamNetworkingSockets::GetDetailedConnectionStatus( HSteamNetConnection hC
 bool CSteamNetworkingSockets::GetListenSocketAddress( HSteamListenSocket hSocket, SteamNetworkingIPAddr *pAddress )
 {
 	SteamDatagramTransportLock scopeLock;
-	CSteamNetworkListenSocketBase *pSock = GetListenSockedByHandle( hSocket );
+	CSteamNetworkListenSocketBase *pSock = GetListenSocketByHandle( hSocket );
 	if ( !pSock )
 		return false;
 	return pSock->APIGetAddress( pAddress );
@@ -637,122 +716,6 @@ bool CSteamNetworkingSockets::SetCertificate( const void *pCert, int cbCert, voi
 	return true;
 }
 
-int32 CSteamNetworkingSockets::GetConfigurationValue( ESteamNetworkingConfigurationValue eConfigValue )
-{
-	for ( int i = 0; i < V_ARRAYSIZE( sConfigurationValueEntryList ); ++i )
-	{
-		if ( sConfigurationValueEntryList[ i ].eValue == eConfigValue )
-		{
-			return *sConfigurationValueEntryList[ i ].pVar;
-		}
-	}
-
-	return -1;
-}
-
-bool CSteamNetworkingSockets::SetConfigurationValue( ESteamNetworkingConfigurationValue eConfigValue, int32 nValue )
-{
-	for ( int i = 0; i < V_ARRAYSIZE( sConfigurationValueEntryList ); ++i )
-	{
-		if ( sConfigurationValueEntryList[ i ].eValue == eConfigValue )
-		{
-			*sConfigurationValueEntryList[ i ].pVar = nValue;
-			return true;
-		}
-	}
-	return false;
-}
-
-const char *CSteamNetworkingSockets::GetConfigurationValueName( ESteamNetworkingConfigurationValue eConfigValue )
-{
-	for ( int i = 0; i < V_ARRAYSIZE( sConfigurationValueEntryList ); ++i )
-	{
-		if ( sConfigurationValueEntryList[ i ].eValue == eConfigValue )
-			return sConfigurationValueEntryList[ i ].pName;
-	}
-	return nullptr;
-}
-
-int32 CSteamNetworkingSockets::GetConfigurationString( ESteamNetworkingConfigurationString eConfigString, char *pDest, int32 destSize )
-{
-	for ( int i = 0; i < V_ARRAYSIZE( sConfigurationStringEntryList ); ++i )
-	{
-		if ( sConfigurationStringEntryList[ i ].eString == eConfigString )
-		{
-			int32 len = (int32) sConfigurationStringEntryList[ i ].pVar->size();
-			if ( pDest && destSize > 0 )
-			{
-				V_strncpy( pDest, sConfigurationStringEntryList[ i ].pVar->c_str(), destSize );
-			}
-			return len;
-		}
-	}
-
-	return -1;
-}
-
-bool CSteamNetworkingSockets::SetConfigurationString( ESteamNetworkingConfigurationString eConfigString, const char *pString )
-{
-	for ( int i = 0; i < V_ARRAYSIZE( sConfigurationStringEntryList ); ++i )
-	{
-		if ( sConfigurationStringEntryList[ i ].eString == eConfigString )
-		{
-			*sConfigurationStringEntryList[ i ].pVar = pString;
-			return true;
-		}
-	}
-	return false;
-}
-
-const char *CSteamNetworkingSockets::GetConfigurationStringName( ESteamNetworkingConfigurationString eConfigString )
-{
-	for ( int i = 0; i < V_ARRAYSIZE( sConfigurationStringEntryList ); ++i )
-	{
-		if ( sConfigurationStringEntryList[ i ].eString == eConfigString )
-			return sConfigurationStringEntryList[ i ].pName;
-	}
-	return nullptr;
-}
-
-int32 CSteamNetworkingSockets::GetConnectionConfigurationValue( HSteamNetConnection hConn, ESteamNetworkingConnectionConfigurationValue eConfigValue )
-{
-	SteamDatagramTransportLock scopeLock;
-	CSteamNetworkConnectionBase *pConn = GetConnectionByHandle( hConn );
-	if ( !pConn )
-		return -1;
-
-	switch ( eConfigValue )
-	{
-	case k_ESteamNetworkingConnectionConfigurationValue_SNP_MaxRate :
-		return pConn->GetMaximumRate();
-
-	case k_ESteamNetworkingConnectionConfigurationValue_SNP_MinRate :
-		return pConn->GetMinimumRate();
-	}
-	return -1;
-}
-
-bool CSteamNetworkingSockets::SetConnectionConfigurationValue( HSteamNetConnection hConn, ESteamNetworkingConnectionConfigurationValue eConfigValue, int32 nValue )
-{
-	SteamDatagramTransportLock scopeLock;
-	CSteamNetworkConnectionBase *pConn = GetConnectionByHandle( hConn );
-	if ( !pConn )
-		return false;
-
-	switch ( eConfigValue )
-	{
-	case k_ESteamNetworkingConnectionConfigurationValue_SNP_MaxRate :
-		pConn->SetMaximumRate( nValue );
-		return true;
-
-	case k_ESteamNetworkingConnectionConfigurationValue_SNP_MinRate :
-		pConn->SetMinimumRate( nValue );
-		return true;
-	}
-
-	return false;
-}
-
 #ifdef STEAMNETWORKINGSOCKETS_STANDALONELIB
 void CSteamNetworkingSockets::RunCallbacks( ISteamNetworkingSocketsCallbacks *pCallbacks )
 {
@@ -815,6 +778,426 @@ void CSteamNetworkingSockets::InternalQueueCallback( int nCallback, int cbCallba
 }
 #endif
 
+/////////////////////////////////////////////////////////////////////////////
+//
+// CSteamNetworkingUtils
+//
+/////////////////////////////////////////////////////////////////////////////
+
+SteamNetworkingMicroseconds CSteamNetworkingUtils::GetLocalTimestamp()
+{
+	return SteamNetworkingSockets_GetLocalTimestamp();
+}
+
+void CSteamNetworkingUtils::SetDebugOutputFunction( ESteamNetworkingSocketsDebugOutputType eDetailLevel, FSteamNetworkingSocketsDebugOutput pfnFunc )
+{
+	SteamNetworkingSockets_SetDebugOutputFunction( eDetailLevel, pfnFunc );
+}
+
+
+template<typename T>
+static ConfigValue<T> *GetConnectionVar( const GlobalConfigValueEntry *pEntry, ConnectionConfig *pConnectionConfig )
+{
+	Assert( pEntry->m_eScope == k_ESteamNetworkingConfig_Connection );
+	intptr_t ptr = intptr_t( pConnectionConfig );
+	return (ConfigValue<T> *)( ptr + pEntry->m_cbOffsetOf );
+}
+
+template<typename T>
+static ConfigValue<T> *EvaluateScopeConfigValue( GlobalConfigValueEntry *pEntry,
+	ESteamNetworkingConfigScope eScopeType,
+	intptr_t scopeObj )
+{
+	switch ( eScopeType )
+	{
+		case k_ESteamNetworkingConfig_Global:
+		{
+			auto *pGlobalVal = static_cast< GlobalConfigValueBase<T> * >( pEntry );
+			return &pGlobalVal->m_value;
+		}
+
+		case k_ESteamNetworkingConfig_SocketsInterface:
+		{
+			CSteamNetworkingSockets *pInterface = (CSteamNetworkingSockets *)scopeObj;
+			if ( pEntry->m_eScope == k_ESteamNetworkingConfig_Connection )
+			{
+				return GetConnectionVar<T>( pEntry, &pInterface->m_connectionConfig );
+			}
+			break;
+		}
+
+		case k_ESteamNetworkingConfig_ListenSocket:
+		{
+			CSteamNetworkListenSocketBase *pSock = GetListenSocketByHandle( HSteamListenSocket( scopeObj ) );
+			if ( pSock )
+			{
+				if ( pEntry->m_eScope == k_ESteamNetworkingConfig_Connection )
+				{
+					return GetConnectionVar<T>( pEntry, &pSock->m_connectionConfig );
+				}
+			}
+			break;
+		}
+
+		case k_ESteamNetworkingConfig_Connection:
+		{
+			CSteamNetworkConnectionBase *pConn = GetConnectionByHandle( HSteamNetConnection( scopeObj ) );
+			if ( pConn )
+			{
+				if ( pEntry->m_eScope == k_ESteamNetworkingConfig_Connection )
+				{
+					return GetConnectionVar<T>( pEntry, &pConn->m_connectionConfig );
+				}
+			}
+			break;
+		}
+
+	}
+
+	// Bad scope argument
+	return nullptr;
+}
+
+static bool AssignConfigValueTyped( ConfigValue<int32> *pVal, ESteamNetworkingConfigDataType eDataType, const void *pArg )
+{
+	switch ( eDataType )
+	{
+		case k_ESteamNetworkingConfig_Int32:
+			pVal->m_data = *(int32*)pArg;
+			break;
+
+		case k_ESteamNetworkingConfig_Int64:
+		{
+			int64 arg = *(int64*)pArg;
+			if ( (int32)arg != arg )
+				return false; // Cannot truncate!
+			pVal->m_data = *(int32*)arg;
+			break;
+		}
+
+		case k_ESteamNetworkingConfig_Float:
+			pVal->m_data = (int32)floor( *(float*)pArg + .5f );
+			break;
+
+		case k_ESteamNetworkingConfig_String:
+		{
+			int x;
+			if ( sscanf( (const char *)pArg, "%d", &x ) != 1 )
+				return false;
+			pVal->m_data = x;
+			break;
+		}
+
+		default:
+			return false;
+	}
+
+	pVal->m_bValueSet = true;
+	return true;
+}
+
+static bool AssignConfigValueTyped( ConfigValue<int64> *pVal, ESteamNetworkingConfigDataType eDataType, const void *pArg )
+{
+	switch ( eDataType )
+	{
+		case k_ESteamNetworkingConfig_Int32:
+			pVal->m_data = *(int32*)pArg;
+			break;
+
+		case k_ESteamNetworkingConfig_Int64:
+		{
+			pVal->m_data = *(int64*)pArg;
+			break;
+		}
+
+		case k_ESteamNetworkingConfig_Float:
+			pVal->m_data = (int64)floor( *(float*)pArg + .5f );
+			break;
+
+		case k_ESteamNetworkingConfig_String:
+		{
+			long long x;
+			if ( sscanf( (const char *)pArg, "%lld", &x ) != 1 )
+				return false;
+			pVal->m_data = (int64)x;
+			break;
+		}
+
+		default:
+			return false;
+	}
+
+	pVal->m_bValueSet = true;
+	return true;
+}
+
+static bool AssignConfigValueTyped( ConfigValue<float> *pVal, ESteamNetworkingConfigDataType eDataType, const void *pArg )
+{
+	switch ( eDataType )
+	{
+		case k_ESteamNetworkingConfig_Int32:
+			pVal->m_data = (float)( *(int32*)pArg );
+			break;
+
+		case k_ESteamNetworkingConfig_Int64:
+		{
+			pVal->m_data = (float)( *(int64*)pArg );
+			break;
+		}
+
+		case k_ESteamNetworkingConfig_Float:
+			pVal->m_data = *(float*)pArg;
+			break;
+
+		case k_ESteamNetworkingConfig_String:
+		{
+			float x;
+			if ( sscanf( (const char *)pArg, "%f", &x ) != 1 )
+				return false;
+			pVal->m_data = x;
+			break;
+		}
+
+		default:
+			return false;
+	}
+
+	pVal->m_bValueSet = true;
+	return true;
+}
+
+static bool AssignConfigValueTyped( ConfigValue<std::string> *pVal, ESteamNetworkingConfigDataType eDataType, const void *pArg )
+{
+	char temp[64];
+
+	switch ( eDataType )
+	{
+		case k_ESteamNetworkingConfig_Int32:
+			V_sprintf_safe( temp, "%d", *(int32*)pArg );
+			pVal->m_data = temp;
+			break;
+
+		case k_ESteamNetworkingConfig_Int64:
+			V_sprintf_safe( temp, "%lld", (long long)*(int64*)pArg );
+			pVal->m_data = temp;
+			break;
+
+		case k_ESteamNetworkingConfig_Float:
+			V_sprintf_safe( temp, "%g", *(float*)pArg );
+			pVal->m_data = temp;
+			break;
+
+		case k_ESteamNetworkingConfig_String:
+			pVal->m_data = (const char *)pArg;
+			break;
+
+		default:
+			return false;
+	}
+
+	pVal->m_bValueSet = true;
+	return true;
+}
+
+static bool AssignConfigValueTyped( ConfigValue<void *> *pVal, ESteamNetworkingConfigDataType eDataType, const void *pArg )
+{
+	switch ( eDataType )
+	{
+		case k_ESteamNetworkingConfig_FunctionPtr:
+			pVal->m_data = (void **)pArg;
+			break;
+
+		default:
+			return false;
+	}
+
+	pVal->m_bValueSet = true;
+	return true;
+}
+
+template<typename T>
+bool SetConfigValueTyped(
+	GlobalConfigValueEntry *pEntry,
+	ESteamNetworkingConfigScope eScopeType,
+	intptr_t scopeObj,
+	ESteamNetworkingConfigDataType eDataType,
+	const void *pArg
+) {
+	ConfigValue<T> *pVal = EvaluateScopeConfigValue<T>( pEntry, eScopeType, scopeObj );
+	if ( !pVal )
+		return false;
+
+	// Clearing the value?
+	if ( pArg == nullptr )
+	{
+		if ( eScopeType == k_ESteamNetworkingConfig_Global )
+		{
+			auto *pGlobal = (typename GlobalConfigValueBase<T>::Value *)( pVal );
+			Assert( pGlobal->m_pInherit == nullptr );
+			Assert( pGlobal->m_bValueSet );
+			pGlobal->m_data = pGlobal->m_defaultValue;
+		}
+		else
+		{
+			Assert( pVal->m_pInherit );
+			pVal->m_bValueSet = false;
+		}
+		return true;
+	}
+
+	// Call type-specific method to set it
+	return AssignConfigValueTyped( pVal, eDataType, pArg );
+}
+
+template<typename T>
+ESteamNetworkingGetConfigValueResult ReturnConfigValueTyped( const T &data, void *pData, size_t *cbData )
+{
+	ESteamNetworkingGetConfigValueResult eResult;
+	if ( !pData || *cbData < sizeof(T) )
+	{
+		eResult = k_ESteamNetworkingGetConfigValue_BufferTooSmall;
+	}
+	else
+	{
+		*(T*)pData = data;
+		eResult = k_ESteamNetworkingGetConfigValue_OK;
+	}
+	*cbData = sizeof(T);
+	return eResult;
+}
+
+template<>
+ESteamNetworkingGetConfigValueResult ReturnConfigValueTyped<std::string>( const std::string &data, void *pData, size_t *cbData )
+{
+	size_t l = data.length() + 1;
+	ESteamNetworkingGetConfigValueResult eResult;
+	if ( !pData || *cbData < l )
+	{
+		eResult = k_ESteamNetworkingGetConfigValue_BufferTooSmall;
+	}
+	else
+	{
+		memcpy( pData, data.c_str(), l );
+		eResult = k_ESteamNetworkingGetConfigValue_OK;
+	}
+	*cbData = l;
+	return eResult;
+}
+
+template<typename T>
+ESteamNetworkingGetConfigValueResult GetConfigValueTyped(
+	GlobalConfigValueEntry *pEntry,
+	ESteamNetworkingConfigScope eScopeType,
+	intptr_t scopeObj,
+	void *pResult, size_t *cbResult
+) {
+	ConfigValue<T> *pVal = EvaluateScopeConfigValue<T>( pEntry, eScopeType, scopeObj );
+	if ( !pVal )
+	{
+		*cbResult = 0;
+		return k_ESteamNetworkingGetConfigValue_BadScopeObj;
+	}
+
+	// Remember if it was set at this level
+	bool bValWasSet = pVal->m_bValueSet;
+
+	// Find the place where the actual value comes from
+	while ( !pVal->m_bValueSet )
+	{
+		Assert( pVal->m_pInherit );
+		pVal = static_cast<ConfigValue<T> *>( pVal->m_pInherit );
+	}
+
+	// Call type-specific method to return it
+	ESteamNetworkingGetConfigValueResult eResult = ReturnConfigValueTyped( pVal->m_data, pResult, cbResult );
+	if ( eResult == k_ESteamNetworkingGetConfigValue_OK && !bValWasSet )
+		eResult = k_ESteamNetworkingGetConfigValue_OKInherited;
+	return eResult;
+}
+
+bool CSteamNetworkingUtils::SetConfigValue( ESteamNetworkingConfigValue eValue,
+	ESteamNetworkingConfigScope eScopeType, intptr_t scopeObj,
+	ESteamNetworkingConfigDataType eDataType, const void *pValue )
+{
+	GlobalConfigValueEntry *pEntry = FindConfigValueEntry( eValue );
+	if ( pEntry == nullptr )
+		return false;
+
+	SteamDatagramTransportLock scopeLock;
+
+	switch ( pEntry->m_eDataType )
+	{
+		case k_ESteamNetworkingConfig_Int32: return SetConfigValueTyped<int32>( pEntry, eScopeType, scopeObj, eDataType, pValue );
+		case k_ESteamNetworkingConfig_Int64: return SetConfigValueTyped<int64>( pEntry, eScopeType, scopeObj, eDataType, pValue );
+		case k_ESteamNetworkingConfig_Float: return SetConfigValueTyped<float>( pEntry, eScopeType, scopeObj, eDataType, pValue );
+		case k_ESteamNetworkingConfig_String: return SetConfigValueTyped<std::string>( pEntry, eScopeType, scopeObj, eDataType, pValue );
+		case k_ESteamNetworkingConfig_FunctionPtr: return SetConfigValueTyped<void *>( pEntry, eScopeType, scopeObj, eDataType, pValue );
+	}
+
+	Assert( false );
+	return false;
+}
+
+ESteamNetworkingGetConfigValueResult CSteamNetworkingUtils::GetConfigValue(
+	ESteamNetworkingConfigValue eValue, ESteamNetworkingConfigScope eScopeType,
+	intptr_t scopeObj, ESteamNetworkingConfigDataType *pOutDataType,
+	void *pResult, size_t *cbResult )
+{
+
+	GlobalConfigValueEntry *pEntry = FindConfigValueEntry( eValue );
+	if ( pEntry == nullptr )
+		return k_ESteamNetworkingGetConfigValue_BadValue;
+
+	if ( pOutDataType )
+		*pOutDataType = pEntry->m_eDataType;
+
+	SteamDatagramTransportLock scopeLock;
+
+	switch ( pEntry->m_eDataType )
+	{
+		case k_ESteamNetworkingConfig_Int32: return GetConfigValueTyped<int32>( pEntry, eScopeType, scopeObj, pResult, cbResult );
+		case k_ESteamNetworkingConfig_Int64: return GetConfigValueTyped<int64>( pEntry, eScopeType, scopeObj, pResult, cbResult );
+		case k_ESteamNetworkingConfig_Float: return GetConfigValueTyped<float>( pEntry, eScopeType, scopeObj, pResult, cbResult );
+		case k_ESteamNetworkingConfig_String: return GetConfigValueTyped<std::string>( pEntry, eScopeType, scopeObj, pResult, cbResult );
+		case k_ESteamNetworkingConfig_FunctionPtr: return GetConfigValueTyped<void *>( pEntry, eScopeType, scopeObj, pResult, cbResult );
+	}
+
+	Assert( false ); // FIXME
+	return k_ESteamNetworkingGetConfigValue_BadValue;
+}
+
+bool CSteamNetworkingUtils::GetConfigValueInfo( ESteamNetworkingConfigValue eValue,
+	const char **pOutName, ESteamNetworkingConfigDataType *pOutDataType,
+	ESteamNetworkingConfigScope *pOutScope, ESteamNetworkingConfigValue *pOutNextValue )
+{
+	const GlobalConfigValueEntry *pVal = FindConfigValueEntry( eValue );
+	if ( pVal == nullptr )
+		return false;
+
+	if ( pOutName )
+		*pOutName = pVal->m_pszName;
+	if ( pOutDataType )
+		*pOutDataType = pVal->m_eDataType;
+	if ( pOutScope )
+		*pOutScope = pVal->m_eScope;
+
+	if ( pOutNextValue )
+	{
+		if ( pVal->m_pNextEntry )
+			*pOutNextValue = pVal->m_pNextEntry->m_eValue;
+		else
+			*pOutNextValue = k_ESteamNetworkingConfig_Invalid;
+	}
+
+	return true;
+}
+
+ESteamNetworkingConfigValue CSteamNetworkingUtils::GetFirstConfigValue()
+{
+	EnsureConfigValueTableInitted();
+	return s_vecConfigValueTable[0]->m_eValue;
+}
+
 } // namespace SteamNetworkingSocketsLib
 using namespace SteamNetworkingSocketsLib;
 
@@ -853,6 +1236,12 @@ STEAMNETWORKINGSOCKETS_INTERFACE void GameNetworkingSockets_Kill()
 STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets *SteamNetworkingSockets()
 {
 	return &g_SteamNetworkingSocketsUser;
+}
+
+STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingUtils *SteamNetworkingUtils()
+{
+	static CSteamNetworkingUtils s_utils;
+	return &s_utils;
 }
 
 #endif
