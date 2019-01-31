@@ -722,23 +722,30 @@ void TestSymmetricAuthCryptoPerf()
 	printf( "\tSymmetric GCM decrypt (big):\t\t%f MB/sec (%d iterations)\n", dRateLargeDecrypt, k_cIterations );
 }
 
-void chdir_to_bindir()
+bool chdir_to_bindir()
 {
 #ifdef LINUX
 	char rgchPath[PATH_MAX], *pchPathTail;
 	memset(rgchPath, 0, sizeof(rgchPath));
-	readlink("/proc/self/exe", rgchPath, sizeof(rgchPath));
+
+	if (readlink("/proc/self/exe", rgchPath, sizeof(rgchPath)) == -1)
+		return false;
+
 	pchPathTail = strrchr(rgchPath, '/');
-	if (pchPathTail) {
-		*pchPathTail = 0;
-		chdir(rgchPath);
-	}
+	if (!pchPathTail)
+		return false;
+
+	*pchPathTail = 0;
+	if (chdir(rgchPath) == -1)
+		return false;
 #endif
+	return true;
 }
 
 int main()
 {
-	chdir_to_bindir();
+	if (!chdir_to_bindir())
+		printf("WARNING: Could not change working directory, AES-GCM test vectors will probably break.\n");
 
 	CCrypto::Init();
 
