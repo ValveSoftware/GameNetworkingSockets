@@ -160,12 +160,9 @@ const int k_cbSteamNetworkingSocketsMaxReliableMessageSegmentFrame = k_cbSteamNe
 /// which has a block size of 128 bits.  This is not configurable.
 const int k_cbSteamNetworkingSocketsEncryptionBlockSize = 16;
 
-/// Size of security tag for AES-GCM.  Remember, the attacker does not have
-/// access to the per-packet IV, so our situation is more difficult for him
-/// than the standard analysis of minimum recommended tag lengths.  So
-/// if he corrupts a packet, he has a 2^-tagbits chance of it decrypting
-/// successfully and us attempting to process that corrupted data higher
-/// up the stack.  But he doesn't know which packets decrypted successfully.
+/// Size of security tag for AES-GCM.
+/// It would be nice to use a smaller tag, but BCrypt requires a 16-byte tag,
+/// which is what OpenSSL uses by default for TLS.
 const int k_cbSteamNetwokingSocketsEncrytionTagSize = 16;
 
 /// Max length of plaintext and encrypted payload we will send.  AES-GCM does
