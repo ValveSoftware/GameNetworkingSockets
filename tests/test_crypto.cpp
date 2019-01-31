@@ -506,18 +506,18 @@ AAAECpUfg4C0BkgsCO+GlFAbcTQZUeFFQcamXzDA1tx7aNWre903qWUTRvLh3toW6vScFd
 //-----------------------------------------------------------------------------
 void TestEllipticPerf()
 {
-	uint64 usecStart;
 	const int k_cubPktBig = 1024*1024*10;
 	const int k_cubPktSmall = 128;
 
+	const int k_cIterationsECDH = 500;
+	const int k_cIterationsSignSmall = 500;
+	const int k_cIterationsSignBig = 25;
+
+	uint64 usecStart;
 	CUtlBuffer bufData;
 	bufData.EnsureCapacity( k_cubPktBig );
 	bufData.SeekPut( CUtlBuffer::SEEK_HEAD, k_cubPktBig );
 	CCrypto::GenerateRandomBlock(bufData.Base(), k_cubPktBig);
-
-	int k_cIterationsECDH = 500;
-	int k_cIterationsSignSmall = 500;
-	int k_cIterationsSignBig = 25;
 
 	CECKeyExchangePublicKey lastPub;
 	CECKeyExchangePrivateKey lastPriv;
@@ -559,7 +559,6 @@ void TestEllipticPerf()
 	}
 	double dMicrosecPerSignCheckSmall = double( Plat_USTime() - usecStart ) / k_cIterationsSignSmall;
 
-
 	// large data sign
 	usecStart = Plat_USTime();
 	for ( int i = 0; i < k_cIterationsSignBig; ++i )
@@ -571,7 +570,6 @@ void TestEllipticPerf()
 	double dMicrosecPerSignBig = elapsed / k_cIterationsSignBig;
 	double dRateLargeMBPerSec = double( k_cubPktBig ) * k_cIterationsSignBig / elapsed;
 
-
 	// large data verify
 	usecStart = Plat_USTime();
 	for ( int i = 0; i < k_cIterationsSignBig; ++i )
@@ -581,7 +579,6 @@ void TestEllipticPerf()
 	elapsed = Plat_USTime() - usecStart;
 	double dMicrosecPerSignCheckBig = elapsed / k_cIterationsSignBig;
 	double dRateLargeMBPerSecCheck = double( k_cubPktBig ) * k_cIterationsSignBig / elapsed;
-
 
 	printf( "\tEphemeral curve25519 key exchange:\t\t\t%f microseconds each (%d iterations)\n", dMicrosecPerECDH, k_cIterationsSignSmall );
 	printf( "\tCalculate ed25519 signature (small):\t\t\t%f microseconds each (%d iterations)\n", dMicrosecPerSignSmall, k_cIterationsSignSmall );
@@ -643,6 +640,15 @@ void SymmetricAuthDecryptRepeatedly( int cIterations, AES_GCM_DecryptContext &ct
 //-----------------------------------------------------------------------------
 void TestSymmetricAuthCryptoPerf()
 {
+	const int k_cIterations = 10000;
+
+	const int k_cMaxData = 800;
+	const int k_cBufs = 5;
+	const int k_cubTestBuf = k_cMaxData * k_cBufs + k_cIterations;
+
+	const int k_cubPktBig = 1200;
+	const int k_cubPktSmall = 100;
+
 	AES_GCM_EncryptContext ctxEnc;
 	AES_GCM_DecryptContext ctxDec;
 
@@ -653,18 +659,9 @@ void TestSymmetricAuthCryptoPerf()
 	uint8 rgubIV[k_nSymmetricIVSize];
 
 	CCrypto::GenerateRandomBlock( rgubKey, V_ARRAYSIZE( rgubKey ) );
-
-	const int k_cIterations = 10000;
-
-	const int k_cMaxData = 800;
-	const int k_cBufs = 5;
-	const int k_cubTestBuf = k_cMaxData * k_cBufs + k_cIterations;
-
-	const int k_cubPktBig = 1200;
-	const int k_cubPktSmall = 100;
-	uint8 rgubData[k_cubTestBuf];
-
 	CCrypto::GenerateRandomBlock( rgubIV, V_ARRAYSIZE( rgubIV ) );
+
+	uint8 rgubData[k_cubTestBuf];
 
 	// Initialize encrypt/decrypt contexts
 	ctxEnc.Init(
