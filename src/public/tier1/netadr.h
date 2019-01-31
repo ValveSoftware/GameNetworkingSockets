@@ -46,10 +46,10 @@ public:
 
 	// NOTE: For historical reasons, the default constructor sets address type
 	// to *NA_IP* (not NA_NULL!) but the IP and port are 0, so IsValid() will return false
-	inline netadr_t() { memset(this, 0, sizeof(*this) ); type = NA_IP; }
-	inline netadr_t( uint unIP, uint16 usPort ) { memset(this, 0, sizeof(*this) ); SetIPAndPort( unIP, usPort ); }
-	explicit	netadr_t( uint unIP ) { memset(this, 0, sizeof(*this) ); SetIP( unIP ); }
-	explicit	netadr_t( const char *pch ) { memset(this, 0, sizeof(*this) ); SetFromString( pch ); }
+	inline netadr_t() { memset((void *)this, 0, sizeof(*this) ); type = NA_IP; }
+	inline netadr_t( uint unIP, uint16 usPort ) { memset((void *)this, 0, sizeof(*this) ); SetIPAndPort( unIP, usPort ); }
+	explicit	netadr_t( uint unIP ) { memset((void *)this, 0, sizeof(*this) ); SetIP( unIP ); }
+	explicit	netadr_t( const char *pch ) { memset((void *)this, 0, sizeof(*this) ); SetFromString( pch ); }
 
 	/// Set to invalid address (NA_NULL)
 	void	Clear() { memset((void *)this, 0, sizeof(*this)); }
