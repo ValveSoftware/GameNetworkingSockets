@@ -6,16 +6,21 @@
 #
 set -ex
 
+BUILD_SANITIZERS=1
+[[ $(uname -s) == MINGW* ]] && BUILD_SANITIZERS=0
+
 # Build some tests with sanitizers
-mkdir build-asan
-(cd build-asan && cmake -G Ninja -DSANITIZE_ADDRESS:BOOL=ON -DLIGHT_TESTS:BOOL=ON ..)
+if [[ $BUILD_SANITIZERS -ne 0 ]]; then
+	mkdir build-asan
+	(cd build-asan && cmake -G Ninja -DSANITIZE_ADDRESS:BOOL=ON -DLIGHT_TESTS:BOOL=ON ..)
 
-mkdir build-ubsan
-(cd build-ubsan && cmake -G Ninja -DSANITIZE_UNDEFINED:BOOL=ON -DLIGHT_TESTS:BOOL=ON ..)
+	mkdir build-ubsan
+	(cd build-ubsan && cmake -G Ninja -DSANITIZE_UNDEFINED:BOOL=ON -DLIGHT_TESTS:BOOL=ON ..)
 
-if [[ ${CXX} == *clang* ]]; then
-	mkdir build-tsan
-	(cd build-tsan && cmake -G Ninja -DSANITIZE_THREAD:BOOL=ON -DLIGHT_TESTS:BOOL=ON ..)
+	if [[ ${CXX} == *clang* ]]; then
+		mkdir build-tsan
+		(cd build-tsan && cmake -G Ninja -DSANITIZE_THREAD:BOOL=ON -DLIGHT_TESTS:BOOL=ON ..)
+	fi
 fi
 
 # Build lightweight test builds
@@ -28,10 +33,12 @@ ninja -C build-meson
 ninja -C build-cmake
 
 # Build specific tests for validation
-ninja -C build-asan test_connection test_crypto
-ninja -C build-ubsan test_connection test_crypto
-if [ -d build-tsan ]; then
-	ninja -C build-tsan test_connection test_crypto
+if [[ $BUILD_SANITIZERS -ne 0 ]]; then
+	ninja -C build-asan test_connection test_crypto
+	ninja -C build-ubsan test_connection test_crypto
+	if [ -d build-tsan ]; then
+		ninja -C build-tsan test_connection test_crypto
+	fi
 fi
 
 # Run basic tests
@@ -40,8 +47,10 @@ build-cmake/tests/test_crypto
 build-cmake/tests/test_connection
 
 # Run sanitized builds
-for SANITIZER in asan ubsan tsan; do
-	[ -d build-${SANITIZER} ] || continue
-	build-${SANITIZER}/tests/test_crypto
-	build-${SANITIZER}/tests/test_connection
-done
+if [[ $BUILD_SANITIZERS -ne 0 ]]; then
+	for SANITIZER in asan ubsan tsan; do
+		[ -d build-${SANITIZER} ] || continue
+		build-${SANITIZER}/tests/test_crypto
+		build-${SANITIZER}/tests/test_connection
+	done
+fi
