@@ -6,6 +6,8 @@
 #
 set -ex
 
+rm -rf build-{a,ub,t}san build-meson build-cmake
+
 BUILD_SANITIZERS=1
 [[ $(uname -s) == MINGW* ]] && BUILD_SANITIZERS=0
 
