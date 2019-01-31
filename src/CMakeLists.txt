@@ -97,6 +97,12 @@ set(GNS_COMMON_FLAGS
 	-Wno-nested-anon-types
 )
 
+if(WERROR)
+	set(GNS_COMMON_FLAGS
+		${GNS_COMMON_FLAGS}
+		-Werror)
+endif()
+
 set(GNS_C_FLAGS
 	-Wstrict-prototypes
 )
