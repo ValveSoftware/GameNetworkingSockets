@@ -1782,6 +1782,7 @@ bool BSteamNetworkingSocketsLowLevelAddRef( SteamDatagramErrMsg &errMsg )
 	// First time init?
 	if ( s_nLowLevelSupportRefCount == 0 )
 	{
+		CCrypto::Init();
 
 		// Give us a extra time here.  This is a one-time init function and the OS might
 		// need to load up libraries and stuff.

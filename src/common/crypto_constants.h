@@ -5,6 +5,8 @@
 #pragma once
 
 const int k_nSymmetricBlockSize = 16;					// AES block size (128 bits)
+const int k_nSymmetricIVSize = 12;						// length of the IV (must be 12 for BCryptEncrypt/BCryptDecrypt, but OpenSSL is more flexible)
+const int k_nSymmetricGCMTagSize = 16;					// length in GCM tag (must be 16 for BCryptEncrypt/BCryptDecrypt, but OpenSSL is more flexible)
 const int k_nSymmetricKeyLen = 32;						// length in bytes of keys used for symmetric encryption
 const int k_nSymmetricKeyLen128 = 16;					// 128 bits, in bytes
 const int k_nSymmetricKeyLen256 = 32;					// 256 bits, in bytes

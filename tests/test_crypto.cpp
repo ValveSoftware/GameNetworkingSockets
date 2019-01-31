@@ -239,6 +239,9 @@ void TestSymmetricAuthCrypto_EncryptTestVectorFile( const char *pszFilename )
 		std::string tag;
 		RETURNIFNOT( file.GetBinaryBlob( "tag", tag ) );
 
+		if ( tag.length() != 16 || iv.length() != 12)
+			continue;
+
 		ctxEnc.Init(
 			key.c_str(), key.length(),
 			iv.length(),
@@ -647,7 +650,7 @@ void TestSymmetricAuthCryptoPerf()
 
 	// generate a random key
 	uint8 rgubKey[k_nSymmetricKeyLen];
-	uint8 rgubIV[k_nSymmetricBlockSize];
+	uint8 rgubIV[k_nSymmetricIVSize];
 
 	CCrypto::GenerateRandomBlock( rgubKey, V_ARRAYSIZE( rgubKey ) );
 
@@ -666,12 +669,12 @@ void TestSymmetricAuthCryptoPerf()
 	// Initialize encrypt/decrypt contexts
 	ctxEnc.Init(
 		rgubKey, k_nSymmetricKeyLen,
-		k_nSymmetricBlockSize,
-		4 );
+		V_ARRAYSIZE(rgubIV),
+		k_nSymmetricGCMTagSize );
 	ctxDec.Init(
 		rgubKey, k_nSymmetricKeyLen,
-		k_nSymmetricBlockSize,
-		4 );
+		V_ARRAYSIZE(rgubIV),
+		k_nSymmetricGCMTagSize );
 
 	// fill data buffer with arbitrary data
 	uint8 rgubEncrypted[ k_cubPktBig + 32 ];		// 16 = AES block size.. worst case for padded data

@@ -166,7 +166,7 @@ const int k_cbSteamNetworkingSocketsEncryptionBlockSize = 16;
 /// if he corrupts a packet, he has a 2^-tagbits chance of it decrypting
 /// successfully and us attempting to process that corrupted data higher
 /// up the stack.  But he doesn't know which packets decrypted successfully.
-const int k_cbSteamNetwokingSocketsEncrytionTagSize = 4;
+const int k_cbSteamNetwokingSocketsEncrytionTagSize = 16;
 
 /// Max length of plaintext and encrypted payload we will send.  AES-GCM does
 /// not use padding (but it does have the security tag).  So this can be
@@ -260,14 +260,14 @@ COMPILE_TIME_ASSERT( ( k_usecTimeSinceLastPacketMinReasonable >> k_usecTimeSince
 /// Protocol version of this code.  This is a blunt instrument, which is incremented when we
 /// wish to change the wire protocol in a way that doesn't have some other easy
 /// mechanism for dealing with compatibility (e.g. using protobuf's robust mechanisms).
-const uint32 k_nCurrentProtocolVersion = 7;
+const uint32 k_nCurrentProtocolVersion = 8;
 
 /// Minimum required version we will accept from a peer.  We increment this
 /// when we introduce wire breaking protocol changes and do not wish to be
 /// backward compatible.  This has been fine before the	first major release,
 /// but once we make a big public release, we probably won't ever be able to
 /// do this again, and we'll need to have more sophisticated mechanisms. 
-const uint32 k_nMinRequiredProtocolVersion = 7;
+const uint32 k_nMinRequiredProtocolVersion = 8;
 
 // Serialize an UNSIGNED quantity.  Returns pointer to the next byte.
 // https://developers.google.com/protocol-buffers/docs/encoding

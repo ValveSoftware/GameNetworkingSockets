@@ -1,4 +1,9 @@
 cmake_minimum_required(VERSION 3.5)
+
+include(CMakeDependentOption)
+include(CMakePushCheckState)
+include(CheckSymbolExists)
+
 project(GameNetworkingSockets C CXX)
 
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
@@ -22,7 +27,17 @@ endif()
 
 option(Protobuf_USE_STATIC_LIBS "Build with a static Protobuf library" OFF)
 option(LIGHT_TESTS "Use smaller/shorter tests for simple integration testing (e.g. Travis)" OFF)
-option(USE_BCRYPT "Use Windows BCrypt API (WIP)" OFF)
+
+if (WIN32)
+	cmake_push_check_state()
+	set(CMAKE_REQUIRED_LIBRARIES bcrypt)
+	check_symbol_exists(BCryptEncrypt windows.h BCRYPT_AVAILABLE)
+	cmake_pop_check_state()
+	option(USE_BCRYPT "Use Windows BCrypt API for hashing and encryption" OFF)
+	if (NOT BCRYPT_AVAILABLE AND USE_BCRYPT)
+		message(FATAL_ERROR "You're on Windows but BCrypt seems to be unavailable, you will need OpenSSL")
+	endif()
+endif()
 
 add_subdirectory(examples)
 add_subdirectory(src)
