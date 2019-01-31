@@ -31,7 +31,6 @@ flags_cxx = [
 warn_flags_common = [
   '-Wall',
   '-Wextra',
-  '-pedantic',
 
   # Explicitly disable noisy warnings
   '-Wno-documentation',

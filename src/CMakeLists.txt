@@ -90,7 +90,6 @@ set(GNS_COMMON_FLAGS
 	-fno-strict-aliasing
 	-Wall
 	#-Wextra
-	#-pedantic
 	-Wno-unknown-pragmas
 	-Wno-sign-compare
 	-Wno-unused-local-typedef
