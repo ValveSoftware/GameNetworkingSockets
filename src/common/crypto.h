@@ -18,8 +18,6 @@ typedef	unsigned char SHA256Digest_t[ k_cubSHA256Hash ];
 const unsigned int k_cubSHA1Hash = 20;
 typedef	uint8 SHADigest_t[ k_cubSHA1Hash ];
 
-#define VALVE_CRYPTO_SYMMETRIC_OPENSSLEVP
-
 // Base class for symmetric encryption and decryption context.
 // A context is used when you want to use the same encryption
 // parameters repeatedly:
@@ -35,11 +33,7 @@ public:
 	void Wipe();
 
 protected:
-	#ifdef VALVE_CRYPTO_SYMMETRIC_OPENSSLEVP
-		void *evp_cipher_ctx;
-	#else
-		#error "No can do!"
-	#endif
+	void *m_ctx;
 
 	uint32 m_cbIV, m_cbTag;
 };
