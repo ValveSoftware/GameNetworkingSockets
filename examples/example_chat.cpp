@@ -508,6 +508,10 @@ private:
 				// We will get a callback immediately after accepting the connection.
 				// Since we are the server, we can ignore this, it's not news to us.
 				break;
+
+			default:
+				// Silences -Wswitch
+				break;
 		}
 	}
 };
@@ -648,6 +652,10 @@ private:
 
 			case k_ESteamNetworkingConnectionState_Connected:
 				Printf( "Connected to server OK" );
+				break;
+
+			default:
+				// Silences -Wswitch
 				break;
 		}
 	}

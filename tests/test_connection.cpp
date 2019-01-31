@@ -349,6 +349,10 @@ struct TestSteamNetworkingSocketsCallbacks : public ISteamNetworkingSocketsCallb
 			Printf( "[%s] connected\n", pInfo->m_info.m_szConnectionDescription );
 
 			break;
+
+		default:
+			// Silences -Wswitch
+			break;
 		}
 	}
 };
