@@ -46,6 +46,11 @@ warn_flags_common = [
   '-Wno-nested-anon-types',
 ]
 
+werror = get_option('Werror')
+if werror
+  warn_flags_common += [ '-Werror' ]
+endif
+
 warn_flags_c = [
   '-Wimplicit',
   '-Wstrict-prototypes',

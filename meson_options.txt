@@ -2,3 +2,8 @@ option('light_tests',
   type: 'boolean',
   value: true,
   description: 'Use smaller/shorter tests for simple integration testing (e.g. Travis)')
+
+option('Werror',
+  type: 'boolean',
+  value: false,
+  description: 'Enable -Werror flag when compiling')
