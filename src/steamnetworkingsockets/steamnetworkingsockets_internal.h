@@ -644,10 +644,14 @@ extern GlobalConfigValue<std::string> g_Config_SDRClient_ForceRelayCluster;
 extern GlobalConfigValue<std::string> g_Config_SDRClient_ForceProxyAddr;
 #endif
 
+// This awkwardness (adding and subtracting sizeof(intptr_t)) silences an UBSan
+// runtime error about "member access within null pointer"
+#define V_offsetof(class, field) (int)((intptr_t)&((class *)(0+sizeof(intptr_t)))->field - sizeof(intptr_t))
+
 #define DEFINE_GLOBAL_CONFIGVAL( type, name, defaultVal ) \
 	GlobalConfigValue<type> g_Config_##name( k_ESteamNetworkingConfig_##name, #name, defaultVal )
 #define DEFINE_CONNECTON_DEFAULT_CONFIGVAL( type, name, defaultVal ) \
-	ConnectionConfigDefaultValue<type> g_ConfigDefault_##name( k_ESteamNetworkingConfig_##name, #name, defaultVal, (int)(intptr_t)&((ConnectionConfig*)0)->m_##name )
+	ConnectionConfigDefaultValue<type> g_ConfigDefault_##name( k_ESteamNetworkingConfig_##name, #name, defaultVal, V_offsetof(ConnectionConfig, m_##name) )
 
 inline bool RandomBoolWithOdds( float odds )
 {
