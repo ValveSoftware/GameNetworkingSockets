@@ -7,3 +7,8 @@ option('Werror',
   type: 'boolean',
   value: false,
   description: 'Enable -Werror flag when compiling')
+
+option('use_bcrypt',
+  type: 'boolean',
+  value: false,
+  description: 'Use BCrypt API for cryptography (encryption/decryption, hashing) on Windows')

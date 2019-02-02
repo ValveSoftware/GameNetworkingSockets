@@ -7,24 +7,28 @@ protoc = generator(protoc_bin,
   output    : ['@BASENAME@.pb.cc', '@BASENAME@.pb.h'],
   arguments : ['-I@CURRENT_SOURCE_DIR@/common', '--proto_path=@CURRENT_SOURCE_DIR@', '--cpp_out=@BUILD_DIR@', '@INPUT@'])
 
-min_libcrypto = dependency('libcrypto', version: '>=1.1.0')
-good_libcrypto = dependency('libcrypto', version: '>=1.1.1', required: false)
+use_bcrypt = get_option('use_bcrypt')
 
-if good_libcrypto.found()
-  dependencies += [ good_libcrypto ]
-else
-  dependencies += [ min_libcrypto ]
-endif
+if not use_bcrypt
+  min_libcrypto = dependency('libcrypto', version: '>=1.1.0')
+  good_libcrypto = dependency('libcrypto', version: '>=1.1.1', required: false)
 
-code = '''#include <openssl/evp.h>
-int main(int argc, char **argv) {
-  EVP_MD_CTX_free(NULL);
-  return 0;
-}
-'''
-result = c_compiler.links(code, dependencies: dependencies, name: 'EVP API')
-if not result
-  error('Your OpenSSL version appears to be too old. Check that you\'re using OpenSSL 1.1.0 or later.')
+  if good_libcrypto.found()
+    dependencies += [ good_libcrypto ]
+  else
+    dependencies += [ min_libcrypto ]
+  endif
+
+  code = '''#include <openssl/evp.h>
+  int main(int argc, char **argv) {
+    EVP_MD_CTX_free(NULL);
+    return 0;
+  }
+  '''
+  result = c_compiler.links(code, dependencies: dependencies, name: 'EVP API')
+  if not result
+    error('Your OpenSSL version appears to be too old. Check that you\'re using OpenSSL 1.1.0 or later.')
+  endif
 endif
 
 dependencies += [
@@ -56,10 +60,8 @@ protobuf_sources = [
 ]
 
 sources = [
-  'common/crypto.cpp',
   'common/crypto_textencode.cpp',
   'common/keypair.cpp',
-  'common/opensslwrapper.cpp',
   'common/steamid.cpp',
   'steamnetworkingsockets/clientlib/csteamnetworkingsockets.cpp',
   'steamnetworkingsockets/clientlib/steamnetworkingsockets_flat.cpp',
@@ -80,8 +82,21 @@ sources = [
   'vstdlib/strtools.cpp',
 ]
 
+if use_bcrypt
+  dependencies += [ c_compiler.find_library('bcrypt') ]
+  cpp_flags += [ '-DED25519_HASH_BCRYPT' ]
+  sources += [
+    'common/crypto_bcrypt.cpp',
+  ]
+else
+  sources += [
+    'common/crypto.cpp',
+    'common/opensslwrapper.cpp',
+  ]
+endif
+
 # Select 25519 crypto provider
-if good_libcrypto.found()
+if not use_bcrypt and good_libcrypto.found()
   cpp_flags += [ '-DVALVE_CRYPTO_25519_OPENSSLEVP' ]
   sources += [
     'common/crypto_25519_openssl.cpp',
@@ -121,3 +136,5 @@ GameNetworkingSockets_so = library('GameNetworkingSockets',
 dep_GameNetworkingSockets_so = declare_dependency(
   include_directories: include_directories( '../include' ),
   link_with: GameNetworkingSockets_so )
+
+# vim: set ts=2 sts=2 sw=2 et:
