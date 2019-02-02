@@ -76,10 +76,12 @@ Third party language bindings:
   * GCC 7.3 or later
   * Clang 3.3 or later
   * Visual Studio 2017 or later
-* OpenSSL 1.1.0 or later
-* (If using OpenSSL < 1.1.1 ) ed25519-donna and curve25519-donna.  We've made some
-  minor changes, so the source is included in this project.
-* Google protobuf (3.0+ recommended, but 2.6.1+ should work)
+* One of the following crypto solutions:
+  * OpenSSL 1.1.1 or later
+  * OpenSSL 1.1.x, plus ed25519-donna and curve25519-donna.  (We've made some
+    minor changes, so the source is included in this project.)
+  * [bcrypt](https://docs.microsoft.com/en-us/windows/desktop/api/bcrypt/) (windows only)
+* Google protobuf 2.6.1+
 
 
 #### OpenSSL
