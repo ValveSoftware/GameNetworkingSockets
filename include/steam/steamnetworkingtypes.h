@@ -457,6 +457,15 @@ const int k_cbMaxSteamNetworkingSocketsMessageSizeSend = 512 * 1024;
 typedef struct _SteamNetworkingMessage_t
 {
 
+	/// Message payload
+	void *m_pData;
+
+	/// Size of the payload.
+	uint32 m_cbSize;
+
+	/// The connection this came from.  (Not used when using the ISteamMessages interface)
+	HSteamNetConnection m_conn;
+
 	/// Who sent this to us?
 	SteamNetworkingIdentity m_sender;
 
@@ -488,15 +497,6 @@ typedef struct _SteamNetworkingMessage_t
 	///
 	/// free( pMsg->m_pData );
 	void (*m_pfnFreeData)( struct _SteamNetworkingMessage_t *msg );
-
-	/// Message payload
-	void *m_pData;
-
-	/// Size of the payload.
-	uint32 m_cbSize;
-
-	/// The connection this came from.  (Not used when using the ISteamMessages interface)
-	HSteamNetConnection m_conn;
 
 	/// The channel number the message was received on.
 	/// (Not used for messages received on "connections")
