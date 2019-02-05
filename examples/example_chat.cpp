@@ -96,12 +96,12 @@ static void InitSteamDatagramConnectionSockets()
 		if ( !GameNetworkingSockets_Init( nullptr, errMsg ) )
 			FatalError( "GameNetworkingSockets_Init failed.  %s", errMsg );
 	#else
-		putenv( "SteamAppID=570" ); // !KLUDGE!
-		if ( !SteamAPI_Init() )
-			FatalError( "SteamAPI_Init failed" );
+		//putenv( "SteamAppID=570" ); // !KLUDGE!
+		//if ( !SteamAPI_Init() )
+		//	FatalError( "SteamAPI_Init failed" );
 
 		SteamDatagramErrMsg errMsg;
-		if ( !SteamDatagramClient_Init( errMsg ) )
+		if ( !SteamDatagramClient_Init( true, errMsg ) )
 			FatalError( "SteamDatagramClient_Init failed.  %s", errMsg );
 
 		// Disable authentication when running with Steam, for this

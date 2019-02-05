@@ -72,10 +72,10 @@ static void InitSteamDatagramConnectionSockets()
 			exit(1);
 		}
 	#else
-		SteamAPI_Init();
+		//SteamAPI_Init();
 
 		SteamDatagramErrMsg errMsg;
-		if ( !SteamDatagramClient_Init( errMsg ) )
+		if ( !SteamDatagramClient_Init( true, errMsg ) )
 		{
 			fprintf( stderr, "SteamDatagramClient_Init failed.  %s", errMsg );
 			exit(1);
