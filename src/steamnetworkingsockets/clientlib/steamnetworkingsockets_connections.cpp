@@ -2153,7 +2153,7 @@ void CSteamNetworkConnectionPipe::FakeSendStats( SteamNetworkingMicroseconds use
 	// a ping measurement.
 	int64 nPktNum = m_pPartner->m_statsEndToEnd.ExpandWirePacketNumberAndCheck( nSeqNum );
 	Assert( nPktNum+1 == m_statsEndToEnd.m_nNextSendSequenceNumber );
-	m_pPartner->m_statsEndToEnd.TrackProcessSequencedPacket( nSeqNum, usecNow, -1 );
+	m_pPartner->m_statsEndToEnd.TrackProcessSequencedPacket( nPktNum, usecNow, -1 );
 	m_pPartner->m_statsEndToEnd.TrackRecvPacket( cbPktSize, usecNow );
 	m_pPartner->m_statsEndToEnd.m_ping.ReceivedPing( 0, usecNow );
 
