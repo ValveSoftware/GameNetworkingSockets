@@ -340,8 +340,8 @@ extern "C" {
 	// Steamworks SDK
 	inline ISteamNetworkingSockets *SteamNetworkingSockets();
 	STEAM_DEFINE_USER_INTERFACE_ACCESSOR( ISteamNetworkingSockets *, SteamNetworkingSockets, STEAMNETWORKINGSOCKETS_INTERFACE_VERSION );
-	inline ISteamNetworking *SteamGameServerNetworkingSockets();
-	STEAM_DEFINE_GAMESERVER_INTERFACE_ACCESSOR( ISteamNetworking *, SteamGameServerNetworkingSockets, STEAMNETWORKINGSOCKETS_INTERFACE_VERSION );
+	inline ISteamNetworkingSockets *SteamGameServerNetworkingSockets();
+	STEAM_DEFINE_GAMESERVER_INTERFACE_ACCESSOR( ISteamNetworkingSockets *, SteamGameServerNetworkingSockets, STEAMNETWORKINGSOCKETS_INTERFACE_VERSION );
 #endif
 
 /// Callback struct used to notify when a connection has changed state
