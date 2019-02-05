@@ -7,10 +7,6 @@
 #include "steamnetworkingsockets_lowlevel.h"
 #include "csteamnetworkingsockets.h"
 #include "crypto.h"
-#ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
-	#include <steam/steam_gameserver.h>
-	#include "csteamnetworkingsockets_steam.h"
-#endif
 
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
@@ -124,7 +120,6 @@ CSteamNetworkingMessage *CSteamNetworkingMessage::New( CSteamNetworkConnectionBa
 	pMsg->m_usecTimeReceived = usecNow;
 	pMsg->m_nMessageNumber = nMsgNum;
 	pMsg->m_pfnFreeData = CSteamNetworkingMessage::DefaultFreeData;
-
 	return pMsg;
 }
 
@@ -863,18 +858,7 @@ bool CSteamNetworkConnectionBase::BRecvCryptoHandshake( const CMsgSteamDatagramC
 			return false;
 		}
 
-		long rtNow = time( nullptr );
-		#ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
-		auto *pSteamNetworkingSocketsSteamBase = assert_cast<CSteamNetworkingSocketsSteamBase *>( m_pSteamNetworkingSocketsInterface );
-		if ( pSteamNetworkingSocketsSteamBase->m_pSteamUtils )
-		{
-			rtNow = pSteamNetworkingSocketsSteamBase->m_pSteamUtils->GetServerRealTime();
-		}
-		else
-		{
-			AssertMsg( false, "No ISteamUtils?  Using local clock to check if cert expired!" );
-		}
-		#endif
+		long rtNow = m_pSteamNetworkingSocketsInterface->GetTimeSecure();
 
 		// Make sure hasn't expired.  All signed certs without an expiry should be considered invalid!
 		// For unsigned certs, there's no point in checking the expiry, since anybody who wanted

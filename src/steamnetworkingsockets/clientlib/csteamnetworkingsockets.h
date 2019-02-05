@@ -4,6 +4,7 @@
 #define CSTEAMNETWORKINGSOCKETS_H
 #pragma once
 
+#include <time.h>
 #include <steam/steamnetworkingsockets.h>
 #include <steam/isteamnetworkingutils.h>
 
@@ -52,6 +53,10 @@ public:
 	virtual void AsyncCertRequest() = 0;
 	virtual void CacheIdentity() = 0;
 #endif
+
+	// Get current time of day, ideally from a source that
+	// doesn't depend on the user setting their local clock properly
+	virtual time_t GetTimeSecure();
 
 	const SteamNetworkingIdentity &InternalGetIdentity()
 	{

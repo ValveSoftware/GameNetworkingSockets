@@ -358,6 +358,12 @@ bool CSteamNetworkingSockets::BHasAnyListenSockets() const
 	return false;
 }
 
+time_t CSteamNetworkingSockets::GetTimeSecure()
+{
+	// Trusting local user's clock!
+	return time(nullptr);
+}
+
 bool CSteamNetworkingSockets::GetIdentity( SteamNetworkingIdentity *pIdentity )
 {
 	SteamDatagramTransportLock scopeLock;
