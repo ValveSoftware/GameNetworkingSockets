@@ -52,7 +52,7 @@ uint32 CEC25519KeyBase::GetRawData( void *pData ) const
 		case k_ECryptoKeyTypeKeyExchangePrivate:
 			if ( EVP_PKEY_get_raw_private_key( pkey, (unsigned char *)pData, &len ) != 1 )
 			{
-				AssertMsg( false, "EVP_PKEY_get_raw_public_key failed?" );
+				AssertMsg( false, "EVP_PKEY_get_raw_private_key failed?" );
 				return 0;
 			}
 			break;
