@@ -1272,14 +1272,9 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 	Assert( BStateIsConnectedForWirePurposes() );
 	Assert( !m_senderState.m_mapInFlightPacketsByPktNum.empty() );
 
-	// Check if they are asking us to make room
-	int cbMaxPlaintextPayload = k_cbSteamNetworkingSocketsMaxPlaintextPayloadSend;
-	if ( cbMaxEncryptedPayload < k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend )
-	{
-		COMPILE_TIME_ASSERT( ( k_cbSteamNetworkingSocketsEncryptionBlockSize & (k_cbSteamNetworkingSocketsEncryptionBlockSize-1) ) == 0 ); // key size should be power of two
-		cbMaxPlaintextPayload = ( cbMaxEncryptedPayload - 1 ) & ~(k_cbSteamNetworkingSocketsEncryptionBlockSize-1); // we need at least one byte of padding, and then round up to multiple of key size
-		cbMaxPlaintextPayload = std::max( 0, cbMaxPlaintextPayload );
-	}
+	// Get max size of plaintext we could send.
+	// AES-GCM has a fixed size overhead, for the tag.
+	int cbMaxPlaintextPayload = std::max( 0, cbMaxEncryptedPayload-k_cbSteamNetwokingSocketsEncrytionTagSize );
 
 	uint8 payload[ k_cbSteamNetworkingSocketsMaxPlaintextPayloadSend ];
 	uint8 *pPayloadEnd = payload + cbMaxPlaintextPayload;
