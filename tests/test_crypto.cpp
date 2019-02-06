@@ -239,7 +239,9 @@ void TestSymmetricAuthCrypto_EncryptTestVectorFile( const char *pszFilename )
 		std::string tag;
 		RETURNIFNOT( file.GetBinaryBlob( "tag", tag ) );
 
-		if ( tag.length() != 16 || iv.length() != 12)
+		// With the Windows CNG API (BCryptEncrypt/BCryptDecrypt) there are no
+		// other tag length or IV length options permitted.
+		if ( tag.length() != 16 || iv.length() != 12 )
 			continue;
 
 		ctxEnc.Init(
