@@ -31,6 +31,27 @@ if not use_bcrypt
   endif
 endif
 
+conf_data = configuration_data()
+
+conf_data.set('GNS_CRYPTO_AES_BCRYPT', false)
+conf_data.set('GNS_CRYPTO_AES_OPENSSL', false)
+conf_data.set('GNS_CRYPTO_25519_REF', false)
+conf_data.set('GNS_CRYPTO_25519_OPENSSL', false)
+
+if use_bcrypt
+  conf_data.set('GNS_CRYPTO_AES_BCRYPT', true)
+  conf_data.set('GNS_CRYPTO_25519_REF', true)
+else
+  conf_data.set('GNS_CRYPTO_AES_OPENSSL', true)
+  if good_libcrypto.found()
+    conf_data.set('GNS_CRYPTO_25519_OPENSSL', true)
+  else
+    conf_data.set('GNS_CRYPTO_25519_REF', true)
+  endif
+endif
+
+configure_file(output: 'gnsconfig.h', configuration: conf_data)
+
 dependencies += [
   dep_threads,
   dependency('protobuf', version: '>=3.0.0'),
@@ -60,6 +81,10 @@ protobuf_sources = [
 ]
 
 sources = [
+  'common/crypto_bcrypt.cpp',
+  'common/crypto_openssl.cpp',
+  'common/crypto_25519_donna.cpp',
+  'common/crypto_25519_openssl.cpp',
   'common/crypto_textencode.cpp',
   'common/keypair.cpp',
   'common/steamid.cpp',
@@ -85,26 +110,15 @@ sources = [
 if use_bcrypt
   dependencies += [ c_compiler.find_library('bcrypt') ]
   cpp_flags += [ '-DED25519_HASH_BCRYPT' ]
-  sources += [
-    'common/crypto_bcrypt.cpp',
-  ]
 else
   sources += [
-    'common/crypto.cpp',
     'common/opensslwrapper.cpp',
   ]
 endif
 
 # Select 25519 crypto provider
-if not use_bcrypt and good_libcrypto.found()
-  cpp_flags += [ '-DVALVE_CRYPTO_25519_OPENSSLEVP' ]
+if use_bcrypt or not good_libcrypto.found()
   sources += [
-    'common/crypto_25519_openssl.cpp',
-  ]
-else
-  cpp_flags += [ '-DVALVE_CRYPTO_25519_DONNA' ]
-  sources += [
-    'common/crypto_25519_donna.cpp',
     'external/curve25519-donna/curve25519.c',
     'external/curve25519-donna/curve25519_VALVE_sse2.c',
     'external/ed25519-donna/ed25519_VALVE.c',
@@ -122,7 +136,7 @@ GameNetworkingSockets_static = static_library('GameNetworkingSockets',
   dependencies: dependencies)
 
 dep_GameNetworkingSockets_static = declare_dependency(
-  include_directories: include_directories( '../include' ),
+  include_directories: include_directories( '../include', '.' ),
   compile_args: ['-DSTEAMDATAGRAMLIB_STATIC_LINK'],
   link_with: GameNetworkingSockets_static )
 
@@ -134,7 +148,7 @@ GameNetworkingSockets_so = library('GameNetworkingSockets',
   dependencies: dependencies)
 
 dep_GameNetworkingSockets_so = declare_dependency(
-  include_directories: include_directories( '../include' ),
+  include_directories: include_directories( '../include', '.' ),
   link_with: GameNetworkingSockets_so )
 
 # vim: set ts=2 sts=2 sw=2 et:

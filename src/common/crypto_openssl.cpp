@@ -1,5 +1,8 @@
 //========= Copyright Valve LLC, All rights reserved. ========================
 
+#include "gnsconfig.h"
+
+#ifdef GNS_CRYPTO_AES_OPENSSL
 
 // Note: not using precompiled headers! This file is included directly by
 // several different projects and may include Crypto++ headers depending
@@ -378,7 +381,7 @@ void CCrypto::GenerateRandomBlock( void *pvDest, int cubDest )
 #if defined(_WIN32)
 
 	// NOTE: assume that this cannot fail. MS has baked this function name into
-	// static CRT runtime libraries for years; changing the export would break 
+	// static CRT runtime libraries for years; changing the export would break
 	// millions of applications. Available from Windows XP onward. -henryg
 	typedef BYTE ( NTAPI *PfnRtlGenRandom_t )( PVOID RandomBuffer, ULONG RandomBufferLength );
 	static PfnRtlGenRandom_t s_pfnRtlGenRandom;
@@ -446,3 +449,5 @@ void CCrypto::GenerateHMAC256( const uint8 *pubData, uint32 cubData, const uint8
 	size_t needed = sizeof(SHA256Digest_t);
 	VerifyFatal(EVP_DigestSignFinal(mdctx.ctx, *pOutputDigest, &needed) == 1);
 }
+
+#endif //GNS_CRYPTO_AES_OPENSSL

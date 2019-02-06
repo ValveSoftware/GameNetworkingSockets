@@ -1,8 +1,10 @@
 //========= Copyright Valve LLC, All rights reserved. ========================
 
-#include "crypto.h"
+#include "gnsconfig.h"
 
-#ifdef VALVE_CRYPTO_25519_OPENSSLEVP
+#ifdef GNS_CRYPTO_25519_OPENSSL
+
+#include "crypto.h"
 
 #include <openssl/evp.h>
 
@@ -203,5 +205,5 @@ bool CEC25519PrivateKeyBase::CachePublicKey()
 	return true;
 }
 
-#endif // #ifdef VALVE_CRYPTO_25519_OPENSSLEVP
+#endif // #ifdef GNS_CRYPTO_25519_OPENSSL
 

@@ -23,6 +23,18 @@ if (NOT USE_BCRYPT)
 endif()
 find_package(Threads REQUIRED)
 
+if(USE_BCRYPT)
+	set(GNS_CRYPTO_AES_BCRYPT ON)
+	set(GNS_CRYPTO_25519_REF ON)
+else()
+	set(GNS_CRYPTO_AES_OPENSSL ON)
+	if(OPENSSL_HAS_25519_RAW)
+		set(GNS_CRYPTO_25519_OPENSSL ON)
+	else()
+		set(GNS_CRYPTO_25519_REF ON)
+	endif()
+endif()
+
 set(GNS_PROTOS
 	"common/steamnetworkingsockets_messages_certs.proto"
 	"common/steamnetworkingsockets_messages.proto"
@@ -30,6 +42,10 @@ set(GNS_PROTOS
 )
 
 set(GNS_SRCS
+	"common/crypto_bcrypt.cpp"
+	"common/crypto_openssl.cpp"
+	"common/crypto_25519_donna.cpp"
+	"common/crypto_25519_openssl.cpp"
 	"common/crypto_textencode.cpp"
 	"common/keypair.cpp"
 	"common/steamid.cpp"
@@ -52,29 +68,27 @@ set(GNS_SRCS
 	"vstdlib/strtools.cpp"
 )
 
-if(NOT USE_BCRYPT AND OPENSSL_HAS_25519_RAW)
+if(GNS_CRYPTO_25519_OPENSSL)
+	# No additional sources needed!
+elseif(GNS_CRYPTO_25519_REF)
 	set(GNS_SRCS ${GNS_SRCS}
-		"common/crypto_25519_openssl.cpp"
-	)
-else()
-	set(GNS_SRCS ${GNS_SRCS}
-		"common/crypto_25519_donna.cpp"
 		"external/curve25519-donna/curve25519.c"
 		"external/curve25519-donna/curve25519_VALVE_sse2.c"
 		"external/ed25519-donna/ed25519_VALVE.c"
 		"external/ed25519-donna/ed25519_VALVE_sse2.c"
 	)
+else()
+	message(FATAL_ERROR "Unknown ed25519/curve25519 implementation")
 endif()
 
-if(USE_BCRYPT)
+if(GNS_CRYPTO_AES_OPENSSL)
 	set(GNS_SRCS ${GNS_SRCS}
-		"common/crypto_bcrypt.cpp"
-	)
-else()
-	set(GNS_SRCS ${GNS_SRCS}
-		"common/crypto.cpp"
 		"common/opensslwrapper.cpp"
 	)
+elseif(GNS_CRYPTO_AES_BCRYPT)
+	# No additional sources
+else()
+	message(FATAL_ERROR "Unknown AES implementation")
 endif()
 
 set(C99_FEATURES
@@ -131,12 +145,12 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 
 	target_include_directories(${GNS_TARGET} PUBLIC
 		"../include"
+		${CMAKE_CURRENT_BINARY_DIR}
 	)
 
 	target_include_directories(${GNS_TARGET} PRIVATE
 		"common"
 		"public"
-		${CMAKE_CURRENT_BINARY_DIR}
 
 		# Only necessary if we're not using protobuf::libprotobuf
 		# But that's not supported until CMake 3.9
@@ -161,12 +175,6 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 		CRYPTO_DISABLE_ENCRYPT_WITH_PASSWORD
 		GOOGLE_PROTOBUF_NO_RTTI
 	)
-
-	if(NOT USE_BCRYPT AND OPENSSL_HAS_25519_RAW)
-		target_compile_definitions(${GNS_TARGET} PRIVATE VALVE_CRYPTO_25519_OPENSSLEVP)
-	else()
-		target_compile_definitions(${GNS_TARGET} PRIVATE VALVE_CRYPTO_25519_DONNA)
-	endif()
 
 	if(USE_BCRYPT)
 		target_compile_definitions(${GNS_TARGET} PRIVATE ED25519_HASH_BCRYPT)
@@ -268,5 +276,7 @@ add_library(GameNetworkingSockets::static ALIAS GameNetworkingSockets_s)
 target_compile_definitions(GameNetworkingSockets_s INTERFACE STEAMDATAGRAMLIB_STATIC_LINK)
 gamenetworkingsockets_common(GameNetworkingSockets_s)
 add_sanitizers(GameNetworkingSockets_s)
+
+configure_file(gnsconfig.h.in.cmake gnsconfig.h)
 
 # vim: set ts=4 sts=4 sw=4 noet:

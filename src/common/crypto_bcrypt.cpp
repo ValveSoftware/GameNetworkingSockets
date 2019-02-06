@@ -1,5 +1,9 @@
 //========= Copyright Valve LLC, All rights reserved. ========================
 
+#include "gnsconfig.h"
+
+#ifdef GNS_CRYPTO_AES_BCRYPT
+
 #include <tier0/vprof.h>
 #include <tier1/utlmemory.h>
 #include "crypto.h"
@@ -273,3 +277,5 @@ void CCrypto::GenerateHMAC256( const uint8 *pubData, uint32 cubData, const uint8
 	status = BCryptDestroyHash(hHashHMACSHA256);
 	AssertFatal(NT_SUCCESS(status));
 }
+
+#endif // GNS_CRYPTO_AES_BCRYPT

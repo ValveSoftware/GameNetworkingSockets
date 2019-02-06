@@ -1,7 +1,9 @@
 //========= Copyright Valve LLC, All rights reserved. ========================
-#include "crypto.h"
+#include "gnsconfig.h"
 
-#ifdef VALVE_CRYPTO_25519_DONNA
+#ifdef GNS_CRYPTO_25519_REF
+
+#include "crypto.h"
 
 extern "C" {
 // external headers for curve25519 and ed25519 support, plus alternate 32-bit SSE2 versions
@@ -136,5 +138,5 @@ bool CEC25519PrivateKeyBase::CachePublicKey()
 	return true;
 }
 
-#endif // #ifdef VALVE_CRYPTO_25519_DONNA
+#endif // #ifdef GNS_CRYPTO_25519_REF
 
