@@ -1013,7 +1013,6 @@ void CSteamNetworkConnectionUDP::PacketReceived( const void *pvPkt, int cbPkt, c
 	const uint8 *pPkt = static_cast<const uint8 *>( pvPkt );
 
 	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
-	pSelf->m_statsEndToEnd.TrackRecvPacket( cbPkt, usecNow ); // FIXME - We really shouldn't do this until we know it is valid and hasn't been spoofed!
 
 	if ( cbPkt < 5 )
 	{
@@ -1021,11 +1020,17 @@ void CSteamNetworkConnectionUDP::PacketReceived( const void *pvPkt, int cbPkt, c
 		return;
 	}
 
+	// Data packet is the most common, check for it first.  Also, does stat tracking.
 	if ( *pPkt & 0x80 )
 	{
 		pSelf->Received_Data( pPkt, cbPkt, usecNow );
+		return;
 	}
-	else if ( *pPkt == k_ESteamNetworkingUDPMsg_ChallengeReply )
+
+	// Track stats for other packet types.
+	pSelf->m_statsEndToEnd.TrackRecvPacket( cbPkt, usecNow );
+
+	if ( *pPkt == k_ESteamNetworkingUDPMsg_ChallengeReply )
 	{
 		ParseProtobufBody( pPkt+1, cbPkt-1, CMsgSteamSockets_UDP_ChallengeReply, msg )
 		pSelf->Received_ChallengeReply( msg, usecNow );
