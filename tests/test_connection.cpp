@@ -74,6 +74,8 @@ static void InitSteamDatagramConnectionSockets()
 	#else
 		//SteamAPI_Init();
 
+		SteamDatagramClient_SetAppIDAndUniverse( 570, k_EUniverseDev ); // Just set something, doesn't matter what
+
 		SteamDatagramErrMsg errMsg;
 		if ( !SteamDatagramClient_Init( true, errMsg ) )
 		{

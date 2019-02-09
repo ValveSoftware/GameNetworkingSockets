@@ -96,9 +96,7 @@ static void InitSteamDatagramConnectionSockets()
 		if ( !GameNetworkingSockets_Init( nullptr, errMsg ) )
 			FatalError( "GameNetworkingSockets_Init failed.  %s", errMsg );
 	#else
-		//putenv( "SteamAppID=570" ); // !KLUDGE!
-		//if ( !SteamAPI_Init() )
-		//	FatalError( "SteamAPI_Init failed" );
+		SteamDatagramClient_SetAppIDAndUniverse( 570, k_EUniverseDev ); // Just set something, doesn't matter what
 
 		SteamDatagramErrMsg errMsg;
 		if ( !SteamDatagramClient_Init( true, errMsg ) )
