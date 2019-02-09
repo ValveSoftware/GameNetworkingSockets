@@ -141,7 +141,15 @@ static void SeedWeakRandomGenerator()
 }
 
 static std::atomic<long long> s_usecTimeLastReturned;
-static std::atomic<long long> s_usecTimeOffset( (long long)( k_nMillion*24*3600*30 ) ); // Start with an offset so that a timestamp of zero is always pretty far in the past
+
+// Start with an offset so that a timestamp of zero is always pretty far in the past.
+// But round it up to nice round number, so that looking at timestamps in the debugger
+// is easy to read.
+const long long k_nInitialTimestampMin = k_nMillion*24*3600*30;
+const long long k_nInitialTimestamp = 3000000000000ll;
+COMPILE_TIME_ASSERT( 2000000000000ll < k_nInitialTimestampMin );
+COMPILE_TIME_ASSERT( k_nInitialTimestampMin < k_nInitialTimestamp );
+static std::atomic<long long> s_usecTimeOffset( k_nInitialTimestamp );
 
 static int s_nLowLevelSupportRefCount = 0;
 
