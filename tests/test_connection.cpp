@@ -424,7 +424,7 @@ static void TestNetworkConditions( int rate, float loss, int lag, float reorderP
 	int nIterations = 2;
 #else
 	const SteamNetworkingMicroseconds usecQuietDuration = 10000000;
-	const SteamNetworkingMicroseconds usecActiveDuration = 20000000;
+	const SteamNetworkingMicroseconds usecActiveDuration = 25000000;
 	int nIterations = 4;
 #endif
 	bool bQuiet = true;
@@ -559,22 +559,23 @@ static void RunSteamDatagramConnectionTest()
 
 	auto Test = []( int rate, float loss, int lag, float reorderPct, int reorderLag )
 	{
-		TestNetworkConditions( rate, loss, lag, reorderPct, reorderLag, true );
 		TestNetworkConditions( rate, loss, lag, reorderPct, reorderLag, false );
+		TestNetworkConditions( rate, loss, lag, reorderPct, reorderLag, true );
 	};
 
-	Test( 64000, 20, 100, 4, 50 );
+	Test( 64000, 20, 100, 4, 50 ); // low bandwidth, terrible packet loss
+	Test( 1000000, 20, 100, 4, 10 ); // high bandwidth, terrible packet loss
+	Test( 1000000, 2, 5, 2, 1 ); // wifi (high bandwideth, low packet loss, occasional reordering with very small delay)
+	Test( 2000000, 0, 0, 0, 0 ); // LAN (high bandwidth, negligible lag/loss)
 #ifndef LIGHT_TESTS
 	Test( 128000, 20, 100, 4, 40 );
 	Test( 500000, 20, 100, 4, 30 );
-	Test( 1000000, 20, 100, 4, 10 );
 
 	Test( 64000, 0, 0, 0, 0 );
 	Test( 128000, 0, 0, 0, 0 );
 	Test( 256000, 0, 0, 0, 0 );
 	Test( 500000, 0, 0, 0, 0 );
 	Test( 1000000, 0, 0, 0, 0 );
-	Test( 2000000, 0, 0, 0, 0 );
 
 	Test( 64000, 1, 25, 1, 10 );
 	Test( 1000000, 1, 25, 1, 10 );
