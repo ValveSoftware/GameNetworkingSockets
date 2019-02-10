@@ -366,50 +366,8 @@ struct SSNPSenderState
 	/// to send acks for.
 	int64 m_nMinPktWaitingOnAck = 0;
 
-	/// Time when this was updated
-	//SteamNetworkingMicroseconds m_usecWhenAdvancedMinPktWaitingOnAck = 0;
-
-	/* TFRC sender states */
-	enum ETFRCSenderStates {
-		TFRC_SSTATE_NO_SENT = 1,
-		TFRC_SSTATE_NO_FBACK,
-		TFRC_SSTATE_FBACK,
-	};
-	ETFRCSenderStates m_e_tx_state = TFRC_SSTATE_NO_SENT; // Sender state
-	SteamNetworkingMicroseconds m_usec_no_feedback_timer = 0; // No feedback timer
-	SteamNetworkingMicroseconds m_usec_ld = 0; // Time last doubled during slow start
-
-//	// Set when receiver determines we need to send a feedback packet
-//	/* TFRC feedback sender states */
-//	enum ETFRCSenderFeedbackStates {
-//		TFRC_SSTATE_FBACK_NONE = 0, //
-//		TFRC_SSTATE_FBACK_REQ = 1, // Set if we should send a feedback without data (parm change)
-//		TFRC_SSTATE_FBACK_PERODIC = 2, // When periodic feedback is set, we piggy pack on a data packet
-//	};
-//	ETFRCSenderFeedbackStates m_sendFeedbackState = TFRC_SSTATE_FBACK_NONE;
-
 	// Remove messages from m_unackedReliableMessages that have been fully acked.
 	void RemoveAckedReliableMessageFromUnackedList();
-
-	void SetNoFeedbackTimer( SteamNetworkingMicroseconds usecNow )
-	{
-		// FIXME
-		//if ( m_usec_rto == 0 )
-		//{
-		//	m_usec_nfb = usecNow + TFRC_INITIAL_TIMEOUT;
-		//}
-		//else
-		//{
-		//	// Calculate inter-packet-interval ("ipi")
-		//	SteamNetworkingMicroseconds ipi = k_nMillion * (int64)m_n_tx_s / (int64)m_n_x;
-		//
-		//	// Expect feedback within the RTO timeout, or 2 sent packets,
-		//	// whichever is greater
-		//	//
-		//	// Hm, this isn't what the RFC said to do.  I wonder where this logic came from.
-		//	m_usec_nfb = usecNow + Max( m_usec_rto, 2 * ipi );
-		//}
-	}
 };
 
 struct SSNPRecvUnreliableSegmentKey
