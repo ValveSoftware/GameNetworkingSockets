@@ -566,7 +566,7 @@ bool CSteamNetworkConnectionBase::RecvNonDataSequencedPacket( int64 nPktNum, Ste
 {
 
 	// Let SNP know when we received it, so we can track loss events and send acks
-	if ( SNP_RecordReceivedPktNum( nPktNum, usecNow ) )
+	if ( SNP_RecordReceivedPktNum( nPktNum, usecNow, false ) )
 	{
 
 		// And also the general purpose sequence number/stats tracker

@@ -236,23 +236,6 @@ struct SSNPSenderState
 		m_flTokenBucket = k_flSendRateBurstOverageAllowance;
 	}
 
-	/// Accumulate "tokens" into our bucket base on the current calculated send rate
-	void TokenBucket_Accumulate( SteamNetworkingMicroseconds usecNow )
-	{
-		float flElapsed = ( usecNow - m_usecTokenBucketTime ) * 1e-6;
-		m_flTokenBucket += (float)m_n_x * flElapsed;
-		m_usecTokenBucketTime = usecNow;
-
-		// If we don't currently have any packets ready to send right now,
-		// then go ahead and limit the tokens.  If we do have packets ready
-		// to send right now, then we must assume that we would be trying to
-		// wakeup as soon as we are ready to send the next packet, and thus
-		// any excess tokens we accumulate are because the scheduler woke
-		// us up late, and we are not actually bursting
-		if ( TimeWhenWantToSendNextPacket() > usecNow )
-			TokenBucket_Limit();
-	}
-
 	/// Return timestamp when we will *want* to send the next packet.
 	/// (Ignoring rate limiting.)
 	/// 0=ASAP
@@ -393,7 +376,9 @@ struct SSNPRecvUnreliableSegmentData
 struct SSNPPacketGap
 {
 	int64 m_nEnd; // just after the last packet received
-	SteamNetworkingMicroseconds m_usecWhenReceivedPktBefore;
+	SteamNetworkingMicroseconds m_usecWhenReceivedPktBefore; // So we can send RTT data in our acks
+	SteamNetworkingMicroseconds m_usecWhenAckPrior; // We need to send an ack for everything with lower packet numbers than this gap by this time.  (Earlier is OK.)
+	SteamNetworkingMicroseconds m_usecWhenOKToNack; // Don't give up on the gap being filed before this time
 };
 
 struct SSNPReceiverState
@@ -430,6 +415,14 @@ struct SSNPReceiverState
 	/// Since these must never overlap, we store them using begin as the
 	/// key and the end in the value.
 	///
+	/// The last item in the list is a sentinel with
+	/// begin and end set to INT64_MAX, and m_usecWhenAckPrior is
+	/// the time when we need to flush acks/backs for all packets,
+	/// including those received after the last gap (if any --
+	/// INT64_MAX means nothing scheduled).  Remember, our wire
+	/// protocol cannot report on packet N without also reporting
+	/// on all packets numbered < N.
+	///
 	/// !SPEED! We should probably use a small fixed-sized, sorted vector here,
 	/// since in most cases the list will be small, and the cost of dynamic memory
 	/// allocation will be way worse than O(n) insertion/removal.
@@ -441,14 +434,55 @@ struct SSNPReceiverState
 	/// Packet number when we received the value of m_nMinPktNumToSendAcks
 	int64 m_nPktNumUpdatedMinPktNumToSendAcks = 0;
 
-	/// Timeout for when we need to flush out acks, if no other opportunity
-	/// comes along (piggy on top of outbound data packet) to do this.
-	SteamNetworkingMicroseconds m_usecWhenFlushAck = INT64_MAX;
+	/// The next ack that needs to be sent.  The invariant
+	/// for the times are:
+	///
+	/// * Blocks with lower pakcet numbers: m_usecWhenAckPrior = INT64_MAX
+	/// * This block: m_usecWhenAckPrior < INT64_MAX, or we are the sentinel
+	/// * Blocks with higher packet numbers (if we are not the sentinel): m_usecWhenAckPrior >= previous m_usecWhenAckPrior
+	///
+	/// We might send acks before they are due, rather than
+	/// waiting until the last moment!  If we are going to
+	/// send a packet at all, we usually try to send at least
+	/// a few acks, and if there is room in the packet, as
+	/// many as will fit.  The one exception is that if
+	/// sending an ack would imply a NACK that we don't want to
+	/// send yet.  (Remember the restrictions on what we are able
+	/// to commununicate due to the tight RLE encoding of the wire
+	/// format.)  These delays are usually very short lived, and
+	/// only happen when there is packet loss, so they don't delay
+	/// acks very much.  The whole purpose of this rather involved
+	/// bookkeeping is to figure out which acks we *need* to send,
+	/// and which acks we cannot send yet, so we can make optimal
+	/// decisions.
+	std::map<int64,SSNPPacketGap>::iterator m_itPendingAck;
 
-	inline void MarkNeedToSendAck( SteamNetworkingMicroseconds usecNow )
+	/// Iterator into m_mapPacketGaps.  If != the sentinel,
+	/// we will avoid reporting on the dropped packets in this
+	/// gap (and all higher numbered packets), because we are
+	/// waiting in the hopes that they will arrive out of order.
+	std::map<int64,SSNPPacketGap>::iterator m_itPendingNack;
+
+	/// Queue a flush of ALL acks (and NACKs!) by the given time.
+	/// If anything is scheduled to happen earlier, that schedule
+	/// will still be honered.  We will ack up to that packet number,
+	/// and then we we may report higher numbered blocks, or we may
+	/// stop and wait to report more acks until later.
+	void QueueFlushAllAcks( SteamNetworkingMicroseconds usecWhen );
+
+	/// Return the time when we need to flush out acks, or INT64_MAX
+	/// if we don't have any acks pending right now.
+	inline SteamNetworkingMicroseconds TimeWhenFlushAcks() const
 	{
-		m_usecWhenFlushAck = std::min( m_usecWhenFlushAck, usecNow + k_usecMaxDataAckDelay );
+		return m_itPendingAck->second.m_usecWhenAckPrior;
 	}
+
+	/// Check invariants in debug.
+	#ifdef _DEBUG
+		void DebugCheckPackGapMap() const;
+	#else
+		inline void DebugCheckPackGapMap() const {}
+	#endif
 
 	// Stats.  FIXME - move to LinkStatsEndToEnd and track rate counters
 	int64 m_nMessagesRecvReliable = 0;

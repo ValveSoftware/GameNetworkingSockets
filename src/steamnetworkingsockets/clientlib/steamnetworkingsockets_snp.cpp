@@ -20,8 +20,20 @@
 constexpr int k_nAckDelayPrecisionShift = 5;
 constexpr SteamNetworkingMicroseconds k_usecAckDelayPrecision = (1 << k_nAckDelayPrecisionShift );
 
-// When a receiver detects a dropped packet, schedule sending of ACKs on this interval
-constexpr SteamNetworkingMicroseconds k_usecNackFlush = 10*1000;
+// When a receiver detects a dropped packet, wait a bit before NACKing it, to give it time
+// to arrive out of order.  This is really important for many different types of connections
+// that send on different channels, e.g. DSL, Wifi.
+// Here we really could be smarter, by tracking how often dropped
+// packets really do arrive out of order.  If the rate is low, then it's
+// probably best to go ahead and send a NACK now, rather than waiting.
+// But if dropped packets do often arrive out of order, then waiting
+// to NACK will probably save some retransmits.  In fact, instead
+// of learning the rate, we should probably try to learn the delay.
+// E.g. a probability distribution P(t), which describes the odds
+// that a dropped packet will have arrived at time t.  Then you
+// adjust the NACK delay such that P(nack_delay) gives the best
+// balance between false positive and false negative rates.
+constexpr SteamNetworkingMicroseconds k_usecNackFlush = 3*1000;
 
 // Max size of a message that we are wiling to *receive*.
 constexpr int k_cbMaxMessageSizeRecv = k_cbMaxSteamNetworkingSocketsMessageSizeSend*2;
@@ -69,13 +81,15 @@ struct SNPAckSerializerHelper
 		uint32 m_nLatestPktNum; // Lower 32-bits.  We might send even fewer bits
 		uint16 m_nEncodedTimeSinceLatestPktNum;
 
-		// Total size of this block and all earlier ones.
+		// Total size of ack data up to this point:
+		// header, all previous blocks, and this block
 		int16 m_cbTotalEncodedSize;
 	};
 
 	enum { k_cbHeaderSize = 5 };
 	enum { k_nMaxBlocks = 64 };
 	int m_nBlocks;
+	int m_nBlocksNeedToAck; // Number of blocks we really need to send now.
 	Block m_arBlocks[ k_nMaxBlocks ];
 
 	static uint16 EncodeTimeSince( SteamNetworkingMicroseconds usecNow, SteamNetworkingMicroseconds usecWhenSentLast )
@@ -190,11 +204,27 @@ void CSteamNetworkConnectionBase::SNP_InitializeConnection( SteamNetworkingMicro
 	m_senderState.TokenBucket_Init( usecNow );
 
 	// Setup the table of inflight packets with a sentinel.
-	m_senderState.m_mapInFlightPacketsByPktNum.clear();
-	SNPInFlightPacket_t &sentinel = m_senderState.m_mapInFlightPacketsByPktNum[INT64_MIN];
-	sentinel.m_bNack = false;
-	sentinel.m_usecWhenSent = 0;
-	m_senderState.m_itNextInFlightPacketToTimeout = m_senderState.m_mapInFlightPacketsByPktNum.end();
+	{
+		m_senderState.m_mapInFlightPacketsByPktNum.clear();
+		SNPInFlightPacket_t &sentinel = m_senderState.m_mapInFlightPacketsByPktNum[INT64_MIN];
+		sentinel.m_bNack = false;
+		sentinel.m_usecWhenSent = 0;
+		m_senderState.m_itNextInFlightPacketToTimeout = m_senderState.m_mapInFlightPacketsByPktNum.end();
+	}
+
+	// Init packet gaps with a sentinel
+	{
+		m_receiverState.m_mapPacketGaps.clear();
+		SSNPPacketGap &sentinel = m_receiverState.m_mapPacketGaps[INT64_MAX];
+		sentinel.m_nEnd = INT64_MAX; // Fixed value
+		sentinel.m_usecWhenOKToNack = INT64_MAX; // Fixed value, for when there is nothing left to nack
+		sentinel.m_usecWhenAckPrior = INT64_MAX; // Time when we need to flush a report on all lower-numbered packets
+
+		// Point at the sentinel
+		m_receiverState.m_itPendingAck = m_receiverState.m_mapPacketGaps.end();
+		--m_receiverState.m_itPendingAck;
+		m_receiverState.m_itPendingNack = m_receiverState.m_itPendingAck;
+	}
 
 	//m_senderState.m_usec_nfb = usecNow + TFRC_INITIAL_TIMEOUT;
 	//m_senderState.m_bSentPacketSinceNFB = false;
@@ -254,7 +284,7 @@ EResult CSteamNetworkConnectionBase::SNP_SendMessage( SteamNetworkingMicrosecond
 	// First, accumulate tokens, and also limit to reasonable burst
 	// if we weren't already waiting to send
 	SNP_ClampSendRate();
-	m_senderState.TokenBucket_Accumulate( usecNow );
+	SNP_TokenBucket_Accumulate( usecNow );
 
 	// Add to the send queue
 	SNPSendMessage_t *pSendMessage = new SNPSendMessage_t();
@@ -386,7 +416,7 @@ EResult CSteamNetworkConnectionBase::SNP_FlushMessage( SteamNetworkingMicrosecon
 	// (Clearing the Nagle timers might very well make us want to
 	// send so we want to do this first.)
 	SNP_ClampSendRate();
-	m_senderState.TokenBucket_Accumulate( usecNow );
+	SNP_TokenBucket_Accumulate( usecNow );
 
 	// Clear all Nagle timers
 	m_senderState.ClearNagleTimers();
@@ -676,11 +706,9 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 
 			// Trim from the front of the packet gap list,
 			// we can stop reporting these losses to the sender
-			while ( !m_receiverState.m_mapPacketGaps.empty() )
+			auto h = m_receiverState.m_mapPacketGaps.begin();
+			while ( h->first <= m_receiverState.m_nMinPktNumToSendAcks )
 			{
-				auto h = m_receiverState.m_mapPacketGaps.begin();
-				if ( h->first > m_receiverState.m_nMinPktNumToSendAcks )
-					break;
 				if ( h->second.m_nEnd > m_receiverState.m_nMinPktNumToSendAcks )
 				{
 					// Ug.  You're not supposed to modify the key in a map.
@@ -689,7 +717,23 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 					const_cast<int64 &>( h->first ) = m_receiverState.m_nMinPktNumToSendAcks;
 					break;
 				}
-				m_receiverState.m_mapPacketGaps.erase(h);
+
+				// Were we pending an ack on this?
+				if ( m_receiverState.m_itPendingAck == h )
+					++m_receiverState.m_itPendingAck;
+
+				// Were we pending a nack on this?
+				if ( m_receiverState.m_itPendingNack == h )
+				{
+					// I am not sure this is even possible.
+					AssertMsg( false, "Expiring packet gap, which had pending NACK" );
+
+					// But just in case, this would be the proper action
+					++m_receiverState.m_itPendingNack;
+				}
+
+				// Packet loss is in the past.  Forget about it and move on
+				h = m_receiverState.m_mapPacketGaps.erase(h);
 			}
 		}
 		else if ( ( nFrameType & 0xf0 ) == 0x90 )
@@ -809,13 +853,16 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 
 			// If they actually sent us any blocks, that means they are fragmented.
 			// We should make sure and tell them to stop sending us these nacks
-			// and move forward.  This could be more robust, if we remember when
-			// the last stop_waiting value we sent was, and when we sent it.
+			// and move forward.
 			if ( nBlocks > 0 )
 			{
 				// Decrease flush delay the more blocks they send us.
+				// FIXME - This is not an optimal way to do this.  Forcing us to
+				// ack everything is not what we want to do.  Instead, we should
+				// use a seperate timer for when we need to flush out a stop_waiting
+				// packet!
 				SteamNetworkingMicroseconds usecDelay = 250*1000 / nBlocks;
-				m_receiverState.m_usecWhenFlushAck = std::min( m_receiverState.m_usecWhenFlushAck, usecNow + usecDelay );
+				m_receiverState.QueueFlushAllAcks( usecNow + usecDelay );
 			}
 
 			// Process ack blocks, working backwards from the latest received sequence number.
@@ -975,7 +1022,6 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 					GetDescription(),
 					(long long)m_senderState.m_nMinPktWaitingOnAck, (long long)nLatestRecvSeqNum );
 				m_senderState.m_nMinPktWaitingOnAck = nLatestRecvSeqNum;
-				//m_senderState.m_usecWhenAdvancedMinPktWaitingOnAck = usecNow;
 			}
 		}
 		else
@@ -985,7 +1031,8 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 	}
 
 	// Update structures needed to populate our ACKs
-	return SNP_RecordReceivedPktNum( nPktNum, usecNow );
+	bool bScheduleAck = nDecodeReliablePos > 0;
+	return SNP_RecordReceivedPktNum( nPktNum, usecNow, bScheduleAck );
 
 	// Make sure these don't get used beyond where we intended them toget used
 	#undef DECODE_ERROR
@@ -1265,7 +1312,7 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 {
 	// If we aren't being specifically asked to send a packet, and we don't have anything to send,
 	// then don't send right now.
-	if ( pConnectionData == nullptr && usecNow < m_receiverState.m_usecWhenFlushAck && m_senderState.TimeWhenWantToSendNextPacket() > usecNow )
+	if ( pConnectionData == nullptr && usecNow < m_receiverState.TimeWhenFlushAcks() && usecNow < SNP_TimeWhenWantToSendNextPacket() )
 		return 0;
 
 	// Make sure we have initialized the connection
@@ -1285,70 +1332,56 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 		GetDescription(),
 		(long long)m_statsEndToEnd.m_nNextSendSequenceNumber );
 
-	// Get list of ack blocks we might want to serialize
-	SNPAckSerializerHelper ackHelper;
-	SNP_GatherAckBlocks( ackHelper, usecNow );
-
 	// Stop waiting frame
 	pPayloadPtr = SNP_SerializeStopWaitingFrame( pPayloadPtr, pPayloadEnd, usecNow );
 	if ( pPayloadPtr == nullptr )
 		return -1;
 
-	// Should we try to send as many acks as possible?
+	// Get list of ack blocks we might want to serialize, and which
+	// of those acks we really want to flush out right now.
+	SNPAckSerializerHelper ackHelper;
+	SNP_GatherAckBlocks( ackHelper, usecNow );
+
+	#ifdef SNP_ENABLE_PACKETSENDLOG
+		PacketSendLog *pLog = push_back_get_ptr( m_vecSendLog );
+		pLog->m_usecTime = usecNow;
+		pLog->m_cbPendingReliable = m_senderState.m_cbPendingReliable;
+		pLog->m_cbPendingUnreliable = m_senderState.m_cbPendingUnreliable;
+		pLog->m_nPacketGaps = len( m_receiverState.m_mapPacketGaps )-1;
+		pLog->m_nAckBlocksNeeded = ackHelper.m_nBlocksNeedToAck;
+		pLog->m_nPktNumNextPendingAck = m_receiverState.m_itPendingAck->first;
+		pLog->m_usecNextPendingAckTime = m_receiverState.m_itPendingAck->second.m_usecWhenAckPrior;
+		pLog->m_fltokens = m_senderState.m_flTokenBucket;
+		pLog->m_nMaxPktRecv = m_statsEndToEnd.m_nMaxRecvPktNum;
+		pLog->m_nMinPktNumToSendAcks = m_receiverState.m_nMinPktNumToSendAcks;
+		pLog->m_nReliableSegmentsRetry = 0;
+		pLog->m_nSegmentsSent = 0;
+	#endif
+
+	// How much space do we need to reserve for acks?
 	int cbReserveForAcks = 0;
-	int cbFlushedAcks = 0;
-	if ( m_receiverState.m_usecWhenFlushAck <= usecNow )
+	if ( m_statsEndToEnd.m_nMaxRecvPktNum > 0 )
 	{
-		uint8 *pAfterAck = SNP_SerializeAckBlocks( ackHelper, pPayloadPtr, pPayloadEnd, usecNow );
-		if ( pAfterAck == nullptr )
-			return -1; // bug!  Abort
-
-		// Did anything fit?
-		if ( pAfterAck > pPayloadPtr )
-		{
-			cbFlushedAcks = pAfterAck - pPayloadPtr;
-			pPayloadPtr = pAfterAck;
-			if ( m_receiverState.m_usecWhenFlushAck == INT64_MAX )
-			{
-				SpewType( nLogLevelPacketDecode, "[%s] flushed %d acks (%d bytes)\n", GetDescription(), ackHelper.m_nBlocks, cbFlushedAcks );
-			}
-			else
-			{
-				SpewType( nLogLevelPacketDecode, "[%s] flush didn't fit; rescheduling\n", GetDescription() );
-
-				// If we are artificially limited, then the connection
-				// type specific code initiated this packet, and so
-				// let's keep the timer set and we'll try again on our own terms.
-				// But if we have quite a bit of space and we still failed,
-				// then we really are badly fragmented.  In that case, don't
-				// keep trying to ack over and over in every single packet.
-				if ( cbMaxPlaintextPayload > 128 )
-					m_receiverState.m_usecWhenFlushAck = usecNow + 50*1000;
-			}
-		}
-	}
-	else if ( m_statsEndToEnd.m_nMaxRecvPktNum > 0 )
-	{
-		// Should we try to reserve a bit of space for acks?
-		// If possible, always send at least a few blocks (if we have them)
-		int cbPayloadRemainingForBlocks = pPayloadEnd - pPayloadPtr - SNPAckSerializerHelper::k_cbHeaderSize;
-		if ( cbPayloadRemainingForBlocks >= 0 )
+		int cbPayloadRemainingForAcks = pPayloadEnd - pPayloadPtr;
+		if ( cbPayloadRemainingForAcks >= SNPAckSerializerHelper::k_cbHeaderSize )
 		{
 			cbReserveForAcks = SNPAckSerializerHelper::k_cbHeaderSize;
-			int n = std::min( 3, ackHelper.m_nBlocks );
+			int n = 3; // Assume we want to send a handful
+			n = std::max( n, ackHelper.m_nBlocksNeedToAck ); // But if we have blocks that need to be flushed now, try to fit all of them
+			n = std::min( n, ackHelper.m_nBlocks ); // Cannot send more than we actually have
 			while ( n > 0 )
 			{
 				--n;
-				if ( ackHelper.m_arBlocks[n].m_cbTotalEncodedSize <= cbPayloadRemainingForBlocks )
+				if ( ackHelper.m_arBlocks[n].m_cbTotalEncodedSize <= cbPayloadRemainingForAcks )
 				{
-					cbReserveForAcks += ackHelper.m_arBlocks[n].m_cbTotalEncodedSize;
+					cbReserveForAcks = ackHelper.m_arBlocks[n].m_cbTotalEncodedSize;
 					break;
 				}
 			}
 		}
 	}
 
-	// Check if we don't actually have room to send any data, then don't.
+	// Check if we don't actually have bandwidth to send data, then don't.
 	// (This means that acks or other responsibilities are choking the pipe
 	// and should basically never happen in ordinary circumstances!)
 	if ( m_senderState.m_flTokenBucket < 0.0 )
@@ -1358,13 +1391,17 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 		// Serialize some acks, if we want to
 		if ( cbReserveForAcks > 0 )
 		{
-			pPayloadPtr = SNP_SerializeAckBlocks( ackHelper, pPayloadPtr, std::min( pPayloadPtr+cbReserveForAcks, pPayloadEnd ), usecNow );
+			// But if we're goig to send any acks, then send all of them,
+			// not just the bare minimum.
+			pPayloadPtr = SNP_SerializeAckBlocks( ackHelper, pPayloadPtr, pPayloadEnd, usecNow );
 			if ( pPayloadPtr == nullptr )
 				return -1; // bug!  Abort
+
+			// We don't need to serialize any more acks
 			cbReserveForAcks = 0;
 		}
 
-		// No more
+		// Truncate the buffer, don't try to fit any data
 		pPayloadEnd = pPayloadPtr;
 	}
 
@@ -1372,7 +1409,7 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 	int cbBytesRemainingForSegments = pPayloadEnd - pPayloadPtr - cbReserveForAcks;
 	vstd::small_vector<EncodedSegment,8> vecSegments;
 
-	// If we need to *retry* any reliable data, then try to put that in first.
+	// If we need to retry any reliable data, then try to put that in first.
 	// Bail if we only have a tiny sliver of data left
 	while ( !m_senderState.m_listReadyRetryReliableRange.empty() && cbBytesRemainingForSegments > 2 )
 	{
@@ -1403,7 +1440,7 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 			AssertMsg2(
 				nLastReliableStreamPosEnd > 0
 				|| cbMaxPlaintextPayload < k_cbSteamNetworkingSocketsMaxPlaintextPayloadSend
-				|| cbFlushedAcks > 20,
+				|| ( cbReserveForAcks > 20 && ackHelper.m_nBlocksNeedToAck > 10 ),
 				"We cannot fit reliable segment, need %d bytes, only %d remaining", cbSegTotalWithoutSizeField, cbBytesRemainingForSegments
 			);
 
@@ -1426,6 +1463,10 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 
 		// Remove from retry list.  (We'll add to the in-flight list later)
 		m_senderState.m_listReadyRetryReliableRange.erase( h );
+
+		#ifdef SNP_ENABLE_PACKETSENDLOG
+			++pLog->m_nReliableSegmentsRetry;
+		#endif
 	}
 
 	// Did we retry everything we needed to?  If not, then don't try to send new stuff,
@@ -1497,6 +1538,10 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 					vecSegments.pop_back();
 					break;
 				}
+
+				#ifdef SNP_ENABLE_PACKETSENDLOG
+					++pLog->m_nSegmentsSent;
+				#endif
 
 				// Truncate, and leave the message in the queue
 				seg.m_cbSize = std::min( seg.m_cbSize, cbBytesRemainingForSegments - seg.m_cbHdr );
@@ -1740,6 +1785,10 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 	if ( m_senderState.m_itNextInFlightPacketToTimeout == m_senderState.m_mapInFlightPacketsByPktNum.end() )
 		m_senderState.m_itNextInFlightPacketToTimeout = pairInsertResult.first;
 
+	#ifdef SNP_ENABLE_PACKETSENDLOG
+		pLog->m_cbSent = nBytesSent;
+	#endif
+
 	// We spent some tokens
 	m_senderState.m_flTokenBucket -= (float)nBytesSent;
 	return nBytesSent;
@@ -1748,15 +1797,27 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 void CSteamNetworkConnectionBase::SNP_GatherAckBlocks( SNPAckSerializerHelper &helper, SteamNetworkingMicroseconds usecNow )
 {
 	helper.m_nBlocks = 0;
+	helper.m_nBlocksNeedToAck = 0;
 
 	// Fast case for no packet loss we need to ack, which will (hopefully!) be a common case
-	if ( m_receiverState.m_mapPacketGaps.empty() )
+	int n = len( m_receiverState.m_mapPacketGaps ) - 1;
+	if ( n <= 0 )
 		return;
 
-	int n = std::min( (int)helper.k_nMaxBlocks, len( m_receiverState.m_mapPacketGaps ) );
+	// Let's not just flush the acks that are due right now.  Let's flush all of them
+	// that will be due any time before we have the bandwidth to send the next packet.
+	// (Assuming that we send the max packet size here.)
+	SteamNetworkingMicroseconds usecSendAcksDueBefore = usecNow;
+	SteamNetworkingMicroseconds usecTimeUntilNextPacket = SteamNetworkingMicroseconds( ( m_senderState.m_flTokenBucket - (float)k_cbSteamNetworkingSocketsMaxUDPMsgLen ) / (float)m_senderState.m_n_x * -1e6 );
+	if ( usecTimeUntilNextPacket > 0 )
+		usecSendAcksDueBefore += usecTimeUntilNextPacket;
+
+	m_receiverState.DebugCheckPackGapMap();
+
+	n = std::min( (int)helper.k_nMaxBlocks, n );
 	auto itNext = m_receiverState.m_mapPacketGaps.begin();
 
-	int cbEncodedSize = 0;
+	int cbEncodedSize = helper.k_cbHeaderSize;
 	while ( n > 0 )
 	{
 		--n;
@@ -1765,6 +1826,26 @@ void CSteamNetworkConnectionBase::SNP_GatherAckBlocks( SNPAckSerializerHelper &h
 
 		Assert( itCur->first < itCur->second.m_nEnd );
 
+		// Do we need to report on this block now?
+		bool bNeedToReport = ( itNext->second.m_usecWhenAckPrior <= usecSendAcksDueBefore );
+
+		// Should we wait to NACK this?
+		if ( itCur == m_receiverState.m_itPendingNack )
+		{
+
+			// Wait to NACK this?
+			if ( !bNeedToReport )
+			{
+				if ( usecNow < itCur->second.m_usecWhenOKToNack )
+					break;
+				bNeedToReport = true;
+			}
+
+			// Go ahead and NACK it.  If the packet arrives, we will use it.
+			// But our NACK may cause the sender to retransmit.
+			++m_receiverState.m_itPendingNack;
+		}
+
 		SNPAckSerializerHelper::Block &block = helper.m_arBlocks[ helper.m_nBlocks ];
 		block.m_nNack = uint32( itCur->second.m_nEnd - itCur->first );
 
@@ -1772,7 +1853,8 @@ void CSteamNetworkConnectionBase::SNP_GatherAckBlocks( SNPAckSerializerHelper &h
 		SteamNetworkingMicroseconds usecWhenSentLast;
 		if ( n == 0 )
 		{
-			Assert( itNext == m_receiverState.m_mapPacketGaps.end() );
+			// itNext should be the sentinel
+			Assert( itNext->first == INT64_MAX );
 			nAckEnd = m_statsEndToEnd.m_nMaxRecvPktNum+1;
 			usecWhenSentLast = m_statsEndToEnd.m_usecTimeLastRecvSeq;
 		}
@@ -1787,6 +1869,12 @@ void CSteamNetworkConnectionBase::SNP_GatherAckBlocks( SNPAckSerializerHelper &h
 		block.m_nLatestPktNum = uint32( nAckEnd-1 );
 		block.m_nEncodedTimeSinceLatestPktNum = SNPAckSerializerHelper::EncodeTimeSince( usecNow, usecWhenSentLast );
 
+		// When we encode 7+ blocks, the header grows by one byte
+		// to store an explicit count
+		if ( helper.m_nBlocks == 6 )
+			++cbEncodedSize;
+
+		// This block
 		++cbEncodedSize;
 		if ( block.m_nAck > 7 )
 			cbEncodedSize += VarIntSerializedSize( block.m_nAck>>3 );
@@ -1799,21 +1887,21 @@ void CSteamNetworkConnectionBase::SNP_GatherAckBlocks( SNPAckSerializerHelper &h
 		// if we already know we're over
 
 		++helper.m_nBlocks;
+
+		// Do we really need to try to flush the ack/nack for that block out now?
+		if ( bNeedToReport )
+			helper.m_nBlocksNeedToAck = helper.m_nBlocks;
 	}
 }
 
 uint8 *CSteamNetworkConnectionBase::SNP_SerializeAckBlocks( const SNPAckSerializerHelper &helper, uint8 *pOut, const uint8 *pOutEnd, SteamNetworkingMicroseconds usecNow )
 {
 
-	// Never received anything?
-	if ( m_statsEndToEnd.m_nMaxRecvPktNum == 0 )
-	{
-		m_receiverState.m_usecWhenFlushAck = INT64_MAX;
-		return pOut;
-	}
+	// We shouldn't be called if we never received anything
+	Assert( m_statsEndToEnd.m_nMaxRecvPktNum > 0 );
 
 	// No room even for the header?
-	if ( pOut + 5 > pOutEnd )
+	if ( pOut + SNPAckSerializerHelper::k_cbHeaderSize > pOutEnd )
 		return pOut;
 
 	// !KLUDGE! For now limit number of blocks, and always use 16-bit ID.
@@ -1831,8 +1919,12 @@ uint8 *CSteamNetworkConnectionBase::SNP_SerializeAckBlocks( const SNPAckSerializ
 
 	int nLogLevelPacketDecode = m_connectionConfig.m_LogLevel_PacketDecode.Get();
 
+	#ifdef SNP_ENABLE_PACKETSENDLOG
+		PacketSendLog *pLog = &m_vecSendLog[ m_vecSendLog.size()-1 ];
+	#endif
+
 	// Fast case for no packet loss we need to ack, which will (hopefully!) be a common case
-	if ( m_receiverState.m_mapPacketGaps.empty() )
+	if ( m_receiverState.m_mapPacketGaps.size() == 1 )
 	{
 		int64 nLastRecvPktNum = m_statsEndToEnd.m_nMaxRecvPktNum;
 		*pLatestPktNum = uint16( nLastRecvPktNum );
@@ -1842,7 +1934,13 @@ uint8 *CSteamNetworkConnectionBase::SNP_SerializeAckBlocks( const SNPAckSerializ
 			GetDescription(),
 			(long long)m_statsEndToEnd.m_nNextSendSequenceNumber, (long long)nLastRecvPktNum
 		);
-		m_receiverState.m_usecWhenFlushAck = INT64_MAX; // Clear timer, we wrote everything we needed to
+		m_receiverState.m_mapPacketGaps.rbegin()->second.m_usecWhenAckPrior = INT64_MAX; // Clear timer, we wrote everything we needed to
+
+		#ifdef SNP_ENABLE_PACKETSENDLOG
+			pLog->m_nAckBlocksSent = 0;
+			pLog->m_nAckEnd = nLastRecvPktNum;
+		#endif
+
 		return pOut;
 	}
 
@@ -1854,8 +1952,8 @@ uint8 *CSteamNetworkConnectionBase::SNP_SerializeAckBlocks( const SNPAckSerializ
 	for (;;)
 	{
 
-		// Can't fit any blocks at all?  Just fill in the header
-		// with the oldest thing we can ack and call it a day
+		// Not sending any blocks at all?  (Either they don't fit, or we are waiting because we don't
+		// want to nack yet.)  Just fill in the header with the oldest ack
 		if ( nBlocks == 0 )
 		{
 			auto itOldestGap = m_receiverState.m_mapPacketGaps.begin();
@@ -1867,13 +1965,26 @@ uint8 *CSteamNetworkConnectionBase::SNP_SerializeAckBlocks( const SNPAckSerializ
 				GetDescription(),
 				(long long)m_statsEndToEnd.m_nNextSendSequenceNumber, (long long)nLastRecvPktNum, (long long)m_statsEndToEnd.m_nMaxRecvPktNum
 			);
+
+			#ifdef SNP_ENABLE_PACKETSENDLOG
+				pLog->m_nAckBlocksSent = 0;
+				pLog->m_nAckEnd = nLastRecvPktNum;
+			#endif
+
+			// Acked packets before this gap.  Were we waiting to flush them?
+			if ( itOldestGap == m_receiverState.m_itPendingAck )
+			{
+				// Mark it as sent
+				m_receiverState.m_itPendingAck->second.m_usecWhenAckPrior = INT64_MAX;
+				++m_receiverState.m_itPendingAck;
+			}
+
+			// NOTE: We did NOT nack anything just now
 			return pOut;
 		}
 
 		int cbTotalEncoded = helper.m_arBlocks[nBlocks-1].m_cbTotalEncodedSize;
-		if ( nBlocks > 6 )
-			++cbTotalEncoded;
-		pExpectedOutEnd = pOut + cbTotalEncoded; // Save for debugging below
+		pExpectedOutEnd = pAckHeaderByte + cbTotalEncoded; // Save for debugging below
 		if ( pExpectedOutEnd <= pOutEnd )
 			break;
 
@@ -1905,10 +2016,48 @@ uint8 *CSteamNetworkConnectionBase::SNP_SerializeAckBlocks( const SNPAckSerializ
 	int64 nAckEnd = ( m_statsEndToEnd.m_nMaxRecvPktNum & ~(int64)(~(uint32)0) ) | pBlock->m_nLatestPktNum;
 	++nAckEnd;
 
+	#ifdef SNP_ENABLE_PACKETSENDLOG
+		pLog->m_nAckBlocksSent = nBlocks;
+		pLog->m_nAckEnd = nAckEnd;
+	#endif
+
 	SpewType( nLogLevelPacketDecode+1, "[%s]   encode pkt %lld last recv %lld (%d blocks, actual last recv=%lld)\n",
 		GetDescription(),
 		(long long)m_statsEndToEnd.m_nNextSendSequenceNumber, (long long)(nAckEnd-1), nBlocks, (long long)m_statsEndToEnd.m_nMaxRecvPktNum
 	);
+
+	// Check for a common case where we report on everything
+	if ( nAckEnd > m_statsEndToEnd.m_nMaxRecvPktNum )
+	{
+		Assert( nAckEnd == m_statsEndToEnd.m_nMaxRecvPktNum+1 );
+		for (;;)
+		{
+			m_receiverState.m_itPendingAck->second.m_usecWhenAckPrior = INT64_MAX;
+			if ( m_receiverState.m_itPendingAck->first == INT64_MAX )
+				break;
+			++m_receiverState.m_itPendingAck;
+		}
+		m_receiverState.m_itPendingNack = m_receiverState.m_itPendingAck;
+	}
+	else
+	{
+
+		// Advance pointer to next block that needs to be acked,
+		// past the ones we are about to ack.
+		if ( m_receiverState.m_itPendingAck->first <= nAckEnd )
+		{
+			do
+			{
+				m_receiverState.m_itPendingAck->second.m_usecWhenAckPrior = INT64_MAX;
+				++m_receiverState.m_itPendingAck;
+			} while ( m_receiverState.m_itPendingAck->first <= nAckEnd );
+		}
+
+		// Advance pointer to next block that needs to be nacked, past the ones
+		// we are about to nack.
+		while ( m_receiverState.m_itPendingNack->first < nAckEnd )
+			++m_receiverState.m_itPendingNack;
+	}
 
 	// Serialize the blocks into the packet, from newest to oldest
 	while ( pBlock >= helper.m_arBlocks )
@@ -1979,13 +2128,6 @@ uint8 *CSteamNetworkConnectionBase::SNP_SerializeAckBlocks( const SNPAckSerializ
 
 	// Make sure when we were checking what would fit, we correctly calculated serialized size
 	Assert( pOut == pExpectedOutEnd );
-
-	// If we were able to fit all blocks, then clear the ack timeout,
-	// since we wrote everything we wanted to
-	// NOTE: This assumes that helper.m_nBlocks wasn't artificially limited
-	// due to trying to fit in a special space-limited packet
-	if ( nBlocks == helper.m_nBlocks )
-		m_receiverState.m_usecWhenFlushAck = INT64_MAX;
 
 	return pOut;
 }
@@ -2190,10 +2332,6 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 		GetDescription(),
 		(long long)nPktNum,
 		(long long)nSegBegin, (long long)nSegEnd );
-
-	// If they ever send us a reliable segment, then we should make sure we
-	// send them an ack of what we have.
-	m_receiverState.MarkNeedToSendAck( usecNow );
 
 	// No segment data?  Seems fishy, but if it happens, just skip it.
 	Assert( cbSegmentSize >= 0 );
@@ -2536,21 +2674,22 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 	return true;
 }
 
-bool CSteamNetworkConnectionBase::SNP_RecordReceivedPktNum( int64 nPktNum, SteamNetworkingMicroseconds usecNow )
+bool CSteamNetworkConnectionBase::SNP_RecordReceivedPktNum( int64 nPktNum, SteamNetworkingMicroseconds usecNow, bool bScheduleAck )
 {
-
-	// Make sure the last received sequence number is never marked as being in a gap.
-	// Since we did receive it!
-	Assert( m_receiverState.m_mapPacketGaps.empty() || m_receiverState.m_mapPacketGaps.rbegin()->second.m_nEnd <= m_statsEndToEnd.m_nMaxRecvPktNum );
 
 	// Check if sender has already told us they don't need us to
 	// account for packets this old anymore
 	if ( nPktNum < m_receiverState.m_nMinPktNumToSendAcks )
 		return true;
 
-	// Fast path for the (hopefully) common case of packets arriving in order
+	SteamNetworkingMicroseconds usecScheduleAck = bScheduleAck ? usecNow + k_usecMaxDataAckDelay : INT64_MAX;
+
+	// Fast path for the (hopefully) most common case of packets arriving in order
 	if ( nPktNum == m_statsEndToEnd.m_nMaxRecvPktNum+1 )
+	{
+		m_receiverState.QueueFlushAllAcks( usecScheduleAck );
 		return true;
+	}
 
 	// Check if this introduced a gap since the last sequence packet we have received
 	if ( nPktNum > m_statsEndToEnd.m_nMaxRecvPktNum )
@@ -2560,24 +2699,47 @@ bool CSteamNetworkConnectionBase::SNP_RecordReceivedPktNum( int64 nPktNum, Steam
 		if ( len( m_receiverState.m_mapPacketGaps ) >= k_nMaxPacketGaps )
 			return false; // CALLER: Do not record that we received this packet!
 
-		// Add a gap for the skipped packet(s)
+		// Add a gap for the skipped packet(s).
 		int64 nBegin = m_statsEndToEnd.m_nMaxRecvPktNum+1;
-		SSNPPacketGap &gap = m_receiverState.m_mapPacketGaps[ nBegin ];
-		gap.m_usecWhenReceivedPktBefore = m_statsEndToEnd.m_usecTimeLastRecvSeq;
-		gap.m_nEnd = nPktNum;
+		std::pair<int64,SSNPPacketGap> x;
+		x.first = nBegin;
+		x.second.m_nEnd = nPktNum;
+		x.second.m_usecWhenReceivedPktBefore = m_statsEndToEnd.m_usecTimeLastRecvSeq;
+		x.second.m_usecWhenAckPrior = m_receiverState.m_mapPacketGaps.rbegin()->second.m_usecWhenAckPrior;
+
+		// When should we nack this?
+		x.second.m_usecWhenOKToNack = usecNow;
+		if ( nPktNum < m_statsEndToEnd.m_nMaxRecvPktNum + 3 )
+			x.second.m_usecWhenOKToNack += k_usecNackFlush;
+
+		auto iter = m_receiverState.m_mapPacketGaps.insert( x ).first;
 
 		SpewType( m_connectionConfig.m_LogLevel_PacketGaps.Get(), "[%s] drop %d pkts [%lld-%lld)",
 			GetDescription(),
 			(int)( nPktNum - nBegin ),
 			(long long)nBegin, (long long)nPktNum );
 
-		// Schedule sending of a NACK pretty quickly.
-		// FIXME - really we should probably use two different timers.
-		// If this timer expires, we should check if the gap still exists,
-		// and if so, there's no need to do anything.  Because we want
-		// packets arriving out of order close together to basically
-		// be treated the same as arriving in order.
-		m_receiverState.m_usecWhenFlushAck = std::min( m_receiverState.m_usecWhenFlushAck, usecNow + k_usecNackFlush );
+		// Remember that we need to send a NACK
+		if ( m_receiverState.m_itPendingNack->first == INT64_MAX )
+		{
+			m_receiverState.m_itPendingNack = iter;
+		}
+		else
+		{
+			// Pending nacks should be for older packet, not newer
+			Assert( m_receiverState.m_itPendingNack->first < nBegin );
+		}
+
+		// Back up if we we had a flush of everything scheduled
+		if ( m_receiverState.m_itPendingAck->first == INT64_MAX && m_receiverState.m_itPendingAck->second.m_usecWhenAckPrior < INT64_MAX )
+		{
+			Assert( iter->second.m_usecWhenAckPrior == m_receiverState.m_itPendingAck->second.m_usecWhenAckPrior );
+			m_receiverState.m_itPendingAck = iter;
+		}
+
+		// Schedule ack of this pack (which at this point means reporting
+		// on everything) by the requested time
+		m_receiverState.QueueFlushAllAcks( usecScheduleAck );
 	}
 	else if ( !m_receiverState.m_mapPacketGaps.empty() )
 	{
@@ -2586,7 +2748,12 @@ bool CSteamNetworkConnectionBase::SNP_RecordReceivedPktNum( int64 nPktNum, Steam
 		--itGap;
 		Assert( itGap->first <= nPktNum );
 		if ( itGap->second.m_nEnd <= nPktNum )
-			return true; // We already received this packet
+		{
+			// We already received this packet.  But this should be impossible now,
+			// we should be rejecting duplicate packet numbers earlier
+			AssertMsg( false, "Processing a packet multiple times" );
+			return true;
+		}
 
 		// Packet is in a gap where we previously thought packets were lost.
 		// (Packets arriving out of order.)
@@ -2597,8 +2764,16 @@ bool CSteamNetworkConnectionBase::SNP_RecordReceivedPktNum( int64 nPktNum, Steam
 			// Single-packet gap?
 			if ( itGap->first == nPktNum )
 			{
-				// Gap is totally filed
-				m_receiverState.m_mapPacketGaps.erase( itGap );
+				// Were we waiting to ack/nack this?  Then move forward to the next gap, if any
+				usecScheduleAck = std::min( usecScheduleAck, itGap->second.m_usecWhenAckPrior );
+				if ( m_receiverState.m_itPendingAck == itGap )
+					++m_receiverState.m_itPendingAck;
+				if ( m_receiverState.m_itPendingNack == itGap )
+					++m_receiverState.m_itPendingNack;
+
+				// Gap is totally filled.  Erase, and move to the next one,
+				// if any, so we can schedule ack below
+				itGap = m_receiverState.m_mapPacketGaps.erase( itGap );
 
 				SpewType( m_connectionConfig.m_LogLevel_PacketGaps.Get(), "[%s] decode pkt %lld, single pkt gap filled", GetDescription(), (long long)nPktNum );
 			}
@@ -2610,6 +2785,9 @@ bool CSteamNetworkConnectionBase::SNP_RecordReceivedPktNum( int64 nPktNum, Steam
 
 				SpewType( m_connectionConfig.m_LogLevel_PacketGaps.Get(), "[%s] decode pkt %lld, last packet in gap, reduced to [%lld,%lld)", GetDescription(),
 					(long long)nPktNum, (long long)itGap->first, (long long)itGap->second.m_nEnd );
+
+				// Move to the next gap so we can schedule ack below
+				++itGap;
 			}
 		}
 		else if ( itGap->first == nPktNum )
@@ -2632,24 +2810,107 @@ bool CSteamNetworkConnectionBase::SNP_RecordReceivedPktNum( int64 nPktNum, Steam
 			if ( len( m_receiverState.m_mapPacketGaps ) >= k_nMaxPacketGaps )
 				return false; // CALLER: Do not record that we received this packet!
 
-			// Save end
-			int64 nEnd = itGap->second.m_nEnd;
+			// Locate the next block so we can set the schedule time
+			auto itNext = itGap;
+			++itNext;
 
-			// Truncate this gap
+			// Start making a new gap to account for the upper end
+			std::pair<int64,SSNPPacketGap> upper;
+			upper.first = nPktNum+1;
+			upper.second.m_nEnd = itGap->second.m_nEnd;
+			upper.second.m_usecWhenReceivedPktBefore = usecNow;
+			if ( itNext == m_receiverState.m_itPendingAck )
+				upper.second.m_usecWhenAckPrior = INT64_MAX;
+			else
+				upper.second.m_usecWhenAckPrior = itNext->second.m_usecWhenAckPrior;
+			upper.second.m_usecWhenOKToNack = itGap->second.m_usecWhenOKToNack;
+
+			// Truncate the current gap
 			itGap->second.m_nEnd = nPktNum;
 			Assert( itGap->first < itGap->second.m_nEnd );
 
-			int64 nUpperBegin = nPktNum+1;
-
 			SpewType( m_connectionConfig.m_LogLevel_PacketGaps.Get(), "[%s] decode pkt %lld, gap split [%lld,%lld) and [%lld,%lld)", GetDescription(),
-				(long long)nPktNum, (long long)itGap->first, (long long)itGap->second.m_nEnd, nUpperBegin, nEnd );
+				(long long)nPktNum, (long long)itGap->first, (long long)itGap->second.m_nEnd, upper.first, upper.second.m_nEnd );
 
-			// Insert a new gap to account for the upper end
-			SSNPPacketGap &gap = m_receiverState.m_mapPacketGaps[ nUpperBegin ];
-			gap.m_usecWhenReceivedPktBefore = usecNow;
-			gap.m_nEnd = nEnd;
+			// Insert a new gap to account for the upper end, and
+			// advance iterator to it, so that we can schedule ack below
+			itGap = m_receiverState.m_mapPacketGaps.insert( upper ).first;
 		}
 
+		Assert( itGap != m_receiverState.m_mapPacketGaps.end() );
+
+		// At this point, ack invariants should be met
+		m_receiverState.DebugCheckPackGapMap();
+
+		// Need to schedule ack (earlier than it is already scheduled)?
+		if ( usecScheduleAck < itGap->second.m_usecWhenAckPrior )
+		{
+
+			// Earlier than the current thing being scheduled?
+			if ( usecScheduleAck <= m_receiverState.m_itPendingAck->second.m_usecWhenAckPrior )
+			{
+
+				// We're next, set the time
+				itGap->second.m_usecWhenAckPrior = usecScheduleAck;
+
+				// Any schedules for lower-numbered packets are superseded
+				// by this one.
+				if ( m_receiverState.m_itPendingAck->first <= itGap->first )
+				{
+					while ( m_receiverState.m_itPendingAck != itGap )
+					{
+						m_receiverState.m_itPendingAck->second.m_usecWhenAckPrior = INT64_MAX;
+						++m_receiverState.m_itPendingAck;
+					}
+				}
+				else
+				{
+					// If our number is lower than the thing that was scheduled next,
+					// then back up and re-schedule any blocks in between to be effectively
+					// the same time as they would have been flushed before.
+					SteamNetworkingMicroseconds usecOldSched = m_receiverState.m_itPendingAck->second.m_usecWhenAckPrior;
+					while ( --m_receiverState.m_itPendingAck != itGap )
+					{
+						m_receiverState.m_itPendingAck->second.m_usecWhenAckPrior = usecOldSched;
+					}
+				}
+			}
+			else
+			{
+				// We're not the next thing that needs to be acked.
+				
+				if ( itGap->first < m_receiverState.m_itPendingAck->first )
+				{
+					// We're a lowered numbered packet,	so this request is subsumed by the
+					// request to flush more packets at an earlier time,
+					// and we don't need to do anything.
+
+				}
+				else
+				{
+
+					// We need to ack a bit earlier
+					itGap->second.m_usecWhenAckPrior = usecScheduleAck;
+
+					// Now the only way for our invariants to be violated is for lower
+					// numbered blocks to have later scheduled times.
+					Assert( itGap != m_receiverState.m_mapPacketGaps.begin() );
+					while ( (--itGap)->second.m_usecWhenAckPrior > usecScheduleAck )
+					{
+						Assert( itGap != m_receiverState.m_mapPacketGaps.begin() );
+						itGap->second.m_usecWhenAckPrior = usecScheduleAck;
+					}
+				}
+			}
+
+			// Make sure we didn't screw things up
+			m_receiverState.DebugCheckPackGapMap();
+		}
+	}
+	else
+	{
+		// How do we get here?
+		Assert( false );
 	}
 
 	// OK, this packet is legit, allow caller to continue processing it
@@ -2726,7 +2987,7 @@ SteamNetworkingMicroseconds CSteamNetworkConnectionBase::SNP_ThinkSendState( Ste
 {
 	// Accumulate tokens based on how long it's been since last time
 	SNP_ClampSendRate();
-	m_senderState.TokenBucket_Accumulate( usecNow );
+	SNP_TokenBucket_Accumulate( usecNow );
 
 	// Calculate next time we want to take action.  If it isn't right now, then we're either idle or throttled.
 	// Importantly, this will also check for retry timeout
@@ -2738,34 +2999,6 @@ SteamNetworkingMicroseconds CSteamNetworkConnectionBase::SNP_ThinkSendState( Ste
 	int nPacketsSent = 0;
 	for (;;)
 	{
-
-//		// If send feedback is peroidic but more than RTO/2 has passed force it
-//		if ( m_senderState.m_sendFeedbackState == SSNPSenderState::TFRC_SSTATE_FBACK_PERODIC )
-//		{
-//			if ( m_senderState.m_usec_rto && usecNow - m_receiverState.m_usec_tstamp_last_feedback > m_senderState.m_usec_rto / 2 )
-//			{
-//				m_senderState.m_sendFeedbackState = SSNPSenderState::TFRC_SSTATE_FBACK_REQ;
-//				if ( steamdatagram_snp_log_feedback )
-//					SpewMsg( "%12llu %s: TFRC_SSTATE_FBACK_REQ due to rto/2 timeout\n",
-//								usecNow,
-//								m_sName.c_str() );
-//			}
-//			if ( !m_senderState.m_usec_rto && usecNow - m_receiverState.m_usec_tstamp_last_feedback > TCP_RTO_MIN / 2 )
-//			{
-//				m_senderState.m_sendFeedbackState = SSNPSenderState::TFRC_SSTATE_FBACK_REQ;
-//				if ( steamdatagram_snp_log_feedback )
-//					SpewMsg( "%12llu %s: TFRC_SSTATE_FBACK_REQ due to TCP_RTO_MIN/2 timeout\n",
-//								usecNow,
-//								m_sName.c_str() );
-//			}
-//		}
-//			
-//		bool bSendPacket = m_senderState.m_pSendMessages || 
-//			m_senderState.m_bPendingNAK || 
-//			m_senderState.m_sendFeedbackState == SSNPSenderState::TFRC_SSTATE_FBACK_REQ;
-//
-//		if ( !bSendPacket )
-//			break;
 
 		if ( nPacketsSent > k_nMaxPacketsPerThink )
 		{
@@ -2807,7 +3040,109 @@ SteamNetworkingMicroseconds CSteamNetworkConnectionBase::SNP_ThinkSendState( Ste
 	}
 
 	// Return time when we need to check in again.
-	return SNP_GetNextThinkTime( usecNow );
+	SteamNetworkingMicroseconds usecNextAction = SNP_GetNextThinkTime( usecNow );
+	Assert( usecNextAction > usecNow );
+	return usecNextAction;
+}
+
+void CSteamNetworkConnectionBase::SNP_TokenBucket_Accumulate( SteamNetworkingMicroseconds usecNow )
+{
+	float flElapsed = ( usecNow - m_senderState.m_usecTokenBucketTime ) * 1e-6;
+	m_senderState.m_flTokenBucket += (float)m_senderState.m_n_x * flElapsed;
+	m_senderState.m_usecTokenBucketTime = usecNow;
+
+	// If we don't currently have any packets ready to send right now,
+	// then go ahead and limit the tokens.  If we do have packets ready
+	// to send right now, then we must assume that we would be trying to
+	// wakeup as soon as we are ready to send the next packet, and thus
+	// any excess tokens we accumulate are because the scheduler woke
+	// us up late, and we are not actually bursting
+	if ( SNP_TimeWhenWantToSendNextPacket() > usecNow )
+		m_senderState.TokenBucket_Limit();
+}
+
+void SSNPReceiverState::QueueFlushAllAcks( SteamNetworkingMicroseconds usecWhen )
+{
+	DebugCheckPackGapMap();
+
+	// if we're already scheduled for earlier, then there cannot be any work to do
+	auto it = m_mapPacketGaps.end();
+	--it;
+	if ( it->second.m_usecWhenAckPrior <= usecWhen )
+		return;
+	it->second.m_usecWhenAckPrior = usecWhen;
+
+	// Nothing partial scheduled?
+	if ( m_itPendingAck == it )
+		return;
+
+	if ( m_itPendingAck->second.m_usecWhenAckPrior >= usecWhen )
+	{
+		do
+		{
+			m_itPendingAck->second.m_usecWhenAckPrior = INT64_MAX;
+			++m_itPendingAck;
+		} while ( m_itPendingAck != it );
+		DebugCheckPackGapMap();
+	}
+	else
+	{
+		// Maintain invariant
+		while ( (--it)->second.m_usecWhenAckPrior >= usecWhen )
+			it->second.m_usecWhenAckPrior = usecWhen;
+		DebugCheckPackGapMap();
+	}
+}
+
+#ifdef _DEBUG
+void SSNPReceiverState::DebugCheckPackGapMap() const
+{
+	int64 nPrevEnd = 0;
+	SteamNetworkingMicroseconds usecPrevAck = 0;
+	bool bFoundPendingAck = false;
+	for ( auto it: m_mapPacketGaps )
+	{
+		Assert( it.first > nPrevEnd );
+		if ( it.first == m_itPendingAck->first )
+		{
+			Assert( !bFoundPendingAck );
+			bFoundPendingAck = true;
+			if ( it.first < INT64_MAX )
+				Assert( it.second.m_usecWhenAckPrior < INT64_MAX );
+		}
+		else if ( !bFoundPendingAck )
+		{
+			Assert( it.second.m_usecWhenAckPrior == INT64_MAX );
+		}
+		else
+		{
+			Assert( it.second.m_usecWhenAckPrior >= usecPrevAck );
+		}
+		usecPrevAck = it.second.m_usecWhenAckPrior;
+		if ( it.first == INT64_MAX )
+		{
+			Assert( it.second.m_nEnd == INT64_MAX );
+		}
+		else
+		{
+			Assert( it.first < it.second.m_nEnd );
+		}
+		nPrevEnd = it.second.m_nEnd;
+	}
+	Assert( nPrevEnd == INT64_MAX );
+}
+#endif
+
+SteamNetworkingMicroseconds CSteamNetworkConnectionBase::SNP_TimeWhenWantToSendNextPacket() const
+{
+	// When does the sender want to send data?
+	SteamNetworkingMicroseconds usecNextSend = m_senderState.TimeWhenWantToSendNextPacket();
+
+	// Check if the receiver wants to send a NACK.
+	usecNextSend = std::min( usecNextSend, m_receiverState.m_itPendingNack->second.m_usecWhenOKToNack );
+
+	// Return the earlier of the two
+	return usecNextSend;
 }
 
 SteamNetworkingMicroseconds CSteamNetworkConnectionBase::SNP_GetNextThinkTime( SteamNetworkingMicroseconds usecNow )
@@ -2819,16 +3154,20 @@ SteamNetworkingMicroseconds CSteamNetworkConnectionBase::SNP_GetNextThinkTime( S
 		return k_nThinkTime_Never;
 	}
 
+	// Start with the time when the receiver needs to flush out ack.
+	SteamNetworkingMicroseconds usecNextThink = m_receiverState.TimeWhenFlushAcks();
+
 	// Check retransmit timers.  If they have expired, this will move reliable
 	// segments into the "ready to retry" list, which will cause
 	// TimeWhenWantToSendNextPacket to think we want to send data.  If nothing has timed out,
 	// it will return the time when we need to check back in.  Or, if everything is idle it will
 	// return "never" (very large number).
-	SteamNetworkingMicroseconds usecNextThink = SNP_SenderCheckInFlightPackets( usecNow );
+	SteamNetworkingMicroseconds usecNextRetry = SNP_SenderCheckInFlightPackets( usecNow );
 
 	// If we want to send packets, then we might need to wake up and take action
-	SteamNetworkingMicroseconds usecTimeWantToSend = m_senderState.TimeWhenWantToSendNextPacket();
-	if ( usecTimeWantToSend < INT64_MAX )
+	SteamNetworkingMicroseconds usecTimeWantToSend = SNP_TimeWhenWantToSendNextPacket();
+	usecTimeWantToSend = std::min( usecNextRetry, usecTimeWantToSend );
+	if ( usecTimeWantToSend < usecNextThink )
 	{
 
 		// Time when we *could* send the next packet, ignoring Nagle
@@ -2845,15 +3184,12 @@ SteamNetworkingMicroseconds CSteamNetworkConnectionBase::SNP_GetNextThinkTime( S
 			usecNextSend += 25;
 		}
 
-		// Time when we will next send is greater of when we want to and when we can
-		usecNextSend = Max( usecNextSend, usecTimeWantToSend );
+		// Time when we will next send is the greater of when we want to and when we can
+		usecNextSend = std::max( usecNextSend, usecTimeWantToSend );
 
 		// Earlier than any other reason to wake up?
-		usecNextThink = Min( usecNextThink, usecNextSend );
+		usecNextThink = std::min( usecNextThink, usecNextSend );
 	}
-
-	// Check if the receiver side needs to send an ack
-	usecNextThink = std::min( usecNextThink, m_receiverState.m_usecWhenFlushAck );
 
 	return usecNextThink;
 }
@@ -2876,7 +3212,7 @@ void CSteamNetworkConnectionBase::SNP_PopulateQuickStats( SteamNetworkingQuickCo
 	info.m_cbSentUnackedReliable = m_senderState.m_cbSentUnackedReliable;
 
 	// Accumulate tokens so that we can properly predict when the next time we'll be able to send something is
-	m_senderState.TokenBucket_Accumulate( usecNow );
+	SNP_TokenBucket_Accumulate( usecNow );
 
 	//
 	// Time until we can send the next packet

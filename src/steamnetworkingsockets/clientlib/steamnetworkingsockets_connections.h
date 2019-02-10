@@ -376,7 +376,7 @@ public:
 	/// to send it now, it just means we would like to send something ASAP
 	inline bool SNP_WantsToSendPacket() const
 	{
-		return m_receiverState.m_usecWhenFlushAck < INT64_MAX || m_senderState.TimeWhenWantToSendNextPacket() < INT64_MAX;
+		return m_receiverState.TimeWhenFlushAcks() || SNP_TimeWhenWantToSendNextPacket() < INT64_MAX;
 	}
 
 	/// Send a data packet now, even if we don't have the bandwidth available
@@ -473,17 +473,14 @@ protected:
 	//virtual bool BSendEndToEndPing( SteamNetworkingMicroseconds usecNow );
 	virtual bool BAllowLocalUnsignedCert() const;
 
-	void QueueEndToEndAck( bool bImmediate, SteamNetworkingMicroseconds usecNow)
+	void QueueEndToEndAck( bool bImmediate, SteamNetworkingMicroseconds usecNow )
 	{
-		if ( bImmediate )
-			m_receiverState.m_usecWhenFlushAck = 0;
-		else
-			m_receiverState.MarkNeedToSendAck( usecNow );
+		m_receiverState.QueueFlushAllAcks( bImmediate ? 0 : usecNow + k_usecMaxDataAckDelay );
 	}
 
 	bool BNeedToSendEndToEndStatsOrAcks( SteamNetworkingMicroseconds usecNow )
 	{
-		return m_receiverState.m_usecWhenFlushAck <= usecNow ||
+		return m_receiverState.TimeWhenFlushAcks() <= usecNow ||
 			m_statsEndToEnd.BNeedToSendStats( usecNow );
 	}
 
@@ -554,6 +551,7 @@ protected:
 	EResult SNP_SendMessage( SteamNetworkingMicroseconds usecNow, const void *pData, int cbData, int nSendFlags );
 	SteamNetworkingMicroseconds SNP_ThinkSendState( SteamNetworkingMicroseconds usecNow );
 	SteamNetworkingMicroseconds SNP_GetNextThinkTime( SteamNetworkingMicroseconds usecNow );
+	SteamNetworkingMicroseconds SNP_TimeWhenWantToSendNextPacket() const;
 	void SNP_PrepareFeedback( SteamNetworkingMicroseconds usecNow );
 	bool SNP_RecvDataChunk( int64 nPktNum, const void *pChunk, int cbChunk, SteamNetworkingMicroseconds usecNow );
 	void SNP_ReceiveUnreliableSegment( int64 nMsgNum, int nOffset, const void *pSegmentData, int cbSegmentSize, bool bLastSegmentInMessage, SteamNetworkingMicroseconds usecNow );
@@ -570,8 +568,11 @@ protected:
 	bool SNP_CalcIMean( SteamNetworkingMicroseconds usecNow );
 	void SNP_NoFeedbackTimer( SteamNetworkingMicroseconds usecNow );
 	//int SNP_CheckForLoss( uint16 unSeqNum, SteamNetworkingMicroseconds usecNow );
-	bool SNP_RecordReceivedPktNum( int64 nPktNum, SteamNetworkingMicroseconds usecNow );
+	bool SNP_RecordReceivedPktNum( int64 nPktNum, SteamNetworkingMicroseconds usecNow, bool bScheduleAck );
 	EResult SNP_FlushMessage( SteamNetworkingMicroseconds usecNow );
+
+/// Accumulate "tokens" into our bucket base on the current calculated send rate
+	void SNP_TokenBucket_Accumulate( SteamNetworkingMicroseconds usecNow );
 
 	/// Mark a packet as dropped
 	void SNP_SenderProcessPacketNack( int64 nPktNum, SNPInFlightPacket_t &pkt, const char *pszDebug );
@@ -595,6 +596,33 @@ private:
 	/// Timestamp when we entered the current state.  Used for various
 	/// timeouts.
 	SteamNetworkingMicroseconds m_usecWhenEnteredConnectionState;
+
+	// !DEBUG! Log of packets we sent.
+	#ifdef SNP_ENABLE_PACKETSENDLOG
+	struct PacketSendLog
+	{
+		// State before we sent anything
+		SteamNetworkingMicroseconds m_usecTime;
+		int m_cbPendingReliable;
+		int m_cbPendingUnreliable;
+		int m_nPacketGaps;
+		float m_fltokens;
+		int64 m_nPktNumNextPendingAck;
+		SteamNetworkingMicroseconds m_usecNextPendingAckTime;
+		int64 m_nMaxPktRecv;
+		int64 m_nMinPktNumToSendAcks;
+
+		int m_nAckBlocksNeeded;
+
+		// What we sent
+		int m_nAckBlocksSent;
+		int64 m_nAckEnd;
+		int m_nReliableSegmentsRetry;
+		int m_nSegmentsSent;
+		int m_cbSent;
+	};
+	std::vector<PacketSendLog> m_vecSendLog;
+	#endif
 };
 
 /// Dummy loopback/pipe connection that doesn't actually do any network work.
