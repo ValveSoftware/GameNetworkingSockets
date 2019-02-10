@@ -131,18 +131,18 @@ struct SFakePeer
 	bool m_bIsConnected = false;
 	int m_nMaxPendingBytes = 384 * 1024;
 	SteamNetworkingQuickConnectionStatus m_info;
-	float m_flSendReliableRate = 0.0f;
-	float m_flRecvReliableRate = 0.0f;
-	int64 m_nSendReliableInterval = 0;
-	int64 m_nRecvReliableInterval = 0;
+	float m_flSendRate = 0.0f;
+	float m_flRecvRate = 0.0f;
+	int64 m_nSendInterval = 0;
+	int64 m_nRecvInterval = 0;
 
 	inline void UpdateInterval( float flElapsed )
 	{
-		m_flSendReliableRate = m_nSendReliableInterval / flElapsed;
-		m_flRecvReliableRate = m_nRecvReliableInterval / flElapsed;
+		m_flSendRate = m_nSendInterval / flElapsed;
+		m_flRecvRate = m_nRecvInterval / flElapsed;
 
-		m_nSendReliableInterval = 0;
-		m_nRecvReliableInterval = 0;
+		m_nSendInterval = 0;
+		m_nRecvInterval = 0;
 	}
 
 	inline void UpdateStats()
@@ -153,18 +153,6 @@ struct SFakePeer
 	inline int GetQueuedSendBytes()
 	{
 		return m_info.m_cbPendingReliable + m_info.m_cbPendingUnreliable;
-	}
-
-	inline void PrintStatus()
-	{
-		Printf( "%-10s:  %8d pending  %4d ping  %5.1f%% qual\n",
-			m_sName.c_str(), m_info.m_cbPendingReliable + m_info.m_cbPendingUnreliable, 
-			m_info.m_nPing, m_info.m_flConnectionQualityLocal*100.0f );
-		Printf( "%-10s reliable %9.1fKB out %9.1fKB in  msg: %6lld out %6lld in %4.0fms delay\n",
-			"", m_flSendReliableRate, m_flRecvReliableRate,
-			(long long)m_nReliableSendMsgCount, (long long)m_nReliableExpectedRecvMsg,
-			m_flReliableMsgDelay*1000.0f
-		);
 	}
 
 	void SendRandomMessage( bool bReliable, int cbMaxSize )
@@ -183,14 +171,7 @@ struct SFakePeer
 		}
 
 		int cbSend = (int)( sizeof(msg) - sizeof(msg.m_data) + msg.m_cbSize );
-		if ( bReliable )
-		{
-			m_nSendReliableInterval += cbSend;
-		}
-		else
-		{
-			//m_nRecvReliableInterval += pIncomingMsg->GetSize();
-		}
+		m_nSendInterval += cbSend;
 
 		EResult result = SteamNetworkingSockets()->SendMessageToConnection(
 			m_hSteamNetConnection, 
@@ -269,15 +250,14 @@ static void Recv( ISteamNetworkingSockets *pSteamSocketNetworking )
 		}
 
 		float flDelay = ( SteamNetworkingUtils()->GetLocalTimestamp() - pTestMsg->m_usecWhenSent ) * 1e-6f;
+		pConnection->m_nRecvInterval += pIncomingMsg->GetSize();
 		if ( pTestMsg->m_bReliable )
 		{
-			pConnection->m_nRecvReliableInterval += pIncomingMsg->GetSize();
 			pConnection->m_flReliableMsgDelay += ( flDelay - pConnection->m_flReliableMsgDelay ) * .25f;
 		}
 		else
 		{
 			pConnection->m_flUnreliableMsgDelay += ( flDelay - pConnection->m_flUnreliableMsgDelay ) * .25f;
-			//pConnection->m_nRecvUnreliableInterval += pIncomingMsg->GetSize();
 		}
 
 		nExpectedMsgNum = pTestMsg->m_nMsgNum + 1;
@@ -380,6 +360,35 @@ static void PumpCallbacksAndMakeSureStillConnected()
 	assert( g_peerClient.m_hSteamNetConnection != k_HSteamNetConnection_Invalid );
 }
 
+inline std::string FormatQuality( float q )
+{
+	if ( q < 0.0f ) return "???";
+	char buf[32];
+	sprintf( buf, "%.1f%%", q*100.0f );
+	return buf;
+}
+
+static void PrintStatus( const SFakePeer &p1, const SFakePeer &p2 )
+{
+	const SteamNetworkingQuickConnectionStatus &info1 = p1.m_info;
+	const SteamNetworkingQuickConnectionStatus &info2 = p2.m_info;
+	Printf( "\n" );
+	Printf( "%12s %12s\n", p1.m_sName.c_str(), p2.m_sName.c_str() );
+	Printf( "%10dms %10dms  Ping\n", info1.m_nPing, info2.m_nPing );
+	Printf( "%12s %12s  Quality\n", FormatQuality( info1.m_flConnectionQualityLocal ).c_str(), FormatQuality( info2.m_flConnectionQualityLocal ).c_str() );
+	Printf( "%11.1fK %11.1fK  Send buffer\n", ( info1.m_cbPendingReliable+info1.m_cbPendingUnreliable )/1024.0f, ( info2.m_cbPendingReliable+info2.m_cbPendingUnreliable )/1024.0f );
+	Printf( "%11.1fK %11.1fK  Send rate (app)\n", p1.m_flSendRate/1024.0f, p2.m_flSendRate/1024.0f );
+	Printf( "%11.1fK %11.1fK  Send rate (wire)\n", info1.m_flOutBytesPerSec/1024.0f, info2.m_flOutBytesPerSec/1024.0f );
+	Printf( "%12.1f %12.1f  Send pkts/sec (wire)\n", info1.m_flOutPacketsPerSec, info2.m_flOutPacketsPerSec );
+	Printf( "%11.1fK %11.1fK  Send bandwidth (estimate)\n", info1.m_nSendRateBytesPerSecond/1024.0f, info2.m_nSendRateBytesPerSecond/1024.0f );
+	Printf( "%11.1fK %11.1fK  Recv rate (app)\n", p1.m_flRecvRate/1024.0f, p2.m_flRecvRate/1024.0f );
+	Printf( "%11.1fK %11.1fK  Recv rate (wire)\n", info1.m_flInBytesPerSec/1024.0f, info2.m_flInBytesPerSec/1024.0f );
+	Printf( "%12.1f %12.1f  Recv pkts/sec (wire)\n", info1.m_flInPacketsPerSec, info2.m_flInPacketsPerSec );
+	Printf( "%10.1fms %10.1fms  Send buffer drain time, based on bandwidth\n", ( info1.m_cbPendingReliable+info1.m_cbPendingUnreliable )*1000.0f/info1.m_nSendRateBytesPerSecond, ( info2.m_cbPendingReliable+info2.m_cbPendingUnreliable )*1000.0f/info2.m_nSendRateBytesPerSecond );
+	Printf( "%10.1fms %10.1fms  App RTT (reliable)\n", p1.m_flReliableMsgDelay*1e3, p2.m_flReliableMsgDelay*1e3 );
+	Printf( "%10.1fms %10.1fms  App RTT (unreliable)\n", p1.m_flUnreliableMsgDelay*1e3, p2.m_flUnreliableMsgDelay*1e3 );
+}
+
 static void TestNetworkConditions( int rate, float loss, int lag, float reorderPct, int reorderLag, bool bActLikeGame )
 {
 	ISteamNetworkingSockets *pSteamSocketNetworking = SteamNetworkingSockets();
@@ -409,19 +418,14 @@ static void TestNetworkConditions( int rate, float loss, int lag, float reorderP
 
 	//SteamNetworkingMicroseconds usecLastNow = usecWhenStarted;
 
-#if defined(SANITIZER)
-	// Very fast, going for coverage more than runtime.
-	const SteamNetworkingMicroseconds usecQuietDuration = 2500000;
-	const SteamNetworkingMicroseconds usecActiveDuration = 2500000;
-	int nIterations = 2;
-#elif defined(LIGHT_TESTS)
+#if defined(SANITIZER) || defined(LIGHT_TESTS)
 	const SteamNetworkingMicroseconds usecQuietDuration = 5000000;
 	const SteamNetworkingMicroseconds usecActiveDuration = 5000000;
 	int nIterations = 2;
 #else
-	const SteamNetworkingMicroseconds usecQuietDuration = 5000000;
-	const SteamNetworkingMicroseconds usecActiveDuration = 10000000;
-	int nIterations = 5;
+	const SteamNetworkingMicroseconds usecQuietDuration = 10000000;
+	const SteamNetworkingMicroseconds usecActiveDuration = 20000000;
+	int nIterations = 4;
 #endif
 	bool bQuiet = true;
 	SteamNetworkingMicroseconds usecWhenStateEnd = 0;
@@ -445,9 +449,20 @@ static void TestNetworkConditions( int rate, float loss, int lag, float reorderP
 		int nServerPending = g_peerServer.GetQueuedSendBytes();
 		int nClientPending = g_peerClient.GetQueuedSendBytes();
 
-		// Start and stop active use of the connection.  This exercizes a bunch of important edge cases
+		bool bCheckStateChange = ( usecWhenStateEnd == 0 ); 
+		float flElapsedPrint = ( now - usecLastPrint ) * 1e-6f;
+		if ( flElapsedPrint > 5.0f )
+		{
+			g_peerServer.UpdateInterval( flElapsedPrint );
+			g_peerClient.UpdateInterval( flElapsedPrint );
+			PrintStatus( g_peerServer, g_peerClient );
+			usecLastPrint = now;
+			bCheckStateChange = true;
+		}
+
+		// Start and stop active use of the connection.  This exercises a bunch of important edge cases
 		// such as keepalives, the bandwidth estimation, etc.
-		if ( g_usecTestElapsed > usecWhenStateEnd )
+		if ( bCheckStateChange && g_usecTestElapsed > usecWhenStateEnd )
 		{
 			if ( bQuiet )
 			{
@@ -466,16 +481,6 @@ static void TestNetworkConditions( int rate, float loss, int lag, float reorderP
 				usecWhenStateEnd = g_usecTestElapsed + usecQuietDuration;
 				Printf( "Entering quiet time (no sending) to see how fast queues drain\n" );
 			}
-		}
-
-		float flElapsedPrint = ( now - usecLastPrint ) * 1e-6f;
-		if ( flElapsedPrint > 1.0f )
-		{
-			g_peerServer.UpdateInterval( flElapsedPrint );
-			g_peerClient.UpdateInterval( flElapsedPrint );
-			g_peerServer.PrintStatus();
-			g_peerClient.PrintStatus();
-			usecLastPrint = now;
 		}
 
 		if ( !bQuiet )
