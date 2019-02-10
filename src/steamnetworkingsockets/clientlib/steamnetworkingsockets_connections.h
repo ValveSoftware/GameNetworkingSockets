@@ -376,7 +376,7 @@ public:
 	/// to send it now, it just means we would like to send something ASAP
 	inline bool SNP_WantsToSendPacket() const
 	{
-		return m_receiverState.TimeWhenFlushAcks() || SNP_TimeWhenWantToSendNextPacket() < INT64_MAX;
+		return m_receiverState.TimeWhenFlushAcks() < INT64_MAX || SNP_TimeWhenWantToSendNextPacket() < INT64_MAX;
 	}
 
 	/// Send a data packet now, even if we don't have the bandwidth available
@@ -571,7 +571,7 @@ protected:
 	bool SNP_RecordReceivedPktNum( int64 nPktNum, SteamNetworkingMicroseconds usecNow, bool bScheduleAck );
 	EResult SNP_FlushMessage( SteamNetworkingMicroseconds usecNow );
 
-/// Accumulate "tokens" into our bucket base on the current calculated send rate
+	/// Accumulate "tokens" into our bucket base on the current calculated send rate
 	void SNP_TokenBucket_Accumulate( SteamNetworkingMicroseconds usecNow );
 
 	/// Mark a packet as dropped
