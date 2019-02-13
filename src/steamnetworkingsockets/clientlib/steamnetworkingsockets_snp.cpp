@@ -226,9 +226,6 @@ void CSteamNetworkConnectionBase::SNP_InitializeConnection( SteamNetworkingMicro
 		m_receiverState.m_itPendingNack = m_receiverState.m_itPendingAck;
 	}
 
-	//m_senderState.m_usec_nfb = usecNow + TFRC_INITIAL_TIMEOUT;
-	//m_senderState.m_bSentPacketSinceNFB = false;
-
 	SteamNetworkingMicroseconds usecPing = GetUsecPingWithFallback( this );
 
 	/*
@@ -243,18 +240,8 @@ void CSteamNetworkConnectionBase::SNP_InitializeConnection( SteamNetworkingMicro
 	int64 w_init = Clamp( 4380, 2 * k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend, 4 * k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend );
 	m_senderState.m_n_x = int( k_nMillion * w_init / usecPing );
 
-//	if ( steamdatagram_snp_log_x )
-//	SpewMsg( "%12llu %s: INITIAL X=%d rtt=%dms tx_s=%d\n", 
-//				 usecNow,
-//				 m_sName.c_str(),
-//				 m_senderState.m_n_x,
-//				 m_statsEndToEnd.m_ping.m_nSmoothedPing,
-//				 m_senderState.m_n_tx_s );
-
-	m_receiverState.m_usec_tstamp_last_feedback = usecNow;
-
-	// Recalc send now that we have rtt
-	SNP_UpdateX( usecNow );
+	// Go ahead and clamp it now
+	SNP_ClampSendRate();
 }
 
 //-----------------------------------------------------------------------------
@@ -2915,57 +2902,6 @@ bool CSteamNetworkConnectionBase::SNP_RecordReceivedPktNum( int64 nPktNum, Steam
 
 	// OK, this packet is legit, allow caller to continue processing it
 	return true;
-}
-
-void CSteamNetworkConnectionBase::SNP_UpdateX( SteamNetworkingMicroseconds usecNow )
-{
-//	int configured_min_rate = m_senderState.m_n_minRate ? m_senderState.m_n_minRate : steamdatagram_snp_min_rate;
-//
-//	int min_rate = MAX( configured_min_rate, m_senderState.m_n_x_recv * k_nBurstMultiplier ); 
-//
-//	SteamNetworkingMicroseconds usecPing = GetUsecPingWithFallback( this );
-//
-//	int n_old_x = m_senderState.m_n_x;
-//	if ( m_senderState.m_un_p )
-//	{
-//		m_senderState.m_n_x = MAX( MIN( m_senderState.m_n_x_calc, min_rate ), m_senderState.m_n_tx_s );
-//		m_senderState.m_n_x = MAX( m_senderState.m_n_x, configured_min_rate );
-//	}
-//	else if ( m_statsEndToEnd.m_ping.m_nSmoothedPing >= 0 && usecNow - m_senderState.m_usec_ld >= usecPing )
-//	{   	   
-//		m_senderState.m_n_x = MAX( MIN( 2 * m_senderState.m_n_x, min_rate ), GetInitialRate( usecPing ) );
-//		m_senderState.m_usec_ld = usecNow;
-//	}
-//
-//	// For now cap at steamdatagram_snp_max_rate
-//	if ( m_senderState.m_n_maxRate )
-//	{
-//		m_senderState.m_n_x = MIN( m_senderState.m_n_x, m_senderState.m_n_maxRate );
-//	}
-//	else if ( steamdatagram_snp_max_rate )
-//	{
-//		m_senderState.m_n_x = MIN( m_senderState.m_n_x, steamdatagram_snp_max_rate );
-//	}
-//
-//	if ( m_senderState.m_n_x != n_old_x ) 
-//	{
-//		if ( steamdatagram_snp_log_x )
-//		SpewMsg( "%12llu %s: UPDATE X=%d (was %d) x_recv=%d min_rate=%d p=%u x_calc=%d tx_s=%d\n", 
-//					 usecNow,
-//					 m_sName.c_str(),
-//					 m_senderState.m_n_x,
-//					 n_old_x,
-//					 m_senderState.m_n_x_recv,
-//					 min_rate,
-//					 m_senderState.m_un_p,
-//					 m_senderState.m_n_x_calc,
-//					 m_senderState.m_n_tx_s );
-//	}
-//
-//	UpdateSpeeds( m_senderState.m_n_x, m_senderState.m_n_x_recv );
-
-	// Go ahead and clamp it now
-	SNP_ClampSendRate();
 }
 
 int CSteamNetworkConnectionBase::SNP_ClampSendRate()

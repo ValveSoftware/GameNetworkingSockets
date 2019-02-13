@@ -556,18 +556,9 @@ protected:
 	bool SNP_RecvDataChunk( int64 nPktNum, const void *pChunk, int cbChunk, SteamNetworkingMicroseconds usecNow );
 	void SNP_ReceiveUnreliableSegment( int64 nMsgNum, int nOffset, const void *pSegmentData, int cbSegmentSize, bool bLastSegmentInMessage, SteamNetworkingMicroseconds usecNow );
 	bool SNP_ReceiveReliableSegment( int64 nPktNum, int64 nSegBegin, const uint8 *pSegmentData, int cbSegmentSize, SteamNetworkingMicroseconds usecNow );
-	//void SNP_MoveSentToSend( SteamNetworkingMicroseconds usecNow );
-	//void SNP_CheckForReliable( SteamNetworkingMicroseconds usecNow );
-	void SNP_UpdateX( SteamNetworkingMicroseconds usecNow );
 	int SNP_ClampSendRate();
-	std::string SNP_GetDebugText();
 	void SNP_PopulateDetailedStats( SteamDatagramLinkStats &info );
 	void SNP_PopulateQuickStats( SteamNetworkingQuickConnectionStatus &info, SteamNetworkingMicroseconds usecNow );
-	//bool SNP_UpdateIMean( uint16 unSeqNum, SteamNetworkingMicroseconds usecNow );
-	//bool SNP_AddLossEvent( uint16 unSeqNum, SteamNetworkingMicroseconds usecNow );
-	bool SNP_CalcIMean( SteamNetworkingMicroseconds usecNow );
-	void SNP_NoFeedbackTimer( SteamNetworkingMicroseconds usecNow );
-	//int SNP_CheckForLoss( uint16 unSeqNum, SteamNetworkingMicroseconds usecNow );
 	bool SNP_RecordReceivedPktNum( int64 nPktNum, SteamNetworkingMicroseconds usecNow, bool bScheduleAck );
 	EResult SNP_FlushMessage( SteamNetworkingMicroseconds usecNow );
 

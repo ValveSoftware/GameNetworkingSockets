@@ -13,33 +13,10 @@ namespace SteamNetworkingSocketsLib {
 
 class CSteamNetworkConnectionBase;
 
-//
-// Constants
-//
-const int TFRC_NDUPACK = 3; // Number of packets to wait after a missing packet (RFC 4342, 6.1)
-
-const int NINTERVAL = 8; // Number of loss intervals (RFC 4342, 8.6.1). 
-const int LIH_SIZE = (NINTERVAL + 1); // The history size is one more than NINTERVAL, 
-										 // since the `open' interval I_0 is always 
-										 // stored as the first entry.
-const SteamNetworkingMicroseconds kSNPInitialNagle = 100000; // 100ms default nagle, the nagle timeout 
-															 // will get changed to 2*R once we have rtt
-
-// Linux uses 200ms RTO minimum, let's use that
-const SteamNetworkingMicroseconds TCP_RTO_MIN = k_nMillion / 5;
-
-// Note this shouldn't be more then TCP_RTO_MIN since that's used for re-transmission and feedback pump
-const SteamNetworkingMicroseconds kSNPMinThink = TCP_RTO_MIN; 
-
-const SteamNetworkingMicroseconds TFRC_INITIAL_TIMEOUT = 2 * k_nMillion;
-
-const int k_nSteamDatagramGlobalMinRate = 5000;
-const int k_nSteamDatagramGlobalMaxRate = 4*k_nMillion;
-
-const int k_nBurstMultiplier = 4; // how much we should allow for burst, TFRC defaults to 2 but we need more
-
+/// Maximum number of packets we will send in one Think() call.
 const int k_nMaxPacketsPerThink = 16;
 
+/// Max number of tokens we are allowed to store up in reserve, for a burst.
 const float k_flSendRateBurstOverageAllowance = k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend;
 
 struct SNPRange_t
@@ -198,21 +175,11 @@ struct SSNPSenderState
 	}
 	void Reset();
 
-	// Sender TFRC control values and timers
-
-	// Current sending rate in bytes per second, RFC 3448 4.2 states default
-	// is one packet per second, but that is insane and we're not doing that.
-	// In most cases we will set a default based on initial ping, so this is
-	// only rarely used.
+	/// Current sending rate in bytes per second, RFC 3448 4.2 states default
+	/// is one packet per second, but that is insane and we're not doing that.
+	/// In most cases we will set a default based on initial ping, so this is
+	/// only rarely used.
 	int m_n_x = 32*1024;
-
-	//int m_n_x_recv = 0; // Received rate transmitted by receiver
-	int m_n_x_calc = 0;	// Calculated rate in bytes per second
-	//uint32 m_un_p = 0;		// Current loss event rate (0-1) scaled to 0-UINT_MAX
-	int m_n_tx_s = k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend;	// Average packet size in bytes
-	//SteamNetworkingMicroseconds m_usec_rto = 0; // RTO calc
-	//SteamNetworkingMicroseconds m_usec_nfb = 0; // Nofeedback Timer
-	//bool m_bSentPacketSinceNFB = false; // Set to false whenever we update nfb to detect sender idle periods
 
 	/// If >=0, then we can send a full packet right now.  We allow ourselves to "store up"
 	/// about 1 packet worth of "reserve".  In other words, if we have not sent any packets
@@ -487,31 +454,6 @@ struct SSNPReceiverState
 	// Stats.  FIXME - move to LinkStatsEndToEnd and track rate counters
 	int64 m_nMessagesRecvReliable = 0;
 	int64 m_nMessagesRecvUnreliable = 0;
-
-
-
-	enum ETFRCFeedbackType {
-		TFRC_FBACK_NONE = 0,
-		TFRC_FBACK_INITIAL,
-		TFRC_FBACK_PERIODIC,
-		TFRC_FBACK_PARAM_CHANGE
-	};
-
-	/* TFRC receiver states */
-	enum ETFRCReceiverStates {
-		TFRC_RSTATE_NO_DATA = 1,
-		TFRC_RSTATE_DATA,
-	};
-
-	ETFRCReceiverStates m_e_rx_state = TFRC_RSTATE_NO_DATA; // Receiver state
-	int m_n_x_recv = 0; // Receiver estimate of send rate (RFC 3448, sec. 4.3)
-	SteamNetworkingMicroseconds m_usec_tstamp_last_feedback = 0; // Time at which last feedback was sent
-	int m_n_rx_s = 0;	// Average packet size in bytes
-	SteamNetworkingMicroseconds m_usec_next_feedback = 0; // Time we should send next feedback,
-														  // its usually now + rtt, but can be set earlier 
-														  // if a param change happense.
-
-	uint32 m_li_i_mean = 0; // Current Average Loss Interval [RFC 3448, 5.4] scaled to 0-UINT_MAX
 };
 
 } // SteamNetworkingSocketsLib
