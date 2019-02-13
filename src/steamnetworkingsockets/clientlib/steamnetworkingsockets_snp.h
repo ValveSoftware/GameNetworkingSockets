@@ -170,6 +170,7 @@ struct SSNPSendMessageList
 
 struct SSNPSenderState
 {
+	SSNPSenderState();
 	~SSNPSenderState() {
 		Reset();
 	}
@@ -350,6 +351,8 @@ struct SSNPPacketGap
 
 struct SSNPReceiverState
 {
+	SSNPReceiverState();
+
 	/// Unreliable message segments that we have received.  When an unreliable message
 	/// needs to be fragmented, we store the pieces here.  NOTE: it might be more efficient
 	/// to use a simpler container, with worse O(), since this should ordinarily be

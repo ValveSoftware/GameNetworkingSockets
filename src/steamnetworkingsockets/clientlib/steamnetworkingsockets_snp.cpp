@@ -199,32 +199,36 @@ void SSNPSenderState::RemoveAckedReliableMessageFromUnackedList()
 }
 
 //-----------------------------------------------------------------------------
+SSNPSenderState::SSNPSenderState()
+{
+	// Setup the table of inflight packets with a sentinel.
+	m_mapInFlightPacketsByPktNum.clear();
+	SNPInFlightPacket_t &sentinel = m_mapInFlightPacketsByPktNum[INT64_MIN];
+	sentinel.m_bNack = false;
+	sentinel.m_usecWhenSent = 0;
+	m_itNextInFlightPacketToTimeout = m_mapInFlightPacketsByPktNum.end();
+}
+
+//-----------------------------------------------------------------------------
+SSNPReceiverState::SSNPReceiverState()
+{
+	// Init packet gaps with a sentinel
+	m_mapPacketGaps.clear();
+	SSNPPacketGap &sentinel = m_mapPacketGaps[INT64_MAX];
+	sentinel.m_nEnd = INT64_MAX; // Fixed value
+	sentinel.m_usecWhenOKToNack = INT64_MAX; // Fixed value, for when there is nothing left to nack
+	sentinel.m_usecWhenAckPrior = INT64_MAX; // Time when we need to flush a report on all lower-numbered packets
+
+	// Point at the sentinel
+	m_itPendingAck = m_mapPacketGaps.end();
+	--m_itPendingAck;
+	m_itPendingNack = m_itPendingAck;
+}
+
+//-----------------------------------------------------------------------------
 void CSteamNetworkConnectionBase::SNP_InitializeConnection( SteamNetworkingMicroseconds usecNow )
 {
 	m_senderState.TokenBucket_Init( usecNow );
-
-	// Setup the table of inflight packets with a sentinel.
-	{
-		m_senderState.m_mapInFlightPacketsByPktNum.clear();
-		SNPInFlightPacket_t &sentinel = m_senderState.m_mapInFlightPacketsByPktNum[INT64_MIN];
-		sentinel.m_bNack = false;
-		sentinel.m_usecWhenSent = 0;
-		m_senderState.m_itNextInFlightPacketToTimeout = m_senderState.m_mapInFlightPacketsByPktNum.end();
-	}
-
-	// Init packet gaps with a sentinel
-	{
-		m_receiverState.m_mapPacketGaps.clear();
-		SSNPPacketGap &sentinel = m_receiverState.m_mapPacketGaps[INT64_MAX];
-		sentinel.m_nEnd = INT64_MAX; // Fixed value
-		sentinel.m_usecWhenOKToNack = INT64_MAX; // Fixed value, for when there is nothing left to nack
-		sentinel.m_usecWhenAckPrior = INT64_MAX; // Time when we need to flush a report on all lower-numbered packets
-
-		// Point at the sentinel
-		m_receiverState.m_itPendingAck = m_receiverState.m_mapPacketGaps.end();
-		--m_receiverState.m_itPendingAck;
-		m_receiverState.m_itPendingNack = m_receiverState.m_itPendingAck;
-	}
 
 	SteamNetworkingMicroseconds usecPing = GetUsecPingWithFallback( this );
 
