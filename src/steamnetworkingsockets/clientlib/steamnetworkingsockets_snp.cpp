@@ -1427,7 +1427,7 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 			AssertMsg2(
 				nLastReliableStreamPosEnd > 0
 				|| cbMaxPlaintextPayload < k_cbSteamNetworkingSocketsMaxPlaintextPayloadSend
-				|| ( cbReserveForAcks > 20 && ackHelper.m_nBlocksNeedToAck > 10 ),
+				|| ( cbReserveForAcks > 15 && ackHelper.m_nBlocksNeedToAck > 8 ),
 				"We cannot fit reliable segment, need %d bytes, only %d remaining", cbSegTotalWithoutSizeField, cbBytesRemainingForSegments
 			);
 
