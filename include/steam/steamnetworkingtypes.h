@@ -214,6 +214,7 @@ struct SteamNetworkingIdentity
 		char m_szGenericString[ k_cchMaxGenericString ];
 		uint8 m_genericBytes[ k_cbMaxGenericBytes ];
 		SteamNetworkingIPAddr m_ip;
+		uint32 m_reserved[ 32 ]; // Pad structure to leave easy room for future expansion
 	};
 };
 #pragma pack(pop)
