@@ -11,6 +11,12 @@
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
 
+#ifdef __GNUC__
+	// error: assuming signed overflow does not occur when assuming that (X + c) < X is always false [-Werror=strict-overflow]
+	// current steamrt:scout gcc "g++ (SteamRT 4.8.4-1ubuntu15~12.04+steamrt1.2+srt1) 4.8.4" requires this at the top due to optimizations
+	#pragma GCC diagnostic ignored "-Wstrict-overflow"
+#endif
+
 // Put everything in a namespace, so we don't violate the one definition rule
 namespace SteamNetworkingSocketsLib {
 
@@ -1908,12 +1914,19 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 		// V
 		case k_ESteamNetworkingConnectionState_Connected:
 		{
-			SteamNetworkingMicroseconds usecNextThinkSNP = SNP_ThinkSendState( usecNow );
-			AssertMsg1( usecNextThinkSNP > usecNow, "SNP next think time must be in in the future.  It's %lldusec in the past", (long long)( usecNow - usecNextThinkSNP ) );
+			if ( BCanSendEndToEndData() )
+			{
+				SteamNetworkingMicroseconds usecNextThinkSNP = SNP_ThinkSendState( usecNow );
+				AssertMsg1( usecNextThinkSNP > usecNow, "SNP next think time must be in in the future.  It's %lldusec in the past", (long long)( usecNow - usecNextThinkSNP ) );
 
-			// Set a pretty tight tolerance if SNP wants to wake up at a certain time.
-			if ( usecNextThinkSNP < k_nThinkTime_Never )
-				UpdateMinThinkTime( usecNextThinkSNP, +1 );
+				// Set a pretty tight tolerance if SNP wants to wake up at a certain time.
+				if ( usecNextThinkSNP < k_nThinkTime_Never )
+					UpdateMinThinkTime( usecNextThinkSNP, +1 );
+			}
+			else
+			{
+				UpdateMinThinkTime( usecNow + 20*1000, +5 );
+			}
 		} break;
 	}
 
@@ -2247,7 +2260,13 @@ EResult CSteamNetworkConnectionPipe::APIAcceptConnection()
 	return k_EResultFail;
 }
 
-int CSteamNetworkConnectionPipe::SendEncryptedDataChunk( const void *pChunk, int cbChunk, SteamNetworkingMicroseconds usecNow, void *pConnectionContext )
+bool CSteamNetworkConnectionPipe::SendDataPacket( SteamNetworkingMicroseconds usecNow )
+{
+	AssertMsg( false, "CSteamNetworkConnectionPipe connections shouldn't try to send 'packets'!" );
+	return false;
+}
+
+int CSteamNetworkConnectionPipe::SendEncryptedDataChunk( const void *pChunk, int cbChunk, SendPacketContext_t &ctx )
 {
 	AssertMsg( false, "CSteamNetworkConnectionPipe connections shouldn't try to send 'packets'!" );
 	return -1;

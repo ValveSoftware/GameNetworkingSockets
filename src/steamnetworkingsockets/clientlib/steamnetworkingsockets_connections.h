@@ -73,6 +73,68 @@ struct RemoteConnectionKey_t
 	}
 };
 
+/// Base class for connection-type-specific context structure 
+struct SendPacketContext_t
+{
+	inline SendPacketContext_t( SteamNetworkingMicroseconds usecNow ) : m_usecNow( usecNow ) {}
+	const SteamNetworkingMicroseconds m_usecNow;
+	int m_cbMaxEncryptedPayload;
+};
+
+template<typename TStatsMsg>
+struct SendPacketContext : SendPacketContext_t
+{
+	inline SendPacketContext( SteamNetworkingMicroseconds usecNow ) : SendPacketContext_t( usecNow ) {}
+
+	uint32 m_nFlags; // Message flags that we need to set.
+	TStatsMsg msg; // Type-specific stats message
+	int m_cbMsgSize; // Size of message
+	int m_cbTotalSize; // Size needed in the header, including the serialized size field
+
+	void SlamFlagsAndCalcSize()
+	{
+		SetStatsMsgFlagsIfNotImplied( msg, m_nFlags );
+		m_cbTotalSize = m_cbMsgSize = msg.ByteSize();
+		if ( m_cbMsgSize > 0 )
+			m_cbTotalSize += VarIntSerializedSize( (uint32)m_cbMsgSize );
+	}
+
+	bool Serialize( byte *&p )
+	{
+		if ( m_cbTotalSize <= 0 )
+			return false;
+
+		// Serialize the stats size, var-int encoded
+		byte *pOut = SerializeVarInt( p, uint32( m_cbMsgSize ) );
+
+		// Serialize the actual message
+		pOut = msg.SerializeWithCachedSizesToArray( pOut );
+
+		// Make sure we wrote the number of bytes we expected
+		if ( pOut != p + m_cbTotalSize )
+		{
+			// ABORT!
+			AssertMsg( false, "Size mismatch after serializing inline stats blob" );
+			return false;
+		}
+
+		// Advance pointer
+		p = pOut;
+		return true;
+	}
+
+	void CalcMaxEncryptedPayloadSize( size_t cbHdrReserve )
+	{
+		Assert( m_cbTotalSize >= 0 );
+		m_cbMaxEncryptedPayload = k_cbSteamNetworkingSocketsMaxUDPMsgLen - (int)cbHdrReserve - m_cbTotalSize;
+		if ( m_cbMaxEncryptedPayload < 512 )
+		{
+			AssertMsg2( m_cbMaxEncryptedPayload < 512, "%s is really big (%d bytes)!", msg.GetTypeName().c_str(), m_cbTotalSize );
+		}
+	}
+
+};
+
 /////////////////////////////////////////////////////////////////////////////
 //
 // Message storage implementation
@@ -379,8 +441,14 @@ public:
 		return m_receiverState.TimeWhenFlushAcks() < INT64_MAX || SNP_TimeWhenWantToSendNextPacket() < INT64_MAX;
 	}
 
-	/// Send a data packet now, even if we don't have the bandwidth available
-	int SNP_SendPacket( SteamNetworkingMicroseconds usecNow, int cbMaxEncryptedPayload, void *pConnectionData );
+	/// Called by SNP pacing layer, when it has some data to send and there is bandwidth available.
+	/// The derived class should setup a context, reserving the space it needs, and then call SNP_SendPacket.
+	/// Returns true if a packet was sent successfuly, false if there was a problem.
+	virtual bool SendDataPacket( SteamNetworkingMicroseconds usecNow ) = 0;
+
+	/// Send a data packet now, even if we don't have the bandwidth available.  Returns true if a packet was
+	/// sent successfully, false if there was a problem.  This will call SendEncryptedDataChunk to do the work
+	bool SNP_SendPacket( SendPacketContext_t &ctx );
 
 	// Steam memory accounting
 	#ifdef DBGFLAG_VALIDATE
@@ -454,7 +522,7 @@ protected:
 	/// pConnectionContext is whatever the connection later passed
 	/// to SNP_SendPacket, if the connection initiated the sending
 	/// of the packet
-	virtual int SendEncryptedDataChunk( const void *pChunk, int cbChunk, SteamNetworkingMicroseconds usecNow, void *pConnectionContext ) = 0;
+	virtual int SendEncryptedDataChunk( const void *pChunk, int cbChunk, SendPacketContext_t &ctx ) = 0;
 
 	/// Called when we receive a complete message.  Should allocate a message object and put it into the proper queues
 	void ReceivedMessage( const void *pData, int cbData, int64 nMsgNum, SteamNetworkingMicroseconds usecNow );
@@ -632,7 +700,8 @@ public:
 	virtual void SendEndToEndConnectRequest( SteamNetworkingMicroseconds usecNow ) OVERRIDE;
 	virtual void SendEndToEndPing( bool bUrgent, SteamNetworkingMicroseconds usecNow ) OVERRIDE;
 	virtual EResult APIAcceptConnection() OVERRIDE;
-	virtual int SendEncryptedDataChunk( const void *pChunk, int cbChunk, SteamNetworkingMicroseconds usecNow, void *pConnectionContext ) OVERRIDE;
+	virtual bool SendDataPacket( SteamNetworkingMicroseconds usecNow ) OVERRIDE;
+	virtual int SendEncryptedDataChunk( const void *pChunk, int cbChunk, SendPacketContext_t &ctx ) OVERRIDE;
 	virtual EResult _APISendMessageToConnection( const void *pData, uint32 cbData, int nSendFlags ) OVERRIDE;
 	virtual void ConnectionStateChanged( ESteamNetworkingConnectionState eOldState ) OVERRIDE;
 	virtual void PostConnectionStateChangedCallback( ESteamNetworkingConnectionState eOldAPIState, ESteamNetworkingConnectionState eNewAPIState ) OVERRIDE;

@@ -550,6 +550,9 @@ struct LinkStatsTrackerBase
 		m_bInFlightInstantaneous = m_bInFlightLifetime = false;
 	}
 
+	/// Check if we really need to flush out stats now.
+	bool BNeedToSendStats( SteamNetworkingMicroseconds usecNow );
+
 protected:
 	// Make sure it's used as abstract base.  Note that we require you to call Init()
 	// with a timestamp value, so the constructor is empty by default.
@@ -568,7 +571,6 @@ protected:
 	/// visibility can'thurt.
 	void ThinkInternal( SteamNetworkingMicroseconds usecNow );
 
-	bool BNeedToSendStatsInternal( SteamNetworkingMicroseconds usecNow );
 	void SetDisconnectedInternal( bool bFlag, SteamNetworkingMicroseconds usecNow );
 
 	void GetInstantaneousStats( SteamDatagramLinkInstantaneousStats &s ) const;
@@ -644,8 +646,6 @@ struct LinkStatsTrackerEndToEnd : public LinkStatsTrackerBase
 
 	/// Called when we get a speed sample
 	void UpdateSpeeds( int nTXSpeed, int nRXSpeed );
-
-	bool BNeedToSendStats( SteamNetworkingMicroseconds usecNow ) { return BNeedToSendStatsInternal( usecNow ); }
 
 protected:
 	void InitInternal( SteamNetworkingMicroseconds usecNow );

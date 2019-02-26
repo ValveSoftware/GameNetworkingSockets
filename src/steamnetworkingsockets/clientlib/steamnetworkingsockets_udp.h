@@ -9,6 +9,8 @@
 
 namespace SteamNetworkingSocketsLib {
 
+struct UDPSendPacketContext_t;
+
 /////////////////////////////////////////////////////////////////////////////
 //
 // Listen socket used for direct IP connectivity
@@ -69,7 +71,8 @@ public:
 	inline CSteamNetworkListenSocketDirectUDP *ListenSocket() const { return assert_cast<CSteamNetworkListenSocketDirectUDP *>( m_pParentListenSocket ); }
 
 	/// Implements CSteamNetworkConnectionBase
-	virtual int SendEncryptedDataChunk( const void *pChunk, int cbChunk, SteamNetworkingMicroseconds usecNow, void *pConnectionContext ) OVERRIDE;
+	virtual bool SendDataPacket( SteamNetworkingMicroseconds usecNow ) OVERRIDE;
+	virtual int SendEncryptedDataChunk( const void *pChunk, int cbChunk, SendPacketContext_t &ctx ) OVERRIDE;
 	virtual EResult APIAcceptConnection() OVERRIDE;
 	virtual bool BCanSendEndToEndConnectRequest() const OVERRIDE;
 	virtual bool BCanSendEndToEndData() const OVERRIDE;
@@ -124,6 +127,8 @@ protected:
 	void RecvStats( const CMsgSteamSockets_UDP_Stats &msgStatsIn, bool bInline, SteamNetworkingMicroseconds usecNow );
 	void SendStatsMsg( EStatsReplyRequest eReplyRequested, SteamNetworkingMicroseconds usecNow );
 	void TrackSentStats( const CMsgSteamSockets_UDP_Stats &msgStatsOut, bool bInline, SteamNetworkingMicroseconds usecNow );
+
+	void PopulateSendPacketContext( UDPSendPacketContext_t &ctx, EStatsReplyRequest eReplyRequested );
 };
 
 /// A connection over loopback

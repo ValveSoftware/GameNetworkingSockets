@@ -503,13 +503,6 @@ void CSteamNetworkListenSocketDirectUDP::SendPaddedMsg( uint8 nMsgID, const goog
 //
 /////////////////////////////////////////////////////////////////////////////
 
-struct IPv4InlineStatsContext_t
-{
-	CMsgSteamSockets_UDP_Stats msg;
-	int cbSize;
-	//char data[ k_cbSteamNetworkingSocketsMaxPlaintextPayloadSend ];
-};
-
 CSteamNetworkConnectionUDP::CSteamNetworkConnectionUDP( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface )
 : CSteamNetworkConnectionBase( pSteamNetworkingSocketsInterface )
 {
@@ -546,7 +539,81 @@ void CSteamNetworkConnectionUDP::FreeResources()
 	CSteamNetworkConnectionBase::FreeResources();
 }
 
-int CSteamNetworkConnectionUDP::SendEncryptedDataChunk( const void *pChunk, int cbChunk, SteamNetworkingMicroseconds usecNow, void *pConnectionContext )
+template<>
+inline uint32 StatsMsgImpliedFlags<CMsgSteamSockets_UDP_Stats>( const CMsgSteamSockets_UDP_Stats &msg )
+{
+	return msg.has_stats() ? msg.ACK_REQUEST_E2E : 0;
+}
+
+struct UDPSendPacketContext_t : SendPacketContext<CMsgSteamSockets_UDP_Stats>
+{
+	inline explicit UDPSendPacketContext_t( SteamNetworkingMicroseconds usecNow ) : SendPacketContext<CMsgSteamSockets_UDP_Stats>( usecNow ) {}
+	int m_nStatsNeed;
+};
+
+
+void CSteamNetworkConnectionUDP::PopulateSendPacketContext( UDPSendPacketContext_t &ctx, EStatsReplyRequest eReplyRequested )
+{
+	SteamNetworkingMicroseconds usecNow = ctx.m_usecNow;
+
+	// What effective flags should we send
+	uint32 nFlags = 0;
+	if ( eReplyRequested == k_EStatsReplyRequest_Immediate || m_statsEndToEnd.BNeedToSendPingImmediate( usecNow ) )
+		nFlags |= ctx.msg.ACK_REQUEST_E2E | ctx.msg.ACK_REQUEST_IMMEDIATE;
+	else if ( eReplyRequested == k_EStatsReplyRequest_DelayedOK || m_statsEndToEnd.BNeedToSendKeepalive( usecNow ) || m_statsEndToEnd.BReadyToSendTracerPing( usecNow ) )
+		nFlags |= ctx.msg.ACK_REQUEST_E2E;
+	ctx.m_nFlags = nFlags;
+
+	// Need to send any connection stats stats?
+	if ( m_statsEndToEnd.BNeedToSendStats( usecNow ) )
+	{
+		ctx.m_nStatsNeed = 2;
+		m_statsEndToEnd.PopulateMessage( *ctx.msg.mutable_stats(), usecNow );
+
+		ctx.SlamFlagsAndCalcSize();
+		ctx.CalcMaxEncryptedPayloadSize( sizeof(UDPDataMsgHdr) );
+	}
+	else
+	{
+		// Populate flags now, based on what is implied from what we HAVE to send
+		ctx.SlamFlagsAndCalcSize();
+		ctx.CalcMaxEncryptedPayloadSize( sizeof(UDPDataMsgHdr) );
+
+		// Would we like to try to send some additional stats, if there is room?
+		if ( m_statsEndToEnd.BReadyToSendStats( usecNow ) )
+		{
+			m_statsEndToEnd.PopulateMessage( *ctx.msg.mutable_stats(), usecNow );
+			ctx.SlamFlagsAndCalcSize();
+			ctx.m_nStatsNeed = 1;
+		}
+		else
+		{
+			// No need to send any stats right now
+			ctx.m_nStatsNeed = 0;
+		}
+	}
+}
+
+void CSteamNetworkConnectionUDP::SendStatsMsg( EStatsReplyRequest eReplyRequested, SteamNetworkingMicroseconds usecNow )
+{
+	UDPSendPacketContext_t ctx( usecNow );
+	PopulateSendPacketContext( ctx, eReplyRequested );
+
+	// Send a data packet (maybe containing ordinary data), with this piggy backed on top of it
+	SNP_SendPacket( ctx );
+}
+
+bool CSteamNetworkConnectionUDP::SendDataPacket( SteamNetworkingMicroseconds usecNow )
+{
+	// Populate context struct with any stats we want/need to send, and how much space we need to reserve for it
+	UDPSendPacketContext_t ctx( usecNow );
+	PopulateSendPacketContext( ctx, k_EStatsReplyRequest_None );
+
+	// Send a packet
+	return SNP_SendPacket( ctx );
+}
+
+int CSteamNetworkConnectionUDP::SendEncryptedDataChunk( const void *pChunk, int cbChunk, SendPacketContext_t &ctxBase )
 {
 	if ( !m_pSocket )
 	{
@@ -554,12 +621,14 @@ int CSteamNetworkConnectionUDP::SendEncryptedDataChunk( const void *pChunk, int 
 		return 0;
 	}
 
+	UDPSendPacketContext_t &ctx = static_cast<UDPSendPacketContext_t &>( ctxBase );
+
 	uint8 pkt[ k_cbSteamNetworkingSocketsMaxUDPMsgLen ];
 	UDPDataMsgHdr *hdr = (UDPDataMsgHdr *)pkt;
 	hdr->m_unMsgFlags = 0x80;
 	Assert( m_unConnectionIDRemote != 0 );
 	hdr->m_unToConnectionID = LittleDWord( m_unConnectionIDRemote );
-	hdr->m_unSeqNum = LittleWord( m_statsEndToEnd.ConsumeSendPacketNumberAndGetWireFmt( usecNow ) );
+	hdr->m_unSeqNum = LittleWord( m_statsEndToEnd.ConsumeSendPacketNumberAndGetWireFmt( ctx.m_usecNow ) );
 
 	byte *p = (byte*)( hdr + 1 );
 
@@ -572,145 +641,41 @@ int CSteamNetworkConnectionUDP::SendEncryptedDataChunk( const void *pChunk, int 
 		return 0;
 	}
 
-	// Assume no inline blob
-	CMsgSteamSockets_UDP_Stats *pStatsMsg = nullptr;
-	int cbStatsMsg = 0;
-	int cbHdrSpaceNeeded = 0;
-
-	// Did we initiate this packet?
-	if ( pConnectionContext )
-	{
-		IPv4InlineStatsContext_t &context = *(IPv4InlineStatsContext_t *)pConnectionContext;
-		pStatsMsg = &context.msg;
-		cbStatsMsg = context.cbSize;
-		cbHdrSpaceNeeded = cbStatsMsg + 1;
-		if ( cbStatsMsg >= 0x80 )
-			++cbHdrSpaceNeeded;
-		if ( cbHdrOutSpaceRemaining < cbHdrSpaceNeeded )
-		{
-			AssertMsg( false, "We didn't make enough room for CMsgSteamSockets_UDP_Stats!" );
-			return 0;
-		}
-	}
-	else if ( cbHdrOutSpaceRemaining >= 4 )
+	// Try to trim stuff from blob, if it won't fit
+	while ( ctx.m_cbTotalSize > cbHdrOutSpaceRemaining )
 	{
 
-		// We didn't specifically request any inline stats, this is an ordinary data packet.
-		// Do we need to send tracer ping request or connection stats?
-
-		// What sorts of ack should we request?
-		uint32 nFlags = 0;
-		if ( m_statsEndToEnd.BNeedToSendPingImmediate( usecNow ) )
+		if ( ctx.msg.has_stats() )
 		{
-			// Connection problem.  Ping aggressively until we figure it out
-			nFlags = CMsgSteamSockets_UDP_Stats::ACK_REQUEST_E2E | CMsgSteamSockets_UDP_Stats::ACK_REQUEST_IMMEDIATE;
-		}
-		else if ( m_statsEndToEnd.BReadyToSendTracerPing( usecNow ) || m_statsEndToEnd.BNeedToSendKeepalive( usecNow ) )
-			nFlags |= CMsgSteamSockets_UDP_Stats::ACK_REQUEST_E2E;
-
-		// Check if we should send connection stats inline.
-		bool bTrySendEndToEndStats = m_statsEndToEnd.BReadyToSendStats( usecNow );
-
-		// Do we actually want to send anything in the protobuf blob at all?
-		// The goal is that we should only do this every couple of seconds or so.
-		if ( bTrySendEndToEndStats || nFlags != 0 )
-		{
-			// Populate a message with everything we'd like to send
-			static CMsgSteamSockets_UDP_Stats msgStatsOut;
-			pStatsMsg = &msgStatsOut;
-			msgStatsOut.Clear();
-			if ( bTrySendEndToEndStats )
-				m_statsEndToEnd.PopulateMessage( *msgStatsOut.mutable_stats(), usecNow );
-
-			// We'll try to fit what we can.  If we try to serialize a message
-			// and it won't fit, we'll remove some stuff and see if that fits.
-			for (;;)
+			AssertMsg( ctx.m_nStatsNeed == 1, "We didn't reserve enough space for stats!" );
+			if ( ctx.msg.stats().has_instantaneous() && ctx.msg.stats().has_lifetime() )
 			{
-
-				// Slam flags based on what we are actually going to send.  Don't send flags
-				// if they are implied by the stats we are sending.
-				uint32 nImpliedFlags = 0;
-				if ( msgStatsOut.has_stats() ) nImpliedFlags |= msgStatsOut.ACK_REQUEST_E2E;
-				if ( nFlags != nImpliedFlags )
-					msgStatsOut.set_flags( nFlags );
-				else
-					msgStatsOut.clear_flags();
-
-				// Cache size, check how big it would be
-				cbStatsMsg = msgStatsOut.ByteSize();
-
-				// Include varint-encoded message size.
-				// Note that if the size requires 3 bytes varint encoded, it won't fit in
-				// a packet anyway, so we don't need to handle that case.  But it is totally
-				// possible that we might want to send more than 128 bytes of stats, and have
-				// an opportunity to send it all in the same packet.
-				cbHdrSpaceNeeded = cbStatsMsg + 1;
-				if ( cbStatsMsg >= 0x80 )
-					++cbHdrSpaceNeeded;
-
-				// Will it fit inline with this data packet?
-				if ( cbHdrSpaceNeeded <= cbHdrOutSpaceRemaining )
-					break;
-
-				// Rats.  We want to send some stuff, but it won't fit.
-				// Strip off stuff, in no particular order.
-
-				if ( msgStatsOut.has_stats() )
-				{
-					Assert( bTrySendEndToEndStats );
-					if ( msgStatsOut.stats().has_instantaneous() && msgStatsOut.stats().has_lifetime() )
-					{
-						// Trying to send both - clear instantaneous
-						msgStatsOut.mutable_stats()->clear_instantaneous();
-					}
-					else
-					{
-						// Trying to send just one or the other.  Clear the whole container.
-						msgStatsOut.clear_stats();
-						bTrySendEndToEndStats = false;
-					}
-					continue;
-				}
-				Assert( !bTrySendEndToEndStats );
-
-				// FIXME - we could try to send without acks.
-
-				// Nothing left to clear!?  We shouldn't get here!
-				AssertMsg( false, "Serialized stats message still won't fit, ever after clearing everything?" );
-				cbStatsMsg = -1;
-				break;
+				// Trying to send both - clear instantaneous
+				ctx.msg.mutable_stats()->clear_instantaneous();
 			}
+			else
+			{
+				// Trying to send just one or the other.  Clear the whole container.
+				ctx.msg.clear_stats();
+			}
+
+			ctx.SlamFlagsAndCalcSize();
+			continue;
 		}
+
+		// Nothing left to clear!?  We shouldn't get here!
+		AssertMsg( false, "Serialized stats message still won't fit, ever after clearing everything?" );
+		ctx.m_cbTotalSize = 0;
+		break;
 	}
 
-	// Did we actually end up sending anything?
-	if ( cbStatsMsg > 0 && pStatsMsg )
+	if ( ctx.Serialize( p ) )
 	{
+		// Update bookkeeping with the stuff we are actually sending
+		TrackSentStats( ctx.msg, true, ctx.m_usecNow );
 
-		// Serialize the stats size, var-int encoded
-		byte *pStatsOut = SerializeVarInt( (byte*)p, uint32( cbStatsMsg ) );
-
-		// Serialize the actual message
-		pStatsOut = pStatsMsg->SerializeWithCachedSizesToArray( pStatsOut );
-
-		// Make sure we wrote the number of bytes we expected
-		if ( pStatsOut != p + cbHdrSpaceNeeded )
-		{
-			// ABORT!
-			AssertMsg( false, "Size mismatch after serializing connection quality stats" );
-		}
-		else
-		{
-
-			// Update bookkeeping with the stuff we are actually sending
-			TrackSentStats( *pStatsMsg, true, usecNow );
-
-			// Mark header with the flag
-			hdr->m_unMsgFlags |= hdr->kFlag_ProtobufBlob;
-
-			// Advance pointer
-			p = pStatsOut;
-		}
+		// Mark header with the flag
+		hdr->m_unMsgFlags |= hdr->kFlag_ProtobufBlob;
 	}
 
 	// !FIXME! Time since previous, for jitter measurement?
@@ -1120,22 +1085,16 @@ void CSteamNetworkConnectionUDP::TrackSentStats( const CMsgSteamSockets_UDP_Stat
 {
 
 	// What effective flags will be received?
-	uint32 nSentFlags = msgStatsOut.flags();
-	if ( msgStatsOut.has_stats() )
-		nSentFlags |= msgStatsOut.ACK_REQUEST_E2E;
-	if ( nSentFlags & msgStatsOut.ACK_REQUEST_E2E )
-	{
-		bool bAllowDelayedReply = ( nSentFlags & msgStatsOut.ACK_REQUEST_IMMEDIATE ) == 0;
+	bool bAllowDelayedReply = ( msgStatsOut.flags() & msgStatsOut.ACK_REQUEST_IMMEDIATE ) == 0;
 
-		// Record that we sent stats and are waiting for peer to ack
-		if ( msgStatsOut.has_stats() )
-		{
-			m_statsEndToEnd.TrackSentStats( msgStatsOut.stats(), usecNow, bAllowDelayedReply );
-		}
-		else if ( ( nSentFlags & msgStatsOut.ACK_REQUEST_E2E ) )
-		{
-			m_statsEndToEnd.TrackSentMessageExpectingSeqNumAck( usecNow, bAllowDelayedReply );
-		}
+	// Record that we sent stats and are waiting for peer to ack
+	if ( msgStatsOut.has_stats() )
+	{
+		m_statsEndToEnd.TrackSentStats( msgStatsOut.stats(), usecNow, bAllowDelayedReply );
+	}
+	else if ( msgStatsOut.flags() & msgStatsOut.ACK_REQUEST_E2E )
+	{
+		m_statsEndToEnd.TrackSentMessageExpectingSeqNumAck( usecNow, bAllowDelayedReply );
 	}
 
 	// Spew appropriately
@@ -1144,44 +1103,6 @@ void CSteamNetworkConnectionUDP::TrackSentStats( const CMsgSteamSockets_UDP_Stat
 		bInline ? "inline" : "standalone",
 		DescribeStatsContents( msgStatsOut ).c_str()
 	);
-}
-
-void CSteamNetworkConnectionUDP::SendStatsMsg( EStatsReplyRequest eReplyRequested, SteamNetworkingMicroseconds usecNow )
-{
-	IPv4InlineStatsContext_t context;
-	CMsgSteamSockets_UDP_Stats &msg = context.msg;
-
-//	if ( m_unConnectionIDRemote )
-//		msg.set_to_connection_id( m_unConnectionIDRemote );
-//	msg.set_from_connection_id( m_unConnectionIDLocal );
-//	msg.set_seq_num( m_statsEndToEnd.GetNextSendSequenceNumber( usecNow ) );
-
-	// What flags should we set?
-	uint32 nFlags = 0;
-	if ( eReplyRequested == k_EStatsReplyRequest_Immediate || m_statsEndToEnd.BNeedToSendPingImmediate( usecNow ) )
-		nFlags |= msg.ACK_REQUEST_E2E | msg.ACK_REQUEST_IMMEDIATE;
-	else if ( eReplyRequested == k_EStatsReplyRequest_DelayedOK || m_statsEndToEnd.BNeedToSendKeepalive( usecNow ) || m_statsEndToEnd.BReadyToSendTracerPing( usecNow ) )
-		nFlags |= msg.ACK_REQUEST_E2E;
-
-	// Need to send any connection stats stats?
-	if ( m_statsEndToEnd.BReadyToSendStats( usecNow ) )
-		m_statsEndToEnd.PopulateMessage( *msg.mutable_stats(), usecNow );
-
-	// Always set flags into message, even if they can be implied by the presence of stats
-	msg.set_flags( nFlags );
-
-	context.cbSize = msg.ByteSize();
-	if ( context.cbSize > k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend )
-	{
-		AssertMsg1( false, "Serialized CMsgSteamSockets_UDP_Stats is %d bytes!", context.cbSize );
-		return;
-	}
-
-	// Ask SNP to send a packet, with this data piggybacked on.
-	// FIXME we can probably do better that this, although this is
-	// not too bad.
-	int cbMaxEncryptedPayload = k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend - context.cbSize;
-	SNP_SendPacket( usecNow, cbMaxEncryptedPayload, &context );
 }
 
 void CSteamNetworkConnectionUDP::Received_Data( const uint8 *pPkt, int cbPkt, SteamNetworkingMicroseconds usecNow )

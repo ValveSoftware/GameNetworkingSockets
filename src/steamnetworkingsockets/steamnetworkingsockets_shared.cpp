@@ -608,7 +608,7 @@ bool LinkStatsTrackerBase::BCheckHaveDataToSendLifetime( SteamNetworkingMicrosec
 	return false;
 }
 
-bool LinkStatsTrackerBase::BNeedToSendStatsInternal( SteamNetworkingMicroseconds usecNow )
+bool LinkStatsTrackerBase::BNeedToSendStats( SteamNetworkingMicroseconds usecNow )
 {
 	// Message already in flight?
 	if ( m_pktNumInFlight != 0 || m_bDisconnected )

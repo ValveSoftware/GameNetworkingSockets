@@ -1299,20 +1299,18 @@ inline bool HasOverlappingRange( const SNPRange_t &range, const std::map<SNPRang
 	return false;
 }
 
-int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds usecNow, int cbMaxEncryptedPayload, void *pConnectionData )
+bool CSteamNetworkConnectionBase::SNP_SendPacket( SendPacketContext_t &ctx )
 {
-	// If we aren't being specifically asked to send a packet, and we don't have anything to send,
-	// then don't send right now.
-	if ( pConnectionData == nullptr && usecNow < m_receiverState.TimeWhenFlushAcks() && usecNow < SNP_TimeWhenWantToSendNextPacket() )
-		return 0;
-
 	// Make sure we have initialized the connection
 	Assert( BStateIsConnectedForWirePurposes() );
 	Assert( !m_senderState.m_mapInFlightPacketsByPktNum.empty() );
 
+	SteamNetworkingMicroseconds usecNow = ctx.m_usecNow;
+
 	// Get max size of plaintext we could send.
 	// AES-GCM has a fixed size overhead, for the tag.
-	int cbMaxPlaintextPayload = std::max( 0, cbMaxEncryptedPayload-k_cbSteamNetwokingSocketsEncrytionTagSize );
+	int cbMaxPlaintextPayload = std::max( 0, ctx.m_cbMaxEncryptedPayload-k_cbSteamNetwokingSocketsEncrytionTagSize );
+	cbMaxPlaintextPayload = std::min( cbMaxPlaintextPayload, k_cbSteamNetworkingSocketsMaxPlaintextPayloadSend );
 
 	uint8 payload[ k_cbSteamNetworkingSocketsMaxPlaintextPayloadSend ];
 	uint8 *pPayloadEnd = payload + cbMaxPlaintextPayload;
@@ -1326,7 +1324,7 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 	// Stop waiting frame
 	pPayloadPtr = SNP_SerializeStopWaitingFrame( pPayloadPtr, pPayloadEnd, usecNow );
 	if ( pPayloadPtr == nullptr )
-		return -1;
+		return false;
 
 	// Get list of ack blocks we might want to serialize, and which
 	// of those acks we really want to flush out right now.
@@ -1373,11 +1371,8 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 	}
 
 	// Check if we don't actually have bandwidth to send data, then don't.
-	// (This means that acks or other responsibilities are choking the pipe
-	// and should basically never happen in ordinary circumstances!)
 	if ( m_senderState.m_flTokenBucket < 0.0 )
 	{
-		SpewWarningRateLimited( usecNow, "[%s] Exceeding rate limit just sending acks / stats!  Not sending any data!  (Ack blocks=%d prio=%d)", GetDescription(), ackHelper.m_nBlocks, ackHelper.m_nBlocksNeedToAck );
 
 		// Serialize some acks, if we want to
 		if ( cbReserveForAcks > 0 )
@@ -1386,7 +1381,7 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 			// not just the bare minimum.
 			pPayloadPtr = SNP_SerializeAckBlocks( ackHelper, pPayloadPtr, pPayloadEnd, usecNow );
 			if ( pPayloadPtr == nullptr )
-				return -1; // bug!  Abort
+				return false; // bug!  Abort
 
 			// We don't need to serialize any more acks
 			cbReserveForAcks = 0;
@@ -1597,7 +1592,7 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 
 		uint8 *pAfterAcks = SNP_SerializeAckBlocks( ackHelper, pPayloadPtr, pAckEnd, usecNow );
 		if ( pAfterAcks == nullptr )
-			return -1; // bug!  Abort
+			return false; // bug!  Abort
 
 		int cbAckBytesWritten = pAfterAcks - pPayloadPtr;
 		if ( cbAckBytesWritten > cbReserveForAcks )
@@ -1760,9 +1755,9 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 	//SpewMsg( "Send encrypt IV %llu + %02x%02x%02x%02x, key %02x%02x%02x%02x\n", *(uint64 *)&m_cryptIVSend.m_buf, m_cryptIVSend.m_buf[8], m_cryptIVSend.m_buf[9], m_cryptIVSend.m_buf[10], m_cryptIVSend.m_buf[11], m_cryptKeySend.m_buf[0], m_cryptKeySend.m_buf[1], m_cryptKeySend.m_buf[2], m_cryptKeySend.m_buf[3] );
 
 	// Connection-specific method to send it
-	int nBytesSent = SendEncryptedDataChunk( arEncryptedChunk, cbEncrypted, usecNow, pConnectionData );
+	int nBytesSent = SendEncryptedDataChunk( arEncryptedChunk, cbEncrypted, ctx );
 	if ( nBytesSent <= 0 )
-		return -1;
+		return false;
 
 	// We sent a packet.  Track it
 	auto pairInsertResult = m_senderState.m_mapInFlightPacketsByPktNum.insert( pairInsert );
@@ -1782,7 +1777,7 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 
 	// We spent some tokens
 	m_senderState.m_flTokenBucket -= (float)nBytesSent;
-	return nBytesSent;
+	return true;
 }
 
 void CSteamNetworkConnectionBase::SNP_GatherAckBlocks( SNPAckSerializerHelper &helper, SteamNetworkingMicroseconds usecNow )
@@ -2950,17 +2945,8 @@ SteamNetworkingMicroseconds CSteamNetworkConnectionBase::SNP_ThinkSendState( Ste
 			return usecNow + 1000;
 		}
 
-		int nBytesSent = SNP_SendPacket( usecNow, k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend, nullptr );
-		if ( nBytesSent < 0 )
-		{
-			// Problem sending packet.  Nuke token bucket, but request
-			// a wakeup relatively quick to check on our state again
-			m_senderState.m_flTokenBucket = m_senderState.m_n_x * -0.001f;
-			return usecNow + 2000;
-		}
-
-		// Nothing to send at this time
-		if ( nBytesSent == 0 )
+		// Check if we have anything to send.
+		if ( usecNow < m_receiverState.TimeWhenFlushAcks() && usecNow < SNP_TimeWhenWantToSendNextPacket() )
 		{
 
 			// We've sent everything we want to send.  Limit our reserve to a
@@ -2968,6 +2954,15 @@ SteamNetworkingMicroseconds CSteamNetworkConnectionBase::SNP_ThinkSendState( Ste
 			// before due to the scheduler waking us up late.
 			m_senderState.TokenBucket_Limit();
 			break;
+		}
+
+		// Send the next data packet.
+		if ( !SendDataPacket( usecNow ) )
+		{
+			// Problem sending packet.  Nuke token bucket, but request
+			// a wakeup relatively quick to check on our state again
+			m_senderState.m_flTokenBucket = m_senderState.m_n_x * -0.001f;
+			return usecNow + 2000;
 		}
 
 		// We spent some tokens, do we have any left?

@@ -494,6 +494,18 @@ extern bool BSteamNetworkingIdentityFromProtobufBytes( SteamNetworkingIdentity &
 extern bool BSteamNetworkingIdentityFromProtobufMsg( SteamNetworkingIdentity &identity, const CMsgSteamNetworkingIdentity &msgIdentity, SteamDatagramErrMsg &errMsg );
 extern bool BSteamNetworkingIdentityFromLegacySteamID( SteamNetworkingIdentity &identity, uint64 legacy_steam_id, SteamDatagramErrMsg &errMsg );
 
+template <typename TStatsMsg>
+inline uint32 StatsMsgImpliedFlags( const TStatsMsg &msg );
+
+template <typename TStatsMsg>
+inline void SetStatsMsgFlagsIfNotImplied( TStatsMsg &msg, uint32 nFlags )
+{
+	if ( ( nFlags & StatsMsgImpliedFlags( msg ) ) != nFlags )
+		msg.set_flags( nFlags );
+	else
+		msg.clear_flags(); // All flags we needed to send are implied by message, no need to send explicitly
+}
+
 // Returns:
 // <0 Bad data
 // 0  No data
