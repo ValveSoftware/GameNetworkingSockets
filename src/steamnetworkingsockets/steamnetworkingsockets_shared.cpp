@@ -1730,7 +1730,7 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIdentity_ToString(
 			break;
 
 		case k_ESteamNetworkingIdentityType_SteamID:
-			V_snprintf( buf, cbBuf, "steamid:%s", CSteamID( identity.m_steamID64 ).Render() );
+			V_snprintf( buf, cbBuf, "steamid:%llu", (unsigned long long)identity.m_steamID64 );
 			break;
 
 		case k_ESteamNetworkingIdentityType_IPAddress:
@@ -1740,11 +1740,11 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIdentity_ToString(
 			break;
 
 		case k_ESteamNetworkingIdentityType_GenericString:
-			V_snprintf( buf, cbBuf, "genstr:%s", identity.m_szGenericString );
+			V_snprintf( buf, cbBuf, "str:%s", identity.m_szGenericString );
 			break;
 
 		case k_ESteamNetworkingIdentityType_GenericBytes:
-			V_strncpy( buf, "genbyt:", cbBuf );
+			V_strncpy( buf, "gen:", cbBuf );
 			if ( cbBuf > 8 )
 			{
 				static const char hexdigits[] = "0123456789abcdef";
@@ -1767,7 +1767,78 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIdentity_ToString(
 
 STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIdentity_ParseString( SteamNetworkingIdentity *pIdentity, size_t sizeofIdentity, const char *pszStr )
 {
-	AssertMsg( false, "FIXME!" );
+	const size_t sizeofHeader = offsetof( SteamNetworkingIdentity, m_cbSize ) + sizeof( SteamNetworkingIdentity::m_cbSize );
+	COMPILE_TIME_ASSERT( sizeofHeader == 8 );
+
+	// Safety check against totally bogus size
+	if ( pIdentity == nullptr || sizeofIdentity < 32 )
+		return false;
+	memset( pIdentity, 0, sizeofIdentity );
+	if ( pszStr == nullptr || *pszStr == '\0' )
+		return false;
+
+	if ( V_stricmp( pszStr, "invalid" ) == 0 )
+		return true; // Specifically parsed as invalid is considered "success"!
+
+	size_t sizeofData = sizeofIdentity - sizeofHeader;
+
+	if ( V_strnicmp( pszStr, "steamid:", 8 ) == 0 )
+	{
+		pszStr += 8;
+		unsigned long long temp;
+		if ( sscanf( pszStr, "%llu", &temp ) != 1 )
+			return false;
+		CSteamID steamID( (uint64)temp );
+		if ( !steamID.IsValid() )
+			return false;
+		pIdentity->SetSteamID64( (uint64)temp );
+		return true;
+	}
+
+	if ( V_strnicmp( pszStr, "ip:", 3 ) == 0 )
+	{
+		pszStr += 3;
+		SteamNetworkingIPAddr tempAddr;
+		if ( sizeofData < sizeof(tempAddr) )
+			return false;
+		if ( !tempAddr.ParseString( pszStr ) )
+			return false;
+		pIdentity->SetIPAddr( tempAddr );
+		return true;
+	}
+
+	if ( V_strnicmp( pszStr, "str:", 4 ) == 0 )
+	{
+		pszStr += 4;
+		size_t l = strlen( pszStr );
+		if ( l >= sizeofData )
+			return false;
+		return pIdentity->SetGenericString( pszStr );
+	}
+
+	if ( V_strnicmp( pszStr, "gen:", 4 ) == 0 )
+	{
+		pszStr += 4;
+		size_t l = strlen( pszStr );
+		if ( l < 2 || (l & 1 ) != 0 )
+			return false;
+		size_t nBytes = l>>1;
+		uint8 tmp[ SteamNetworkingIdentity::k_cbMaxGenericBytes ];
+		if ( nBytes >= sizeofData || nBytes > sizeof(tmp) )
+			return false;
+		for ( size_t i = 0 ; i < nBytes ; ++i )
+		{
+			unsigned x;
+			if ( sscanf( pszStr, "%2x", &x ) != 1 )
+				return false;
+			tmp[i] = (uint8)x;
+			pszStr += 2;
+		}
+
+		return pIdentity->SetGenericBytes( tmp, nBytes );
+	}
+
+	// Invalid
 	return false;
 }
 

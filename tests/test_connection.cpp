@@ -585,8 +585,48 @@ static void RunSteamDatagramConnectionTest()
 #endif
 }
 
+// Some tests for identity string handling.  Doesn't really have anything to do with
+// connectivity, this is just a conveinent place for this to live
+void TestSteamNetworkingIdentity()
+{
+	SteamNetworkingIdentity id1, id2;
+	char tempBuf[ SteamNetworkingIdentity::k_cchMaxString ];
+
+	{
+		CSteamID steamID( 1234, k_EUniversePublic, k_EAccountTypeIndividual );
+		id1.SetSteamID( steamID );
+		id1.ToString( tempBuf, sizeof(tempBuf ) );
+		assert( id2.ParseString( tempBuf ) );
+		assert( id2.GetSteamID() == steamID );
+	}
+
+	{
+		const char *pszTempIPAddr = "ip:192.168.0.0:27015";
+		assert( id1.ParseString( pszTempIPAddr ) );
+		id1.ToString( tempBuf, sizeof(tempBuf ) );
+		assert( strcmp( tempBuf, pszTempIPAddr ) == 0 );
+
+		id1.SetLocalHost();
+		id1.ToString( tempBuf, sizeof(tempBuf ) );
+		assert( strcmp( tempBuf, "ip:::1" ) == 0 );
+	}
+
+	{
+		const char *pszTempGenStr = "Locke Lamora";
+		assert( id1.SetGenericString( pszTempGenStr ) );
+		id1.ToString( tempBuf, sizeof(tempBuf ) );
+		assert( strcmp( tempBuf, "str:Lock Lamora" ) == 0 );
+		assert( id2.ParseString( tempBuf ) );
+		assert( strcmp( id2.GetGenericString(), pszTempGenStr ) == 0 );
+	}
+
+}
+
 int main(  )
 {
+	// Test some identity printing/parsing stuff
+	TestSteamNetworkingIdentity();
+
 	// Create client and server sockets
 	InitSteamDatagramConnectionSockets();
 
