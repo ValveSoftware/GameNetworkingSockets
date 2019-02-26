@@ -615,7 +615,7 @@ void TestSteamNetworkingIdentity()
 		const char *pszTempGenStr = "Locke Lamora";
 		assert( id1.SetGenericString( pszTempGenStr ) );
 		id1.ToString( tempBuf, sizeof(tempBuf ) );
-		assert( strcmp( tempBuf, "str:Lock Lamora" ) == 0 );
+		assert( strcmp( tempBuf, "str:Locke Lamora" ) == 0 );
 		assert( id2.ParseString( tempBuf ) );
 		assert( strcmp( id2.GetGenericString(), pszTempGenStr ) == 0 );
 	}
