@@ -386,6 +386,7 @@ CSteamNetworkConnectionBase::~CSteamNetworkConnectionBase()
 	Assert( m_eConnectionState == k_ESteamNetworkingConnectionState_Dead );
 	Assert( m_queueRecvMessages.IsEmpty() );
 	Assert( m_pParentListenSocket == nullptr );
+	Assert( m_pMessagesSession == nullptr );
 }
 
 void CSteamNetworkConnectionBase::Destroy()
@@ -412,6 +413,9 @@ void CSteamNetworkConnectionBase::FreeResources()
 	// API-visible state, this will queue the state change notification
 	// while we still know who our listen socket is (if any).
 	SetState( k_ESteamNetworkingConnectionState_Dead, SteamNetworkingSockets_GetLocalTimestamp() );
+
+	// We should be detatched from any mesages session!
+	Assert( m_pMessagesSession == nullptr );
 
 	// Discard any messages that weren't retrieved
 	m_queueRecvMessages.PurgeMessages();
@@ -1497,7 +1501,7 @@ void CSteamNetworkConnectionBase::ConnectionStateChanged( ESteamNetworkingConnec
 			}
 			else
 			{
-				m_pMessagesSession->ConnectionStateChanged( eOldState, GetState() );
+				m_pMessagesSession->ConnectionStateChanged( eOldAPIState, eNewAPIState );
 			}
 		}
 		else
@@ -1840,8 +1844,15 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 				// We should squawk about this and let them know.
 				if ( m_eConnectionState != k_ESteamNetworkingConnectionState_FindingRoute && m_pParentListenSocket )
 				{
-					AssertMsg( false, "Application didn't accept or close incoming connection in a reasonable amount of time.  This is probably a bug." );
-					ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_Timeout, "%s", "App didn't accept or close incoming connection in time." );
+					if ( m_pMessagesSession )
+					{
+						ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_Timeout, "%s", "App did not respond to Messages session request in time, discarding." );
+					}
+					else
+					{
+						AssertMsg( false, "Application didn't accept or close incoming connection in a reasonable amount of time.  This is probably a bug." );
+						ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_Timeout, "%s", "App didn't accept or close incoming connection in time." );
+					}
 				}
 				else
 				{
