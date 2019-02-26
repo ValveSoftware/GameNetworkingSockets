@@ -26,9 +26,9 @@
 #include "steamtypes.h"
 #include "steamclientpublic.h"
 
-#if defined( STEAMDATAGRAMLIB_STATIC_LINK )
+#if defined( STEAMNETWORKINGSOCKETS_STATIC_LINK )
 	#define STEAMNETWORKINGSOCKETS_INTERFACE extern "C"
-#elif defined( STEAMDATAGRAMLIB_FOREXPORT )
+#elif defined( STEAMNETWORKINGSOCKETS_FOREXPORT )
 	#define STEAMNETWORKINGSOCKETS_INTERFACE DLL_EXPORT
 #else
 	#define STEAMNETWORKINGSOCKETS_INTERFACE DLL_IMPORT
@@ -126,11 +126,11 @@ struct SteamNetworkingIPAddr
 	/// form according to RFC5952.  If you include the port, IPv6 will be surrounded by
 	/// brackets, e.g. [::1:2]:80.  Your buffer should be at least k_cchMaxString bytes
 	/// to avoid truncation
-	void ToString( char *buf, size_t cbBuf, bool bWithPort ) const;
+	inline void ToString( char *buf, size_t cbBuf, bool bWithPort ) const;
 
 	/// Parse an IP address and optional port.  If a port is not present, it is set to 0.
 	/// (This means that you cannot tell if a zero port was explicitly specified.)
-	bool ParseString( const char *pszStr );
+	inline bool ParseString( const char *pszStr );
 
 	union
 	{
@@ -180,11 +180,6 @@ struct SteamNetworkingIdentity
 
 	/// See if two identities are identical
 	bool operator==(const SteamNetworkingIdentity &x ) const;
-
-	/// Calculate hash of identity.  NOTE: This is just a reference implementation.
-	/// There is no "official" hash calculation that must be used, and these values
-	/// should never be persisted or used outside of the current process.
-	struct Hash { uint32 operator()( const SteamNetworkingIdentity &x ) const; };
 
 	/// Print to a human-readable string.  This is suitable for debug messages
 	/// or any other time you need to encode the identity as a string.  It has a
@@ -498,6 +493,11 @@ typedef struct _SteamNetworkingMessage_t
 	///
 	/// free( pMsg->m_pData );
 	void (*m_pfnFreeData)( struct _SteamNetworkingMessage_t *msg );
+
+	/// Function to used to decrement reference count and, if it's zero, release
+	/// the message.  You should not normally need to access this directly.
+	/// (Use Release(), and don't set this.)
+	void (*m_pfnRelease)( struct _SteamNetworkingMessage_t *msg );
 
 	/// The channel number the message was received on.
 	/// (Not used for messages received on "connections")
@@ -1048,13 +1048,6 @@ typedef void (*FSteamNetworkingSocketsDebugOutput)( ESteamNetworkingSocketsDebug
 typedef SteamNetworkingMessage_t ISteamNetworkingMessage;
 typedef SteamNetworkingErrMsg SteamDatagramErrMsg;
 
-STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIPAddr_ToString( const SteamNetworkingIPAddr *pAddr, char *buf, size_t cbBuf, bool bWithPort );
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIPAddr_ParseString( SteamNetworkingIPAddr *pAddr, const char *pszStr );
-STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIdentity_ToString( const SteamNetworkingIdentity &identity, char *buf, size_t cbBuf );
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIdentity_ParseString( SteamNetworkingIdentity *pIdentity, size_t sizeofIdentity, const char *pszStr );
-STEAMNETWORKINGSOCKETS_INTERFACE uint32 SteamAPI_GenericHash( const void *data, size_t len );
-STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingMessage_t_Release( SteamNetworkingMessage_t *pMsg );
-
 inline void SteamNetworkingIPAddr::Clear() { memset( this, 0, sizeof(*this) ); }
 inline bool SteamNetworkingIPAddr::IsIPv6AllZeros() const { const uint64 *q = (const uint64 *)m_ipv6; return q[0] == 0 && q[1] == 0; }
 inline void SteamNetworkingIPAddr::SetIPv6( const uint8 *ipv6, uint16 nPort ) { memcpy( m_ipv6, ipv6, 16 ); m_port = nPort; }
@@ -1063,8 +1056,6 @@ inline bool SteamNetworkingIPAddr::IsIPv4() const { return m_ipv4.m_8zeros == 0 
 inline uint32 SteamNetworkingIPAddr::GetIPv4() const { return IsIPv4() ? ( (uint32(m_ipv4.m_ip[0])<<24) | (uint32(m_ipv4.m_ip[1])<<16) | (uint32(m_ipv4.m_ip[2])<<8) | uint32(m_ipv4.m_ip[3]) ) : 0; }
 inline void SteamNetworkingIPAddr::SetIPv6LocalHost( uint16 nPort ) { m_ipv4.m_8zeros = 0; m_ipv4.m_0000 = 0; m_ipv4.m_ffff = 0; m_ipv6[12] = 0; m_ipv6[13] = 0; m_ipv6[14] = 0; m_ipv6[15] = 1; m_port = nPort; }
 inline bool SteamNetworkingIPAddr::IsLocalHost() const { return ( m_ipv4.m_8zeros == 0 && m_ipv4.m_0000 == 0 && m_ipv4.m_ffff == 0 && m_ipv6[12] == 0 && m_ipv6[13] == 0 && m_ipv6[14] == 0 && m_ipv6[15] == 1 ) || ( GetIPv4() == 0x7f000001 ); }
-inline void SteamNetworkingIPAddr::ToString( char *buf, size_t cbBuf, bool bWithPort ) const { SteamAPI_SteamNetworkingIPAddr_ToString( this, buf, cbBuf, bWithPort ); }
-inline bool SteamNetworkingIPAddr::ParseString( const char *pszStr ) { return SteamAPI_SteamNetworkingIPAddr_ParseString( this, pszStr ); }
 
 inline void SteamNetworkingIdentity::Clear() { memset( this, 0, sizeof(*this) ); }
 inline bool SteamNetworkingIdentity::IsInvalid() const { return m_eType == k_ESteamNetworkingIdentityType_Invalid; }
@@ -1084,10 +1075,17 @@ inline bool SteamNetworkingIdentity::SetGenericBytes( const void *data, size_t c
 inline const uint8 *SteamNetworkingIdentity::GetGenericBytes( int &cbLen ) const { if ( m_eType != k_ESteamNetworkingIdentityType_GenericBytes ) return nullptr;
 	cbLen = m_cbSize; return m_genericBytes; }
 inline bool SteamNetworkingIdentity::operator==(const SteamNetworkingIdentity &x ) const { return m_eType == x.m_eType && m_cbSize == x.m_cbSize && memcmp( m_genericBytes, x.m_genericBytes, m_cbSize ) == 0; }
+inline void SteamNetworkingMessage_t::Release() { (*m_pfnRelease)( this ); }
+
+#if defined( STEAMNETWORKINGSOCKETS_STATIC_LINK ) || !defined( STEAMNETWORKINGSOCKETS_STEAM )
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIPAddr_ToString( const SteamNetworkingIPAddr *pAddr, char *buf, size_t cbBuf, bool bWithPort );
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIPAddr_ParseString( SteamNetworkingIPAddr *pAddr, const char *pszStr );
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIdentity_ToString( const SteamNetworkingIdentity &identity, char *buf, size_t cbBuf );
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIdentity_ParseString( SteamNetworkingIdentity *pIdentity, size_t sizeofIdentity, const char *pszStr );
+inline void SteamNetworkingIPAddr::ToString( char *buf, size_t cbBuf, bool bWithPort ) const { SteamAPI_SteamNetworkingIPAddr_ToString( this, buf, cbBuf, bWithPort ); }
+inline bool SteamNetworkingIPAddr::ParseString( const char *pszStr ) { return SteamAPI_SteamNetworkingIPAddr_ParseString( this, pszStr ); }
 inline void SteamNetworkingIdentity::ToString( char *buf, size_t cbBuf ) const { SteamAPI_SteamNetworkingIdentity_ToString( *this, buf, cbBuf ); }
 inline bool SteamNetworkingIdentity::ParseString( const char *pszStr ) { return SteamAPI_SteamNetworkingIdentity_ParseString( this, sizeof(*this), pszStr ); }
-inline uint32 SteamNetworkingIdentity::Hash::operator()( const SteamNetworkingIdentity &x ) const { return SteamAPI_GenericHash( &x, sizeof( x.m_eType ) + sizeof( x.m_cbSize ) + x.m_cbSize ); }
-
-inline void SteamNetworkingMessage_t::Release() { SteamAPI_SteamNetworkingMessage_t_Release( this ); }
+#endif
 
 #endif // #ifndef STEAMNETWORKINGTYPES

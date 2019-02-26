@@ -16,7 +16,7 @@ STEAMNETWORKINGSOCKETS_INTERFACE HSteamNetConnection SteamAPI_ISteamNetworkingSo
 	return ((ISteamNetworkingSockets*)instancePtr)->ConnectByIPAddress( *pAddress );
 }
 
-#ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 STEAMNETWORKINGSOCKETS_INTERFACE HSteamNetConnection SteamAPI_ISteamNetworkingSockets_CreateListenSocketP2P( intptr_t instancePtr, int nVirtualPort )
 {
 	return ((ISteamNetworkingSockets*)instancePtr)->CreateListenSocketP2P( nVirtualPort );
@@ -108,7 +108,7 @@ STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_CreateSoc
 	return ((ISteamNetworkingSockets*)instancePtr)->CreateSocketPair( pOutConnection1, pOutConnection2, bUseNetworkLoopback, pIdentity1, pIdentity2 );
 }
 
-#ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 
 STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_ReceivedRelayAuthTicket( intptr_t instancePtr, const void *pvTicket, int cbTicket, SteamDatagramRelayAuthTicket *pOutParsedTicket )
 {
@@ -145,7 +145,7 @@ STEAMNETWORKINGSOCKETS_INTERFACE HSteamListenSocket SteamAPI_ISteamNetworkingSoc
 	return ((ISteamNetworkingSockets*)instancePtr)->CreateHostedDedicatedServerListenSocket( nVirtualPort );
 }
 
-#endif // #ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
+#endif // #ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 
 STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIPAddr_Clear( SteamNetworkingIPAddr *pThis )
 {
@@ -249,13 +249,7 @@ STEAMNETWORKINGSOCKETS_INTERFACE const uint8 *SteamAPI_SteamNetworkingIdentity_G
 
 STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIdentity_EqualTo( const SteamNetworkingIdentity *a, const SteamNetworkingIdentity *b )
 {
-	return (*a == *b );
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE uint32 SteamAPI_SteamNetworkingIdentity_Hash( const SteamNetworkingIdentity *pThis )
-{
-	SteamNetworkingIdentity::Hash hash;
-	return hash( *pThis );
+	return (*a == *b);
 }
 
 STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_ISteamNetworkingSockets_RunConnectionStatusChangedCallbacks( intptr_t instancePtr, FSteamNetConnectionStatusChangedCallback callback, intptr_t context )
@@ -368,5 +362,9 @@ STEAMNETWORKINGSOCKETS_INTERFACE ESteamNetworkingConfigValue SteamAPI_ISteamNetw
 	return ((ISteamNetworkingUtils*)instancePtr)->GetFirstConfigValue();
 }
 
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingMessage_t_Release( SteamNetworkingMessage_t *pIMsg )
+{
+	pIMsg->Release();
+}
 
 }

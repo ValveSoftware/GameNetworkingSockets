@@ -60,7 +60,7 @@ dependencies += [
 incdirs = include_directories('.', '../include', 'common', 'public')
 
 cpp_flags = [
-  '-DSTEAMDATAGRAMLIB_FOREXPORT',
+  '-DSTEAMNETWORKINGSOCKETS_FOREXPORT',
   '-DENABLE_OPENSSLCONNECTION',
   '-DCRYPTO_DISABLE_ENCRYPT_WITH_PASSWORD',
   '-DGOOGLE_PROTOBUF_NO_RTTI',
@@ -137,7 +137,7 @@ GameNetworkingSockets_static = static_library('GameNetworkingSockets',
 
 dep_GameNetworkingSockets_static = declare_dependency(
   include_directories: include_directories( '../include', '.' ),
-  compile_args: ['-DSTEAMDATAGRAMLIB_STATIC_LINK'],
+  compile_args: ['-DSTEAMNETWORKINGSOCKETS_STATIC_LINK'],
   link_with: GameNetworkingSockets_static )
 
 GameNetworkingSockets_so = library('GameNetworkingSockets',

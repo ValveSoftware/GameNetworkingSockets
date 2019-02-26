@@ -1,7 +1,6 @@
 //====== Copyright Valve Corporation, All rights reserved. ====================
 
 #include "csteamnetworkingsockets.h"
-#include <steam/steamnetworkingsockets.h>
 #include "steamnetworkingsockets_lowlevel.h"
 #include "steamnetworkingsockets_connections.h"
 #include "steamnetworkingsockets_udp.h"
@@ -1202,6 +1201,27 @@ ESteamNetworkingConfigValue CSteamNetworkingUtils::GetFirstConfigValue()
 {
 	EnsureConfigValueTableInitted();
 	return s_vecConfigValueTable[0]->m_eValue;
+}
+
+
+void CSteamNetworkingUtils::SteamNetworkingIPAddr_ToString( const SteamNetworkingIPAddr &addr, char *buf, size_t cbBuf, bool bWithPort )
+{
+	SteamAPI_SteamNetworkingIPAddr_ToString( &addr, buf, cbBuf, bWithPort );
+}
+
+bool CSteamNetworkingUtils::SteamNetworkingIPAddr_ParseString( SteamNetworkingIPAddr *pAddr, const char *pszStr )
+{
+	return SteamAPI_SteamNetworkingIPAddr_ParseString( pAddr, pszStr );
+}
+
+void CSteamNetworkingUtils::SteamNetworkingIdentity_ToString( const SteamNetworkingIdentity &identity, char *buf, size_t cbBuf )
+{
+	return SteamAPI_SteamNetworkingIdentity_ToString( identity, buf, cbBuf );
+}
+
+bool CSteamNetworkingUtils::SteamNetworkingIdentity_ParseString( SteamNetworkingIdentity *pIdentity, const char *pszStr )
+{
+	return SteamAPI_SteamNetworkingIdentity_ParseString( pIdentity, sizeof(SteamNetworkingIdentity), pszStr );
 }
 
 } // namespace SteamNetworkingSocketsLib

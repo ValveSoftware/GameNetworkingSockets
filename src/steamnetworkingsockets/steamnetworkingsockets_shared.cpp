@@ -1842,9 +1842,8 @@ STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIdentity_ParseStri
 	return false;
 }
 
-STEAMNETWORKINGSOCKETS_INTERFACE uint32 SteamAPI_GenericHash( const void *data, size_t len )
+static uint32 Murmorhash32( const void *data, size_t len )
 {
-  // Murmorhash32
   uint32 h = 0;
   const uint8 *key = (const uint8 *)data;
   if (len > 3) {
@@ -1881,4 +1880,9 @@ STEAMNETWORKINGSOCKETS_INTERFACE uint32 SteamAPI_GenericHash( const void *data, 
   h *= 0xc2b2ae35;
   h ^= h >> 16;
   return h;
+}
+
+uint32 SteamNetworkingIdentityHash::operator()(struct SteamNetworkingIdentity const &x ) const
+{
+	return Murmorhash32( &x, sizeof( x.m_eType ) + sizeof( x.m_cbSize ) + x.m_cbSize );
 }

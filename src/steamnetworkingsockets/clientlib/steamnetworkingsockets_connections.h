@@ -66,7 +66,7 @@ struct RemoteConnectionKey_t
 	// protect against malicious clients we might have to include
 	// some random private data so that they don't know how our hash
 	// function works.  We'll assume for now that this isn't a problem
-	struct Hash { uint32 operator()( const RemoteConnectionKey_t &x ) const { return SteamNetworkingIdentity::Hash{}( x.m_identity ) ^ x.m_unConnectionID; } };
+	struct Hash { uint32 operator()( const RemoteConnectionKey_t &x ) const { return SteamNetworkingIdentityHash{}( x.m_identity ) ^ x.m_unConnectionID; } };
 	inline bool operator ==( const RemoteConnectionKey_t &x ) const
 	{
 		return m_unConnectionID == x.m_unConnectionID && m_identity == x.m_identity;

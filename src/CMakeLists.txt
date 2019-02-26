@@ -170,7 +170,7 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 	endif()
 
 	target_compile_definitions(${GNS_TARGET} PRIVATE
-		STEAMDATAGRAMLIB_FOREXPORT
+		STEAMNETWORKINGSOCKETS_FOREXPORT
 		ENABLE_OPENSSLCONNECTION
 		CRYPTO_DISABLE_ENCRYPT_WITH_PASSWORD
 		GOOGLE_PROTOBUF_NO_RTTI
@@ -273,7 +273,7 @@ add_sanitizers(GameNetworkingSockets)
 
 add_library(GameNetworkingSockets_s STATIC "")
 add_library(GameNetworkingSockets::static ALIAS GameNetworkingSockets_s)
-target_compile_definitions(GameNetworkingSockets_s INTERFACE STEAMDATAGRAMLIB_STATIC_LINK)
+target_compile_definitions(GameNetworkingSockets_s INTERFACE STEAMNETWORKINGSOCKETS_STATIC_LINK)
 gamenetworkingsockets_common(GameNetworkingSockets_s)
 add_sanitizers(GameNetworkingSockets_s)
 

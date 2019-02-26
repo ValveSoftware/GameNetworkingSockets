@@ -456,6 +456,12 @@ inline int64 NearestWithSameLowerBits( T nLowerBits, int64 nReference )
 	return nReference + nDiff;
 }
 
+/// Calculate hash of identity.
+struct SteamNetworkingIdentityHash
+{
+	uint32 operator()( const SteamNetworkingIdentity &x ) const;
+};
+
 struct SteamNetworkingIdentityRender
 {
 	SteamNetworkingIdentityRender( const SteamNetworkingIdentity &x ) { x.ToString( buf, sizeof(buf) ); }

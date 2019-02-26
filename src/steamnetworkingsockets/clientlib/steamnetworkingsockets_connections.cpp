@@ -97,6 +97,32 @@ void CSteamNetworkingMessage::DefaultFreeData( SteamNetworkingMessage_t *pMsg )
 	free( pMsg->m_pData );
 }
 
+
+void SteamNetworkingMessage_t_Release( SteamNetworkingMessage_t *pIMsg )
+{
+	CSteamNetworkingMessage *pMsg = static_cast<CSteamNetworkingMessage *>( pIMsg );
+
+	// Free up the buffer, if we have one
+	if ( pMsg->m_pData )
+	{
+		(*pMsg->m_pfnFreeData)( pMsg );
+		pMsg->m_pData = nullptr;
+	}
+
+	// We must not currently be in any queue.  In fact, our parent
+	// might have been destroyed.
+	Assert( !pMsg->m_linksSameConnection.m_pQueue );
+	Assert( !pMsg->m_linksSameConnection.m_pPrev );
+	Assert( !pMsg->m_linksSameConnection.m_pNext );
+	Assert( !pMsg->m_linksSecondaryQueue.m_pQueue );
+	Assert( !pMsg->m_linksSecondaryQueue.m_pPrev );
+	Assert( !pMsg->m_linksSecondaryQueue.m_pNext );
+
+	// Self destruct
+	// FIXME Should avoid this dynamic memory call with some sort of pooling
+	delete pMsg;
+}
+
 CSteamNetworkingMessage *CSteamNetworkingMessage::New( CSteamNetworkConnectionBase *pParent, uint32 cbSize, int64 nMsgNum, SteamNetworkingMicroseconds usecNow )
 {
 	// FIXME Should avoid this dynamic memory call with some sort of pooling
@@ -120,6 +146,7 @@ CSteamNetworkingMessage *CSteamNetworkingMessage::New( CSteamNetworkConnectionBa
 	pMsg->m_usecTimeReceived = usecNow;
 	pMsg->m_nMessageNumber = nMsgNum;
 	pMsg->m_pfnFreeData = CSteamNetworkingMessage::DefaultFreeData;
+	pMsg->m_pfnRelease = SteamNetworkingMessage_t_Release;
 	return pMsg;
 }
 
@@ -2278,30 +2305,3 @@ void CSteamNetworkConnectionBase::ValidateStatics( CValidator &validator )
 #endif
 
 } // namespace SteamNetworkingSocketsLib
-
-using namespace SteamNetworkingSocketsLib;
-
-STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingMessage_t_Release( SteamNetworkingMessage_t *pIMsg )
-{
-	CSteamNetworkingMessage *pMsg = static_cast<CSteamNetworkingMessage *>( pIMsg );
-
-	// Free up the buffer, if we have one
-	if ( pMsg->m_pData )
-	{
-		(*pMsg->m_pfnFreeData)( pMsg );
-		pMsg->m_pData = nullptr;
-	}
-
-	// We must not currently be in any queue.  In fact, our parent
-	// might have been destroyed.
-	Assert( !pMsg->m_linksSameConnection.m_pQueue );
-	Assert( !pMsg->m_linksSameConnection.m_pPrev );
-	Assert( !pMsg->m_linksSameConnection.m_pNext );
-	Assert( !pMsg->m_linksSecondaryQueue.m_pQueue );
-	Assert( !pMsg->m_linksSecondaryQueue.m_pPrev );
-	Assert( !pMsg->m_linksSecondaryQueue.m_pNext );
-
-	// Self destruct
-	// FIXME Should avoid this dynamic memory call with some sort of pooling
-	delete pMsg;
-}
