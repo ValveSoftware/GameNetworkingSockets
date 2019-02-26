@@ -1377,7 +1377,7 @@ int CSteamNetworkConnectionBase::SNP_SendPacket( SteamNetworkingMicroseconds use
 	// and should basically never happen in ordinary circumstances!)
 	if ( m_senderState.m_flTokenBucket < 0.0 )
 	{
-		SpewWarningRateLimited( usecNow, "[%s] Exceeding rate limit just sending acks / stats!  Not sending any data!", GetDescription() );
+		SpewWarningRateLimited( usecNow, "[%s] Exceeding rate limit just sending acks / stats!  Not sending any data!  (Ack blocks=%d prio=%d)", GetDescription(), ackHelper.m_nBlocks, ackHelper.m_nBlocksNeedToAck );
 
 		// Serialize some acks, if we want to
 		if ( cbReserveForAcks > 0 )
