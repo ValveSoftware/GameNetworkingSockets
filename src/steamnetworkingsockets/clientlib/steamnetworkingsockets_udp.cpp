@@ -518,9 +518,22 @@ void CSteamNetworkConnectionUDP::GetConnectionTypeDescription( ConnectionTypeDes
 {
 	char szAddr[ 64 ];
 	if ( m_pSocket )
-		V_strcpy_safe( szAddr, CUtlNetAdrRender( m_pSocket->GetRemoteHostAddr() ).String() );
+	{
+		SteamNetworkingIPAddr adrRemote;
+		NetAdrToSteamNetworkingIPAddr( adrRemote, m_pSocket->GetRemoteHostAddr() );
+		adrRemote.ToString( szAddr, sizeof(szAddr), true );
+		if (
+			m_identityRemote.IsLocalHost()
+			|| ( m_identityRemote.m_eType == k_ESteamNetworkingIdentityType_IPAddress && adrRemote == m_identityRemote.m_ip )
+		) {
+			V_sprintf_safe( szDescription, "UDP %s", szAddr );
+			return;
+		}
+	}
 	else
+	{
 		V_strcpy_safe( szAddr, "???" );
+	}
 
 	SteamNetworkingIdentityRender sIdentity( m_identityRemote );
 
