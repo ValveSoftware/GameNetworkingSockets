@@ -618,6 +618,19 @@ bool LinkStatsTrackerBase::BNeedToSendStats( SteamNetworkingMicroseconds usecNow
 	return bNeedToSendInstantaneous || bNeedToSendLifetime;
 }
 
+const char *LinkStatsTrackerBase::NeedToSendStats( SteamNetworkingMicroseconds usecNow, const char *const arpszReasonStrings[4] )
+{
+	// Message already in flight?
+	if ( m_pktNumInFlight != 0 || m_bDisconnected )
+		return nullptr;
+	int n = 0;
+	if ( m_usecPeerAckedInstaneous + k_usecLinkStatsInstantaneousReportMaxInterval < usecNow && BCheckHaveDataToSendInstantaneous( usecNow ) )
+		n |= 1;
+	if ( m_usecPeerAckedLifetime + k_usecLinkStatsLifetimeReportMaxInterval < usecNow && BCheckHaveDataToSendLifetime( usecNow ) )
+		n |= 2;
+	return arpszReasonStrings[n];
+}
+
 void LinkStatsTrackerBase::PopulateMessage( CMsgSteamDatagramConnectionQuality &msg, SteamNetworkingMicroseconds usecNow )
 {
 	if ( m_pktNumInFlight == 0 && !m_bDisconnected )

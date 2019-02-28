@@ -76,15 +76,16 @@ struct RemoteConnectionKey_t
 /// Base class for connection-type-specific context structure 
 struct SendPacketContext_t
 {
-	inline SendPacketContext_t( SteamNetworkingMicroseconds usecNow ) : m_usecNow( usecNow ) {}
+	inline SendPacketContext_t( SteamNetworkingMicroseconds usecNow, const char *pszReason ) : m_usecNow( usecNow ), m_pszReason( pszReason ) {}
 	const SteamNetworkingMicroseconds m_usecNow;
 	int m_cbMaxEncryptedPayload;
+	const char *m_pszReason; // Why are we sending this packet?
 };
 
 template<typename TStatsMsg>
 struct SendPacketContext : SendPacketContext_t
 {
-	inline SendPacketContext( SteamNetworkingMicroseconds usecNow ) : SendPacketContext_t( usecNow ) {}
+	inline SendPacketContext( SteamNetworkingMicroseconds usecNow, const char *pszReason ) : SendPacketContext_t( usecNow, pszReason ) {}
 
 	uint32 m_nFlags; // Message flags that we need to set.
 	TStatsMsg msg; // Type-specific stats message
@@ -537,7 +538,7 @@ protected:
 	virtual bool BCanSendEndToEndConnectRequest() const = 0;
 	virtual bool BCanSendEndToEndData() const = 0;
 	virtual void SendEndToEndConnectRequest( SteamNetworkingMicroseconds usecNow ) = 0;
-	virtual void SendEndToEndPing( bool bUrgent, SteamNetworkingMicroseconds usecNow ) = 0;
+	virtual void SendEndToEndStatsMsg( EStatsReplyRequest eRequest, SteamNetworkingMicroseconds usecNow, const char *pszReason ) = 0;
 	//virtual bool BSendEndToEndPing( SteamNetworkingMicroseconds usecNow );
 	virtual bool BAllowLocalUnsignedCert() const;
 
@@ -546,10 +547,14 @@ protected:
 		m_receiverState.QueueFlushAllAcks( bImmediate ? 0 : usecNow + k_usecMaxDataAckDelay );
 	}
 
-	bool BNeedToSendEndToEndStatsOrAcks( SteamNetworkingMicroseconds usecNow )
+	/// Check if we need to send stats or acks.  If so, return a reason string
+	// FIXME - This needs to be refactored.  There is some redundancy in the different
+	// transport code that uses it
+	const char *NeedToSendEndToEndStatsOrAcks( SteamNetworkingMicroseconds usecNow )
 	{
-		return m_receiverState.TimeWhenFlushAcks() <= usecNow ||
-			m_statsEndToEnd.BNeedToSendStats( usecNow );
+		if ( m_receiverState.TimeWhenFlushAcks() <= usecNow )
+			return "SNPFlushAcks";
+		return m_statsEndToEnd.NeedToSend( usecNow );
 	}
 
 
@@ -698,7 +703,7 @@ public:
 	virtual bool BCanSendEndToEndConnectRequest() const OVERRIDE;
 	virtual bool BCanSendEndToEndData() const OVERRIDE;
 	virtual void SendEndToEndConnectRequest( SteamNetworkingMicroseconds usecNow ) OVERRIDE;
-	virtual void SendEndToEndPing( bool bUrgent, SteamNetworkingMicroseconds usecNow ) OVERRIDE;
+	virtual void SendEndToEndStatsMsg( EStatsReplyRequest eRequest, SteamNetworkingMicroseconds usecNow, const char *pszReason ) OVERRIDE;
 	virtual EResult APIAcceptConnection() OVERRIDE;
 	virtual bool SendDataPacket( SteamNetworkingMicroseconds usecNow ) OVERRIDE;
 	virtual int SendEncryptedDataChunk( const void *pChunk, int cbChunk, SendPacketContext_t &ctx ) OVERRIDE;

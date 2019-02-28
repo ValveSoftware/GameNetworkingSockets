@@ -584,6 +584,11 @@ protected:
 	/// longer expect the peer to ack, or request to flush stats, etc.  (Although we
 	/// might indicate that we need to send an ack.)
 	bool m_bDisconnected;
+
+	/// Check if we really need to flush out stats now.  Derived class should provide the reason strings.
+	/// (See the code.)
+	const char *NeedToSendStats( SteamNetworkingMicroseconds usecNow, const char *const arpszReasonStrings[4] );
+
 private:
 
 	bool BCheckHaveDataToSendInstantaneous( SteamNetworkingMicroseconds usecNow );
@@ -646,6 +651,30 @@ struct LinkStatsTrackerEndToEnd : public LinkStatsTrackerBase
 
 	/// Called when we get a speed sample
 	void UpdateSpeeds( int nTXSpeed, int nRXSpeed );
+
+	/// Do we need to send anything?  Return the reason code, or NULL if
+	/// we don't need to send anything right now
+	inline const char *NeedToSend( SteamNetworkingMicroseconds usecNow )
+	{
+
+		// Connectivity check because we appear to be timing out?
+		if ( BNeedToSendPingImmediate( usecNow ) )
+			return "E2EUrgentPing";
+
+		// Ordinary keepalive?
+		if ( BNeedToSendKeepalive( usecNow ) )
+			return "E2EKeepalive";
+
+		// Stats?
+		static const char *arpszReasons[4] =
+		{
+			nullptr,
+			"E2EInstantaneousStats",
+			"E2ELifetimeStats",
+			"E2EAllStats"
+		};
+		return LinkStatsTrackerBase::NeedToSendStats( usecNow, arpszReasons );
+	}
 
 protected:
 	void InitInternal( SteamNetworkingMicroseconds usecNow );

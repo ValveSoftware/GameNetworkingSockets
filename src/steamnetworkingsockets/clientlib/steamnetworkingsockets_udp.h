@@ -77,7 +77,7 @@ public:
 	virtual bool BCanSendEndToEndConnectRequest() const OVERRIDE;
 	virtual bool BCanSendEndToEndData() const OVERRIDE;
 	virtual void SendEndToEndConnectRequest( SteamNetworkingMicroseconds usecNow ) OVERRIDE;
-	virtual void SendEndToEndPing( bool bUrgent, SteamNetworkingMicroseconds usecNow ) OVERRIDE;
+	virtual void SendEndToEndStatsMsg( EStatsReplyRequest eRequest, SteamNetworkingMicroseconds usecNow, const char *pszReason ) OVERRIDE;
 	virtual void ThinkConnection( SteamNetworkingMicroseconds usecNow ) OVERRIDE;
 	virtual void GetConnectionTypeDescription( ConnectionTypeDescription_t &szDescription ) const OVERRIDE;
 	virtual ERemoteUnsignedCert AllowRemoteUnsignedCert() OVERRIDE;
@@ -125,7 +125,7 @@ protected:
 
 	/// Process stats message, either inline or standalone
 	void RecvStats( const CMsgSteamSockets_UDP_Stats &msgStatsIn, bool bInline, SteamNetworkingMicroseconds usecNow );
-	void SendStatsMsg( EStatsReplyRequest eReplyRequested, SteamNetworkingMicroseconds usecNow );
+	void SendStatsMsg( EStatsReplyRequest eReplyRequested, SteamNetworkingMicroseconds usecNow, const char *pszReason );
 	void TrackSentStats( const CMsgSteamSockets_UDP_Stats &msgStatsOut, bool bInline, SteamNetworkingMicroseconds usecNow );
 
 	void PopulateSendPacketContext( UDPSendPacketContext_t &ctx, EStatsReplyRequest eReplyRequested );

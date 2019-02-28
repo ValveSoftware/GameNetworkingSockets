@@ -1971,8 +1971,8 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 					else
 						SpewMsg( "[%s] %d reply timeouts, last recv %.1fms ago.  Sending keepalive.\n", GetDescription(), m_statsEndToEnd.m_nReplyTimeoutsSinceLastRecv, ( usecNow - m_statsEndToEnd.m_usecTimeLastRecv ) * 1e-3 );
 					Assert( m_statsEndToEnd.BNeedToSendPingImmediate( usecNow ) ); // Make sure logic matches
-					SendEndToEndPing( true, usecNow );
-					AssertMsg( !m_statsEndToEnd.BNeedToSendPingImmediate( usecNow ), "SendEndToEndPing didn't do its job!" );
+					SendEndToEndStatsMsg( k_EStatsReplyRequest_Immediate, usecNow, "E2ETimingOutKeepalive" );
+					AssertMsg( !m_statsEndToEnd.BNeedToSendPingImmediate( usecNow ), "SendEndToEndStatsMsg didn't do its job!" );
 					Assert( m_statsEndToEnd.m_usecInFlightReplyTimeout != 0 );
 				}
 				else
@@ -2000,8 +2000,8 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 				if ( BCanSendEndToEndData() )
 				{
 					Assert( m_statsEndToEnd.BNeedToSendKeepalive( usecNow ) ); // Make sure logic matches
-					SendEndToEndPing( false, usecNow );
-					AssertMsg( !m_statsEndToEnd.BNeedToSendKeepalive( usecNow ), "SendEndToEndPing didn't do its job!" );
+					SendEndToEndStatsMsg( k_EStatsReplyRequest_DelayedOK, usecNow, "E2EKeepalive" );
+					AssertMsg( !m_statsEndToEnd.BNeedToSendKeepalive( usecNow ), "SendEndToEndStatsMsg didn't do its job!" );
 				}
 				else
 				{
@@ -2212,8 +2212,11 @@ void CSteamNetworkConnectionPipe::FakeSendStats( SteamNetworkingMicroseconds use
 	m_statsEndToEnd.TrackSentPacket( cbPktSize );
 }
 
-void CSteamNetworkConnectionPipe::SendEndToEndPing( bool bUrgent, SteamNetworkingMicroseconds usecNow )
+void CSteamNetworkConnectionPipe::SendEndToEndStatsMsg( EStatsReplyRequest eRequest, SteamNetworkingMicroseconds usecNow, const char *pszReason )
 {
+	NOTE_UNUSED( eRequest );
+	NOTE_UNUSED( pszReason );
+
 	if ( !m_pPartner )
 	{
 		Assert( false );

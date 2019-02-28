@@ -187,9 +187,10 @@ const int k_nMinSteamDatagramUDPMsgLen = 5;
 /// When sending a stats message, what sort of reply is requested by the calling code?
 enum EStatsReplyRequest
 {
-	k_EStatsReplyRequest_None,
-	k_EStatsReplyRequest_DelayedOK,
-	k_EStatsReplyRequest_Immediate,
+	k_EStatsReplyRequest_NothingToSend, // We don't have anything to send at all
+	k_EStatsReplyRequest_NoReply, // We have something to send, but it does not require a reply
+	k_EStatsReplyRequest_DelayedOK, // We have something to send, but a delayed reply is OK
+	k_EStatsReplyRequest_Immediate, // Immediate reply is requested
 };
 
 /// Max time that we we should "Nagle" an ack, hoping to combine them together or

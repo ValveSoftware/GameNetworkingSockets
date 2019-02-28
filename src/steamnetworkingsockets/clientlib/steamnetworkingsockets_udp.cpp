@@ -560,7 +560,7 @@ inline uint32 StatsMsgImpliedFlags<CMsgSteamSockets_UDP_Stats>( const CMsgSteamS
 
 struct UDPSendPacketContext_t : SendPacketContext<CMsgSteamSockets_UDP_Stats>
 {
-	inline explicit UDPSendPacketContext_t( SteamNetworkingMicroseconds usecNow ) : SendPacketContext<CMsgSteamSockets_UDP_Stats>( usecNow ) {}
+	inline explicit UDPSendPacketContext_t( SteamNetworkingMicroseconds usecNow, const char *pszReason ) : SendPacketContext<CMsgSteamSockets_UDP_Stats>( usecNow, pszReason ) {}
 	int m_nStatsNeed;
 };
 
@@ -607,9 +607,9 @@ void CSteamNetworkConnectionUDP::PopulateSendPacketContext( UDPSendPacketContext
 	}
 }
 
-void CSteamNetworkConnectionUDP::SendStatsMsg( EStatsReplyRequest eReplyRequested, SteamNetworkingMicroseconds usecNow )
+void CSteamNetworkConnectionUDP::SendStatsMsg( EStatsReplyRequest eReplyRequested, SteamNetworkingMicroseconds usecNow, const char *pszReason )
 {
-	UDPSendPacketContext_t ctx( usecNow );
+	UDPSendPacketContext_t ctx( usecNow, pszReason );
 	PopulateSendPacketContext( ctx, eReplyRequested );
 
 	// Send a data packet (maybe containing ordinary data), with this piggy backed on top of it
@@ -619,8 +619,8 @@ void CSteamNetworkConnectionUDP::SendStatsMsg( EStatsReplyRequest eReplyRequeste
 bool CSteamNetworkConnectionUDP::SendDataPacket( SteamNetworkingMicroseconds usecNow )
 {
 	// Populate context struct with any stats we want/need to send, and how much space we need to reserve for it
-	UDPSendPacketContext_t ctx( usecNow );
-	PopulateSendPacketContext( ctx, k_EStatsReplyRequest_None );
+	UDPSendPacketContext_t ctx( usecNow, "data" );
+	PopulateSendPacketContext( ctx, k_EStatsReplyRequest_NothingToSend );
 
 	// Send a packet
 	return SNP_SendPacket( ctx );
@@ -798,29 +798,30 @@ void CSteamNetworkConnectionUDP::SendEndToEndConnectRequest( SteamNetworkingMicr
 	m_statsEndToEnd.TrackSentPingRequest( usecNow, false );
 }
 
-void CSteamNetworkConnectionUDP::SendEndToEndPing( bool bUrgent, SteamNetworkingMicroseconds usecNow )
+void CSteamNetworkConnectionUDP::SendEndToEndStatsMsg( EStatsReplyRequest eRequest, SteamNetworkingMicroseconds usecNow, const char *pszReason )
 {
-	SendStatsMsg( bUrgent ? k_EStatsReplyRequest_Immediate : k_EStatsReplyRequest_DelayedOK, usecNow );
+	SendStatsMsg( eRequest, usecNow, pszReason );
 }
 
 void CSteamNetworkConnectionUDP::ThinkConnection( SteamNetworkingMicroseconds usecNow )
 {
+
+	// FIXME - We should refactor this, maybe promote this to the base class.
+	//         There's really nothing specific to plain UDP transport here.
 
 	// Check if we have stats we need to flush out
 	if ( BStateIsConnectedForWirePurposes() )
 	{
 
 		// Do we need to send something immediately, for any reason?
-		if (
-			BNeedToSendEndToEndStatsOrAcks( usecNow )
-			|| m_statsEndToEnd.BNeedToSendPingImmediate( usecNow )
-		) {
-			SendStatsMsg( k_EStatsReplyRequest_None, usecNow );
+		const char *pszReason = NeedToSendEndToEndStatsOrAcks( usecNow );
+		if ( pszReason )
+		{
+			SendStatsMsg( k_EStatsReplyRequest_NothingToSend, usecNow, pszReason );
 
 			// Make sure that took care of what we needed!
 
-			Assert( !BNeedToSendEndToEndStatsOrAcks( usecNow ) );
-			Assert( !m_statsEndToEnd.BNeedToSendPingImmediate( usecNow ) );
+			Assert( !NeedToSendEndToEndStatsOrAcks( usecNow ) );
 		}
 	}
 }
@@ -1084,12 +1085,11 @@ void CSteamNetworkConnectionUDP::RecvStats( const CMsgSteamSockets_UDP_Stats &ms
 		}
 
 		// Do we need to send an immediate reply?
-		if (
-			m_statsEndToEnd.BNeedToSendPingImmediate( usecNow )
-			|| BNeedToSendEndToEndStatsOrAcks( usecNow )
-		) {
+		const char *pszReason = NeedToSendEndToEndStatsOrAcks( usecNow );
+		if ( pszReason )
+		{
 			// Send a stats message
-			SendStatsMsg( k_EStatsReplyRequest_None, usecNow );
+			SendStatsMsg( k_EStatsReplyRequest_NothingToSend, usecNow, pszReason );
 		}
 	}
 }
