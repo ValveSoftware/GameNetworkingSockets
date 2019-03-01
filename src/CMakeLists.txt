@@ -227,7 +227,11 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 			target_compile_options(${GNS_TARGET} PRIVATE
 				/EHs-c-   # Disable C++ exceptions
 				/GR-      # Disable RTTI
+
+				# Below are warnings we can't fix and don't want to see (mostly from protobuf, some from MSVC standard library)
 				/wd4146   # include/google/protobuf/wire_format_lite.h(863): warning C4146: unary minus operator applied to unsigned type, result still unsigned
+				/wd4530   # .../xlocale(319): warning C4530: C++ exception handler used, but unwind semantics are not enabled. Specify /EHsc
+				/wd4244   # google/protobuf/wire_format_lite.h(935): warning C4244: 'argument': conversion from 'google::protobuf::uint64' to 'google::protobuf::uint32', possible loss of data
 				/wd4251   # 'google::protobuf::io::CodedOutputStream::default_serialization_deterministic_': struct 'std::atomic<bool>' needs to have dll-interface to be used by clients of class 
 				)
 			if(NOT TARGET_TYPE STREQUAL STATIC_LIBRARY)
