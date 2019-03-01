@@ -31,6 +31,16 @@ option(Protobuf_USE_STATIC_LIBS "Build with a static Protobuf library" OFF)
 option(LIGHT_TESTS "Use smaller/shorter tests for simple integration testing (e.g. Travis)" OFF)
 
 if (WIN32)
+	#
+	# Strip compiler flags which conflict with ones we explicitly set. If we don't
+	# do this, then we get a warning on every file we compile for the library.
+	#
+	string(REPLACE "/EHsc" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+	string(REPLACE "/GR" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+
+	#
+	# Check whether BCrypt can be used with this SDK version
+	#
 	cmake_push_check_state()
 	set(CMAKE_REQUIRED_LIBRARIES bcrypt)
 	check_symbol_exists(BCryptEncrypt windows.h BCRYPT_AVAILABLE)
