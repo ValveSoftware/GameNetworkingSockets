@@ -22,6 +22,7 @@ print_default_msvc_flags()
 if(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
 	add_definitions(
 		-D_CRT_SECURE_NO_WARNINGS
+		-D_CRT_NONSTDC_NO_WARNINGS
 		)
 endif()
 
