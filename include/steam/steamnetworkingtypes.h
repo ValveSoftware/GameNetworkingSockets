@@ -63,6 +63,28 @@ const HSteamNetConnection k_HSteamNetConnection_Invalid = 0;
 typedef uint32 HSteamListenSocket;
 const HSteamListenSocket k_HSteamListenSocket_Invalid = 0;
 
+/// Max length of diagnostic error message
+const int k_cchMaxSteamNetworkingErrMsg = 1024;
+
+/// Used to return English-language diagnostic error messages to caller.
+/// (For debugging or spewing to a console, etc.  Not intended for UI.)
+typedef char SteamNetworkingErrMsg[ k_cchMaxSteamNetworkingErrMsg ];
+
+/// Identifier used for a network location point of presence.  (E.g. a Valve data center.)
+/// Typically you won't need to directly manipulate these.
+typedef uint32 SteamNetworkingPOPID;
+
+/// A local timestamp.  You can subtract two timestamps to get the number of elapsed
+/// microseconds.  This is guaranteed to increase over time during the lifetime
+/// of a process, but not globally across runs.  You don't need to worry about
+/// the value wrapping around.  Note that the underlying clock might not actually have
+/// microsecond *resolution*.
+typedef int64 SteamNetworkingMicroseconds;
+
+//
+// Describing network hosts
+//
+
 /// Different methods of describing the identity of a network host
 enum ESteamNetworkingIdentityType
 {
@@ -218,79 +240,8 @@ struct SteamNetworkingIdentity
 #pragma pack(pop)
 
 //
-// Flags used to set options for message sending
+// Connection status
 //
-
-// Send the message unreliably. Can be lost.  Messages *can* be larger than a
-// single MTU (UDP packet), but there is no retransmission, so if any piece
-// of the message is lost, the entire message will be dropped.
-//
-// The sending API does have some knowledge of the underlying connection, so
-// if there is no NAT-traversal accomplished or there is a recognized adjustment
-// happening on the connection, the packet will be batched until the connection
-// is open again.
-//
-// Migration note: This is not exactly the same as k_EP2PSendUnreliable!  You
-// probably want k_ESteamNetworkingSendType_UnreliableNoNagle
-const int k_nSteamNetworkingSend_Unreliable = 0;
-
-// Disable Nagle's algorithm.
-// By default, Nagle's algorithm is applied to all outbound messages.  This means
-// that the message will NOT be sent immediately, in case further messages are
-// sent soon after you send this, which can be grouped together.  Any time there
-// is enough buffered data to fill a packet, the packets will be pushed out immediately,
-// but partially-full packets not be sent until the Nagle timer expires.  See
-// ISteamNetworkingSockets::FlushMessagesOnConnection, ISteamNetworkingMessages::FlushMessagesToUser
-//
-// NOTE: Don't just send every message without Nagle because you want packets to get there
-// quicker.  Make sure you understand the problem that Nagle is solving before disabling it.
-// If you are sending small messages, often many at the same time, then it is very likely that
-// it will be more efficient to leave Nagle enabled.  A typical proper use of this flag is
-// when you are sending what you know will be the last message sent for a while (e.g. the last
-// in the server simulation tick to a particular client), and you use this flag to flush all
-// messages.
-const int k_nSteamNetworkingSend_NoNagle = 1;
-
-// Send a message unreliably, bypassing Nagle's algorithm for this message and any messages
-// currently pending on the Nagle timer.  This is equivalent to using k_ESteamNetworkingSend_Unreliable
-// and then immediately flushing the messages using ISteamNetworkingSockets::FlushMessagesOnConnection
-// or ISteamNetworkingMessages::FlushMessagesToUser.  (But using this flag is more efficient since you
-// only make one API call.)
-const int k_nSteamNetworkingSend_UnreliableNoNagle = k_nSteamNetworkingSend_Unreliable|k_nSteamNetworkingSend_NoNagle;
-
-// If the message cannot be sent very soon (because the connection is still doing some initial
-// handshaking, route negotiations, etc), then just drop it.  This is only applicable for unreliable
-// messages.  Using this flag on reliable messages is invalid.
-const int k_nSteamNetworkingSend_NoDelay = 4;
-
-// Send an unreliable message, but if it cannot be sent relatively quickly, just drop it instead of queuing it.
-// This is useful for messages that are not useful if they are excessively delayed, such as voice data.
-// NOTE: The Nagle algorithm is not used, and if the message is not dropped, any messages waiting on the
-// Nagle timer are immediately flushed.
-//
-// A message will be dropped under the following circumstances:
-// - the connection is not fully connected.  (E.g. the "Connecting" or "FindingRoute" states)
-// - there is a sufficiently large number of messages queued up already such that the current message
-//   will not be placed on the wire in the next ~200ms or so.
-//
-// if a message is dropped for these reasons, k_EResultIgnored will be returned.
-const int k_nSteamNetworkingSend_UnreliableNoDelay = k_nSteamNetworkingSend_Unreliable|k_nSteamNetworkingSend_NoDelay|k_nSteamNetworkingSend_NoNagle;
-
-// Reliable message send. Can send up to k_cbMaxSteamNetworkingSocketsMessageSizeSend bytes in a single message. 
-// Does fragmentation/re-assembly of messages under the hood, as well as a sliding window for
-// efficient sends of large chunks of data.
-//
-// The Nagle algorithm is used.  See notes on k_ESteamNetworkingSendType_Unreliable for more details.
-// See k_ESteamNetworkingSendType_ReliableNoNagle, ISteamNetworkingSockets::FlushMessagesOnConnection,
-// ISteamNetworkingMessages::FlushMessagesToUser
-//
-// Migration note: This is NOT the same as k_EP2PSendReliable, it's more like k_EP2PSendReliableWithBuffering
-const int k_nSteamNetworkingSend_Reliable = 8;
-
-// Send a message reliably, but bypass Nagle's algorithm.
-//
-// Migration note: This is equivalent to k_EP2PSendReliable
-const int k_nSteamNetworkingSend_ReliableNoNagle = k_nSteamNetworkingSend_Reliable|k_nSteamNetworkingSend_NoNagle;
 
 /// High level connection status
 enum ESteamNetworkingConnectionState
@@ -397,175 +348,20 @@ enum ESteamNetworkingConnectionState
 	k_ESteamNetworkingConnectionState__Force32Bit = 0x7fffffff
 };
 
-/// Identifier used for a network location point of presence.  (E.g. a Valve data center.)
-/// Typically you won't need to directly manipulate these.
-typedef uint32 SteamNetworkingPOPID;
-
-/// Convert 3- or 4-character ID to 32-bit int.
-inline SteamNetworkingPOPID CalculateSteamNetworkingPOPIDFromString( const char *pszCode )
-{
-	// OK we made a bad decision when we decided how to pack 3-character codes into a uint32.  We'd like to support
-	// 4-character codes, but we don't want to break compatibility.  The migration path has some subtleties that make
-	// this nontrivial, and there are already some IDs stored in SQL.  Ug, so the 4 character code "abcd" will
-	// be encoded with the digits like "0xddaabbcc".
-	//
-	// Also: we don't currently use 1- or 2-character codes, but if ever do in the future, let's make sure don't read
-	// past the end of the string and access uninitialized memory.  (And if the string is empty, we always want
-	// to return 0 and not read bytes past the '\0'.)
-	//
-	// There is also extra paranoia to make sure the bytes are not treated as signed.
-	SteamNetworkingPOPID result = (uint32)(uint8)pszCode[0] << 16U;
-	if ( pszCode[1] )
-	{
-		result |= ( (uint32)(uint8)pszCode[1] << 8U );
-		if ( pszCode[2] )
-		{
-			result |= (uint32)(uint8)pszCode[2] | ( (uint32)(uint8)pszCode[3] << 24U );
-		}
-	}
-	return result;
-}
-
-/// Unpack integer to string representation, including terminating '\0'
-#ifdef __cplusplus
-template <int N>
-inline void GetSteamNetworkingLocationPOPStringFromID( SteamNetworkingPOPID id, char (&szCode)[N] )
-{
-	static_assert( N >= 5, "Fixed-size buffer not big enough to hold SDR POP ID" );
-	szCode[0] = char( id >> 16U );
-	szCode[1] = char( id >> 8U );
-	szCode[2] = char( id );
-	szCode[3] = char( id >> 24U ); // See comment above about deep regret and sadness
-	szCode[4] = 0;
-}
-#endif
-
-/// A local timestamp.  You can subtract two timestamps to get the number of elapsed
-/// microseconds.  This is guaranteed to increase over time during the lifetime
-/// of a process, but not globally across runs.  You don't need to worry about
-/// the value wrapping around.  Note that the underlying clock might not actually have
-/// microsecond *resolution*.
-typedef int64 SteamNetworkingMicroseconds;
-
-/// Max size of a single message that we can SEND.
-/// Note: We might be wiling to receive larger messages,
-/// and our peer might, too.
-const int k_cbMaxSteamNetworkingSocketsMessageSizeSend = 512 * 1024;
-
-/// Message that has been received
-typedef struct _SteamNetworkingMessage_t
-{
-
-	/// Message payload
-	void *m_pData;
-
-	/// Size of the payload.
-	uint32 m_cbSize;
-
-	/// The connection this came from.  (Not used when using the ISteamMessages interface)
-	HSteamNetConnection m_conn;
-
-	/// Who sent this to us?
-	SteamNetworkingIdentity m_sender;
-
-	/// The user data associated with the connection.
-	///
-	/// This is *usually* the same as calling GetConnection() and then
-	/// fetching the user data associated with that connection, but for
-	/// the following subtle differences:
-	///
-	/// - This user data will match the connection's user data at the time
-	///   is captured at the time the message is returned by the API.
-	///   If you subsequently change the userdata on the connection,
-	///   this won't be updated.
-	/// - This is an inline call, so it's *much* faster.
-	/// - You might have closed the connection, so fetching the user data
-	///   would not be possible.
-	int64 m_nConnUserData;
-
-	/// Local timestamps when it was received
-	SteamNetworkingMicroseconds m_usecTimeReceived;
-
-	/// Message number assigned by the sender
-	int64 m_nMessageNumber;
-
-	/// Function used to free up m_pData.  This mechanism exists so that
-	/// apps can create messages with buffers allocated from their own
-	/// heap, and pass them into the library.  This function will
-	/// usually be something like:
-	///
-	/// free( pMsg->m_pData );
-	void (*m_pfnFreeData)( struct _SteamNetworkingMessage_t *msg );
-
-	/// Function to used to decrement reference count and, if it's zero, release
-	/// the message.  You should not normally need to access this directly.
-	/// (Use Release(), and don't set this.)
-	void (*m_pfnRelease)( struct _SteamNetworkingMessage_t *msg );
-
-	/// The channel number the message was received on.
-	/// (Not used for messages received on "connections")
-	int m_nChannel;
-
-	/// Pad to multiple of 8 bytes
-	int m___nPadDummy;
-
-	#ifdef __cplusplus
-
-		/// You MUST call this when you're done with the object,
-		/// to free up memory, etc.
-		inline void Release();
-
-		// For code compatibility, some accessors
-		inline uint32 GetSize() const { return m_cbSize; }
-		inline const void *GetData() const { return m_pData; }
-		inline int GetChannel() const { return m_nChannel; }
-		inline HSteamNetConnection GetConnection() const { return m_conn; }
-		inline int64 GetConnectionUserData() const { return m_nConnUserData; }
-		inline SteamNetworkingMicroseconds GetTimeReceived() const { return m_usecTimeReceived; }
-		inline int64 GetMessageNumber() const { return m_nMessageNumber; }
-	#endif
-} SteamNetworkingMessage_t;
-
-/// Object that describes a "location" on the Internet with sufficient
-/// detail that we can reasonably estimate an upper bound on the ping between
-/// the two hosts, even if a direct route between the hosts is not possible,
-/// and the connection must be routed through the Steam Datagram Relay network.
-/// This does not contain any information that identifies the host.  Indeed,
-/// if two hosts are in the same building or otherwise have nearly identical
-/// networking characteristics, then it's valid to use the same location
-/// object for both of them.
-///
-/// NOTE: This object should only be used in the same process!  Do not serialize it,
-/// send it over the wire, or persist it in a file or database!  If you need
-/// to do that, convert it to a string representation using the methods in
-/// ISteamNetworkingUtils().
-struct SteamNetworkPingLocation_t
-{
-	uint8 m_data[ 256 ];
-};
-
-/// Max possible length of a ping location, in string format.  This is quite
-/// generous worst case and leaves room for future syntax enhancements.
-/// Most strings are a lot shorter.
-const int k_cchMaxSteamNetworkingPingLocationString = 512;
-
-/// Special values that are returned by some functions that return a ping.
-const int k_nSteamNetworkingPing_Failed = -1;
-const int k_nSteamNetworkingPing_Unknown = -2;
-
-/// Enumerate various causes of connection termination.  These are designed
-/// to work sort of like HTTP error codes, in that the numeric range gives you
-/// a ballpark as to where the problem is.
+/// Enumerate various causes of connection termination.  These are designed to work similar
+/// to HTTP error codes: the numeric range gives you a rough classification as to the source
+/// of the problem.
 enum ESteamNetConnectionEnd
 {
 	// Invalid/sentinel value
 	k_ESteamNetConnectionEnd_Invalid = 0,
 
 	//
-	// Application codes.  You can use these codes if you want to
-	// plumb through application-specific error codes.  If you don't need this
-	// facility, feel free to always use 0, which is a generic
-	// application-initiated closure.
+	// Application codes.  These are the values you will pass to
+	// ISteamNetworkingSockets::CloseConnection.  You can use these codes if
+	// you want to plumb through application-specific reason codes.  If you don't
+	// need this facility, feel free to always pass
+	// k_ESteamNetConnectionEnd_App_Generic.
 	//
 	// The distinction between "normal" and "exceptional" termination is
 	// one you may use if you find useful, but it's not necessary for you
@@ -593,7 +389,10 @@ enum ESteamNetConnectionEnd
 	k_ESteamNetConnectionEnd_AppException_Max = 2999,
 
 	//
-	// System codes:
+	// System codes.  These will be returned by the system when
+	// the connection state is k_ESteamNetworkingConnectionState_ClosedByPeer
+	// or k_ESteamNetworkingConnectionState_ProblemDetectedLocally.  It is
+	// illegal to pass a code in this range to ISteamNetworkingSockets::CloseConnection
 	//
 
 	// 3xxx: Connection failed or ended because of problem with the
@@ -709,13 +508,6 @@ enum ESteamNetConnectionEnd
 	k_ESteamNetConnectionEnd__Force32Bit = 0x7fffffff
 };
 
-/// Max length of diagnostic error message
-const int k_cchMaxSteamNetworkingErrMsg = 1024;
-
-/// Used to return English-language diagnostic error messages to caller.
-/// (For debugging or spewing to a console, etc.  Not intended for UI.)
-typedef char SteamNetworkingErrMsg[ k_cchMaxSteamNetworkingErrMsg ];
-
 /// Max length, in bytes (including null terminator) of the reason string
 /// when a connection is closed.
 const int k_cchSteamNetworkingMaxConnectionCloseReason = 128;
@@ -724,13 +516,12 @@ const int k_cchSteamNetworkingMaxConnectionCloseReason = 128;
 /// of a connection.
 const int k_cchSteamNetworkingMaxConnectionDescription = 128;
 
+/// Describe the state of a connection.
 struct SteamNetConnectionInfo_t
 {
 
 	/// Who is on the other end?  Depending on the connection type and phase of the connection, we might not know
 	SteamNetworkingIdentity m_identityRemote;
-
-	// FIXME - some sort of connection type enum?
 
 	/// Arbitrary user data set by the local application code
 	int64 m_nUserData;
@@ -738,7 +529,7 @@ struct SteamNetConnectionInfo_t
 	/// Handle to listen socket this was connected on, or k_HSteamListenSocket_Invalid if we initiated the connection
 	HSteamListenSocket m_hListenSocket;
 
-	/// Remote address.  Might be all 0's if we don't know ir or if this N/A.
+	/// Remote address.  Might be all 0's if we don't know it, or if this is N/A.
 	/// (E.g. Basically everything except direct UDP connection.)
 	SteamNetworkingIPAddr m_addrRemote;
 	uint16 m__pad1;
@@ -750,16 +541,12 @@ struct SteamNetConnectionInfo_t
 	/// (0 if not applicable.)
 	SteamNetworkingPOPID m_idPOPRelay;
 
-	/// Local port that we're bound to for this connection.  Might not be applicable
-	/// for all connection types.
-	//uint16 m_unPortLocal;
-
 	/// High level state of the connection
 	ESteamNetworkingConnectionState m_eState;
 
 	/// Basic cause of the connection termination or problem.
-	/// One of ESteamNetConnectionEnd
-	int /* ESteamNetConnectionEnd */ m_eEndReason;
+	/// See ESteamNetConnectionEnd for the values used
+	int m_eEndReason;
 
 	/// Human-readable, but non-localized explanation for connection
 	/// termination or problem.  This is intended for debugging /
@@ -850,6 +637,201 @@ struct SteamNetworkingQuickConnectionStatus
 };
 
 #pragma pack( pop )
+
+//
+// Network messages
+//
+
+/// Max size of a single message that we can SEND.
+/// Note: We might be wiling to receive larger messages,
+/// and our peer might, too.
+const int k_cbMaxSteamNetworkingSocketsMessageSizeSend = 512 * 1024;
+
+/// A message that has been received
+struct SteamNetworkingMessage_t
+{
+
+	/// Message payload
+	void *m_pData;
+
+	/// Size of the payload.
+	uint32 m_cbSize;
+
+	/// The connection this came from.  (Not used when using the ISteamMessages interface)
+	HSteamNetConnection m_conn;
+
+	/// Who sent this to us?
+	SteamNetworkingIdentity m_sender;
+
+	/// The user data associated with the connection.
+	///
+	/// This is *usually* the same as calling GetConnection() and then
+	/// fetching the user data associated with that connection, but for
+	/// the following subtle differences:
+	///
+	/// - This user data will match the connection's user data at the time
+	///   is captured at the time the message is returned by the API.
+	///   If you subsequently change the userdata on the connection,
+	///   this won't be updated.
+	/// - This is an inline call, so it's *much* faster.
+	/// - You might have closed the connection, so fetching the user data
+	///   would not be possible.
+	int64 m_nConnUserData;
+
+	/// Local timestamps when it was received
+	SteamNetworkingMicroseconds m_usecTimeReceived;
+
+	/// Message number assigned by the sender
+	int64 m_nMessageNumber;
+
+	/// Function used to free up m_pData.  This mechanism exists so that
+	/// apps can create messages with buffers allocated from their own
+	/// heap, and pass them into the library.  This function will
+	/// usually be something like:
+	///
+	/// free( pMsg->m_pData );
+	void (*m_pfnFreeData)( SteamNetworkingMessage_t *pMsg );
+
+	/// Function to used to decrement reference count and, if it's zero, release
+	/// the message.  You should not normally need to access this directly.
+	/// (Use Release(), and don't set this.)
+	void (*m_pfnRelease)( SteamNetworkingMessage_t *pMsg );
+
+	/// The channel number the message was received on.
+	/// (Not used for messages received on "connections")
+	int m_nChannel;
+
+	/// Pad to multiple of 8 bytes
+	int m___nPadDummy;
+
+	#ifdef __cplusplus
+
+		/// You MUST call this when you're done with the object,
+		/// to free up memory, etc.
+		inline void Release();
+
+		// For code compatibility, some accessors
+		inline uint32 GetSize() const { return m_cbSize; }
+		inline const void *GetData() const { return m_pData; }
+		inline int GetChannel() const { return m_nChannel; }
+		inline HSteamNetConnection GetConnection() const { return m_conn; }
+		inline int64 GetConnectionUserData() const { return m_nConnUserData; }
+		inline SteamNetworkingMicroseconds GetTimeReceived() const { return m_usecTimeReceived; }
+		inline int64 GetMessageNumber() const { return m_nMessageNumber; }
+	#endif
+};
+
+//
+// Flags used to set options for message sending
+//
+
+// Send the message unreliably. Can be lost.  Messages *can* be larger than a
+// single MTU (UDP packet), but there is no retransmission, so if any piece
+// of the message is lost, the entire message will be dropped.
+//
+// The sending API does have some knowledge of the underlying connection, so
+// if there is no NAT-traversal accomplished or there is a recognized adjustment
+// happening on the connection, the packet will be batched until the connection
+// is open again.
+//
+// Migration note: This is not exactly the same as k_EP2PSendUnreliable!  You
+// probably want k_ESteamNetworkingSendType_UnreliableNoNagle
+const int k_nSteamNetworkingSend_Unreliable = 0;
+
+// Disable Nagle's algorithm.
+// By default, Nagle's algorithm is applied to all outbound messages.  This means
+// that the message will NOT be sent immediately, in case further messages are
+// sent soon after you send this, which can be grouped together.  Any time there
+// is enough buffered data to fill a packet, the packets will be pushed out immediately,
+// but partially-full packets not be sent until the Nagle timer expires.  See
+// ISteamNetworkingSockets::FlushMessagesOnConnection, ISteamNetworkingMessages::FlushMessagesToUser
+//
+// NOTE: Don't just send every message without Nagle because you want packets to get there
+// quicker.  Make sure you understand the problem that Nagle is solving before disabling it.
+// If you are sending small messages, often many at the same time, then it is very likely that
+// it will be more efficient to leave Nagle enabled.  A typical proper use of this flag is
+// when you are sending what you know will be the last message sent for a while (e.g. the last
+// in the server simulation tick to a particular client), and you use this flag to flush all
+// messages.
+const int k_nSteamNetworkingSend_NoNagle = 1;
+
+// Send a message unreliably, bypassing Nagle's algorithm for this message and any messages
+// currently pending on the Nagle timer.  This is equivalent to using k_ESteamNetworkingSend_Unreliable
+// and then immediately flushing the messages using ISteamNetworkingSockets::FlushMessagesOnConnection
+// or ISteamNetworkingMessages::FlushMessagesToUser.  (But using this flag is more efficient since you
+// only make one API call.)
+const int k_nSteamNetworkingSend_UnreliableNoNagle = k_nSteamNetworkingSend_Unreliable|k_nSteamNetworkingSend_NoNagle;
+
+// If the message cannot be sent very soon (because the connection is still doing some initial
+// handshaking, route negotiations, etc), then just drop it.  This is only applicable for unreliable
+// messages.  Using this flag on reliable messages is invalid.
+const int k_nSteamNetworkingSend_NoDelay = 4;
+
+// Send an unreliable message, but if it cannot be sent relatively quickly, just drop it instead of queuing it.
+// This is useful for messages that are not useful if they are excessively delayed, such as voice data.
+// NOTE: The Nagle algorithm is not used, and if the message is not dropped, any messages waiting on the
+// Nagle timer are immediately flushed.
+//
+// A message will be dropped under the following circumstances:
+// - the connection is not fully connected.  (E.g. the "Connecting" or "FindingRoute" states)
+// - there is a sufficiently large number of messages queued up already such that the current message
+//   will not be placed on the wire in the next ~200ms or so.
+//
+// if a message is dropped for these reasons, k_EResultIgnored will be returned.
+const int k_nSteamNetworkingSend_UnreliableNoDelay = k_nSteamNetworkingSend_Unreliable|k_nSteamNetworkingSend_NoDelay|k_nSteamNetworkingSend_NoNagle;
+
+// Reliable message send. Can send up to k_cbMaxSteamNetworkingSocketsMessageSizeSend bytes in a single message. 
+// Does fragmentation/re-assembly of messages under the hood, as well as a sliding window for
+// efficient sends of large chunks of data.
+//
+// The Nagle algorithm is used.  See notes on k_ESteamNetworkingSendType_Unreliable for more details.
+// See k_ESteamNetworkingSendType_ReliableNoNagle, ISteamNetworkingSockets::FlushMessagesOnConnection,
+// ISteamNetworkingMessages::FlushMessagesToUser
+//
+// Migration note: This is NOT the same as k_EP2PSendReliable, it's more like k_EP2PSendReliableWithBuffering
+const int k_nSteamNetworkingSend_Reliable = 8;
+
+// Send a message reliably, but bypass Nagle's algorithm.
+//
+// Migration note: This is equivalent to k_EP2PSendReliable
+const int k_nSteamNetworkingSend_ReliableNoNagle = k_nSteamNetworkingSend_Reliable|k_nSteamNetworkingSend_NoNagle;
+
+//
+// Ping location / measurement
+//
+
+/// Object that describes a "location" on the Internet with sufficient
+/// detail that we can reasonably estimate an upper bound on the ping between
+/// the two hosts, even if a direct route between the hosts is not possible,
+/// and the connection must be routed through the Steam Datagram Relay network.
+/// This does not contain any information that identifies the host.  Indeed,
+/// if two hosts are in the same building or otherwise have nearly identical
+/// networking characteristics, then it's valid to use the same location
+/// object for both of them.
+///
+/// NOTE: This object should only be used in the same process!  Do not serialize it,
+/// send it over the wire, or persist it in a file or database!  If you need
+/// to do that, convert it to a string representation using the methods in
+/// ISteamNetworkingUtils().
+struct SteamNetworkPingLocation_t
+{
+	uint8 m_data[ 512 ];
+};
+
+/// Max possible length of a ping location, in string format.  This is
+/// an extremely conservative worst case value which leaves room for future
+/// syntax enhancements.  Most strings in practice are a lot shorter.
+/// If you are storing many of these, you will very likely benefit from
+/// using dynamic memory.
+const int k_cchMaxSteamNetworkingPingLocationString = 1024;
+
+/// Special values that are returned by some functions that return a ping.
+const int k_nSteamNetworkingPing_Failed = -1;
+const int k_nSteamNetworkingPing_Unknown = -2;
+
+//
+// Configuration values
+//
 
 /// Configuration values can be applied to different types of objects.
 enum ESteamNetworkingConfigScope
@@ -1023,6 +1005,10 @@ enum ESteamNetworkingGetConfigValueResult
 	k_ESteamNetworkingGetConfigValueResult__Force32Bit = 0x7fffffff
 };
 
+//
+// Debug output
+//
+
 /// Detail level for diagnostic output callback.
 /// See ISteamNetworkingUtils::SetDebugOutputFunction
 enum ESteamNetworkingSocketsDebugOutputType
@@ -1042,6 +1028,47 @@ enum ESteamNetworkingSocketsDebugOutputType
 
 /// Setup callback for debug output, and the desired verbosity you want.
 typedef void (*FSteamNetworkingSocketsDebugOutput)( ESteamNetworkingSocketsDebugOutputType nType, const char *pszMsg );
+
+//
+// Valve data centers
+//
+
+/// Convert 3- or 4-character ID to 32-bit int.
+inline SteamNetworkingPOPID CalculateSteamNetworkingPOPIDFromString( const char *pszCode )
+{
+	// OK we made a bad decision when we decided how to pack 3-character codes into a uint32.  We'd like to support
+	// 4-character codes, but we don't want to break compatibility.  The migration path has some subtleties that make
+	// this nontrivial, and there are already some IDs stored in SQL.  Ug, so the 4 character code "abcd" will
+	// be encoded with the digits like "0xddaabbcc".
+	//
+	// Also: we don't currently use 1- or 2-character codes, but if ever do in the future, let's make sure don't read
+	// past the end of the string and access uninitialized memory.  (And if the string is empty, we always want
+	// to return 0 and not read bytes past the '\0'.)
+	//
+	// There is also extra paranoia to make sure the bytes are not treated as signed.
+	SteamNetworkingPOPID result = (uint32)(uint8)pszCode[0] << 16U;
+	if ( pszCode[1] )
+	{
+		result |= ( (uint32)(uint8)pszCode[1] << 8U );
+		if ( pszCode[2] )
+		{
+			result |= (uint32)(uint8)pszCode[2] | ( (uint32)(uint8)pszCode[3] << 24U );
+		}
+	}
+	return result;
+}
+
+/// Unpack integer to string representation, including terminating '\0'
+template <int N>
+inline void GetSteamNetworkingLocationPOPStringFromID( SteamNetworkingPOPID id, char (&szCode)[N] )
+{
+	static_assert( N >= 5, "Fixed-size buffer not big enough to hold SDR POP ID" );
+	szCode[0] = char( id >> 16U );
+	szCode[1] = char( id >> 8U );
+	szCode[2] = char( id );
+	szCode[3] = char( id >> 24U ); // See comment above about deep regret and sadness
+	szCode[4] = 0;
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 //
