@@ -83,6 +83,9 @@ public:
 	/// in that case, use zero.  If you need to open multiple listen sockets and have clients
 	/// be able to connect to one or the other, then nVirtualPort should be a small integer (<1000)
 	/// unique to each listen socket you create.
+	///
+	/// If you use this, you probably want to call ISteamNetworkingUtils::InitializeRelayNetworkAccess()
+	/// when your app initializes
 	virtual HSteamListenSocket CreateListenSocketP2P( int nVirtualPort ) = 0;
 
 	/// Begin connecting to a server that is identified using a platform-specific identifier.
@@ -93,6 +96,9 @@ public:
 	/// Set the SteamID (whether "user" or "gameserver") and Steam will determine if the
 	/// client is online and facilitate a relay connection.  Note that all P2P connections on
 	/// Steam are currently relayed.
+	///
+	/// If you use this, you probably want to call ISteamNetworkingUtils::InitializeRelayNetworkAccess()
+	/// when your app initializes
 	virtual HSteamNetConnection ConnectP2P( const SteamNetworkingIdentity &identityRemote, int nVirtualPort ) = 0;
 #endif
 
@@ -352,12 +358,54 @@ extern "C" {
 #else
 #error "Must define VALVE_CALLBACK_PACK_SMALL or VALVE_CALLBACK_PACK_LARGE"
 #endif
+
+/// This callback is posted whenever a connection is created, destroyed, or changes state.
+/// The m_info field will contain a complete description of the connection at the time the
+/// change occurred and the callback was posted.  In particular, m_eState will have the
+/// new connection state.
+///
+/// You will usually need to listen for this callback to know when:
+/// - A new connection arrives on a listen socket.
+///   m_info.m_hListenSocket will be set, m_eOldState = k_ESteamNetworkingConnectionState_None,
+///   and m_info.m_eState = k_ESteamNetworkingConnectionState_Connecting.
+///   See ISteamNetworkigSockets::AcceptConnection.
+/// - A connection you initiated has been accepted by the remote host.
+///   m_eOldState = k_ESteamNetworkingConnectionState_Connecting, and
+///   m_info.m_eState = k_ESteamNetworkingConnectionState_Connected.
+///   Some connections might transition to k_ESteamNetworkingConnectionState_FindingRoute first.
+/// - A connection has been actively rejected or closed by the remote host.
+///   m_eOldState = k_ESteamNetworkingConnectionState_Connecting or k_ESteamNetworkingConnectionState_Connected,
+///   and m_info.m_eState = k_ESteamNetworkingConnectionState_ClosedByPeer.  m_info.m_eEndReason
+///   and m_info.m_szEndDebug will have for more details.
+///   NOTE: upon receiving this callback, you must still destroy the connection using
+///   ISteamNetworkingSockets::CloseConnection to free up local resources.  (The details
+///   passed to the function are not used in this case, since the connection is already closed.)
+/// - A problem was detected with the connection, and it has been closed by the local host.
+///   The most common failure is timeout, but other configuration or authentication failures
+///   can cause this.  m_eOldState = k_ESteamNetworkingConnectionState_Connecting or
+///   k_ESteamNetworkingConnectionState_Connected, and m_info.m_eState = k_ESteamNetworkingConnectionState_ProblemDetectedLocally.
+///   m_info.m_eEndReason and m_info.m_szEndDebug will have for more details.
+///   NOTE: upon receiving this callback, you must still destroy the connection using
+///   ISteamNetworkingSockets::CloseConnection to free up local resources.  (The details
+///   passed to the function are not used in this case, since the connection is already closed.)
+///
+/// Remember that callbacks are posted to a queue, and networking connections can
+/// change at any time.  It is possible that the connection has already changed
+/// state by the time you process this callback.
+///
+/// Also note that callbacks will be posted when connections are created and destroyed by your own API calls.
 struct SteamNetConnectionStatusChangedCallback_t
 { 
 	enum { k_iCallback = k_iSteamNetworkingSocketsCallbacks + 1 };
-	HSteamNetConnection m_hConn;		//< Connection handle
-	SteamNetConnectionInfo_t m_info;	//< Full connection info
-	int m_eOldState;					//< ESNetSocketState.  (Current stats is in m_info)
+
+	/// Connection handle
+	HSteamNetConnection m_hConn;
+
+	/// Full connection info
+	SteamNetConnectionInfo_t m_info;
+
+	/// Previous state.  (Current state is in m_info.m_eState)
+	ESteamNetworkingConnectionState m_eOldState;
 };
 #pragma pack( pop )
 
