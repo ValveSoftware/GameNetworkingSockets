@@ -119,10 +119,6 @@ struct PacketRate_t
 /// Class used to track ping values
 struct PingTracker
 {
-	void Reset();
-
-	/// Called when we receive a ping measurement
-	void ReceivedPing( int nPingMS, SteamNetworkingMicroseconds usecNow );
 
 	struct Ping
 	{
@@ -151,6 +147,12 @@ struct PingTracker
 	/// Ping estimate, being optimistic
 	int OptimisticPingEstimate() const;
 
+	/// Estimate a conservative (i.e. err on the large side) timeout for the connection
+	SteamNetworkingMicroseconds CalcConservativeTimeout() const
+	{
+		return ( m_nSmoothedPing >= 0 ) ? ( PessimisticPingEstimate()*2000 + 250000 ) : k_nMillion;
+	}
+
 	/// Smoothed ping value
 	int m_nSmoothedPing;
 
@@ -159,24 +161,69 @@ struct PingTracker
 	/// a simple timestamp, or possibly because it will contain a sequence number, and
 	/// we will be able to look up that sequence number and remember when we sent it.)
 	SteamNetworkingMicroseconds m_usecTimeLastSentPingRequest;
+protected:
+	void Reset();
+
+	/// Called when we receive a ping measurement
+	void ReceivedPing( int nPingMS, SteamNetworkingMicroseconds usecNow );
+};
+
+/// Ping tracker that tracks detailed lifetime stats
+struct PingTrackerDetailed : PingTracker
+{
+	void Reset()
+	{
+		PingTracker::Reset();
+		m_sample.Clear();
+		m_histogram.Reset();
+	}
+	void ReceivedPing( int nPingMS, SteamNetworkingMicroseconds usecNow )
+	{
+		PingTracker::ReceivedPing( nPingMS, usecNow );
+		m_sample.AddSample( std::min( nPingMS, 0xffff ) );
+		m_histogram.AddSample( nPingMS );
+	}
 
 	/// Total number of pings we have received
 	inline int TotalPingsReceived() const { return m_sample.NumSamplesTotal(); }
 
-	/// Should match CMsgSteamDatagramLinkLifetimeStats
-	int m_nHistogram25;
-	int m_nHistogram50;
-	int m_nHistogram75;
-	int m_nHistogram100;
-	int m_nHistogram125;
-	int m_nHistogram150;
-	int m_nHistogram200;
-	int m_nHistogram300;
-	int m_nHistogramMax;
-
-	/// Track sample of pings received so we can generate a histogram.
+	/// Track sample of pings received so we can generate percentiles.
 	/// Also tracks how many pings we have received total
 	PercentileGenerator<uint16> m_sample;
+
+	/// Counts by bucket
+	PingHistogram m_histogram;
+
+	/// Populate structure
+	void GetLifetimeStats( SteamDatagramLinkLifetimeStats &s ) const
+	{
+		s.m_pingHistogram  = m_histogram;
+
+		s.m_nPingNtile5th  = m_sample.NumSamples() < 20 ? -1 : m_sample.GetPercentile( .05f );
+		s.m_nPingNtile50th = m_sample.NumSamples() <  2 ? -1 : m_sample.GetPercentile( .50f );
+		s.m_nPingNtile75th = m_sample.NumSamples() <  4 ? -1 : m_sample.GetPercentile( .75f );
+		s.m_nPingNtile95th = m_sample.NumSamples() < 20 ? -1 : m_sample.GetPercentile( .95f );
+		s.m_nPingNtile98th = m_sample.NumSamples() < 50 ? -1 : m_sample.GetPercentile( .98f );
+	}
+};
+
+/// Ping tracker that only tracks totals
+struct PingTrackerBasic : PingTracker
+{
+	void Reset()
+	{
+		PingTracker::Reset();
+		m_nTotalPingsReceived = 0;
+	}
+	void ReceivedPing( int nPingMS, SteamNetworkingMicroseconds usecNow )
+	{
+		PingTracker::ReceivedPing( nPingMS, usecNow );
+		++m_nTotalPingsReceived;
+	}
+
+	inline int TotalPingsReceived() const { return m_nTotalPingsReceived; }
+
+	int m_nTotalPingsReceived;
 };
 
 /// Token bucket rate limiter
@@ -226,21 +273,17 @@ private:
 	float m_flTokenDeficitFromFull;
 };
 
+
 /// Class used to handle link quality calculations.
 struct LinkStatsTrackerBase
 {
 
-	/// Estimate a conservative (i.e. err on the large side) timeout for the connection
-	SteamNetworkingMicroseconds CalcConservativeTimeout() const
-	{
-		return ( m_ping.m_nSmoothedPing >= 0 ) ? ( m_ping.m_nSmoothedPing*2 + 500000 ) : k_nMillion;
-	}
 
 	/// What version is the peer running?  It's 0 if we don't know yet.
 	uint32 m_nPeerProtocolVersion;
 
 	/// Ping
-	PingTracker m_ping;
+	PingTrackerDetailed m_ping;
 
 	//
 	// Outgoing stats
@@ -360,23 +403,10 @@ struct LinkStatsTrackerBase
 	PercentileGenerator<uint8> m_qualitySample;
 
 	/// Histogram of quality intervals
-	int m_nQualityHistogram100;
-	int m_nQualityHistogram99;
-	int m_nQualityHistogram97;
-	int m_nQualityHistogram95;
-	int m_nQualityHistogram90;
-	int m_nQualityHistogram75;
-	int m_nQualityHistogram50;
-	int m_nQualityHistogram1;
-	int m_nQualityHistogramDead;
+	QualityHistogram m_qualityHistogram;
 
 	// Histogram of incoming latency variance
-	int m_nJitterHistogramNegligible; // <1ms
-	int m_nJitterHistogram1; // 1--2ms
-	int m_nJitterHistogram2; // 2--5ms
-	int m_nJitterHistogram5; // 5--10ms
-	int m_nJitterHistogram10; // 10--20ms
-	int m_nJitterHistogram20; // 20ms or more
+	JitterHistogram m_jitterHistogram;
 
 	//
 	// Misc stats bookkeeping
@@ -391,7 +421,7 @@ struct LinkStatsTrackerBase
 	/// note of the outcome.
 	inline bool BReadyToSendTracerPing( SteamNetworkingMicroseconds usecNow ) const
 	{
-		return m_ping.m_usecTimeLastSentPingRequest + k_usecLinkStatsPingRequestInterval < usecNow;
+		return std::max( m_ping.m_usecTimeLastSentPingRequest, m_ping.TimeRecvMostRecentPing() ) + k_usecLinkStatsPingRequestInterval < usecNow;
 	}
 
 	/// Check if we appear to be timing out and need to send an "aggressive" ping, meaning send it right
@@ -744,8 +774,6 @@ struct LinkStatsTracker : public TLinkStatsTracker
 	{
 		TLinkStatsTracker::TrackSentMessageExpectingSeqNumAckInternal( usecNow, bAllowDelayedReply );
 	}
-
-	void RecvPktNumAckInternal( int64 nPktNum );
 };
 
 

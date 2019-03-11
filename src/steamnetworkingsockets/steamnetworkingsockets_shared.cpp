@@ -70,25 +70,12 @@ void PingTracker::Reset()
 	m_nValidPings = 0;
 	m_nSmoothedPing = -1;
 	m_usecTimeLastSentPingRequest = 0;
-	m_sample.Clear();
-	m_nHistogram25 = 0;
-	m_nHistogram50 = 0;
-	m_nHistogram75 = 0;
-	m_nHistogram100 = 0;
-	m_nHistogram125 = 0;
-	m_nHistogram150 = 0;
-	m_nHistogram200 = 0;
-	m_nHistogram300 = 0;
-	m_nHistogramMax = 0;
 }
 
 void PingTracker::ReceivedPing( int nPingMS, SteamNetworkingMicroseconds usecNow )
 {
 	Assert( nPingMS >= 0 );
 	COMPILE_TIME_ASSERT( V_ARRAYSIZE(m_arPing) == 3 );
-
-	// Collect sample
-	m_sample.AddSample( Min( nPingMS, 0xffff ) );
 
 	// Discard oldest, insert new sample at head
 	m_arPing[2] = m_arPing[1];
@@ -127,46 +114,6 @@ void PingTracker::ReceivedPing( int nPingMS, SteamNetworkingMicroseconds usecNow
 			break;
 		}
 	}
-
-	// Update histogram using hand-rolled sort-of-binary-search, optimized
-	// for the expectation that most pings will be reasonable
-	if ( nPingMS <= 100 )
-	{
-		if ( nPingMS <= 50 )
-		{
-			if ( nPingMS <= 25 )
-				++m_nHistogram25;
-			else
-				++m_nHistogram50;
-		}
-		else
-		{
-			if ( nPingMS <= 75 )
-				++m_nHistogram75;
-			else
-				++m_nHistogram100;
-		}
-	}
-	else
-	{
-		if ( nPingMS <= 150 )
-		{
-			if ( nPingMS <= 125 )
-				++m_nHistogram125;
-			else
-				++m_nHistogram150;
-		}
-		else
-		{
-			if ( nPingMS <= 200 )
-				++m_nHistogram200;
-			else if ( nPingMS <= 300 )
-				++m_nHistogram300;
-			else
-				++m_nHistogramMax;
-		}
-	}
-
 }
 
 int PingTracker::PessimisticPingEstimate() const
@@ -222,23 +169,9 @@ void LinkStatsTrackerBase::InitInternal( SteamNetworkingMicroseconds usecNow )
 	m_usecTimeRecvLifetimeRemote = 0;
 	//m_seqnumUnackedSentLifetime = -1;
 	//m_seqnumPendingAckRecvTimelife = -1;
-	m_nQualityHistogram100 = 0;
-	m_nQualityHistogram99 = 0;
-	m_nQualityHistogram97 = 0;
-	m_nQualityHistogram95 = 0;
-	m_nQualityHistogram90 = 0;
-	m_nQualityHistogram75 = 0;
-	m_nQualityHistogram50 = 0;
-	m_nQualityHistogram1 = 0;
-	m_nQualityHistogramDead = 0;
+	m_qualityHistogram.Reset();
 	m_qualitySample.Clear();
-
-	m_nJitterHistogramNegligible = 0;
-	m_nJitterHistogram1 = 0;
-	m_nJitterHistogram2 = 0;
-	m_nJitterHistogram5 = 0;
-	m_nJitterHistogram10 = 0;
-	m_nJitterHistogram20 = 0;
+	m_jitterHistogram.Reset();
 }
 
 void LinkStatsTrackerBase::SetDisconnectedInternal( bool bFlag, SteamNetworkingMicroseconds usecNow )
@@ -312,7 +245,7 @@ void LinkStatsTrackerBase::UpdateInterval( SteamNetworkingMicroseconds usecNow )
 			{
 				// Perfect connection.  This will hopefully be relatively common
 				m_qualitySample.AddSample( 100 );
-				++m_nQualityHistogram100;
+				++m_qualityHistogram.m_n100;
 			}
 			else
 			{
@@ -327,28 +260,28 @@ void LinkStatsTrackerBase::UpdateInterval( SteamNetworkingMicroseconds usecNow )
 				if ( nQuality >= 99 )
 				{
 					m_qualitySample.AddSample( 99 );
-					++m_nQualityHistogram99;
+					++m_qualityHistogram.m_n99;
 				}
 				else if ( nQuality <= 1 ) // in case accounting is hosed or every single packet was out of order, clamp.  0 means "totally dead connection"
 				{
 					m_qualitySample.AddSample( 1 );
-					++m_nQualityHistogram1;
+					++m_qualityHistogram.m_n1;
 				}
 				else
 				{
 					m_qualitySample.AddSample( nQuality );
 					if ( nQuality >= 97 )
-						++m_nQualityHistogram97;
+						++m_qualityHistogram.m_n97;
 					else if ( nQuality >= 95 )
-						++m_nQualityHistogram95;
+						++m_qualityHistogram.m_n95;
 					else if ( nQuality >= 90 )
-						++m_nQualityHistogram90;
+						++m_qualityHistogram.m_n90;
 					else if ( nQuality >= 75 )
-						++m_nQualityHistogram75;
+						++m_qualityHistogram.m_n75;
 					else if ( nQuality >= 50 )
-						++m_nQualityHistogram50;
+						++m_qualityHistogram.m_n50;
 					else
-						++m_nQualityHistogram1;
+						++m_qualityHistogram.m_n1;
 				}
 			}
 		}
@@ -360,7 +293,7 @@ void LinkStatsTrackerBase::UpdateInterval( SteamNetworkingMicroseconds usecNow )
 			// because the connection is just idle or shutting down.  The connection has probably
 			// dropped.
 			m_qualitySample.AddSample(0);
-			++m_nQualityHistogramDead;
+			++m_qualityHistogram.m_nDead;
 		}
 	}
 
@@ -492,20 +425,7 @@ void LinkStatsTrackerBase::TrackProcessSequencedPacket( int64 nPktNum, SteamNetw
 
 				// Update max jitter for current interval
 				m_usecMaxJitterCurrentInterval = Max( m_usecMaxJitterCurrentInterval, usecJitter );
-
-				// Add to histogram
-				if ( usecJitter < 1000 )
-					++m_nJitterHistogramNegligible;
-				else if ( usecJitter < 2000 )
-					++m_nJitterHistogram1;
-				else if ( usecJitter < 5000 )
-					++m_nJitterHistogram2;
-				else if ( usecJitter < 10000 )
-					++m_nJitterHistogram5;
-				else if ( usecJitter < 20000 )
-					++m_nJitterHistogram10;
-				else
-					++m_nJitterHistogram20;
+				m_jitterHistogram.AddSample( usecJitter );
 			}
 			else
 			{
@@ -548,8 +468,15 @@ void LinkStatsTrackerBase::TrackProcessSequencedPacket( int64 nPktNum, SteamNetw
 			++m_nPktsRecvWeirdSequenceCurrentInterval;
 
 			// We previously counted this packet as dropped.  Undo that, it wasn't dropped.
-			Assert( m_nPktsRecvDropped > 0 );
-			--m_nPktsRecvDropped;
+			if ( m_nPktsRecvDropped > 0 )
+			{
+				--m_nPktsRecvDropped;
+			}
+			else
+			{
+				// This is weird.
+				AssertMsg2( false, "No dropped packets, but pkt num %lld -> %lld and bit is not set?", (long long)m_nMaxRecvPktNum, (long long)nPktNum );
+			}
 			if ( m_nPktsRecvDroppedCurrentInterval > 0 ) // Might have marked it in the previous interval.  Our stats will be slightly off in this case.  Not worth it tro try to get this exactly right.
 				--m_nPktsRecvDroppedCurrentInterval;
 
@@ -660,7 +587,7 @@ void LinkStatsTrackerBase::TrackSentMessageExpectingReply( SteamNetworkingMicros
 {
 	if ( m_usecInFlightReplyTimeout == 0 )
 	{
-		m_usecInFlightReplyTimeout = usecNow + k_usecSteamDatagramClientPingTimeout;  // FIXME - we could be a lot smarter about this timeout using the ping estimate!
+		m_usecInFlightReplyTimeout = usecNow + m_ping.CalcConservativeTimeout();
 		if ( bAllowDelayedReply )
 			m_usecInFlightReplyTimeout += k_usecSteamDatagramRouterPendClientPing;
 	}
@@ -706,43 +633,16 @@ void LinkStatsTrackerBase::GetLifetimeStats( SteamDatagramLinkLifetimeStats &s )
 	s.m_nPktsRecvDuplicate = m_nPktsRecvDuplicate;
 	s.m_nPktsRecvSequenceNumberLurch = m_nPktsRecvSequenceNumberLurch;
 
-	s.m_nQualityHistogram100 = m_nQualityHistogram100;
-	s.m_nQualityHistogram99 = m_nQualityHistogram99;
-	s.m_nQualityHistogram97 = m_nQualityHistogram97;
-	s.m_nQualityHistogram95 = m_nQualityHistogram95;
-	s.m_nQualityHistogram90 = m_nQualityHistogram90;
-	s.m_nQualityHistogram75 = m_nQualityHistogram75;
-	s.m_nQualityHistogram50 = m_nQualityHistogram50;
-	s.m_nQualityHistogram1 = m_nQualityHistogram1;
-	s.m_nQualityHistogramDead = m_nQualityHistogramDead;
+	s.m_qualityHistogram = m_qualityHistogram;
 
 	s.m_nQualityNtile50th = m_qualitySample.NumSamples() <  2 ? -1 : m_qualitySample.GetPercentile( .50f );
 	s.m_nQualityNtile25th = m_qualitySample.NumSamples() <  4 ? -1 : m_qualitySample.GetPercentile( .25f );
 	s.m_nQualityNtile5th  = m_qualitySample.NumSamples() < 20 ? -1 : m_qualitySample.GetPercentile( .05f );
 	s.m_nQualityNtile2nd  = m_qualitySample.NumSamples() < 50 ? -1 : m_qualitySample.GetPercentile( .02f );
 
-	s.m_nPingHistogram25  = m_ping.m_nHistogram25;
-	s.m_nPingHistogram50  = m_ping.m_nHistogram50;
-	s.m_nPingHistogram75  = m_ping.m_nHistogram75;
-	s.m_nPingHistogram100 = m_ping.m_nHistogram100;
-	s.m_nPingHistogram125 = m_ping.m_nHistogram125;
-	s.m_nPingHistogram150 = m_ping.m_nHistogram150;
-	s.m_nPingHistogram200 = m_ping.m_nHistogram200;
-	s.m_nPingHistogram300 = m_ping.m_nHistogram300;
-	s.m_nPingHistogramMax = m_ping.m_nHistogramMax;
+	m_ping.GetLifetimeStats( s );
 
-	s.m_nPingNtile5th  = m_ping.m_sample.NumSamples() < 20 ? -1 : m_ping.m_sample.GetPercentile( .05f );
-	s.m_nPingNtile50th = m_ping.m_sample.NumSamples() <  2 ? -1 : m_ping.m_sample.GetPercentile( .50f );
-	s.m_nPingNtile75th = m_ping.m_sample.NumSamples() <  4 ? -1 : m_ping.m_sample.GetPercentile( .75f );
-	s.m_nPingNtile95th = m_ping.m_sample.NumSamples() < 20 ? -1 : m_ping.m_sample.GetPercentile( .95f );
-	s.m_nPingNtile98th = m_ping.m_sample.NumSamples() < 50 ? -1 : m_ping.m_sample.GetPercentile( .98f );
-
-	s.m_nJitterHistogramNegligible = m_nJitterHistogramNegligible;
-	s.m_nJitterHistogram1 = m_nJitterHistogram1;
-	s.m_nJitterHistogram2 = m_nJitterHistogram2;
-	s.m_nJitterHistogram5 = m_nJitterHistogram5;
-	s.m_nJitterHistogram10 = m_nJitterHistogram10;
-	s.m_nJitterHistogram20 = m_nJitterHistogram20;
+	s.m_jitterHistogram = m_jitterHistogram;
 
 	//
 	// Clear all end-to-end values
@@ -998,30 +898,30 @@ void LinkStatsLifetimeStructToMsg( const SteamDatagramLinkLifetimeStats &s, CMsg
 	#define SET_HISTOGRAM( mbr, field ) if ( mbr > 0 ) msg.set_ ## field( mbr );
 	#define SET_NTILE( mbr, field ) if ( mbr >= 0 ) msg.set_ ## field( mbr );
 
-	SET_HISTOGRAM( s.m_nQualityHistogram100 , quality_histogram_100  )
-	SET_HISTOGRAM( s.m_nQualityHistogram99  , quality_histogram_99   )
-	SET_HISTOGRAM( s.m_nQualityHistogram97  , quality_histogram_97   )
-	SET_HISTOGRAM( s.m_nQualityHistogram95  , quality_histogram_95   )
-	SET_HISTOGRAM( s.m_nQualityHistogram90  , quality_histogram_90   )
-	SET_HISTOGRAM( s.m_nQualityHistogram75  , quality_histogram_75   )
-	SET_HISTOGRAM( s.m_nQualityHistogram50  , quality_histogram_50   )
-	SET_HISTOGRAM( s.m_nQualityHistogram1   , quality_histogram_1    )
-	SET_HISTOGRAM( s.m_nQualityHistogramDead, quality_histogram_dead )
+	SET_HISTOGRAM( s.m_qualityHistogram.m_n100 , quality_histogram_100  )
+	SET_HISTOGRAM( s.m_qualityHistogram.m_n99  , quality_histogram_99   )
+	SET_HISTOGRAM( s.m_qualityHistogram.m_n97  , quality_histogram_97   )
+	SET_HISTOGRAM( s.m_qualityHistogram.m_n95  , quality_histogram_95   )
+	SET_HISTOGRAM( s.m_qualityHistogram.m_n90  , quality_histogram_90   )
+	SET_HISTOGRAM( s.m_qualityHistogram.m_n75  , quality_histogram_75   )
+	SET_HISTOGRAM( s.m_qualityHistogram.m_n50  , quality_histogram_50   )
+	SET_HISTOGRAM( s.m_qualityHistogram.m_n1   , quality_histogram_1    )
+	SET_HISTOGRAM( s.m_qualityHistogram.m_nDead, quality_histogram_dead )
 
 	SET_NTILE( s.m_nQualityNtile50th, quality_ntile_50th )
 	SET_NTILE( s.m_nQualityNtile25th, quality_ntile_25th )
 	SET_NTILE( s.m_nQualityNtile5th , quality_ntile_5th  )
 	SET_NTILE( s.m_nQualityNtile2nd , quality_ntile_2nd  )
 
-	SET_HISTOGRAM( s.m_nPingHistogram25 , ping_histogram_25  )
-	SET_HISTOGRAM( s.m_nPingHistogram50 , ping_histogram_50  )
-	SET_HISTOGRAM( s.m_nPingHistogram75 , ping_histogram_75  )
-	SET_HISTOGRAM( s.m_nPingHistogram100, ping_histogram_100 )
-	SET_HISTOGRAM( s.m_nPingHistogram125, ping_histogram_125 )
-	SET_HISTOGRAM( s.m_nPingHistogram150, ping_histogram_150 )
-	SET_HISTOGRAM( s.m_nPingHistogram200, ping_histogram_200 )
-	SET_HISTOGRAM( s.m_nPingHistogram300, ping_histogram_300 )
-	SET_HISTOGRAM( s.m_nPingHistogramMax, ping_histogram_max )
+	SET_HISTOGRAM( s.m_pingHistogram.m_n25 , ping_histogram_25  )
+	SET_HISTOGRAM( s.m_pingHistogram.m_n50 , ping_histogram_50  )
+	SET_HISTOGRAM( s.m_pingHistogram.m_n75 , ping_histogram_75  )
+	SET_HISTOGRAM( s.m_pingHistogram.m_n100, ping_histogram_100 )
+	SET_HISTOGRAM( s.m_pingHistogram.m_n125, ping_histogram_125 )
+	SET_HISTOGRAM( s.m_pingHistogram.m_n150, ping_histogram_150 )
+	SET_HISTOGRAM( s.m_pingHistogram.m_n200, ping_histogram_200 )
+	SET_HISTOGRAM( s.m_pingHistogram.m_n300, ping_histogram_300 )
+	SET_HISTOGRAM( s.m_pingHistogram.m_nMax, ping_histogram_max )
 
 	SET_NTILE( s.m_nPingNtile5th , ping_ntile_5th  )
 	SET_NTILE( s.m_nPingNtile50th, ping_ntile_50th )
@@ -1029,12 +929,12 @@ void LinkStatsLifetimeStructToMsg( const SteamDatagramLinkLifetimeStats &s, CMsg
 	SET_NTILE( s.m_nPingNtile95th, ping_ntile_95th )
 	SET_NTILE( s.m_nPingNtile98th, ping_ntile_98th )
 
-	SET_HISTOGRAM( s.m_nJitterHistogramNegligible, jitter_histogram_negligible )
-	SET_HISTOGRAM( s.m_nJitterHistogram1,  jitter_histogram_1  )
-	SET_HISTOGRAM( s.m_nJitterHistogram2,  jitter_histogram_2  )
-	SET_HISTOGRAM( s.m_nJitterHistogram5,  jitter_histogram_5  )
-	SET_HISTOGRAM( s.m_nJitterHistogram10, jitter_histogram_10 )
-	SET_HISTOGRAM( s.m_nJitterHistogram20, jitter_histogram_20 )
+	SET_HISTOGRAM( s.m_jitterHistogram.m_nNegligible, jitter_histogram_negligible )
+	SET_HISTOGRAM( s.m_jitterHistogram.m_n1,  jitter_histogram_1  )
+	SET_HISTOGRAM( s.m_jitterHistogram.m_n2,  jitter_histogram_2  )
+	SET_HISTOGRAM( s.m_jitterHistogram.m_n5,  jitter_histogram_5  )
+	SET_HISTOGRAM( s.m_jitterHistogram.m_n10, jitter_histogram_10 )
+	SET_HISTOGRAM( s.m_jitterHistogram.m_n20, jitter_histogram_20 )
 
 	if ( s.m_nTXSpeedMax > 0 )
 		msg.set_txspeed_max( s.m_nTXSpeedMax );
@@ -1091,30 +991,30 @@ void LinkStatsLifetimeMsgToStruct( const CMsgSteamDatagramLinkLifetimeStats &msg
 	#define SET_HISTOGRAM( mbr, field ) mbr = msg.field();
 	#define SET_NTILE( mbr, field ) mbr = ( msg.has_ ## field() ? msg.field() : -1 );
 
-	SET_HISTOGRAM( s.m_nQualityHistogram100 , quality_histogram_100  )
-	SET_HISTOGRAM( s.m_nQualityHistogram99  , quality_histogram_99   )
-	SET_HISTOGRAM( s.m_nQualityHistogram97  , quality_histogram_97   )
-	SET_HISTOGRAM( s.m_nQualityHistogram95  , quality_histogram_95   )
-	SET_HISTOGRAM( s.m_nQualityHistogram90  , quality_histogram_90   )
-	SET_HISTOGRAM( s.m_nQualityHistogram75  , quality_histogram_75   )
-	SET_HISTOGRAM( s.m_nQualityHistogram50  , quality_histogram_50   )
-	SET_HISTOGRAM( s.m_nQualityHistogram1   , quality_histogram_1    )
-	SET_HISTOGRAM( s.m_nQualityHistogramDead, quality_histogram_dead )
+	SET_HISTOGRAM( s.m_qualityHistogram.m_n100 , quality_histogram_100  )
+	SET_HISTOGRAM( s.m_qualityHistogram.m_n99  , quality_histogram_99   )
+	SET_HISTOGRAM( s.m_qualityHistogram.m_n97  , quality_histogram_97   )
+	SET_HISTOGRAM( s.m_qualityHistogram.m_n95  , quality_histogram_95   )
+	SET_HISTOGRAM( s.m_qualityHistogram.m_n90  , quality_histogram_90   )
+	SET_HISTOGRAM( s.m_qualityHistogram.m_n75  , quality_histogram_75   )
+	SET_HISTOGRAM( s.m_qualityHistogram.m_n50  , quality_histogram_50   )
+	SET_HISTOGRAM( s.m_qualityHistogram.m_n1   , quality_histogram_1    )
+	SET_HISTOGRAM( s.m_qualityHistogram.m_nDead, quality_histogram_dead )
 
 	SET_NTILE( s.m_nQualityNtile50th, quality_ntile_50th )
 	SET_NTILE( s.m_nQualityNtile25th, quality_ntile_25th )
 	SET_NTILE( s.m_nQualityNtile5th , quality_ntile_5th  )
 	SET_NTILE( s.m_nQualityNtile2nd , quality_ntile_2nd  )
 
-	SET_HISTOGRAM( s.m_nPingHistogram25 , ping_histogram_25  )
-	SET_HISTOGRAM( s.m_nPingHistogram50 , ping_histogram_50  )
-	SET_HISTOGRAM( s.m_nPingHistogram75 , ping_histogram_75  )
-	SET_HISTOGRAM( s.m_nPingHistogram100, ping_histogram_100 )
-	SET_HISTOGRAM( s.m_nPingHistogram125, ping_histogram_125 )
-	SET_HISTOGRAM( s.m_nPingHistogram150, ping_histogram_150 )
-	SET_HISTOGRAM( s.m_nPingHistogram200, ping_histogram_200 )
-	SET_HISTOGRAM( s.m_nPingHistogram300, ping_histogram_300 )
-	SET_HISTOGRAM( s.m_nPingHistogramMax, ping_histogram_max )
+	SET_HISTOGRAM( s.m_pingHistogram.m_n25 , ping_histogram_25  )
+	SET_HISTOGRAM( s.m_pingHistogram.m_n50 , ping_histogram_50  )
+	SET_HISTOGRAM( s.m_pingHistogram.m_n75 , ping_histogram_75  )
+	SET_HISTOGRAM( s.m_pingHistogram.m_n100, ping_histogram_100 )
+	SET_HISTOGRAM( s.m_pingHistogram.m_n125, ping_histogram_125 )
+	SET_HISTOGRAM( s.m_pingHistogram.m_n150, ping_histogram_150 )
+	SET_HISTOGRAM( s.m_pingHistogram.m_n200, ping_histogram_200 )
+	SET_HISTOGRAM( s.m_pingHistogram.m_n300, ping_histogram_300 )
+	SET_HISTOGRAM( s.m_pingHistogram.m_nMax, ping_histogram_max )
 
 	SET_NTILE( s.m_nPingNtile5th , ping_ntile_5th  )
 	SET_NTILE( s.m_nPingNtile50th, ping_ntile_50th )
@@ -1122,12 +1022,12 @@ void LinkStatsLifetimeMsgToStruct( const CMsgSteamDatagramLinkLifetimeStats &msg
 	SET_NTILE( s.m_nPingNtile95th, ping_ntile_95th )
 	SET_NTILE( s.m_nPingNtile98th, ping_ntile_98th )
 
-	SET_HISTOGRAM( s.m_nJitterHistogramNegligible, jitter_histogram_negligible )
-	SET_HISTOGRAM( s.m_nJitterHistogram1,  jitter_histogram_1  )
-	SET_HISTOGRAM( s.m_nJitterHistogram2,  jitter_histogram_2  )
-	SET_HISTOGRAM( s.m_nJitterHistogram5,  jitter_histogram_5  )
-	SET_HISTOGRAM( s.m_nJitterHistogram10, jitter_histogram_10 )
-	SET_HISTOGRAM( s.m_nJitterHistogram20, jitter_histogram_20 )
+	SET_HISTOGRAM( s.m_jitterHistogram.m_nNegligible, jitter_histogram_negligible )
+	SET_HISTOGRAM( s.m_jitterHistogram.m_n1,  jitter_histogram_1  )
+	SET_HISTOGRAM( s.m_jitterHistogram.m_n2,  jitter_histogram_2  )
+	SET_HISTOGRAM( s.m_jitterHistogram.m_n5,  jitter_histogram_5  )
+	SET_HISTOGRAM( s.m_jitterHistogram.m_n10, jitter_histogram_10 )
+	SET_HISTOGRAM( s.m_jitterHistogram.m_n20, jitter_histogram_20 )
 
 	s.m_nTXSpeedMax = msg.txspeed_max();
 
@@ -1238,20 +1138,20 @@ void LinkStatsPrintLifetimeToBuf( const char *pszLeader, const SteamDatagramLink
 
 	// Do we have enough ping samples such that the distribution might be interesting
 	{
-		int nPingSamples = stats.PingHistogramTotalCount();
+		int nPingSamples = stats.m_pingHistogram.TotalCount();
 		if ( nPingSamples >= 5 )
 		{
 			float flToPct = 100.0f / nPingSamples;
 			buf.Printf( "%sPing histogram: (%d total samples)\n", pszLeader, nPingSamples );
-			buf.Printf( "%s      0-25  :%5d  %3.0f%%\n", pszLeader, stats.m_nPingHistogram25 , stats.m_nPingHistogram25 *flToPct );
-			buf.Printf( "%s     25-50  :%5d  %3.0f%%\n", pszLeader, stats.m_nPingHistogram50 , stats.m_nPingHistogram50 *flToPct );
-			buf.Printf( "%s     50-75  :%5d  %3.0f%%\n", pszLeader, stats.m_nPingHistogram75 , stats.m_nPingHistogram75 *flToPct );
-			buf.Printf( "%s     75-100 :%5d  %3.0f%%\n", pszLeader, stats.m_nPingHistogram100, stats.m_nPingHistogram100*flToPct );
-			buf.Printf( "%s    100-125 :%5d  %3.0f%%\n", pszLeader, stats.m_nPingHistogram125, stats.m_nPingHistogram125*flToPct );
-			buf.Printf( "%s    125-150 :%5d  %3.0f%%\n", pszLeader, stats.m_nPingHistogram150, stats.m_nPingHistogram150*flToPct );
-			buf.Printf( "%s    150-200 :%5d  %3.0f%%\n", pszLeader, stats.m_nPingHistogram200, stats.m_nPingHistogram200*flToPct );
-			buf.Printf( "%s    200-300 :%5d  %3.0f%%\n", pszLeader, stats.m_nPingHistogram300, stats.m_nPingHistogram300*flToPct );
-			buf.Printf( "%s      300+  :%5d  %3.0f%%\n", pszLeader, stats.m_nPingHistogramMax, stats.m_nPingHistogramMax*flToPct );
+			buf.Printf( "%s      0-25  :%5d  %3.0f%%\n", pszLeader, stats.m_pingHistogram.m_n25 , stats.m_pingHistogram.m_n25 *flToPct );
+			buf.Printf( "%s     25-50  :%5d  %3.0f%%\n", pszLeader, stats.m_pingHistogram.m_n50 , stats.m_pingHistogram.m_n50 *flToPct );
+			buf.Printf( "%s     50-75  :%5d  %3.0f%%\n", pszLeader, stats.m_pingHistogram.m_n75 , stats.m_pingHistogram.m_n75 *flToPct );
+			buf.Printf( "%s     75-100 :%5d  %3.0f%%\n", pszLeader, stats.m_pingHistogram.m_n100, stats.m_pingHistogram.m_n100*flToPct );
+			buf.Printf( "%s    100-125 :%5d  %3.0f%%\n", pszLeader, stats.m_pingHistogram.m_n125, stats.m_pingHistogram.m_n125*flToPct );
+			buf.Printf( "%s    125-150 :%5d  %3.0f%%\n", pszLeader, stats.m_pingHistogram.m_n150, stats.m_pingHistogram.m_n150*flToPct );
+			buf.Printf( "%s    150-200 :%5d  %3.0f%%\n", pszLeader, stats.m_pingHistogram.m_n200, stats.m_pingHistogram.m_n200*flToPct );
+			buf.Printf( "%s    200-300 :%5d  %3.0f%%\n", pszLeader, stats.m_pingHistogram.m_n300, stats.m_pingHistogram.m_n300*flToPct );
+			buf.Printf( "%s      300+  :%5d  %3.0f%%\n", pszLeader, stats.m_pingHistogram.m_nMax, stats.m_pingHistogram.m_nMax*flToPct );
 			buf.Printf( "%sPing distribution:\n", pszLeader );
 			if ( stats.m_nPingNtile5th  >= 0 ) buf.Printf( "%s     5%% of pings <= %4dms\n", pszLeader, stats.m_nPingNtile5th  );
 			if ( stats.m_nPingNtile50th >= 0 ) buf.Printf( "%s    50%% of pings <= %4dms\n", pszLeader, stats.m_nPingNtile50th );
@@ -1267,21 +1167,21 @@ void LinkStatsPrintLifetimeToBuf( const char *pszLeader, const SteamDatagramLink
 
 	// Do we have enough quality samples such that the distribution might be interesting?
 	{
-		int nQualitySamples = stats.QualityHistogramTotalCount();
+		int nQualitySamples = stats.m_qualityHistogram.TotalCount();
 		if ( nQualitySamples >= 5 )
 		{
 			float flToPct = 100.0f / nQualitySamples;
 
 			buf.Printf( "%sConnection quality histogram: (%d measurement intervals)\n", pszLeader, nQualitySamples );
-			buf.Printf( "%s     100  :%5d  %3.0f%%   (All packets received in order)\n", pszLeader, stats.m_nQualityHistogram100, stats.m_nQualityHistogram100*flToPct );
-			buf.Printf( "%s     99+  :%5d  %3.0f%%\n", pszLeader, stats.m_nQualityHistogram99, stats.m_nQualityHistogram99*flToPct );
-			buf.Printf( "%s    97-99 :%5d  %3.0f%%\n", pszLeader, stats.m_nQualityHistogram97, stats.m_nQualityHistogram97*flToPct );
-			buf.Printf( "%s    95-97 :%5d  %3.0f%%\n", pszLeader, stats.m_nQualityHistogram95, stats.m_nQualityHistogram95*flToPct );
-			buf.Printf( "%s    90-95 :%5d  %3.0f%%\n", pszLeader, stats.m_nQualityHistogram90, stats.m_nQualityHistogram90*flToPct );
-			buf.Printf( "%s    75-90 :%5d  %3.0f%%\n", pszLeader, stats.m_nQualityHistogram75, stats.m_nQualityHistogram75*flToPct );
-			buf.Printf( "%s    50-75 :%5d  %3.0f%%\n", pszLeader, stats.m_nQualityHistogram50, stats.m_nQualityHistogram50*flToPct );
-			buf.Printf( "%s     <50  :%5d  %3.0f%%\n", pszLeader, stats.m_nQualityHistogram1, stats.m_nQualityHistogram1*flToPct );
-			buf.Printf( "%s    dead  :%5d  %3.0f%%   (Expected to receive something but didn't)\n", pszLeader, stats.m_nQualityHistogramDead, stats.m_nQualityHistogramDead*flToPct );
+			buf.Printf( "%s     100  :%5d  %3.0f%%   (All packets received in order)\n", pszLeader, stats.m_qualityHistogram.m_n100, stats.m_qualityHistogram.m_n100*flToPct );
+			buf.Printf( "%s     99+  :%5d  %3.0f%%\n", pszLeader, stats.m_qualityHistogram.m_n99, stats.m_qualityHistogram.m_n99*flToPct );
+			buf.Printf( "%s    97-99 :%5d  %3.0f%%\n", pszLeader, stats.m_qualityHistogram.m_n97, stats.m_qualityHistogram.m_n97*flToPct );
+			buf.Printf( "%s    95-97 :%5d  %3.0f%%\n", pszLeader, stats.m_qualityHistogram.m_n95, stats.m_qualityHistogram.m_n95*flToPct );
+			buf.Printf( "%s    90-95 :%5d  %3.0f%%\n", pszLeader, stats.m_qualityHistogram.m_n90, stats.m_qualityHistogram.m_n90*flToPct );
+			buf.Printf( "%s    75-90 :%5d  %3.0f%%\n", pszLeader, stats.m_qualityHistogram.m_n75, stats.m_qualityHistogram.m_n75*flToPct );
+			buf.Printf( "%s    50-75 :%5d  %3.0f%%\n", pszLeader, stats.m_qualityHistogram.m_n50, stats.m_qualityHistogram.m_n50*flToPct );
+			buf.Printf( "%s     <50  :%5d  %3.0f%%\n", pszLeader, stats.m_qualityHistogram.m_n1, stats.m_qualityHistogram.m_n1*flToPct );
+			buf.Printf( "%s    dead  :%5d  %3.0f%%   (Expected to receive something but didn't)\n", pszLeader, stats.m_qualityHistogram.m_nDead, stats.m_qualityHistogram.m_nDead*flToPct );
 			buf.Printf( "%sConnection quality distribution:\n", pszLeader );
 			if ( stats.m_nQualityNtile50th >= 0 ) buf.Printf( "%s    50%% of intervals >= %3d%%\n", pszLeader, stats.m_nQualityNtile50th );
 			if ( stats.m_nQualityNtile25th >= 0 ) buf.Printf( "%s    75%% of intervals >= %3d%%\n", pszLeader, stats.m_nQualityNtile25th );
@@ -1296,18 +1196,18 @@ void LinkStatsPrintLifetimeToBuf( const char *pszLeader, const SteamDatagramLink
 
 	// Do we have any jitter samples?
 	{
-		int nJitterSamples = stats.JitterHistogramTotalCount();
+		int nJitterSamples = stats.m_jitterHistogram.TotalCount();
 		if ( nJitterSamples >= 1 )
 		{
 			float flToPct = 100.0f / nJitterSamples;
 
 			buf.Printf( "%sLatency variance histogram: (%d total measurements)\n", pszLeader, nJitterSamples );
-			buf.Printf( "%s     <1  :%7d  %3.0f%%\n", pszLeader, stats.m_nJitterHistogramNegligible, stats.m_nJitterHistogramNegligible*flToPct );
-			buf.Printf( "%s    1-2  :%7d  %3.0f%%\n", pszLeader, stats.m_nJitterHistogram1 , stats.m_nJitterHistogram1 *flToPct );
-			buf.Printf( "%s    2-5  :%7d  %3.0f%%\n", pszLeader, stats.m_nJitterHistogram2 , stats.m_nJitterHistogram2 *flToPct );
-			buf.Printf( "%s    5-10 :%7d  %3.0f%%\n", pszLeader, stats.m_nJitterHistogram5 , stats.m_nJitterHistogram5 *flToPct );
-			buf.Printf( "%s   10-20 :%7d  %3.0f%%\n", pszLeader, stats.m_nJitterHistogram10, stats.m_nJitterHistogram10*flToPct );
-			buf.Printf( "%s    >20  :%7d  %3.0f%%\n", pszLeader, stats.m_nJitterHistogram20, stats.m_nJitterHistogram20*flToPct );
+			buf.Printf( "%s     <1  :%7d  %3.0f%%\n", pszLeader, stats.m_jitterHistogram.m_nNegligible, stats.m_jitterHistogram.m_nNegligible*flToPct );
+			buf.Printf( "%s    1-2  :%7d  %3.0f%%\n", pszLeader, stats.m_jitterHistogram.m_n1 , stats.m_jitterHistogram.m_n1 *flToPct );
+			buf.Printf( "%s    2-5  :%7d  %3.0f%%\n", pszLeader, stats.m_jitterHistogram.m_n2 , stats.m_jitterHistogram.m_n2 *flToPct );
+			buf.Printf( "%s    5-10 :%7d  %3.0f%%\n", pszLeader, stats.m_jitterHistogram.m_n5 , stats.m_jitterHistogram.m_n5 *flToPct );
+			buf.Printf( "%s   10-20 :%7d  %3.0f%%\n", pszLeader, stats.m_jitterHistogram.m_n10, stats.m_jitterHistogram.m_n10*flToPct );
+			buf.Printf( "%s    >20  :%7d  %3.0f%%\n", pszLeader, stats.m_jitterHistogram.m_n20, stats.m_jitterHistogram.m_n20*flToPct );
 		}
 		else
 		{
