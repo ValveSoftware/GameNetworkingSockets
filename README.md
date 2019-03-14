@@ -251,7 +251,7 @@ This extension comes in handy if you're editing the Meson build files.
 VS Marketplace Link: https://marketplace.visualstudio.com/items?itemName=asabil.meson
 
 ## Roadmap
-the current focus is to get a stable release that matches the first release of
+The current focus is to get a stable release that matches the first release of
 this interface in the public Steamworks SDK.
 
 After that, here are some large features that we expect to add to a future
@@ -267,13 +267,13 @@ would do just as good.  Whatever method we use, needs to work even if the app
 code inspects the state and decides not to send a message.  In this case, the
 bandwidth estimation logic might perceive that the channel is not
 "data-limited", when it essentially is.  We could add an entry point to allow
-the application to express this, but this is getting complicted, making it more
+the application to express this, but this is getting complicated, making it more
 difficult for app code to do the right thing.  It'd be better if it mostly
 "just worked" when app code does the simple thing.
 
 ### NAT piercing (ICE/STUN/TURN)
 The Steamworks code supports a custom protocol for relaying packets through our
-network of relays and on our backbone.  At this time the opensource code does
+network of relays and on our backbone.  At this time the open-source code does
 not have any support for piercing NAT or relaying packets.  But since the
 Steamworks code already has those concepts, it should be pretty easy to add
 support for this.  You'd still be responsible for running the STUN/TURN servers
@@ -282,6 +282,6 @@ and doing the rendezvous/signalling, but the code could use them.
 ### Non-connection-oriented interface
 The Steam version has ISteamMessages, which is a UDP-like interface.  Messages
 are addressed by peer identity, not connection handle.  (Both reliable and
-unreliable messages are still supported.)  We should open- source this API,
+unreliable messages are still supported.)  We should open-source this API,
 too.  Previously it was only for P2P, but we've found that it's useful for
 porting UDP-based code.
