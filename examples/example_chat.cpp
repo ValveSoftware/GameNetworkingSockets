@@ -392,12 +392,12 @@ private:
 			case k_ESteamNetworkingConnectionState_ClosedByPeer:
 			case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
 			{
-				// Ignore it they were not previously connected.  (If they disconnected
+				// Ignore if they were not previously connected.  (If they disconnected
 				// before we accepted the connection.)
 				if ( pInfo->m_eOldState == k_ESteamNetworkingConnectionState_Connected )
 				{
 
-					// Locate the client.  Note that it should have be found, because this
+					// Locate the client.  Note that it should have been found, because this
 					// is the only codepath where we remove clients (except on shutdown),
 					// and connection change callbacks are dispatched in queue order.
 					auto itClient = m_mapClients.find( pInfo->m_hConn );
