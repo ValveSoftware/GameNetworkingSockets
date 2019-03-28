@@ -544,7 +544,16 @@ protected:
 
 	void QueueEndToEndAck( bool bImmediate, SteamNetworkingMicroseconds usecNow )
 	{
-		m_receiverState.QueueFlushAllAcks( bImmediate ? 0 : usecNow + k_usecMaxDataAckDelay );
+		if ( bImmediate )
+		{
+			m_receiverState.QueueFlushAllAcks( 0 );
+			SetNextThinkTimeASAP();
+		}
+		else
+		{
+			m_receiverState.QueueFlushAllAcks( usecNow + k_usecMaxDataAckDelay );
+			EnsureMinThinkTime( m_receiverState.TimeWhenFlushAcks() );
+		}
 	}
 
 	/// Check if we need to send stats or acks.  If so, return a reason string

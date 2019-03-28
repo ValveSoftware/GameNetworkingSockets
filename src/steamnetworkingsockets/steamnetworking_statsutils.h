@@ -421,7 +421,7 @@ struct LinkStatsTrackerBase
 	/// note of the outcome.
 	inline bool BReadyToSendTracerPing( SteamNetworkingMicroseconds usecNow ) const
 	{
-		return std::max( m_ping.m_usecTimeLastSentPingRequest, m_ping.TimeRecvMostRecentPing() ) + k_usecLinkStatsPingRequestInterval < usecNow;
+		return !m_bDisconnected && std::max( m_ping.m_usecTimeLastSentPingRequest, m_ping.TimeRecvMostRecentPing() ) + k_usecLinkStatsPingRequestInterval < usecNow;
 	}
 
 	/// Check if we appear to be timing out and need to send an "aggressive" ping, meaning send it right
@@ -430,8 +430,9 @@ struct LinkStatsTrackerBase
 	inline bool BNeedToSendPingImmediate( SteamNetworkingMicroseconds usecNow ) const
 	{
 		return
-			m_nReplyTimeoutsSinceLastRecv > 0 // We're timing out
-			&& m_usecLastSendPacketExpectingImmediateReply+k_usecAggressivePingInterval < usecNow; // we haven't just recently sent an agressive ping.
+			!m_bDisconnected
+			&& m_nReplyTimeoutsSinceLastRecv > 0 // We're timing out
+			&& m_usecLastSendPacketExpectingImmediateReply+k_usecAggressivePingInterval < usecNow; // we haven't just recently sent an aggressive ping.
 	}
 
 	/// Check if we should send a keepalive ping.  In this case we haven't heard from the peer in a while,
@@ -439,7 +440,8 @@ struct LinkStatsTrackerBase
 	inline bool BNeedToSendKeepalive( SteamNetworkingMicroseconds usecNow ) const
 	{
 		return
-			m_usecInFlightReplyTimeout == 0 // not already tracking some other message for which we expect a reply (and which would confirm that the connection is alive)
+			!m_bDisconnected
+			&& m_usecInFlightReplyTimeout == 0 // not already tracking some other message for which we expect a reply (and which would confirm that the connection is alive)
 			&& m_usecTimeLastRecv + k_usecKeepAliveInterval < usecNow; // haven't heard from the peer recently
 	}
 
@@ -619,6 +621,8 @@ protected:
 	/// (See the code.)
 	const char *NeedToSendStats( SteamNetworkingMicroseconds usecNow, const char *const arpszReasonStrings[4] );
 
+	SteamNetworkingMicroseconds GetNextThinkTimeInternal( SteamNetworkingMicroseconds usecNow ) const;
+
 private:
 
 	bool BCheckHaveDataToSendInstantaneous( SteamNetworkingMicroseconds usecNow );
@@ -773,6 +777,12 @@ struct LinkStatsTracker : public TLinkStatsTracker
 	inline void TrackSentMessageExpectingSeqNumAck( SteamNetworkingMicroseconds usecNow, bool bAllowDelayedReply )
 	{
 		TLinkStatsTracker::TrackSentMessageExpectingSeqNumAckInternal( usecNow, bAllowDelayedReply );
+	}
+
+	/// Get time when we need to take action or think
+	inline SteamNetworkingMicroseconds GetNextThinkTime( SteamNetworkingMicroseconds usecNow ) const
+	{
+		return TLinkStatsTracker::GetNextThinkTimeInternal( usecNow );
 	}
 };
 

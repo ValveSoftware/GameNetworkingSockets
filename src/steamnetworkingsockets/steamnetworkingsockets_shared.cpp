@@ -558,6 +558,38 @@ const char *LinkStatsTrackerBase::NeedToSendStats( SteamNetworkingMicroseconds u
 	return arpszReasonStrings[n];
 }
 
+SteamNetworkingMicroseconds LinkStatsTrackerBase::GetNextThinkTimeInternal( SteamNetworkingMicroseconds usecNow ) const
+{
+	SteamNetworkingMicroseconds usecResult = INT64_MAX;
+	if ( !m_bDisconnected )
+	{
+
+		// Expecting a reply?
+		if ( m_usecInFlightReplyTimeout )
+		{
+			usecResult = std::min( usecResult, m_usecInFlightReplyTimeout );
+		}
+		else if ( m_usecTimeLastRecv )
+		{
+			// Time when BNeedToSendKeepalive will return true
+			usecResult = std::min( usecResult, m_usecTimeLastRecv + k_usecKeepAliveInterval );
+		}
+
+		// Time when BNeedToSendPingImmediate will return true
+		if ( m_nReplyTimeoutsSinceLastRecv > 0 )
+			usecResult = std::min( usecResult, m_usecLastSendPacketExpectingImmediateReply+k_usecAggressivePingInterval );
+
+		// Time when we need to flush stats
+		if ( m_pktNumInFlight == 0 )
+		{
+			usecResult = std::min( usecResult, m_usecPeerAckedInstaneous + k_usecLinkStatsInstantaneousReportMaxInterval );
+			usecResult = std::min( usecResult, m_usecPeerAckedLifetime + k_usecLinkStatsLifetimeReportMaxInterval );
+		}
+	}
+
+	return usecResult;
+}
+
 void LinkStatsTrackerBase::PopulateMessage( CMsgSteamDatagramConnectionQuality &msg, SteamNetworkingMicroseconds usecNow )
 {
 	if ( m_pktNumInFlight == 0 && !m_bDisconnected )

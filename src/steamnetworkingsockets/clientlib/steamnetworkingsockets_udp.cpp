@@ -810,7 +810,7 @@ void CSteamNetworkConnectionUDP::ThinkConnection( SteamNetworkingMicroseconds us
 	//         There's really nothing specific to plain UDP transport here.
 
 	// Check if we have stats we need to flush out
-	if ( BStateIsConnectedForWirePurposes() )
+	if ( !m_statsEndToEnd.IsDisconnected() )
 	{
 
 		// Do we need to send something immediately, for any reason?
@@ -822,6 +822,17 @@ void CSteamNetworkConnectionUDP::ThinkConnection( SteamNetworkingMicroseconds us
 			// Make sure that took care of what we needed!
 
 			Assert( !NeedToSendEndToEndStatsOrAcks( usecNow ) );
+		}
+
+		// Make sure we are scheduled to think the next time we need to
+		SteamNetworkingMicroseconds usecNextStatsThink = m_statsEndToEnd.GetNextThinkTime( usecNow );
+		if ( usecNextStatsThink <= usecNow )
+		{
+			AssertMsg( false, "We didn't send all the stats we needed to!" );
+		}
+		else
+		{
+			EnsureMinThinkTime( usecNextStatsThink );
 		}
 	}
 }
