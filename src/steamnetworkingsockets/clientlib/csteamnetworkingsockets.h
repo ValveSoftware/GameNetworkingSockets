@@ -47,7 +47,6 @@ public:
 
 #ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
 	bool BInitGameNetworkingSockets( const SteamNetworkingIdentity *pIdentity, SteamDatagramErrMsg &errMsg );
-	void Kill() { KillBase(); }
 	void CacheIdentity() { m_identity.SetLocalHost(); }
 #else
 	virtual void AsyncCertRequest() = 0;
