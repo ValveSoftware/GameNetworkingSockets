@@ -103,6 +103,11 @@ Mac OS X, using [Homebrew](https://brew.sh):
 $ brew install openssl
 $ export PKG_CONFIG_PATH=$PKG_CONFIG_PATH:/usr/local/opt/openssl/lib/pkgconfig
 ```
+GameNetworkingSockets requries openssl version 1.1+, so if you install and link openssl but at compile you see the error ```Dependency libcrypto found: NO (tried cmake and framework)``` you'll need to force Brew to install openssl 1.1. You can do that like this:
+```
+$ brew install openssl@1.1
+$ export PKG_CONFIG_PATH=$PKG_CONFIG_PATH:/usr/local/opt/openssl@1.1/lib/pkgconfig
+```
 
 For MSYS2, see the [MSYS2](#msys2) section. There are packages available in
 the MinGW repositories for i686 and x86_64.
