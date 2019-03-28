@@ -1902,7 +1902,8 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 
 		case k_ESteamNetworkingConnectionState_Linger:
 
-			if ( true /* FIXME nothing is queued for send */ )
+			// Have we sent everything we wanted to?
+			if ( m_senderState.m_messagesQueued.empty() && m_senderState.m_unackedReliableMessages.empty() )
 			{
 				// Close the connection ASAP
 				ConnectionState_FinWait();
