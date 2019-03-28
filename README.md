@@ -251,15 +251,12 @@ This extension comes in handy if you're editing the Meson build files.
 VS Marketplace Link: https://marketplace.visualstudio.com/items?itemName=asabil.meson
 
 ## Roadmap
-The current focus is to get a stable release that matches the first release of
-this interface in the public Steamworks SDK.
 
-After that, here are some large features that we expect to add to a future
-release:
+Here are some large features that we expect to add to a future release:
 
 ### Bandwidth estimation
 An earlier version of this code implemented TCP-friendly rate control (RFC
-5348) But as part of the reliability layer rewrite, bandwidth estimation has
+5348).  But as part of the reliability layer rewrite, bandwidth estimation has
 been temporarily broken, and a fixed (configurable) rate is used.  It's not
 clear if it's worth the complexity of implementation and testing to get
 sender-calculated TCP-friendly rate control implemented, or a simpler method
