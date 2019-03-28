@@ -288,6 +288,11 @@ bool CSteamNetworkingSockets::BInitGameNetworkingSockets( const SteamNetworkingI
 	else
 		CacheIdentity();
 
+	// Dummy AppID.  (Zero is a reserved value, don't use that.)
+	// If we want to be able to interop with the Steam code,
+	// we're going to need a way to set this, probably.
+	m_nAppID = 1;
+
 	return true;
 }
 #endif
