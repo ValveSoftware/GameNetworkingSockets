@@ -281,7 +281,7 @@ bool Check3DNowTechnology(void)
      	if( !cpuid(0x80000001,unused,unused,unused,eax) )
 			return false;
 
-		return ( eax & 1<<31 ) != 0;
+		return ( eax & 1U<<31 ) != 0;
     }
     return false;
 #endif
