@@ -219,6 +219,7 @@ unsigned int netadr_t::GetHashKey( const netadr_t &netadr )
 	{
 		default:
 			result = std::hash<int>{}( netadr.type );
+			break;
 
 		case NA_IP:
 			result = std::hash<uint32>{}( netadr.ip );
