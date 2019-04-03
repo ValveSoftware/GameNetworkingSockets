@@ -53,6 +53,7 @@ enum { k_iSteamNetworkingMessagesCallbacks = 1250 };
 
 struct SteamDatagramRelayAuthTicket;
 struct SteamDatagramHostedAddress;
+struct SteamDatagramHostedServerAppBackendLogin;
 struct SteamNetConnectionStatusChangedCallback_t;
 
 /// Handle used to identify a connection to a remote host.
@@ -1069,6 +1070,9 @@ inline void GetSteamNetworkingLocationPOPStringFromID( SteamNetworkingPOPID id, 
 	szCode[3] = char( id >> 24U ); // See comment above about deep regret and sadness
 	szCode[4] = 0;
 }
+
+/// The POPID "dev" is used in non-production environments for testing.
+const SteamNetworkingPOPID k_SteamDatagramPOPID_dev = ( (uint32)'d' << 16U ) | ( (uint32)'e' << 8U ) | (uint32)'v';
 
 ///////////////////////////////////////////////////////////////////////////////
 //
