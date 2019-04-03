@@ -5,6 +5,14 @@
 
 #include "crypto.h"
 
+#ifdef _WIN64
+#include "intrin.h"
+#endif
+
+#ifdef _WIN32
+#include "excpt.h"
+#endif
+
 extern "C" {
 // external headers for curve25519 and ed25519 support, plus alternate 32-bit SSE2 versions
 // (for x64, pure-C performance is on par with SSE2, so we don't compile the SSE2 versions)
@@ -22,7 +30,92 @@ void ed25519_sign_sse2( const unsigned char *m, size_t mlen, const ed25519_secre
 #ifdef OSX // We can assume SSE2 for all Intel macs running 32-bit code
 #define CHOOSE_25519_IMPL( func ) func##_sse2
 #else
-#define CHOOSE_25519_IMPL( func ) ( GetCPUInformation().m_bSSE2 ? func##_sse2 : func )
+static bool cpuid(uint32 function, uint32& out_eax, uint32& out_ebx, uint32& out_ecx, uint32& out_edx)
+{
+#if defined(GNUC)
+#if defined(PLATFORM_64BITS)
+	asm("mov %%rbx, %%rsi\n\t"
+		"cpuid\n\t"
+		"xchg %%rsi, %%rbx"
+		: "=a" (out_eax),
+		  "=S" (out_ebx),
+		  "=c" (out_ecx),
+		  "=d" (out_edx)
+		: "a" (function) 
+	);
+#else
+	asm("mov %%ebx, %%esi\n\t"
+		"cpuid\n\t"
+		"xchg %%esi, %%ebx"
+		: "=a" (out_eax),
+		  "=S" (out_ebx),
+		  "=c" (out_ecx),
+		  "=d" (out_edx)
+		: "a" (function) 
+	);
+#endif
+	return true;
+#elif defined(_WIN64)
+	int out[4];
+	__cpuid( out, (int)function );
+	out_eax = out[0];
+	out_ebx = out[1];
+	out_ecx = out[2];
+	out_edx = out[3];
+	return true;
+#else
+	bool retval = true;
+	uint32 local_eax, local_ebx, local_ecx, local_edx;
+	_asm pushad;
+
+	__try
+	{
+        _asm
+		{
+			xor edx, edx		// Clue the compiler that EDX is about to be used.
+            mov eax, function   // set up CPUID to return processor version and features
+								//      0 = vendor string, 1 = version info, 2 = cache info
+            cpuid				// code bytes = 0fh,  0a2h
+            mov local_eax, eax	// features returned in eax
+            mov local_ebx, ebx	// features returned in ebx
+            mov local_ecx, ecx	// features returned in ecx
+            mov local_edx, edx	// features returned in edx
+		}
+    } 
+	__except(EXCEPTION_EXECUTE_HANDLER) 
+	{ 
+		retval = false; 
+	}
+
+	out_eax = local_eax;
+	out_ebx = local_ebx;
+	out_ecx = local_ecx;
+	out_edx = local_edx;
+
+	_asm popad
+
+	return retval;
+#endif
+}
+
+static bool CheckSSE2Technology()
+{
+#if defined( _X360 ) || defined( _PS3 )
+	return false;
+#elif defined( _M_X64 ) || defined (__x86_64__)
+	return true;
+#else
+	static int result = -1;
+	if ( result < 0 )
+	{
+		uint32 eax,ebx,edx,unused;
+		result = cpuid(1,eax,ebx,unused,edx) && ( ( edx & 0x04000000 ) != 0 ) ? 1 : 0;
+	}
+	return result > 0;
+#endif
+}
+
+#define CHOOSE_25519_IMPL( func ) ( CheckSSE2Technology() ? func##_sse2 : func )
 #endif
 #endif
 

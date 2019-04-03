@@ -96,7 +96,6 @@ sources = [
   'steamnetworkingsockets/clientlib/steamnetworkingsockets_udp.cpp',
   'steamnetworkingsockets/steamnetworkingsockets_certs.cpp',
   'steamnetworkingsockets/steamnetworkingsockets_shared.cpp',
-  'tier0/cpu.cpp',
   'tier0/dbg.cpp',
   'tier0/platformtime.cpp',
   'tier1/bitstring.cpp',
