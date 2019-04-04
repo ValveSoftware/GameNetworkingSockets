@@ -8,54 +8,10 @@
 #include "crypto.h"
 #include <tier1/utlbuffer.h>
 
-/// CUtlBuffer that will wipe upon destruction
-//
-/// WARNING: This is only intended for simple use cases where the caller
-/// can easily pre-allocate.  For example, it won't wipe if the buffer needs
-/// to be relocated as a result of realloc.  Or if you pas it to a function
-/// via a CUtlBuffer&, and CUtlBuffer::Purge is invoked directly.  Etc.
-class CAutoWipeBuffer : public CUtlBuffer
-{
-public:
-	CAutoWipeBuffer() {}
-	explicit CAutoWipeBuffer( int cbInit ) : CUtlBuffer( 0, cbInit, 0 ) {}
-	~CAutoWipeBuffer() { Purge(); }
-
-	void Clear()
-	{
-		SecureZeroMemory( Base(), SizeAllocated() );
-		CUtlBuffer::Clear();
-	}
-
-	void Purge()
-	{
-		Clear();
-		CUtlBuffer::Purge();
-	}
-};
-
 static const char k_szOpenSSHPrivatKeyPEMHeader[] = "-----BEGIN OPENSSH PRIVATE KEY-----";
 static const char k_szOpenSSHPrivatKeyPEMFooter[] = "-----END OPENSSH PRIVATE KEY-----";
 
 static const uint k_nRSAOAEPOverheadBytes = 42; // fixed-size overhead of OAEP padding scheme
-
-static bool DecodeBase64ToBuf( const char *pszEncoded, uint32 cbEncoded, CAutoWipeBuffer &buf )
-{
-	uint32 cubDecodeSize = cbEncoded * 3 / 4 + 1;
-	buf.EnsureCapacity( cubDecodeSize );
-	if ( !CCrypto::Base64Decode( pszEncoded, cbEncoded, (uint8*)buf.Base(), &cubDecodeSize ) )
-		return false;
-	buf.SeekPut( CUtlBuffer::SEEK_HEAD, cubDecodeSize );
-	return true;
-}
-
-static bool DecodePEMBody( const char *pszPem, uint32 cch, CAutoWipeBuffer &buf, const char *pszExpectedType )
-{
-	const char *pszBody = CCrypto::LocatePEMBody( pszPem, &cch, pszExpectedType );
-	if ( !pszBody )
-		return false;
-	return DecodeBase64ToBuf( pszBody, cch, buf );
-}
 
 static bool BCheckAndEatBytes( CUtlBuffer &buf, const void *data, int sz )
 {
@@ -410,6 +366,22 @@ bool CCryptoKeyBase::operator==( const CCryptoKeyBase &rhs ) const
 }
 
 
+bool CCryptoKeyBase::CopyFrom( const CCryptoKeyBase &x )
+{
+	Assert( m_eKeyType == x.m_eKeyType );
+	Wipe();
+
+	uint32 cbData = x.GetRawData( nullptr );
+	if ( cbData == 0 )
+	{
+		Assert( false );
+		return false;
+	}
+	void *tmp = alloca( cbData );
+	VerifyFatal( x.GetRawData( tmp ) == cbData );
+	return SetRawDataAndWipeInput( tmp, cbData );
+}
+
 bool CCryptoKeyBase::LoadFromAndWipeBuffer( void *pBuffer, size_t cBytes )
 {
 	AssertMsg1( false, "Key type %d doesn't know how to load from buffer", m_eKeyType );
@@ -561,7 +533,7 @@ bool CECSigningPrivateKey::ParsePEM( const char *pBuffer, size_t cBytes )
 	Wipe();
 
 	CAutoWipeBuffer buf;
-	if ( !DecodePEMBody( pBuffer, (uint32)cBytes, buf, "OPENSSH PRIVATE KEY" ) )
+	if ( !CCrypto::DecodePEMBody( pBuffer, (uint32)cBytes, buf, "OPENSSH PRIVATE KEY" ) )
 		return false;
 	uint8 privateThenPublic[64];
 	if ( !BParseOpenSSHBinaryEd25519Private( buf, privateThenPublic ) )
@@ -654,7 +626,7 @@ bool CECSigningPublicKey::SetFromOpenSSHAuthorizedKeys( const char *pchData, siz
 		return false;
 
 	CAutoWipeBuffer bufBinary;
-	if ( !DecodeBase64ToBuf( pchData + idxStart, idxEnd-idxStart, bufBinary ) )
+	if ( !CCrypto::DecodeBase64ToBuf( pchData + idxStart, idxEnd-idxStart, bufBinary ) )
 		return false;
 
 	uint8 pubKey[ 32 ];

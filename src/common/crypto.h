@@ -139,6 +139,10 @@ namespace CCrypto
 	bool Base64Decode( const char *pchEncodedData, void *pubDecodedData, uint32 *pcubDecodedData, bool bIgnoreInvalidCharacters = true ); // legacy, deprecated
 	bool Base64Decode( const char *pchEncodedData, uint32 cchEncodedData, void *pubDecodedData, uint32 *pcubDecodedData, bool bIgnoreInvalidCharacters = true );
 
+	/// Decode base64 into CUtlBuffer.  This precomputes the expetced size and does
+	/// only one allocation, so it's safe to use CAutoWipeBuffer.
+	bool DecodeBase64ToBuf( const char *pszEncoded, uint32 cbEncoded, CUtlBuffer &buf );
+
 	/// Parse a PEM-like thing, locating the hex-encoded body (but not parsing it.)
 	/// On success, will returns a pointer to the first character of the body,
 	/// and update *pcch to reflect its size.  You can then pass this
@@ -151,6 +155,10 @@ namespace CCrypto
 	/// then we just check that the header and footer contain something vaguely PEM-like.
 	const char *LocatePEMBody( const char *pchPEM, uint32 *pcch, const char *pszExpectedType );
 
+	/// Decode base-64 encoded PEM-like thing into buffer.  it's safe to use CAutoWipeBuffer
+	bool DecodePEMBody( const char *pszPem, uint32 cch, CUtlBuffer &buf, const char *pszExpectedType );
+
+	/// Use platform-dependency secure random number source of high entropy
 	void GenerateRandomBlock( void *pubDest, int cubDest );
 
 	void GenerateSHA256Digest( const uint8 *pubData, const int cubData, SHA256Digest_t *pOutputDigest );

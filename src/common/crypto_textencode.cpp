@@ -5,6 +5,7 @@
 // on compile-time defines, which in turn pulls in other odd dependencies
 #include "crypto.h"
 #include <tier0/vprof.h>
+#include <tier1/utlbuffer.h>
 
 //-----------------------------------------------------------------------------
 // Purpose: Hex-encodes a block of data.  (Binary -> text representation.)  The output
@@ -538,3 +539,24 @@ const char *CCrypto::LocatePEMBody( const char *pchPEM, uint32 *pcch, const char
 	*pcch = cchBody;
 	return pchBody;
 }
+
+//-----------------------------------------------------------------------------
+bool CCrypto::DecodeBase64ToBuf( const char *pszEncoded, uint32 cbEncoded, CUtlBuffer &buf )
+{
+	uint32 cubDecodeSize = cbEncoded * 3 / 4 + 1;
+	buf.EnsureCapacity( cubDecodeSize );
+	if ( !CCrypto::Base64Decode( pszEncoded, cbEncoded, (uint8*)buf.Base(), &cubDecodeSize ) )
+		return false;
+	buf.SeekPut( CUtlBuffer::SEEK_HEAD, cubDecodeSize );
+	return true;
+}
+
+//-----------------------------------------------------------------------------
+bool CCrypto::DecodePEMBody( const char *pszPem, uint32 cch, CUtlBuffer &buf, const char *pszExpectedType )
+{
+	const char *pszBody = CCrypto::LocatePEMBody( pszPem, &cch, pszExpectedType );
+	if ( !pszBody )
+		return false;
+	return DecodeBase64ToBuf( pszBody, cch, buf );
+}
+
