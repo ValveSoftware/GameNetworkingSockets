@@ -787,34 +787,35 @@ bool CSteamNetworkConnectionBase::BRecvCryptoHandshake( const CMsgSteamDatagramC
 		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCert, "Bad cert identity.  %s", errMsg );
 		return false;
 	}
-	if ( rIdentity > 0 )
+	if ( rIdentity > 0 && !identityCert.IsLocalHost() )
 	{
 
-		// If we are allowing an unsigned, anonymous cert, then anything goes.
-		if ( identityCert.IsLocalHost() && !msgCert.has_ca_signature() )
+		// They sent an identity.  Then it must match the dentity we expect!
+		if ( !( identityCert == m_identityRemote ) )
 		{
-
-			// It must match the dentity we expect!
-			if ( !( identityCert == m_identityRemote ) )
-			{
-				ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCert, "Cert was issued to %s, not %s",
-					SteamNetworkingIdentityRender( identityCert ).c_str(), SteamNetworkingIdentityRender( m_identityRemote ).c_str() );
-				return false;
-			}
-
-			// We require certs to be bound to a particular AppID.
-			if ( m_msgCertRemote.app_ids_size() == 0 )
-			{
-				ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCert, "Cert must be bound to an AppID." );
-				return false;
-			}
+			ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCert, "Cert was issued to %s, not %s",
+				SteamNetworkingIdentityRender( identityCert ).c_str(), SteamNetworkingIdentityRender( m_identityRemote ).c_str() );
+			return false;
 		}
 
+		// We require certs to be bound to a particular AppID.
+		if ( m_msgCertRemote.app_ids_size() == 0 )
+		{
+			ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCert, "Cert must be bound to an AppID." );
+			return false;
+		}
+	}
+	else if ( !msgCert.has_ca_signature() )
+	{
+		// If we're going to allow an unsigned cert (we'll check below),
+		// then anything goes, so if they omit the identity, that's fine
+		// with us because they could have forged anything anyway.
 	}
 	else
 	{
 
-		// Cert is not issued to a particular identity!  This is OK, but remote host must be anonymous
+		// Signed cert, not issued to a particular identity!  This is only allowed
+		// right now when connecting to anonymous gameservers
 		if ( !m_identityRemote.GetSteamID().BAnonGameServerAccount() )
 		{
 			ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCert, "Certs with no identity can only by anonymous gameservers, not %s", SteamNetworkingIdentityRender( m_identityRemote ).c_str() );
