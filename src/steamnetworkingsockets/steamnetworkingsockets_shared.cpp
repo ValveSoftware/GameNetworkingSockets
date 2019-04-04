@@ -1538,9 +1538,7 @@ int SteamNetworkingDetailedConnectionStatus::Print( char *pszBuf, int cbBuf )
 
 	if ( m_info.m_idPOPRemote )
 	{
-		char szRemotePOP[ 8 ];
-		GetSteamNetworkingLocationPOPStringFromID( m_info.m_idPOPRemote, szRemotePOP );
-		buf.Printf( "    Remote host is in data center '%s'\n", szRemotePOP );
+		buf.Printf( "    Remote host is in data center '%s'\n", SteamNetworkingPOPIDRender( m_info.m_idPOPRemote ).c_str() );
 	}
 
 	// If we ever tried to send a packet end-to-end, dump end-to-end stats.
@@ -1575,9 +1573,7 @@ int SteamNetworkingDetailedConnectionStatus::Print( char *pszBuf, int cbBuf )
 	}
 	else if ( m_info.m_idPOPRelay )
 	{
-		char szRelayPOP[ 8 ];
-		GetSteamNetworkingLocationPOPStringFromID( m_info.m_idPOPRelay, szRelayPOP );
-		buf.Printf( "Communicating via relay in '%s'\n", szRelayPOP );
+		buf.Printf( "Communicating via relay in '%s'\n", SteamNetworkingPOPIDRender( m_info.m_idPOPRelay ).c_str() );
 	}
 
 	int sz = buf.TellPut()+1;

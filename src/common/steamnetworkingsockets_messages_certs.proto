@@ -64,8 +64,8 @@ message CMsgSteamDatagramCertificate
 	optional fixed32 time_created = 8;
 	optional fixed32 time_expiry = 9;
 
-	// Restrict key to be used for a particular App ID?
-	optional uint32 app_id = 10;
+	// Restrict key to be used for a particular AppID(s)?
+	repeated uint32 app_ids = 10;
 };
 
 // Certificate signed by a certificate authority.

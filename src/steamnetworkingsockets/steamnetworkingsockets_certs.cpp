@@ -8,7 +8,7 @@
 
 namespace SteamNetworkingSocketsLib {
 
-extern uint64 CalculatePublicKeyID( const CECSigningPublicKey &pubKey )
+uint64 CalculatePublicKeyID( const CECSigningPublicKey &pubKey )
 {
 	if ( !pubKey.IsValid() )
 		return 0;
@@ -250,6 +250,94 @@ bool BSteamNetworkingIdentityToProtobufInternal( const SteamNetworkingIdentity &
 	}
 
 	return true;
+}
+
+/// Check an arbitrary signature against a public key.
+bool BCheckSignature( const std::string &signed_data, CMsgSteamDatagramCertificate_EKeyType eKeyType, const std::string &public_key, const std::string &signature, SteamDatagramErrMsg &errMsg )
+{
+
+	// Quick check for missing values
+	if ( signature.empty() )
+	{
+		V_strcpy_safe( errMsg, "No signature" );
+		return false;
+	}
+	if ( public_key.empty() )
+	{
+		V_strcpy_safe( errMsg, "No public key" );
+		return false;
+	}
+
+	// Only one key type supported right now
+	if ( eKeyType != CMsgSteamDatagramCertificate_EKeyType_ED25519 )
+	{
+		V_sprintf_safe( errMsg, "Unsupported key type %d", eKeyType );
+		return false;
+	}
+
+	// Make sure signature length is the right size
+	if ( signature.length() != sizeof(CryptoSignature_t) )
+	{
+		V_strcpy_safe( errMsg, "Signature has invalid length" );
+		return false;
+	}
+
+	// Put the public key into our object
+	CECSigningPublicKey keyPublic;
+	if ( !keyPublic.SetRawDataWithoutWipingInput( public_key.c_str(), public_key.length() ) )
+	{
+		V_strcpy_safe( errMsg, "Invalid public key" );
+		return false;
+	}
+
+	// Do the crypto work to check the signature
+	if ( !keyPublic.VerifySignature( signed_data.c_str(), signed_data.length(), *(const CryptoSignature_t *)signature.c_str() ) )
+	{
+		V_strcpy_safe( errMsg, "Invalid signature" );
+		return false;
+	}
+
+	// OK
+	return true;
+}
+
+bool ParseCertFromBase64( const char *pBase64Data, size_t cbBase64Data, CMsgSteamDatagramCertificateSigned &outMsgSignedCert, SteamNetworkingErrMsg &errMsg )
+{
+
+	std::vector<uint8> buf;
+	uint32 cbDecoded = CCrypto::Base64DecodeMaxOutput( (uint32)cbBase64Data );
+	buf.resize( cbDecoded );
+	if ( !CCrypto::Base64Decode( pBase64Data, (uint32)cbBase64Data, &buf[0], &cbDecoded, false ) )
+	{
+		V_strcpy_safe( errMsg, "Failed to Base64 decode cert" );
+		return false;
+	}
+
+	if ( !outMsgSignedCert.ParseFromArray( &buf[0], cbDecoded ) )
+	{
+		V_strcpy_safe( errMsg, "Protobuf failed to parse CMsgSteamDatagramCertificateSigned" );
+		return false;
+	}
+	if ( !outMsgSignedCert.has_cert() )
+	{
+		V_strcpy_safe( errMsg, "No cert data" );
+		return false;
+	}
+
+	return true;
+}
+
+bool ParseCertFromPEM( const void *pCert, size_t cbCert, CMsgSteamDatagramCertificateSigned &outMsgSignedCert, SteamNetworkingErrMsg &errMsg )
+{
+	uint32 cbCertBody = (uint32)cbCert;
+	const char *pszCertBody = CCrypto::LocatePEMBody( (const char *)pCert, &cbCertBody, "STEAMDATAGRAM CERT" );
+	if ( !pszCertBody )
+	{
+		V_strcpy_safe( errMsg, "Cert isn't a valid PEM-like text block" );
+		return false;
+	}
+
+	return ParseCertFromBase64( pszCertBody, cbCertBody, outMsgSignedCert, errMsg );
 }
 
 }

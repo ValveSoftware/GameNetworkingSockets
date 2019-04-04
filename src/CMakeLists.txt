@@ -56,6 +56,7 @@ set(GNS_SRCS
 	"steamnetworkingsockets/clientlib/steamnetworkingsockets_snp.cpp"
 	"steamnetworkingsockets/clientlib/steamnetworkingsockets_udp.cpp"
 	"steamnetworkingsockets/steamnetworkingsockets_certs.cpp"
+	"steamnetworkingsockets/steamnetworkingsockets_certstore.cpp"
 	"steamnetworkingsockets/steamnetworkingsockets_shared.cpp"
 	"tier0/dbg.cpp"
 	"tier0/platformtime.cpp"

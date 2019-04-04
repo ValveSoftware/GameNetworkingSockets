@@ -415,10 +415,20 @@ extern uint64_t siphash( const uint8_t *in, uint64_t inlen, const uint8_t *k );
 extern std::string Indent( const char *s );
 inline std::string Indent( const std::string &s ) { return Indent( s.c_str() ); }
 
+
 /// Generate a fingerprint for a public that is reasonably collision resistant,
 /// although not really cryptographically secure.  (We are in charge of the
 /// set of public keys and we expect it to be reasonably small.)
 extern uint64 CalculatePublicKeyID( const CECSigningPublicKey &pubKey );
+
+/// Check an arbitrary signature using the specified public key.  (It's assumed that you have
+/// already verified that this public key is from somebody you trust.)
+extern bool BCheckSignature( const std::string &signed_data, CMsgSteamDatagramCertificate_EKeyType eKeyType, const std::string &public_key, const std::string &signature, SteamDatagramErrMsg &errMsg );
+
+/// Parse PEM-like blob to a cert
+extern bool ParseCertFromPEM( const void *pCert, size_t cbCert, CMsgSteamDatagramCertificateSigned &outMsgSignedCert, SteamNetworkingErrMsg &errMsg );
+extern bool ParseCertFromBase64( const char *pBase64Data, size_t cbBase64Data, CMsgSteamDatagramCertificateSigned &outMsgSignedCert, SteamNetworkingErrMsg &errMsg );
+
 
 inline bool IsPrivateIP( uint32 unIP )
 {
@@ -469,6 +479,14 @@ struct SteamNetworkingIdentityRender
 	inline const char *c_str() const { return buf; }
 private:
 	char buf[ SteamNetworkingIdentity::k_cchMaxString ];
+};
+
+struct SteamNetworkingPOPIDRender
+{
+	SteamNetworkingPOPIDRender( SteamNetworkingPOPID x ) { GetSteamNetworkingLocationPOPStringFromID( x, buf ); }
+	inline const char *c_str() const { return buf; }
+private:
+	char buf[ 8 ];
 };
 
 inline bool IsValidSteamIDForIdentity( CSteamID steamID )
@@ -883,6 +901,7 @@ namespace vstd
 		void resize( size_t n );
 		void reserve( size_t n );
 		void clear();
+		void assign( const T *srcBegin, const T *srcEnd );
 
 	private:
 		size_t size_ = 0, capacity_ = N;
@@ -919,10 +938,9 @@ namespace vstd
 	template<typename T, int N>
 	small_vector<T,N> &small_vector<T,N>::operator=( const small_vector<T,N> &x )
 	{
-		clear();
-		reserve( x.size_ );
-		size_ = x.size_;
-		vstd::copy_construct_elements( begin(), x.begin(), size_ );
+		if ( this != &x )
+			assign( x.begin(), x.end() );
+		return *this;
 	}
 
 	template<typename T, int N>
@@ -942,6 +960,7 @@ namespace vstd
 		{
 			vstd::move_construct_elements<T>( (T*)fixed_, (T*)x.fixed_, size_ );
 		}
+		return *this;
 	}
 
 	template< typename T, int N >
@@ -1053,6 +1072,61 @@ namespace vstd
 		}
 		size_ = 0;
 		capacity_ = N;
+	}
+
+	template< typename T, int N >
+	void small_vector<T,N>::assign( const T *srcBegin, const T *srcEnd )
+	{
+		if ( srcEnd <= srcBegin )
+		{
+			clear();
+			return;
+		}
+		size_t n = srcEnd - srcBegin;
+		if ( n > N )
+		{
+			// We need dynamic memory.  If we're not exactly sized already,
+			// just nuke everyhing we have.
+			if ( n != capacity_ ) 
+			{
+				clear();
+				reserve( n );
+			}
+			assert( dynamic_ );
+			if ( !std::is_trivial<T>::value )
+			{
+				while ( size_ > n )
+					dynamic_[--size_].~T();
+			}
+		}
+		else if ( dynamic_ )
+		{
+			// We have dynamic allocation, but don't need it
+			clear();
+		}
+		assert( capacity_ >= n );
+		if ( std::is_trivial<T>::value )
+		{
+			// Just blast them over, and don't bother with the leftovers
+			memcpy( begin(), srcBegin, n*sizeof(T) );
+		}
+		else
+		{
+			assert( size_ <= n );
+
+			// Complex type.  Try to avoid excess constructor/destructor calls
+			// First use operator= for items already constructed
+			const T *s = srcBegin;
+			T *d = begin();
+			T *e = d + size_;
+			while ( d < e && s < srcEnd )
+				*(d++) = *(s++);
+
+			// Use copy constructor for any remaining items
+			while ( s < srcEnd )
+				new (d++) T( *(s++) );
+		}
+		size_ = n;
 	}
 
 	template <typename T,int N>

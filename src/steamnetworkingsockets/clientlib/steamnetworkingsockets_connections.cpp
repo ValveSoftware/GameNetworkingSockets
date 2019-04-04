@@ -5,6 +5,7 @@
 #include <steam/isteamnetworkingsockets.h>
 #include "steamnetworkingsockets_connections.h"
 #include "steamnetworkingsockets_lowlevel.h"
+#include "../steamnetworkingsockets_certstore.h"
 #include "csteamnetworkingsockets.h"
 #include "crypto.h"
 
@@ -47,34 +48,6 @@ inline ESteamNetworkingConnectionState CollapseConnectionStateToAPIState( ESteam
 		return k_ESteamNetworkingConnectionState_None;
 	return eState;
 }
-
-struct TrustedKey
-{
-	typedef char KeyData[33];
-	TrustedKey( uint64 id, const KeyData &data ) : m_id( id )
-	{
-		m_key.SetRawDataWithoutWipingInput( &data[0], sizeof(KeyData)-1 );
-	}
-	const uint64 m_id;
-	CECSigningPublicKey m_key;
-
-	#ifdef DBGFLAG_VALIDATE
-		void Validate( CValidator &validator, const char *pchName ) const
-		{
-			ValidateObj( m_key );
-		}
-	#endif
-};
-
-// !KLUDGE! For now, we only have one trusted CA key.
-// Note that it's important to burn this key into the source code,
-// *not* load it from a file.  Our threat model for eavesdropping/tampering
-// includes the player!  Everything outside of this process is untrusted.
-// Obviously they can tamper with the process or modify the executable,
-// but that puts them into VAC territory.
-const TrustedKey s_arTrustedKeys[1] = {
-	{ 18220590129359924542llu, "\x9a\xec\xa0\x4e\x17\x51\xce\x62\x68\xd5\x69\x00\x2c\xa1\xe1\xfa\x1b\x2d\xbc\x26\xd3\x6b\x4e\xa3\xa0\x08\x3a\xd3\x72\x82\x9b\x84" }
-};
 
 // Hack code used to generate C++ code to add a new CA key to the table above
 //void KludgePrintPublicKey()
@@ -723,7 +696,7 @@ void CSteamNetworkConnectionBase::InitLocalCryptoWithUnsignedCert()
 	keyPublic.GetRawDataAsStdString( msgCert.mutable_key_data() );
 	msgCert.set_key_type( CMsgSteamDatagramCertificate_EKeyType_ED25519 );
 	SteamNetworkingIdentityToProtobuf( m_identityLocal, msgCert, identity, legacy_steam_id );
-	msgCert.set_app_id( m_pSteamNetworkingSocketsInterface->m_nAppID );
+	msgCert.add_app_ids( m_pSteamNetworkingSocketsInterface->m_nAppID );
 
 	// Should we set an expiry?  I mean it's unsigned, so it has zero value, so probably not
 	//s_msgCertLocal.set_time_created( );
@@ -763,6 +736,7 @@ void CSteamNetworkConnectionBase::CertRequestFailed( ESteamNetConnectionEnd nCon
 
 bool CSteamNetworkConnectionBase::BRecvCryptoHandshake( const CMsgSteamDatagramCertificateSigned &msgCert, const CMsgSteamDatagramSessionCryptInfoSigned &msgSessionInfo, bool bServer )
 {
+	SteamNetworkingErrMsg errMsg;
 
 	// Have we already done key exchange?
 	if ( m_bCryptKeysValid )
@@ -778,162 +752,96 @@ bool CSteamNetworkConnectionBase::BRecvCryptoHandshake( const CMsgSteamDatagramC
 		return false;
 	}
 
-	// Deserialize the cert
-	if ( !m_msgCertRemote.ParseFromString( msgCert.cert() ) )
+	// If they presented a signature, it must be valid
+	const CertAuthScope *pCACertAuthScope = nullptr; 
+	if ( msgCert.has_ca_signature() )
 	{
-		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCrypt, "Cert failed protobuf decode" );
-		return false;
-	}
 
-	// Identity public key
-	CECSigningPublicKey keySigningPublicKeyRemote;
-	if ( m_msgCertRemote.key_type() != CMsgSteamDatagramCertificate_EKeyType_ED25519 )
-	{
-		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCrypt, "Unsupported identity key type" );
-		return false;
-	}
-	if ( !keySigningPublicKeyRemote.SetRawDataWithoutWipingInput( m_msgCertRemote.key_data().c_str(), m_msgCertRemote.key_data().length() ) )
-	{
-		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCrypt, "Cert has invalid identity key" );
-		return false;
-	}
-
-	// We need a cert.  If we don't have one by now, then we might try generating one
-	if ( m_msgSignedCertLocal.has_cert() )
-	{
-		Assert( m_msgCryptLocal.has_nonce() );
-		Assert( m_msgCryptLocal.has_key_data() );
-		Assert( m_msgCryptLocal.has_key_type() );
-	}
-	else
-	{
-		if ( !BAllowLocalUnsignedCert() )
+		// Check the signature and chain of trust, and expiry, and deserialize the signed cert
+		time_t timeNow = m_pSteamNetworkingSocketsInterface->GetTimeSecure();
+		pCACertAuthScope = CertStore_CheckCert( msgCert, m_msgCertRemote, timeNow, errMsg );
+		if ( !pCACertAuthScope )
 		{
-			// Derived class / calling code should check for this and handle it better and fail
-			// earlier with a more specific error message.  (Or allow self-signed certs)
-			//ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_InternalError, "We don't have cert, and self-signed certs not allowed" );
-			//return false;
-			SpewWarning( "We don't have cert, and unsigned certs are not supposed to be allowed here.  Continuing anyway temporarily." );
-		}
-
-		// Proceed with an unsigned cert
-		InitLocalCryptoWithUnsignedCert();
-	}
-
-	// If cert has an App ID restriction, then it better match our App
-	if ( m_msgCertRemote.has_app_id() )
-	{
-		if ( m_msgCertRemote.app_id() != m_pSteamNetworkingSocketsInterface->m_nAppID )
-		{
-			ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCert, "Cert is for AppID %u instead of %u", m_msgCertRemote.app_id(), m_pSteamNetworkingSocketsInterface->m_nAppID );
-			return false;
-		}
-	}
-
-	// Special cert for gameservers in our data center?
-	if ( m_msgCertRemote.gameserver_datacenter_ids_size()>0 && msgCert.has_ca_signature() )
-	{
-		if ( !m_identityRemote.GetSteamID().BAnonGameServerAccount() )
-		{
-			ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCert, "Certs restricted data center are for anon GS only.  Not %s", SteamNetworkingIdentityRender( m_identityRemote ).c_str() );
+			ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCert, "Bad cert: %s", errMsg );
 			return false;
 		}
 	}
 	else
 	{
-		if ( !m_msgCertRemote.has_app_id() )
+
+		// Deserialize the cert
+		if ( !m_msgCertRemote.ParseFromString( msgCert.cert() ) )
 		{
-			ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCert, "Cert must be bound to an AppID." );
-			return false;
-		}
-		SteamNetworkingIdentity identityCert;
-		SteamDatagramErrMsg errMsg;
-		if ( SteamNetworkingIdentityFromCert( identityCert, m_msgCertRemote, errMsg ) <= 0 )
-		{
-			ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCert, "Bad cert identity.  %s", errMsg );
+			ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCrypt, "Cert failed protobuf decode" );
 			return false;
 		}
 
-		if ( !( identityCert == m_identityRemote ) )
+		// We'll check if unsigned certs are allowed below, after we know a bit more info
+	}
+
+	// Check identity from cert
+	SteamNetworkingIdentity identityCert;
+	int rIdentity = SteamNetworkingIdentityFromCert( identityCert, m_msgCertRemote, errMsg );
+	if ( rIdentity < 0 )
+	{
+		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCert, "Bad cert identity.  %s", errMsg );
+		return false;
+	}
+	if ( rIdentity > 0 )
+	{
+
+		// If we are allowing an unsigned, anonymous cert, then anything goes.
+		if ( identityCert.IsLocalHost() && !msgCert.has_ca_signature() )
 		{
-			if ( identityCert.IsLocalHost() && !msgCert.has_ca_signature() )
-			{
-				// Special case for an unsigned, anonymous logon.  We've remapped their identity
-				// to their real IP already.  Allow this.
-			}
-			else
+
+			// It must match the dentity we expect!
+			if ( !( identityCert == m_identityRemote ) )
 			{
 				ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCert, "Cert was issued to %s, not %s",
 					SteamNetworkingIdentityRender( identityCert ).c_str(), SteamNetworkingIdentityRender( m_identityRemote ).c_str() );
 				return false;
 			}
-		}
-	}
 
-	// Check if they are presenting a signature, then check it
-	if ( msgCert.has_ca_signature() )
-	{
-		// Scan list of trusted CA keys
-		bool bTrusted = false;
-		for ( const TrustedKey &k: s_arTrustedKeys )
-		{
-			if ( msgCert.ca_key_id() != k.m_id )
-				continue;
-			if (
-				msgCert.ca_signature().length() == sizeof(CryptoSignature_t)
-				&& k.m_key.VerifySignature( msgCert.cert().c_str(), msgCert.cert().length(), *(const CryptoSignature_t *)msgCert.ca_signature().c_str() ) )
+			// We require certs to be bound to a particular AppID.
+			if ( m_msgCertRemote.app_ids_size() == 0 )
 			{
-				bTrusted = true;
-				break;
+				ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCert, "Cert must be bound to an AppID." );
+				return false;
 			}
-			ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCert, "Invalid cert signature" );
-			return false;
-		}
-		if ( !bTrusted )
-		{
-			ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCert, "Cert signed with key %llu; not in trusted list", (uint64) msgCert.ca_key_id() );
-			return false;
-		}
-
-		long rtNow = m_pSteamNetworkingSocketsInterface->GetTimeSecure();
-
-		// Make sure hasn't expired.  All signed certs without an expiry should be considered invalid!
-		// For unsigned certs, there's no point in checking the expiry, since anybody who wanted
-		// to do bad stuff could just change it, we have no protection against tampering.
-		long rtExpiry = m_msgCertRemote.time_expiry();
-		if ( rtNow > rtExpiry )
-		{
-			//ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCert, msg );
-			//return false;
-			SpewWarning( "Cert failure: Cert expired %ld secs ago at %ld\n", rtNow-rtExpiry, rtExpiry );
-		}
-
-		// Let derived class check for particular auth/crypt requirements
-		if ( !BCheckRemoteCert() )
-		{
-			Assert( GetState() == k_ESteamNetworkingConnectionState_ProblemDetectedLocally );
-			return false;
 		}
 
 	}
 	else
 	{
-		ERemoteUnsignedCert eAllow = AllowRemoteUnsignedCert();
-		if ( eAllow == k_ERemoteUnsignedCert_AllowWarn )
+
+		// Cert is not issued to a particular identity!  This is OK, but remote host must be anonymous
+		if ( !m_identityRemote.GetSteamID().BAnonGameServerAccount() )
 		{
-			SpewMsg( "[%s] Remote host is using an unsigned cert.  Allowing connection, but it's not secure!\n", GetDescription() );
-		}
-		else if ( eAllow != k_ERemoteUnsignedCert_Allow )
-		{
-			// Caller might have switched the state and provided a specific message.
-			// if not, we'll do that for them
-			if ( GetState() != k_ESteamNetworkingConnectionState_ProblemDetectedLocally )
-			{
-				Assert( GetState() == k_ESteamNetworkingConnectionState_Connecting );
-				ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCert, "Unsigned certs are not allowed" );
-			}
+			ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCert, "Certs with no identity can only by anonymous gameservers, not %s", SteamNetworkingIdentityRender( m_identityRemote ).c_str() );
 			return false;
 		}
+
+		// And cert must be scoped to a data center, we don't permit blanked certs for anybody with no restrictions at all
+		if ( m_msgCertRemote.gameserver_datacenter_ids_size() == 0 )
+		{
+			ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCert, "Cert with no identity must be scoped to PoPID." );
+			return false;
+		}
+	}
+
+	// OK, we've parsed everything out, now do any connection-type-specific checks on the cert
+	ESteamNetConnectionEnd eRemoteCertFailure = CheckRemoteCert( pCACertAuthScope, errMsg );
+	if ( eRemoteCertFailure )
+	{
+		ConnectionState_ProblemDetectedLocally( eRemoteCertFailure, "%s", errMsg );
+		return false;
+	}
+
+	// Check the signature of the crypt info
+	if ( !BCheckSignature( msgSessionInfo.info(), m_msgCertRemote.key_type(), m_msgCertRemote.key_data(), msgSessionInfo.signature(), errMsg ) )
+	{
+		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCrypt, "%s", errMsg );
+		return false;
 	}
 
 	// Deserialize crypt info
@@ -970,6 +878,28 @@ bool CSteamNetworkConnectionBase::BRecvCryptoHandshake( const CMsgSteamDatagramC
 	{
 		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCrypt, "Invalid DH key" );
 		return false;
+	}
+
+	// We need our own cert.  If we don't have one by now, then we might try generating one
+	if ( m_msgSignedCertLocal.has_cert() )
+	{
+		Assert( m_msgCryptLocal.has_nonce() );
+		Assert( m_msgCryptLocal.has_key_data() );
+		Assert( m_msgCryptLocal.has_key_type() );
+	}
+	else
+	{
+		if ( !BAllowLocalUnsignedCert() )
+		{
+			// Derived class / calling code should check for this and handle it better and fail
+			// earlier with a more specific error message.  (Or allow self-signed certs)
+			//ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_InternalError, "We don't have cert, and self-signed certs not allowed" );
+			//return false;
+			SpewWarning( "We don't have cert, and unsigned certs are not supposed to be allowed here.  Continuing anyway temporarily." );
+		}
+
+		// Proceed with an unsigned cert
+		InitLocalCryptoWithUnsignedCert();
 	}
 
 	// Diffie–Hellman key exchange to get "premaster secret"
@@ -1095,11 +1025,29 @@ CSteamNetworkConnectionBase::ERemoteUnsignedCert CSteamNetworkConnectionBase::Al
 	return k_ERemoteUnsignedCert_AllowWarn;
 }
 
-bool CSteamNetworkConnectionBase::BCheckRemoteCert()
+ESteamNetConnectionEnd CSteamNetworkConnectionBase::CheckRemoteCert( const CertAuthScope *pCACertAuthScope, SteamNetworkingErrMsg &errMsg )
 {
 
-	// No additional checks at the base class
-	return true;
+	// Allowed for this app?
+	if ( !CheckCertAppID( m_msgCertRemote, pCACertAuthScope, m_pSteamNetworkingSocketsInterface->m_nAppID, errMsg ) )
+		return k_ESteamNetConnectionEnd_Remote_BadCert;
+
+	// Check if we don't allow unsigned certs
+	if ( pCACertAuthScope == nullptr )
+	{
+		ERemoteUnsignedCert eAllow = AllowRemoteUnsignedCert();
+		if ( eAllow == k_ERemoteUnsignedCert_AllowWarn )
+		{
+			SpewMsg( "[%s] Remote host is using an unsigned cert.  Allowing connection, but it's not secure!\n", GetDescription() );
+		}
+		else if ( eAllow != k_ERemoteUnsignedCert_Allow )
+		{
+			V_strcpy_safe( errMsg, "Unsigned certs are not allowed" );
+			return k_ESteamNetConnectionEnd_Remote_BadCert;
+		}
+	}
+
+	return k_ESteamNetConnectionEnd_Invalid;
 }
 
 void CSteamNetworkConnectionBase::SetUserData( int64 nUserData )
@@ -2326,16 +2274,5 @@ void CSteamNetworkConnectionPipe::PostConnectionStateChangedCallback( ESteamNetw
 	// But post callbacks for these guys
 	CSteamNetworkConnectionBase::PostConnectionStateChangedCallback( eOldAPIState, eNewAPIState );
 }
-
-
-#ifdef DBGFLAG_VALIDATE
-void CSteamNetworkConnectionBase::ValidateStatics( CValidator &validator )
-{
-	for ( const TrustedKey &trustedKey: s_arTrustedKeys )
-	{
-		ValidateObj( trustedKey );
-	}
-}
-#endif
 
 } // namespace SteamNetworkingSocketsLib

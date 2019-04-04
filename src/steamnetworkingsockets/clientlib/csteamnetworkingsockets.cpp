@@ -675,25 +675,13 @@ bool CSteamNetworkingSockets::SetCertificate( const void *pCert, int cbCert, voi
 	//
 	// Decode the cert
 	//
-	uint32 cbCertBody = cbCert;
-	const char *pszCertBody = CCrypto::LocatePEMBody( (const char *)pCert, &cbCertBody, "STEAMDATAGRAM CERT" );
-	if ( !pszCertBody )
+	if ( !ParseCertFromPEM( pCert, cbCert, m_msgSignedCert, errMsg ) )
 	{
-		V_strcpy_safe( errMsg, "Cert isn't a valid PEM-like text block" );
-		return false;
-	}
-	CUtlVector<uint8> buf;
-	uint32 cbDecoded = CCrypto::Base64DecodeMaxOutput( cbCertBody );
-	buf.SetCount( cbDecoded );
-	if ( !CCrypto::Base64Decode( pszCertBody, cbCertBody, buf.Base(), &cbDecoded, false ) )
-	{
-		V_strcpy_safe( errMsg, "Failed to Base64 decode cert" );
 		return false;
 	}
 
 	if (
-		!m_msgSignedCert.ParseFromArray( buf.Base(), cbDecoded )
-		|| !m_msgSignedCert.has_cert()
+		!m_msgSignedCert.has_cert()
 		|| !m_msgCert.ParseFromString( m_msgSignedCert.cert() )
 		|| !m_msgCert.has_time_expiry()
 		|| !m_msgCert.has_key_data()

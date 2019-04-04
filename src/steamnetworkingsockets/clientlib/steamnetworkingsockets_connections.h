@@ -37,6 +37,7 @@ class CSteamNetworkConnectionBase;
 class CSharedSocket;
 struct SteamNetworkingMessageQueue;
 struct SNPAckSerializerHelper;
+struct CertAuthScope;
 
 // Fixed size byte array that automatically wipes itself upon destruction.
 // Used for storage of secret keys, etc.
@@ -451,11 +452,6 @@ public:
 	/// sent successfully, false if there was a problem.  This will call SendEncryptedDataChunk to do the work
 	bool SNP_SendPacket( SendPacketContext_t &ctx );
 
-	// Steam memory accounting
-	#ifdef DBGFLAG_VALIDATE
-	static void ValidateStatics( CValidator &validator );
-	#endif
-
 protected:
 	CSteamNetworkConnectionBase( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface );
 	virtual ~CSteamNetworkConnectionBase(); // hidden destructor, don't call directly.  Use Destroy()
@@ -605,15 +601,12 @@ protected:
 	// Check the certs, save keys, etc
 	bool BRecvCryptoHandshake( const CMsgSteamDatagramCertificateSigned &msgCert, const CMsgSteamDatagramSessionCryptInfoSigned &msgSessionInfo, bool bServer );
 
-	/// Check if the remote cert and crypt info are acceptable.  If not, you should abort
-	/// the connection with an appropriate code.  You can assume that a signature was
-	/// present and that it has been checked, and if any generic restrictions are present
-	/// (steam ID and app) that can be checked by the base class, that they have already
-	/// been checked.
-	///
-	/// If the cert is not signed, we won't call this (why bother?), instead we will just
-	/// check if unsigned certs are allowed.
-	virtual bool BCheckRemoteCert();
+	/// Check if the remote cert (m_msgCertRemote) is acceptable.  If not, return the
+	/// appropriate connection code and error message.  If pCACertAuthScope is NULL, the
+	/// cert is not signed.  (The base class will check if this is allowed.)  If pCACertAuthScope
+	/// is present, the cert was signed and the chain of trust has been verified, and the CA trust
+	/// chain has authorized the specified rights.
+	virtual ESteamNetConnectionEnd CheckRemoteCert( const CertAuthScope *pCACertAuthScope, SteamNetworkingErrMsg &errMsg );
 
 	/// Called when we the remote host presents us with an unsigned cert.
 	enum ERemoteUnsignedCert
