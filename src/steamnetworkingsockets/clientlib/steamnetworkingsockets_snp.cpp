@@ -1237,7 +1237,7 @@ struct EncodedSegment
 
 			// Just always encode message number with 32 bits for now,
 			// to make sure we are hitting the worst case.  We can optimize this later
-			*(uint32*)pHdr = LittleWord( (uint32)pMsg->m_nMsgNum ); pHdr += 4;
+			*(uint32*)pHdr = LittleDWord( (uint32)pMsg->m_nMsgNum ); pHdr += 4;
 			m_hdr[0] |= 0x10;
 		}
 		else
