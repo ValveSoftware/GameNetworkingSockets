@@ -585,6 +585,12 @@ struct LinkStatsTrackerBase
 	/// Check if we really need to flush out stats now.
 	bool BNeedToSendStats( SteamNetworkingMicroseconds usecNow );
 
+	/// This is implemented by the template clas LinkStatsTracker,
+	/// which is declared final.  Thus, ideally we will not actually
+	/// use virtual function dispatch, unless we are actually invoked
+	/// through and base class pointer and do not know the exact type.
+	virtual void SetDisconnected( bool bFlag, SteamNetworkingMicroseconds usecNow ) = 0;
+
 protected:
 	// Make sure it's used as abstract base.  Note that we require you to call Init()
 	// with a timestamp value, so the constructor is empty by default.
@@ -726,7 +732,7 @@ private:
 // functions" then can be overridden, and the compiler has full visibility and optimization
 // opportunities
 template <typename TLinkStatsTracker>
-struct LinkStatsTracker : public TLinkStatsTracker
+struct LinkStatsTracker final : public TLinkStatsTracker
 {
 
 	// "Virtual functions" that we are "overriding" at compile time
@@ -737,7 +743,7 @@ struct LinkStatsTracker : public TLinkStatsTracker
 		TLinkStatsTracker::SetDisconnectedInternal( bStartDisconnected, usecNow );
 	}
 	inline void Think( SteamNetworkingMicroseconds usecNow ) { TLinkStatsTracker::ThinkInternal( usecNow ); }
-	inline void SetDisconnected( bool bFlag, SteamNetworkingMicroseconds usecNow ) { if ( TLinkStatsTracker::m_bDisconnected != bFlag ) TLinkStatsTracker::SetDisconnectedInternal( bFlag, usecNow ); }
+	virtual void SetDisconnected( bool bFlag, SteamNetworkingMicroseconds usecNow ) override { if ( TLinkStatsTracker::m_bDisconnected != bFlag ) TLinkStatsTracker::SetDisconnectedInternal( bFlag, usecNow ); }
 	inline bool IsDisconnected() const { return TLinkStatsTracker::m_bDisconnected; }
 
 	/// Called after we actually send connection data.  Note that we must have consumed the outgoing sequence
