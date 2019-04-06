@@ -77,7 +77,7 @@ static void PrintArgSummaryAndExit( int returnCode = 1 )
 {
 	printf( R"usage(Usage:
 
-To generate a keypair:
+To generate a signing keypair (currently always Ed25519):
 
 	steamnetworkingsockets_certtool [options] gen_keypair
 
@@ -88,6 +88,11 @@ To create a cert for a keypair:
 To do both steps at once:
 
 	steamnetworkingsockets_certtool [options] gen_keypair create_cert
+
+To generate a Diffie-Hellman key exchange keypair (X25519, for sending
+private messages, not for signing):
+
+	steamnetworkingsockets_certtool [options] gen_keyexchange_keypair
 
 Options:
 
@@ -123,6 +128,19 @@ static std::string KeyIDAsString( uint64 nKeyID )
 	return std::string( temp );
 }
 
+static std::string PublicKeyAsAuthorizedKeys( const CECSigningPublicKey &pubKey )
+{
+	uint32 cbText = 0;
+	char text[ 2048 ];
+	DbgVerify( pubKey.GetAsOpenSSHAuthorizedKeys( text, sizeof(text), &cbText, "" ) );
+	return std::string( text );
+}
+
+static std::string PublicKeyAsAuthorizedKeys()
+{
+	return PublicKeyAsAuthorizedKeys( s_keyCertPub );
+}
+
 static std::string PublicKeyIDAsString()
 {
 	uint64 nKeyID = CalculatePublicKeyID( s_keyCertPub );
@@ -135,6 +153,15 @@ static std::string PublicKeyIDAsString()
 // Cert creation
 //
 ///////////////////////////////////////////////////////////////////////////////
+
+static void AddPublicKeyInfoToJSON()
+{
+	std::string sKeyID = PublicKeyIDAsString();
+	std::string sComment = "ID"+sKeyID;
+
+	s_jsonOutput.push_back( ujson::name_value_pair( "public_key_id", PublicKeyIDAsString() ) );
+	s_jsonOutput.push_back( ujson::name_value_pair( "public_key", PublicKeyAsAuthorizedKeys() ) );
+}
 
 void GenKeyPair()
 {
@@ -169,10 +196,8 @@ void GenKeyPair()
 	char text[ 16000 ];
 
 	DbgVerify( s_keyCertPub.GetAsOpenSSHAuthorizedKeys( text, sizeof(text), &cbText, sComment.c_str() ) );
-	Printf( "\nPublic key:\n" );
-	Printf( "%s\n", text );
-	s_jsonOutput.push_back( ujson::name_value_pair( "public_key", text ) );
-	s_jsonOutput.push_back( ujson::name_value_pair( "key_id", sKeyID ) );
+	Printf( "\nPublic key: %s\n", text );
+	AddPublicKeyInfoToJSON();
 
 	// Round trip sanity check
 	{
@@ -182,7 +207,6 @@ void GenKeyPair()
 	}
 
 	DbgVerify( privKey.GetAsPEM( text, sizeof(text), &cbText ) );
-	Printf( "\nPrivate key:\n" );
 	Printf( "%s\n", text );
 
 	s_jsonOutput.push_back( ujson::name_value_pair( "private_key", text ) );
@@ -245,9 +269,9 @@ void PrintCertInfo( const CMsgSteamDatagramCertificateSigned &msgSigned, ujson::
 		{
 			V_sprintf_safe( szTemp, "%u", id );
 
-			if ( !sPOPIDs.empty() )
-				sPOPIDs += ' ';
-			sPOPIDs += szTemp;
+			if ( !sAppIDs.empty() )
+				sAppIDs += ' ';
+			sAppIDs += szTemp;
 			app_ids.push_back( ujson::value( id ) );
 		}
 		if ( !app_ids.empty() )
@@ -259,21 +283,40 @@ void PrintCertInfo( const CMsgSteamDatagramCertificateSigned &msgSigned, ujson::
 	uint64 key_id = CalculatePublicKeyID( pubKey );
 
 	outJSON.push_back( ujson::name_value_pair( "time_created", (uint32)timeCreated ) );
+	outJSON.push_back( ujson::name_value_pair( "time_created_string", szTimeCreated ) );
 	outJSON.push_back( ujson::name_value_pair( "time_expiry", (uint32)timeExpiry ) );
+	outJSON.push_back( ujson::name_value_pair( "time_expiry_string", szTimeExpiry ) );
 	outJSON.push_back( ujson::name_value_pair( "ca_key_id", KeyIDAsString( msgSigned.ca_key_id() ) ) );
 
-	Printf( "Public key ID. . : %s\n", KeyIDAsString( key_id ).c_str() );
-	Printf( "Created. . . . . : %s\n", szTimeCreated );
-	Printf( "Expires. . . . . : %s\n", szTimeExpiry );
-	Printf( "CA key ID. . . . : %s\n", KeyIDAsString( msgSigned.ca_key_id() ).c_str() );
+	Printf( "#Public key . . . : %s ID%s\n", PublicKeyAsAuthorizedKeys( pubKey ).c_str(), KeyIDAsString( key_id ).c_str() );
+	Printf( "#Created. . . . . : %s (%llu)\n", szTimeCreated, (unsigned long long)timeCreated );
+	Printf( "#Expires. . . . . : %s (%llu)\n", szTimeExpiry, (unsigned long long)timeCreated );
+	Printf( "#CA key ID. . . . : %s\n", KeyIDAsString( msgSigned.ca_key_id() ).c_str() );
 	if ( !sAppIDs.empty() )
 	{
-		Printf( "App ID(s). . . . : %s\n", sAppIDs.c_str() );
+		Printf( "#App ID(s). . . . : %s\n", sAppIDs.c_str() );
 	}
 	if ( !sPOPIDs.empty() )
 	{
-		Printf( "POP ID(s). . . . : %s\n", sPOPIDs.c_str() );
+		Printf( "#POP ID(s). . . . : %s\n", sPOPIDs.c_str() );
 	}
+}
+
+std::string CertToBase64( const CMsgSteamDatagramCertificateSigned &msgCert, const char *pszNewline )
+{
+	std::string sSigned = msgCert.SerializeAsString();
+
+	char text[ 16000 ];
+	uint32 cbText = sizeof(text);
+	DbgVerify( CCrypto::Base64Encode( (const uint8 *)sSigned.c_str(), (uint32)sSigned.length(), text, &cbText, pszNewline ) );
+	V_StripTrailingWhitespaceASCII( text );
+	return std::string(text);
+}
+
+std::string CertToPEM( const CMsgSteamDatagramCertificateSigned &msgCert )
+{
+	std::string body = CertToBase64( msgCert, "\n" );
+	return std::string( k_szSDRCertPEMHeader ) + '\n' + body + '\n' + k_szSDRCertPEMFooter + '\n';
 }
 
 void CreateCert()
@@ -307,30 +350,46 @@ void CreateCert()
 	msgSigned.set_ca_key_id( nCAKeyID );
 	msgSigned.set_ca_signature( &sig, sizeof(sig) );
 
-	std::string sSigned = msgSigned.SerializeAsString();
+	Printf( "%s", CertToPEM( msgSigned ).c_str() );
 
-	char text[ 16000 ];
-	uint32 cbText = sizeof(text);
-	DbgVerify( CCrypto::Base64Encode( (const uint8 *)sSigned.c_str(), (uint32)sSigned.length(), text, &cbText, "\n" ) );
-	V_StripTrailingWhitespaceASCII( text );
-
-	Printf( "Cert:\n" );
-	Printf( "%s\n", k_szSDRCertPEMHeader );
-	Printf( "%s\n", text );
-	Printf( "%s\n", k_szSDRCertPEMFooter );
-
-	cbText = sizeof(text);
-	DbgVerify( CCrypto::Base64Encode( (const uint8 *)sSigned.c_str(), (uint32)sSigned.length(), text, &cbText, "" ) );
-	V_StripTrailingWhitespaceASCII( text );
-	std::string pem_json = k_szSDRCertPEMHeader;
-	pem_json += " ";
-	pem_json += text;
-	pem_json += " ";
-	pem_json += k_szSDRCertPEMFooter;
-
+	std::string pem_json = CertToBase64( msgSigned, "" );
 	s_jsonOutput.push_back( ujson::name_value_pair( "cert", pem_json ) );
 
 	PrintCertInfo( msgSigned, s_jsonOutput );
+}
+
+template <typename TCryptoKey>
+void PrintHDKey( const TCryptoKey &key, const char *pszPlainTextHeader, const char *pszJSON )
+{
+	CUtlBuffer bufTemp;
+	bufTemp.EnsureCapacity( key.GetRawData( nullptr ) );
+	uint32 cbRaw = key.GetRawData( bufTemp.Base() );
+	uint32 cbText = cbRaw*2 + 8;
+
+	CUtlBuffer bufText;
+	bufText.EnsureCapacity( cbText );
+
+	char *pszHex = (char *)bufText.Base();
+	DbgVerify( CCrypto::HexEncode( bufTemp.Base(), cbRaw, pszHex, cbText ) );
+
+	Printf( "%s: %s\n", pszPlainTextHeader, pszHex );
+	s_jsonOutput.push_back( ujson::name_value_pair( pszJSON, pszHex ) );
+
+	// !TEST! Round-trip to make sure we are working
+	TCryptoKey keyCheck;
+	DbgVerify( keyCheck.SetFromHexEncodedString( pszHex ) );
+	DbgVerify( keyCheck == key );
+}
+
+void GenDHKeyPair()
+{
+	Printf( "Generating Diffie-Hellman X25519 keypair...\n" );
+	CECKeyExchangePrivateKey privKey;
+	CECKeyExchangePublicKey pubKey;
+	CCrypto::GenerateKeyExchangeKeyPair( &pubKey, &privKey );
+
+	PrintHDKey( privKey, "Private key . ", "private_key" );
+	PrintHDKey( pubKey,  "Public key. . ", "public_key" );
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -402,7 +461,7 @@ int main( int argc, char **argv )
 			LoadFileIntoBuffer( pszArg, buf );
 			if ( !s_keyCertPub.LoadFromAndWipeBuffer( buf.Base(), buf.TellPut() ) )
 				Plat_FatalError( "File '%s' doesn't contain a valid authorized_keys style public Ed25519 keyfile.  (Try exporting from OpenSSH)\n", pszArg );
-			s_jsonOutput.push_back( ujson::name_value_pair( "key_id", PublicKeyIDAsString() ) );
+			AddPublicKeyInfoToJSON();
 			continue;
 		}
 
@@ -411,7 +470,7 @@ int main( int argc, char **argv )
 			GET_ARG();
 			if ( !s_keyCertPub.SetFromOpenSSHAuthorizedKeys( pszArg, V_strlen(pszArg) ) )
 				Plat_FatalError( "'%s' isn't a valid authorized_keys style public Ed25519 keyfile.  (Try exporting from OpenSSH)\n", pszArg );
-			s_jsonOutput.push_back( ujson::name_value_pair( "key_id", PublicKeyIDAsString() ) );
+			AddPublicKeyInfoToJSON();
 			continue;
 		}
 
@@ -485,6 +544,12 @@ int main( int argc, char **argv )
 		if ( !V_stricmp( pszSwitch, "create_cert" ) )
 		{
 			CreateCert();
+			bDidSomething = true;
+			continue;
+		}
+		if ( !V_stricmp( pszSwitch, "gen_keyexchange_keypair" ) )
+		{
+			GenDHKeyPair();
 			bDidSomething = true;
 			continue;
 		}
