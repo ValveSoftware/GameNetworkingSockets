@@ -150,7 +150,7 @@ struct CertAuthScope
 enum ETrust
 {
 	k_ETrust_Revoked = -3,
-	k_ETrust_NotTrusted = -1,
+	k_ETrust_NotTrusted = -2,
 	k_ETrust_UnknownWorking = -1,
 	k_ETrust_Unknown = 0,
 	k_ETrust_Trusted = 1,
