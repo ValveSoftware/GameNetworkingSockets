@@ -417,6 +417,7 @@ void CSteamNetworkListenSocketDirectUDP::Received_ConnectRequest( const CMsgStea
 		msgReply.set_reason_code( k_ESteamNetConnectionEnd_Misc_Generic );
 		msgReply.set_debug( "A connection with that ID already exists." );
 		SendPaddedMsg( k_ESteamNetworkingUDPMsg_ConnectionClosed, msgReply, adrFrom );
+		return;
 	}
 
 	CSteamNetworkConnectionUDP *pConn = new CSteamNetworkConnectionUDP( m_pSteamNetworkingSocketsInterface );
