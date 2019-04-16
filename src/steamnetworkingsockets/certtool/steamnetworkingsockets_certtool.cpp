@@ -97,7 +97,9 @@ private messages, not for signing):
 Options:
 
   --help                       You're looking at it
-  --ca-priv-key-file FILENAME  Load up CA master private key from file (PEM-like blob)
+  --ca-priv-key-file FILENAME  Load CA private key from file (PEM-like blob)
+  --ca-priv-key KEY            Use CA private key data (PEM-like blob.  Don't
+                               forget to quote it!)
   --pub-key-file FILENAME      Load public key key from file (authorized_keys)
   --pub-key KEY                Use specific public key (authorized_keys blob)
   --pop CODE[,CODE...]         Restrict POP(s).  (3- or 4-character code(s))
@@ -451,6 +453,14 @@ int main( int argc, char **argv )
 			if ( !s_keyCAPriv.LoadFromAndWipeBuffer( buf.Base(), buf.TellPut() ) )
 				Plat_FatalError( "File '%s' doesn't contain a valid private Ed25519 keyfile.  (Try exporting from OpenSSH)\n", pszArg );
 
+			continue;
+		}
+
+		if ( !V_stricmp( pszSwitch, "--ca-priv-key" ) )
+		{
+			GET_ARG();
+			if ( !s_keyCAPriv.ParsePEM( pszArg, V_strlen(pszArg) ) )
+				Plat_FatalError( "Argument after --ca-priv-key is not a valid private Ed25519 keyfile.  (Try exporting from OpenSSH.  And did you remember to quote the argument?)\n" );
 			continue;
 		}
 
