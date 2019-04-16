@@ -6,10 +6,6 @@
 // Must be the last include
 #include <tier0/memdbgon.h>
 
-// Use hardcoded cert on Steam.
-// !FIXME! Need a way to conditionally define this
-#define STEAMNETWORKINGSOCKETS_USE_HARDCODED_ROOT_CA_CERT "\x9a\xec\xa0\x4e\x17\x51\xce\x62\x68\xd5\x69\x00\x2c\xa1\xe1\xfa\x1b\x2d\xbc\x26\xd3\x6b\x4e\xa3\xa0\x08\x3a\xd3\x72\x82\x9b\x84"
-
 namespace SteamNetworkingSocketsLib {
 
 /// Certificates are granted limited authority.  A CertAuthParameter is a
@@ -170,13 +166,23 @@ struct Cert
 	std::string m_signature;
 	CertAuthScope m_authScope;
 	time_t m_timeCreated;
-	time_t m_timeExpiry;
 
 	bool Setup( const CMsgSteamDatagramCertificateSigned &msgCertSigned, CECSigningPublicKey &outPublicKey, SteamNetworkingErrMsg &errMsg )
 	{
 		m_signed_data = msgCertSigned.cert();
 		m_signature = msgCertSigned.ca_signature();
 		m_ca_key_id = msgCertSigned.ca_key_id();
+
+		if ( m_signed_data.empty() )
+		{
+			V_strcpy_safe( errMsg, "No data" );
+			return false;
+		}
+		if ( m_signature.length() != sizeof(CryptoSignature_t) )
+		{
+			V_strcpy_safe( errMsg, "Invalid signature length" );
+			return false;
+		}
 
 		CMsgSteamDatagramCertificate msgCert;
 		if ( !msgCert.ParseFromString( m_signed_data ) )
@@ -204,8 +210,8 @@ struct Cert
 		}
 
 		m_timeCreated = msgCert.time_created();
-		m_timeExpiry = msgCert.time_expiry();
-		if ( m_timeExpiry == 0 )
+		m_authScope.m_timeExpiry = msgCert.time_expiry();
+		if ( m_authScope.m_timeExpiry <= 0 )
 		{
 			V_strcpy_safe( errMsg, "Cert has no expiry" );
 			return false;
@@ -253,11 +259,10 @@ struct PublicKey
 		return false;
 	}
 
-	#ifdef STEAMNETWORKINGSOCKETS_USE_HARDCODED_ROOT_CA_CERT
+	#ifdef STEAMNETWORKINGSOCKETS_HARDCODED_ROOT_CA_KEY
 		void SlamHardcodedRootCA()
 		{
-			COMPILE_TIME_ASSERT( sizeof(STEAMNETWORKINGSOCKETS_USE_HARDCODED_ROOT_CA_CERT) == 33 ); // Includes '\0'
-			bool bOK = m_keyPublic.SetRawDataWithoutWipingInput( STEAMNETWORKINGSOCKETS_USE_HARDCODED_ROOT_CA_CERT, 32 );
+			bool bOK = m_keyPublic.SetFromOpenSSHAuthorizedKeys( STEAMNETWORKINGSOCKETS_HARDCODED_ROOT_CA_KEY, sizeof(STEAMNETWORKINGSOCKETS_HARDCODED_ROOT_CA_KEY) );
 			Assert( bOK );
 			m_eTrust = k_ETrust_Hardcoded;
 			m_effectiveAuthScope.SetAll();
@@ -287,7 +292,7 @@ static PublicKey *FindPublicKey( uint64 nKeyID )
 
 static void CertStore_OneTimeInit()
 {
-	#ifdef STEAMNETWORKINGSOCKETS_USE_HARDCODED_ROOT_CA_CERT
+	#ifdef STEAMNETWORKINGSOCKETS_HARDCODED_ROOT_CA_KEY
 		if ( s_mapPublicKeys.Count() == 0 )
 		{
 			PublicKey *pKey = new PublicKey;
@@ -321,6 +326,7 @@ void CertStore_AddKeyRevocation( uint64 key_id )
 	// from the dynamic list we are serving.
 	AssertMsg( pKey->m_eTrust != k_ETrust_Hardcoded, "WARNING: Hardcoded trust key is in revocation list.  We won't be able to trust anything, ever!" );
 	pKey->m_eTrust = k_ETrust_Revoked;
+	pKey->m_status_msg = "Revoked";
 
 	s_bTrustValid = false;
 }
@@ -427,8 +433,8 @@ static void RecursiveEvaluateKeyTrust( PublicKey *pKey )
 	for ( int i = 0 ; i < len( pKey->m_vecCerts ) ; ++i )
 	{
 		Cert &cert = pKey->m_vecCerts[ i ];
-		Assert( !cert.m_signature.empty() );
-		Assert( cert.m_signed_data.length() == sizeof(CryptoSignature_t) );
+		Assert( !cert.m_signed_data.empty() );
+		Assert( cert.m_signature.length() == sizeof(CryptoSignature_t) );
 
 		// Cert with empty auth scope shouldn't parse
 		Assert( !cert.m_authScope.IsEmpty() );
@@ -447,11 +453,12 @@ static void RecursiveEvaluateKeyTrust( PublicKey *pKey )
 		// Self-signed (root cert)?
 		if ( pSignerKey == pKey )
 		{
-			#ifdef STEAMNETWORKINGSOCKETS_USE_HARDCODED_ROOT_CA_CERT
-				// If hardcoded root cert is in use, only trust our
-				// hardcoded root cert.  (We've already tagged the key
-				// as hardcoded, so we don't get this far for those keys).
-				cert.m_status_msg = "Trusted root is hardcoded";
+			#ifdef STEAMNETWORKINGSOCKETS_HARDCODED_ROOT_CA_KEY
+				// If hardcoded root cert is in use, only trust the
+				// one hardcoded root key.  (We've already tagged it
+				// as trusteded by hardcoded, so we don't get this far
+				// for those keys).
+				cert.m_status_msg = "Trusted root is hardcoded, cannot add more self-signed certs";
 				continue;
 			#endif
 
@@ -673,7 +680,7 @@ bool CheckCertAppID( const CMsgSteamDatagramCertificate &msgCert, const CertAuth
 		{
 			if ( !pCACertAuthScope || pCACertAuthScope->m_apps.HasItem( nAppID ) )
 				return true;
-			V_sprintf_safe( errMsg, "Cert allows appid %u, by CA trust chain does not", nAppID );
+			V_sprintf_safe( errMsg, "Cert allows appid %u, but CA trust chain does not", nAppID );
 			return false;
 		}
 	}
@@ -709,7 +716,7 @@ bool CheckCertPOPID( const CMsgSteamDatagramCertificate &msgCert, const CertAuth
 		{
 			if ( !pCACertAuthScope || pCACertAuthScope->m_pops.HasItem( popID ) )
 				return true;
-			V_sprintf_safe( errMsg, "Cert allows POPID %s, by CA trust chain does not", SteamNetworkingPOPIDRender( popID ).c_str() );
+			V_sprintf_safe( errMsg, "Cert allows POPID %s, but CA trust chain does not", SteamNetworkingPOPIDRender( popID ).c_str() );
 			return false;
 		}
 	}

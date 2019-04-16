@@ -10,6 +10,14 @@
 
 #include "steamnetworkingsockets_internal.h"
 
+// Use a hardcoded root CA key?  It's just a key, not the cert here, because there are no additional relevant
+// details that the cert might specify.  We assume any such cert would be self-signed and not have any
+// restrictions, and we also act as if it doesn't expire.
+#if !defined( STEAMNETWORKINGSOCKETS_HARDCODED_ROOT_CA_KEY ) && !defined( STEAMNETWORKINGSOCKETS_ALLOW_DYNAMIC_SELFSIGNED_CERTS )
+
+	// Master Valve Key
+	#define STEAMNETWORKINGSOCKETS_HARDCODED_ROOT_CA_KEY "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJrsoE4XUc5iaNVpACyh4fobLbwm02tOo6AIOtNygpuE ID18220590129359924542"
+#endif
 
 // Internal stuff goes in a private namespace
 namespace SteamNetworkingSocketsLib {
