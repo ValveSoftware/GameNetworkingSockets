@@ -734,6 +734,9 @@ bool CSteamNetworkConnectionUDP::BInitConnect( const SteamNetworkingIPAddr &addr
 	Assert( m_identityRemote.IsInvalid() );
 	m_identityRemote.Clear();
 
+	// We just opened a socket aiming at this address, so we know what the remote addr will be.
+	m_netAdrRemote = netadrRemote;
+
 	// We should know our own identity, unless the app has said it's OK to go without this.
 	if ( m_identityLocal.IsInvalid() ) // Specific identity hasn't already been set (by derived class, etc)
 	{
