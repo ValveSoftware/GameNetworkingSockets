@@ -417,6 +417,7 @@ void CSteamNetworkListenSocketDirectUDP::Received_ConnectRequest( const CMsgStea
 		msgReply.set_reason_code( k_ESteamNetConnectionEnd_Misc_Generic );
 		msgReply.set_debug( "A connection with that ID already exists." );
 		SendPaddedMsg( k_ESteamNetworkingUDPMsg_ConnectionClosed, msgReply, adrFrom );
+		return;
 	}
 
 	CSteamNetworkConnectionUDP *pConn = new CSteamNetworkConnectionUDP( m_pSteamNetworkingSocketsInterface );
@@ -732,6 +733,9 @@ bool CSteamNetworkConnectionUDP::BInitConnect( const SteamNetworkingIPAddr &addr
 	// so it's important that it be cleared.  (It should already be so.)
 	Assert( m_identityRemote.IsInvalid() );
 	m_identityRemote.Clear();
+
+	// We just opened a socket aiming at this address, so we know what the remote addr will be.
+	m_netAdrRemote = netadrRemote;
 
 	// We should know our own identity, unless the app has said it's OK to go without this.
 	if ( m_identityLocal.IsInvalid() ) // Specific identity hasn't already been set (by derived class, etc)
