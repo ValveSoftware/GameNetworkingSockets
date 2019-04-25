@@ -352,11 +352,10 @@ bool CCrypto::SymmetricAuthDecryptWithIV(
 // Input:	pchInput -			Plaintext string of item to hash (null terminated)
 //			pOutDigest -		Pointer to receive hashed digest output
 //-----------------------------------------------------------------------------
-void CCrypto::GenerateSHA256Digest( const uint8 *pubInput, const int cubInput, SHA256Digest_t *pOutDigest )
+void CCrypto::GenerateSHA256Digest( const void *pInput, size_t cbInput, SHA256Digest_t *pOutDigest )
 {
 	VPROF_BUDGET( "CCrypto::GenerateSHA256Digest", VPROF_BUDGETGROUP_ENCRYPTION );
 	//Assert( pubInput );
-	Assert( cubInput >= 0 );
 	Assert( pOutDigest );
 
 	EVPCTXPointer<EVP_MD_CTX *, EVP_MD_CTX_free> ctx(EVP_MD_CTX_create());
@@ -364,7 +363,7 @@ void CCrypto::GenerateSHA256Digest( const uint8 *pubInput, const int cubInput, S
 	unsigned int digest_len = sizeof(SHA256Digest_t);
 	VerifyFatal(ctx.ctx != NULL);
 	VerifyFatal(EVP_DigestInit_ex(ctx.ctx, EVP_sha256(), NULL) == 1);
-	VerifyFatal(EVP_DigestUpdate(ctx.ctx, pubInput, cubInput) == 1);
+	VerifyFatal(EVP_DigestUpdate(ctx.ctx, pInput, cbInput) == 1);
 	VerifyFatal(EVP_DigestFinal(ctx.ctx, *pOutDigest, &digest_len) == 1);
 }
 

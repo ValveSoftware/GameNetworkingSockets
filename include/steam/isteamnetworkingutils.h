@@ -14,6 +14,7 @@
 
 #include "steamnetworkingtypes.h"
 struct SteamDatagramRelayAuthTicket;
+struct SteamRelayNetworkStatus_t;
 
 //-----------------------------------------------------------------------------
 /// Misc networking utilities for checking the local networking environment
@@ -122,7 +123,7 @@ public:
 protected:
 	~ISteamNetworkingUtils(); // Silence some warnings
 };
-#define STEAMNETWORKINGUTILS_INTERFACE_VERSION "SteamNetworkingUtils001"
+#define STEAMNETWORKINGUTILS_INTERFACE_VERSION "SteamNetworkingUtils002"
 
 // Global accessor.
 #ifdef STEAMNETWORKINGSOCKETS_STANDALONELIB

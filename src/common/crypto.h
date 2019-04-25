@@ -41,7 +41,7 @@ protected:
 // Base class for AES-GCM encryption and ddecryption
 class AES_GCM_CipherContext : public SymmetricCryptContextBase
 {
-protected:
+public:
 
 	// Initialize context with the specified private key, IV size, and tag size
 	bool InitCipher( const void *pKey, size_t cbKey, size_t cbIV, size_t cbTag, bool bEncrypt );
@@ -161,7 +161,7 @@ namespace CCrypto
 	/// Use platform-dependency secure random number source of high entropy
 	void GenerateRandomBlock( void *pubDest, int cubDest );
 
-	void GenerateSHA256Digest( const uint8 *pubData, const int cubData, SHA256Digest_t *pOutputDigest );
+	void GenerateSHA256Digest( const void *pData, size_t cbData, SHA256Digest_t *pOutputDigest );
 
 	// GenerateHMAC256 is our implementation of HMAC-SHA256. Relatively future-proof. You should probably use this unless you have a very good reason not to.
 	void GenerateHMAC256( const uint8 *pubData, uint32 cubData, const uint8 *pubKey, uint32 cubKey, SHA256Digest_t *pOutputDigest );

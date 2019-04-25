@@ -442,6 +442,8 @@ inline bool IsPrivateIP( uint32 unIP )
 	return false;
 }
 
+extern const char *GetAvailabilityString( ESteamNetworkingAvailability a );
+
 inline void SteamNetworkingIPAddrToNetAdr( netadr_t &netadr, const SteamNetworkingIPAddr &addr )
 {
 	uint32 ipv4 = addr.GetIPv4();
@@ -479,6 +481,14 @@ struct SteamNetworkingIdentityRender
 	inline const char *c_str() const { return buf; }
 private:
 	char buf[ SteamNetworkingIdentity::k_cchMaxString ];
+};
+
+struct SteamNetworkingIPAddrRender
+{
+	SteamNetworkingIPAddrRender( const SteamNetworkingIPAddr &x, bool bWithPort = true ) { x.ToString( buf, sizeof(buf), true ); }
+	inline const char *c_str() const { return buf; }
+private:
+	char buf[ SteamNetworkingIPAddr::k_cchMaxString ];
 };
 
 struct SteamNetworkingPOPIDRender

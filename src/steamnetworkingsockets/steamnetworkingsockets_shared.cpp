@@ -1459,28 +1459,30 @@ std::string Indent( const char *s )
 	return result;
 }
 
-} // namespace SteamNetworkingSocketsLib
-
-const char *GetAvailabilityString( ESteamDatagramAvailability a )
+const char *GetAvailabilityString( ESteamNetworkingAvailability a )
 {
 	switch ( a )
 	{
-		case k_ESteamDatagramAvailability_CannotTry: return "Dependency unavailable";
-		case k_ESteamDatagramAvailability_Failed: return "Failed";
-		case k_ESteamDatagramAvailability_Previously: return "Lost";
-		case k_ESteamDatagramAvailability_NeverTried: return "Unknown";
-		case k_ESteamDatagramAvailability_Attempting: return "Working...";
-		case k_ESteamDatagramAvailability_Current: return "OK";
+		case k_ESteamNetworkingAvailability_CannotTry: return "Dependency unavailable";
+		case k_ESteamNetworkingAvailability_Failed: return "Failed";
+		case k_ESteamNetworkingAvailability_Waiting: return "Waiting";
+		case k_ESteamNetworkingAvailability_Retrying: return "Retrying";
+		case k_ESteamNetworkingAvailability_Previously: return "Lost";
+		case k_ESteamNetworkingAvailability_NeverTried: return "Not Attempted";
+		case k_ESteamNetworkingAvailability_Attempting: return "Attempting";
+		case k_ESteamNetworkingAvailability_Current: return "OK";
 	}
 
 	Assert( false );
 	return "???";
 }
 
+} // namespace SteamNetworkingSocketsLib
+
 void SteamNetworkingDetailedConnectionStatus::Clear()
 {
 	V_memset( this, 0, sizeof(*this) );
-	COMPILE_TIME_ASSERT( k_ESteamDatagramAvailability_Unknown == 0 );
+	COMPILE_TIME_ASSERT( k_ESteamNetworkingAvailability_Unknown == 0 );
 	m_statsEndToEnd.Clear();
 	m_statsPrimaryRouter.Clear();
 	m_nPrimaryRouterBackPing = -1;
@@ -1493,14 +1495,14 @@ int SteamNetworkingDetailedConnectionStatus::Print( char *pszBuf, int cbBuf )
 	CUtlBuffer buf( 0, 8*1024, CUtlBuffer::TEXT_BUFFER );
 
 	// If we don't have network, there's nothing else we can really do
-	if ( m_eAvailNetworkConfig != k_ESteamDatagramAvailability_Current && m_eAvailNetworkConfig != k_ESteamDatagramAvailability_Unknown )
+	if ( m_eAvailNetworkConfig != k_ESteamNetworkingAvailability_Current && m_eAvailNetworkConfig != k_ESteamNetworkingAvailability_Unknown )
 	{
 		buf.Printf( "Network configuration: %s\n", GetAvailabilityString( m_eAvailNetworkConfig ) );
 		buf.Printf( "   Cannot communicate with relays without network config." );
 	}
 
 	// Unable to talk to any routers?
-	if ( m_eAvailAnyRouterCommunication != k_ESteamDatagramAvailability_Current && m_eAvailAnyRouterCommunication != k_ESteamDatagramAvailability_Unknown )
+	if ( m_eAvailAnyRouterCommunication != k_ESteamNetworkingAvailability_Current && m_eAvailAnyRouterCommunication != k_ESteamNetworkingAvailability_Unknown )
 	{
 		buf.Printf( "Router network: %s\n", GetAvailabilityString( m_eAvailAnyRouterCommunication ) );
 	}

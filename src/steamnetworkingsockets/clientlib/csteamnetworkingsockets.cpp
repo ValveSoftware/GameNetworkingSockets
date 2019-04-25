@@ -377,6 +377,26 @@ bool CSteamNetworkingSockets::GetIdentity( SteamNetworkingIdentity *pIdentity )
 	return !m_identity.IsInvalid();
 }
 
+#ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
+ESteamNetworkingAvailability CSteamNetworkingSockets::InitAuthentication()
+{
+	return k_ESteamNetworkingAvailability_CannotTry;
+}
+
+ESteamNetworkingAvailability CSteamNetworkingSockets::GetAuthenticationStatus( SteamNetAuthenticationStatus_t *pDetails )
+{
+
+	// We don't really have any mechanism right now for you to do your own PKI.
+	// Do you want this feature?  Let us know on github!
+	if ( pDetails )
+	{
+		pDetails->m_eAvail = k_ESteamNetworkingAvailability_CannotTry;
+		V_strcpy_safe( pDetails->m_debugMsg, "No certificate authority" );
+	}
+	return k_ESteamNetworkingAvailability_CannotTry;
+}
+#endif
+
 HSteamListenSocket CSteamNetworkingSockets::CreateListenSocketIP( const SteamNetworkingIPAddr &localAddr )
 {
 	SteamDatagramTransportLock scopeLock;
@@ -738,7 +758,7 @@ void CSteamNetworkingSockets::RunCallbacks( ISteamNetworkingSocketsCallbacks *pC
 				COMPILE_TIME_ASSERT( sizeof(SteamNetConnectionStatusChangedCallback_t) <= sizeof(x.data) );
 				pCallbacks->OnSteamNetConnectionStatusChanged( (SteamNetConnectionStatusChangedCallback_t*)x.data );
 				break;
-		#ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
+		#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 			case P2PSessionRequest_t::k_iCallback:
 				COMPILE_TIME_ASSERT( sizeof(P2PSessionRequest_t) <= sizeof(x.data) );
 				pCallbacks->OnP2PSessionRequest( (P2PSessionRequest_t*)x.data );
@@ -746,6 +766,14 @@ void CSteamNetworkingSockets::RunCallbacks( ISteamNetworkingSocketsCallbacks *pC
 			case P2PSessionConnectFail_t::k_iCallback:
 				COMPILE_TIME_ASSERT( sizeof(P2PSessionConnectFail_t) <= sizeof(x.data) );
 				pCallbacks->OnP2PSessionConnectFail( (P2PSessionConnectFail_t*)x.data );
+				break;
+			case SteamNetAuthenticationStatus_t::k_iCallback:
+				COMPILE_TIME_ASSERT( sizeof(SteamNetAuthenticationStatus_t) <= sizeof(x.data) );
+				pCallbacks->OnAuthenticationStatusChanged( (SteamNetAuthenticationStatus_t *)x.data );
+				break;
+			case SteamRelayNetworkStatus_t::k_iCallback:
+				COMPILE_TIME_ASSERT( sizeof(SteamRelayNetworkStatus_t) <= sizeof(x.data) );
+				pCallbacks->OnRelayNetworkStatusChanged( (SteamRelayNetworkStatus_t*)x.data );
 				break;
 		#endif
 			default:

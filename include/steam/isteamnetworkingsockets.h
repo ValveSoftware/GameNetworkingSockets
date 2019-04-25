@@ -21,6 +21,7 @@
 #include "steamnetworkingtypes.h"
 
 class ISteamNetworkingSocketsCallbacks;
+struct SteamNetAuthenticationStatus_t;
 
 //-----------------------------------------------------------------------------
 /// Lower level networking interface that more closely mirrors the standard
@@ -76,30 +77,7 @@ public:
 	virtual HSteamNetConnection ConnectByIPAddress( const SteamNetworkingIPAddr &address ) = 0;
 
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
-	/// Like CreateListenSocketIP, but clients will connect using ConnectP2P
-	///
-	/// nVirtualPort specifies how clients can connect to this socket using
-	/// ConnectP2P.  It's very common for applications to only have one listening socket;
-	/// in that case, use zero.  If you need to open multiple listen sockets and have clients
-	/// be able to connect to one or the other, then nVirtualPort should be a small integer (<1000)
-	/// unique to each listen socket you create.
-	///
-	/// If you use this, you probably want to call ISteamNetworkingUtils::InitializeRelayNetworkAccess()
-	/// when your app initializes
-	virtual HSteamListenSocket CreateListenSocketP2P( int nVirtualPort ) = 0;
-
-	/// Begin connecting to a server that is identified using a platform-specific identifier.
-	/// This requires some sort of third party rendezvous service, and will depend on the
-	/// platform and what other libraries and services you are integrating with.
-	///
-	/// At the time of this writing, there is only one supported rendezvous service: Steam.
-	/// Set the SteamID (whether "user" or "gameserver") and Steam will determine if the
-	/// client is online and facilitate a relay connection.  Note that all P2P connections on
-	/// Steam are currently relayed.
-	///
-	/// If you use this, you probably want to call ISteamNetworkingUtils::InitializeRelayNetworkAccess()
-	/// when your app initializes
-	virtual HSteamNetConnection ConnectP2P( const SteamNetworkingIdentity &identityRemote, int nVirtualPort ) = 0;
+	/// P2P stfuf
 #endif
 
 	/// Accept an incoming connection that has been received on a listen socket.
@@ -312,7 +290,42 @@ public:
 	/// even if they are not signed into Steam.)
 	virtual bool GetIdentity( SteamNetworkingIdentity *pIdentity ) = 0;
 
+	/// Indicate our desire to be ready participate in authenticated communications.
+	/// If we are currently not ready, then steps will be taken to obtain the necessary
+	/// certificates.   (This includes a certificate for us, as well as any CA certificates
+	/// needed to authenticate peers.)
+	///
+	/// You can call this at program init time if you know that you are going to
+	/// be making authenticated connections, so that we will be ready immediately when
+	/// those connections are attempted.  (Note that essentially all connections require
+	/// authentication, with the exception of ordinary UDP connections with authentication
+	/// disabled using k_ESteamNetworkingConfig_IP_AllowWithoutAuth.)  If you don't call
+	/// this function, we will wait until a feature is utilized that that necessitates
+	/// these resources.
+	///
+	/// You can also call this function to force a retry, if failure has occurred.
+	/// Once we make an attempt and fail, we will not automatically retry.
+	/// In this respect, the behavior of the system after trying and failing is the same
+	/// as before the first attempt: attempting authenticated communication or calling
+	/// this function will call the system to attempt to acquire the necessary resources.
+	///
+	/// You can use GetAuthenticationStatus or listen for SteamNetAuthenticationStatus_t
+	/// to monitor the status.
+	///
+	/// Returns the current value that would be returned from GetAuthenticationStatus.
+	virtual ESteamNetworkingAvailability InitAuthentication() = 0;
+
+	/// Query our readiness to participate in authenticated communications.  A
+	/// SteamNetAuthenticationStatus_t callback is posted any time this status changes,
+	/// but you can use this function to query it at any time.
+	///
+	/// The value of SteamNetAuthenticationStatus_t::m_eAvail is returned.  If you only
+	/// want this high level status, you can pass NULL for pDetails.  If you want further
+	/// details, pass non-NULL to receive them.
+	virtual ESteamNetworkingAvailability GetAuthenticationStatus( SteamNetAuthenticationStatus_t *pDetails ) = 0;
+
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
+	/// Dedicated servers ervers hosted in known data centers
 #endif // #ifndef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 
 	// Invoke all callbacks queued for this interface.
@@ -407,6 +420,25 @@ struct SteamNetConnectionStatusChangedCallback_t
 	/// Previous state.  (Current state is in m_info.m_eState)
 	ESteamNetworkingConnectionState m_eOldState;
 };
+
+/// A struct used to describe our readiness to participate in authenticated,
+/// encrypted communication.  In order to do this we need:
+///
+/// - The list of trusted CA certificates that might be relevant for this
+///   app.
+/// - A valid certificate issued by a CA.
+struct SteamNetAuthenticationStatus_t
+{ 
+	enum { k_iCallback = k_iSteamNetworkingSocketsCallbacks + 2 };
+
+	/// Status
+	ESteamNetworkingAvailability m_eAvail;
+
+	/// Non-localized English language status.  For diagnostic/debugging
+	/// purposes only.
+	char m_debugMsg[ 256 ];
+};
+
 #pragma pack( pop )
 
 }

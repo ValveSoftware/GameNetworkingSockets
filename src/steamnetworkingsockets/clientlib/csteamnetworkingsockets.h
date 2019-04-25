@@ -39,7 +39,7 @@ public:
 	CMsgSteamDatagramCertificate m_msgCert;
 	CECSigningPrivateKey m_keyPrivateKey;
 	bool BCertHasIdentity() const;
-	bool SetCertificate( const void *pCert, int cbCert, void *pPrivateKey, int cbPrivateKey, SteamDatagramErrMsg &errMsg );
+	virtual bool SetCertificate( const void *pCert, int cbCert, void *pPrivateKey, int cbPrivateKey, SteamDatagramErrMsg &errMsg );
 
 	bool BHasAnyConnections() const;
 	bool BHasAnyListenSockets() const;
@@ -48,6 +48,8 @@ public:
 #ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
 	bool BInitGameNetworkingSockets( const SteamNetworkingIdentity *pIdentity, SteamDatagramErrMsg &errMsg );
 	void CacheIdentity() { m_identity.SetLocalHost(); }
+	virtual ESteamNetworkingAvailability InitAuthentication() override;
+	virtual ESteamNetworkingAvailability GetAuthenticationStatus( SteamNetAuthenticationStatus_t *pAuthStatus ) override;
 #else
 	virtual void AsyncCertRequest() = 0;
 	virtual void CacheIdentity() = 0;

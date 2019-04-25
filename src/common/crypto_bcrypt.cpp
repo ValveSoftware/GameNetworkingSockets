@@ -196,11 +196,10 @@ bool AES_GCM_DecryptContext::Decrypt(
 // Input:	pchInput -			Plaintext string of item to hash (null terminated)
 //			pOutDigest -		Pointer to receive hashed digest output
 //-----------------------------------------------------------------------------
-void CCrypto::GenerateSHA256Digest( const uint8 *pubInput, const int cubInput, SHA256Digest_t *pOutDigest )
+void CCrypto::GenerateSHA256Digest( const void *pInput, size_t cbInput, SHA256Digest_t *pOutDigest )
 {
 	VPROF_BUDGET( "CCrypto::GenerateSHA256Digest", VPROF_BUDGETGROUP_ENCRYPTION );
 	//Assert( pubInput );
-	Assert( cubInput >= 0 );
 	Assert( pOutDigest );
 
 	BCRYPT_HASH_HANDLE hHashSHA256 = INVALID_HANDLE_VALUE;
@@ -217,7 +216,7 @@ void CCrypto::GenerateSHA256Digest( const uint8 *pubInput, const int cubInput, S
 	AssertFatal( pbBuffer );
 	status = BCryptCreateHash(hAlgSHA256, &hHashSHA256, pbBuffer, cbBuffer, NULL, 0, 0);
 	AssertFatal(NT_SUCCESS(status));
-	status = BCryptHashData(hHashSHA256, (PUCHAR)pubInput, (ULONG)cubInput, 0);
+	status = BCryptHashData(hHashSHA256, (PUCHAR)pInput, (ULONG)cbInput, 0);
 	AssertFatal(NT_SUCCESS(status));
 	status = BCryptFinishHash(hHashSHA256, *pOutDigest, sizeof(SHA256Digest_t), 0);
 	AssertFatal(NT_SUCCESS(status));

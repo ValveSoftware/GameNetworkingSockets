@@ -8,140 +8,66 @@
 
 namespace SteamNetworkingSocketsLib {
 
-/// Certificates are granted limited authority.  A CertAuthParameter is a
-/// list items of items of a certain type (AppID, PopID, etc) that are
-/// authorized.  The concept of "none" and "all" are also possible to
-/// represent.
-///
-/// Internally, this is represented using a simple sorted array.
-/// "All" is represented as a list with a single special "invalid" item.
-template <typename T, T kInvalidItem = T(-1)>
-struct CertAuthParameter
+template <typename T, T kInvalidItem >
+void CertAuthParameter<T,kInvalidItem>::SetIntersection( const CertAuthParameter<T,kInvalidItem> &a, const CertAuthParameter<T,kInvalidItem> &b )
 {
-	/// Set the list to authorize nothing.
-	inline void SetEmpty() { m_vecItems.clear();  }
-	inline bool IsEmpty() const { return m_vecItems.empty(); }
-
-	/// Set the list to be "all items".
-	inline void SetAll() { m_vecItems.clear(); m_vecItems.push_back( kInvalidItem );}
-	inline bool IsAll() const { return m_vecItems.size() == 1 && m_vecItems[0] == kInvalidItem; }
-
-	/// Return true if the item is in the list.  (Or if we are set to "all".)
-	bool HasItem( T x ) const
+	if ( a.IsAll() )
 	{
-		Assert( x != kInvalidItem );
-		if ( IsAll() )
-			return true;
-		return std::binary_search( m_vecItems.begin(), m_vecItems.end(), x );
+		m_vecItems = b.m_vecItems;
+		return;
 	}
-
-	/// Set this list to be the intersection of the two lists
-	void SetIntersection( const CertAuthParameter<T,kInvalidItem> &a, const CertAuthParameter<T,kInvalidItem> &b )
+	if ( b.IsAll() )
 	{
-		if ( a.IsAll() )
-		{
-			m_vecItems = b.m_vecItems;
-			return;
-		}
-		if ( b.IsAll() )
-		{
-			m_vecItems = a.m_vecItems;
-			return;
-		}
-		m_vecItems.clear();
-		m_vecItems.reserve( std::min( a.m_vecItems.size(), b.m_vecItems.size() ) );
-
-		#define INC(x) ++it##x; if ( it##x == x.m_vecItems.end() ) break; Assert( *it##x > v##x );
-
-		// Scan lists in parallel, taking advantage of the fact that they should be sorted
-		auto ita = a.m_vecItems.begin();
-		auto itb = b.m_vecItems.begin();
-		for (;;)
-		{
-			const T &va = *ita;
-			const T &vb = *itb;
-			if ( va < vb )
-			{
-				INC(a)
-			}
-			else if ( vb < va )
-			{
-				INC(b)
-			}
-			else
-			{
-				m_vecItems.push_back( va );
-				INC(a)
-				INC(b)
-			}
-		}
-
-		#undef INC
+		m_vecItems = a.m_vecItems;
+		return;
 	}
+	m_vecItems.clear();
+	m_vecItems.reserve( std::min( a.m_vecItems.size(), b.m_vecItems.size() ) );
 
-	void Setup( const T *pItems, int n )
+	#define INC(x) ++it##x; if ( it##x == x.m_vecItems.end() ) break; Assert( *it##x > v##x );
+
+	// Scan lists in parallel, taking advantage of the fact that they should be sorted
+	auto ita = a.m_vecItems.begin();
+	auto itb = b.m_vecItems.begin();
+	for (;;)
 	{
-		m_vecItems.assign( pItems, pItems+n);
-
-		// Sort, so that intersection can be computed efficiently
-		std::sort( m_vecItems.begin(), m_vecItems.end() );
-
-		// Remove duplicates.  We assume both that duplicates are rare
-		// and lists are small, so that O(n^2) is OK here. 
-		for ( int i = len(m_vecItems)-1 ; i > 1 ; --i )
+		const T &va = *ita;
+		const T &vb = *itb;
+		if ( va < vb )
 		{
-			if ( m_vecItems[i-1] == m_vecItems[i] )
-				erase_at( m_vecItems, i );
+			INC(a)
+		}
+		else if ( vb < va )
+		{
+			INC(b)
+		}
+		else
+		{
+			m_vecItems.push_back( va );
+			INC(a)
+			INC(b)
 		}
 	}
 
-private:
+	#undef INC
+}
 
-	// Usually very few items here, use a static list; overflow
-	// to heap
-	vstd::small_vector<T,8> m_vecItems;
-};
-
-/// Describe the rights that a cert is authorized to grant,
-/// and its expiry.  This is also used to describe the authority
-/// granted by a *chain* of certs --- it is the intersection
-/// of all the certs on the chain.  (E.g. a cert may claim certain
-/// rights, but those assertions are not valid if the signing
-/// key does not have rights to grant them).
-struct CertAuthScope
+template <typename T, T kInvalidItem >
+void CertAuthParameter<T,kInvalidItem>::Setup( const T *pItems, int n )
 {
-	CertAuthParameter<SteamNetworkingPOPID> m_pops;
-	CertAuthParameter<AppId_t> m_apps;
-	time_t m_timeExpiry;
+	m_vecItems.assign( pItems, pItems+n);
 
-	void SetAll()
-	{
-		m_pops.SetAll();
-		m_apps.SetAll();
-		m_timeExpiry = 0xffffffff;
-		COMPILE_TIME_ASSERT( 0xffffffff == (time_t)0xffffffff );
-	}
+	// Sort, so that intersection can be computed efficiently
+	std::sort( m_vecItems.begin(), m_vecItems.end() );
 
-	void SetEmpty()
+	// Remove duplicates.  We assume both that duplicates are rare
+	// and lists are small, so that O(n^2) is OK here. 
+	for ( int i = len(m_vecItems)-1 ; i > 1 ; --i )
 	{
-		m_pops.SetEmpty();
-		m_apps.SetEmpty();
-		m_timeExpiry = 0;
+		if ( m_vecItems[i-1] == m_vecItems[i] )
+			erase_at( m_vecItems, i );
 	}
-
-	// Return true if we don't grant authorization to anything
-	bool IsEmpty() const
-	{
-		return m_timeExpiry == 0 || m_apps.IsEmpty() || m_pops.IsEmpty();
-	}
-
-	void SetIntersection( const CertAuthScope &a, const CertAuthScope &b )
-	{
-		m_pops.SetIntersection( a.m_pops, b.m_pops );
-		m_apps.SetIntersection( a.m_apps, b.m_apps );
-		m_timeExpiry = std::min( a.m_timeExpiry, b.m_timeExpiry );
-	}
-};
+}
 
 enum ETrust
 {
@@ -732,6 +658,17 @@ bool CheckCertPOPID( const CMsgSteamDatagramCertificate &msgCert, const CertAuth
 		V_sprintf_safe( errMsg, "Cert is not authorized for POPID %s, only %s (and %d more)", SteamNetworkingPOPIDRender( popID ).c_str(), firstAuthorizedPopID.c_str(), msgCert.gameserver_datacenter_ids_size()-1 );
 	}
 	return false;
+}
+
+void CertStore_Check()
+{
+	CertStore_EnsureTrustValid();
+
+	for ( auto item: s_mapPublicKeys )
+	{
+		PublicKey *pKey = item.elem;
+		AssertMsg2( pKey->IsTrusted() || pKey->m_eTrust == k_ETrust_Revoked, "Key %llu not trusted: %s", (unsigned long long)item.key, pKey->m_status_msg.c_str() );
+	}
 }
 
 #ifdef DBGFLAG_VALIDATE

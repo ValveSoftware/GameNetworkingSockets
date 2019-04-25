@@ -108,6 +108,20 @@ STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_CreateSoc
 	return ((ISteamNetworkingSockets*)instancePtr)->CreateSocketPair( pOutConnection1, pOutConnection2, bUseNetworkLoopback, pIdentity1, pIdentity2 );
 }
 
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_GetIdentity( intptr_t instancePtr, SteamNetworkingIdentity *pIdentity )
+{
+	return ((ISteamNetworkingSockets*)instancePtr)->GetIdentity( pIdentity );
+}
+
+STEAMNETWORKINGSOCKETS_INTERFACE ESteamNetworkingAvailability SteamAPI_ISteamNetworkingSockets_InitAuthentication( intptr_t instancePtr )
+{
+	return ((ISteamNetworkingSockets*)instancePtr)->InitAuthentication();
+}
+STEAMNETWORKINGSOCKETS_INTERFACE ESteamNetworkingAvailability SteamAPI_ISteamNetworkingSockets_GetAuthenticationStatus( intptr_t instancePtr, SteamNetAuthenticationStatus_t *pDetails )
+{
+	return ((ISteamNetworkingSockets*)instancePtr)->GetAuthenticationStatus( pDetails );
+}
+
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 
 STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_ReceivedRelayAuthTicket( intptr_t instancePtr, const void *pvTicket, int cbTicket, SteamDatagramRelayAuthTicket *pOutParsedTicket )
@@ -135,7 +149,7 @@ STEAMNETWORKINGSOCKETS_INTERFACE SteamNetworkingPOPID SteamAPI_ISteamNetworkingS
 	return ((ISteamNetworkingSockets*)instancePtr)->GetHostedDedicatedServerPOPID();
 }
 
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_GetHostedDedicatedServerAddress( intptr_t instancePtr, SteamDatagramHostedAddress *pRouting )
+STEAMNETWORKINGSOCKETS_INTERFACE EResult SteamAPI_ISteamNetworkingSockets_GetHostedDedicatedServerAddress( intptr_t instancePtr, SteamDatagramHostedAddress *pRouting )
 {
 	return ((ISteamNetworkingSockets*)instancePtr)->GetHostedDedicatedServerAddress( pRouting );
 }
@@ -143,6 +157,10 @@ STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_GetHosted
 STEAMNETWORKINGSOCKETS_INTERFACE HSteamListenSocket SteamAPI_ISteamNetworkingSockets_CreateHostedDedicatedServerListenSocket( intptr_t instancePtr, int nVirtualPort )
 {
 	return ((ISteamNetworkingSockets*)instancePtr)->CreateHostedDedicatedServerListenSocket( nVirtualPort );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE EResult SteamAPI_ISteamNetworkingSockets_GetGameCoordinatorServerLogin( intptr_t instancePtr, SteamDatagramGameCoordinatorServerLogin *pLoginInfo, int *pcbSignedBlob, void *pBlob )
+{
+	return ((ISteamNetworkingSockets*)instancePtr)->GetGameCoordinatorServerLogin( pLoginInfo, pcbSignedBlob, pBlob );
 }
 
 #endif // #ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
@@ -273,6 +291,17 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_ISteamNetworkingSockets_RunConnec
 }
 
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
+
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_ISteamNetworkingUtils_InitRelayNetworkAccess( intptr_t instancePtr )
+{
+	((ISteamNetworkingUtils*)instancePtr)->InitRelayNetworkAccess();
+}
+
+STEAMNETWORKINGSOCKETS_INTERFACE ESteamNetworkingAvailability SteamAPI_ISteamNetworkingUtils_GetRelayNetworkStatus( intptr_t instancePtr, SteamRelayNetworkStatus_t *pDetails )
+{
+	return ((ISteamNetworkingUtils*)instancePtr)->GetRelayNetworkStatus( pDetails);
+}
+
 STEAMNETWORKINGSOCKETS_INTERFACE float SteamAPI_ISteamNetworkingUtils_GetLocalPingLocation( intptr_t instancePtr, SteamNetworkPingLocation_t *result )
 {
 	return ((ISteamNetworkingUtils*)instancePtr)->GetLocalPingLocation( *result );
@@ -301,11 +330,6 @@ STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingUtils_ParsePingLo
 STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingUtils_CheckPingDataUpToDate( intptr_t instancePtr, float flMaxAgeSeconds )
 {
 	return ((ISteamNetworkingUtils*)instancePtr)->CheckPingDataUpToDate( flMaxAgeSeconds );
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingUtils_IsPingMeasurementInProgress( intptr_t instancePtr )
-{
-	return ((ISteamNetworkingUtils*)instancePtr)->IsPingMeasurementInProgress();
 }
 
 STEAMNETWORKINGSOCKETS_INTERFACE int SteamAPI_ISteamNetworkingUtils_GetPingToDataCenter( intptr_t instancePtr, SteamNetworkingPOPID popID, SteamNetworkingPOPID *pViaRelayPoP )

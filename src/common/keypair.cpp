@@ -635,12 +635,15 @@ bool CECSigningPublicKey::SetFromOpenSSHAuthorizedKeys( const char *pchData, siz
 	return SetRawDataAndWipeInput( pubKey, 32 );
  }
 
- void CCrypto::GenerateKeyExchangeKeyPair( CECKeyExchangePublicKey *pPublicKey, CECKeyExchangePrivateKey *pPrivateKey )
+void CCrypto::GenerateKeyExchangeKeyPair( CECKeyExchangePublicKey *pPublicKey, CECKeyExchangePrivateKey *pPrivateKey )
 {
 	uint8 rgubSecretData[32];
 	GenerateRandomBlock( rgubSecretData, 32 );
 	VerifyFatal( pPrivateKey->SetRawDataAndWipeInput( rgubSecretData, 32 ) );
-	VerifyFatal( pPrivateKey->GetPublicKey( pPublicKey ) );
+	if ( pPublicKey )
+	{
+		VerifyFatal( pPrivateKey->GetPublicKey( pPublicKey ) );
+	}
 }
 
 void CCrypto::GenerateSigningKeyPair( CECSigningPublicKey *pPublicKey, CECSigningPrivateKey *pPrivateKey )
@@ -648,5 +651,8 @@ void CCrypto::GenerateSigningKeyPair( CECSigningPublicKey *pPublicKey, CECSignin
 	uint8 rgubSecretData[32];
 	GenerateRandomBlock( rgubSecretData, 32 );
 	VerifyFatal( pPrivateKey->SetRawDataAndWipeInput( rgubSecretData, 32 ) );
-	VerifyFatal( pPrivateKey->GetPublicKey( pPublicKey ) );
+	if ( pPublicKey )
+	{
+		VerifyFatal( pPrivateKey->GetPublicKey( pPublicKey ) );
+	}
 }

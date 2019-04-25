@@ -318,18 +318,6 @@ struct SteamDatagramLinkStats
 	void Clear();
 };
 
-/// Status of a particular network resource
-enum ESteamDatagramAvailability
-{
-	k_ESteamDatagramAvailability_CannotTry = -3,		// A dependent resource is missing, so this service is unavailable.  (E.g. we cannot talk to routers because Internet is down or we don't have the network config.)
-	k_ESteamDatagramAvailability_Failed = -2,			// We have tried for enough time that we would expect to have been successful by now.  We have never been successful
-	k_ESteamDatagramAvailability_Previously = -1,		// We tried and were successful at one time, but now it looks like we have a problem
-	k_ESteamDatagramAvailability_Unknown = 0,			// Unknown, or not applicable in this context
-	k_ESteamDatagramAvailability_NeverTried = 1,		// We don't know because we haven't ever checked
-	k_ESteamDatagramAvailability_Attempting = 2,		// We're trying now, but are not yet successful.  This is not an error, but it's not success, either.
-	k_ESteamDatagramAvailability_Current = 3,			// Resource is online.
-};
-
 /// Describe detailed state of current connection
 struct SteamNetworkingDetailedConnectionStatus
 {
@@ -337,7 +325,7 @@ struct SteamNetworkingDetailedConnectionStatus
 	SteamNetConnectionInfo_t m_info;
 
 	/// Do we have a valid network configuration?  We cannot do anything without this.
-	ESteamDatagramAvailability m_eAvailNetworkConfig;
+	ESteamNetworkingAvailability m_eAvailNetworkConfig;
 
 //		/// Does it look like we have a connection to the Internet at all?
 //		EAvailability m_eAvailInternet;
@@ -345,10 +333,10 @@ struct SteamNetworkingDetailedConnectionStatus
 	/// Successful communication with a box on the routing network.
 	/// This will be marked as failed if there is a general internet
 	/// connection.
-	ESteamDatagramAvailability m_eAvailAnyRouterCommunication;
+	ESteamNetworkingAvailability m_eAvailAnyRouterCommunication;
 
 	/// End-to-end communication with the remote host.
-	//ESteamDatagramAvailability m_eAvailEndToEnd;
+	//ESteamNetworkingAvailability m_eAvailEndToEnd;
 
 	/// Stats for end-to-end link to the gameserver
 	SteamDatagramLinkStats m_statsEndToEnd;

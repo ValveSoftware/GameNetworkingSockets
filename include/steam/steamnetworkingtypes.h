@@ -38,6 +38,7 @@
 // to be defined, and we might as well use the same values as Steam.
 enum { k_iSteamNetworkingSocketsCallbacks = 1220 };
 enum { k_iSteamNetworkingMessagesCallbacks = 1250 };
+enum { k_iSteamNetworkingUtilsCallbacks = 1280 };
 
 // 
 //----------------------------------------
@@ -53,8 +54,10 @@ enum { k_iSteamNetworkingMessagesCallbacks = 1250 };
 
 struct SteamDatagramRelayAuthTicket;
 struct SteamDatagramHostedAddress;
-struct SteamDatagramHostedServerAppBackendLogin;
+struct SteamDatagramGameCoordinatorServerLogin;
 struct SteamNetConnectionStatusChangedCallback_t;
+struct SteamNetAuthenticationStatus_t;
+struct SteamRelayNetworkStatus_t;
 
 /// Handle used to identify a connection to a remote host.
 typedef uint32 HSteamNetConnection;
@@ -81,6 +84,33 @@ typedef uint32 SteamNetworkingPOPID;
 /// the value wrapping around.  Note that the underlying clock might not actually have
 /// microsecond *resolution*.
 typedef int64 SteamNetworkingMicroseconds;
+
+/// Describe the status of a particular network resource
+enum ESteamNetworkingAvailability
+{
+	// Negative values indicate a problem.
+	//
+	// In general, we will not automatically retry unless you take some action that
+	// depends on of requests this resource, such as querying the status, attempting
+	// to initiate a connection, receive a connection, etc.  If you do not take any
+	// action at all, we do not automatically retry in the background.
+	k_ESteamNetworkingAvailability_CannotTry = -102,		// A dependent resource is missing, so this service is unavailable.  (E.g. we cannot talk to routers because Internet is down or we don't have the network config.)
+	k_ESteamNetworkingAvailability_Failed = -101,			// We have tried for enough time that we would expect to have been successful by now.  We have never been successful
+	k_ESteamNetworkingAvailability_Previously = -100,		// We tried and were successful at one time, but now it looks like we have a problem
+
+	k_ESteamNetworkingAvailability_Retrying = -10,		// We previously failed and are currently retrying
+
+	// Not a problem, but not ready either
+	k_ESteamNetworkingAvailability_NeverTried = 1,		// We don't know because we haven't ever checked/tried
+	k_ESteamNetworkingAvailability_Waiting = 2,			// We're waiting on a dependent resource to be acquired.  (E.g. we cannot obtain a cert until we are logged into Steam.  We cannot measure latency to relays until we have the network config.)
+	k_ESteamNetworkingAvailability_Attempting = 3,		// We're actively trying now, but are not yet successful.
+
+	k_ESteamNetworkingAvailability_Current = 100,			// Resource is online/available
+
+
+	k_ESteamNetworkingAvailability_Unknown = 0,			// Internal dummy/sentinel, or value is not applicable in this context
+	k_ESteamNetworkingAvailability__Force32bit = 0x7fffffff,
+};
 
 //
 // Describing network hosts
