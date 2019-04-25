@@ -501,6 +501,9 @@ static void CertStore_EnsureTrustValid()
 	{
 		RecursiveEvaluateKeyTrust( item.elem );
 	}
+
+	// Mark trust as having been calculated
+	s_bTrustValid = true;
 }
 
 const CertAuthScope *CertStore_CheckCASignature( const std::string &signed_data, uint64 nCAKeyID, const std::string &signature, time_t timeNow, SteamNetworkingErrMsg &errMsg )
