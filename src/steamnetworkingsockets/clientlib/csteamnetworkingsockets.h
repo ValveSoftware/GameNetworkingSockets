@@ -30,7 +30,6 @@ class CSteamNetworkingSockets : public IClientNetworkingSockets
 {
 public:
 	CSteamNetworkingSockets();
-	virtual ~CSteamNetworkingSockets();
 
 	bool m_bHaveLowLevelRef;
 	AppId_t m_nAppID;
@@ -54,6 +53,11 @@ public:
 	virtual void AsyncCertRequest() = 0;
 	virtual void CacheIdentity() = 0;
 #endif
+
+	/// Perform cleanup and self-destruct.  Use this instead of
+	/// calling operator delete.  This solves some complications
+	/// due to calling virtual functions from within destructor.
+	virtual void Destroy();
 
 	// Get current time of day, ideally from a source that
 	// doesn't depend on the user setting their local clock properly
@@ -102,22 +106,27 @@ public:
 
 protected:
 
-	void KillBase();
 	void KillConnections();
 
 	static int s_nSteamNetworkingSocketsInitted;
 
 	SteamNetworkingIdentity m_identity;
 
-	virtual void InternalQueueCallback( int nCallback, int cbCallback, const void *pvCallback );
 #ifdef STEAMNETWORKINGSOCKETS_STANDALONELIB
+	void InternalQueueCallback( int nCallback, int cbCallback, const void *pvCallback );
 	struct QueuedCallback
 	{
 		int nCallback;
 		char data[ sizeof(SteamNetConnectionStatusChangedCallback_t) ]; // whatever the biggest callback struct we have is
 	};
 	std::vector<QueuedCallback> m_vecPendingCallbacks;
+#else
+	virtual void InternalQueueCallback( int nCallback, int cbCallback, const void *pvCallback ) = 0;
 #endif
+
+protected:
+	// Protected - use Destroy()
+	virtual ~CSteamNetworkingSockets();
 };
 
 class CSteamNetworkingUtils : public IClientNetworkingUtils

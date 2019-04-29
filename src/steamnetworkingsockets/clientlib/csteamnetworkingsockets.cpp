@@ -267,8 +267,8 @@ CSteamNetworkingSockets::CSteamNetworkingSockets()
 
 CSteamNetworkingSockets::~CSteamNetworkingSockets()
 {
-	SteamDatagramTransportLock scopeLock;
-	KillBase();
+	SteamDatagramTransportLock::AssertHeldByCurrentThread();
+	Assert( !m_bHaveLowLevelRef ); // Called destructor directly?  Use Destroy()!
 }
 
 #ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
@@ -299,6 +299,7 @@ bool CSteamNetworkingSockets::BInitGameNetworkingSockets( const SteamNetworkingI
 
 void CSteamNetworkingSockets::KillConnections()
 {
+	SteamDatagramTransportLock::AssertHeldByCurrentThread();
 
 	// Destroy all of my connections
 	FOR_EACH_HASHMAP( g_mapConnections, idx )
@@ -323,8 +324,10 @@ void CSteamNetworkingSockets::KillConnections()
 	}
 }
 
-void CSteamNetworkingSockets::KillBase()
+void CSteamNetworkingSockets::Destroy()
 {
+	SteamDatagramTransportLock::AssertHeldByCurrentThread();
+
 	KillConnections();
 
 	// Clear identity and crypto stuff.
@@ -340,6 +343,9 @@ void CSteamNetworkingSockets::KillBase()
 		m_bHaveLowLevelRef = false;
 		SteamNetworkingSocketsLowLevelDecRef();
 	}
+
+	// Self destruct
+	delete this;
 }
 
 bool CSteamNetworkingSockets::BHasAnyConnections() const
@@ -1273,7 +1279,7 @@ STEAMNETWORKINGSOCKETS_INTERFACE bool GameNetworkingSockets_Init( const SteamNet
 	CSteamNetworkingSockets *pSteamNetworkingSockets = new CSteamNetworkingSockets;
 	if ( !pSteamNetworkingSockets->BInitGameNetworkingSockets( pIdentity, errMsg ) )
 	{
-		delete pSteamNetworkingSockets;
+		pSteamNetworkingSockets->Destroy();
 		return false;
 	}
 
@@ -1286,7 +1292,7 @@ STEAMNETWORKINGSOCKETS_INTERFACE void GameNetworkingSockets_Kill()
 	SteamDatagramTransportLock lock;
 	if ( s_pSteamNetworkingSockets )
 	{
-		delete s_pSteamNetworkingSockets;
+		s_pSteamNetworkingSockets->Destroy();
 		s_pSteamNetworkingSockets = nullptr;
 	}
 }
