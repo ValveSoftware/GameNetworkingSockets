@@ -70,14 +70,13 @@ struct CertAuthScope
 {
 	CertAuthParameter<SteamNetworkingPOPID> m_pops;
 	CertAuthParameter<AppId_t> m_apps;
-	time_t m_timeExpiry;
+	time_t m_timeExpiry = 0;
 
 	void SetAll()
 	{
 		m_pops.SetAll();
 		m_apps.SetAll();
-		m_timeExpiry = 0xffffffff;
-		COMPILE_TIME_ASSERT( 0xffffffff == (time_t)0xffffffff );
+		m_timeExpiry = std::numeric_limits<time_t>::max();
 	}
 
 	void SetEmpty()
