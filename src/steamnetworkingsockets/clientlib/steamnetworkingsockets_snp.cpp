@@ -3084,7 +3084,7 @@ SteamNetworkingMicroseconds CSteamNetworkConnectionBase::SNP_TimeWhenWantToSendN
 SteamNetworkingMicroseconds CSteamNetworkConnectionBase::SNP_GetNextThinkTime( SteamNetworkingMicroseconds usecNow )
 {
 	// We really shouldn't be trying to do this when not connected
-	if ( GetState() != k_ESteamNetworkingConnectionState_Connected )
+	if ( !BStateIsConnectedForWirePurposes() )
 	{
 		AssertMsg( false, "We shouldn't be trying to think SNP when not fully connected" );
 		return k_nThinkTime_Never;
