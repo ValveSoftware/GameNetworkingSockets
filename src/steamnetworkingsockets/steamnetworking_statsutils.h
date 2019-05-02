@@ -35,7 +35,8 @@ const SteamNetworkingMicroseconds k_usecSteamDatagramSpeedStatsDefaultInterval =
 /// These serve both as latency measurements, and also as keepalives, if only
 /// one side or the other is doing most of the talking, to make sure the other side
 /// always does a minimum amount of acking.
-const SteamNetworkingMicroseconds k_usecLinkStatsPingRequestInterval = 5 * k_nMillion;
+const SteamNetworkingMicroseconds k_usecLinkStatsMinPingRequestInterval = 5 * k_nMillion;
+const SteamNetworkingMicroseconds k_usecLinkStatsMaxPingRequestInterval = 7 * k_nMillion;
 
 /// Client should send instantaneous connection quality stats
 /// at approximately this interval
@@ -419,9 +420,21 @@ struct LinkStatsTrackerBase
 	/// ever sends.  It assumes that the endpoints will take care of any keepalives,
 	/// etc that need to happen, and the relay can merely observe this process and take
 	/// note of the outcome.
-	inline bool BReadyToSendTracerPing( SteamNetworkingMicroseconds usecNow ) const
+	///
+	/// Returns:
+	/// 0 - Not needed right now
+	/// 1 - Opportunistic, but don't send by itself
+	/// 2 - Yes, send one if possible
+	inline int ReadyToSendTracerPing( SteamNetworkingMicroseconds usecNow ) const
 	{
-		return !m_bDisconnected && std::max( m_ping.m_usecTimeLastSentPingRequest, m_ping.TimeRecvMostRecentPing() ) + k_usecLinkStatsPingRequestInterval < usecNow;
+		if ( m_bDisconnected )
+			return 0;
+		SteamNetworkingMicroseconds usecTimeSince = usecNow - std::max( m_ping.m_usecTimeLastSentPingRequest, m_ping.TimeRecvMostRecentPing() );
+		if ( usecTimeSince > k_usecLinkStatsMaxPingRequestInterval )
+			return 2;
+		if ( usecTimeSince > k_usecLinkStatsMinPingRequestInterval )
+			return 1;
+		return 0;
 	}
 
 	/// Check if we appear to be timing out and need to send an "aggressive" ping, meaning send it right

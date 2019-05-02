@@ -572,10 +572,18 @@ void CSteamNetworkConnectionUDP::PopulateSendPacketContext( UDPSendPacketContext
 
 	// What effective flags should we send
 	uint32 nFlags = 0;
+	int nReadyToSendTracer = 0;
 	if ( eReplyRequested == k_EStatsReplyRequest_Immediate || m_statsEndToEnd.BNeedToSendPingImmediate( usecNow ) )
 		nFlags |= ctx.msg.ACK_REQUEST_E2E | ctx.msg.ACK_REQUEST_IMMEDIATE;
-	else if ( eReplyRequested == k_EStatsReplyRequest_DelayedOK || m_statsEndToEnd.BNeedToSendKeepalive( usecNow ) || m_statsEndToEnd.BReadyToSendTracerPing( usecNow ) )
+	else if ( eReplyRequested == k_EStatsReplyRequest_DelayedOK || m_statsEndToEnd.BNeedToSendKeepalive( usecNow ) )
 		nFlags |= ctx.msg.ACK_REQUEST_E2E;
+	else
+	{
+		nReadyToSendTracer = m_statsEndToEnd.ReadyToSendTracerPing( usecNow );
+		if ( nReadyToSendTracer > 1 )
+			nFlags |= ctx.msg.ACK_REQUEST_E2E;
+	}
+
 	ctx.m_nFlags = nFlags;
 
 	// Need to send any connection stats stats?
@@ -583,6 +591,9 @@ void CSteamNetworkConnectionUDP::PopulateSendPacketContext( UDPSendPacketContext
 	{
 		ctx.m_nStatsNeed = 2;
 		m_statsEndToEnd.PopulateMessage( *ctx.msg.mutable_stats(), usecNow );
+
+		if ( nReadyToSendTracer > 0 )
+			nFlags |= ctx.msg.ACK_REQUEST_E2E;
 
 		ctx.SlamFlagsAndCalcSize();
 		ctx.CalcMaxEncryptedPayloadSize( sizeof(UDPDataMsgHdr) );
@@ -596,6 +607,8 @@ void CSteamNetworkConnectionUDP::PopulateSendPacketContext( UDPSendPacketContext
 		// Would we like to try to send some additional stats, if there is room?
 		if ( m_statsEndToEnd.BReadyToSendStats( usecNow ) )
 		{
+			if ( nReadyToSendTracer > 0 )
+				nFlags |= ctx.msg.ACK_REQUEST_E2E;
 			m_statsEndToEnd.PopulateMessage( *ctx.msg.mutable_stats(), usecNow );
 			ctx.SlamFlagsAndCalcSize();
 			ctx.m_nStatsNeed = 1;
