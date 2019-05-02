@@ -827,11 +827,12 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 						m_statsEndToEnd.m_ping.ReceivedPing( msPing, usecNow );
 
 						// Spew
-						SpewType( m_connectionConfig.m_LogLevel_AckRTT.Get(), "[%s] decode pkt %lld latest recv %lld delay %.1fms ping %.1fms\n",
+						SpewType( m_connectionConfig.m_LogLevel_AckRTT.Get(), "[%s] decode pkt %lld latest recv %lld delay %.1fms elapsed %.1fms ping %dms\n",
 							GetDescription(),
 							(long long)nPktNum, (long long)nLatestRecvSeqNum,
 							(float)(usecDelay * 1e-3 ),
-							(float)(usecElapsed * 1e-3 )
+							(float)(usecElapsed * 1e-3 ),
+							msPing
 						);
 					}
 				}
