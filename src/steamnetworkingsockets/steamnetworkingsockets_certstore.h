@@ -8,6 +8,7 @@
 #define STEAMNETWORKINGSOCKETS_CERTSTORE_H
 #pragma once
 
+#include <ostream>
 #include "steamnetworkingsockets_internal.h"
 
 // Use a hardcoded root CA key?  It's just a key, not the cert here, because there are no additional relevant
@@ -52,6 +53,7 @@ struct CertAuthParameter
 	/// Set this list to be the intersection of the two lists
 	void SetIntersection( const CertAuthParameter<T,kInvalidItem> &a, const CertAuthParameter<T,kInvalidItem> &b );
 	void Setup( const T *pItems, int n );
+	void Print( std::ostream &out, void (*ItemPrint)( std::ostream &out, const T &x ) ) const;
 
 private:
 
@@ -98,6 +100,8 @@ struct CertAuthScope
 		m_apps.SetIntersection( a.m_apps, b.m_apps );
 		m_timeExpiry = std::min( a.m_timeExpiry, b.m_timeExpiry );
 	}
+
+	void Print( std::ostream &out, const char *pszIndent ) const;
 };
 
 /// Add a cert to the store from a base-64 blob (the body of the PEM-like blob).  Returns false
@@ -127,6 +131,9 @@ extern bool CheckCertAppID( const CMsgSteamDatagramCertificate &msgCert, const C
 
 /// Check if a cert gives permission to access a certain PoPID.
 extern bool CheckCertPOPID( const CMsgSteamDatagramCertificate &msgCert, const CertAuthScope *pCertAuthScope, SteamNetworkingPOPID popID, SteamNetworkingErrMsg &errMsg );
+
+/// Print all of the certs in the cert storef
+extern void CertStore_Print( std::ostream &out );
 
 /// Check the cert store, asserting if any keys are not trusted
 extern void CertStore_Check();

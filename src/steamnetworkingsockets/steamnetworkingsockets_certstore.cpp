@@ -1,10 +1,20 @@
 //====== Copyright Valve Corporation, All rights reserved. ====================
 
+// Ug, I didn't know ostream used exceptions.  Isn't there a decent
+// stream implementation that won't bring in 10000000000 dependencies?
+#ifdef _MSC_VER
+#pragma warning( disable: 4530 )
+#endif
+
+#include <time.h>
+#include <ostream>
 #include "steamnetworkingsockets_certstore.h"
 #include <tier1/utlhashmap.h>
 
 // Must be the last include
 #include <tier0/memdbgon.h>
+
+#define MsgOrOK( s ) ( (s).empty() ? "OK" : (s).c_str() )
 
 namespace SteamNetworkingSocketsLib {
 
@@ -67,6 +77,44 @@ void CertAuthParameter<T,kInvalidItem>::Setup( const T *pItems, int n )
 		if ( m_vecItems[i-1] == m_vecItems[i] )
 			erase_at( m_vecItems, i );
 	}
+}
+
+template <typename T, T kInvalidItem >
+void CertAuthParameter<T,kInvalidItem>::Print( std::ostream &out, void (*ItemPrint)( std::ostream &out, const T &x ) ) const
+{
+	if ( IsEmpty() )
+	{
+		out << "(none)";
+	}
+	else if ( IsAll() )
+	{
+		out << "(any)";
+	}
+	else
+	{
+		for ( int i = 0 ; i < len( m_vecItems ) ; ++i )
+		{
+			if ( i > 0 )
+				out << ',';
+			(*ItemPrint)( out, m_vecItems[i] );
+		}
+	}
+}
+
+void CertAuthScope::Print( std::ostream &out, const char *pszIndent ) const
+{
+	auto PrintAppID = []( std::ostream &o, const AppId_t &x )
+	{
+		o << x;
+	};
+	auto PrintPOPID = []( std::ostream &o, const SteamNetworkingPOPID &x )
+	{
+		o << SteamNetworkingPOPIDRender( x ).c_str();
+	};
+
+	out << pszIndent << "AppIDs . . : "; m_apps.Print( out, PrintAppID ); out << std::endl;
+	out << pszIndent << "POPs . . . : "; m_pops.Print( out, PrintPOPID ); out << std::endl;
+	out << pszIndent << "Expires. . : " << ctime( &m_timeExpiry );
 }
 
 enum ETrust
@@ -164,6 +212,13 @@ struct Cert
 		return true;
 	}
 
+	void Print( std::ostream &out, const char *pszIndent ) const
+	{
+		out << pszIndent << "Cert signed by CA " << (unsigned long long)m_ca_key_id << "  " << MsgOrOK(m_status_msg) << std::endl;
+		out << pszIndent << "Created " << ctime( &m_timeCreated );
+		m_authScope.Print( out, ( std::string( pszIndent ) + "  " ).c_str() );
+	}
+
 };
 
 struct PublicKey
@@ -173,6 +228,7 @@ struct PublicKey
 	std::string m_status_msg; // If it's not trusted, why?
 	std::vector<Cert> m_vecCerts;
 	CertAuthScope m_effectiveAuthScope;
+	int m_idxNewestValidCert = -1;
 
 	uint64 CalculateKeyID() const { Assert( m_keyPublic.IsValid() ); return CalculatePublicKeyID( m_keyPublic ); }
 
@@ -344,6 +400,7 @@ static void RecursiveEvaluateKeyTrust( PublicKey *pKey )
 
 	// Mark key as "working on it" so we can detect loops
 	pKey->m_eTrust = k_ETrust_UnknownWorking;
+	pKey->m_idxNewestValidCert = -1;
 
 	// No certs?  How did we get here?
 	if ( pKey->m_vecCerts.empty() )
@@ -355,7 +412,6 @@ static void RecursiveEvaluateKeyTrust( PublicKey *pKey )
 	}
 
 	// Scan all certs, looking for the newest one that is valid
-	int idxNewestValidCert = -1;
 	for ( int i = 0 ; i < len( pKey->m_vecCerts ) ; ++i )
 	{
 		Cert &cert = pKey->m_vecCerts[ i ];
@@ -367,6 +423,7 @@ static void RecursiveEvaluateKeyTrust( PublicKey *pKey )
 
 		// Assume failure
 		cert.m_eTrust = k_ETrust_NotTrusted;
+		cert.m_status_msg.clear();
 
 		// Locate the public key that they are claiming signed this
 		PublicKey *pSignerKey = FindPublicKey( cert.m_ca_key_id );
@@ -382,13 +439,14 @@ static void RecursiveEvaluateKeyTrust( PublicKey *pKey )
 			#ifdef STEAMNETWORKINGSOCKETS_HARDCODED_ROOT_CA_KEY
 				// If hardcoded root cert is in use, only trust the
 				// one hardcoded root key.  (We've already tagged it
-				// as trusteded by hardcoded, so we don't get this far
+				// as trusted by hardcoded, so we don't get this far
 				// for those keys).
 				cert.m_status_msg = "Trusted root is hardcoded, cannot add more self-signed certs";
 				continue;
+			#else
+				// Self signed is OK.
+				cert.m_status_msg = "(Self-signed root)";
 			#endif
-
-			// Self signed is OK.
 		}
 		else
 		{
@@ -410,6 +468,8 @@ static void RecursiveEvaluateKeyTrust( PublicKey *pKey )
 				cert.m_status_msg = V_sprintf_stdstring( "CA key %llu not trusted.  ", (unsigned long long)cert.m_ca_key_id ) + pSignerKey->m_status_msg.c_str();
 				continue;
 			}
+
+			cert.m_status_msg.clear();
 		}
 
 		// If we get here, we trust the signing CA's public key
@@ -445,7 +505,7 @@ static void RecursiveEvaluateKeyTrust( PublicKey *pKey )
 		Assert( authScope.m_timeExpiry > 0 );
 
 		// OK, we're trusted.  Is this the best cert so far?
-		if ( idxNewestValidCert < 0 || pKey->m_vecCerts[ idxNewestValidCert ].m_timeCreated < cert.m_timeCreated )
+		if ( pKey->m_idxNewestValidCert < 0 || pKey->m_vecCerts[ pKey->m_idxNewestValidCert ].m_timeCreated < cert.m_timeCreated )
 		{
 			if ( pSignerKey == pKey )
 			{
@@ -455,12 +515,12 @@ static void RecursiveEvaluateKeyTrust( PublicKey *pKey )
 			{
 				pKey->m_effectiveAuthScope = std::move( authScope );
 			}
-			idxNewestValidCert = i;
+			pKey->m_idxNewestValidCert = i;
 		}
 	}
 
 	// Did we find a valid cert?
-	if ( idxNewestValidCert < 0 )
+	if ( pKey->m_idxNewestValidCert < 0 )
 	{
 		pKey->m_eTrust = k_ETrust_NotTrusted;
 		pKey->m_effectiveAuthScope.SetEmpty();
@@ -479,6 +539,7 @@ static void RecursiveEvaluateKeyTrust( PublicKey *pKey )
 
 	// Trusted!
 	pKey->m_eTrust = k_ETrust_Trusted;
+	pKey->m_status_msg.clear();
 	Assert( !pKey->m_effectiveAuthScope.IsEmpty() );
 }
 
@@ -671,6 +732,33 @@ void CertStore_Check()
 	{
 		PublicKey *pKey = item.elem;
 		AssertMsg2( pKey->IsTrusted() || pKey->m_eTrust == k_ETrust_Revoked, "Key %llu not trusted: %s", (unsigned long long)item.key, pKey->m_status_msg.c_str() );
+	}
+}
+
+void CertStore_Print( std::ostream &out )
+{
+	CertStore_EnsureTrustValid();
+
+	for ( auto item: s_mapPublicKeys )
+	{
+		PublicKey *pKey = item.elem;
+		out << "Public key " << (unsigned long long)item.key << " " << MsgOrOK(pKey->m_status_msg) << std::endl;
+		pKey->m_effectiveAuthScope.Print( out, "  " );
+		if ( pKey->m_idxNewestValidCert >= 0 )
+		{
+			pKey->m_vecCerts[ pKey->m_idxNewestValidCert ].Print( out, "  " );
+		}
+		else if ( !pKey->m_vecCerts.empty() )
+		{
+			for ( const Cert &c: pKey->m_vecCerts )
+			{
+				c.Print( out, "  " );
+			}
+		}
+		else
+		{
+			out << "  (No valid certs)" << std::endl;
+		}
 	}
 }
 
