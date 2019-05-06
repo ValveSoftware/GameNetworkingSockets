@@ -613,13 +613,8 @@ bool CSteamNetworkConnectionBase::BThinkCryptoReady( SteamNetworkingMicroseconds
 		return true;
 	}
 
-	// Check if we have intentionally disabled auth
-	// !KLUDGE! This is not exactly the right test, since we're checking a
-	// connection-type-specific convar and this is generic connection code.
-	// might want to revisit this and make BAllowLocalUnsignedCert return
-	// slightly more nuanced return value that distinguishes between
-	// "Don't even try" from "try, but continue if we fail"
-	if ( BAllowLocalUnsignedCert() && m_connectionConfig.m_IP_AllowWithoutAuth.Get() )
+	// Check if we want to intentionally disable auth
+	if ( AllowLocalUnsignedCert() == k_EUnsignedCert_Allow )
 	{
 		InitLocalCryptoWithUnsignedCert();
 		return true;
@@ -719,15 +714,16 @@ void CSteamNetworkConnectionBase::CertRequestFailed( ESteamNetConnectionEnd nCon
 		return;
 
 	// Do we require a signed cert?
-	if ( !BAllowLocalUnsignedCert() )
+	EUnsignedCert eLocalUnsignedCert = AllowLocalUnsignedCert();
+	if ( eLocalUnsignedCert == k_EUnsignedCert_Disallow )
 	{
 		// This is fatal
-		SpewWarning( "Connection %u cannot use self-signed cert; failing connection.\n", m_unConnectionIDLocal );
+		SpewWarning( "[%s] Cannot use unsigned cert; failing connection.\n", GetDescription() );
 		ConnectionState_ProblemDetectedLocally( nConnectionEndReason, "Cert failure: %s", pszMsg );
 		return;
 	}
-
-	SpewWarning( "Connection %u is continuing with self-signed cert.\n", m_unConnectionIDLocal );
+	if ( eLocalUnsignedCert == k_EUnsignedCert_AllowWarn )
+		SpewWarning( "[%s] Continuing with self-signed cert.\n", GetDescription() );
 	InitLocalCryptoWithUnsignedCert();
 
 	// Schedule immediate wake up to check on state machine
@@ -890,14 +886,17 @@ bool CSteamNetworkConnectionBase::BRecvCryptoHandshake( const CMsgSteamDatagramC
 	}
 	else
 	{
-		if ( !BAllowLocalUnsignedCert() )
+		// Double-check that this is allowed
+		EUnsignedCert eLocalUnsignedCert = AllowLocalUnsignedCert();
+		if ( eLocalUnsignedCert == k_EUnsignedCert_Disallow )
 		{
 			// Derived class / calling code should check for this and handle it better and fail
 			// earlier with a more specific error message.  (Or allow self-signed certs)
-			//ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_InternalError, "We don't have cert, and self-signed certs not allowed" );
-			//return false;
-			SpewWarning( "We don't have cert, and unsigned certs are not supposed to be allowed here.  Continuing anyway temporarily." );
+			ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_InternalError, "We don't have cert, and self-signed certs not allowed" );
+			return false;
 		}
+		if ( eLocalUnsignedCert == k_EUnsignedCert_AllowWarn )
+			SpewWarning( "[%s] Continuing with self-signed cert.\n", GetDescription() );
 
 		// Proceed with an unsigned cert
 		InitLocalCryptoWithUnsignedCert();
@@ -1013,17 +1012,17 @@ bool CSteamNetworkConnectionBase::BRecvCryptoHandshake( const CMsgSteamDatagramC
 	return true;
 }
 
-bool CSteamNetworkConnectionBase::BAllowLocalUnsignedCert() const
+EUnsignedCert CSteamNetworkConnectionBase::AllowLocalUnsignedCert()
 {
-	// Base class will assume this is OK.  Derived connection
-	// types can override.
-	return true;
+	// FIXME - We should probably lock this down and change the default.
+	//         For now we'll try to continue, but warn
+	return k_EUnsignedCert_AllowWarn;
 }
 
-CSteamNetworkConnectionBase::ERemoteUnsignedCert CSteamNetworkConnectionBase::AllowRemoteUnsignedCert()
+EUnsignedCert CSteamNetworkConnectionBase::AllowRemoteUnsignedCert()
 {
 	// !KLUDGE! For now, assume this is OK, but warn about it.  We need to make this configurable and lock it down
-	return k_ERemoteUnsignedCert_AllowWarn;
+	return k_EUnsignedCert_AllowWarn;
 }
 
 ESteamNetConnectionEnd CSteamNetworkConnectionBase::CheckRemoteCert( const CertAuthScope *pCACertAuthScope, SteamNetworkingErrMsg &errMsg )
@@ -1036,12 +1035,12 @@ ESteamNetConnectionEnd CSteamNetworkConnectionBase::CheckRemoteCert( const CertA
 	// Check if we don't allow unsigned certs
 	if ( pCACertAuthScope == nullptr )
 	{
-		ERemoteUnsignedCert eAllow = AllowRemoteUnsignedCert();
-		if ( eAllow == k_ERemoteUnsignedCert_AllowWarn )
+		EUnsignedCert eAllow = AllowRemoteUnsignedCert();
+		if ( eAllow == k_EUnsignedCert_AllowWarn )
 		{
 			SpewMsg( "[%s] Remote host is using an unsigned cert.  Allowing connection, but it's not secure!\n", GetDescription() );
 		}
-		else if ( eAllow != k_ERemoteUnsignedCert_Allow )
+		else if ( eAllow != k_EUnsignedCert_Allow )
 		{
 			V_strcpy_safe( errMsg, "Unsigned certs are not allowed" );
 			return k_ESteamNetConnectionEnd_Remote_BadCert;
@@ -2122,15 +2121,16 @@ void CSteamNetworkConnectionPipe::GetConnectionTypeDescription( ConnectionTypeDe
 	V_strcpy_safe( szDescription, "pipe" );
 }
 
-CSteamNetworkConnectionBase::ERemoteUnsignedCert CSteamNetworkConnectionPipe::AllowRemoteUnsignedCert()
+EUnsignedCert CSteamNetworkConnectionPipe::AllowRemoteUnsignedCert()
 {
 	// It's definitely us, and we trust ourselves, right?
-	return k_ERemoteUnsignedCert_Allow;
+	return k_EUnsignedCert_Allow;
 }
 
-void CSteamNetworkConnectionPipe::InitConnectionCrypto( SteamNetworkingMicroseconds usecNow )
+EUnsignedCert CSteamNetworkConnectionPipe::AllowLocalUnsignedCert()
 {
-	InitLocalCryptoWithUnsignedCert();
+	// It's definitely us, and we trust ourselves, right?  Don't even try to get a cert
+	return k_EUnsignedCert_Allow;
 }
 
 EResult CSteamNetworkConnectionPipe::_APISendMessageToConnection( const void *pData, uint32 cbData, int nSendFlags )

@@ -22,7 +22,7 @@ class CSteamNetworkListenSocketDirectUDP : public CSteamNetworkListenSocketBase
 public:
 	CSteamNetworkListenSocketDirectUDP( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface );
 	virtual ~CSteamNetworkListenSocketDirectUDP();
-	virtual bool APIGetAddress( SteamNetworkingIPAddr *pAddress ) OVERRIDE;
+	virtual bool APIGetAddress( SteamNetworkingIPAddr *pAddress ) override;
 
 	/// Setup
 	bool BInit( const SteamNetworkingIPAddr &localAddr, SteamDatagramErrMsg &errMsg );
@@ -64,23 +64,24 @@ public:
 	CSteamNetworkConnectionUDP( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface );
 	virtual ~CSteamNetworkConnectionUDP();
 
-	virtual void FreeResources() OVERRIDE;
+	virtual void FreeResources() override;
 
 	/// Convenience wrapper to do the upcast, since we know what sort of
 	/// listen socket we were connected on.
 	inline CSteamNetworkListenSocketDirectUDP *ListenSocket() const { return assert_cast<CSteamNetworkListenSocketDirectUDP *>( m_pParentListenSocket ); }
 
 	/// Implements CSteamNetworkConnectionBase
-	virtual bool SendDataPacket( SteamNetworkingMicroseconds usecNow ) OVERRIDE;
-	virtual int SendEncryptedDataChunk( const void *pChunk, int cbChunk, SendPacketContext_t &ctx ) OVERRIDE;
-	virtual EResult APIAcceptConnection() OVERRIDE;
-	virtual bool BCanSendEndToEndConnectRequest() const OVERRIDE;
-	virtual bool BCanSendEndToEndData() const OVERRIDE;
-	virtual void SendEndToEndConnectRequest( SteamNetworkingMicroseconds usecNow ) OVERRIDE;
-	virtual void SendEndToEndStatsMsg( EStatsReplyRequest eRequest, SteamNetworkingMicroseconds usecNow, const char *pszReason ) OVERRIDE;
-	virtual void ThinkConnection( SteamNetworkingMicroseconds usecNow ) OVERRIDE;
-	virtual void GetConnectionTypeDescription( ConnectionTypeDescription_t &szDescription ) const OVERRIDE;
-	virtual ERemoteUnsignedCert AllowRemoteUnsignedCert() OVERRIDE;
+	virtual bool SendDataPacket( SteamNetworkingMicroseconds usecNow ) override;
+	virtual int SendEncryptedDataChunk( const void *pChunk, int cbChunk, SendPacketContext_t &ctx ) override;
+	virtual EResult APIAcceptConnection() override;
+	virtual bool BCanSendEndToEndConnectRequest() const override;
+	virtual bool BCanSendEndToEndData() const override;
+	virtual void SendEndToEndConnectRequest( SteamNetworkingMicroseconds usecNow ) override;
+	virtual void SendEndToEndStatsMsg( EStatsReplyRequest eRequest, SteamNetworkingMicroseconds usecNow, const char *pszReason ) override;
+	virtual void ThinkConnection( SteamNetworkingMicroseconds usecNow ) override;
+	virtual void GetConnectionTypeDescription( ConnectionTypeDescription_t &szDescription ) const override;
+	virtual EUnsignedCert AllowRemoteUnsignedCert() override;
+	virtual EUnsignedCert AllowLocalUnsignedCert() override;
 
 	/// Initiate a connection
 	bool BInitConnect( const SteamNetworkingIPAddr &addressRemote, SteamDatagramErrMsg &errMsg );
@@ -103,7 +104,7 @@ protected:
 	IBoundUDPSocket *m_pSocket;
 
 	// We need to customize our thinking to handle the connection state machine
-	virtual void ConnectionStateChanged( ESteamNetworkingConnectionState eOldState ) OVERRIDE;
+	virtual void ConnectionStateChanged( ESteamNetworkingConnectionState eOldState ) override;
 
 	static void PacketReceived( const void *pPkt, int cbPkt, const netadr_t &adrFrom, CSteamNetworkConnectionUDP *pSelf );
 
@@ -132,7 +133,7 @@ protected:
 };
 
 /// A connection over loopback
-class CSteamNetworkConnectionlocalhostLoopback : public CSteamNetworkConnectionUDP
+class CSteamNetworkConnectionlocalhostLoopback final : public CSteamNetworkConnectionUDP
 {
 public:
 	CSteamNetworkConnectionlocalhostLoopback( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface, const SteamNetworkingIdentity &identity );
@@ -141,8 +142,9 @@ public:
 	static bool APICreateSocketPair( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface, CSteamNetworkConnectionlocalhostLoopback *pConn[2], const SteamNetworkingIdentity pIdentity[2] );
 
 	/// Base class overrides
-	virtual void PostConnectionStateChangedCallback( ESteamNetworkingConnectionState eOldAPIState, ESteamNetworkingConnectionState eNewAPIState ) OVERRIDE;
-	virtual void InitConnectionCrypto( SteamNetworkingMicroseconds usecNow ) OVERRIDE;
+	virtual void PostConnectionStateChangedCallback( ESteamNetworkingConnectionState eOldAPIState, ESteamNetworkingConnectionState eNewAPIState ) override;
+	virtual EUnsignedCert AllowRemoteUnsignedCert() override;
+	virtual EUnsignedCert AllowLocalUnsignedCert() override;
 };
 
 } // namespace SteamNetworkingSocketsLib

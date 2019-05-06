@@ -39,6 +39,13 @@ struct SteamNetworkingMessageQueue;
 struct SNPAckSerializerHelper;
 struct CertAuthScope;
 
+enum EUnsignedCert
+{
+	k_EUnsignedCert_Disallow,
+	k_EUnsignedCert_AllowWarn,
+	k_EUnsignedCert_Allow,
+};
+
 // Fixed size byte array that automatically wipes itself upon destruction.
 // Used for storage of secret keys, etc.
 template <int N>
@@ -536,7 +543,6 @@ protected:
 	virtual void SendEndToEndConnectRequest( SteamNetworkingMicroseconds usecNow ) = 0;
 	virtual void SendEndToEndStatsMsg( EStatsReplyRequest eRequest, SteamNetworkingMicroseconds usecNow, const char *pszReason ) = 0;
 	//virtual bool BSendEndToEndPing( SteamNetworkingMicroseconds usecNow );
-	virtual bool BAllowLocalUnsignedCert() const;
 
 	void QueueEndToEndAck( bool bImmediate, SteamNetworkingMicroseconds usecNow )
 	{
@@ -609,13 +615,10 @@ protected:
 	virtual ESteamNetConnectionEnd CheckRemoteCert( const CertAuthScope *pCACertAuthScope, SteamNetworkingErrMsg &errMsg );
 
 	/// Called when we the remote host presents us with an unsigned cert.
-	enum ERemoteUnsignedCert
-	{
-		k_ERemoteUnsignedCert_Disallow,
-		k_ERemoteUnsignedCert_AllowWarn,
-		k_ERemoteUnsignedCert_Allow,
-	};
-	virtual ERemoteUnsignedCert AllowRemoteUnsignedCert();
+	virtual EUnsignedCert AllowRemoteUnsignedCert();
+
+	/// Called to decide if we want to try to proceed without a signed cert for ourselves
+	virtual EUnsignedCert AllowLocalUnsignedCert();
 
 	//
 	// "SNP" - Steam Networking Protocol.  (Sort of audacious to stake out this acronym, don't you think...?)
@@ -693,7 +696,7 @@ private:
 };
 
 /// Dummy loopback/pipe connection that doesn't actually do any network work.
-class CSteamNetworkConnectionPipe : public CSteamNetworkConnectionBase
+class CSteamNetworkConnectionPipe final : public CSteamNetworkConnectionBase
 {
 public:
 
@@ -703,19 +706,19 @@ public:
 	CSteamNetworkConnectionPipe *m_pPartner;
 
 	// CSteamNetworkConnectionBase overrides
-	virtual bool BCanSendEndToEndConnectRequest() const OVERRIDE;
-	virtual bool BCanSendEndToEndData() const OVERRIDE;
-	virtual void SendEndToEndConnectRequest( SteamNetworkingMicroseconds usecNow ) OVERRIDE;
-	virtual void SendEndToEndStatsMsg( EStatsReplyRequest eRequest, SteamNetworkingMicroseconds usecNow, const char *pszReason ) OVERRIDE;
-	virtual EResult APIAcceptConnection() OVERRIDE;
-	virtual bool SendDataPacket( SteamNetworkingMicroseconds usecNow ) OVERRIDE;
-	virtual int SendEncryptedDataChunk( const void *pChunk, int cbChunk, SendPacketContext_t &ctx ) OVERRIDE;
-	virtual EResult _APISendMessageToConnection( const void *pData, uint32 cbData, int nSendFlags ) OVERRIDE;
-	virtual void ConnectionStateChanged( ESteamNetworkingConnectionState eOldState ) OVERRIDE;
-	virtual void PostConnectionStateChangedCallback( ESteamNetworkingConnectionState eOldAPIState, ESteamNetworkingConnectionState eNewAPIState ) OVERRIDE;
-	virtual ERemoteUnsignedCert AllowRemoteUnsignedCert() OVERRIDE;
-	virtual void InitConnectionCrypto( SteamNetworkingMicroseconds usecNow ) OVERRIDE;
-	virtual void GetConnectionTypeDescription( ConnectionTypeDescription_t &szDescription ) const OVERRIDE;
+	virtual bool BCanSendEndToEndConnectRequest() const override;
+	virtual bool BCanSendEndToEndData() const override;
+	virtual void SendEndToEndConnectRequest( SteamNetworkingMicroseconds usecNow ) override;
+	virtual void SendEndToEndStatsMsg( EStatsReplyRequest eRequest, SteamNetworkingMicroseconds usecNow, const char *pszReason ) override;
+	virtual EResult APIAcceptConnection() override;
+	virtual bool SendDataPacket( SteamNetworkingMicroseconds usecNow ) override;
+	virtual int SendEncryptedDataChunk( const void *pChunk, int cbChunk, SendPacketContext_t &ctx ) override;
+	virtual EResult _APISendMessageToConnection( const void *pData, uint32 cbData, int nSendFlags ) override;
+	virtual void ConnectionStateChanged( ESteamNetworkingConnectionState eOldState ) override;
+	virtual void PostConnectionStateChangedCallback( ESteamNetworkingConnectionState eOldAPIState, ESteamNetworkingConnectionState eNewAPIState ) override;
+	virtual EUnsignedCert AllowRemoteUnsignedCert() override;
+	virtual EUnsignedCert AllowLocalUnsignedCert() override;
+	virtual void GetConnectionTypeDescription( ConnectionTypeDescription_t &szDescription ) const override;
 
 private:
 

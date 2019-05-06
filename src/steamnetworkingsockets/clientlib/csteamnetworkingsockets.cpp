@@ -43,8 +43,9 @@ DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, SendRateMin, 128*1024 );
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, SendRateMax, 1024*1024 );
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, NagleTime, 5000 );
 #ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
-	// We don't have a trusted third party, so allow this by default.
-	DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, IP_AllowWithoutAuth, 1 );
+	// We don't have a trusted third party, so allow this by default,
+	// and don't warn about it
+	DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, IP_AllowWithoutAuth, 2 );
 #else
 	DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, IP_AllowWithoutAuth, 0 );
 #endif

@@ -1692,21 +1692,30 @@ void CSteamNetworkConnectionUDP::SendConnectOK( SteamNetworkingMicroseconds usec
 	SendMsg( k_ESteamNetworkingUDPMsg_ConnectOK, msg );
 }
 
-CSteamNetworkConnectionBase::ERemoteUnsignedCert CSteamNetworkConnectionUDP::AllowRemoteUnsignedCert()
+EUnsignedCert CSteamNetworkConnectionUDP::AllowRemoteUnsignedCert()
 {
-	// We should have a socket open any time we need to ask this question!
-	if ( !m_pSocket )
-	{
-		Assert( false );
-		return k_ERemoteUnsignedCert_Disallow;
-	}
+	// NOTE: No special override for localhost.
+	// Should we add a seperat3e convar for this?
+	// For the CSteamNetworkConnectionlocalhostLoopback connection,
+	// we know both ends are us.  but if they are just connecting to
+	// 127.0.0.1, it's not clear that we should handle this any
+	// differently from any other connection
 
-	// If it's local host, we trust ourselves
-	if ( m_pSocket->GetRemoteHostAddr().IsLoopback() )
-		return k_ERemoteUnsignedCert_Allow;
+	// Enabled by convar?
+	int nAllow = m_connectionConfig.m_IP_AllowWithoutAuth.Get();
+	if ( nAllow > 1 )
+		return k_EUnsignedCert_Allow;
+	if ( nAllow == 1 )
+		return k_EUnsignedCert_AllowWarn;
 
-	// Allow it, but warn
-	return k_ERemoteUnsignedCert_AllowWarn;
+	// Lock it down
+	return k_EUnsignedCert_Disallow;
+}
+
+EUnsignedCert CSteamNetworkConnectionUDP::AllowLocalUnsignedCert()
+{
+	// Same logic actually applies for remote and local
+	return AllowRemoteUnsignedCert();
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -1721,9 +1730,14 @@ CSteamNetworkConnectionlocalhostLoopback::CSteamNetworkConnectionlocalhostLoopba
 	m_identityLocal = identity;
 }
 
-void CSteamNetworkConnectionlocalhostLoopback::InitConnectionCrypto( SteamNetworkingMicroseconds usecNow )
+EUnsignedCert CSteamNetworkConnectionlocalhostLoopback::AllowRemoteUnsignedCert()
 {
-	InitLocalCryptoWithUnsignedCert();
+	return k_EUnsignedCert_Allow;
+}
+
+EUnsignedCert CSteamNetworkConnectionlocalhostLoopback::AllowLocalUnsignedCert()
+{
+	return k_EUnsignedCert_Allow;
 }
 
 void CSteamNetworkConnectionlocalhostLoopback::PostConnectionStateChangedCallback( ESteamNetworkingConnectionState eOldAPIState, ESteamNetworkingConnectionState eNewAPIState )
