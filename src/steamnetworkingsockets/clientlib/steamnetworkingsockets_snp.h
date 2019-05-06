@@ -119,6 +119,14 @@ struct SSNPSendMessageList
 		return false;
 	}
 
+	/// Delete all elements.  This should only be called if you own the messages!
+	void delete_all()
+	{
+		while ( m_pFirst )
+			delete pop_front();
+		Assert( m_pLast == nullptr );
+	}
+
 	/// Unlink the message at the head, if any and return it.
 	/// Unlike STL pop_front, this will return nullptr if the
 	/// list is empty
@@ -172,9 +180,9 @@ struct SSNPSenderState
 {
 	SSNPSenderState();
 	~SSNPSenderState() {
-		Reset();
+		Shutdown();
 	}
-	void Reset();
+	void Shutdown();
 
 	/// Current sending rate in bytes per second, RFC 3448 4.2 states default
 	/// is one packet per second, but that is insane and we're not doing that.
@@ -352,6 +360,10 @@ struct SSNPPacketGap
 struct SSNPReceiverState
 {
 	SSNPReceiverState();
+	~SSNPReceiverState() {
+		Shutdown();
+	}
+	void Shutdown();
 
 	/// Unreliable message segments that we have received.  When an unreliable message
 	/// needs to be fragmented, we store the pieces here.  NOTE: it might be more efficient
@@ -444,6 +456,12 @@ struct SSNPReceiverState
 	/// if we don't have any acks pending right now.
 	inline SteamNetworkingMicroseconds TimeWhenFlushAcks() const
 	{
+		// Paranoia
+		if ( m_mapPacketGaps.empty() )
+		{
+			AssertMsg( false, "TimeWhenFlushAcks - we're shut down!" );
+			return INT64_MAX;
+		}
 		return m_itPendingAck->second.m_usecWhenAckPrior;
 	}
 

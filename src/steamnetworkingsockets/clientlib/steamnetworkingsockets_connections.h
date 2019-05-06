@@ -623,6 +623,7 @@ protected:
 	//
 
 	void SNP_InitializeConnection( SteamNetworkingMicroseconds usecNow );
+	void SNP_ShutdownConnection();
 	EResult SNP_SendMessage( SteamNetworkingMicroseconds usecNow, const void *pData, int cbData, int nSendFlags );
 	SteamNetworkingMicroseconds SNP_ThinkSendState( SteamNetworkingMicroseconds usecNow );
 	SteamNetworkingMicroseconds SNP_GetNextThinkTime( SteamNetworkingMicroseconds usecNow );

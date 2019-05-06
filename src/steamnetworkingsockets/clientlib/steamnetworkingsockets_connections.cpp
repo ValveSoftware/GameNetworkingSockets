@@ -1482,7 +1482,7 @@ void CSteamNetworkConnectionBase::ConnectionStateChanged( ESteamNetworkingConnec
 	if ( eNewAPIState == k_ESteamNetworkingConnectionState_None )
 		m_queueRecvMessages.PurgeMessages();
 
-	// Check crypto state
+	// Slam some stuff when we are in various states
 	switch ( GetState() )
 	{
 		case k_ESteamNetworkingConnectionState_Dead:
@@ -1497,19 +1497,28 @@ void CSteamNetworkConnectionBase::ConnectionStateChanged( ESteamNetworkingConnec
 			// And let stats tracking system know that it shouldn't
 			// expect to be able to get stuff acked, etc
 			m_statsEndToEnd.SetDisconnected( true, m_usecWhenEnteredConnectionState );
+
+			// Go head and free up memory now
+			SNP_ShutdownConnection();
 			break;
 
 		case k_ESteamNetworkingConnectionState_Linger:
-			// Don't bother trading stats back and forth with peer,
-			// the only message we will send to them is "connection has been closed"
-			m_statsEndToEnd.SetDisconnected( true, m_usecWhenEnteredConnectionState );
-			break;
-
 		case k_ESteamNetworkingConnectionState_Connected:
-		case k_ESteamNetworkingConnectionState_FindingRoute:
 
 			// Key exchange should be complete
 			Assert( m_bCryptKeysValid );
+
+			// Link stats tracker should send and expect, acks, keepalives, etc
+			m_statsEndToEnd.SetDisconnected( false, m_usecWhenEnteredConnectionState );
+			break;
+
+		case k_ESteamNetworkingConnectionState_FindingRoute:
+
+			// Key exchange should be complete.  (We do that when accepting a connection.)
+			Assert( m_bCryptKeysValid );
+
+			// FIXME.  Probably we should NOT set the stats tracker as "connected" yet.
+			//Assert( m_statsEndToEnd.IsDisconnected() );
 			m_statsEndToEnd.SetDisconnected( false, m_usecWhenEnteredConnectionState );
 			break;
 

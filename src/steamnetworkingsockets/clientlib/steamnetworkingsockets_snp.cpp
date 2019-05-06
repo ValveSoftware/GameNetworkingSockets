@@ -142,12 +142,16 @@ inline SteamNetworkingMicroseconds GetUsecPingWithFallback( CSteamNetworkConnect
 	return nPingMS*1000;
 }
 
-void SSNPSenderState::Reset()
+
+void SSNPSenderState::Shutdown()
 {
-	while ( !m_unackedReliableMessages.empty() )
-	{
-		delete m_unackedReliableMessages.pop_front();
-	}
+	m_unackedReliableMessages.delete_all();
+	m_messagesQueued.delete_all();
+	m_mapInFlightPacketsByPktNum.clear();
+	m_listInFlightReliableRange.clear();
+	m_cbPendingUnreliable = 0;
+	m_cbPendingReliable = 0;
+	m_cbSentUnackedReliable = 0;
 }
 
 //-----------------------------------------------------------------------------
@@ -213,7 +217,6 @@ SSNPSenderState::SSNPSenderState()
 SSNPReceiverState::SSNPReceiverState()
 {
 	// Init packet gaps with a sentinel
-	m_mapPacketGaps.clear();
 	SSNPPacketGap &sentinel = m_mapPacketGaps[INT64_MAX];
 	sentinel.m_nEnd = INT64_MAX; // Fixed value
 	sentinel.m_usecWhenOKToNack = INT64_MAX; // Fixed value, for when there is nothing left to nack
@@ -223,6 +226,15 @@ SSNPReceiverState::SSNPReceiverState()
 	m_itPendingAck = m_mapPacketGaps.end();
 	--m_itPendingAck;
 	m_itPendingNack = m_itPendingAck;
+}
+
+//-----------------------------------------------------------------------------
+void SSNPReceiverState::Shutdown()
+{
+	m_mapUnreliableSegments.clear();
+	m_bufReliableStream.clear();
+	m_mapReliableStreamGaps.clear();
+	m_mapPacketGaps.clear();
 }
 
 //-----------------------------------------------------------------------------
@@ -246,6 +258,13 @@ void CSteamNetworkConnectionBase::SNP_InitializeConnection( SteamNetworkingMicro
 
 	// Go ahead and clamp it now
 	SNP_ClampSendRate();
+}
+
+//-----------------------------------------------------------------------------
+void CSteamNetworkConnectionBase::SNP_ShutdownConnection()
+{
+	m_senderState.Shutdown();
+	m_receiverState.Shutdown();
 }
 
 //-----------------------------------------------------------------------------
@@ -3071,6 +3090,13 @@ void SSNPReceiverState::DebugCheckPackGapMap() const
 
 SteamNetworkingMicroseconds CSteamNetworkConnectionBase::SNP_TimeWhenWantToSendNextPacket() const
 {
+	// We really shouldn't be trying to do this when not connected
+	if ( !BStateIsConnectedForWirePurposes() )
+	{
+		AssertMsg( false, "We shouldn't be trying to send packets when not fully connected" );
+		return k_nThinkTime_Never;
+	}
+
 	// When does the sender want to send data?
 	SteamNetworkingMicroseconds usecNextSend = m_senderState.TimeWhenWantToSendNextPacket();
 
@@ -3146,33 +3172,41 @@ void CSteamNetworkConnectionBase::SNP_PopulateQuickStats( SteamNetworkingQuickCo
 	info.m_cbPendingUnreliable = m_senderState.m_cbPendingUnreliable;
 	info.m_cbPendingReliable = m_senderState.m_cbPendingReliable;
 	info.m_cbSentUnackedReliable = m_senderState.m_cbSentUnackedReliable;
-
-	// Accumulate tokens so that we can properly predict when the next time we'll be able to send something is
-	SNP_TokenBucket_Accumulate( usecNow );
-
-	//
-	// Time until we can send the next packet
-	// If anything is already queued, then that will have to go out first.  Round it down
-	// to the nearest packet.
-	//
-	// NOTE: This ignores the precise details of SNP framing.  If there are tons of
-	// small packets, it'll actually be worse.  We might be able to approximate that
-	// the framing overhead better by also counting up the number of *messages* pending.
-	// Probably not worth it here, but if we had that number available, we'd use it.
-	int cbPendingTotal = m_senderState.PendingBytesTotal() / k_cbSteamNetworkingSocketsMaxMessageNoFragment * k_cbSteamNetworkingSocketsMaxMessageNoFragment;
-
-	// Adjust based on how many tokens we have to spend now (or if we are already
-	// over-budget and have to wait until we could spend another)
-	cbPendingTotal -= (int)m_senderState.m_flTokenBucket;
-	if ( cbPendingTotal <= 0 )
+	if ( GetState() == k_ESteamNetworkingConnectionState_Connected )
 	{
-		// We could send it right now.
-		info.m_usecQueueTime = 0;
+
+		// Accumulate tokens so that we can properly predict when the next time we'll be able to send something is
+		SNP_TokenBucket_Accumulate( usecNow );
+
+		//
+		// Time until we can send the next packet
+		// If anything is already queued, then that will have to go out first.  Round it down
+		// to the nearest packet.
+		//
+		// NOTE: This ignores the precise details of SNP framing.  If there are tons of
+		// small packets, it'll actually be worse.  We might be able to approximate that
+		// the framing overhead better by also counting up the number of *messages* pending.
+		// Probably not worth it here, but if we had that number available, we'd use it.
+		int cbPendingTotal = m_senderState.PendingBytesTotal() / k_cbSteamNetworkingSocketsMaxMessageNoFragment * k_cbSteamNetworkingSocketsMaxMessageNoFragment;
+
+		// Adjust based on how many tokens we have to spend now (or if we are already
+		// over-budget and have to wait until we could spend another)
+		cbPendingTotal -= (int)m_senderState.m_flTokenBucket;
+		if ( cbPendingTotal <= 0 )
+		{
+			// We could send it right now.
+			info.m_usecQueueTime = 0;
+		}
+		else
+		{
+
+			info.m_usecQueueTime = (int64)cbPendingTotal * k_nMillion / SNP_ClampSendRate();
+		}
 	}
 	else
 	{
-
-		info.m_usecQueueTime = (int64)cbPendingTotal * k_nMillion / SNP_ClampSendRate();
+		// We'll never be able to send it.  (Or, we don't know when that will be.)
+		info.m_usecQueueTime = INT64_MAX;
 	}
 }
 
