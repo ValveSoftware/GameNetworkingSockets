@@ -736,8 +736,6 @@ private:
 extern CUtlHashMap<uint16, CSteamNetworkConnectionBase *, std::equal_to<uint16>, Identity<uint16> > g_mapConnections;
 extern CUtlHashMap<int, CSteamNetworkListenSocketBase *, std::equal_to<int>, Identity<int> > g_mapListenSockets;
 
-extern std::string g_sLauncherPartner;
-
 extern bool BCheckGlobalSpamReplyRateLimit( SteamNetworkingMicroseconds usecNow );
 extern CSteamNetworkConnectionBase *FindConnectionByLocalID( uint32 nLocalConnectionID );
 extern HSteamListenSocket AddListenSocket( CSteamNetworkListenSocketBase *pSock );
