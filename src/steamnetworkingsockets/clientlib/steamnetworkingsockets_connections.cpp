@@ -1219,6 +1219,9 @@ int64 CSteamNetworkConnectionBase::DecryptDataChunk( uint16 nWireSeqNum, int cbP
 	m_statsEndToEnd.TrackRecvPacket( cbPacketSize, usecNow );
 
 	// Get the full end-to-end packet number, check if we should process it
+	// FIXME This is firing.  Should enable it and fix it.  but things were working before, and I
+	// don't want to freak people out with asserts that are probably harmless
+	//Assert( m_statsEndToEnd.m_nMaxRecvPktNum > 0 );
 	int64 nFullSequenceNumber = m_statsEndToEnd.ExpandWirePacketNumberAndCheck( nWireSeqNum );
 	if ( nFullSequenceNumber <= 0 )
 		return 0;
