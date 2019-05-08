@@ -14,7 +14,6 @@
 
 #include "tier0/dbg.h"
 #include "tier1/bitstring.h"
-#include "tier1/utliterator.h"
 #include "tier1/utlvector.h"
 
 #define FOR_EACH_HASHMAP( mapName, iteratorName ) \
@@ -43,23 +42,24 @@ public:
 	typedef int IndexType_t;
 	typedef L EqualityFunc_t;
 	typedef H HashFunc_t;
+	static constexpr IndexType_t kInvalidIndex = -1;
 
 	CUtlHashMap()
 	{
 		m_cElements = 0;
 		m_nMaxElement = 0;
-		m_nMinRehashedBucket = InvalidIndex();
-		m_nMaxRehashedBucket = InvalidIndex();
-		m_iNodeFreeListHead = InvalidIndex();
+		m_nMinRehashedBucket = kInvalidIndex;
+		m_nMaxRehashedBucket = kInvalidIndex;
+		m_iNodeFreeListHead = kInvalidIndex;
 	}
 
 	CUtlHashMap( int cElementsExpected )
 	{
 		m_cElements = 0;
 		m_nMaxElement = 0;
-		m_nMinRehashedBucket = InvalidIndex();
-		m_nMaxRehashedBucket = InvalidIndex();
-		m_iNodeFreeListHead = InvalidIndex();
+		m_nMinRehashedBucket = kInvalidIndex;
+		m_nMaxRehashedBucket = kInvalidIndex;
+		m_iNodeFreeListHead = kInvalidIndex;
 		EnsureCapacity( cElementsExpected );
 	}
 
@@ -82,7 +82,6 @@ public:
 	const ElemType_t &	Element( IndexType_t i ) const		{ return m_memNodes.Element( i ).m_elem; }
 	ElemType_t &		operator[]( IndexType_t i )			{ return m_memNodes.Element( i ).m_elem; }
 	const ElemType_t &	operator[]( IndexType_t i ) const	{ return m_memNodes.Element( i ).m_elem; }
-	KeyType_t &			Key( IndexType_t i )				{ return m_memNodes.Element( i ).m_key; }
 	const KeyType_t &	Key( IndexType_t i ) const			{ return m_memNodes.Element( i ).m_key; }
 
 	// Num elements
@@ -91,11 +90,15 @@ public:
 	// Max "size" of the vector
 	IndexType_t  MaxElement() const							{ return m_nMaxElement; }
 
-	// Checks if a node is valid and in the map
-	bool  IsValidIndex( IndexType_t i ) const				{ return i >= 0 && i < m_nMaxElement && !IsFreeNodeID( m_memNodes[i].m_iNextNode ); }
+	/// Checks if a node is valid and in the map.
+	/// NOTE: Do not use this function on the result of Find().  That is overkill
+	/// and slower.  Instead, compare the returned index against InvalidIndex().
+	/// (Or better use, use one of the methods sue as FindGetPtr() or HasElement()
+	/// that makes it unnecessary to deal with indices at all.
+	bool  IsValidIndex( IndexType_t i ) const				{ return /* i >= 0 && i < m_nMaxElement */ (unsigned)i < (unsigned)m_nMaxElement && m_memNodes[i].m_iNextNode >= -1; }
 
 	// Invalid index
-	static IndexType_t InvalidIndex()						{ return -1; }
+	static constexpr IndexType_t InvalidIndex()						{ return -1; }
 
 	// Insert method
 	IndexType_t  Insert( const KeyType_t &key )								{ return InsertOrReplace( key ); }
@@ -112,24 +115,50 @@ public:
 	// copy constructor for the type (but does require assignment operator)
 	IndexType_t  FindOrInsert( const KeyType_t &key, const ElemType_t &insert );
 
-	// Finds an element
+	// Find key, insert with default value if not found.  Returns pointer to the
+	// element
+	ElemType_t *FindOrInsertGetPtr( const KeyType_t &key )
+	{
+		IndexType_t i = FindOrInsert(key);
+		return &m_memNodes.Element( i ).m_elem;
+	}
+
+	// Finds an element.  Returns index of element, or InvalidIndex() if not found
 	IndexType_t  Find( const KeyType_t &key ) const;
 	
+	// Finds an element, returns pointer to element or NULL if not found
+	ElemType_t *FindGetPtr( const KeyType_t &key )
+	{
+		IndexType_t i = Find(key);
+		return i == kInvalidIndex ? nullptr : &m_memNodes.Element( i ).m_elem;
+	}
+	const ElemType_t *FindGetPtr( const KeyType_t &key ) const
+	{
+		IndexType_t i = Find(key);
+		return i == kInvalidIndex ? nullptr : &m_memNodes.Element( i ).m_elem;
+	}
+
+	/// Returns true if the specified *key* (not the "element"!!!) can be found
+	/// This name is definitely unfortunate, but remains because of compatibility
+	/// with other containers and also other Valve codebases.
+	bool HasElement( const KeyType_t &key ) const { return Find( key ) != kInvalidIndex; }
+
 	// Finds an exact key/value match, even with duplicate keys. Requires operator== for ElemType_t.
 	IndexType_t  FindExact( const KeyType_t &key, const ElemType_t &elem ) const;
 
 	// Find next element with same key
 	IndexType_t  NextSameKey( IndexType_t i ) const;
 
-	// has an element
-	bool HasElement( const KeyType_t &key ) const			{ return Find( key ) != InvalidIndex(); }
-
 	void EnsureCapacity( int num );
 	
+	//
+	// DANGER DANGER
+	// This doesn't really work if you pass a temporary to defaultValue!!!
+	//
 	const ElemType_t &FindElement( const KeyType_t &key, const ElemType_t &defaultValue ) const
 	{
 		IndexType_t i = Find( key );
-		if ( i == InvalidIndex() )
+		if ( i == kInvalidIndex )
 			return defaultValue;
 		return Element( i );
 	}
@@ -138,7 +167,7 @@ public:
 	bool Remove( const KeyType_t &key )
 	{
 		int iMap = Find( key );
-		if ( iMap != InvalidIndex() )
+		if ( iMap != kInvalidIndex )
 		{
 			RemoveAt( iMap );
 			return true;
@@ -163,7 +192,6 @@ protected:
 
 	inline IndexType_t FreeNodeIDToIndex( IndexType_t i ) const	{ return (0-i)-3; }
 	inline IndexType_t FreeNodeIndexToID( IndexType_t i ) const	{ return (-3)-i; }
-	inline bool IsFreeNodeID( IndexType_t i ) const				{ return i < InvalidIndex(); }
 
 	int FindInBucket( int iBucket, const KeyType_t &key ) const;
 	int AllocNode();
@@ -181,60 +209,177 @@ protected:
 
 	CBitString m_bitsMigratedBuckets;
 
-	// DO NOT CHANGE Node_t WITHOUT MODIFYING IteratorNode_t INSIDE THE IteratorProxyAlias CLASS!
 	struct Node_t
 	{
 		KeyType_t m_key;
 		ElemType_t m_elem;
 		int m_iNextNode;
 	};
-	// DO NOT CHANGE Node_t WITHOUT MODIFYING IteratorNode_t INSIDE THE IteratorProxyAlias CLASS!
 
 	CUtlMemory<Node_t> m_memNodes;
 	IndexType_t m_iNodeFreeListHead;
 
-public:
-	// STL / C++11-style iterators (unspecified / in-memory order!)
-	struct IterateKeyElemProxyAlias
-	{
-		// Define a compatible type that uses the same key,elem names as CUtlMap.
-		// This will be pointer-aliased to the Node_t elements of m_memNodes!
-		struct IteratorNode_t
-		{
-			K key;
-			T elem;
-		};
-		typedef IteratorNode_t ElemType_t;
-		typedef typename CUtlHashMap::IndexType_t IndexType_t;
-
-		typedef CUtlForwardIteratorImplT< IterateKeyElemProxyAlias, false > iterator;
-		typedef CUtlForwardIteratorImplT< IterateKeyElemProxyAlias, true > const_iterator;
-
-		ElemType_t &		Element( IndexType_t i )		{ return *reinterpret_cast<IteratorNode_t*>( &reinterpret_cast<CUtlHashMap*>(this)->m_memNodes.Element( i ) ); }
-		const ElemType_t &	Element( IndexType_t i ) const	{ return *reinterpret_cast<const IteratorNode_t*>( &reinterpret_cast<const CUtlHashMap*>(this)->m_memNodes.Element( i ) ); }
-		IndexType_t IteratorNext( IndexType_t i ) const		{ auto pSelf = reinterpret_cast<const CUtlHashMap*>(this); while ( ++i < pSelf->MaxElement() ) { if ( pSelf->IsValidIndex( i ) ) return i; } return -1; }
-
-		iterator begin()				{ return iterator( this, IteratorNext( -1 ) ); }
-		iterator end()					{ return iterator( this, -1 ); }
-		const_iterator begin() const	{ return const_iterator( this, IteratorNext( -1 ) ); }
-		const_iterator end() const		{ return const_iterator( this, -1 ); }
-	};
-
-	friend struct IterateKeyElemProxyAlias;
-
-	typedef CUtlForwardIteratorImplT< IterateKeyElemProxyAlias, false > iterator;
-	typedef CUtlForwardIteratorImplT< IterateKeyElemProxyAlias, true > const_iterator;
-	iterator begin()				{ return reinterpret_cast<IterateKeyElemProxyAlias*>(this)->begin(); }
-	iterator end()					{ return reinterpret_cast<IterateKeyElemProxyAlias*>(this)->end(); }
-	const_iterator begin() const	{ return reinterpret_cast<const IterateKeyElemProxyAlias*>(this)->begin(); }
-	const_iterator end() const		{ return reinterpret_cast<const IterateKeyElemProxyAlias*>(this)->end(); }
-
-protected:
 	IndexType_t m_cElements;
 	IndexType_t m_nMaxElement;
 	IndexType_t m_nMinRehashedBucket, m_nMaxRehashedBucket;
 	EqualityFunc_t m_EqualityFunc;
 	HashFunc_t m_HashFunc;
+
+public:
+	//
+	// Range-based for loop iteration over the map.  You can iterate
+	// over the keys, the values ("elements"), or both ("items").
+	// This naming style comes from Python.
+	//
+	// Examples:
+	//
+	// CUtlHashMap<uint64,CUtlString> map;
+	//
+	// Iterate over the keys.  Your loop variable will receive
+	// const KeyType_t &.  (You can use an ordinary KeyType_t
+	// variable for small KeyType_t.)
+	//
+	//   for ( uint64 k: map.IterKeys() ) { ... }
+	//
+	// Iterate over the values ("elements").  Your loop variable will receive
+	// [const] ElemType_t &.  (You can use an ordinary ElemType_t
+	// variable for small ElemType_t if you don't need to modify the element.
+	//   for ( CUtlString &v: map.IterValues() )
+	//
+	// Iterate over the "items" (key/value pairs) in the map.  Your
+	// loop variable will receive an an ItemRef or MutableItemRef.  This is
+	// a small proxy object that is very fast to copy, so you
+	// will usually use plain "auto" (not auto&).  (Like std::map iterators,
+	// using the actual type would be really messy and verbose, since it's a
+	// template type, hence using auto.)
+	//
+	//   for ( auto item: map.IterItems() )
+	//   {
+	//       int i = item.Index();
+	//       uint64 k = item.Key();
+	//       CUtlString &v = item.Value();
+	//   }
+
+	// A reference to a key/value pair in a map
+	class ItemRef
+	{
+	protected:
+		Node_t &m_node;
+		const int m_idx;
+	public:
+		inline ItemRef( const CUtlHashMap< K, T, L, H > &map, int idx ) : m_node{ const_cast< Node_t &>( map.m_memNodes[idx] ) }, m_idx{idx} {}
+		ItemRef( const ItemRef &x ) = default;
+		inline int Index() const { return m_idx; }
+		inline const KeyType_t &Key() { return m_node.m_key; }
+		inline const ElemType_t &Element() const { return m_node.m_elem; }
+	};
+	struct MutableItemRef : ItemRef
+	{
+		inline MutableItemRef( CUtlHashMap< K, T, L, H > &map, int idx ) : ItemRef{ map, idx } {}
+		MutableItemRef( const MutableItemRef &x ) = default;
+		using ItemRef::Element; // const reference
+		inline ElemType_t &Element() const { return this->m_node.m_elem; } // non-const reference
+	};
+
+	// Base class iterator
+	class Iterator
+	{
+	protected:
+		CUtlHashMap<K, T, L, H > &m_map;
+		int m_idx;
+	public:
+		inline Iterator( const CUtlHashMap< K, T, L, H > &map, int idx ) : m_map{ const_cast< CUtlHashMap< K, T, L, H > &>( map ) }, m_idx{idx} {}
+		Iterator( const Iterator &x ) = default;
+		inline bool operator==( const Iterator &x ) const { return &m_map == &x.m_map && m_idx == x.m_idx; } // Comparing the map reference is probably not necessary in 99% of cases, but needed to be correct
+		inline bool operator!=( const Iterator &x ) const { return &m_map != &x.m_map || m_idx != x.m_idx; }
+		inline void operator++()
+		{
+			if ( m_idx == kInvalidIndex )
+				return;
+			do
+			{
+				++m_idx;
+				if ( m_idx >= m_map.m_nMaxElement )
+				{
+					m_idx = kInvalidIndex;
+					break;
+				}
+			} while ( m_map.m_memNodes[m_idx].m_iNextNode < -1 );
+		}
+	};
+	struct MutableIterator : Iterator
+	{
+		inline MutableIterator( const MutableIterator &x ) = default;
+		inline MutableIterator( CUtlHashMap< K, T, L, H > &map, int idx ) : Iterator( map, idx ) {}
+	};
+	struct KeyIterator : Iterator
+	{
+		using Iterator::Iterator;
+		inline const KeyType_t &operator*() { return this->m_map.m_memNodes[this->m_idx].m_key; }
+	};
+	struct ConstValueIterator : Iterator
+	{
+		using Iterator::Iterator;
+		inline const ElemType_t &operator*() { return this->m_map.m_memNodes[this->m_idx].m_elem; }
+	};
+	struct MutableValueIterator : MutableIterator
+	{
+		using MutableIterator::MutableIterator;
+		inline ElemType_t &operator*() { return this->m_map.m_memNodes[this->m_idx].m_elem; }
+	};
+	struct ConstItemIterator : Iterator
+	{
+		using Iterator::Iterator;
+		inline ItemRef operator*() { return ItemRef( this->m_map, this->m_idx ); }
+	};
+	struct MutableItemIterator : public MutableIterator
+	{
+		using MutableIterator::MutableIterator;
+		inline MutableItemRef operator*() { return MutableItemRef( this->m_map, this->m_idx ); }
+	};
+
+	// Internal type used by the IterXxx functions.  You normally won't use
+	// this directly, because it will be consumed by the machinery of the
+	// range-based for loop.
+	template <typename TIterator>
+	class Range
+	{
+		CUtlHashMap< K, T, L, H > &m_map;
+	public:
+		Range( const CUtlHashMap< K, T, L, H > &map ) : m_map( const_cast< CUtlHashMap< K, T, L, H > &>( map ) ) {}
+		TIterator begin() const
+		{
+			int idx;
+			if ( m_map.m_cElements <= 0 )
+			{
+				idx = kInvalidIndex;
+			}
+			else
+			{
+				idx = 0;
+				while ( m_map.m_memNodes[idx].m_iNextNode < -1 )
+				{
+					++idx;
+					Assert( idx < m_map.m_nMaxElement ); // Or else how is m_map.m_cElements > 0?
+				}
+			}
+			return TIterator( m_map, idx );
+		}
+		TIterator end() const { return TIterator( m_map, kInvalidIndex ); }
+	};
+
+	/// Iterate over the keys.  You will receive a reference to the key/
+	Range<KeyIterator> IterKeys() const { return Range<KeyIterator>(*this); }
+
+	/// Iterate over the values ("elements").  You will receive a reference to the value.
+	Range<ConstValueIterator> IterValues() const { return Range<ConstValueIterator>(*this); }
+	Range<MutableValueIterator> IterValues() { return Range<MutableValueIterator>(*this); }
+
+	/// Iterate over the "items" (key/value pairs).  You will receive a small reference
+	/// object that is cheap to copy.
+	Range<ConstItemIterator> IterItems() const { return Range<ConstItemIterator>(*this); }
+	Range<MutableItemIterator> IterItems() { return Range<MutableItemIterator>(*this); }
+
 };
 
 
@@ -279,15 +424,15 @@ inline int CUtlHashMap<K,T,L,H>::InsertUnconstructed( const KeyType_t &key, int 
 		{
 			*piNodeExistingIfDupe = iNode;
 		}
-		if ( iNode != InvalidIndex() )
+		if ( iNode != kInvalidIndex )
 		{
-			return InvalidIndex();
+			return kInvalidIndex;
 		}
 	}
 
 	// make an item
 	int iNewNode = AllocNode();
-	m_memNodes[iNewNode].m_iNextNode = InvalidIndex();
+	m_memNodes[iNewNode].m_iNextNode = kInvalidIndex;
 	CopyConstruct( &m_memNodes[iNewNode].m_key, key );
 	// Note: m_elem remains intentionally unconstructed here
 
@@ -300,7 +445,7 @@ inline int CUtlHashMap<K,T,L,H>::InsertUnconstructed( const KeyType_t &key, int 
     // Initialized to placate the compiler's uninitialized value checking.
     if ( piNodeExistingIfDupe )
     {
-        *piNodeExistingIfDupe = InvalidIndex();
+        *piNodeExistingIfDupe = kInvalidIndex;
     }
     
 	// return the new node
@@ -315,8 +460,8 @@ template <typename K, typename T, typename L, typename H>
 inline int CUtlHashMap<K,T,L,H>::FindOrInsert( const KeyType_t &key )
 {
 	int iNodeExisting;
-	int iNodeInserted = InsertUnconstructed( key, &iNodeExisting, false /*no duplicates allowed*/ );
-	if ( iNodeInserted != InvalidIndex() )
+	int iNodeInserted = InsertUnconstructed( key, &iNodeExisting, false /*no duplicates allowed*/ ); // copies key
+	if ( iNodeInserted != kInvalidIndex )
 	{
 		Construct( &m_memNodes[ iNodeInserted ].m_elem );
 		return iNodeInserted;
@@ -332,8 +477,8 @@ template <typename K, typename T, typename L, typename H>
 inline int CUtlHashMap<K,T,L,H>::FindOrInsert( const KeyType_t &key, const ElemType_t &insert )
 {
 	int iNodeExisting;
-	int iNodeInserted = InsertUnconstructed( key, &iNodeExisting, false /*no duplicates allowed*/ );
-	if ( iNodeInserted != InvalidIndex() )
+	int iNodeInserted = InsertUnconstructed( key, &iNodeExisting, false /*no duplicates allowed*/ ); // copies key
+	if ( iNodeInserted != kInvalidIndex )
 	{
 		CopyConstruct( &m_memNodes[ iNodeInserted ].m_elem, insert );
 		return iNodeInserted;
@@ -349,8 +494,8 @@ template <typename K, typename T, typename L, typename H>
 inline int CUtlHashMap<K,T,L,H>::InsertOrReplace( const KeyType_t &key )
 {
 	int iNodeExisting;
-	int iNodeInserted = InsertUnconstructed( key, &iNodeExisting, false /*no duplicates allowed*/ );
-	if ( iNodeInserted != InvalidIndex() )
+	int iNodeInserted = InsertUnconstructed( key, &iNodeExisting, false /*no duplicates allowed*/ ); // copies key
+	if ( iNodeInserted != kInvalidIndex )
 	{
 		Construct( &m_memNodes[ iNodeInserted ].m_elem );
 		return iNodeInserted;
@@ -366,8 +511,8 @@ template <typename K, typename T, typename L, typename H>
 inline int CUtlHashMap<K,T,L,H>::InsertOrReplace( const KeyType_t &key, const ElemType_t &insert )
 {
 	int iNodeExisting;
-	int iNodeInserted = InsertUnconstructed( key, &iNodeExisting, false /*no duplicates allowed*/ );
-	if ( iNodeInserted != InvalidIndex() )
+	int iNodeInserted = InsertUnconstructed( key, &iNodeExisting, false /*no duplicates allowed*/ ); // copies key
+	if ( iNodeInserted != kInvalidIndex )
 	{
 		CopyConstruct( &m_memNodes[ iNodeInserted ].m_elem, insert );
 		return iNodeInserted;
@@ -382,8 +527,8 @@ inline int CUtlHashMap<K,T,L,H>::InsertOrReplace( const KeyType_t &key, const El
 template <typename K, typename T, typename L, typename H> 
 inline int CUtlHashMap<K,T,L,H>::InsertWithDupes( const KeyType_t &key, const ElemType_t &insert )
 {
-	int iNodeInserted = InsertUnconstructed( key, NULL, true /*duplicates allowed!*/ );
-	if ( iNodeInserted != InvalidIndex() )
+	int iNodeInserted = InsertUnconstructed( key, NULL, true /*duplicates allowed!*/ ); // copies key
+	if ( iNodeInserted != kInvalidIndex )
 	{
 		CopyConstruct( &m_memNodes[ iNodeInserted ].m_elem, insert );
 	}
@@ -447,7 +592,7 @@ inline int CUtlHashMap<K,T,L,H>::AllocNode()
 	}
 
 	// pull from the free list
-	DbgAssert( m_iNodeFreeListHead != InvalidIndex() );
+	DbgAssert( m_iNodeFreeListHead != kInvalidIndex );
 	int iNewNode = m_iNodeFreeListHead;
 	m_iNodeFreeListHead = FreeNodeIDToIndex( m_memNodes[iNewNode].m_iNextNode );
 	m_cElements++;
@@ -466,7 +611,7 @@ inline void CUtlHashMap<K,T,L,H>::RehashNodesInBucket( int iBucketSrc )
 
 	// walk the list of items, re-hashing them
 	IndexType_t iNode = m_vecHashBuckets[iBucketSrc].m_iNode;
-	while ( iNode != InvalidIndex() )
+	while ( iNode != kInvalidIndex )
 	{
 		IndexType_t iNodeNext = m_memNodes[iNode].m_iNextNode;
 		DbgAssert( iNodeNext != iNode );
@@ -499,7 +644,7 @@ template <typename K, typename T, typename L, typename H>
 inline int CUtlHashMap<K,T,L,H>::Find( const KeyType_t &key ) const
 {
 	if ( m_cElements == 0 )
-		return InvalidIndex();
+		return kInvalidIndex;
 
 	// hash the item
 	auto hash = m_HashFunc( key );
@@ -510,7 +655,7 @@ inline int CUtlHashMap<K,T,L,H>::Find( const KeyType_t &key ) const
 
 	// look in the bucket for the item
 	int iNode = FindInBucket( iBucket, key );
-	if ( iNode != InvalidIndex() )
+	if ( iNode != kInvalidIndex )
 		return iNode;
 
 	// stop before calling ModPowerOf2( hash, 0 ), which just returns the 32-bit hash, overflowing m_vecHashBuckets
@@ -525,14 +670,14 @@ inline int CUtlHashMap<K,T,L,H>::Find( const KeyType_t &key ) const
 		if ( !m_bitsMigratedBuckets.GetBit( iBucket ) )
 		{
 			int iNode2 = FindInBucket( iBucket, key );
-			if ( iNode2 != InvalidIndex() )
+			if ( iNode2 != kInvalidIndex )
 				return iNode2;
 		}
 
 		cBucketsToModAgainst >>= 1;
 	}
 
-	return InvalidIndex();	
+	return kInvalidIndex;	
 }
 
 
@@ -543,13 +688,13 @@ template <typename K, typename T, typename L, typename H>
 inline int CUtlHashMap<K, T, L, H>::FindExact( const KeyType_t &key, const ElemType_t &elem ) const
 {
 	int iNode = Find( key );
-	while ( iNode != InvalidIndex() )
+	while ( iNode != kInvalidIndex )
 	{
 		if ( elem == m_memNodes[iNode].m_elem )
 			return iNode;
 		iNode = NextSameKey( iNode );
 	}
-	return InvalidIndex();
+	return kInvalidIndex;
 }
 
 
@@ -564,7 +709,7 @@ inline int CUtlHashMap<K, T, L, H>::NextSameKey( IndexType_t i ) const
 		const KeyType_t &key = m_memNodes[i].m_key;
 		IndexType_t iNode = m_memNodes[i].m_iNextNode;
 		DbgAssert( iNode < m_nMaxElement );
-		while ( iNode != InvalidIndex() )
+		while ( iNode != kInvalidIndex )
 		{
 			// equality check
 			if ( m_EqualityFunc( key, m_memNodes[iNode].m_key ) )
@@ -573,7 +718,7 @@ inline int CUtlHashMap<K, T, L, H>::NextSameKey( IndexType_t i ) const
 			iNode = m_memNodes[iNode].m_iNextNode;
 		}
 	}
-	return InvalidIndex();
+	return kInvalidIndex;
 }
 
 
@@ -583,11 +728,11 @@ inline int CUtlHashMap<K, T, L, H>::NextSameKey( IndexType_t i ) const
 template <typename K, typename T, typename L, typename H> 
 inline int CUtlHashMap<K,T,L,H>::FindInBucket( int iBucket, const KeyType_t &key ) const
 {
-	if ( m_vecHashBuckets[iBucket].m_iNode != InvalidIndex() )
+	if ( m_vecHashBuckets[iBucket].m_iNode != kInvalidIndex )
 	{
 		IndexType_t iNode = m_vecHashBuckets[iBucket].m_iNode;
 		DbgAssert( iNode < m_nMaxElement );
-		while ( iNode != InvalidIndex() )
+		while ( iNode != kInvalidIndex )
 		{
 			// equality check
 			if ( m_EqualityFunc( key, m_memNodes[iNode].m_key ) )
@@ -597,7 +742,7 @@ inline int CUtlHashMap<K,T,L,H>::FindInBucket( int iBucket, const KeyType_t &key
 		}
 	}
 
-	return InvalidIndex();
+	return kInvalidIndex;
 }
 
 
@@ -630,7 +775,7 @@ inline void CUtlHashMap<K,T,L,H>::UnlinkNodeFromBucket( int iBucket, int iNodeTo
 	}
 
 	// walk the list to find where
-	while ( iNode != InvalidIndex() )
+	while ( iNode != kInvalidIndex )
 	{
 		if ( m_memNodes[iNode].m_iNextNode == iNodeToUnlink )
 		{
@@ -691,7 +836,7 @@ template <typename K, typename T, typename L, typename H>
 inline bool CUtlHashMap<K,T,L,H>::RemoveNodeFromBucket( IndexType_t iBucket, int iNodeToRemove )
 {
 	IndexType_t iNode = m_vecHashBuckets[iBucket].m_iNode;
-	while ( iNode != InvalidIndex() )
+	while ( iNode != kInvalidIndex )
 	{
 		if ( iNodeToRemove == iNode )
 		{
@@ -734,9 +879,9 @@ inline void CUtlHashMap<K,T,L,H>::RemoveAll()
 
 		m_cElements = 0;
 		m_nMaxElement = 0;
-		m_iNodeFreeListHead = InvalidIndex();
+		m_iNodeFreeListHead = kInvalidIndex;
 		m_nMinRehashedBucket = m_vecHashBuckets.Count();
-		m_nMaxRehashedBucket = InvalidIndex();
+		m_nMaxRehashedBucket = kInvalidIndex;
 		m_bitsMigratedBuckets.Resize( 0 );
 		memset( m_vecHashBuckets.Base(), 0xFF, m_vecHashBuckets.Count() * sizeof(HashBucket_t) );
 	}
@@ -760,9 +905,9 @@ inline void CUtlHashMap<K,T,L,H>::Purge()
 
 	m_cElements = 0;
 	m_nMaxElement = 0;
-	m_iNodeFreeListHead = InvalidIndex();
-	m_nMinRehashedBucket = InvalidIndex();
-	m_nMaxRehashedBucket = InvalidIndex();
+	m_iNodeFreeListHead = kInvalidIndex;
+	m_nMinRehashedBucket = kInvalidIndex;
+	m_nMaxRehashedBucket = kInvalidIndex;
 	m_bitsMigratedBuckets.Resize( 0 );
 	m_vecHashBuckets.Purge();
 	m_memNodes.Purge();
@@ -780,7 +925,7 @@ inline void CUtlHashMap<K,T,L,H>::IncrementalRehash()
 		while ( m_nMinRehashedBucket < m_nMaxRehashedBucket )
 		{
 			// see if the bucket needs rehashing
-			if ( m_vecHashBuckets[m_nMinRehashedBucket].m_iNode != InvalidIndex() 
+			if ( m_vecHashBuckets[m_nMinRehashedBucket].m_iNode != kInvalidIndex 
 				&& !m_bitsMigratedBuckets.GetBit(m_nMinRehashedBucket) )
 			{
 				// rehash this bucket
@@ -798,7 +943,7 @@ inline void CUtlHashMap<K,T,L,H>::IncrementalRehash()
 		{
 			// we're done; don't need any bits anymore
 			m_nMinRehashedBucket = m_vecHashBuckets.Count();
-			m_nMaxRehashedBucket = InvalidIndex();
+			m_nMaxRehashedBucket = kInvalidIndex;
 			m_bitsMigratedBuckets.Resize( 0 );
 		}
 	}

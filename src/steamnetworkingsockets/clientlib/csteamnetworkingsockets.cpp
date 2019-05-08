@@ -351,9 +351,9 @@ void CSteamNetworkingSockets::Destroy()
 
 bool CSteamNetworkingSockets::BHasAnyConnections() const
 {
-	for ( const auto &item: g_mapConnections )
+	for ( CSteamNetworkConnectionBase *pConn: g_mapConnections.IterValues() )
 	{
-		if ( item.elem->m_pSteamNetworkingSocketsInterface == this )
+		if ( pConn->m_pSteamNetworkingSocketsInterface == this )
 			return true;
 	}
 	return false;
@@ -361,9 +361,9 @@ bool CSteamNetworkingSockets::BHasAnyConnections() const
 
 bool CSteamNetworkingSockets::BHasAnyListenSockets() const
 {
-	for ( const auto &item: g_mapListenSockets )
+	for ( CSteamNetworkListenSocketBase *pSock: g_mapListenSockets.IterValues() )
 	{
-		if ( item.elem->m_pSteamNetworkingSocketsInterface == this )
+		if ( pSock->m_pSteamNetworkingSocketsInterface == this )
 			return true;
 	}
 	return false;

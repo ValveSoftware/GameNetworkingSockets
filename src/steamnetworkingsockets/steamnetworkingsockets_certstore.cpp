@@ -550,17 +550,16 @@ static void CertStore_EnsureTrustValid()
 		return;
 
 	// Mark everything not in a "terminal" state as unknown
-	for ( auto item: s_mapPublicKeys )
+	for ( PublicKey *pKey: s_mapPublicKeys.IterValues() )
 	{
-		PublicKey *pKey = item.elem;
 		if ( pKey->m_eTrust != k_ETrust_Revoked && pKey->m_eTrust != k_ETrust_Hardcoded )
 			pKey->m_eTrust = k_ETrust_Unknown;
 	}
 
 	// Now scan all keys, and recursively calculate their trust
-	for ( auto item: s_mapPublicKeys )
+	for ( PublicKey *pKey: s_mapPublicKeys.IterValues() )
 	{
-		RecursiveEvaluateKeyTrust( item.elem );
+		RecursiveEvaluateKeyTrust( pKey );
 	}
 
 	// Mark trust as having been calculated
@@ -728,10 +727,10 @@ void CertStore_Check()
 {
 	CertStore_EnsureTrustValid();
 
-	for ( auto item: s_mapPublicKeys )
+	for ( auto item: s_mapPublicKeys.IterItems() )
 	{
-		PublicKey *pKey = item.elem;
-		AssertMsg2( pKey->IsTrusted() || pKey->m_eTrust == k_ETrust_Revoked, "Key %llu not trusted: %s", (unsigned long long)item.key, pKey->m_status_msg.c_str() );
+		PublicKey *pKey = item.Element();
+		AssertMsg2( pKey->IsTrusted() || pKey->m_eTrust == k_ETrust_Revoked, "Key %llu not trusted: %s", (unsigned long long)item.Key(), pKey->m_status_msg.c_str() );
 	}
 }
 
@@ -739,10 +738,10 @@ void CertStore_Print( std::ostream &out )
 {
 	CertStore_EnsureTrustValid();
 
-	for ( auto item: s_mapPublicKeys )
+	for ( auto item: s_mapPublicKeys.IterItems() )
 	{
-		PublicKey *pKey = item.elem;
-		out << "Public key " << (unsigned long long)item.key << " " << MsgOrOK(pKey->m_status_msg) << std::endl;
+		PublicKey *pKey = item.Element();
+		out << "Public key " << (unsigned long long)item.Key() << " " << MsgOrOK(pKey->m_status_msg) << std::endl;
 		pKey->m_effectiveAuthScope.Print( out, "  " );
 		if ( pKey->m_idxNewestValidCert >= 0 )
 		{
