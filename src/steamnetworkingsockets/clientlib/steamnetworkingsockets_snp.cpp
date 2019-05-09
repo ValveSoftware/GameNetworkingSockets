@@ -9,13 +9,6 @@
 #include <steam/isteamnetworking.h>
 #endif
 
-// Ug
-#ifdef _MSC_VER
-	#if _MSC_VER < 1900
-		#define constexpr const
-	#endif
-#endif
-
 // Acks may be delayed.  This controls the precision used on the wire to encode the delay time.
 constexpr int k_nAckDelayPrecisionShift = 5;
 constexpr SteamNetworkingMicroseconds k_usecAckDelayPrecision = (1 << k_nAckDelayPrecisionShift );

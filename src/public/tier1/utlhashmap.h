@@ -267,7 +267,7 @@ public:
 		Node_t &m_node;
 		const int m_idx;
 	public:
-		inline ItemRef( const CUtlHashMap< K, T, L, H > &map, int idx ) : m_node{ const_cast< Node_t &>( map.m_memNodes[idx] ) }, m_idx{idx} {}
+		inline ItemRef( const CUtlHashMap< K, T, L, H > &map, int idx ) : m_node( const_cast< Node_t &>( map.m_memNodes[idx] ) ), m_idx(idx) {}
 		ItemRef( const ItemRef &x ) = default;
 		inline int Index() const { return m_idx; }
 		inline const KeyType_t &Key() { return m_node.m_key; }
@@ -275,7 +275,7 @@ public:
 	};
 	struct MutableItemRef : ItemRef
 	{
-		inline MutableItemRef( CUtlHashMap< K, T, L, H > &map, int idx ) : ItemRef{ map, idx } {}
+		inline MutableItemRef( CUtlHashMap< K, T, L, H > &map, int idx ) : ItemRef( map, idx ) {}
 		MutableItemRef( const MutableItemRef &x ) = default;
 		using ItemRef::Element; // const reference
 		inline ElemType_t &Element() const { return this->m_node.m_elem; } // non-const reference
@@ -288,7 +288,7 @@ public:
 		CUtlHashMap<K, T, L, H > &m_map;
 		int m_idx;
 	public:
-		inline Iterator( const CUtlHashMap< K, T, L, H > &map, int idx ) : m_map{ const_cast< CUtlHashMap< K, T, L, H > &>( map ) }, m_idx{idx} {}
+		inline Iterator( const CUtlHashMap< K, T, L, H > &map, int idx ) : m_map( const_cast< CUtlHashMap< K, T, L, H > &>( map ) ), m_idx(idx) {}
 		Iterator( const Iterator &x ) = default;
 		inline bool operator==( const Iterator &x ) const { return &m_map == &x.m_map && m_idx == x.m_idx; } // Comparing the map reference is probably not necessary in 99% of cases, but needed to be correct
 		inline bool operator!=( const Iterator &x ) const { return &m_map != &x.m_map || m_idx != x.m_idx; }
@@ -463,7 +463,7 @@ inline int CUtlHashMap<K,T,L,H>::FindOrInsert( const KeyType_t &key )
 	int iNodeInserted = InsertUnconstructed( key, &iNodeExisting, false /*no duplicates allowed*/ ); // copies key
 	if ( iNodeInserted != kInvalidIndex )
 	{
-		Construct( &m_memNodes[ iNodeInserted ].m_elem );
+		ValueInitializeConstruct( &m_memNodes[ iNodeInserted ].m_elem );
 		return iNodeInserted;
 	}
 	return iNodeExisting;
@@ -497,7 +497,7 @@ inline int CUtlHashMap<K,T,L,H>::InsertOrReplace( const KeyType_t &key )
 	int iNodeInserted = InsertUnconstructed( key, &iNodeExisting, false /*no duplicates allowed*/ ); // copies key
 	if ( iNodeInserted != kInvalidIndex )
 	{
-		Construct( &m_memNodes[ iNodeInserted ].m_elem );
+		ValueInitializeConstruct( &m_memNodes[ iNodeInserted ].m_elem );
 		return iNodeInserted;
 	}
 	return iNodeExisting;

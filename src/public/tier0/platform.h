@@ -155,11 +155,22 @@ PLATFORM_INTERFACE bool Plat_IsInDebugSession();
 // Methods to invoke the constructor, copy constructor, and destructor
 //-----------------------------------------------------------------------------
 
+// Placement new, using "default initialization".
+// THIS DOES NOT INITIALIZE PODS!
 template <class T> 
 inline void Construct( T* pMemory )
 {
 	HINT( pMemory != 0 );
 	::new( pMemory ) T;
+}
+
+// Placement new, using "value initialization".
+// This will zero-initialize PODs
+template <class T>
+inline T* ValueInitializeConstruct( T* pMemory )
+{
+	HINT( pMemory != 0 );
+	return ::new( pMemory ) T{};
 }
 
 template <class T> 
