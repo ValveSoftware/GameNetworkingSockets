@@ -1494,7 +1494,7 @@ static void StopSteamDatagramThread()
 			closesocket( s_hSockWakeThreadRead );
 			s_hSockWakeThreadRead = INVALID_SOCKET;
 		}
-		if ( s_hSockWakeThreadRead != INVALID_SOCKET )
+		if ( s_hSockWakeThreadWrite != INVALID_SOCKET )
 		{
 			closesocket( s_hSockWakeThreadWrite );
 			s_hSockWakeThreadWrite = INVALID_SOCKET;
