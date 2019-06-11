@@ -18,7 +18,7 @@ env:
 
 before_install:
   - export CONTAINER=${IMAGE}-${IMAGE_TAG}
-  - docker run -d --name $CONTAINER -e LC_ALL="en_US.UTF-8" -e LANG="en_US.UTF-8" -v $(pwd):/travis -w /travis $IMAGE:$IMAGE_TAG tail -f /dev/null
+  - docker run -d --cap-add SYS_PTRACE --name $CONTAINER -e LC_ALL="en_US.UTF-8" -e LANG="en_US.UTF-8" -v $(pwd):/travis -w /travis $IMAGE:$IMAGE_TAG tail -f /dev/null
   - docker ps
 
 install:
