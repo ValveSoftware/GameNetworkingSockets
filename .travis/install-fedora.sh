@@ -7,6 +7,8 @@ set -ex
 # Base build packages
 PACKAGES=(
 	gcc-c++
+	libasan
+	libubsan
 	clang
 	cmake
 	meson
