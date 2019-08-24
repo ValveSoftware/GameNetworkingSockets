@@ -1,6 +1,4 @@
-GameNetworkingSockets
----
-[![Build Status](https://travis-ci.org/ValveSoftware/GameNetworkingSockets.svg?branch=master)](https://travis-ci.org/ValveSoftware/GameNetworkingSockets)
+# GameNetworkingSockets [![Build Status](https://travis-ci.org/ValveSoftware/GameNetworkingSockets.svg?branch=master)](https://travis-ci.org/ValveSoftware/GameNetworkingSockets)
 
 GameNetworkingSockets is a basic transport layer for games.  The features are:
 
@@ -31,7 +29,7 @@ What it does *not* do:
   variables, etc
 * Compression
 
-### Why do I see "Steam" everywhere?
+## Why do I see "Steam" everywhere?
 
 The main interface class is named SteamNetworkingSockets, and many files have
 "steam" in their name.  But *Steam is not needed*.  If you don't make games or
@@ -58,24 +56,25 @@ trauma.  Also if you see code that appears to have unnecessary layers of
 abstraction, it's probably because those layers are needed to support relayed
 connection types or some part of the Steamworks SDK.
 
-### Building
+## Building
 
 See [BULDING](BUILDING.md) for more information.
 
-### Language bindings
+## Language bindings
 
 The library was written in C++, but there is also a plain C interface
 to facilitate binding to other languages.
 
 Third party language bindings:
 
-* C#: https://github.com/nxrighthere/ValveSockets-CSharp
+* C#: <https://github.com/nxrighthere/ValveSockets-CSharp>
 
 ## Roadmap
 
 Here are some large features that we expect to add to a future release:
 
 ### Bandwidth estimation
+
 An earlier version of this code implemented TCP-friendly rate control (RFC
 5348).  But as part of the reliability layer rewrite, bandwidth estimation has
 been temporarily broken, and a fixed (configurable) rate is used.  It's not
@@ -90,6 +89,7 @@ difficult for app code to do the right thing.  It'd be better if it mostly
 "just worked" when app code does the simple thing.
 
 ### NAT piercing (ICE/STUN/TURN)
+
 The Steamworks code supports a custom protocol for relaying packets through our
 network of relays and on our backbone.  At this time the open-source code does
 not have any support for piercing NAT or relaying packets.  But since the
@@ -98,6 +98,7 @@ support for this.  You'd still be responsible for running the STUN/TURN servers
 and doing the rendezvous/signalling, but the code could use them.
 
 ### Non-connection-oriented interface
+
 The Steam version has ISteamMessages, which is a UDP-like interface.  Messages
 are addressed by peer identity, not connection handle.  (Both reliable and
 unreliable messages are still supported.)  We should open-source this API,
