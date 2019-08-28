@@ -428,14 +428,14 @@ int main( int argc, char **argv )
 		#define GET_ARG() \
 			if ( nCurArg >= argc ) \
 			{ \
-				Warning( "Expected argument after %s\n", pszSwitch ); \
+				printf( "Expected argument after %s\n", pszSwitch ); \
 				PrintArgSummaryAndExit(); \
 			} \
 			const char *pszArg = argv[nCurArg++];
 
 		#define INVALID_ARG() \
 			{ \
-				Warning( "Invalid value for %s: '%s'\n", pszSwitch, pszArg ); \
+				printf( "Invalid value for %s: '%s'\n", pszSwitch, pszArg ); \
 				PrintArgSummaryAndExit(); \
 			}
 
@@ -568,7 +568,9 @@ int main( int argc, char **argv )
 		// Anything else?
 		//
 
-		Warning( "Unrecognized option '%s'\n", pszSwitch );
+		fflush(stdout);
+		fprintf( stderr, "Unrecognized option '%s'\n", pszSwitch );
+		fflush(stderr);
 		PrintArgSummaryAndExit();
 	}
 
