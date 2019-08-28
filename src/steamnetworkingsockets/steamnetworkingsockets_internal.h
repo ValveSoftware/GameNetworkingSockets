@@ -448,7 +448,7 @@ inline void SteamNetworkingIPAddrToNetAdr( netadr_t &netadr, const SteamNetworki
 {
 	uint32 ipv4 = addr.GetIPv4();
 	if ( ipv4 )
-		netadr.SetIP( ipv4 );
+		netadr.SetIPv4( ipv4 );
 	else
 		netadr.SetIPV6( addr.m_ipv6 );
 	netadr.SetPort( addr.m_port );

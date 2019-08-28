@@ -415,7 +415,7 @@ bool netadr_t::BConvertMappedToIPv4()
 {
 	if ( !IsMappedIPv4() )
 		return false;
-	SetIP( ipv6Byte[12], ipv6Byte[13], ipv6Byte[14], ipv6Byte[15] );
+	SetIPv4( ipv6Byte[12], ipv6Byte[13], ipv6Byte[14], ipv6Byte[15] );
 	return true;
 }
 
@@ -526,7 +526,7 @@ bool netadr_t::SetFromString( const char *pch )
 			if ( ( ( n1 | n2 | n3 | n4 ) & ~0xff ) || (uint16)n5 != n5 )
 				return false;
 
-			SetIP( n1, n2, n3, n4 );
+			SetIPv4( n1, n2, n3, n4 );
 			SetPort( ( uint16 ) n5 );
 			return true;
 		}

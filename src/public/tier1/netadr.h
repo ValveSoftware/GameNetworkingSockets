@@ -48,7 +48,7 @@ public:
 	// to *NA_IP* (not NA_NULL!) but the IP and port are 0, so IsValid() will return false
 	inline netadr_t() { memset((void *)this, 0, sizeof(*this) ); type = NA_IP; }
 	inline netadr_t( uint unIP, uint16 usPort ) { memset((void *)this, 0, sizeof(*this) ); SetIPAndPort( unIP, usPort ); }
-	explicit	netadr_t( uint unIP ) { memset((void *)this, 0, sizeof(*this) ); SetIP( unIP ); }
+	explicit	netadr_t( uint unIP ) { memset((void *)this, 0, sizeof(*this) ); SetIPv4( unIP ); }
 	explicit	netadr_t( const char *pch ) { memset((void *)this, 0, sizeof(*this) ); SetFromString( pch ); }
 
 	/// Set to invalid address (NA_NULL)
@@ -65,14 +65,14 @@ public:
 	
 	/// Set IPv4 IP given host-byte order argument.
 	/// Also slams the address type to NA_IP.  Port does not change
-	void	SetIP(uint unIP);
+	void	SetIPv4(uint unIP);
 
 	/// Set IPv4 given individual address octets.
 	/// Also slams the address type to NA_IP.  Port does not change
-	void	SetIP(uint8 b1, uint8 b2, uint8 b3, uint8 b4);
+	void	SetIPv4(uint8 b1, uint8 b2, uint8 b3, uint8 b4);
 
 	/// Set IPv4 IP and port at the same time.  Also sets address type to NA_IP
-	void    SetIPAndPort( uint unIP, unsigned short usPort ) { SetIP( unIP ); SetPort( usPort ); }
+	void    SetIPAndPort( uint unIP, unsigned short usPort ) { SetIPv4( unIP ); SetPort( usPort ); }
 
 	/// Attempt to parse address string.  Will never attempt
 	/// DNS name resolution.  Returns false if we cannot parse an
@@ -81,21 +81,21 @@ public:
 	bool    SetFromString( const char *psz );
 
 	/// Set to IPv4 broadcast address.  Does not change the port
-	void	SetIPV4Broadcast() { SetIP( 0xffffffff ); }
+	void	SetIPV4Broadcast() { SetIPv4( 0xffffffff ); }
 
 	/// Set to IPv6 broadcast (actually link scope all nodes) address on the specified
 	/// IPv6 scope.  Does not change the port
 	void	SetIPV6Broadcast( uint32 nScope = 0 ) { SetIPV6( k_ipv6Bytes_LinkLocalAllNodes, nScope ); }
 
 	/// Set to IPv4 loopback address (127.0.0.1).  Does not change the port
-	void	SetIPV4Loopback() { SetIP( 0x7f000001 ); }
+	void	SetIPV4Loopback() { SetIPv4( 0x7f000001 ); }
 
 	/// Set to IPv6 loopback address (::1).  The scope is reset to zero.
 	/// Does not change the port.
 	void	SetIPV6Loopback() { SetIPV6( k_ipv6Bytes_Loopback, 0 ); }
 
 	/// Set to IPV4 "any" address, i.e. INADDR_ANY = 0.0.0.0.
-	void	SetIPV4Any() { SetIP( 0 ); }
+	void	SetIPV4Any() { SetIPv4( 0 ); }
 
 	/// Set to IPV6 "any" address, i.e. IN6ADDR_ANY_INIT (all zeroes)
 	void	SetIPV6Any() { SetIPV6( k_ipv6Bytes_Any, 0 ); }
@@ -109,7 +109,7 @@ public:
 	/// Get the IPv4 IP, in host byte order.  Should only be called on IPv4 addresses.
 	/// For historical reasons, this can be called on an NA_NULL address, and usually
 	/// will return 0.
-	uint	GetIP() const;
+	uint	GetIPv4() const;
 
 	/// Fetch port (host byte order)
 	unsigned short GetPort() const { return port; }
@@ -264,13 +264,13 @@ private:
 };
 
 
-inline void netadr_t::SetIP(uint8 b1, uint8 b2, uint8 b3, uint8 b4)
+inline void netadr_t::SetIPv4(uint8 b1, uint8 b2, uint8 b3, uint8 b4)
 {
 	type = NA_IP;
 	ip = ( b4 ) + ( b3 << 8 ) + ( b2 << 16 ) + ( b1 << 24 );
 }
 
-inline void netadr_t::SetIP(uint unIP)
+inline void netadr_t::SetIPv4(uint unIP)
 {
 	type = NA_IP;
 	ip = unIP;
@@ -281,7 +281,7 @@ inline void netadr_t::SetType(netadrtype_t newtype)
 	type = newtype;
 }
 
-inline uint netadr_t::GetIP() const
+inline uint netadr_t::GetIPv4() const
 {
 	if ( type != NA_IPV6 )
 		return ip;
