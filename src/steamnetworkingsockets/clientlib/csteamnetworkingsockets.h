@@ -20,6 +20,8 @@
 
 namespace SteamNetworkingSocketsLib {
 
+class CSteamNetworkingUtils;
+
 /////////////////////////////////////////////////////////////////////////////
 //
 // Steam API interfaces
@@ -29,11 +31,11 @@ namespace SteamNetworkingSocketsLib {
 class CSteamNetworkingSockets : public IClientNetworkingSockets
 {
 public:
-	CSteamNetworkingSockets();
+	CSteamNetworkingSockets( CSteamNetworkingUtils *pSteamNetworkingUtils );
 
 	bool m_bHaveLowLevelRef;
-	AppId_t m_nAppID;
 
+	CSteamNetworkingUtils *const m_pSteamNetworkingUtils;
 	CMsgSteamDatagramCertificateSigned m_msgSignedCert;
 	CMsgSteamDatagramCertificate m_msgCert;
 	CECSigningPrivateKey m_keyPrivateKey;
@@ -58,10 +60,6 @@ public:
 	/// calling operator delete.  This solves some complications
 	/// due to calling virtual functions from within destructor.
 	virtual void Destroy();
-
-	// Get current time of day, ideally from a source that
-	// doesn't depend on the user setting their local clock properly
-	virtual time_t GetTimeSecure();
 
 	const SteamNetworkingIdentity &InternalGetIdentity()
 	{
@@ -155,6 +153,12 @@ public:
 	virtual bool SteamNetworkingIPAddr_ParseString( SteamNetworkingIPAddr *pAddr, const char *pszStr ) override;
 	virtual void SteamNetworkingIdentity_ToString( const SteamNetworkingIdentity &identity, char *buf, size_t cbBuf ) override;
 	virtual bool SteamNetworkingIdentity_ParseString( SteamNetworkingIdentity *pIdentity, const char *pszStr ) override;
+
+	virtual AppId_t GetAppID();
+
+	// Get current time of day, ideally from a source that
+	// doesn't depend on the user setting their local clock properly
+	virtual time_t GetTimeSecure();
 };
 
 } // namespace SteamNetworkingSocketsLib

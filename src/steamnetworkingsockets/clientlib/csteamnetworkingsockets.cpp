@@ -260,8 +260,9 @@ HSteamListenSocket AddListenSocket( CSteamNetworkListenSocketBase *pSock )
 
 int CSteamNetworkingSockets::s_nSteamNetworkingSocketsInitted = 0;
 
-CSteamNetworkingSockets::CSteamNetworkingSockets()
+CSteamNetworkingSockets::CSteamNetworkingSockets( CSteamNetworkingUtils *pSteamNetworkingUtils )
 : m_bHaveLowLevelRef( false )
+, m_pSteamNetworkingUtils( pSteamNetworkingUtils )
 {
 	m_connectionConfig.Init( nullptr );
 }
@@ -288,11 +289,6 @@ bool CSteamNetworkingSockets::BInitGameNetworkingSockets( const SteamNetworkingI
 		m_identity = *pIdentity;
 	else
 		CacheIdentity();
-
-	// Dummy AppID.  (Zero is a reserved value, don't use that.)
-	// If we want to be able to interop with the Steam code,
-	// we're going to need a way to set this, probably.
-	m_nAppID = 1;
 
 	return true;
 }
@@ -367,12 +363,6 @@ bool CSteamNetworkingSockets::BHasAnyListenSockets() const
 			return true;
 	}
 	return false;
-}
-
-time_t CSteamNetworkingSockets::GetTimeSecure()
-{
-	// Trusting local user's clock!
-	return time(nullptr);
 }
 
 bool CSteamNetworkingSockets::GetIdentity( SteamNetworkingIdentity *pIdentity )
@@ -1252,6 +1242,17 @@ bool CSteamNetworkingUtils::SteamNetworkingIdentity_ParseString( SteamNetworking
 	return SteamAPI_SteamNetworkingIdentity_ParseString( pIdentity, sizeof(SteamNetworkingIdentity), pszStr );
 }
 
+AppId_t CSteamNetworkingUtils::GetAppID()
+{
+	return 0;
+}
+
+time_t CSteamNetworkingUtils::GetTimeSecure()
+{
+	// Trusting local user's clock!
+	return time(nullptr);
+}
+
 } // namespace SteamNetworkingSocketsLib
 using namespace SteamNetworkingSocketsLib;
 
@@ -1277,7 +1278,7 @@ STEAMNETWORKINGSOCKETS_INTERFACE bool GameNetworkingSockets_Init( const SteamNet
 	}
 
 	// Init basic functionality
-	CSteamNetworkingSockets *pSteamNetworkingSockets = new CSteamNetworkingSockets;
+	CSteamNetworkingSockets *pSteamNetworkingSockets = new CSteamNetworkingSockets( ( CSteamNetworkingUtils *)SteamNetworkingUtils() );
 	if ( !pSteamNetworkingSockets->BInitGameNetworkingSockets( pIdentity, errMsg ) )
 	{
 		pSteamNetworkingSockets->Destroy();
