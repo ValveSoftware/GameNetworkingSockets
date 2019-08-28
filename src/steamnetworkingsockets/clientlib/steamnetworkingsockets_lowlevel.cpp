@@ -1738,9 +1738,9 @@ void ReallySpewType( ESteamNetworkingSocketsDebugOutputType eType, const char *p
 }
 
 #ifdef STEAMNETWORKINGSOCKETS_STANDALONELIB
-static SpewRetval_t SDRSpewFunc( SpewType_t type, tchar const *pMsg )
+static SpewRetval_t SDRSpewFunc( SpewType_t type, char const *pMsg )
 {
-	V_StripTrailingWhitespaceASCII( const_cast<tchar*>( pMsg ) );
+	V_StripTrailingWhitespaceASCII( const_cast<char*>( pMsg ) );
 
 	switch ( type )
 	{

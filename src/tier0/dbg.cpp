@@ -32,6 +32,8 @@
 #include "tier0/valgrind.h"
 #endif
 
+static SpewRetval_t  _SpewMessageType( SpewType_t spewType, char const* pMsgFormat, va_list args );
+
 bool Plat_IsInDebugSession()
 {
 #ifdef _WIN32
@@ -92,7 +94,7 @@ bool Plat_IsInDebugSession()
 static bool s_bSetSigHandler = false;
 #endif
 
-SpewRetval_t DefaultSpewFunc( SpewType_t type, tchar const *pMsg )
+SpewRetval_t DefaultSpewFunc( SpewType_t type, char const *pMsg )
 {
 #if defined (POSIX) && !defined( _PS3 ) // No signals on PS3
 	if ( ! s_bSetSigHandler )
@@ -102,11 +104,7 @@ SpewRetval_t DefaultSpewFunc( SpewType_t type, tchar const *pMsg )
 		s_bSetSigHandler = true;
 	}
 #endif
-#ifdef _PS3
-	printf( _T("STEAMPS3 - %s"), pMsg );
-#else
-	printf( _T("%s"), pMsg );
-#endif
+	printf( "%s", pMsg );
 	if( type == SPEW_ASSERT )
 		return SPEW_DEBUGGER;
 	else if( type == SPEW_ERROR )
@@ -117,7 +115,7 @@ SpewRetval_t DefaultSpewFunc( SpewType_t type, tchar const *pMsg )
 
 static SpewOutputFunc_t   s_SpewOutputFunc = DefaultSpewFunc;
 
-static tchar const*	s_pFileName;
+static char const*	s_pFileName;
 static int			s_Line;
 static SpewType_t	s_SpewType;
 
@@ -126,10 +124,8 @@ void   SpewOutputFunc( SpewOutputFunc_t func )
 	s_SpewOutputFunc = func;
 }
 
-void _ExitOnFatalAssert( tchar const* pFile, int line, tchar const *pMessage )
+static void _ExitFatal()
 {
-	_SpewMessage( _T("Fatal assert failed: %s, line %d.  Application exiting.\n"), pFile, line );
-
 #ifdef _WIN32
 	TerminateProcess( GetCurrentProcess(), EXIT_FAILURE ); // die, die RIGHT NOW! (don't call exit() so destructors will not get run)
 #elif defined( _PS3 )
@@ -147,12 +143,12 @@ void _ExitOnFatalAssert( tchar const* pFile, int line, tchar const *pMessage )
 //-----------------------------------------------------------------------------
 // Purpose: Lightly clean up a source path (skip to \src\ if we can)
 //-----------------------------------------------------------------------------
-static tchar const * CleanupAssertPath( tchar const* pFile )
+static char const * CleanupAssertPath( char const* pFile )
 {
 #if defined(WIN32)
-	for ( tchar const *s = pFile; *s; ++s )
+	for ( char const *s = pFile; *s; ++s )
 	{
-		if ( ! strnicmp( s, _T("\\src\\"), 5) )
+		if ( !V_strnicmp( s, "\\src\\", 5) )
 		{
 			return s;
 		}
@@ -163,7 +159,7 @@ static tchar const * CleanupAssertPath( tchar const* pFile )
 }
 
 
-void  _SpewInfo( SpewType_t type, tchar const* pFile, int line )
+static void  _SpewInfo( SpewType_t type, char const* pFile, int line )
 {
 	//
 	//	We want full(ish) paths, not just leaf names, for better diagnostics
@@ -175,23 +171,15 @@ void  _SpewInfo( SpewType_t type, tchar const* pFile, int line )
 }
 
 
-SpewRetval_t  _SpewMessageType( SpewType_t spewType, tchar const* pMsgFormat, va_list args )
+static SpewRetval_t  _SpewMessageType( SpewType_t spewType, char const* pMsgFormat, va_list args )
 {
-	//LOCAL_THREAD_LOCK();
-
-#ifndef _XBOX
-	tchar pTempBuffer[5020];
-#else
 	char pTempBuffer[1024];
-#endif
-
-	assert( _tcslen( pMsgFormat ) < sizeof( pTempBuffer) ); // check that we won't artifically truncate the string
 
 	/* Printf the file and line for warning + assert only... */
 	int len = 0;
 	if ( spewType == SPEW_ASSERT )
 	{
-		len = _sntprintf( pTempBuffer, sizeof( pTempBuffer ) - 1, _T("%s (%d) : "), s_pFileName, s_Line );
+		len = V_sprintf_safe( pTempBuffer, "%s(%d): ", s_pFileName, s_Line );
 	}
 	if ( len == -1 )
 	{
@@ -199,25 +187,22 @@ SpewRetval_t  _SpewMessageType( SpewType_t spewType, tchar const* pMsgFormat, va
 	}
 	
 	/* Create the message.... */
-	int val= _vsntprintf( &pTempBuffer[len], sizeof( pTempBuffer ) - len - 1, pMsgFormat, args );
+	int val= V_vsnprintf( &pTempBuffer[len], sizeof( pTempBuffer ) - len - 1, pMsgFormat, args );
 	if ( val == -1 )
 	{
 		return SPEW_ABORT;
 	}
 	len += val;
-	assert( len * sizeof(*pMsgFormat) < sizeof(pTempBuffer) ); /* use normal assert here; to avoid recursion. */
 
-	// Add \n for warning and assert
+	// Add \n for assert
 	if ( spewType == SPEW_ASSERT )
 	{
-		len += _stprintf( &pTempBuffer[len], _T("\n") ); 
-#ifdef WIN32 
-		OutputDebugString( pTempBuffer );
-#endif
+		if ( len+1 < sizeof(pTempBuffer) )
+		{
+			pTempBuffer[len++] = '\n';
+			pTempBuffer[len] = '\0';
+		}
 	}
-	
-	assert( (uint) len < sizeof(pTempBuffer)/sizeof(pTempBuffer[0]) - 1 ); /* use normal assert here; to avoid recursion. */
-	assert( s_SpewOutputFunc );
 	
 	/* direct it to the appropriate target(s) */
 	SpewRetval_t ret = s_SpewOutputFunc( spewType, pTempBuffer );
@@ -232,15 +217,8 @@ SpewRetval_t  _SpewMessageType( SpewType_t spewType, tchar const* pMsgFormat, va
 		break;
 		
 	case SPEW_ABORT:
-//		MessageBox(NULL,"Error in _SpewMessage","Error",MB_OK);
-		//DMsg( "console",  1, _T("Exiting on SPEW_ABORT\n") );
-#ifdef _WIN32
-		TerminateProcess( GetCurrentProcess(), EXIT_FAILURE ); // die, die RIGHT NOW! (don't call exit() so destructors will not get run)
-#elif defined( _PS3 )
-		sys_process_exit( EXIT_FAILURE );
-#else
-		_exit( EXIT_FAILURE ); // forcefully shutdown of the process without destructors running
-#endif
+		_ExitFatal();
+
 	default:
 		break;
 	}
@@ -248,7 +226,7 @@ SpewRetval_t  _SpewMessageType( SpewType_t spewType, tchar const* pMsgFormat, va
 	return ret;
 }
 
-SpewRetval_t  _SpewMessage( tchar const* pMsgFormat, ... )
+SpewRetval_t  _SpewMessage( char const* pMsgFormat, ... )
 {
 	va_list args;
 	va_start( args, pMsgFormat );
@@ -257,77 +235,8 @@ SpewRetval_t  _SpewMessage( tchar const* pMsgFormat, ... )
 	return ret;
 }
 
-//SpewRetval_t _DSpewMessage( tchar const *pGroupName, int level, tchar const* pMsgFormat, ... )
-//{
-//	if( !IsSpewActive( pGroupName, level ) )
-//		return SPEW_CONTINUE;
-//
-//	va_list args;
-//	va_start( args, pMsgFormat );
-//	SpewRetval_t ret = _SpewMessageType( s_SpewType, pMsgFormat, args );
-//	va_end(args);
-//	return ret;
-//}
 
-void Msg( tchar const* pMsgFormat, ... )
-{
-	va_list args;
-	va_start( args, pMsgFormat );
-	_SpewMessageType( SPEW_MESSAGE, pMsgFormat, args );
-	va_end(args);
-}
-
-//void _DMsg( tchar const *pGroupName, int level, tchar const *pMsgFormat, ... )
-//{
-//	if( !IsSpewActive( pGroupName, level ) )
-//		return;
-//
-//	va_list args;
-//	va_start( args, pMsgFormat );
-//	_SpewMessageType( SPEW_MESSAGE, pMsgFormat, args );
-//	va_end(args);
-//}
-
-
-void Warning( tchar const *pMsgFormat, ... )
-{
-	va_list args;
-	va_start( args, pMsgFormat );
-	_SpewMessageType( SPEW_WARNING, pMsgFormat, args );
-	va_end(args);
-}
-
-//void DWarning( tchar const *pGroupName, int level, tchar const *pMsgFormat, ... )
-//{
-//	if( !IsSpewActive( pGroupName, level ) )
-//		return;
-//
-//	va_list args;
-//	va_start( args, pMsgFormat );
-//	_SpewMessageType( SPEW_WARNING, pMsgFormat, args );
-//	va_end(args);
-//}
-//
-//void Log( tchar const *pMsgFormat, ... )
-//{
-//	va_list args;
-//	va_start( args, pMsgFormat );
-//	_SpewMessageType( SPEW_LOG, pMsgFormat, args );
-//	va_end(args);
-//}
-//
-//void DLog( tchar const *pGroupName, int level, tchar const *pMsgFormat, ... )
-//{
-//	if( !IsSpewActive( pGroupName, level ) )
-//		return;
-//
-//	va_list args;
-//	va_start( args, pMsgFormat );
-//	_SpewMessageType( SPEW_LOG, pMsgFormat, args );
-//	va_end(args);
-//}
-
-void Error( tchar const *pMsgFormat, ... )
+void Error( char const *pMsgFormat, ... )
 {
 	va_list args;
 	va_start( args, pMsgFormat );
@@ -343,7 +252,7 @@ void Error( tchar const *pMsgFormat, ... )
 //-----------------------------------------------------------------------------
 
 
-void AssertMsgImplementation( const tchar* _msg, bool _bFatal, const tchar* pstrFile, unsigned int nLine, bool bFullDump )
+void AssertMsgImplementation( const char* _msg, bool _bFatal, const char* pstrFile, unsigned int nLine, bool bFullDump )
 {
 	static intp s_ThreadLocalAssertMsgGuardStatic; // Really should be thread-local
 	if ( s_ThreadLocalAssertMsgGuardStatic > 0 )
@@ -386,7 +295,7 @@ void AssertMsgImplementation( const tchar* _msg, bool _bFatal, const tchar* pstr
 	else
 	{
 		if ( _bFatal )
-			_ExitOnFatalAssert( pstrFile, nLine, _msg );
+			_ExitFatal();
 	}
 #endif
 

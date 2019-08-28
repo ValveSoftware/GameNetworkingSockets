@@ -70,24 +70,6 @@ unsigned g_BitStringEndMasks[] =
 };
 
 //-----------------------------------------------------------------------------
-// Purpose: Print bits for debugging purposes
-// Input  :
-// Output :
-//-----------------------------------------------------------------------------
-
-void DebugPrintBitStringBits( const int *pInts, int nInts )
-{
-	for (int i=0;i<nInts;i++) 
-	{
-		for (int j =0; j<BITS_PER_INT;j++) 
-		{
-			Msg( "%d", (pInts[i] & (1<<j)) ? 1:0);
-		}
-	}
-	Msg( "\n");
-}
-
-//-----------------------------------------------------------------------------
 // Purpose: Saves a bit string to the given file
 // Input  :
 // Output :
