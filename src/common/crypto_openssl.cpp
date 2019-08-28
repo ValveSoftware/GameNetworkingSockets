@@ -1,12 +1,7 @@
 //========= Copyright Valve LLC, All rights reserved. ========================
 
-#include "gnsconfig.h"
-
-#ifdef GNS_CRYPTO_AES_OPENSSL
-
-// Note: not using precompiled headers! This file is included directly by
-// several different projects and may include Crypto++ headers depending
-// on compile-time defines, which in turn pulls in other odd dependencies
+#include "crypto.h"
+#ifdef STEAMNETWORKINGSOCKETS_CRYPTO_VALVEOPENSSL
 
 #if defined(_WIN32)
 #ifdef __MINGW32__
@@ -32,6 +27,13 @@
 #include "tier0/memdbgon.h"
 
 #include "opensslwrapper.h"
+
+#if OPENSSL_VERSION_NUMBER < 0x10100000
+inline void EVP_MD_CTX_free( EVP_MD_CTX *ctx )
+{
+	EVP_MD_CTX_destroy( ctx );
+}
+#endif
 
 void OneTimeCryptoInitOpenSSL()
 {
@@ -449,4 +451,4 @@ void CCrypto::GenerateHMAC256( const uint8 *pubData, uint32 cubData, const uint8
 	VerifyFatal(EVP_DigestSignFinal(mdctx.ctx, *pOutputDigest, &needed) == 1);
 }
 
-#endif //GNS_CRYPTO_AES_OPENSSL
+#endif //STEAMNETWORKINGSOCKETS_CRYPTO_VALVEOPENSSL

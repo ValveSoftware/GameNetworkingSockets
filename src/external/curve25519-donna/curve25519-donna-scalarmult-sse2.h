@@ -11,7 +11,7 @@ curve25519_scalarmult_donna(curve25519_key mypublic, const curve25519_key n, con
 	packed32bignum25519 qx, qz, pqz, pqx;
 	packed64bignum25519 nq, sq, sqscalar, prime, primex, primez, nqpq;
 	bignum25519mulprecomp preq;
-	size_t bit, lastbit, i;
+	uint32_t bit, lastbit, i;
 
 	curve25519_expand(nqpqx, basepoint);
 	curve25519_mul_precompute(&preq, nqpqx);

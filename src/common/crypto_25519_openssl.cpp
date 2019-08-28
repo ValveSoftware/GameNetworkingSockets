@@ -1,10 +1,7 @@
 //========= Copyright Valve LLC, All rights reserved. ========================
-
-#include "gnsconfig.h"
-
-#ifdef GNS_CRYPTO_25519_OPENSSL
-
 #include "crypto.h"
+
+#ifdef STEAMNETWORKINGSOCKETS_CRYPTO_25519_OPENSSL
 
 #include <openssl/evp.h>
 

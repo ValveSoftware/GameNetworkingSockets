@@ -31,27 +31,6 @@ if not use_bcrypt
   endif
 endif
 
-conf_data = configuration_data()
-
-conf_data.set('GNS_CRYPTO_AES_BCRYPT', false)
-conf_data.set('GNS_CRYPTO_AES_OPENSSL', false)
-conf_data.set('GNS_CRYPTO_25519_REF', false)
-conf_data.set('GNS_CRYPTO_25519_OPENSSL', false)
-
-if use_bcrypt
-  conf_data.set('GNS_CRYPTO_AES_BCRYPT', true)
-  conf_data.set('GNS_CRYPTO_25519_REF', true)
-else
-  conf_data.set('GNS_CRYPTO_AES_OPENSSL', true)
-  if good_libcrypto.found()
-    conf_data.set('GNS_CRYPTO_25519_OPENSSL', true)
-  else
-    conf_data.set('GNS_CRYPTO_25519_REF', true)
-  endif
-endif
-
-configure_file(output: 'gnsconfig.h', configuration: conf_data)
-
 dependencies += [
   dep_threads,
   dependency('protobuf', version: '>=3.0.0'),
@@ -81,10 +60,6 @@ protobuf_sources = [
 ]
 
 sources = [
-  'common/crypto_bcrypt.cpp',
-  'common/crypto_openssl.cpp',
-  'common/crypto_25519_donna.cpp',
-  'common/crypto_25519_openssl.cpp',
   'common/crypto_textencode.cpp',
   'common/keypair.cpp',
   'common/steamid.cpp',
@@ -109,16 +84,27 @@ sources = [
 
 if use_bcrypt
   dependencies += [ c_compiler.find_library('bcrypt') ]
-  cpp_flags += [ '-DED25519_HASH_BCRYPT' ]
+  sources += [ 'common/crypto_bcrypt.cpp' ]
+  cpp_flags += [ '-DED25519_HASH_BCRYPT', '-DSTEAMNETWORKINGSOCKETS_CRYPTO_BCRYPT' ]
 else
+  cpp_flags += [ '-DSTEAMNETWORKINGSOCKETS_CRYPTO_VALVEOPENSSL' ]
   sources += [
     'common/opensslwrapper.cpp',
+    'common/crypto_openssl.cpp',
   ]
+
+  // Use OpenSSL for 25519 if possible
+  if good_libcrypto.found()
+    cpp_flags += [ '-DSTEAMNETWORKINGSOCKETS_CRYPTO_25519_OPENSSL' ]
+    sources += [ 'common/crypto_25519_openssl.cpp' ]
+  endif
 endif
 
-# Select 25519 crypto provider
+# Use reference 25519 crypto implementation?
 if use_bcrypt or not good_libcrypto.found()
+  cpp_flags += [ '-DVALVE_CRYPTO_25519_DONNA' ]
   sources += [
+    'common/crypto_25519_donna.cpp',
     'external/curve25519-donna/curve25519.c',
     'external/curve25519-donna/curve25519_VALVE_sse2.c',
     'external/ed25519-donna/ed25519_VALVE.c',

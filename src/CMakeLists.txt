@@ -42,10 +42,6 @@ set(GNS_PROTOS
 )
 
 set(GNS_SRCS
-	"common/crypto_bcrypt.cpp"
-	"common/crypto_openssl.cpp"
-	"common/crypto_25519_donna.cpp"
-	"common/crypto_25519_openssl.cpp"
 	"common/crypto_textencode.cpp"
 	"common/keypair.cpp"
 	"common/steamid.cpp"
@@ -69,9 +65,14 @@ set(GNS_SRCS
 )
 
 if(GNS_CRYPTO_25519_OPENSSL)
-	# No additional sources needed!
-elseif(GNS_CRYPTO_25519_REF)
+	target_compile_definitions(${GNS_TARGET} PRIVATE STEAMNETWORKINGSOCKETS_CRYPTO_25519_OPENSSL)
 	set(GNS_SRCS ${GNS_SRCS}
+		"common/crypto_25519_openssl.cpp"
+	)
+elseif(GNS_CRYPTO_25519_REF)
+	target_compile_definitions(${GNS_TARGET} PRIVATE VALVE_CRYPTO_25519_DONNA)
+	set(GNS_SRCS ${GNS_SRCS}
+		"common/crypto_25519_donna.cpp"
 		"external/curve25519-donna/curve25519.c"
 		"external/curve25519-donna/curve25519_VALVE_sse2.c"
 		"external/ed25519-donna/ed25519_VALVE.c"
@@ -82,11 +83,16 @@ else()
 endif()
 
 if(GNS_CRYPTO_AES_OPENSSL)
+    target_compile_definitions(${GNS_TARGET} PRIVATE STEAMNETWORKINGSOCKETS_CRYPTO_VALVEOPENSSL)
 	set(GNS_SRCS ${GNS_SRCS}
+		"common/crypto_openssl.cpp"
 		"common/opensslwrapper.cpp"
 	)
 elseif(GNS_CRYPTO_AES_BCRYPT)
-	# No additional sources
+    target_compile_definitions(${GNS_TARGET} PRIVATE STEAMNETWORKINGSOCKETS_CRYPTO_BCRYPT)
+    set(GNS_SRCS ${GNS_SRCS}
+        "common/crypto_bcrypt.cpp"
+    )
 else()
 	message(FATAL_ERROR "Unknown AES implementation")
 endif()
@@ -280,7 +286,5 @@ add_library(GameNetworkingSockets::static ALIAS GameNetworkingSockets_s)
 target_compile_definitions(GameNetworkingSockets_s INTERFACE STEAMNETWORKINGSOCKETS_STATIC_LINK)
 gamenetworkingsockets_common(GameNetworkingSockets_s)
 add_sanitizers(GameNetworkingSockets_s)
-
-configure_file(gnsconfig.h.in.cmake gnsconfig.h)
 
 # vim: set ts=4 sts=4 sw=4 noet:

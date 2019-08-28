@@ -1,12 +1,10 @@
 //========= Copyright Valve LLC, All rights reserved. ========================
+#include "crypto.h"
 
-#include "gnsconfig.h"
-
-#ifdef GNS_CRYPTO_AES_BCRYPT
+#ifdef STEAMNETWORKINGSOCKETS_CRYPTO_BCRYPT
 
 #include <tier0/vprof.h>
 #include <tier1/utlmemory.h>
-#include "crypto.h"
 
 #include <windows.h>
 #include <stdio.h>
@@ -113,12 +111,12 @@ bool AES_GCM_CipherContext::InitCipher( const void *pKey, size_t cbKey, size_t c
 	if (!ctx->pbKeyObject)
 		return false;
 
-	if ( (ret = BCryptGenerateSymmetricKey(ctx->hAlgAES, &ctx->hKey, ctx->pbKeyObject, ctx->cbKeyObject, ( PUCHAR )pKey, cbKey, 0 )) != 0 )
+	if ( (ret = BCryptGenerateSymmetricKey(ctx->hAlgAES, &ctx->hKey, ctx->pbKeyObject, ctx->cbKeyObject, ( PUCHAR )pKey, (ULONG)cbKey, 0 )) != 0 )
 		return false;
 	AssertFatal( ctx->hKey != INVALID_HANDLE_VALUE );
 
-	m_cbIV = cbIV;
-	m_cbTag = cbTag;
+	m_cbIV = (uint32)cbIV;
+	m_cbTag = (uint32)cbTag;
 
 	return true;
 }
@@ -139,12 +137,12 @@ bool AES_GCM_EncryptContext::Encrypt(
 	paddingInfo.cbTag = m_cbTag;
 	paddingInfo.pbNonce = ( PUCHAR )pIV;
 	paddingInfo.cbNonce = m_cbIV;
-	paddingInfo.cbAuthData = cbAuthenticationData;
+	paddingInfo.cbAuthData = (ULONG)cbAuthenticationData;
 	paddingInfo.pbAuthData = cbAuthenticationData ? (PUCHAR)pAdditionalAuthenticationData : NULL;
 	ULONG ct_size;
 	NTSTATUS status = BCryptEncrypt(
 		ctx->hKey,
-		( PUCHAR )pPlaintextData, cbPlaintextData,
+		( PUCHAR )pPlaintextData, (ULONG)cbPlaintextData,
 		&paddingInfo,
 		NULL, 0,
 		( PUCHAR )pEncryptedDataAndTag, *pcbEncryptedDataAndTag,
@@ -176,12 +174,12 @@ bool AES_GCM_DecryptContext::Decrypt(
 	paddingInfo.cbTag = m_cbTag;
 	paddingInfo.pbNonce = (PUCHAR)pIV;
 	paddingInfo.cbNonce = m_cbIV;
-	paddingInfo.cbAuthData = cbAuthenticationData;
+	paddingInfo.cbAuthData = (ULONG)cbAuthenticationData;
 	paddingInfo.pbAuthData = cbAuthenticationData ? (PUCHAR)pAdditionalAuthenticationData : NULL;
 	ULONG pt_size;
 	NTSTATUS status = BCryptDecrypt(
 		ctx->hKey,
-		( PUCHAR )pEncryptedDataAndTag, cbEncryptedDataAndTag,
+		( PUCHAR )pEncryptedDataAndTag, (ULONG)cbEncryptedDataAndTag,
 		&paddingInfo,
 		NULL, 0,
 		( PUCHAR )pPlaintextData, *pcbPlaintextData,

@@ -1,9 +1,7 @@
 //========= Copyright Valve LLC, All rights reserved. ========================
-#include "gnsconfig.h"
-
-#ifdef GNS_CRYPTO_25519_REF
-
 #include "crypto.h"
+
+#ifdef VALVE_CRYPTO_25519_DONNA
 
 #ifdef _WIN64
 #include "intrin.h"

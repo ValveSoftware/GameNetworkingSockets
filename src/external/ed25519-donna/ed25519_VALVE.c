@@ -373,34 +373,34 @@ static void ed25519_hash( uint8_t *hash, const uint8_t *in, size_t inlen ) { ed2
 
 
 
-#ifdef _WIN32
-/* Win32 always has RtlGenRandom to act as an entropy source for ed25519_sign_open_batch */
-
-#ifndef NO_ED25519_RANDOMBYTES_IMPL
-#define WIN32_LEAN_AND_MEAN
-#define NOGDI
-#include <windows.h>
-void ed25519_randombytes_unsafe(void *p, size_t len) {
-	// the Microsoft CRT imports RtlGenRandom as a direct link to SystemFunction036 in advapi32.dll
-	// so we can safely do the same - it can never be removed without breaking all VC2010 apps.
-	static BOOLEAN (WINAPI *pfnRtlGenRandom)( void *, unsigned long );
-	if ( !pfnRtlGenRandom ) {
-		pfnRtlGenRandom = ( BOOLEAN (WINAPI *)( void *, unsigned long ) ) GetProcAddress( LoadLibraryA("advapi32.dll"), "SystemFunction036" );
-	}
-	(*pfnRtlGenRandom)( p, (unsigned long) len );
-}
-#endif
-
-#else
-
-/* Other platforms - ed25519_sign_open_batch will explode without an entropy source;
-   remap the function name so that linking will fail, rather than exploding at runtime */
-#define ed25519_sign_open_batch ed25519_sign_open_batch_DO_NOT_USE
-
-#ifndef NO_ED25519_RANDOMBYTES_IMPL
-void ed25519_randombytes_unsafe(void *p, size_t len) { /*boom*/ *(volatile int*)0 = 1; }
-#endif
-
-#endif
+//#ifdef _WIN32
+///* Win32 always has RtlGenRandom to act as an entropy source for ed25519_sign_open_batch */
+//
+//#ifndef NO_ED25519_RANDOMBYTES_IMPL
+//#define WIN32_LEAN_AND_MEAN
+//#define NOGDI
+//#include <windows.h>
+//void ed25519_randombytes_unsafe(void *p, size_t len) {
+//	// the Microsoft CRT imports RtlGenRandom as a direct link to SystemFunction036 in advapi32.dll
+//	// so we can safely do the same - it can never be removed without breaking all VC2010 apps.
+//	static BOOLEAN (WINAPI *pfnRtlGenRandom)( void *, unsigned long );
+//	if ( !pfnRtlGenRandom ) {
+//		pfnRtlGenRandom = ( BOOLEAN (WINAPI *)( void *, unsigned long ) ) GetProcAddress( LoadLibraryA("advapi32.dll"), "SystemFunction036" );
+//	}
+//	(*pfnRtlGenRandom)( p, (unsigned long) len );
+//}
+//#endif
+//
+//#else
+//
+///* Other platforms - ed25519_sign_open_batch will explode without an entropy source;
+//   remap the function name so that linking will fail, rather than exploding at runtime */
+//#define ed25519_sign_open_batch ed25519_sign_open_batch_DO_NOT_USE
+//
+//#ifndef NO_ED25519_RANDOMBYTES_IMPL
+//void ed25519_randombytes_unsafe(void *p, size_t len) { /*boom*/ *(volatile int*)0 = 1; }
+//#endif
+//
+//#endif
 
 #include "ed25519.c"
