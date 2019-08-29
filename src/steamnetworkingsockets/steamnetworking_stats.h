@@ -15,6 +15,8 @@
 #pragma pack(push)
 #pragma pack(8)
 
+namespace SteamNetworkingSocketsLib {
+
 struct SteamDatagramLinkStats;
 struct SteamDatagramLinkLifetimeStats;
 struct SteamDatagramLinkInstantaneousStats;
@@ -376,5 +378,7 @@ struct SteamNetworkingDetailedConnectionStatus
 };
 
 #pragma pack(pop)
+
+} // namespace SteamNetworkingSocketsLib
 
 #endif // STEAMNETWORKING_STATS_H

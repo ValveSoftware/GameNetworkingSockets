@@ -4,6 +4,7 @@
 #include "steamnetworkingsockets_lowlevel.h"
 #include "steamnetworkingsockets_connections.h"
 #include "steamnetworkingsockets_udp.h"
+#include "../steamnetworkingsockets_certstore.h"
 #include "crypto.h"
 
 #ifdef STEAMNETWORKINGSOCKETS_STANDALONELIB
@@ -374,6 +375,137 @@ bool CSteamNetworkingSockets::GetIdentity( SteamNetworkingIdentity *pIdentity )
 	return !m_identity.IsInvalid();
 }
 
+/// Certificate provision by the application.  (On Steam, Steam will handle all this automatically)
+#ifndef STEAMNETWORKINGSOCKETS_STEAM
+
+bool CSteamNetworkingSockets::GetCertificateRequest( int *pcbBlob, void *pBlob, SteamNetworkingErrMsg &errMsg )
+{
+	SteamDatagramTransportLock scopeLock;
+
+	// If we don't have a private key, generate one now.
+	CECSigningPublicKey pubKey;
+	if ( m_keyPrivateKey.IsValid() )
+	{
+		DbgVerify( m_keyPrivateKey.GetPublicKey( &pubKey ) );
+	}
+	else
+	{
+		CCrypto::GenerateSigningKeyPair( &pubKey, &m_keyPrivateKey );
+	}
+
+	// Fill out the request
+	CMsgSteamDatagramCertificateRequest msgRequest;
+	CMsgSteamDatagramCertificate &msgCert =*msgRequest.mutable_cert();
+
+	// Our public key
+	msgCert.set_key_type( CMsgSteamDatagramCertificate_EKeyType_ED25519 );
+	DbgVerify( pubKey.GetRawDataAsStdString( msgCert.mutable_key_data() ) );
+
+	// Our identity, if we know it
+	InternalGetIdentity();
+	if ( !m_identity.IsInvalid() && !m_identity.IsLocalHost() )
+	{
+		SteamNetworkingIdentityToProtobuf( m_identity, msgCert, identity, legacy_steam_id );
+	}
+
+	// Check size
+	int cb = msgRequest.ByteSize();
+	if ( !pBlob )
+	{
+		*pcbBlob = cb;
+		return true;
+	}
+	if ( cb > *pcbBlob )
+	{
+		*pcbBlob = cb;
+		V_sprintf_safe( errMsg, "%d byte buffer not big enough; %d bytes required", *pcbBlob, cb );
+		return false;
+	}
+
+	*pcbBlob = cb;
+	uint8 *p = (uint8 *)pBlob;
+	DbgVerify( msgRequest.SerializeWithCachedSizesToArray( p ) == p + cb );
+	return true;
+}
+
+bool CSteamNetworkingSockets::SetCertificate( const void *pCertificate, int cbCertificate, SteamNetworkingErrMsg &errMsg )
+{
+	// Crack the blob
+	CMsgSteamDatagramCertificateSigned msgCertSigned;
+	if ( !msgCertSigned.ParseFromArray( pCertificate, cbCertificate ) )
+	{
+		V_strcpy_safe( errMsg, "CMsgSteamDatagramCertificateSigned failed protobuf parse" );
+		return false;
+	}
+
+	SteamDatagramTransportLock scopeLock;
+
+	// Crack the cert, and check the signature.  If *we* aren't even willing
+	// to trust it, assume that our peers won't either
+	CMsgSteamDatagramCertificate msgCert;
+	time_t authTime = m_pSteamNetworkingUtils->GetTimeSecure();
+	const CertAuthScope *pAuthScope = CertStore_CheckCert( msgCertSigned, msgCert, authTime, errMsg );
+	if ( !pAuthScope )
+		return false;
+
+	// Extract the identity from the cert
+	SteamNetworkingErrMsg tempErrMsg;
+	SteamNetworkingIdentity certIdentity;
+	int r = SteamNetworkingIdentityFromCert( certIdentity, msgCert, tempErrMsg );
+	if ( r < 0 )
+	{
+		V_sprintf_safe( errMsg, "Cert has invalid identity.  %s", tempErrMsg );
+		return false;
+	}
+
+	// Make sure the cert actually matches our public key.
+	if ( !m_keyPrivateKey.IsValid() )
+	{
+		// WAT
+		V_strcpy_safe( errMsg, "Cannot set cert.  No private key?" );
+		return false;
+	}
+	if ( msgCert.key_type() != CMsgSteamDatagramCertificate_EKeyType_ED25519 || msgCert.key_data().size() != 32 )
+	{
+		V_strcpy_safe( errMsg, "Cert has invalid public key" );
+		return false;
+	}
+	if ( memcmp( msgCert.key_data().c_str(), m_keyPrivateKey.GetPublicKeyRawData(), 32 ) != 0 )
+	{
+		V_strcpy_safe( errMsg, "Cert public key does not match our private key" );
+		return false;
+	}
+
+	// Make sure the cert authorizes us for the App we think we are running
+	AppId_t nAppID = m_pSteamNetworkingUtils->GetAppID();
+	if ( !CheckCertAppID( msgCert, pAuthScope, nAppID, tempErrMsg ) )
+	{
+		V_sprintf_safe( errMsg, "Cert does not authorize us for App %u", nAppID );
+		return false;
+	}
+
+	// If we don't know our identity, then set it now.  Otherwise,
+	// it better match.
+	if ( m_identity.IsInvalid() || m_identity.IsLocalHost() )
+	{
+		m_identity = certIdentity;
+	}
+	else if ( !( m_identity == certIdentity ) )
+	{
+		V_sprintf_safe( errMsg, "Cert is for identity '%s'.  We are '%s'", SteamNetworkingIdentityRender( certIdentity ).c_str(), SteamNetworkingIdentityRender( m_identity ).c_str() );
+		return false;
+	}
+
+	// Save it off
+	m_msgSignedCert = std::move( msgCertSigned );
+	m_msgCert = std::move( msgCert );
+
+	// OK
+	return true;
+}
+
+#endif
+
 #ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
 ESteamNetworkingAvailability CSteamNetworkingSockets::InitAuthentication()
 {
@@ -674,7 +806,7 @@ bool CSteamNetworkingSockets::BCertHasIdentity() const
 }
 
 
-bool CSteamNetworkingSockets::SetCertificate( const void *pCert, int cbCert, void *pPrivateKey, int cbPrivateKey, SteamDatagramErrMsg &errMsg )
+bool CSteamNetworkingSockets::SetCertificateAndPrivateKey( const void *pCert, int cbCert, void *pPrivateKey, int cbPrivateKey, SteamDatagramErrMsg &errMsg )
 {
 	m_msgCert.Clear();
 	m_msgSignedCert.Clear();
@@ -1244,7 +1376,7 @@ bool CSteamNetworkingUtils::SteamNetworkingIdentity_ParseString( SteamNetworking
 
 AppId_t CSteamNetworkingUtils::GetAppID()
 {
-	return 0;
+	return m_nAppID;
 }
 
 time_t CSteamNetworkingUtils::GetTimeSecure()

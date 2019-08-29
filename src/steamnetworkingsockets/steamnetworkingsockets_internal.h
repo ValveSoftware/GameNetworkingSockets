@@ -44,7 +44,7 @@
 #include <tier0/t0constants.h>
 #include <tier0/platform.h>
 #include <tier0/dbgflag.h>
-#ifdef STEAMNETWORKINGSOCKETS_STEAM
+#ifdef STEAMNETWORKINGSOCKETS_STEAMCLIENT
 	#include <tier0/validator.h>
 #endif
 #include <steam/steamnetworkingtypes.h>
@@ -99,13 +99,13 @@ struct iovec
 struct iovec;
 #endif
 
+// Internal stuff goes in a private namespace
+namespace SteamNetworkingSocketsLib {
+
 struct SteamDatagramLinkStats;
 struct SteamDatagramLinkLifetimeStats;
 struct SteamDatagramLinkInstantaneousStats;
 struct SteamNetworkingDetailedConnectionStatus;
-
-// Internal stuff goes in a private namespace
-namespace SteamNetworkingSocketsLib {
 
 // An identity operator that always returns its operand.
 // NOTE: std::hash is an identity operator on many compilers

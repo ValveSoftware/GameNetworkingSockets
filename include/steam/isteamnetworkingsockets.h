@@ -324,6 +324,23 @@ public:
 	/// details, pass non-NULL to receive them.
 	virtual ESteamNetworkingAvailability GetAuthenticationStatus( SteamNetAuthenticationStatus_t *pDetails ) = 0;
 
+/// Certificate provision by the application.  (On Steam, Steam will handle all this automatically)
+#ifndef STEAMNETWORKINGSOCKETS_STEAM
+
+	/// Get blob that describes a certificate request.  You can send this to your game coordinator.
+	/// Upon entry, *pcbBlob should contain the size of the buffer.  On successful exit, it will
+	/// return the number of bytes that were populated.  You can pass pBlob=NULL to query for the required
+	/// size.  (256 bytes is a very conservative estimate.)
+	///
+	/// Pass this blob to your game coordinator and call SteamDatagram_CreateCert.
+	virtual bool GetCertificateRequest( int *pcbBlob, void *pBlob, SteamNetworkingErrMsg &errMsg ) = 0;
+
+	/// Set the certificate.  The certificate blob should be the output of
+	/// SteamDatagram_CreateCert.
+	virtual bool SetCertificate( const void *pCertificate, int cbCertificate, SteamNetworkingErrMsg &errMsg ) = 0;
+
+#endif
+
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 	/// Dedicated servers ervers hosted in known data centers
 #endif // #ifndef STEAMNETWORKINGSOCKETS_ENABLE_SDR

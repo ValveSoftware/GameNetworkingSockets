@@ -72,6 +72,7 @@ sources = [
   'steamnetworkingsockets/steamnetworkingsockets_certs.cpp',
   'steamnetworkingsockets/steamnetworkingsockets_certstore.cpp',
   'steamnetworkingsockets/steamnetworkingsockets_shared.cpp',
+  'steamnetworkingsockets/steamnetworkingsockets_stats.cpp',
   'tier0/dbg.cpp',
   'tier0/platformtime.cpp',
   'tier1/bitstring.cpp',

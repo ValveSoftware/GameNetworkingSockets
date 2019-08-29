@@ -89,5 +89,15 @@ message CMsgSteamDatagramCertificateSigned
 	optional bytes ca_signature = 6;
 }
 
+// A request by a client to a CA to issue a cert.
+message CMsgSteamDatagramCertificateRequest
+{
+	// An unsigned cert.  The requestor will populate the fields
+	// appropriate to the request.  (Who do you thin you are,
+	// what app(s) would you like access for, etc)  Most importantly,
+	// the caller must fill in the public key they want to use
+	optional CMsgSteamDatagramCertificate cert = 1;
+}
+
 // Do not remove this comment due to a bug on the Mac OS X protobuf compiler
 

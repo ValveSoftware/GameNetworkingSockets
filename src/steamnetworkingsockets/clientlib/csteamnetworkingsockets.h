@@ -8,7 +8,7 @@
 #include <steam/isteamnetworkingsockets.h>
 #include <steam/isteamnetworkingutils.h>
 
-#ifdef STEAMNETWORKINGSOCKETS_STEAM
+#ifdef STEAMNETWORKINGSOCKETS_STEAMCLIENT
 	#include <common/steam/iclientnetworkingsockets.h>
 	#include <common/steam/iclientnetworkingutils.h>
 #else
@@ -40,7 +40,7 @@ public:
 	CMsgSteamDatagramCertificate m_msgCert;
 	CECSigningPrivateKey m_keyPrivateKey;
 	bool BCertHasIdentity() const;
-	virtual bool SetCertificate( const void *pCert, int cbCert, void *pPrivateKey, int cbPrivateKey, SteamDatagramErrMsg &errMsg );
+	virtual bool SetCertificateAndPrivateKey( const void *pCert, int cbCert, void *pPrivateKey, int cbPrivateKey, SteamDatagramErrMsg &errMsg );
 
 	bool BHasAnyConnections() const;
 	bool BHasAnyListenSockets() const;
@@ -75,28 +75,33 @@ public:
 	}
 
 	// Implements ISteamNetworkingSockets
-	virtual HSteamListenSocket CreateListenSocketIP( const SteamNetworkingIPAddr &localAddress ) OVERRIDE;
-	virtual HSteamNetConnection ConnectByIPAddress( const SteamNetworkingIPAddr &adress ) OVERRIDE;
-	virtual EResult AcceptConnection( HSteamNetConnection hConn ) OVERRIDE;
-	virtual bool CloseConnection( HSteamNetConnection hConn, int nReason, const char *pszDebug, bool bEnableLinger ) OVERRIDE;
-	virtual bool CloseListenSocket( HSteamListenSocket hSocket ) OVERRIDE;
-	virtual bool SetConnectionUserData( HSteamNetConnection hPeer, int64 nUserData ) OVERRIDE;
-	virtual int64 GetConnectionUserData( HSteamNetConnection hPeer ) OVERRIDE;
-	virtual void SetConnectionName( HSteamNetConnection hPeer, const char *pszName ) OVERRIDE;
-	virtual bool GetConnectionName( HSteamNetConnection hPeer, char *pszName, int nMaxLen ) OVERRIDE;
-	virtual EResult SendMessageToConnection( HSteamNetConnection hConn, const void *pData, uint32 cbData, int nSendFlags ) OVERRIDE;
-	virtual EResult FlushMessagesOnConnection( HSteamNetConnection hConn ) OVERRIDE;
-	virtual int ReceiveMessagesOnConnection( HSteamNetConnection hConn, SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages ) OVERRIDE;
-	virtual int ReceiveMessagesOnListenSocket( HSteamListenSocket hSocket, SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages ) OVERRIDE;
-	virtual bool GetConnectionInfo( HSteamNetConnection hConn, SteamNetConnectionInfo_t *pInfo ) OVERRIDE;
-	virtual bool GetQuickConnectionStatus( HSteamNetConnection hConn, SteamNetworkingQuickConnectionStatus *pStats ) OVERRIDE;
-	virtual int GetDetailedConnectionStatus( HSteamNetConnection hConn, char *pszBuf, int cbBuf ) OVERRIDE;
-	virtual bool GetListenSocketAddress( HSteamListenSocket hSocket, SteamNetworkingIPAddr *pAddress ) OVERRIDE;
-	virtual bool CreateSocketPair( HSteamNetConnection *pOutConnection1, HSteamNetConnection *pOutConnection2, bool bUseNetworkLoopback, const SteamNetworkingIdentity *pIdentity1, const SteamNetworkingIdentity *pIdentity2 ) OVERRIDE;
-	virtual bool GetIdentity( SteamNetworkingIdentity *pIdentity ) OVERRIDE;
+	virtual HSteamListenSocket CreateListenSocketIP( const SteamNetworkingIPAddr &localAddress ) override;
+	virtual HSteamNetConnection ConnectByIPAddress( const SteamNetworkingIPAddr &adress ) override;
+	virtual EResult AcceptConnection( HSteamNetConnection hConn ) override;
+	virtual bool CloseConnection( HSteamNetConnection hConn, int nReason, const char *pszDebug, bool bEnableLinger ) override;
+	virtual bool CloseListenSocket( HSteamListenSocket hSocket ) override;
+	virtual bool SetConnectionUserData( HSteamNetConnection hPeer, int64 nUserData ) override;
+	virtual int64 GetConnectionUserData( HSteamNetConnection hPeer ) override;
+	virtual void SetConnectionName( HSteamNetConnection hPeer, const char *pszName ) override;
+	virtual bool GetConnectionName( HSteamNetConnection hPeer, char *pszName, int nMaxLen ) override;
+	virtual EResult SendMessageToConnection( HSteamNetConnection hConn, const void *pData, uint32 cbData, int nSendFlags ) override;
+	virtual EResult FlushMessagesOnConnection( HSteamNetConnection hConn ) override;
+	virtual int ReceiveMessagesOnConnection( HSteamNetConnection hConn, SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages ) override;
+	virtual int ReceiveMessagesOnListenSocket( HSteamListenSocket hSocket, SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages ) override;
+	virtual bool GetConnectionInfo( HSteamNetConnection hConn, SteamNetConnectionInfo_t *pInfo ) override;
+	virtual bool GetQuickConnectionStatus( HSteamNetConnection hConn, SteamNetworkingQuickConnectionStatus *pStats ) override;
+	virtual int GetDetailedConnectionStatus( HSteamNetConnection hConn, char *pszBuf, int cbBuf ) override;
+	virtual bool GetListenSocketAddress( HSteamListenSocket hSocket, SteamNetworkingIPAddr *pAddress ) override;
+	virtual bool CreateSocketPair( HSteamNetConnection *pOutConnection1, HSteamNetConnection *pOutConnection2, bool bUseNetworkLoopback, const SteamNetworkingIdentity *pIdentity1, const SteamNetworkingIdentity *pIdentity2 ) override;
+	virtual bool GetIdentity( SteamNetworkingIdentity *pIdentity ) override;
+
+#ifndef STEAMNETWORKINGSOCKETS_STEAM
+	virtual bool GetCertificateRequest( int *pcbBlob, void *pBlob, SteamNetworkingErrMsg &errMsg ) override;
+	virtual bool SetCertificate( const void *pCertificate, int cbCertificate, SteamNetworkingErrMsg &errMsg ) override;
+#endif
 
 #ifdef STEAMNETWORKINGSOCKETS_STANDALONELIB
-	virtual void RunCallbacks( ISteamNetworkingSocketsCallbacks *pCallbacks ) OVERRIDE;
+	virtual void RunCallbacks( ISteamNetworkingSocketsCallbacks *pCallbacks ) override;
 #endif
 
 	/// Configuration options that will apply to all connections on this interface
@@ -156,9 +161,18 @@ public:
 
 	virtual AppId_t GetAppID();
 
+	void SetAppID( AppId_t nAppID )
+	{
+		Assert( m_nAppID == 0 || m_nAppID == nAppID );
+		m_nAppID = nAppID;
+	}
+
 	// Get current time of day, ideally from a source that
 	// doesn't depend on the user setting their local clock properly
 	virtual time_t GetTimeSecure();
+
+protected:
+	AppId_t m_nAppID = 0;
 };
 
 } // namespace SteamNetworkingSocketsLib
