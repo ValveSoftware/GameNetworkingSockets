@@ -93,7 +93,7 @@ else
     'common/crypto_openssl.cpp',
   ]
 
-  // Use OpenSSL for 25519 if possible
+  # Use OpenSSL for 25519 if possible
   if good_libcrypto.found()
     cpp_flags += [ '-DSTEAMNETWORKINGSOCKETS_CRYPTO_25519_OPENSSL' ]
     sources += [ 'common/crypto_25519_openssl.cpp' ]
