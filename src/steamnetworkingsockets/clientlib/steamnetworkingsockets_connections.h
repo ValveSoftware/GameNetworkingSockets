@@ -458,6 +458,9 @@ public:
 	/// sent successfully, false if there was a problem.  This will call SendEncryptedDataChunk to do the work
 	bool SNP_SendPacket( SendPacketContext_t &ctx );
 
+	/// Called to (maybe) post a callback
+	virtual void PostConnectionStateChangedCallback( ESteamNetworkingConnectionState eOldAPIState, ESteamNetworkingConnectionState eNewAPIState );
+
 protected:
 	CSteamNetworkConnectionBase( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface );
 	virtual ~CSteamNetworkConnectionBase(); // hidden destructor, don't call directly.  Use Destroy()
@@ -532,9 +535,6 @@ protected:
 
 	/// Called when the state changes
 	virtual void ConnectionStateChanged( ESteamNetworkingConnectionState eOldState );
-
-	/// Called to (maybe) post a callback
-	virtual void PostConnectionStateChangedCallback( ESteamNetworkingConnectionState eOldAPIState, ESteamNetworkingConnectionState eNewAPIState );
 
 	/// Return true if we are currently able to send end-to-end messages.
 	virtual bool BCanSendEndToEndConnectRequest() const = 0;
@@ -749,7 +749,15 @@ extern CUtlHashMap<uint16, CSteamNetworkConnectionBase *, std::equal_to<uint16>,
 extern CUtlHashMap<int, CSteamNetworkListenSocketBase *, std::equal_to<int>, Identity<int> > g_mapListenSockets;
 
 extern bool BCheckGlobalSpamReplyRateLimit( SteamNetworkingMicroseconds usecNow );
-extern CSteamNetworkConnectionBase *FindConnectionByLocalID( uint32 nLocalConnectionID );
+extern CSteamNetworkConnectionBase *GetConnectionByHandle( HSteamNetConnection sock );
+
+inline CSteamNetworkConnectionBase *FindConnectionByLocalID( uint32 nLocalConnectionID )
+{
+	// We use the wire connection ID as the API handle, so these two operations
+	// are currently the same.
+	return GetConnectionByHandle( HSteamNetConnection( nLocalConnectionID ) );
+}
+
 extern HSteamListenSocket AddListenSocket( CSteamNetworkListenSocketBase *pSock );
 
 } // namespace SteamNetworkingSocketsLib
