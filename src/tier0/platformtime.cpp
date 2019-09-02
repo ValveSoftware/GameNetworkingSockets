@@ -13,24 +13,20 @@
 #include <mach/mach.h>
 #include <mach/mach_time.h>
 #endif
-#if defined(LINUX) || defined(ANDROID)
+#if defined(LINUX) || defined(ANDROID) || defined(NN_NINTENDO_SDK)
 #include <time.h>
 #endif
 
 #endif
 
 
-#if defined(LINUX) || defined(ANDROID)
-static const uint64 g_TickFrequency = 1000000000;
-static const double g_TickFrequencyDouble = 1.0e9;
-//static const double g_TicksToS = 1.0 / g_TickFrequencyDouble;
-//static const double g_TicksToMS = 1.0e3 / g_TickFrequencyDouble;
-static const double g_TicksToUS = 1.0e6 / g_TickFrequencyDouble;
+#if defined(LINUX) || defined(ANDROID) || defined(NN_NINTENDO_SDK)
+//static constexpr uint64 g_TickFrequency = 1000000000;
+static constexpr double g_TickFrequencyDouble = 1.0e9;
+static constexpr double g_TicksToUS = 1.0e6 / g_TickFrequencyDouble;
 #else
 static uint64 g_TickFrequency;
 static double g_TickFrequencyDouble;
-//static double g_TicksToS;
-//static double g_TicksToMS;
 static double g_TicksToUS;
 #endif
 
@@ -65,7 +61,7 @@ static uint64 InitTicks()
 	g_TickFrequencyDouble = (double) TimebaseInfo.denom / (double) TimebaseInfo.numer * 1.0e9;
 	g_TickFrequency = (uint64)( g_TickFrequencyDouble + 0.5 );
 	g_TickBase = mach_absolute_time();
-#elif defined(LINUX) || defined(ANDROID)
+#elif defined(LINUX) || defined(ANDROID) || defined(NN_NINTENDO_SDK)
 	// TickFrequency is constant since clock_gettime always returns nanoseconds
 	timespec TimeSpec;
 	clock_gettime( CLOCK_MONOTONIC, &TimeSpec );
@@ -74,7 +70,7 @@ static uint64 InitTicks()
 #error Unknown platform
 #endif
 
-	#if !defined(LINUX) && !defined(ANDROID)
+	#if !defined(LINUX) && !defined(ANDROID) && !defined(NN_NINTENDO_SDK)
 		//g_TicksToS = 1.0 / g_TickFrequencyDouble;
 		//g_TicksToMS = 1.0e3 / g_TickFrequencyDouble;
 		g_TicksToUS = 1.0e6 / g_TickFrequencyDouble;
@@ -105,7 +101,7 @@ uint64 Plat_RelativeTicks()
 	}
 #elif defined(OSX)
 	Ticks = mach_absolute_time();
-#elif defined(LINUX) || defined(ANDROID)
+#elif defined(LINUX) || defined(ANDROID) || defined(NN_NINTENDO_SDK)
 	timespec TimeSpec;
 	clock_gettime( CLOCK_MONOTONIC, &TimeSpec );
 	Ticks = (uint64)TimeSpec.tv_sec * 1000000000 + TimeSpec.tv_nsec;
