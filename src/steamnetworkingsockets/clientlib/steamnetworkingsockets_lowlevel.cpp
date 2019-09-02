@@ -435,7 +435,7 @@ static void WakeSteamDatagramThread()
 		if ( s_hEventWakeThread != INVALID_HANDLE_VALUE )
 			SetEvent( s_hEventWakeThread );
 	#elif defined( NN_NINTENDO_SDK )
-		// Sorry, but this code is covered under NDA with Nintento, and
+		// Sorry, but this code is covered under NDA with Nintendo, and
 		// we don't have permission to distribute it.
 	#else
 		if ( s_hSockWakeThreadWrite != INVALID_SOCKET )
@@ -926,7 +926,7 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS )
 			// or combine them.  That would result in complicated race conditions
 			// where we stay asleep a lot longer than we should.
 			#ifdef NN_NINTENDO_SDK
-				// Sorry, but this code is covered under NDA with Nintento, and
+				// Sorry, but this code is covered under NDA with Nintendo, and
 				// we don't have permission to distribute it.
 			#else
 				Assert( pPollFDs[idx].fd == s_hSockWakeThreadRead );
@@ -1443,7 +1443,7 @@ static bool BEnsureSteamDatagramThreadRunning( SteamDatagramErrMsg &errMsg )
 			return false;
 		}
 	#elif defined( NN_NINTENDO_SDK )
-		// Sorry, but this code is covered under NDA with Nintento, and
+		// Sorry, but this code is covered under NDA with Nintendo, and
 		// we don't have permission to distribute it.
 	#else
 		Assert( s_hSockWakeThreadRead == INVALID_SOCKET );
