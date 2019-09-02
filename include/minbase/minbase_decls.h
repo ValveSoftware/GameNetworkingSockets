@@ -69,45 +69,6 @@
 	#endif
 #endif
 
-// decls for aligning data
-#ifdef _WIN32
-	#define DECL_ALIGN(x) __declspec(align(x))
-#elif defined(GNUC)
-	#define DECL_ALIGN(x) __attribute__((aligned(x)))
-#elif defined ( COMPILER_GCC ) || defined( COMPILER_SNC )
-	#define DECL_ALIGN(x)			__attribute__( ( aligned( x ) ) )
-#else
-	#define DECL_ALIGN(x) /* */
-#endif
-
-#ifdef _MSC_VER
-	// MSVC has the align at the start of the struct
-	#define ALIGN8 DECL_ALIGN(8)
-	#define ALIGN16 DECL_ALIGN(16)
-	#define ALIGN32 DECL_ALIGN(32)
-	#define ALIGN128 DECL_ALIGN(128)
-
-	#define ALIGN8_POST
-	#define ALIGN16_POST
-	#define ALIGN32_POST
-	#define ALIGN128_POST
-#elif defined( GNUC ) || defined( COMPILER_PS3 )
-	// gnuc has the align decoration at the end
-	#define ALIGN4
-	#define ALIGN8
-	#define ALIGN16
-	#define ALIGN32
-	#define ALIGN128
-
-	#define ALIGN4_POST DECL_ALIGN(4)
-	#define ALIGN8_POST DECL_ALIGN(8)
-	#define ALIGN16_POST DECL_ALIGN(16)
-	#define ALIGN32_POST DECL_ALIGN(32)
-	#define ALIGN128_POST DECL_ALIGN(128)
-#else
-	#error
-#endif
-
 #if _MSC_VER >= 1400
 
 #define NOALIAS __declspec(noalias)
