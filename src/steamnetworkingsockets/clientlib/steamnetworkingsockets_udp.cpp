@@ -434,7 +434,16 @@ void CSteamNetworkListenSocketDirectUDP::Received_ConnectRequest( const CMsgStea
 
 	// Did they send us a ping estimate?
 	if ( msg.has_ping_est_ms() )
-		pConn->m_statsEndToEnd.m_ping.ReceivedPing( msg.ping_est_ms(), usecNow );
+	{
+		if ( msg.ping_est_ms() > 1500 )
+		{
+			SpewWarning( "[%s] Ignoring really large ping estimate %u in connect request", pConn->GetDescription(), msg.has_ping_est_ms() );
+		}
+		else
+		{
+			pConn->m_statsEndToEnd.m_ping.ReceivedPing( msg.ping_est_ms(), usecNow );
+		}
+	}
 
 	// Save of timestamp that we will use to reply to them when the application
 	// decides to accept the connection

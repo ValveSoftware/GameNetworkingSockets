@@ -1828,7 +1828,7 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 				{
 					ConnectionTimedOut( usecNow );
 				}
-				AssertMsg( GetState() == k_ESteamNetworkingConnectionState_ProblemDetectedLocally, "ConnectionTimedOut didn't do what it is supposed to!" );
+				AssertMsg2( GetState() == k_ESteamNetworkingConnectionState_ProblemDetectedLocally, "[%s] ConnectionTimedOut didn't do what it is supposed to, state=%d!", GetDescription(), (int)GetState() );
 				return;
 			}
 
@@ -1903,6 +1903,7 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 	if ( m_eConnectionState != k_ESteamNetworkingConnectionState_Connecting && m_eConnectionState != k_ESteamNetworkingConnectionState_FindingRoute )
 	{
 		Assert( m_statsEndToEnd.m_usecTimeLastRecv > 0 ); // How did we get connected without receiving anything end-to-end?
+		AssertMsg2( !m_statsEndToEnd.IsDisconnected(), "[%s] stats disconnected, but in state %d?", GetDescription(), (int)GetState() );
 
 		// Not able to send end-to-end data?
 		bool bCanSendEndToEnd = BCanSendEndToEndData();
@@ -1934,8 +1935,20 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 						SpewMsg( "[%s] Timed out.  Cannot send end-to-end.  %.1fms since last recv, %d consecutive failures\n",
 							GetDescription(), ( usecNow - m_statsEndToEnd.m_usecTimeLastRecv ) * 1e-3, m_statsEndToEnd.m_nReplyTimeoutsSinceLastRecv );
 					}
+
+					// Save state for assert
+					#ifdef DBGFLAG_ASSERT
+					ESteamNetworkingConnectionState eOldState = GetState();
+					#endif
+
+					// Check for connection-type-specific handling
 					ConnectionTimedOut( usecNow );
-					AssertMsg1( GetState() == k_ESteamNetworkingConnectionState_ProblemDetectedLocally || GetState() == k_ESteamNetworkingConnectionState_Linger, "ConnectionTimedOut didn't do what it is supposed to! (%d)", GetState() );
+
+					// Make sure that worked
+					AssertMsg3(
+						GetState() == k_ESteamNetworkingConnectionState_ProblemDetectedLocally
+						|| ( eOldState == k_ESteamNetworkingConnectionState_Linger && GetState() == k_ESteamNetworkingConnectionState_FinWait ),
+						"[%s] ConnectionTimedOut didn't do what it is supposed to! (%d -> %d)", GetDescription(), (int)eOldState, (int)GetState() );
 					return;
 				}
 			}
@@ -1960,7 +1973,7 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 					Assert( m_statsEndToEnd.BNeedToSendPingImmediate( usecNow ) ); // Make sure logic matches
 					SendEndToEndStatsMsg( k_EStatsReplyRequest_Immediate, usecNow, "E2ETimingOutKeepalive" );
 					AssertMsg( !m_statsEndToEnd.BNeedToSendPingImmediate( usecNow ), "SendEndToEndStatsMsg didn't do its job!" );
-					Assert( m_statsEndToEnd.m_usecInFlightReplyTimeout != 0 );
+					Assert( m_statsEndToEnd.m_usecInFlightReplyTimeout > 0 );
 				}
 				else
 				{

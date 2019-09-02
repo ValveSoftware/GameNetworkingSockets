@@ -819,12 +819,12 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 					// occasionally send pings that require an immediately reply, and
 					// if those ping times seem way out of whack with the ones where they are
 					// allowed to send a delay, take action against them.
-					if ( msPing < -1 )
+					if ( msPing < -1 || msPing > 2000 )
 					{
 						// Either they are lying or some weird timer stuff is happening.
 						// Either way, discard it.
 
-						SpewType( m_connectionConfig.m_LogLevel_AckRTT.Get(), "[%s] decode pkt %lld latest recv %lld delay %lluusec INVALID ping %lldusec\n",
+						SpewType( m_connectionConfig.m_LogLevel_AckRTT.Get()-1, "[%s] decode pkt %lld latest recv %lld delay %lluusec INVALID ping %lldusec\n",
 							GetDescription(),
 							(long long)nPktNum, (long long)nLatestRecvSeqNum,
 							(unsigned long long)usecDelay,
