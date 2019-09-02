@@ -240,7 +240,7 @@ public:
 		SteamNetworkingIPAddr serverLocalAddr;
 		serverLocalAddr.Clear();
 		serverLocalAddr.m_port = nPort;
-		m_hListenSock = m_pInterface->CreateListenSocketIP( serverLocalAddr );
+		m_hListenSock = m_pInterface->CreateListenSocketIP( serverLocalAddr, 0, nullptr );
 		if ( m_hListenSock == k_HSteamListenSocket_Invalid )
 			FatalError( "Failed to listen on port %d", nPort );
 		Printf( "Server listening on port %d\n", nPort );
@@ -533,7 +533,7 @@ public:
 		char szAddr[ SteamNetworkingIPAddr::k_cchMaxString ];
 		serverAddr.ToString( szAddr, sizeof(szAddr), true );
 		Printf( "Connecting to chat server at %s", szAddr );
-		m_hConnection = m_pInterface->ConnectByIPAddress( serverAddr );
+		m_hConnection = m_pInterface->ConnectByIPAddress( serverAddr, 0, nullptr );
 		if ( m_hConnection == k_HSteamNetConnection_Invalid )
 			FatalError( "Failed to create connection" );
 

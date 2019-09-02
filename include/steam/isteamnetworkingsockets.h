@@ -48,15 +48,20 @@ public:
 	/// You must select a specific local port to listen on and set it
 	/// the port field of the local address.
 	///
-	/// Usually you wil set the IP portion of the address to zero, (SteamNetworkingIPAddr::Clear()).
-	/// This means that you will not bind to any particular local interface.  In addition,
-	/// if possible the socket will be bound in "dual stack" mode, which means that it can
-	/// accept both IPv4 and IPv6 clients.  If you wish to bind a particular interface, then
-	/// set the local address to the appropriate IPv4 or IPv6 IP.
+	/// Usually you will set the IP portion of the address to zero (SteamNetworkingIPAddr::Clear()).
+	/// This means that you will not bind to any particular local interface (i.e. the same
+	/// as INADDR_ANY in plain socket code).  Furthermore, if possible the socket will be bound
+	/// in "dual stack" mode, which means that it can accept both IPv4 and IPv6 client connections.
+	/// If you really do wish to bind a particular interface, then set the local address to the
+	/// appropriate IPv4 or IPv6 IP.
+	///
+	/// If you need to set any initial config options, pass them here.  See
+	/// SteamNetworkingConfigValue_t for more about why this is preferable to
+	/// setting the options "immediately" after creation.
 	///
 	/// When a client attempts to connect, a SteamNetConnectionStatusChangedCallback_t
 	/// will be posted.  The connection will be in the connecting state.
-	virtual HSteamListenSocket CreateListenSocketIP( const SteamNetworkingIPAddr &localAddress ) = 0;
+	virtual HSteamListenSocket CreateListenSocketIP( const SteamNetworkingIPAddr &localAddress, int nOptions, const SteamNetworkingConfigValue_t *pOptions ) = 0;
 
 	/// Creates a connection and begins talking to a "server" over UDP at the
 	/// given IPv4 or IPv6 address.  The remote host must be listening with a
@@ -76,7 +81,11 @@ public:
 	/// distributed through some other out-of-band mechanism), you don't have any
 	/// way of knowing who is actually on the other end, and thus are vulnerable to
 	/// man-in-the-middle attacks.
-	virtual HSteamNetConnection ConnectByIPAddress( const SteamNetworkingIPAddr &address ) = 0;
+	///
+	/// If you need to set any initial config options, pass them here.  See
+	/// SteamNetworkingConfigValue_t for more about why this is preferable to
+	/// setting the options "immediately" after creation.
+	virtual HSteamNetConnection ConnectByIPAddress( const SteamNetworkingIPAddr &address, int nOptions, const SteamNetworkingConfigValue_t *pOptions ) = 0;
 
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 	/// P2P stfuf
@@ -115,6 +124,12 @@ public:
 	/// Returns k_EResultInvalidState if the connection is not in the appropriate state.
 	/// (Remember that the connection state could change in between the time that the
 	/// notification being posted to the queue and when it is received by the application.)
+	///
+	/// A note about connection configuration options.  If you need to set any configuration
+	/// options that are common to all connections accepted through a particular listen
+	/// socket, consider setting the options on the listen socket, since such options are
+	/// inherited automatically.  If you really do need to set options that are connection
+	/// specific, it is safe to set them on the connection before accepting the connection.
 	virtual EResult AcceptConnection( HSteamNetConnection hConn ) = 0;
 
 	/// Disconnects from the remote host and invalidates the connection handle.
@@ -345,6 +360,16 @@ public:
 
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 	/// Dedicated servers ervers hosted in known data centers
+	///
+	/// If you need to set any initial config options, pass them here.  See
+	/// SteamNetworkingConfigValue_t for more about why this is preferable to
+	/// setting the options "immediately" after creation.
+	virtual HSteamNetConnection ConnectToHostedDedicatedServer( const SteamNetworkingIdentity &identityTarget, int nVirtualPort ) = 0;
+	///
+	/// If you need to set any initial config options, pass them here.  See
+	/// SteamNetworkingConfigValue_t for more about why this is preferable to
+	/// setting the options "immediately" after creation.
+	virtual HSteamListenSocket CreateHostedDedicatedServerListenSocket( int nVirtualPort ) = 0;
 #endif // #ifndef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 
 	// Invoke all callbacks queued for this interface.

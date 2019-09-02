@@ -545,8 +545,8 @@ static void RunSteamDatagramConnectionTest()
 	//}
 
 	// Initiate connection
-	g_hSteamListenSocket = pSteamSocketNetworking->CreateListenSocketIP( bindServerAddress );
-	g_peerClient.m_hSteamNetConnection = pSteamSocketNetworking->ConnectByIPAddress( connectToServerAddress );
+	g_hSteamListenSocket = pSteamSocketNetworking->CreateListenSocketIP( bindServerAddress, 0, nullptr );
+	g_peerClient.m_hSteamNetConnection = pSteamSocketNetworking->ConnectByIPAddress( connectToServerAddress, 0, nullptr );
 	pSteamSocketNetworking->SetConnectionName( g_peerClient.m_hSteamNetConnection, "Client" );
 
 //	// Send a few random message, before we get connected, just to test that case

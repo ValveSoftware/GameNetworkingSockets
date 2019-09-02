@@ -11,6 +11,7 @@
 #endif
 
 #include <string.h>
+#include <stdint.h>
 
 //----------------------------------------
 // SteamNetworkingSockets library config
@@ -215,7 +216,11 @@ struct SteamNetworkingIPAddr
 	bool operator==(const SteamNetworkingIPAddr &x ) const;
 };
 
-/// An abstract way to represent the identity of a network host
+/// An abstract way to represent the identity of a network host.  All identities can
+/// be represented as simple string.  Furthermore, this string representation is actually
+/// used on the wire in several places, even though it is less efficient, in order to
+/// facilitate forward compatibility.  (Old client code can handle an identity type that
+/// it doesn't understand.)
 struct SteamNetworkingIdentity
 {
 	/// Type of identity.
@@ -256,7 +261,11 @@ struct SteamNetworkingIdentity
 	/// k_cchMaxString bytes big to avoid truncation.
 	void ToString( char *buf, size_t cbBuf ) const;
 
-	/// Parse back a string that was generated using ToString
+	/// Parse back a string that was generated using ToString.  If we don't understand the
+	/// string, but it looks "reasonable" (it matches the pattern type:<type-data> and doesn't
+	/// have any funcky characters, etc), then we will return true, and the type is set to
+	/// k_ESteamNetworkingIdentityType_UnknownType.  false will only be returned if the string
+	/// looks invalid.
 	bool ParseString( const char *pszStr );
 
 	// Max sizes
@@ -644,7 +653,7 @@ struct SteamNetworkingQuickConnectionStatus
 	/// but has now been scheduled for re-transmission.  Thus, it's possible to
 	/// observe m_cbPendingReliable increasing between two checks, even if no
 	/// calls were made to send reliable data between the checks.  Data that is
-	/// awaiting the nagle delay will appear in these numbers.
+	/// awaiting the Nagle delay will appear in these numbers.
 	int m_cbPendingUnreliable;
 	int m_cbPendingReliable;
 
@@ -1045,6 +1054,36 @@ enum ESteamNetworkingConfigValue
 	k_ESteamNetworkingConfig_LogLevel_SDRRelayPings = 18, // [global int32] Ping relays
 
 	k_ESteamNetworkingConfigValue__Force32Bit = 0x7fffffff
+};
+
+/// In a few places we need to set configuration options on listen sockets and connections, and
+/// have them take effect *before* the listen socket or connection really starts doing anything.
+/// Creating the object and then setting the options "immediately" after creation doesn't work
+/// completely, because network packets could be received between the time the object is created and
+/// when the options are applied.  To set options at creation time in a reliable way, they must be
+/// passed to the creation function.  This structure is used to pass those options.
+///
+/// For the meaning of these fields, see ISteamNetworkingUtils::SetConfigValue.  Basically
+/// when the object is created, we just iterate over the list of options and call
+/// ISteamNetworkingUtils::SetConfigValueStruct, where the scope arguments are supplied by the
+/// object being created.
+struct SteamNetworkingConfigValue_t
+{
+	/// Which option is being set
+	ESteamNetworkingConfigValue m_eValue;
+
+	/// Which field below did you fill in?
+	ESteamNetworkingConfigDataType m_eDataType;
+
+	/// Option value
+	union
+	{
+		int32_t m_int32;
+		int64_t m_int64;
+		float m_float;
+		const char *m_string; // Points to your '\0'-terminated buffer
+		void *m_functionPtr;
+	} m_val;
 };
 
 /// Return value of ISteamNetworkintgUtils::GetConfigValue

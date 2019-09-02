@@ -73,8 +73,8 @@ public:
 	}
 
 	// Implements ISteamNetworkingSockets
-	virtual HSteamListenSocket CreateListenSocketIP( const SteamNetworkingIPAddr &localAddress ) override;
-	virtual HSteamNetConnection ConnectByIPAddress( const SteamNetworkingIPAddr &adress ) override;
+	virtual HSteamListenSocket CreateListenSocketIP( const SteamNetworkingIPAddr &localAddress, int nOptions, const SteamNetworkingConfigValue_t *pOptions ) override;
+	virtual HSteamNetConnection ConnectByIPAddress( const SteamNetworkingIPAddr &adress, int nOptions, const SteamNetworkingConfigValue_t *pOptions ) override;
 	virtual EResult AcceptConnection( HSteamNetConnection hConn ) override;
 	virtual bool CloseConnection( HSteamNetConnection hConn, int nReason, const char *pszDebug, bool bEnableLinger ) override;
 	virtual bool CloseListenSocket( HSteamListenSocket hSocket ) override;

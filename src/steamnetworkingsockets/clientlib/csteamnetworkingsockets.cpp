@@ -234,27 +234,6 @@ static CSteamNetworkListenSocketBase *GetListenSocketByHandle( HSteamListenSocke
 	return pResult;
 }
 
-HSteamListenSocket AddListenSocket( CSteamNetworkListenSocketBase *pSock )
-{
-	// We actually don't do map "lookups".  We assume the number of listen sockets
-	// is going to be reasonably small.
-	static int s_nDummy;
-	++s_nDummy;
-	int idx = g_mapListenSockets.Insert( s_nDummy, pSock );
-	Assert( idx < 0x1000 );
-
-	// Use upper 16 bits as a connection sequence number, so that listen socket handles
-	// are not reused within a short time period.
-	static uint32 s_nUpperBits = 0;
-	s_nUpperBits += 0x10000;
-	if ( s_nUpperBits == 0 )
-		s_nUpperBits = 0x10000;
-
-	// Add it to our table of listen sockets
-	pSock->m_hListenSocketSelf = HSteamListenSocket( idx | s_nUpperBits );
-	return pSock->m_hListenSocketSelf;
-}
-
 /////////////////////////////////////////////////////////////////////////////
 //
 // CSteamSocketNetworkingBase
@@ -534,11 +513,13 @@ ESteamNetworkingAvailability CSteamNetworkingSockets::GetAuthenticationStatus( S
 }
 #endif
 
-HSteamListenSocket CSteamNetworkingSockets::CreateListenSocketIP( const SteamNetworkingIPAddr &localAddr )
+HSteamListenSocket CSteamNetworkingSockets::CreateListenSocketIP( const SteamNetworkingIPAddr &localAddr, int nOptions, const SteamNetworkingConfigValue_t *pOptions )
 {
 	SteamDatagramTransportLock scopeLock( "CreateListenSocketIP" );
 	SteamDatagramErrMsg errMsg;
 
+	// FIXME probably should make it such that they can set the option
+	// in the option list?
 	// Might we want a cert?  If so, make sure async process to get one is in
 	// progress (or try again if we tried earlier and failed)
 	if ( m_connectionConfig.m_IP_AllowWithoutAuth.Get() == 0 )
@@ -554,24 +535,24 @@ HSteamListenSocket CSteamNetworkingSockets::CreateListenSocketIP( const SteamNet
 	CSteamNetworkListenSocketDirectUDP *pSock = new CSteamNetworkListenSocketDirectUDP( this );
 	if ( !pSock )
 		return k_HSteamListenSocket_Invalid;
-	if ( !pSock->BInit( localAddr, errMsg ) )
+	if ( !pSock->BInit( localAddr, nOptions, pOptions, errMsg ) )
 	{
 		SpewError( "Cannot create listen socket.  %s", errMsg );
 		delete pSock;
 		return k_HSteamListenSocket_Invalid;
 	}
 
-	return AddListenSocket( pSock );
+	return pSock->m_hListenSocketSelf;
 }
 
-HSteamNetConnection CSteamNetworkingSockets::ConnectByIPAddress( const SteamNetworkingIPAddr &address )
+HSteamNetConnection CSteamNetworkingSockets::ConnectByIPAddress( const SteamNetworkingIPAddr &address, int nOptions, const SteamNetworkingConfigValue_t *pOptions )
 {
 	SteamDatagramTransportLock scopeLock( "ConnectByIPAddress" );
 	CSteamNetworkConnectionUDP *pConn = new CSteamNetworkConnectionUDP( this );
 	if ( !pConn )
 		return k_HSteamNetConnection_Invalid;
 	SteamDatagramErrMsg errMsg;
-	if ( !pConn->BInitConnect( address, errMsg ) )
+	if ( !pConn->BInitConnect( address, nOptions, pOptions, errMsg ) )
 	{
 		SpewError( "Cannot create IPv4 connection.  %s", errMsg );
 		pConn->FreeResources();
@@ -637,16 +618,10 @@ bool CSteamNetworkingSockets::CloseListenSocket( HSteamListenSocket hSocket )
 	CSteamNetworkListenSocketBase *pSock = GetListenSocketByHandle( hSocket );
 	if ( !pSock )
 		return false;
-	int idx = hSocket & 0xffff;
-	Assert( g_mapListenSockets.IsValidIndex( idx ) && g_mapListenSockets[ idx ] == pSock );
 
 	// Delete the socket itself
 	// NOTE: If you change this, look at CSteamSocketNetworking::Kill()!
 	pSock->Destroy();
-
-	// Remove from our data structures
-	g_mapListenSockets[ idx ] = nullptr; // Just for grins
-	g_mapListenSockets.RemoveAt( idx );
 	return true;
 }
 

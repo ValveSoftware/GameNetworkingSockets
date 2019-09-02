@@ -130,7 +130,7 @@ CSteamNetworkListenSocketDirectUDP::~CSteamNetworkListenSocketDirectUDP()
 	}
 }
 
-bool CSteamNetworkListenSocketDirectUDP::BInit( const SteamNetworkingIPAddr &localAddr, SteamDatagramErrMsg &errMsg )
+bool CSteamNetworkListenSocketDirectUDP::BInit( const SteamNetworkingIPAddr &localAddr, int nOptions, const SteamNetworkingConfigValue_t *pOptions, SteamDatagramErrMsg &errMsg )
 {
 	Assert( m_pSock == nullptr );
 
@@ -139,6 +139,10 @@ bool CSteamNetworkListenSocketDirectUDP::BInit( const SteamNetworkingIPAddr &loc
 		V_strcpy_safe( errMsg, "Must specify local port." );
 		return false;
 	}
+
+	// Set options, add us to the global table
+	if ( !BInitListenSocketCommon( nOptions, pOptions, errMsg ) )
+		return false;
 
 	m_pSock = new CSharedSocket;
 	if ( !m_pSock->BInit( localAddr, CRecvPacketCallback( ReceivedFromUnknownHost, this ), errMsg ) )
@@ -734,7 +738,7 @@ int CSteamNetworkConnectionUDP::SendEncryptedDataChunk( const void *pChunk, int 
 	return cbSend;
 }
 
-bool CSteamNetworkConnectionUDP::BInitConnect( const SteamNetworkingIPAddr &addressRemote, SteamDatagramErrMsg &errMsg )
+bool CSteamNetworkConnectionUDP::BInitConnect( const SteamNetworkingIPAddr &addressRemote, int nOptions, const SteamNetworkingConfigValue_t *pOptions, SteamDatagramErrMsg &errMsg )
 {
 	AssertMsg( !m_pSocket, "Trying to connect when we already have a socket?" );
 
@@ -781,7 +785,7 @@ bool CSteamNetworkConnectionUDP::BInitConnect( const SteamNetworkingIPAddr &addr
 
 	// Let base class do some common initialization
 	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
-	if ( !CSteamNetworkConnectionBase::BInitConnection( usecNow, errMsg ) )
+	if ( !CSteamNetworkConnectionBase::BInitConnection( usecNow, nOptions, pOptions, errMsg ) )
 	{
 		m_pSocket->Close();
 		m_pSocket = nullptr;
@@ -895,7 +899,7 @@ bool CSteamNetworkConnectionUDP::BBeginAccept(
 
 	// Let base class do some common initialization
 	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
-	if ( !CSteamNetworkConnectionBase::BInitConnection( usecNow, errMsg ) )
+	if ( !CSteamNetworkConnectionBase::BInitConnection( usecNow, 0, nullptr, errMsg ) )
 	{
 		m_pSocket->Close();
 		m_pSocket = nullptr;
@@ -1791,7 +1795,7 @@ failed:
 	for ( int i = 0 ; i < 2 ; ++i )
 	{
 		pConn[i]->m_pSocket = sock[i];
-		if ( !pConn[i]->BInitConnection( usecNow, errMsg ) )
+		if ( !pConn[i]->BInitConnection( usecNow, 0, nullptr, errMsg ) )
 		{
 			AssertMsg1( false, "CSteamNetworkConnectionlocalhostLoopback::BInitConnection failed.  %s", errMsg );
 			goto failed;

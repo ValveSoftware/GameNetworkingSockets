@@ -250,6 +250,69 @@ CSteamNetworkListenSocketBase::CSteamNetworkListenSocketBase( CSteamNetworkingSo
 CSteamNetworkListenSocketBase::~CSteamNetworkListenSocketBase()
 {
 	AssertMsg( m_mapChildConnections.Count() == 0 && !m_queueRecvMessages.m_pFirst && !m_queueRecvMessages.m_pLast, "Destroy() not used properly" );
+
+	// Remove us from global table, if we're in it
+	if ( m_hListenSocketSelf != k_HSteamListenSocket_Invalid )
+	{
+		int idx = m_hListenSocketSelf & 0xffff;
+		if ( g_mapListenSockets.IsValidIndex( idx ) && g_mapListenSockets[ idx ] == this )
+		{
+			g_mapListenSockets[ idx ] = nullptr; // Just for grins
+			g_mapListenSockets.RemoveAt( idx );
+		}
+		else
+		{
+			AssertMsg( false, "Listen socket handle bookkeeping bug!" );
+		}
+
+		m_hListenSocketSelf = k_HSteamListenSocket_Invalid;
+	}
+}
+
+bool CSteamNetworkListenSocketBase::BInitListenSocketCommon( int nOptions, const SteamNetworkingConfigValue_t *pOptions, SteamDatagramErrMsg &errMsg )
+{
+	Assert( m_hListenSocketSelf == k_HSteamListenSocket_Invalid );
+
+	// Assign us a handle, and add us to the global table
+	{
+		// We actually don't do map "lookups".  We assume the number of listen sockets
+		// is going to be reasonably small.
+		static int s_nDummy;
+		++s_nDummy;
+		int idx = g_mapListenSockets.Insert( s_nDummy, this );
+		Assert( idx < 0x1000 );
+
+		// Use upper 16 bits as a connection sequence number, so that listen socket handles
+		// are not reused within a short time period.
+		static uint32 s_nUpperBits = 0;
+		s_nUpperBits += 0x10000;
+		if ( s_nUpperBits == 0 )
+			s_nUpperBits = 0x10000;
+
+		// Add it to our table of listen sockets
+		m_hListenSocketSelf = HSteamListenSocket( idx | s_nUpperBits );
+	}
+
+	// Set options, if any
+	if ( pOptions )
+	{
+		for ( int i = 0 ; i < nOptions ; ++i )
+		{
+			if ( !m_pSteamNetworkingSocketsInterface->m_pSteamNetworkingUtils->SetConfigValueStruct( pOptions[i], k_ESteamNetworkingConfig_ListenSocket, m_hListenSocketSelf ) )
+			{
+				V_sprintf_safe( errMsg, "Error setting option %d", pOptions[i].m_eValue );
+				return false;
+			}
+		}
+	}
+	else if ( nOptions != 0 )
+	{
+		V_strcpy_safe( errMsg, "Options list is NULL, but nOptions != 0?" );
+		return false;
+	}
+
+	// OK
+	return true;
 }
 
 void CSteamNetworkListenSocketBase::Destroy()
@@ -446,7 +509,7 @@ void CSteamNetworkConnectionBase::FreeResources()
 	}
 }
 
-bool CSteamNetworkConnectionBase::BInitConnection( SteamNetworkingMicroseconds usecNow, SteamDatagramErrMsg &errMsg )
+bool CSteamNetworkConnectionBase::BInitConnection( SteamNetworkingMicroseconds usecNow, int nOptions, const SteamNetworkingConfigValue_t *pOptions, SteamDatagramErrMsg &errMsg )
 {
 	// Make sure MTU values are initialized
 	UpdateMTUFromConfig();
@@ -517,6 +580,24 @@ bool CSteamNetworkConnectionBase::BInitConnection( SteamNetworkingMicroseconds u
 
 	// Add it to our table of active sockets.
 	g_mapConnections.Insert( int16( m_hConnectionSelf ), this );
+
+	// Set options, if any
+	if ( pOptions )
+	{
+		for ( int i = 0 ; i < nOptions ; ++i )
+		{
+			if ( !m_pSteamNetworkingSocketsInterface->m_pSteamNetworkingUtils->SetConfigValueStruct( pOptions[i], k_ESteamNetworkingConfig_Connection, m_hConnectionSelf ) )
+			{
+				V_sprintf_safe( errMsg, "Error setting option %d", pOptions[i].m_eValue );
+				return false;
+			}
+		}
+	}
+	else if ( nOptions != 0 )
+	{
+		V_strcpy_safe( errMsg, "Options list is NULL, but nOptions != 0?" );
+		return false;
+	}
 
 	// Make sure a description has been set for debugging purposes
 	SetDescription();
@@ -2151,7 +2232,7 @@ failed:
 	// Do generic base class initialization
 	for ( int i = 0 ; i < 2 ; ++i )
 	{
-		if ( !pConn[i]->BInitConnection( usecNow, errMsg ) )
+		if ( !pConn[i]->BInitConnection( usecNow, 0, nullptr, errMsg ) )
 		{
 			AssertMsg1( false, "CSteamNetworkConnectionPipe::BInitConnection failed.  %s", errMsg );
 			goto failed;

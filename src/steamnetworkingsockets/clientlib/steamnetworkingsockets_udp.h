@@ -25,7 +25,7 @@ public:
 	virtual bool APIGetAddress( SteamNetworkingIPAddr *pAddress ) override;
 
 	/// Setup
-	bool BInit( const SteamNetworkingIPAddr &localAddr, SteamDatagramErrMsg &errMsg );
+	bool BInit( const SteamNetworkingIPAddr &localAddr, int nOptions, const SteamNetworkingConfigValue_t *pOptions, SteamDatagramErrMsg &errMsg );
 
 private:
 
@@ -84,7 +84,7 @@ public:
 	virtual EUnsignedCert AllowLocalUnsignedCert() override;
 
 	/// Initiate a connection
-	bool BInitConnect( const SteamNetworkingIPAddr &addressRemote, SteamDatagramErrMsg &errMsg );
+	bool BInitConnect( const SteamNetworkingIPAddr &addressRemote, int nOptions, const SteamNetworkingConfigValue_t *pOptions, SteamDatagramErrMsg &errMsg );
 
 	/// Accept a connection that has passed the handshake phase
 	bool BBeginAccept(

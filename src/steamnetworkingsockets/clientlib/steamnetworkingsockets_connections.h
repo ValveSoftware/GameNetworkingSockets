@@ -256,6 +256,8 @@ public:
 protected:
 	CSteamNetworkListenSocketBase( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface );
 	virtual ~CSteamNetworkListenSocketBase(); // hidden destructor, don't call directly.  Use Destroy()
+
+	bool BInitListenSocketCommon( int nOptions, const SteamNetworkingConfigValue_t *pOptions, SteamDatagramErrMsg &errMsg );
 };
 
 /////////////////////////////////////////////////////////////////////////////
@@ -470,7 +472,7 @@ protected:
 	virtual ~CSteamNetworkConnectionBase(); // hidden destructor, don't call directly.  Use Destroy()
 
 	/// Initialize connection bookkeeping
-	bool BInitConnection( SteamNetworkingMicroseconds usecNow, SteamDatagramErrMsg &errMsg );
+	bool BInitConnection( SteamNetworkingMicroseconds usecNow, int nOptions, const SteamNetworkingConfigValue_t *pOptions, SteamDatagramErrMsg &errMsg );
 
 	/// Called from BInitConnection, to start obtaining certs, etc
 	virtual void InitConnectionCrypto( SteamNetworkingMicroseconds usecNow );
@@ -761,8 +763,6 @@ inline CSteamNetworkConnectionBase *FindConnectionByLocalID( uint32 nLocalConnec
 	// are currently the same.
 	return GetConnectionByHandle( HSteamNetConnection( nLocalConnectionID ) );
 }
-
-extern HSteamListenSocket AddListenSocket( CSteamNetworkListenSocketBase *pSock );
 
 } // namespace SteamNetworkingSocketsLib
 
