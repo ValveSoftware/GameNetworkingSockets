@@ -596,13 +596,13 @@ void CSteamNetworkConnectionUDP::PopulateSendPacketContext( UDPSendPacketContext
 			nFlags |= ctx.msg.ACK_REQUEST_E2E;
 
 		ctx.SlamFlagsAndCalcSize();
-		ctx.CalcMaxEncryptedPayloadSize( sizeof(UDPDataMsgHdr) );
+		ctx.CalcMaxEncryptedPayloadSize( sizeof(UDPDataMsgHdr), this );
 	}
 	else
 	{
 		// Populate flags now, based on what is implied from what we HAVE to send
 		ctx.SlamFlagsAndCalcSize();
-		ctx.CalcMaxEncryptedPayloadSize( sizeof(UDPDataMsgHdr) );
+		ctx.CalcMaxEncryptedPayloadSize( sizeof(UDPDataMsgHdr), this );
 
 		// Would we like to try to send some additional stats, if there is room?
 		if ( m_statsEndToEnd.BReadyToSendStats( usecNow ) )

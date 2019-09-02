@@ -1179,7 +1179,7 @@ struct EncodedSegment
 	inline void SetupReliable( SNPSendMessage_t *pMsg, int64 nBegin, int64 nEnd, int64 nLastReliableStreamPosEnd )
 	{
 		Assert( nBegin < nEnd );
-		Assert( nBegin + k_cbSteamNetworkingSocketsMaxReliableMessageSegment >= nEnd ); // Max sure we don't exceed max segment size
+		//Assert( nBegin + k_cbSteamNetworkingSocketsMaxReliableMessageSegment >= nEnd ); // Max sure we don't exceed max segment size
 		Assert( pMsg->m_cbSize > 0 );
 
 		// Start filling out the header with the top three bits = 010,
@@ -1323,7 +1323,7 @@ bool CSteamNetworkConnectionBase::SNP_SendPacket( SendPacketContext_t &ctx )
 	// Get max size of plaintext we could send.
 	// AES-GCM has a fixed size overhead, for the tag.
 	int cbMaxPlaintextPayload = std::max( 0, ctx.m_cbMaxEncryptedPayload-k_cbSteamNetwokingSocketsEncrytionTagSize );
-	cbMaxPlaintextPayload = std::min( cbMaxPlaintextPayload, k_cbSteamNetworkingSocketsMaxPlaintextPayloadSend );
+	cbMaxPlaintextPayload = std::min( cbMaxPlaintextPayload, m_cbMaxPlaintextPayloadSend );
 
 	uint8 payload[ k_cbSteamNetworkingSocketsMaxPlaintextPayloadSend ];
 	uint8 *pPayloadEnd = payload + cbMaxPlaintextPayload;
@@ -1438,7 +1438,7 @@ bool CSteamNetworkConnectionBase::SNP_SendPacket( SendPacketContext_t &ctx )
 			// we will never make progress and we are hosed!
 			AssertMsg2(
 				nLastReliableStreamPosEnd > 0
-				|| cbMaxPlaintextPayload < k_cbSteamNetworkingSocketsMaxPlaintextPayloadSend
+				|| cbMaxPlaintextPayload < m_cbMaxPlaintextPayloadSend
 				|| ( cbReserveForAcks > 15 && ackHelper.m_nBlocksNeedToAck > 8 ),
 				"We cannot fit reliable segment, need %d bytes, only %d remaining", cbSegTotalWithoutSizeField, cbBytesRemainingForSegments
 			);
@@ -1503,9 +1503,9 @@ bool CSteamNetworkConnectionBase::SNP_SendPacket( SendPacketContext_t &ctx )
 				// sure that we don't make an excessively large
 				// one and then have a hard time retrying it later.
 				int cbDesiredSegSize = pSendMsg->m_cbSize - m_senderState.m_cbCurrentSendMessageSent;
-				if ( cbDesiredSegSize > k_cbSteamNetworkingSocketsMaxReliableMessageSegment )
+				if ( cbDesiredSegSize > m_cbMaxReliableMessageSegment )
 				{
-					cbDesiredSegSize = k_cbSteamNetworkingSocketsMaxReliableMessageSegment;
+					cbDesiredSegSize = m_cbMaxReliableMessageSegment;
 					bLastSegment = true;
 				}
 
@@ -1807,7 +1807,7 @@ void CSteamNetworkConnectionBase::SNP_GatherAckBlocks( SNPAckSerializerHelper &h
 	// that will be due any time before we have the bandwidth to send the next packet.
 	// (Assuming that we send the max packet size here.)
 	SteamNetworkingMicroseconds usecSendAcksDueBefore = usecNow;
-	SteamNetworkingMicroseconds usecTimeUntilNextPacket = SteamNetworkingMicroseconds( ( m_senderState.m_flTokenBucket - (float)k_cbSteamNetworkingSocketsMaxUDPMsgLen ) / (float)m_senderState.m_n_x * -1e6 );
+	SteamNetworkingMicroseconds usecTimeUntilNextPacket = SteamNetworkingMicroseconds( ( m_senderState.m_flTokenBucket - (float)m_cbMTUPacketSize ) / (float)m_senderState.m_n_x * -1e6 );
 	if ( usecTimeUntilNextPacket > 0 )
 		usecSendAcksDueBefore += usecTimeUntilNextPacket;
 
@@ -3098,8 +3098,33 @@ SteamNetworkingMicroseconds CSteamNetworkConnectionBase::SNP_TimeWhenWantToSendN
 		return k_nThinkTime_Never;
 	}
 
-	// When does the sender want to send data?
-	SteamNetworkingMicroseconds usecNextSend = m_senderState.TimeWhenWantToSendNextPacket();
+	// Reliable triggered?  Then send it right now
+	if ( !m_senderState.m_listReadyRetryReliableRange.empty() )
+		return 0;
+
+	// Anything queued?
+	SteamNetworkingMicroseconds usecNextSend;
+	if ( m_senderState.m_messagesQueued.empty() )
+	{
+
+		// Queue is empty, nothing to send except perhaps nacks (below)
+		Assert( m_senderState.PendingBytesTotal() == 0 );
+		usecNextSend = INT64_MAX;
+	}
+	else
+	{
+
+		// FIXME acks, stop_waiting?
+
+		// Have we got at least a full packet ready to go?
+		if ( m_senderState.PendingBytesTotal() >= m_cbMaxPlaintextPayloadSend )
+			// Send it ASAP
+			return 0;
+
+		// We have less than a full packet's worth of data.  Wait until
+		// the Nagle time, if we have one
+		usecNextSend = m_senderState.m_messagesQueued.m_pFirst->m_usecNagle;
+	}
 
 	// Check if the receiver wants to send a NACK.
 	usecNextSend = std::min( usecNextSend, m_receiverState.m_itPendingNack->second.m_usecWhenOKToNack );
@@ -3188,7 +3213,7 @@ void CSteamNetworkConnectionBase::SNP_PopulateQuickStats( SteamNetworkingQuickCo
 		// small packets, it'll actually be worse.  We might be able to approximate that
 		// the framing overhead better by also counting up the number of *messages* pending.
 		// Probably not worth it here, but if we had that number available, we'd use it.
-		int cbPendingTotal = m_senderState.PendingBytesTotal() / k_cbSteamNetworkingSocketsMaxMessageNoFragment * k_cbSteamNetworkingSocketsMaxMessageNoFragment;
+		int cbPendingTotal = m_senderState.PendingBytesTotal() / m_cbMaxMessageNoFragment * m_cbMaxMessageNoFragment;
 
 		// Adjust based on how many tokens we have to spend now (or if we are already
 		// over-budget and have to wait until we could spend another)

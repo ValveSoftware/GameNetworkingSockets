@@ -982,6 +982,15 @@ enum ESteamNetworkingConfigValue
 	/// (You can examine the incoming connection and decide whether to accept it.)
 	k_ESteamNetworkingConfig_IP_AllowWithoutAuth = 23,
 
+	/// [connection int32] Do not send UDP packets with a payload of
+	/// larger than N bytes.  If you set this, k_ESteamNetworkingConfig_MTU_DataSize
+	/// is automatically adjusted
+	k_ESteamNetworkingConfig_MTU_PacketSize = 32,
+
+	/// [connection int32] (read only) Maximum message size you can send that
+	/// will not fragment, based on k_ESteamNetworkingConfig_MTU_PacketSize
+	k_ESteamNetworkingConfig_MTU_DataSize = 33,
+
 	//
 	// Settings for SDR relayed connections
 	//

@@ -26,36 +26,37 @@ namespace SteamNetworkingSocketsLib {
 //
 /////////////////////////////////////////////////////////////////////////////
 
-DEFINE_GLOBAL_CONFIGVAL( float, FakePacketLoss_Send, 0.0f );
-DEFINE_GLOBAL_CONFIGVAL( float, FakePacketLoss_Recv, 0.0f );
-DEFINE_GLOBAL_CONFIGVAL( int32, FakePacketLag_Send, 0 );
-DEFINE_GLOBAL_CONFIGVAL( int32, FakePacketLag_Recv, 0 );
-DEFINE_GLOBAL_CONFIGVAL( float, FakePacketReorder_Send, 0.0f );
-DEFINE_GLOBAL_CONFIGVAL( float, FakePacketReorder_Recv, 0.0f );
-DEFINE_GLOBAL_CONFIGVAL( int32, FakePacketReorder_Time, 15 );
-DEFINE_GLOBAL_CONFIGVAL( float, FakePacketDup_Send, 0.0f );
-DEFINE_GLOBAL_CONFIGVAL( float, FakePacketDup_Recv, 0.0f );
-DEFINE_GLOBAL_CONFIGVAL( int32, FakePacketDup_TimeMax, 10 );
+DEFINE_GLOBAL_CONFIGVAL( float, FakePacketLoss_Send, 0.0f, 0.0f, 100.0f );
+DEFINE_GLOBAL_CONFIGVAL( float, FakePacketLoss_Recv, 0.0f, 0.0f, 100.0f );
+DEFINE_GLOBAL_CONFIGVAL( int32, FakePacketLag_Send, 0, 0, 5000 );
+DEFINE_GLOBAL_CONFIGVAL( int32, FakePacketLag_Recv, 0, 0, 5000 );
+DEFINE_GLOBAL_CONFIGVAL( float, FakePacketReorder_Send, 0.0f, 0.0f, 100.0f );
+DEFINE_GLOBAL_CONFIGVAL( float, FakePacketReorder_Recv, 0.0f, 0.0f, 100.0f );
+DEFINE_GLOBAL_CONFIGVAL( int32, FakePacketReorder_Time, 15, 0, 5000 );
+DEFINE_GLOBAL_CONFIGVAL( float, FakePacketDup_Send, 0.0f, 0.0f, 100.0f );
+DEFINE_GLOBAL_CONFIGVAL( float, FakePacketDup_Recv, 0.0f, 0.0f, 100.0f );
+DEFINE_GLOBAL_CONFIGVAL( int32, FakePacketDup_TimeMax, 10, 0, 5000 );
 
-DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, TimeoutInitial, 10000 );
-DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, TimeoutConnected, 10000 );
-DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, SendBufferSize, 512*1024 );
-DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, SendRateMin, 128*1024 );
-DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, SendRateMax, 1024*1024 );
-DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, NagleTime, 5000 );
+DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, TimeoutInitial, 10000, 0, INT32_MAX );
+DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, TimeoutConnected, 10000, 0, INT32_MAX );
+DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, SendBufferSize, 512*1024, 0, 0x10000000 );
+DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, SendRateMin, 128*1024, 1024, 0x10000000 );
+DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, SendRateMax, 1024*1024, 1024, 0x10000000 );
+DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, NagleTime, 5000, 0, 20000 );
+DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, MTU_PacketSize, 1300, k_cbSteamNetworkingSocketsMinMTUPacketSize, k_cbSteamNetworkingSocketsMaxUDPMsgLen );
 #ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
 	// We don't have a trusted third party, so allow this by default,
 	// and don't warn about it
-	DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, IP_AllowWithoutAuth, 2 );
+	DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, IP_AllowWithoutAuth, 2, 0, 2 );
 #else
-	DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, IP_AllowWithoutAuth, 0 );
+	DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, IP_AllowWithoutAuth, 0, 0, 2 );
 #endif
-DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, LogLevel_AckRTT, k_ESteamNetworkingSocketsDebugOutputType_Everything );
-DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, LogLevel_PacketDecode, k_ESteamNetworkingSocketsDebugOutputType_Everything );
-DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, LogLevel_Message, k_ESteamNetworkingSocketsDebugOutputType_Everything );
-DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, LogLevel_PacketGaps, k_ESteamNetworkingSocketsDebugOutputType_Debug );
+DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, LogLevel_AckRTT, k_ESteamNetworkingSocketsDebugOutputType_Everything, k_ESteamNetworkingSocketsDebugOutputType_Error, k_ESteamNetworkingSocketsDebugOutputType_Everything );
+DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, LogLevel_PacketDecode, k_ESteamNetworkingSocketsDebugOutputType_Everything, k_ESteamNetworkingSocketsDebugOutputType_Error, k_ESteamNetworkingSocketsDebugOutputType_Everything );
+DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, LogLevel_Message, k_ESteamNetworkingSocketsDebugOutputType_Everything, k_ESteamNetworkingSocketsDebugOutputType_Error, k_ESteamNetworkingSocketsDebugOutputType_Everything );
+DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, LogLevel_PacketGaps, k_ESteamNetworkingSocketsDebugOutputType_Debug, k_ESteamNetworkingSocketsDebugOutputType_Error, k_ESteamNetworkingSocketsDebugOutputType_Everything );
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
-DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, LogLevel_P2PRendezvous, k_ESteamNetworkingSocketsDebugOutputType_Verbose );
+DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, LogLevel_P2PRendezvous, k_ESteamNetworkingSocketsDebugOutputType_Verbose, k_ESteamNetworkingSocketsDebugOutputType_Error, k_ESteamNetworkingSocketsDebugOutputType_Everything );
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( std::string, SDRClient_DebugTicketAddress, "" );
 #endif
 
@@ -1225,7 +1226,14 @@ bool SetConfigValueTyped(
 	}
 
 	// Call type-specific method to set it
-	return AssignConfigValueTyped( pVal, eDataType, pArg );
+	if ( !AssignConfigValueTyped( pVal, eDataType, pArg ) )
+		return false;
+
+	// Apply limits
+	pEntry->Clamp<T>( pVal->m_data );
+
+	// OK
+	return true;
 }
 
 template<typename T>
@@ -1302,6 +1310,12 @@ bool CSteamNetworkingUtils::SetConfigValue( ESteamNetworkingConfigValue eValue,
 	if ( pEntry == nullptr )
 		return false;
 
+	if ( eValue == k_ESteamNetworkingConfig_MTU_DataSize )
+	{
+		SpewWarning( "MTU_DataSize is readonly" );
+		return false;
+	}
+
 	SteamDatagramTransportLock scopeLock;
 
 	switch ( pEntry->m_eDataType )
@@ -1322,6 +1336,21 @@ ESteamNetworkingGetConfigValueResult CSteamNetworkingUtils::GetConfigValue(
 	intptr_t scopeObj, ESteamNetworkingConfigDataType *pOutDataType,
 	void *pResult, size_t *cbResult )
 {
+
+	if ( eValue == k_ESteamNetworkingConfig_MTU_DataSize )
+	{
+		int32 MTU_packetsize;
+		size_t cbMTU_packetsize = sizeof(MTU_packetsize);
+		ESteamNetworkingGetConfigValueResult rFetch = GetConfigValueTyped<int32>( &g_ConfigDefault_MTU_PacketSize, eScopeType, scopeObj, &MTU_packetsize, &cbMTU_packetsize );
+		if ( rFetch < 0 )
+			return rFetch;
+
+		int32 MTU_DataSize = std::max( 0, MTU_packetsize - k_cbSteamNetworkingSocketsNoFragmentHeaderReserve );
+		ESteamNetworkingGetConfigValueResult rStore = ReturnConfigValueTyped<int32>( MTU_DataSize, pResult, cbResult );
+		if ( rStore != k_ESteamNetworkingGetConfigValue_OK )
+			return rStore;
+		return rFetch;
+	}
 
 	GlobalConfigValueEntry *pEntry = FindConfigValueEntry( eValue );
 	if ( pEntry == nullptr )

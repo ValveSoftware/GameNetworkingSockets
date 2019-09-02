@@ -212,33 +212,6 @@ struct SSNPSenderState
 		m_flTokenBucket = k_flSendRateBurstOverageAllowance;
 	}
 
-	/// Return timestamp when we will *want* to send the next packet.
-	/// (Ignoring rate limiting.)
-	/// 0=ASAP
-	/// INT64_MAX: Idle, nothing to send
-	/// Other - Nagle timer of next packet
-	inline SteamNetworkingMicroseconds TimeWhenWantToSendNextPacket() const
-	{
-		if ( !m_listReadyRetryReliableRange.empty() )
-			return 0;
-		if ( m_messagesQueued.empty() )
-		{
-			Assert( PendingBytesTotal() == 0 );
-			return INT64_MAX;
-		}
-
-		// FIXME acks, stop_waiting?
-
-		// Have we got at least a full packet ready to go?
-		if ( PendingBytesTotal() >= k_cbSteamNetworkingSocketsMaxPlaintextPayloadSend )
-			// Send it ASAP
-			return 0;
-
-		// We have less than a full packet's worth of data.  Wait until
-		// the Nagle time, if we have one
-		return m_messagesQueued.m_pFirst->m_usecNagle;
-	}
-
 	/// Limit our token bucket to the max reserve amount
 	void TokenBucket_Limit()
 	{

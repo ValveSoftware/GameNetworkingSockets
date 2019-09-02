@@ -446,6 +446,9 @@ void CSteamNetworkConnectionBase::FreeResources()
 
 bool CSteamNetworkConnectionBase::BInitConnection( SteamNetworkingMicroseconds usecNow, SteamDatagramErrMsg &errMsg )
 {
+	// Make sure MTU values are initialized
+	UpdateMTUFromConfig();
+
 	// We make sure the lower 16 bits are unique.  Make sure we don't have too many connections.
 	// This definitely could be relaxed, but honestly we don't expect this library to be used in situations
 	// where you need that many connections.
@@ -1893,6 +1896,7 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 
 	// Update stats
 	m_statsEndToEnd.Think( usecNow );
+	UpdateMTUFromConfig();
 
 	// Check for sending keepalives or probing a connection that appears to be timing out
 	if ( m_eConnectionState != k_ESteamNetworkingConnectionState_Connecting && m_eConnectionState != k_ESteamNetworkingConnectionState_FindingRoute )
@@ -2068,6 +2072,40 @@ void CSteamNetworkConnectionBase::GuessTimeoutReason( ESteamNetConnectionEnd &nR
 void CSteamNetworkConnectionBase::UpdateSpeeds( int nTXSpeed, int nRXSpeed )
 {
 	m_statsEndToEnd.UpdateSpeeds( nTXSpeed, nRXSpeed );
+}
+
+void CSteamNetworkConnectionBase::UpdateMTUFromConfig()
+{
+	int newMTUPacketSize = m_connectionConfig.m_MTU_PacketSize.Get();
+	if ( newMTUPacketSize == m_cbMTUPacketSize )
+		return;
+
+	// Shrinking MTU?
+	if ( newMTUPacketSize < m_cbMTUPacketSize )
+	{
+		// We cannot do this while we have any reliable segments in flight!
+		// To keep things simple, the retries are always the original ranges,
+		// we never have our retries chop up the space differently than
+		// the original send
+		if ( !m_senderState.m_listReadyRetryReliableRange.empty() || !m_senderState.m_listInFlightReliableRange.empty() )
+			return;
+	}
+
+	m_cbMTUPacketSize = m_connectionConfig.m_MTU_PacketSize.Get();
+	m_cbMaxPlaintextPayloadSend = m_cbMTUPacketSize - ( k_cbSteamNetworkingSocketsMaxUDPMsgLen - k_cbSteamNetworkingSocketsMaxPlaintextPayloadSend );
+	m_cbMaxMessageNoFragment = m_cbMaxPlaintextPayloadSend - k_cbSteamNetworkingSocketsNoFragmentHeaderReserve;
+
+	// Max size of a reliable segment.  This is designed such that a reliable
+	// message of size k_cbSteamNetworkingSocketsMaxMessageNoFragment
+	// won't get fragmented, except perhaps in an exceedingly degenerate
+	// case.  (Even in this case, the protocol will function properly, it
+	// will just potentially fragment the message.)  We shouldn't make any
+	// hard promises in this department.
+	//
+	// 1 byte - message header
+	// 3 bytes - varint encode msgnum gap between previous reliable message.  (Gap could be greater, but this would be really unusual.)
+	// 1 byte - size remainder bytes (assuming message is k_cbSteamNetworkingSocketsMaxMessageNoFragment, we only need a single size overflow byte)
+	m_cbMaxReliableMessageSegment = m_cbMaxMessageNoFragment + 5;
 }
 
 /////////////////////////////////////////////////////////////////////////////

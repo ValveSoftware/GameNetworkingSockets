@@ -132,16 +132,7 @@ struct SendPacketContext : SendPacketContext_t
 		return true;
 	}
 
-	void CalcMaxEncryptedPayloadSize( size_t cbHdrReserve )
-	{
-		Assert( m_cbTotalSize >= 0 );
-		m_cbMaxEncryptedPayload = k_cbSteamNetworkingSocketsMaxUDPMsgLen - (int)cbHdrReserve - m_cbTotalSize;
-		if ( m_cbMaxEncryptedPayload < 512 )
-		{
-			AssertMsg2( m_cbMaxEncryptedPayload < 512, "%s is really big (%d bytes)!", msg.GetTypeName().c_str(), m_cbTotalSize );
-		}
-	}
-
+	void CalcMaxEncryptedPayloadSize( size_t cbHdrReserve, CSteamNetworkConnectionBase *pConnection );
 };
 
 /////////////////////////////////////////////////////////////////////////////
@@ -413,6 +404,14 @@ public:
 
 	/// Connection configuration
 	ConnectionConfig m_connectionConfig;
+
+	/// MTU values for this connection
+	int m_cbMTUPacketSize = 0;
+	int m_cbMaxPlaintextPayloadSend = 0;
+	int m_cbMaxMessageNoFragment = 0;
+	int m_cbMaxReliableMessageSegment = 0;
+
+	void UpdateMTUFromConfig();
 
 	/// Expand the packet number and decrypt a data chunk.
 	/// Returns the full 64-bit packet number, or 0 on failure.
@@ -730,6 +729,15 @@ private:
 	/// Act like we sent a sequenced packet
 	void FakeSendStats( SteamNetworkingMicroseconds usecNow, int cbPktSize );
 };
+
+// Had to delay this until CSteamNetworkConnectionBase was defined
+template<typename TStatsMsg>
+inline void SendPacketContext<TStatsMsg>::CalcMaxEncryptedPayloadSize( size_t cbHdrReserve, CSteamNetworkConnectionBase *pConnection )
+{
+	Assert( m_cbTotalSize >= 0 );
+	m_cbMaxEncryptedPayload = pConnection->m_cbMTUPacketSize - (int)cbHdrReserve - m_cbTotalSize;
+	Assert( m_cbMaxEncryptedPayload >= 0 );
+}
 
 /////////////////////////////////////////////////////////////////////////////
 //
