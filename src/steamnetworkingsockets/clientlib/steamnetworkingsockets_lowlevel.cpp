@@ -418,8 +418,10 @@ private:
 static CPacketLagger s_packetLagQueue;
 
 /// Object used to wake our background thread efficiently
-#ifdef WIN32
+#if defined( _WIN32 )
 	static HANDLE s_hEventWakeThread = INVALID_HANDLE_VALUE;
+#elif defined( NN_NINTENDO_SDK )
+	static int s_hEventWakeThread = INVALID_SOCKET;
 #else
 	static SOCKET s_hSockWakeThreadRead = INVALID_SOCKET;
 	static SOCKET s_hSockWakeThreadWrite = INVALID_SOCKET;
@@ -429,9 +431,12 @@ static std::thread *s_pThreadSteamDatagram = nullptr;
 
 static void WakeSteamDatagramThread()
 {
-	#ifdef _WIN32
+	#if defined( _WIN32 )
 		if ( s_hEventWakeThread != INVALID_HANDLE_VALUE )
 			SetEvent( s_hEventWakeThread );
+	#elif defined( NN_NINTENDO_SDK )
+		// Sorry, but this code is covered under NDA with Nintento, and
+		// we don't have permission to distribute it.
 	#else
 		if ( s_hSockWakeThreadWrite != INVALID_SOCKET )
 		{
@@ -532,6 +537,9 @@ static SOCKET OpenUDPSocketBoundToSockAddr( const void *sockaddr, size_t len, St
 	#ifdef LINUX
 		sockType |= SOCK_CLOEXEC;
 	#endif
+	#if defined( NN_NINTENDO_SDK ) && !defined( _WIN32 )
+		sockType |= SOCK_NONBLOCK;
+	#endif
 
 	// Try to create a UDP socket using the specified family
 	SOCKET sock = socket( inaddr->sin_family, sockType, IPPROTO_UDP );
@@ -542,13 +550,15 @@ static SOCKET OpenUDPSocketBoundToSockAddr( const void *sockaddr, size_t len, St
 	}
 
 	// We always use nonblocking IO
-	opt = 1;
-	if ( ioctlsocket( sock, FIONBIO, (unsigned long*)&opt ) == -1 )
-	{
-		V_sprintf_safe( errMsg, "Failed to set socket nonblocking mode.  Error code 0x%08x.", GetLastSocketError() );
-		closesocket( sock );
-		return INVALID_SOCKET;
-	}
+	#if !defined( NN_NINTENDO_SDK ) || defined( _WIN32 )
+		opt = 1;
+		if ( ioctlsocket( sock, FIONBIO, (unsigned long*)&opt ) == -1 )
+		{
+			V_sprintf_safe( errMsg, "Failed to set socket nonblocking mode.  Error code 0x%08x.", GetLastSocketError() );
+			closesocket( sock );
+			return INVALID_SOCKET;
+		}
+	#endif
 
 	// Set buffer sizes
 	opt = g_nSteamDatagramSocketBufferSize;
@@ -826,9 +836,15 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS )
 		#endif
 	}
 
-	#ifdef _WIN32
+	#if defined( _WIN32 )
 		Assert( s_hEventWakeThread != NULL && s_hEventWakeThread != INVALID_HANDLE_VALUE );
 		pEvents[ nEvents++ ] = s_hEventWakeThread;
+	#elif defined( NN_NINTENDO_SDK )
+		Assert( s_hEventWakeThread != INVALID_SOCKET );
+		pollfd *p = &pPollFDs[ nPollFDs++ ];
+		p->fd = s_hEventWakeThread;
+		p->events = POLLRDNORM;
+		p->revents = 0;
 	#else
 		Assert( s_hSockWakeThreadRead != INVALID_SOCKET );
 		pollfd *p = &pPollFDs[ nPollFDs++ ];
@@ -909,8 +925,13 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS )
 			// Wake request are relatively rare, and we don't want to skip any
 			// or combine them.  That would result in complicated race conditions
 			// where we stay asleep a lot longer than we should.
-			Assert( pPollFDs[idx].fd == s_hSockWakeThreadRead );
-			::recv( s_hSockWakeThreadRead, buf, sizeof(buf), 0 );
+			#ifdef NN_NINTENDO_SDK
+				// Sorry, but this code is covered under NDA with Nintento, and
+				// we don't have permission to distribute it.
+			#else
+				Assert( pPollFDs[idx].fd == s_hSockWakeThreadRead );
+				::recv( s_hSockWakeThreadRead, buf, sizeof(buf), 0 );
+			#endif
 			continue;
 		}
 		CRawUDPSocketImpl *pSock = pSocketsToPoll[ idx ];
@@ -1410,7 +1431,7 @@ static bool BEnsureSteamDatagramThreadRunning( SteamDatagramErrMsg &errMsg )
 
 	// Create thread communication object used to wake the background thread efficiently
 	// in case a thinker priority changes or we want to shutdown
-	#ifdef WIN32
+	#if defined( _WIN32 )
 		Assert( s_hEventWakeThread == INVALID_HANDLE_VALUE );
 
 		// Note: Using "automatic reset" style event.
@@ -1421,6 +1442,9 @@ static bool BEnsureSteamDatagramThreadRunning( SteamDatagramErrMsg &errMsg )
 			V_sprintf_safe( errMsg, "CreateEvent() call failed.  Error code 0x%08x.", GetLastError() );
 			return false;
 		}
+	#elif defined( NN_NINTENDO_SDK )
+		// Sorry, but this code is covered under NDA with Nintento, and
+		// we don't have permission to distribute it.
 	#else
 		Assert( s_hSockWakeThreadRead == INVALID_SOCKET );
 		Assert( s_hSockWakeThreadWrite == INVALID_SOCKET );
@@ -1482,12 +1506,15 @@ static void StopSteamDatagramThread()
 	}
 
 	// Destory wake communication objects
-	#ifdef WIN32
+	#if defined( _WIN32 )
 		if ( s_hEventWakeThread != INVALID_HANDLE_VALUE )
 		{
 			CloseHandle( s_hEventWakeThread );
 			s_hEventWakeThread = INVALID_HANDLE_VALUE;
 		}
+	#elif defined( NN_NINTENDO_SDK )
+		// Sorry, but this code is covered under NDA with Nintendo, and
+		// we don't have permission to distribute it.
 	#else
 		if ( s_hSockWakeThreadRead != INVALID_SOCKET )
 		{

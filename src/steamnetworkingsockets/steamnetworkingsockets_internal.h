@@ -1,22 +1,23 @@
 //====== Copyright Valve Corporation, All rights reserved. ====================
 //
-// COmmon stuff used by SteamNetworkingSockets code
+// Common stuff used by SteamNetworkingSockets code
 //
 //=============================================================================
 
 #ifndef STEAMNETWORKINGSOCKETS_INTERNAL_H
 #define STEAMNETWORKINGSOCKETS_INTERNAL_H
-#ifdef _WIN32
 #pragma once
-#endif
 
 // Socket headers
-#ifdef WIN32
+#ifdef _WIN32
 	//#include <windows.h>
 	#include <winsock2.h>
 	#include <ws2tcpip.h>
 	#define MSG_NOSIGNAL 0
 	#undef SetPort
+#elif defined( NN_NINTENDO_SDK )
+	// Sorry, but this code is covered under NDA with Nintendo, and
+	// we don't have permission to distribute it.
 #else
 	#include <sys/types.h>
 	#include <sys/socket.h>
@@ -32,7 +33,6 @@
 	#ifndef ioctlsocket
 		#define ioctlsocket ioctl
 	#endif
-	#define WSAEWOULDBLOCK EWOULDBLOCK
 #endif
 
 // Windows is the worst
@@ -87,7 +87,7 @@
 	}
 #endif
 
-#ifdef WIN32
+#ifdef _WIN32
 // Define iovec with the same field names as the POSIX one, but with the same memory layout
 // as Winsock WSABUF thingy
 struct iovec
@@ -119,8 +119,11 @@ struct Identity
 
 inline int GetLastSocketError()
 {
-	#ifdef WIN32
+	#if defined( _WIN32 )
 		return (int)WSAGetLastError();
+	#elif defined( NN_NINTENDO_SDK )
+		// Sorry, but this code is covered under NDA with Nintendo, and
+		// we don't have permission to distribute it.
 	#else
 		return errno;
 	#endif
