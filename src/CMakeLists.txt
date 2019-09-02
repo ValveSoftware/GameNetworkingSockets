@@ -23,18 +23,6 @@ if (NOT USE_BCRYPT)
 endif()
 find_package(Threads REQUIRED)
 
-if(USE_BCRYPT)
-	set(GNS_CRYPTO_AES_BCRYPT ON)
-	set(GNS_CRYPTO_25519_REF ON)
-else()
-	set(GNS_CRYPTO_AES_OPENSSL ON)
-	if(OPENSSL_HAS_25519_RAW)
-		set(GNS_CRYPTO_25519_OPENSSL ON)
-	else()
-		set(GNS_CRYPTO_25519_REF ON)
-	endif()
-endif()
-
 set(GNS_PROTOS
 	"common/steamnetworkingsockets_messages_certs.proto"
 	"common/steamnetworkingsockets_messages.proto"
@@ -65,13 +53,30 @@ set(GNS_SRCS
 	"vstdlib/strtools.cpp"
 )
 
-if(GNS_CRYPTO_25519_OPENSSL)
-	set(GNS_CRYPTO_DEFINES STEAMNETWORKINGSOCKETS_CRYPTO_25519_OPENSSL)
+if(USE_BCRYPT)
+    set(GNS_CRYPTO_DEFINES  ${GNS_CRYPTO_DEFINES} STEAMNETWORKINGSOCKETS_CRYPTO_BCRYPT ED25519_HASH_BCRYPT)
+    set(GNS_SRCS ${GNS_SRCS}
+        "common/crypto_bcrypt.cpp"
+    )
+else()
+    set(GNS_CRYPTO_DEFINES  ${GNS_CRYPTO_DEFINES} STEAMNETWORKINGSOCKETS_CRYPTO_VALVEOPENSSL)
 	set(GNS_SRCS ${GNS_SRCS}
-		"common/crypto_25519_openssl.cpp"
+		"common/crypto_openssl.cpp"
+		"common/opensslwrapper.cpp"
 	)
-elseif(GNS_CRYPTO_25519_REF)
-	set(GNS_CRYPTO_DEFINES VALVE_CRYPTO_25519_DONNA)
+
+	# Use OpenSSL for 25519 if possible
+	if(OPENSSL_HAS_25519_RAW)
+		set(GNS_CRYPTO_DEFINES  ${GNS_CRYPTO_DEFINES} STEAMNETWORKINGSOCKETS_CRYPTO_25519_OPENSSL)
+		set(GNS_SRCS ${GNS_SRCS}
+			"common/crypto_25519_openssl.cpp"
+		)
+	endif()
+endif()
+
+# Use reference 25519 crypto implementation?
+if(USE_BCRYPT OR NOT OPENSSL_HAS_25519_RAW)
+	set(GNS_CRYPTO_DEFINES ${GNS_CRYPTO_DEFINES} VALVE_CRYPTO_25519_DONNA)
 	set(GNS_SRCS ${GNS_SRCS}
 		"common/crypto_25519_donna.cpp"
 		"external/curve25519-donna/curve25519.c"
@@ -79,23 +84,6 @@ elseif(GNS_CRYPTO_25519_REF)
 		"external/ed25519-donna/ed25519_VALVE.c"
 		"external/ed25519-donna/ed25519_VALVE_sse2.c"
 	)
-else()
-	message(FATAL_ERROR "Unknown ed25519/curve25519 implementation")
-endif()
-
-if(GNS_CRYPTO_AES_OPENSSL)
-    set(GNS_CRYPTO_DEFINES STEAMNETWORKINGSOCKETS_CRYPTO_VALVEOPENSSL)
-	set(GNS_SRCS ${GNS_SRCS}
-		"common/crypto_openssl.cpp"
-		"common/opensslwrapper.cpp"
-	)
-elseif(GNS_CRYPTO_AES_BCRYPT)
-    set(GNS_CRYPTO_DEFINES STEAMNETWORKINGSOCKETS_CRYPTO_BCRYPT)
-    set(GNS_SRCS ${GNS_SRCS}
-        "common/crypto_bcrypt.cpp"
-    )
-else()
-	message(FATAL_ERROR "Unknown AES implementation")
 endif()
 
 set(C99_FEATURES
@@ -183,10 +171,6 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 		GOOGLE_PROTOBUF_NO_RTTI
 		${GNS_CRYPTO_DEFINES}
 	)
-
-	if(USE_BCRYPT)
-		target_compile_definitions(${GNS_TARGET} PRIVATE ED25519_HASH_BCRYPT)
-	endif()
 
 	if(SANITIZE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 		target_compile_definitions(${GNS_TARGET} PRIVATE ED25519_NO_INLINE_ASM)
