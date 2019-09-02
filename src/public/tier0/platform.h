@@ -1,6 +1,6 @@
 //========= Copyright Valve Corporation, All rights reserved. ============//
 //
-// Misc platform compatibility wrappers.  This file is a grab back of junk,
+// Misc platform compatibility wrappers.  This file is a grab bag of junk,
 // stripped out from the version in Steam branch, just so we can compile.
 //
 //========================================================================//
@@ -31,33 +31,12 @@
 #include "minbase/minbase_endian.h"
 
 #ifdef POSIX
-
-typedef int SOCKET;
-#define INVALID_SOCKET (-1)
-
-typedef int OSFILEHANDLE;
-#define INVALID_OSFILEHANDLE (-1)
-
-// Appropriate for any I/O handle, such as a file or socket.
-typedef int OSANYIOHANDLE;
-#define INVALID_OSANYIOHANDLE (-1)
-
+	typedef int SOCKET;
+	#define INVALID_SOCKET (-1)
 #else
-
-typedef uintp SOCKET;
-#define INVALID_SOCKET	(SOCKET)(~0) // must exactly match winsock2.h to avoid warnings
-
-// Appropriate for any I/O handle, such as a file or socket.
-typedef void *OSANYIOHANDLE;
-#define INVALID_OSANYIOHANDLE ((void*)((intp)-1)) // aka INVALID_HANDLE_VALUE from windows.h
-
-typedef void *OSFILEHANDLE;
-#define INVALID_OSFILEHANDLE ((void*)((intp)-1))
-
+	typedef uintp SOCKET;
+	#define INVALID_SOCKET	(SOCKET)(~0) // must exactly match winsock2.h to avoid warnings
 #endif
-
-// Force a function call site -not- to inlined. (useful for profiling)
-#define DONT_INLINE(a) (((int)(a)+1)?(a):(a))
 
 // Marks the codepath from here until the next branch entry point as unreachable,
 // and asserts if any attempt is made to execute it.
@@ -67,24 +46,6 @@ typedef void *OSFILEHANDLE;
 // as little code as possible, and throw an assertion in debug.
 #define NO_DEFAULT default: UNREACHABLE();
 
-#ifdef _WIN32
-// Alloca defined for this platform
-	#ifndef stackalloc
-		#define  stackalloc( _size ) _alloca( _size )
-	#endif
-	#ifndef stackfree
-		#define  stackfree( _p )   (void) _p
-	#endif
-#elif defined( COMPILER_GCC ) || defined( COMPILER_SNC ) 
-	#define stackalloc( _size )		alloca( ALIGN_VALUE( _size, 16 ) )
-	#define  stackfree( _p )			(void) _p
-#elif defined(POSIX)
-// Alloca defined for this platform
-#include <alloca.h>
-#define  stackalloc( _size ) alloca( _size )
-#define  stackfree( _p )   (void) _p
-#endif
-
 // Enable/disable warnings.
 #include "minbase/minbase_warnings.h"
 // Pull in the /analyze code annotations.
@@ -93,62 +54,26 @@ typedef void *OSFILEHANDLE;
 #include "platformtime.h"
 
 #if defined( POSIX )
-// handle mapping windows names used in tier0 to posix names in one place
-#define _snprintf snprintf //validator.cpp
-#if !defined( stricmp )
-#define stricmp strcasecmp // assert_dialog.cpp
-#endif
 
-#if !defined( _stricmp )
-#define _stricmp strcasecmp // validator.cpp
-#endif
-#define _strcmpi strcasecmp // vprof.cpp
+	#include <alloca.h>
 
-#include <errno.h>
-inline int GetLastError() { return errno; }
-#define OutputDebugString( str ) fputs( str, stderr );
+	// handle mapping windows names used in tier0 to posix names in one place
+	#define _snprintf snprintf //validator.cpp
+	#if !defined( stricmp )
+	#define stricmp strcasecmp // assert_dialog.cpp
+	#endif
 
+	#if !defined( _stricmp )
+	#define _stricmp strcasecmp // validator.cpp
+	#endif
+	#define _strcmpi strcasecmp // vprof.cpp
 
-// these are mostly fileops that will be moved into tier1
-#define _chdir chdir
-#define _chmod chmod
-#define _close close
-#define _fileno fileno
-#define _fstat fstat
-#define _getcwd getcwd
-#define _lseek lseek
-#define _open( fname, mode ) open( fname, mode, S_IRWXU | S_IRWXG | S_IRWXO )
-#define _putenv( envstr ) putenv( strdup( envstr ) )
-#define _read read
-#define _rmdir rmdir
-#define SetEnvironmentVariable SetEnvironmentVariableA
-#define SetEnvironmentVariableA( var, val ) setenv( var, val, 1 )
-#define _stat stat
-#define _stat32 stat
-#define _stat64 stat64
-#define __stat64 stat64
-#define _tzset tzset
-#define _unlink unlink
-#define _write write
-
-// a handful of stdio defines
-#define _O_BINARY 0
-#define _O_CREAT O_CREAT
-#define _O_WRONLY O_WRONLY
-#define _S_IFDIR S_IFDIR
-#define _S_IFREG S_IFREG
-
-// note: apparently these are obsolete (according to gnu.org [thx google]).
-#define _S_IREAD S_IREAD
-#define _S_IWRITE S_IWRITE
+	#include <errno.h>
+	inline int GetLastError() { return errno; }
 
 #endif
 
 #define PLATFORM_INTERFACE	extern "C"
-#define PLATFORM_CXX_INTERFACE
-#define PLATFORM_OVERLOAD	
-
-// #endif	// BUILD_AS_DLL
 
 PLATFORM_INTERFACE bool Plat_IsInDebugSession();
 
