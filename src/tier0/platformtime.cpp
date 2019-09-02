@@ -20,14 +20,14 @@
 #endif
 
 
-#if defined(LINUX) || defined(ANDROID) || defined(NN_NINTENDO_SDK)
-//static constexpr uint64 g_TickFrequency = 1000000000;
-static constexpr double g_TickFrequencyDouble = 1.0e9;
-static constexpr double g_TicksToUS = 1.0e6 / g_TickFrequencyDouble;
+#if defined( WIN32 ) || defined( OSX )
+	static uint64 g_TickFrequency;
+	static double g_TickFrequencyDouble;
+	static double g_TicksToUS;
 #else
-static uint64 g_TickFrequency;
-static double g_TickFrequencyDouble;
-static double g_TicksToUS;
+	//static constexpr uint64 g_TickFrequency = 1000000000;
+	static constexpr double g_TickFrequencyDouble = 1.0e9;
+	static constexpr double g_TicksToUS = 1.0e6 / g_TickFrequencyDouble;
 #endif
 
 // NOTE:
@@ -70,9 +70,7 @@ static uint64 InitTicks()
 #error Unknown platform
 #endif
 
-	#if !defined(LINUX) && !defined(ANDROID) && !defined(NN_NINTENDO_SDK)
-		//g_TicksToS = 1.0 / g_TickFrequencyDouble;
-		//g_TicksToMS = 1.0e3 / g_TickFrequencyDouble;
+	#if defined( WIN32 ) || defined( OSX )
 		g_TicksToUS = 1.0e6 / g_TickFrequencyDouble;
 	#endif
 
