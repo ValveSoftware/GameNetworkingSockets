@@ -27,7 +27,7 @@ uint64 CalculatePublicKeyID( const CECSigningPublicKey &pubKey )
 // -1  Bogus data
 // 0   Unknown type
 // 1   OK
-static int SteamNetworkingIdentityFromProtobufMsg( SteamNetworkingIdentity &identity, const CMsgSteamNetworkingIdentity &msgIdentity, SteamDatagramErrMsg &errMsg )
+static int SteamNetworkingIdentityFromLegacyBinaryProtobufMsg( SteamNetworkingIdentity &identity, const CMsgSteamNetworkingIdentityLegacyBinary &msgIdentity, SteamDatagramErrMsg &errMsg )
 {
 	if ( msgIdentity.has_steam_id() )
 	{
@@ -77,10 +77,10 @@ static int SteamNetworkingIdentityFromProtobufMsg( SteamNetworkingIdentity &iden
 	return 0;
 }
 
-bool BSteamNetworkingIdentityFromProtobufMsg( SteamNetworkingIdentity &identity, const CMsgSteamNetworkingIdentity &msgIdentity, SteamDatagramErrMsg &errMsg )
+bool BSteamNetworkingIdentityFromLegacyBinaryProtobuf( SteamNetworkingIdentity &identity, const CMsgSteamNetworkingIdentityLegacyBinary &msgIdentity, SteamDatagramErrMsg &errMsg )
 {
 	// Parse it
-	int r = SteamNetworkingIdentityFromProtobufMsg( identity, msgIdentity, errMsg );
+	int r = SteamNetworkingIdentityFromLegacyBinaryProtobufMsg( identity, msgIdentity, errMsg );
 	if ( r > 0 )
 		return true;
 	if ( r < 0 )
@@ -119,7 +119,7 @@ bool BSteamNetworkingIdentityFromLegacySteamID( SteamNetworkingIdentity &identit
 }
 
 
-bool BSteamNetworkingIdentityFromProtobufBytes( SteamNetworkingIdentity &identity, const std::string &bytesMsgIdentity, uint64 legacy_steam_id, SteamDatagramErrMsg &errMsg )
+bool BSteamNetworkingIdentityFromLegacyBinaryProtobuf( SteamNetworkingIdentity &identity, const std::string &bytesMsgIdentity, SteamDatagramErrMsg &errMsg )
 {
 	// Assume failure
 	identity.Clear();
@@ -127,24 +127,12 @@ bool BSteamNetworkingIdentityFromProtobufBytes( SteamNetworkingIdentity &identit
 	// New format blob not present?
 	if ( bytesMsgIdentity.empty() )
 	{
-
-		// Should have a legacy SteamID
-		if ( !legacy_steam_id )
-		{
-			V_strcpy_safe( errMsg, "No identity data is present" );
-			return false;
-		}
-		if ( !IsValidSteamIDForIdentity( legacy_steam_id ) )
-		{
-			V_sprintf_safe( errMsg, "Invalid SteamID %llu (in legacy field)", legacy_steam_id );
-			return false;
-		}
-		identity.SetSteamID64( legacy_steam_id );
-		return true;
+		V_strcpy_safe( errMsg, "No identity data is present" );
+		return false;
 	}
 
 	// Parse it
-	CMsgSteamNetworkingIdentity msgIdentity;
+	CMsgSteamNetworkingIdentityLegacyBinary msgIdentity;
 	if ( !msgIdentity.ParseFromString( bytesMsgIdentity ) )
 	{
 		V_strcpy_safe( errMsg, "Protobuf failed to parse" );
@@ -152,7 +140,7 @@ bool BSteamNetworkingIdentityFromProtobufBytes( SteamNetworkingIdentity &identit
 	}
 
 	// Parse it
-	int r = SteamNetworkingIdentityFromProtobufMsg( identity, msgIdentity, errMsg );
+	int r = SteamNetworkingIdentityFromLegacyBinaryProtobufMsg( identity, msgIdentity, errMsg );
 	if ( r > 0 )
 		return true;
 	if ( r < 0 )
@@ -186,9 +174,8 @@ int SteamNetworkingIdentityFromSignedCert( SteamNetworkingIdentity &result, cons
 	return SteamNetworkingIdentityFromCert( result, cert, errMsg );
 }
 
-extern bool BSteamNetworkingIdentityToProtobufInternal( const SteamNetworkingIdentity &identity, CMsgSteamNetworkingIdentity *msgIdentity, SteamDatagramErrMsg &errMsg )
+bool BSteamNetworkingIdentityToProtobufInternal( const SteamNetworkingIdentity &identity, std::string *strIdentity, CMsgSteamNetworkingIdentityLegacyBinary *msgIdentityLegacyBinary, SteamDatagramErrMsg &errMsg )
 {
-
 	switch ( identity.m_eType )
 	{
 		case k_ESteamNetworkingIdentityType_Invalid:
@@ -202,7 +189,7 @@ extern bool BSteamNetworkingIdentityToProtobufInternal( const SteamNetworkingIde
 				V_sprintf_safe( errMsg, "Invalid SteamID %llu", identity.m_steamID64 );
 				return false;
 			}
-			msgIdentity->set_steam_id( identity.m_steamID64 );
+			msgIdentityLegacyBinary->set_steam_id( identity.m_steamID64 );
 			break;
 
 		case k_ESteamNetworkingIdentityType_IPAddress:
@@ -211,7 +198,7 @@ extern bool BSteamNetworkingIdentityToProtobufInternal( const SteamNetworkingIde
 			Assert( identity.m_cbSize == sizeof( SteamNetworkingIPAddr ) );
 			SteamNetworkingIPAddr tmpAddr( identity.m_ip );
 			tmpAddr.m_port = BigWord( tmpAddr.m_port );
-			msgIdentity->set_ipv6_and_port( &tmpAddr, sizeof(tmpAddr) );
+			msgIdentityLegacyBinary->set_ipv6_and_port( &tmpAddr, sizeof(tmpAddr) );
 			break;
 		}
 
@@ -219,30 +206,37 @@ extern bool BSteamNetworkingIdentityToProtobufInternal( const SteamNetworkingIde
 			Assert( identity.m_cbSize == (int)V_strlen( identity.m_szGenericString ) + 1 );
 			Assert( identity.m_cbSize > 1 );
 			Assert( identity.m_cbSize <= sizeof( identity.m_szGenericString ) );
-			msgIdentity->set_generic_string( identity.m_szGenericString );
+			msgIdentityLegacyBinary->set_generic_string( identity.m_szGenericString );
 			break;
 
 		case k_ESteamNetworkingIdentityType_GenericBytes:
 			Assert( identity.m_cbSize > 1 );
 			Assert( identity.m_cbSize <= sizeof( identity.m_genericBytes ) );
-			msgIdentity->set_generic_bytes( identity.m_genericBytes, identity.m_cbSize );
+			msgIdentityLegacyBinary->set_generic_bytes( identity.m_genericBytes, identity.m_cbSize );
 			break;
+
+		// FIXME handle "unknown" type, which we can only handle in string format, but not the legacy format
 
 		default:
 			V_sprintf_safe( errMsg, "Unrecognized identity type %d", identity.m_eType );
 			return false;
 	}
 
+	// And return string format
+	char buf[ SteamNetworkingIdentity::k_cchMaxString ];
+	SteamAPI_SteamNetworkingIdentity_ToString( identity, buf, sizeof(buf) );
+	*strIdentity = buf;
+
 	return true;
 }
 
-bool BSteamNetworkingIdentityToProtobufInternal( const SteamNetworkingIdentity &identity, std::string *bytesMsgIdentity, SteamDatagramErrMsg &errMsg )
+bool BSteamNetworkingIdentityToProtobufInternal( const SteamNetworkingIdentity &identity, std::string *strIdentity, std::string *bytesMsgIdentityLegacyBinary, SteamDatagramErrMsg &errMsg )
 {
-	CMsgSteamNetworkingIdentity msgIdentity;
-	if ( !BSteamNetworkingIdentityToProtobufInternal( identity, &msgIdentity, errMsg ) )
+	CMsgSteamNetworkingIdentityLegacyBinary msgIdentity;
+	if ( !BSteamNetworkingIdentityToProtobufInternal( identity, strIdentity, &msgIdentity, errMsg ) )
 		return false;
 
-	if ( !msgIdentity.SerializeToString( bytesMsgIdentity ) )
+	if ( !msgIdentity.SerializeToString( bytesMsgIdentityLegacyBinary ) )
 	{
 		// WAT
 		V_strcpy_safe( errMsg, "protobuf serialization failed?" );

@@ -33,6 +33,7 @@
 	#ifndef ioctlsocket
 		#define ioctlsocket ioctl
 	#endif
+	#define WSAEWOULDBLOCK EWOULDBLOCK
 #endif
 
 // Windows is the worst
@@ -509,21 +510,21 @@ inline bool IsValidSteamIDForIdentity( CSteamID steamID )
 
 inline bool IsValidSteamIDForIdentity( uint64 steamid64 ) { return IsValidSteamIDForIdentity( CSteamID( steamid64 ) ); }
 
-extern bool BSteamNetworkingIdentityToProtobufInternal( const SteamNetworkingIdentity &identity, CMsgSteamNetworkingIdentity *msgIdentity, SteamDatagramErrMsg &errMsg );
-extern bool BSteamNetworkingIdentityToProtobufInternal( const SteamNetworkingIdentity &identity, std::string *bytesMsgIdentity, SteamDatagramErrMsg &errMsg );
-#define BSteamNetworkingIdentityToProtobuf( identity, msg, field_identity, field_legacy_steam_id, errMsg ) ( \
+extern bool BSteamNetworkingIdentityToProtobufInternal( const SteamNetworkingIdentity &identity, std::string *strIdentity, CMsgSteamNetworkingIdentityLegacyBinary *msgIdentityLegacyBinary, SteamDatagramErrMsg &errMsg );
+extern bool BSteamNetworkingIdentityToProtobufInternal( const SteamNetworkingIdentity &identity, std::string *strIdentity, std::string *bytesMsgIdentityLegacyBinary, SteamDatagramErrMsg &errMsg );
+#define BSteamNetworkingIdentityToProtobuf( identity, msg, field_identity_string, field_identity_legacy_binary, field_legacy_steam_id, errMsg ) ( \
 		( (identity).GetSteamID64() ? (void)(msg).set_ ## field_legacy_steam_id( (identity).GetSteamID64() ) : (void)0 ), \
-		BSteamNetworkingIdentityToProtobufInternal( identity, (msg).mutable_ ## field_identity(), errMsg ) \
+		BSteamNetworkingIdentityToProtobufInternal( identity, (msg).mutable_ ## field_identity_string(), (msg).mutable_ ## field_identity_legacy_binary(), errMsg ) \
 	)
-#define SteamNetworkingIdentityToProtobuf( identity, msg, field_identity, field_legacy_steam_id ) \
+#define SteamNetworkingIdentityToProtobuf( identity, msg, field_identity_string, field_identity_legacy_binary, field_legacy_steam_id ) \
 	{ SteamDatagramErrMsg identityToProtobufErrMsg; \
-		if ( !BSteamNetworkingIdentityToProtobuf( identity, msg, field_identity, field_legacy_steam_id, identityToProtobufErrMsg ) ) { \
+		if ( !BSteamNetworkingIdentityToProtobuf( identity, msg, field_identity_string, field_identity_legacy_binary, field_legacy_steam_id, identityToProtobufErrMsg ) ) { \
 			AssertMsg2( false, "Failed to serialize identity to %s message.  %s", msg.GetTypeName().c_str(), identityToProtobufErrMsg ); \
 		} \
 	}
 
-extern bool BSteamNetworkingIdentityFromProtobufBytes( SteamNetworkingIdentity &identity, const std::string &bytesMsgIdentity, uint64 legacy_steam_id, SteamDatagramErrMsg &errMsg );
-extern bool BSteamNetworkingIdentityFromProtobufMsg( SteamNetworkingIdentity &identity, const CMsgSteamNetworkingIdentity &msgIdentity, SteamDatagramErrMsg &errMsg );
+extern bool BSteamNetworkingIdentityFromLegacyBinaryProtobuf( SteamNetworkingIdentity &identity, const std::string &bytesMsgIdentity, SteamDatagramErrMsg &errMsg );
+extern bool BSteamNetworkingIdentityFromLegacyBinaryProtobuf( SteamNetworkingIdentity &identity, const CMsgSteamNetworkingIdentityLegacyBinary &msgIdentity, SteamDatagramErrMsg &errMsg );
 extern bool BSteamNetworkingIdentityFromLegacySteamID( SteamNetworkingIdentity &identity, uint64 legacy_steam_id, SteamDatagramErrMsg &errMsg );
 
 template <typename TStatsMsg>
@@ -542,15 +543,16 @@ inline void SetStatsMsgFlagsIfNotImplied( TStatsMsg &msg, uint32 nFlags )
 // <0 Bad data
 // 0  No data
 // >0 OK
-#define SteamNetworkingIdentityFromProtobuf( identity, msg, field_identity, field_legacy_steam_id, errMsg ) \
+#define SteamNetworkingIdentityFromProtobuf( identity, msg, field_identity_string, field_identity_legacy_binary, field_legacy_steam_id, errMsg ) \
 	( \
-		(msg).has_ ##field_identity() ? ( BSteamNetworkingIdentityFromProtobufMsg( identity, (msg).field_identity(), errMsg ) ? +1 : -1 ) \
+		(msg).has_ ##field_identity_string() ? ( SteamAPI_SteamNetworkingIdentity_ParseString( &(identity), sizeof(identity), (msg).field_identity_string().c_str() ) ? +1 : ( V_strcpy_safe( errMsg, "Failed to parse string" ), -1 ) ) \
+		: (msg).has_ ##field_identity_legacy_binary() ? ( BSteamNetworkingIdentityFromLegacyBinaryProtobuf( identity, (msg).field_identity_legacy_binary(), errMsg ) ? +1 : -1 ) \
 		: (msg).has_ ##field_legacy_steam_id() ? ( BSteamNetworkingIdentityFromLegacySteamID( identity, (msg).field_legacy_steam_id(), errMsg ) ? +1 : -1 ) \
 		: ( V_strcpy_safe( errMsg, "No identity data" ), 0 ) \
 	)
 inline int SteamNetworkingIdentityFromCert( SteamNetworkingIdentity &result, const CMsgSteamDatagramCertificate &msgCert, SteamDatagramErrMsg &errMsg )
 {
-	return SteamNetworkingIdentityFromProtobuf( result, msgCert, identity, legacy_steam_id, errMsg );
+	return SteamNetworkingIdentityFromProtobuf( result, msgCert, identity_string, legacy_identity_binary, legacy_steam_id, errMsg );
 }
 
 // NOTE: Does NOT check the cert signature!

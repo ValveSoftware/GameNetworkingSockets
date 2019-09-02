@@ -337,7 +337,7 @@ void CSteamNetworkListenSocketDirectUDP::Received_ConnectRequest( const CMsgStea
 		{
 			// No identity in the cert.  Check if they put it directly in the connect message
 			bIdentityInCert = false;
-			r = SteamNetworkingIdentityFromProtobuf( identityRemote, msg, identity, legacy_client_steam_id, errMsg );
+			r = SteamNetworkingIdentityFromProtobuf( identityRemote, msg, identity_string, legacy_identity_binary, legacy_client_steam_id, errMsg );
 			if ( r < 0 )
 			{
 				ReportBadPacket( "ConnectRequest", "Bad identity.  %s", errMsg );
@@ -1325,7 +1325,7 @@ void CSteamNetworkConnectionUDP::Received_ChallengeReply( const CMsgSteamSockets
 	// If the cert is generic, then we need to specify our identity
 	if ( !m_bCertHasIdentity )
 	{
-		SteamNetworkingIdentityToProtobuf( m_identityLocal, msgConnectRequest, identity, legacy_client_steam_id );
+		SteamNetworkingIdentityToProtobuf( m_identityLocal, msgConnectRequest, identity_string, legacy_identity_binary, legacy_client_steam_id );
 	}
 	else
 	{
@@ -1383,7 +1383,7 @@ void CSteamNetworkConnectionUDP::Received_ConnectOK( const CMsgSteamSockets_UDP_
 		{
 			// No identity in the cert.  Check if they put it directly in the connect message
 			bIdentityInCert = false;
-			r = SteamNetworkingIdentityFromProtobuf( identityRemote, msg, identity, legacy_server_steam_id, errMsg );
+			r = SteamNetworkingIdentityFromProtobuf( identityRemote, msg, identity_string, legacy_identity_binary, legacy_server_steam_id, errMsg );
 			if ( r < 0 )
 			{
 				ReportBadPacketIPv4( "ConnectRequest", "Bad identity.  %s", errMsg );
@@ -1661,7 +1661,7 @@ void CSteamNetworkConnectionUDP::SendConnectOK( SteamNetworkingMicroseconds usec
 	// If the cert is generic, then we need to specify our identity
 	if ( !m_bCertHasIdentity )
 	{
-		SteamNetworkingIdentityToProtobuf( m_identityLocal, msg, identity, legacy_server_steam_id );
+		SteamNetworkingIdentityToProtobuf( m_identityLocal, msg, identity_string, legacy_identity_binary, legacy_server_steam_id );
 	}
 	else
 	{

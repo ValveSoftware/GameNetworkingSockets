@@ -122,7 +122,10 @@ enum ESteamNetworkingAvailability
 /// Different methods of describing the identity of a network host
 enum ESteamNetworkingIdentityType
 {
-	// Dummy/unknown/invalid
+	// Dummy/empty/invalid.
+	// Plese note that if we parse a string that we don't recognize
+	// but that appears reasonable, we will NOT use this type.  Instead
+	// we'll use k_ESteamNetworkingIdentityType_UnknownType.
 	k_ESteamNetworkingIdentityType_Invalid = 0,
 
 	//
@@ -152,6 +155,13 @@ enum ESteamNetworkingIdentityType
 	// It's up to you to ultimately decide what this identity means.
 	k_ESteamNetworkingIdentityType_GenericString = 2,
 	k_ESteamNetworkingIdentityType_GenericBytes = 3,
+
+	// This identity type is used when we parse a string that looks like is a
+	// valid identity, just of a kind that we don't recognize.  In this case, we
+	// can often still communicate with the peer!  Allowing such identities
+	// for types we do not recognize useful is very useful for forward
+	// compatibility.
+	k_ESteamNetworkingIdentityType_UnknownType = 4,
 
 	// Make sure this enum is stored in an int.
 	k_ESteamNetworkingIdentityType__Force32bit = 0x7fffffff,
@@ -267,6 +277,7 @@ struct SteamNetworkingIdentity
 		uint64 m_steamID64;
 		char m_szGenericString[ k_cchMaxGenericString ];
 		uint8 m_genericBytes[ k_cbMaxGenericBytes ];
+		char m_szUnknownRawString[ k_cchMaxString ];
 		SteamNetworkingIPAddr m_ip;
 		uint32 m_reserved[ 32 ]; // Pad structure to leave easy room for future expansion
 	};

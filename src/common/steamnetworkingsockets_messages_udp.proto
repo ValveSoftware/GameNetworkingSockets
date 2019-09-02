@@ -75,13 +75,14 @@ message CMsgSteamSockets_UDP_ConnectRequest
 	// (Even if cert is unsigned.)  But, if cert was not issued to my specific
 	// identity (e.g. it is for all gameservers in a data center, etc) then
 	// I need to communicate my identity seperately.
-	optional CMsgSteamNetworkingIdentity identity = 9;
+	optional string identity_string = 10;
 
 	//
 	// Legacy fields
 	//
 
 	optional fixed64 legacy_client_steam_id = 3;
+	optional CMsgSteamNetworkingIdentityLegacyBinary legacy_identity_binary = 9;
 };
 
 // k_ESteamDatagramMsg_UDP_ConnectOK
@@ -102,7 +103,7 @@ message CMsgSteamSockets_UDP_ConnectOK
 	// (Even if cert is unsigned.)  But, if cert was not issued to my specific
 	// identity (e.g. it is for all gameservers in a data center, etc) then
 	// I need to communicate my identity seperately.
-	optional CMsgSteamNetworkingIdentity identity = 10;
+	optional string identity_string = 11;
 
 	//
 	// Legacy fields
@@ -110,6 +111,7 @@ message CMsgSteamSockets_UDP_ConnectOK
 
 	optional fixed64 legacy_server_steam_id = 2;
 	//optional uint32 protocol_version = 9; // moved into crypt, to prevent tampering
+	optional CMsgSteamNetworkingIdentityLegacyBinary legacy_identity_binary = 10;
 };
 
 // k_ESteamDatagramMsg_UDP_ConnectionClosed

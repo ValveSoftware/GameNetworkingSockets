@@ -10,12 +10,13 @@ option optimize_for = SPEED;
 // We don't use the service generation functionality
 option cc_generic_services = false;
 
-// How to describe a identity in a message.
-// Basically the serialized version of SteamNetworkingIdentity.
-// (Note that SteamNetworkingIdentity also has a text representation
-// which is useful for debugging, but it's a bit wasteful for some
-// formats.)
-message CMsgSteamNetworkingIdentity
+// Legacy binary format.  Now the string format is always used, even over
+// the wire.  This is a bit wasteful.  But the benefit of the string format
+// is that it's must easier to make forward comaptible.  So we can add new
+// identity types without updating all old clients that may possibly interact
+// with the new identity type.  In many cases, the old client doesn't really
+// need to "understand" the type, and the string format actually works great.
+message CMsgSteamNetworkingIdentityLegacyBinary
 {
 
 	// We don't use a seperate "type" field, we just use the
@@ -51,7 +52,8 @@ message CMsgSteamDatagramCertificate
 
 	// Single user key?  This might not be set if the key is shared!
 	optional fixed64 legacy_steam_id = 4;
-	optional CMsgSteamNetworkingIdentity identity = 11;
+	optional CMsgSteamNetworkingIdentityLegacyBinary legacy_identity_binary = 11;
+	optional string identity_string = 12;
 
 	// Allow any server in particular data centers to use it?
 	repeated fixed32 gameserver_datacenter_ids = 5;

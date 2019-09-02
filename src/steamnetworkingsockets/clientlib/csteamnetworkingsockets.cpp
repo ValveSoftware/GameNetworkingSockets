@@ -405,7 +405,7 @@ bool CSteamNetworkingSockets::GetCertificateRequest( int *pcbBlob, void *pBlob, 
 	InternalGetIdentity();
 	if ( !m_identity.IsInvalid() && !m_identity.IsLocalHost() )
 	{
-		SteamNetworkingIdentityToProtobuf( m_identity, msgCert, identity, legacy_steam_id );
+		SteamNetworkingIdentityToProtobuf( m_identity, msgCert, identity_string, legacy_identity_binary, legacy_steam_id );
 	}
 
 	// Check size
@@ -818,7 +818,7 @@ bool CSteamNetworkingSockets::BCertHasIdentity() const
 	// We should actually have a cert, otherwise this question cannot be answered
 	Assert( m_msgSignedCert.has_cert() );
 	Assert( m_msgCert.has_key_data() );
-	return m_msgCert.has_identity() || m_msgCert.has_legacy_steam_id();
+	return m_msgCert.has_identity_string() || m_msgCert.has_legacy_identity_binary() || m_msgCert.has_legacy_steam_id();
 }
 
 

@@ -166,7 +166,7 @@ struct Cert
 		}
 
 		// We don't store certs bound to a particular identity in the cert store
-		if ( msgCert.has_legacy_steam_id() || msgCert.has_identity() )
+		if ( msgCert.has_identity_string() || msgCert.has_legacy_identity_binary() || msgCert.has_legacy_steam_id() )
 		{
 			V_strcpy_safe( errMsg, "Cert is bound to particular identity; doesn't go in the cert store" );
 			return false;

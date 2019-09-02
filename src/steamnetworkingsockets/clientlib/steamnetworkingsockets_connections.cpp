@@ -690,7 +690,7 @@ void CSteamNetworkConnectionBase::InitLocalCryptoWithUnsignedCert()
 	CMsgSteamDatagramCertificate msgCert;
 	keyPublic.GetRawDataAsStdString( msgCert.mutable_key_data() );
 	msgCert.set_key_type( CMsgSteamDatagramCertificate_EKeyType_ED25519 );
-	SteamNetworkingIdentityToProtobuf( m_identityLocal, msgCert, identity, legacy_steam_id );
+	SteamNetworkingIdentityToProtobuf( m_identityLocal, msgCert, identity_string, legacy_identity_binary, legacy_steam_id );
 	msgCert.add_app_ids( m_pSteamNetworkingSocketsInterface->m_pSteamNetworkingUtils->GetAppID() );
 
 	// Should we set an expiry?  I mean it's unsigned, so it has zero value, so probably not
@@ -1905,7 +1905,7 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 			if ( m_statsEndToEnd.m_nReplyTimeoutsSinceLastRecv >= 4 || !BCanSendEndToEndData() )
 			{
 				ConnectionTimedOut( usecNow );
-				AssertMsg( GetState() == k_ESteamNetworkingConnectionState_ProblemDetectedLocally, "ConnectionTimedOut didn't do what it is supposed to!" );
+				AssertMsg1( GetState() == k_ESteamNetworkingConnectionState_ProblemDetectedLocally || GetState() == k_ESteamNetworkingConnectionState_Linger, "ConnectionTimedOut didn't do what it is supposed to! (%d)", GetState() );
 				return;
 			}
 			// The timeout time has expired, but we haven't marked enough packets as dropped yet?

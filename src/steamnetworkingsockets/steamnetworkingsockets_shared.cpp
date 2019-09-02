@@ -313,6 +313,10 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIdentity_ToString(
 			}
 			break;
 
+		case k_ESteamNetworkingIdentityType_UnknownType:
+			V_strncpy( buf, identity.m_szUnknownRawString, cbBuf );
+			break;
+
 		default:
 			V_snprintf( buf, cbBuf, "bad_type:%d", identity.m_eType );
 	}
@@ -330,12 +334,12 @@ STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIdentity_ParseStri
 	if ( pszStr == nullptr || *pszStr == '\0' )
 		return false;
 
-	if ( V_stricmp( pszStr, "invalid" ) == 0 )
+	if ( V_strcmp( pszStr, "invalid" ) == 0 )
 		return true; // Specifically parsed as invalid is considered "success"!
 
 	size_t sizeofData = sizeofIdentity - sizeofHeader;
 
-	if ( V_strnicmp( pszStr, "steamid:", 8 ) == 0 )
+	if ( V_strncmp( pszStr, "steamid:", 8 ) == 0 )
 	{
 		pszStr += 8;
 		unsigned long long temp;
@@ -348,7 +352,7 @@ STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIdentity_ParseStri
 		return true;
 	}
 
-	if ( V_strnicmp( pszStr, "ip:", 3 ) == 0 )
+	if ( V_strncmp( pszStr, "ip:", 3 ) == 0 )
 	{
 		pszStr += 3;
 		SteamNetworkingIPAddr tempAddr;
@@ -360,7 +364,7 @@ STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIdentity_ParseStri
 		return true;
 	}
 
-	if ( V_strnicmp( pszStr, "str:", 4 ) == 0 )
+	if ( V_strncmp( pszStr, "str:", 4 ) == 0 )
 	{
 		pszStr += 4;
 		size_t l = strlen( pszStr );
@@ -369,7 +373,7 @@ STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIdentity_ParseStri
 		return pIdentity->SetGenericString( pszStr );
 	}
 
-	if ( V_strnicmp( pszStr, "gen:", 4 ) == 0 )
+	if ( V_strncmp( pszStr, "gen:", 4 ) == 0 )
 	{
 		pszStr += 4;
 		size_t l = strlen( pszStr );
@@ -391,6 +395,43 @@ STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIdentity_ParseStri
 		return pIdentity->SetGenericBytes( tmp, nBytes );
 	}
 
-	// Invalid
-	return false;
+	// Unknown prefix.  But does it looks like it is a string
+	// of the form <prefix>:data ?  We assume that we will only
+	// ever use prefixes from a restricted character set, and we
+	// won't ever make them too long.
+	int cchPrefix = 0;
+	do
+	{
+		// Invalid type prefix or end of string?
+		// Note: lowercase ONLY.  Identifiers are case sensitive (we need this to be true
+		// because we want to be able to hash them and compare them as dumb bytes), so
+		// any use of uppercase letters is really asking for big problems.
+		char c = pszStr[cchPrefix];
+		if ( ( c < 'a' || c > 'z' )
+			&& ( c < '0' || c > '9' )
+			&& c != '_'
+		) {
+			return false;
+		}
+
+		// Char is OK to be in the prefix, move on
+		++cchPrefix;
+		if ( cchPrefix > 16 )
+			return false;
+	} while ( pszStr[cchPrefix] != ':' );
+
+	// OK, as far as we can tell, it might be valid --- unless it's too long
+	int cbSize = V_strlen(pszStr)+1;
+	if ( cbSize > SteamNetworkingIdentity::k_cchMaxString )
+		return false;
+	if ( (size_t)cbSize > sizeofData )
+		return false;
+
+	// Just save the exact raw string we were asked to "parse".  We don't
+	// really understand it, but for many purposes just using the string
+	// as an identifier will work fine!
+	pIdentity->m_eType = k_ESteamNetworkingIdentityType_UnknownType;
+	pIdentity->m_cbSize = cbSize;
+	memcpy( pIdentity->m_szUnknownRawString, pszStr, cbSize );
+	return true;
 }
