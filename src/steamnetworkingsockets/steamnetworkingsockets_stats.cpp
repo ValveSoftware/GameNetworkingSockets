@@ -1154,6 +1154,10 @@ void LinkStatsPrintInstantaneousToBuf( const char *pszLeader, const SteamDatagra
 
 void LinkStatsPrintLifetimeToBuf( const char *pszLeader, const SteamDatagramLinkLifetimeStats &stats, CUtlBuffer &buf )
 {
+	char temp1[256];
+	char temp2[256];
+	char num[64];
+
 	buf.Printf( "%sTotals\n", pszLeader );
 	buf.Printf( "%s    Sent:%11s pkts %15s bytes\n", pszLeader, NumberPrettyPrinter( stats.m_nPacketsSent ).String(), NumberPrettyPrinter( stats.m_nBytesSent ).String() );
 	buf.Printf( "%s    Recv:%11s pkts %15s bytes\n", pszLeader, NumberPrettyPrinter( stats.m_nPacketsRecv ).String(), NumberPrettyPrinter( stats.m_nBytesRecv ).String() );
@@ -1174,21 +1178,54 @@ void LinkStatsPrintLifetimeToBuf( const char *pszLeader, const SteamDatagramLink
 		{
 			float flToPct = 100.0f / nPingSamples;
 			buf.Printf( "%sPing histogram: (%d total samples)\n", pszLeader, nPingSamples );
-			buf.Printf( "%s      0-25  :%5d  %3.0f%%\n", pszLeader, stats.m_pingHistogram.m_n25 , stats.m_pingHistogram.m_n25 *flToPct );
-			buf.Printf( "%s     25-50  :%5d  %3.0f%%\n", pszLeader, stats.m_pingHistogram.m_n50 , stats.m_pingHistogram.m_n50 *flToPct );
-			buf.Printf( "%s     50-75  :%5d  %3.0f%%\n", pszLeader, stats.m_pingHistogram.m_n75 , stats.m_pingHistogram.m_n75 *flToPct );
-			buf.Printf( "%s     75-100 :%5d  %3.0f%%\n", pszLeader, stats.m_pingHistogram.m_n100, stats.m_pingHistogram.m_n100*flToPct );
-			buf.Printf( "%s    100-125 :%5d  %3.0f%%\n", pszLeader, stats.m_pingHistogram.m_n125, stats.m_pingHistogram.m_n125*flToPct );
-			buf.Printf( "%s    125-150 :%5d  %3.0f%%\n", pszLeader, stats.m_pingHistogram.m_n150, stats.m_pingHistogram.m_n150*flToPct );
-			buf.Printf( "%s    150-200 :%5d  %3.0f%%\n", pszLeader, stats.m_pingHistogram.m_n200, stats.m_pingHistogram.m_n200*flToPct );
-			buf.Printf( "%s    200-300 :%5d  %3.0f%%\n", pszLeader, stats.m_pingHistogram.m_n300, stats.m_pingHistogram.m_n300*flToPct );
-			buf.Printf( "%s      300+  :%5d  %3.0f%%\n", pszLeader, stats.m_pingHistogram.m_nMax, stats.m_pingHistogram.m_nMax*flToPct );
-			buf.Printf( "%sPing distribution:\n", pszLeader );
-			if ( stats.m_nPingNtile5th  >= 0 ) buf.Printf( "%s     5%% of pings <= %4dms\n", pszLeader, stats.m_nPingNtile5th  );
-			if ( stats.m_nPingNtile50th >= 0 ) buf.Printf( "%s    50%% of pings <= %4dms\n", pszLeader, stats.m_nPingNtile50th );
-			if ( stats.m_nPingNtile75th >= 0 ) buf.Printf( "%s    75%% of pings <= %4dms\n", pszLeader, stats.m_nPingNtile75th );
-			if ( stats.m_nPingNtile95th >= 0 ) buf.Printf( "%s    95%% of pings <= %4dms\n", pszLeader, stats.m_nPingNtile95th );
-			if ( stats.m_nPingNtile98th >= 0 ) buf.Printf( "%s    98%% of pings <= %4dms\n", pszLeader, stats.m_nPingNtile98th );
+
+			buf.Printf( "%s         0-25    25-50    50-75   75-100  100-125  125-150  150-200  200-300     300+\n", pszLeader );
+			buf.Printf( "%s    %9d%9d%9d%9d%9d%9d%9d%9d%9d\n",
+				pszLeader,
+				stats.m_pingHistogram.m_n25,
+				stats.m_pingHistogram.m_n50,
+				stats.m_pingHistogram.m_n75,
+				stats.m_pingHistogram.m_n100,
+				stats.m_pingHistogram.m_n125,
+				stats.m_pingHistogram.m_n150,
+				stats.m_pingHistogram.m_n200,
+				stats.m_pingHistogram.m_n300,
+				stats.m_pingHistogram.m_nMax );
+			buf.Printf( "%s    %8.1f%%%8.1f%%%8.1f%%%8.1f%%%8.1f%%%8.1f%%%8.1f%%%8.1f%%%8.1f%%\n",
+				pszLeader,
+				stats.m_pingHistogram.m_n25 *flToPct,
+				stats.m_pingHistogram.m_n50 *flToPct,
+				stats.m_pingHistogram.m_n75 *flToPct,
+				stats.m_pingHistogram.m_n100*flToPct,
+				stats.m_pingHistogram.m_n125*flToPct,
+				stats.m_pingHistogram.m_n150*flToPct,
+				stats.m_pingHistogram.m_n200*flToPct,
+				stats.m_pingHistogram.m_n300*flToPct,
+				stats.m_pingHistogram.m_nMax*flToPct );
+			temp1[0] = '\0';
+			temp2[0] = '\0';
+
+			#define PING_NTILE( ntile, val ) \
+				if ( val >= 0 ) \
+				{ \
+					V_sprintf_safe( num, "%7s", ntile ); V_strcat_safe( temp1, num ); \
+					V_sprintf_safe( num, "%5dms", val ); V_strcat_safe( temp2, num ); \
+				}
+
+			PING_NTILE( "5th", stats.m_nPingNtile5th )
+			PING_NTILE( "50th", stats.m_nPingNtile50th );
+			PING_NTILE( "75th", stats.m_nPingNtile75th );
+			PING_NTILE( "95th", stats.m_nPingNtile95th );
+			PING_NTILE( "98th", stats.m_nPingNtile98th );
+
+			#undef PING_NTILE
+
+			if ( temp1[0] != '\0' )
+			{
+				buf.Printf( "%sPing distribution:\n", pszLeader );
+				buf.Printf( "%s%s\n", pszLeader, temp1 );
+				buf.Printf( "%s%s\n", pszLeader, temp2 );
+			}
 		}
 		else
 		{
@@ -1204,20 +1241,56 @@ void LinkStatsPrintLifetimeToBuf( const char *pszLeader, const SteamDatagramLink
 			float flToPct = 100.0f / nQualitySamples;
 
 			buf.Printf( "%sConnection quality histogram: (%d measurement intervals)\n", pszLeader, nQualitySamples );
-			buf.Printf( "%s     100  :%5d  %3.0f%%   (All packets received in order)\n", pszLeader, stats.m_qualityHistogram.m_n100, stats.m_qualityHistogram.m_n100*flToPct );
-			buf.Printf( "%s     99+  :%5d  %3.0f%%\n", pszLeader, stats.m_qualityHistogram.m_n99, stats.m_qualityHistogram.m_n99*flToPct );
-			buf.Printf( "%s    97-99 :%5d  %3.0f%%\n", pszLeader, stats.m_qualityHistogram.m_n97, stats.m_qualityHistogram.m_n97*flToPct );
-			buf.Printf( "%s    95-97 :%5d  %3.0f%%\n", pszLeader, stats.m_qualityHistogram.m_n95, stats.m_qualityHistogram.m_n95*flToPct );
-			buf.Printf( "%s    90-95 :%5d  %3.0f%%\n", pszLeader, stats.m_qualityHistogram.m_n90, stats.m_qualityHistogram.m_n90*flToPct );
-			buf.Printf( "%s    75-90 :%5d  %3.0f%%\n", pszLeader, stats.m_qualityHistogram.m_n75, stats.m_qualityHistogram.m_n75*flToPct );
-			buf.Printf( "%s    50-75 :%5d  %3.0f%%\n", pszLeader, stats.m_qualityHistogram.m_n50, stats.m_qualityHistogram.m_n50*flToPct );
-			buf.Printf( "%s     <50  :%5d  %3.0f%%\n", pszLeader, stats.m_qualityHistogram.m_n1, stats.m_qualityHistogram.m_n1*flToPct );
-			buf.Printf( "%s    dead  :%5d  %3.0f%%   (Expected to receive something but didn't)\n", pszLeader, stats.m_qualityHistogram.m_nDead, stats.m_qualityHistogram.m_nDead*flToPct );
-			buf.Printf( "%sConnection quality distribution:\n", pszLeader );
-			if ( stats.m_nQualityNtile50th >= 0 ) buf.Printf( "%s    50%% of intervals >= %3d%%\n", pszLeader, stats.m_nQualityNtile50th );
-			if ( stats.m_nQualityNtile25th >= 0 ) buf.Printf( "%s    75%% of intervals >= %3d%%\n", pszLeader, stats.m_nQualityNtile25th );
-			if ( stats.m_nQualityNtile5th  >= 0 ) buf.Printf( "%s    95%% of intervals >= %3d%%\n", pszLeader, stats.m_nQualityNtile5th  );
-			if ( stats.m_nQualityNtile2nd  >= 0 ) buf.Printf( "%s    98%% of intervals >= %3d%%\n", pszLeader, stats.m_nQualityNtile2nd  );
+
+			buf.Printf( "%s    perfect    99+  97-99  95-97  90-95  75-90  50-75    <50   dead\n", pszLeader );
+			buf.Printf( "%s    %7d%7d%7d%7d%7d%7d%7d%7d%7d\n",
+				pszLeader,
+				stats.m_qualityHistogram.m_n100,
+				stats.m_qualityHistogram.m_n99,
+				stats.m_qualityHistogram.m_n97,
+				stats.m_qualityHistogram.m_n95,
+				stats.m_qualityHistogram.m_n90,
+				stats.m_qualityHistogram.m_n75,
+				stats.m_qualityHistogram.m_n50,
+				stats.m_qualityHistogram.m_n1,
+				stats.m_qualityHistogram.m_nDead
+			);
+			buf.Printf( "%s    %6.1f%%%6.1f%%%6.1f%%%6.1f%%%6.1f%%%6.1f%%%6.1f%%%6.1f%%%6.1f%%\n",
+				pszLeader,
+				stats.m_qualityHistogram.m_n100 *flToPct,
+				stats.m_qualityHistogram.m_n99  *flToPct,
+				stats.m_qualityHistogram.m_n97  *flToPct,
+				stats.m_qualityHistogram.m_n95  *flToPct,
+				stats.m_qualityHistogram.m_n90  *flToPct,
+				stats.m_qualityHistogram.m_n75  *flToPct,
+				stats.m_qualityHistogram.m_n50  *flToPct,
+				stats.m_qualityHistogram.m_n1   *flToPct,
+				stats.m_qualityHistogram.m_nDead*flToPct
+			);
+
+			temp1[0] = '\0';
+			temp2[0] = '\0';
+
+			#define QUALITY_NTILE( ntile, val ) \
+				if ( val >= 0 ) \
+				{ \
+					V_sprintf_safe( num, "%6s", ntile ); V_strcat_safe( temp1, num ); \
+					V_sprintf_safe( num, "%5d%%", val ); V_strcat_safe( temp2, num ); \
+				}
+
+			QUALITY_NTILE( "50th", stats.m_nQualityNtile50th );
+			QUALITY_NTILE( "25th", stats.m_nQualityNtile25th );
+			QUALITY_NTILE(  "5th", stats.m_nQualityNtile5th  );
+			QUALITY_NTILE(  "2nd", stats.m_nQualityNtile2nd  );
+
+			#undef QUALITY_NTILE
+
+			if ( temp1[0] != '\0' )
+			{
+				buf.Printf( "%sConnection quality distribution:\n", pszLeader );
+				buf.Printf( "%s%s\n", pszLeader, temp1 );
+				buf.Printf( "%s%s\n", pszLeader, temp2 );
+			}
 		}
 		else
 		{
@@ -1233,12 +1306,21 @@ void LinkStatsPrintLifetimeToBuf( const char *pszLeader, const SteamDatagramLink
 			float flToPct = 100.0f / nJitterSamples;
 
 			buf.Printf( "%sLatency variance histogram: (%d total measurements)\n", pszLeader, nJitterSamples );
-			buf.Printf( "%s     <1  :%7d  %3.0f%%\n", pszLeader, stats.m_jitterHistogram.m_nNegligible, stats.m_jitterHistogram.m_nNegligible*flToPct );
-			buf.Printf( "%s    1-2  :%7d  %3.0f%%\n", pszLeader, stats.m_jitterHistogram.m_n1 , stats.m_jitterHistogram.m_n1 *flToPct );
-			buf.Printf( "%s    2-5  :%7d  %3.0f%%\n", pszLeader, stats.m_jitterHistogram.m_n2 , stats.m_jitterHistogram.m_n2 *flToPct );
-			buf.Printf( "%s    5-10 :%7d  %3.0f%%\n", pszLeader, stats.m_jitterHistogram.m_n5 , stats.m_jitterHistogram.m_n5 *flToPct );
-			buf.Printf( "%s   10-20 :%7d  %3.0f%%\n", pszLeader, stats.m_jitterHistogram.m_n10, stats.m_jitterHistogram.m_n10*flToPct );
-			buf.Printf( "%s    >20  :%7d  %3.0f%%\n", pszLeader, stats.m_jitterHistogram.m_n20, stats.m_jitterHistogram.m_n20*flToPct );
+			buf.Printf( "%s          <1     1-2     2-5    5-10   10-20     >20\n", pszLeader );
+			buf.Printf( "%s    %8d%8d%8d%8d%8d%8d\n", pszLeader,
+				stats.m_jitterHistogram.m_nNegligible,
+				stats.m_jitterHistogram.m_n1 , 
+				stats.m_jitterHistogram.m_n2 , 
+				stats.m_jitterHistogram.m_n5 , 
+				stats.m_jitterHistogram.m_n10, 
+				stats.m_jitterHistogram.m_n20 );
+			buf.Printf( "%s    %7.1f%%%7.1f%%%7.1f%%%7.1f%%%7.1f%%%7.1f%%\n", pszLeader,
+				stats.m_jitterHistogram.m_nNegligible*flToPct,
+				stats.m_jitterHistogram.m_n1 *flToPct,
+				stats.m_jitterHistogram.m_n2 *flToPct,
+				stats.m_jitterHistogram.m_n5 *flToPct,
+				stats.m_jitterHistogram.m_n10*flToPct,
+				stats.m_jitterHistogram.m_n20*flToPct );
 		}
 		else
 		{
@@ -1246,61 +1328,62 @@ void LinkStatsPrintLifetimeToBuf( const char *pszLeader, const SteamDatagramLink
 		}
 	}
 
-	// Do we have enough tx speed samples such that the distribution might be interesting?
-	{
-		int nTXSpeedSamples = stats.TXSpeedHistogramTotalCount();
-		if ( nTXSpeedSamples >= 5 )
-		{
-			float flToPct = 100.0f / nTXSpeedSamples;
-			buf.Printf( "%sTX Speed histogram: (%d total samples)\n", pszLeader, nTXSpeedSamples );
-			buf.Printf( "%s     0 - 16 KB/s:%5d  %3.0f%%\n", pszLeader, stats.m_nTXSpeedHistogram16,   stats.m_nTXSpeedHistogram16  *flToPct );
-			buf.Printf( "%s    16 - 32 KB/s:%5d  %3.0f%%\n", pszLeader, stats.m_nTXSpeedHistogram32,   stats.m_nTXSpeedHistogram32  *flToPct );
-			buf.Printf( "%s    32 - 64 KB/s:%5d  %3.0f%%\n", pszLeader, stats.m_nTXSpeedHistogram64,   stats.m_nTXSpeedHistogram64  *flToPct );
-			buf.Printf( "%s   64 - 128 KB/s:%5d  %3.0f%%\n", pszLeader, stats.m_nTXSpeedHistogram128,  stats.m_nTXSpeedHistogram128 *flToPct );
-			buf.Printf( "%s  128 - 256 KB/s:%5d  %3.0f%%\n", pszLeader, stats.m_nTXSpeedHistogram256,  stats.m_nTXSpeedHistogram256 *flToPct );
-			buf.Printf( "%s  256 - 512 KB/s:%5d  %3.0f%%\n", pszLeader, stats.m_nTXSpeedHistogram512,  stats.m_nTXSpeedHistogram512 *flToPct );
-			buf.Printf( "%s 512 - 1024 KB/s:%5d  %3.0f%%\n", pszLeader, stats.m_nTXSpeedHistogram1024, stats.m_nTXSpeedHistogram1024*flToPct );
-			buf.Printf( "%s      1024+ KB/s:%5d  %3.0f%%\n", pszLeader, stats.m_nTXSpeedHistogramMax,  stats.m_nTXSpeedHistogramMax *flToPct );
-			buf.Printf( "%sTransmit speed distribution:\n", pszLeader );
- 			if ( stats.m_nTXSpeedNtile5th  >= 0 ) buf.Printf( "%s     5%% of speeds <= %4d KB/s\n", pszLeader, stats.m_nTXSpeedNtile5th  );
-			if ( stats.m_nTXSpeedNtile50th >= 0 ) buf.Printf( "%s    50%% of speeds <= %4d KB/s\n", pszLeader, stats.m_nTXSpeedNtile50th );
-			if ( stats.m_nTXSpeedNtile75th >= 0 ) buf.Printf( "%s    75%% of speeds <= %4d KB/s\n", pszLeader, stats.m_nTXSpeedNtile75th );
-			if ( stats.m_nTXSpeedNtile95th >= 0 ) buf.Printf( "%s    95%% of speeds <= %4d KB/s\n", pszLeader, stats.m_nTXSpeedNtile95th );
-			if ( stats.m_nTXSpeedNtile98th >= 0 ) buf.Printf( "%s    98%% of speeds <= %4d KB/s\n", pszLeader, stats.m_nTXSpeedNtile98th );
-		}
-		else
-		{
-			buf.Printf( "%sNo connection transmit speed distribution available.  (%d measurement intervals)\n", pszLeader, nTXSpeedSamples );
-		}
-	}
-
-	// Do we have enough RX speed samples such that the distribution might be interesting?
-	{
-		int nRXSpeedSamples = stats.RXSpeedHistogramTotalCount();
-		if ( nRXSpeedSamples >= 5 )
-		{
-			float flToPct = 100.0f / nRXSpeedSamples;
-			buf.Printf( "%sRX Speed histogram: (%d total samples)\n", pszLeader, nRXSpeedSamples );
-			buf.Printf( "%s     0 - 16 KB/s:%5d  %3.0f%%\n", pszLeader, stats.m_nRXSpeedHistogram16,   stats.m_nRXSpeedHistogram16  *flToPct );
-			buf.Printf( "%s    16 - 32 KB/s:%5d  %3.0f%%\n", pszLeader, stats.m_nRXSpeedHistogram32,   stats.m_nRXSpeedHistogram32  *flToPct );
-			buf.Printf( "%s    32 - 64 KB/s:%5d  %3.0f%%\n", pszLeader, stats.m_nRXSpeedHistogram64,   stats.m_nRXSpeedHistogram64  *flToPct );
-			buf.Printf( "%s   64 - 128 KB/s:%5d  %3.0f%%\n", pszLeader, stats.m_nRXSpeedHistogram128,  stats.m_nRXSpeedHistogram128 *flToPct );
-			buf.Printf( "%s  128 - 256 KB/s:%5d  %3.0f%%\n", pszLeader, stats.m_nRXSpeedHistogram256,  stats.m_nRXSpeedHistogram256 *flToPct );
-			buf.Printf( "%s  256 - 512 KB/s:%5d  %3.0f%%\n", pszLeader, stats.m_nRXSpeedHistogram512,  stats.m_nRXSpeedHistogram512 *flToPct );
-			buf.Printf( "%s 512 - 1024 KB/s:%5d  %3.0f%%\n", pszLeader, stats.m_nRXSpeedHistogram1024, stats.m_nRXSpeedHistogram1024*flToPct );
-			buf.Printf( "%s      1024+ KB/s:%5d  %3.0f%%\n", pszLeader, stats.m_nRXSpeedHistogramMax,  stats.m_nRXSpeedHistogramMax *flToPct );
-			buf.Printf( "%sReceive speed distribution:\n", pszLeader );
-			if ( stats.m_nRXSpeedNtile5th  >= 0 ) buf.Printf( "%s     5%% of speeds <= %4d KB/s\n", pszLeader, stats.m_nRXSpeedNtile5th  );
-			if ( stats.m_nRXSpeedNtile50th >= 0 ) buf.Printf( "%s    50%% of speeds <= %4d KB/s\n", pszLeader, stats.m_nRXSpeedNtile50th );
-			if ( stats.m_nRXSpeedNtile75th >= 0 ) buf.Printf( "%s    75%% of speeds <= %4d KB/s\n", pszLeader, stats.m_nRXSpeedNtile75th );
-			if ( stats.m_nRXSpeedNtile95th >= 0 ) buf.Printf( "%s    95%% of speeds <= %4d KB/s\n", pszLeader, stats.m_nRXSpeedNtile95th );
-			if ( stats.m_nRXSpeedNtile98th >= 0 ) buf.Printf( "%s    98%% of speeds <= %4d KB/s\n", pszLeader, stats.m_nRXSpeedNtile98th );
-		}
-		else
-		{
-			buf.Printf( "%sNo connection recieve speed distribution available.  (%d measurement intervals)\n", pszLeader, nRXSpeedSamples );
-		}
-	}
+	// This is all bogus right now, just don't print it
+	//// Do we have enough tx speed samples such that the distribution might be interesting?
+	//{
+	//	int nTXSpeedSamples = stats.TXSpeedHistogramTotalCount();
+	//	if ( nTXSpeedSamples >= 5 )
+	//	{
+	//		float flToPct = 100.0f / nTXSpeedSamples;
+	//		buf.Printf( "%sTX Speed histogram: (%d total samples)\n", pszLeader, nTXSpeedSamples );
+	//		buf.Printf( "%s     0 - 16 KB/s:%5d  %3.0f%%\n", pszLeader, stats.m_nTXSpeedHistogram16,   stats.m_nTXSpeedHistogram16  *flToPct );
+	//		buf.Printf( "%s    16 - 32 KB/s:%5d  %3.0f%%\n", pszLeader, stats.m_nTXSpeedHistogram32,   stats.m_nTXSpeedHistogram32  *flToPct );
+	//		buf.Printf( "%s    32 - 64 KB/s:%5d  %3.0f%%\n", pszLeader, stats.m_nTXSpeedHistogram64,   stats.m_nTXSpeedHistogram64  *flToPct );
+	//		buf.Printf( "%s   64 - 128 KB/s:%5d  %3.0f%%\n", pszLeader, stats.m_nTXSpeedHistogram128,  stats.m_nTXSpeedHistogram128 *flToPct );
+	//		buf.Printf( "%s  128 - 256 KB/s:%5d  %3.0f%%\n", pszLeader, stats.m_nTXSpeedHistogram256,  stats.m_nTXSpeedHistogram256 *flToPct );
+	//		buf.Printf( "%s  256 - 512 KB/s:%5d  %3.0f%%\n", pszLeader, stats.m_nTXSpeedHistogram512,  stats.m_nTXSpeedHistogram512 *flToPct );
+	//		buf.Printf( "%s 512 - 1024 KB/s:%5d  %3.0f%%\n", pszLeader, stats.m_nTXSpeedHistogram1024, stats.m_nTXSpeedHistogram1024*flToPct );
+	//		buf.Printf( "%s      1024+ KB/s:%5d  %3.0f%%\n", pszLeader, stats.m_nTXSpeedHistogramMax,  stats.m_nTXSpeedHistogramMax *flToPct );
+	//		buf.Printf( "%sTransmit speed distribution:\n", pszLeader );
+ 	//		if ( stats.m_nTXSpeedNtile5th  >= 0 ) buf.Printf( "%s     5%% of speeds <= %4d KB/s\n", pszLeader, stats.m_nTXSpeedNtile5th  );
+	//		if ( stats.m_nTXSpeedNtile50th >= 0 ) buf.Printf( "%s    50%% of speeds <= %4d KB/s\n", pszLeader, stats.m_nTXSpeedNtile50th );
+	//		if ( stats.m_nTXSpeedNtile75th >= 0 ) buf.Printf( "%s    75%% of speeds <= %4d KB/s\n", pszLeader, stats.m_nTXSpeedNtile75th );
+	//		if ( stats.m_nTXSpeedNtile95th >= 0 ) buf.Printf( "%s    95%% of speeds <= %4d KB/s\n", pszLeader, stats.m_nTXSpeedNtile95th );
+	//		if ( stats.m_nTXSpeedNtile98th >= 0 ) buf.Printf( "%s    98%% of speeds <= %4d KB/s\n", pszLeader, stats.m_nTXSpeedNtile98th );
+	//	}
+	//	else
+	//	{
+	//		buf.Printf( "%sNo connection transmit speed distribution available.  (%d measurement intervals)\n", pszLeader, nTXSpeedSamples );
+	//	}
+	//}
+	//
+	//// Do we have enough RX speed samples such that the distribution might be interesting?
+	//{
+	//	int nRXSpeedSamples = stats.RXSpeedHistogramTotalCount();
+	//	if ( nRXSpeedSamples >= 5 )
+	//	{
+	//		float flToPct = 100.0f / nRXSpeedSamples;
+	//		buf.Printf( "%sRX Speed histogram: (%d total samples)\n", pszLeader, nRXSpeedSamples );
+	//		buf.Printf( "%s     0 - 16 KB/s:%5d  %3.0f%%\n", pszLeader, stats.m_nRXSpeedHistogram16,   stats.m_nRXSpeedHistogram16  *flToPct );
+	//		buf.Printf( "%s    16 - 32 KB/s:%5d  %3.0f%%\n", pszLeader, stats.m_nRXSpeedHistogram32,   stats.m_nRXSpeedHistogram32  *flToPct );
+	//		buf.Printf( "%s    32 - 64 KB/s:%5d  %3.0f%%\n", pszLeader, stats.m_nRXSpeedHistogram64,   stats.m_nRXSpeedHistogram64  *flToPct );
+	//		buf.Printf( "%s   64 - 128 KB/s:%5d  %3.0f%%\n", pszLeader, stats.m_nRXSpeedHistogram128,  stats.m_nRXSpeedHistogram128 *flToPct );
+	//		buf.Printf( "%s  128 - 256 KB/s:%5d  %3.0f%%\n", pszLeader, stats.m_nRXSpeedHistogram256,  stats.m_nRXSpeedHistogram256 *flToPct );
+	//		buf.Printf( "%s  256 - 512 KB/s:%5d  %3.0f%%\n", pszLeader, stats.m_nRXSpeedHistogram512,  stats.m_nRXSpeedHistogram512 *flToPct );
+	//		buf.Printf( "%s 512 - 1024 KB/s:%5d  %3.0f%%\n", pszLeader, stats.m_nRXSpeedHistogram1024, stats.m_nRXSpeedHistogram1024*flToPct );
+	//		buf.Printf( "%s      1024+ KB/s:%5d  %3.0f%%\n", pszLeader, stats.m_nRXSpeedHistogramMax,  stats.m_nRXSpeedHistogramMax *flToPct );
+	//		buf.Printf( "%sReceive speed distribution:\n", pszLeader );
+	//		if ( stats.m_nRXSpeedNtile5th  >= 0 ) buf.Printf( "%s     5%% of speeds <= %4d KB/s\n", pszLeader, stats.m_nRXSpeedNtile5th  );
+	//		if ( stats.m_nRXSpeedNtile50th >= 0 ) buf.Printf( "%s    50%% of speeds <= %4d KB/s\n", pszLeader, stats.m_nRXSpeedNtile50th );
+	//		if ( stats.m_nRXSpeedNtile75th >= 0 ) buf.Printf( "%s    75%% of speeds <= %4d KB/s\n", pszLeader, stats.m_nRXSpeedNtile75th );
+	//		if ( stats.m_nRXSpeedNtile95th >= 0 ) buf.Printf( "%s    95%% of speeds <= %4d KB/s\n", pszLeader, stats.m_nRXSpeedNtile95th );
+	//		if ( stats.m_nRXSpeedNtile98th >= 0 ) buf.Printf( "%s    98%% of speeds <= %4d KB/s\n", pszLeader, stats.m_nRXSpeedNtile98th );
+	//	}
+	//	else
+	//	{
+	//		buf.Printf( "%sNo connection recieve speed distribution available.  (%d measurement intervals)\n", pszLeader, nRXSpeedSamples );
+	//	}
+	//}
 
 }
 
