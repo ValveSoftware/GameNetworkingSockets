@@ -1783,7 +1783,10 @@ failed:
 	{
 		pConn[i]->m_pSocket = sock[i];
 		if ( !pConn[i]->BInitConnection( usecNow, errMsg ) )
+		{
+			AssertMsg1( false, "CSteamNetworkConnectionlocalhostLoopback::BInitConnection failed.  %s", errMsg );
 			goto failed;
+		}
 	}
 
 	// Tie the connections to each other, and mark them as connected

@@ -2073,7 +2073,10 @@ failed:
 	for ( int i = 0 ; i < 2 ; ++i )
 	{
 		if ( !pConn[i]->BInitConnection( usecNow, errMsg ) )
+		{
+			AssertMsg1( false, "CSteamNetworkConnectionPipe::BInitConnection failed.  %s", errMsg );
 			goto failed;
+		}
 
 		// Slam in a really large SNP rate
 		int nRate = 0x10000000;
@@ -2095,7 +2098,7 @@ failed:
 		p->m_unConnectionIDRemote = q->m_unConnectionIDLocal;
 		if ( !p->BRecvCryptoHandshake( q->m_msgSignedCertLocal, q->m_msgSignedCryptLocal, i==0 ) )
 		{
-			AssertMsg( false, "BRecvCryptoHandshake failed creating localhost socket pair" );
+			AssertMsg( false, "BRecvCryptoHandshake failed creating loopback pipe socket pair" );
 			goto failed;
 		}
 		p->ConnectionState_Connected( usecNow );
@@ -2246,7 +2249,7 @@ void CSteamNetworkConnectionPipe::ConnectionStateChanged( ESteamNetworkingConnec
 		case k_ESteamNetworkingConnectionState_FindingRoute:
 		case k_ESteamNetworkingConnectionState_ProblemDetectedLocally: // What local "problem" could we have detected??
 		default:
-			Assert( false );
+			AssertMsg1( false, "Invalid state %d", GetState() );
 		case k_ESteamNetworkingConnectionState_None:
 		case k_ESteamNetworkingConnectionState_Dead:
 		case k_ESteamNetworkingConnectionState_FinWait:
