@@ -31,6 +31,10 @@
 	#include <Windows.h>
 #endif
 
+#ifdef _WIN32
+	#include <combaseapi.h>
+#endif
+
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
 
@@ -1823,15 +1827,25 @@ bool BSteamNetworkingSocketsLowLevelAddRef( SteamDatagramErrMsg &errMsg )
 		// need to load up libraries and stuff.
 		SteamDatagramTransportLock::SetLongLockWarningThresholdMS( 500 );
 
-		// Init sockets
+		// Initialize COM and sockets on Win32
 		#ifdef _WIN32
+		{
+			HRESULT hr = ::CoInitializeEx( nullptr, COINIT_MULTITHREADED );
+			if ( !SUCCEEDED( hr ) )
+			{
+				V_sprintf_safe( errMsg, "CoInitializeEx returned %x", hr );
+				return false;
+			}
+
 			#pragma comment( lib, "ws2_32.lib" )
 			WSAData wsaData;
 			if ( ::WSAStartup( MAKEWORD(2, 2), &wsaData ) != 0 ) 
 			{
+				::CoUninitialize();
 				V_strcpy_safe( errMsg, "WSAStartup failed" );
 				return false;
 			}
+		}
 		#endif
 
 		// Latch Steam codebase's logging system so we get spew and asserts
@@ -1892,9 +1906,10 @@ void SteamNetworkingSocketsLowLevelDecRef()
 	Assert( s_vecRawSocketsPendingDeletion.IsEmpty() );
 	s_vecRawSocketsPendingDeletion.Purge();
 
-	// Nuke sockets
+	// Nuke sockets and COM
 	#ifdef _WIN32
 		::WSACleanup();
+		::CoUninitialize();
 	#endif
 }
 
