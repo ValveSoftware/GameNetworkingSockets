@@ -1899,45 +1899,54 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 	{
 		Assert( m_statsEndToEnd.m_usecTimeLastRecv > 0 ); // How did we get connected without receiving anything end-to-end?
 
-		SteamNetworkingMicroseconds usecEndToEndConnectionTimeout = std::max( m_statsEndToEnd.m_usecWhenTimeoutStarted, m_statsEndToEnd.m_usecTimeLastRecv ) + (SteamNetworkingMicroseconds)m_connectionConfig.m_TimeoutConnected.Get()*1000;
-		if ( usecNow >= usecEndToEndConnectionTimeout )
+		// Not able to send end-to-end data?
+		bool bCanSendEndToEnd = BCanSendEndToEndData();
+
+		// Mark us as "timing out" if we are not able to send end-to-end data
+		if ( !bCanSendEndToEnd && m_statsEndToEnd.m_usecWhenTimeoutStarted == 0 )
+			m_statsEndToEnd.m_usecWhenTimeoutStarted = usecNow;
+
+		// Are we timing out?
+		if ( m_statsEndToEnd.m_usecWhenTimeoutStarted > 0 )
 		{
-			bool bCanSendEndToEnd = BCanSendEndToEndData();
-			if ( m_statsEndToEnd.m_nReplyTimeoutsSinceLastRecv >= 4 || !bCanSendEndToEnd )
+
+			// When will the timeout hit?
+			SteamNetworkingMicroseconds usecEndToEndConnectionTimeout = std::max( m_statsEndToEnd.m_usecWhenTimeoutStarted, m_statsEndToEnd.m_usecTimeLastRecv ) + (SteamNetworkingMicroseconds)m_connectionConfig.m_TimeoutConnected.Get()*1000;
+
+			// Time to give up?
+			if ( usecNow >= usecEndToEndConnectionTimeout )
 			{
-				if ( bCanSendEndToEnd )
+				if ( m_statsEndToEnd.m_nReplyTimeoutsSinceLastRecv >= 4 || !bCanSendEndToEnd )
 				{
-					Assert( m_statsEndToEnd.m_usecWhenTimeoutStarted > 0 );
-					SpewMsg( "[%s] Timed out.  %.1fms since last recv, %.1fms since timeout started, %d consecutive failures\n",
-						GetDescription(), ( usecNow - m_statsEndToEnd.m_usecTimeLastRecv ) * 1e-3, ( usecNow - m_statsEndToEnd.m_usecWhenTimeoutStarted ) * 1e-3, m_statsEndToEnd.m_nReplyTimeoutsSinceLastRecv );
+					if ( bCanSendEndToEnd )
+					{
+						Assert( m_statsEndToEnd.m_usecWhenTimeoutStarted > 0 );
+						SpewMsg( "[%s] Timed out.  %.1fms since last recv, %.1fms since timeout started, %d consecutive failures\n",
+							GetDescription(), ( usecNow - m_statsEndToEnd.m_usecTimeLastRecv ) * 1e-3, ( usecNow - m_statsEndToEnd.m_usecWhenTimeoutStarted ) * 1e-3, m_statsEndToEnd.m_nReplyTimeoutsSinceLastRecv );
+					}
+					else
+					{
+						SpewMsg( "[%s] Timed out.  Cannot send end-to-end.  %.1fms since last recv, %d consecutive failures\n",
+							GetDescription(), ( usecNow - m_statsEndToEnd.m_usecTimeLastRecv ) * 1e-3, m_statsEndToEnd.m_nReplyTimeoutsSinceLastRecv );
+					}
+					ConnectionTimedOut( usecNow );
+					AssertMsg1( GetState() == k_ESteamNetworkingConnectionState_ProblemDetectedLocally || GetState() == k_ESteamNetworkingConnectionState_Linger, "ConnectionTimedOut didn't do what it is supposed to! (%d)", GetState() );
+					return;
 				}
-				else
-				{
-					SpewMsg( "[%s] Timed out.  Cannot send end-to-end.  %.1fms since last recv, %d consecutive failures\n",
-						GetDescription(), ( usecNow - m_statsEndToEnd.m_usecTimeLastRecv ) * 1e-3, m_statsEndToEnd.m_nReplyTimeoutsSinceLastRecv );
-				}
-				ConnectionTimedOut( usecNow );
-				AssertMsg1( GetState() == k_ESteamNetworkingConnectionState_ProblemDetectedLocally || GetState() == k_ESteamNetworkingConnectionState_Linger, "ConnectionTimedOut didn't do what it is supposed to! (%d)", GetState() );
-				return;
 			}
-			// The timeout time has expired, but we haven't marked enough packets as dropped yet?
-			// Hm, this is weird, probably our aggressive pinging code isn't working or something.
-			// In any case, just check in a bit
-			UpdateMinThinkTime( usecNow + 100*1000, +100 );
-		}
-		else
-		{
-			UpdateMinThinkTime( usecEndToEndConnectionTimeout, +100 );
+
+			// Make sure we are waking up regularly to check in while this is going on
+			UpdateMinThinkTime( usecNow + 50*1000, +100 );
 		}
 
 		// Check for keepalives of varying urgency.
 		// Ping aggressively because connection appears to be timing out?
-		if ( m_statsEndToEnd.m_nReplyTimeoutsSinceLastRecv > 0 )
+		if ( m_statsEndToEnd.m_nReplyTimeoutsSinceLastRecv > 0 || m_statsEndToEnd.m_usecWhenTimeoutStarted > 0 )
 		{
 			SteamNetworkingMicroseconds usecSendAggressivePing = Max( m_statsEndToEnd.m_usecTimeLastRecv, m_statsEndToEnd.m_usecLastSendPacketExpectingImmediateReply ) + k_usecAggressivePingInterval;
 			if ( usecNow >= usecSendAggressivePing )
 			{
-				if ( BCanSendEndToEndData() )
+				if ( bCanSendEndToEnd )
 				{
 					if ( m_statsEndToEnd.m_nReplyTimeoutsSinceLastRecv == 1 )
 						SpewVerbose( "[%s] Reply timeout, last recv %.1fms ago.  Sending keepalive.\n", GetDescription(), ( usecNow - m_statsEndToEnd.m_usecTimeLastRecv ) * 1e-3 );
@@ -1970,7 +1979,7 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 			SteamNetworkingMicroseconds usecSendKeepalive = m_statsEndToEnd.m_usecTimeLastRecv+k_usecKeepAliveInterval;
 			if ( usecNow >= usecSendKeepalive )
 			{
-				if ( BCanSendEndToEndData() )
+				if ( bCanSendEndToEnd )
 				{
 					Assert( m_statsEndToEnd.BNeedToSendKeepalive( usecNow ) ); // Make sure logic matches
 					SendEndToEndStatsMsg( k_EStatsReplyRequest_DelayedOK, usecNow, "E2EKeepalive" );
@@ -1987,6 +1996,10 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 				// Not right now, but schedule a wakeup call to do it
 				UpdateMinThinkTime( usecSendKeepalive, +100 );
 			}
+		}
+		else
+		{
+			UpdateMinThinkTime( m_statsEndToEnd.m_usecInFlightReplyTimeout, +10 );
 		}
 	}
 
