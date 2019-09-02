@@ -341,6 +341,11 @@ public:
 	/// details, pass non-NULL to receive them.
 	virtual ESteamNetworkingAvailability GetAuthenticationStatus( SteamNetAuthenticationStatus_t *pDetails ) = 0;
 
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
+	// Dedicated servers hosted in known data centers
+	// Relayed connections using custom signaling protocol
+#endif // #ifndef STEAMNETWORKINGSOCKETS_ENABLE_SDR
+
 /// Certificate provision by the application.  (On Steam, Steam will handle all this automatically)
 #ifndef STEAMNETWORKINGSOCKETS_STEAM
 
@@ -355,22 +360,7 @@ public:
 	/// Set the certificate.  The certificate blob should be the output of
 	/// SteamDatagram_CreateCert.
 	virtual bool SetCertificate( const void *pCertificate, int cbCertificate, SteamNetworkingErrMsg &errMsg ) = 0;
-
 #endif
-
-#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
-	/// Dedicated servers ervers hosted in known data centers
-	///
-	/// If you need to set any initial config options, pass them here.  See
-	/// SteamNetworkingConfigValue_t for more about why this is preferable to
-	/// setting the options "immediately" after creation.
-	virtual HSteamNetConnection ConnectToHostedDedicatedServer( const SteamNetworkingIdentity &identityTarget, int nVirtualPort ) = 0;
-	///
-	/// If you need to set any initial config options, pass them here.  See
-	/// SteamNetworkingConfigValue_t for more about why this is preferable to
-	/// setting the options "immediately" after creation.
-	virtual HSteamListenSocket CreateHostedDedicatedServerListenSocket( int nVirtualPort ) = 0;
-#endif // #ifndef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 
 	// Invoke all callbacks queued for this interface.
 	// On Steam, callbacks are dispatched via the ordinary Steamworks callbacks mechanism.
@@ -382,7 +372,7 @@ public:
 protected:
 	~ISteamNetworkingSockets(); // Silence some warnings
 };
-#define STEAMNETWORKINGSOCKETS_INTERFACE_VERSION "SteamNetworkingSockets003"
+#define STEAMNETWORKINGSOCKETS_INTERFACE_VERSION "SteamNetworkingSockets005"
 
 extern "C" {
 
@@ -471,6 +461,8 @@ struct SteamNetConnectionStatusChangedCallback_t
 /// - The list of trusted CA certificates that might be relevant for this
 ///   app.
 /// - A valid certificate issued by a CA.
+///
+/// This callback is posted whenever the state of our readiness changes.
 struct SteamNetAuthenticationStatus_t
 { 
 	enum { k_iCallback = k_iSteamNetworkingSocketsCallbacks + 2 };
