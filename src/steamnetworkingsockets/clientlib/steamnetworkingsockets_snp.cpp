@@ -2995,6 +2995,14 @@ SteamNetworkingMicroseconds CSteamNetworkConnectionBase::SNP_ThinkSendState( Ste
 
 void CSteamNetworkConnectionBase::SNP_TokenBucket_Accumulate( SteamNetworkingMicroseconds usecNow )
 {
+	// If we're not connected, just keep our bucket full
+	if ( !BStateIsConnectedForWirePurposes() )
+	{
+		m_senderState.m_flTokenBucket = k_flSendRateBurstOverageAllowance;
+		m_senderState.m_usecTokenBucketTime = usecNow;
+		return;
+	}
+
 	float flElapsed = ( usecNow - m_senderState.m_usecTokenBucketTime ) * 1e-6;
 	m_senderState.m_flTokenBucket += (float)m_senderState.m_n_x * flElapsed;
 	m_senderState.m_usecTokenBucketTime = usecNow;
@@ -3086,7 +3094,7 @@ SteamNetworkingMicroseconds CSteamNetworkConnectionBase::SNP_TimeWhenWantToSendN
 	// We really shouldn't be trying to do this when not connected
 	if ( !BStateIsConnectedForWirePurposes() )
 	{
-		AssertMsg( false, "We shouldn't be trying to send packets when not fully connected" );
+		AssertMsg( false, "We shouldn't be asking about sending packets when not fully connected" );
 		return k_nThinkTime_Never;
 	}
 
