@@ -1360,7 +1360,7 @@ static void SteamDatagramThreadProc()
 	DbgVerify( SetThreadPriority( GetCurrentThread(), THREAD_PRIORITY_HIGHEST ) );
 	#endif
 
-	#if defined(_WIN32) && !defined(GNU_COMPILER)
+	#if defined(_WIN32) && !defined(__GNUC__)
 		typedef struct tagTHREADNAME_INFO
 		{
 			DWORD dwType;

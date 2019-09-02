@@ -251,11 +251,6 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 		target_compile_options(${GNS_TARGET} PRIVATE -fstack-protector-strong)
 	endif()
 
-	if(CMAKE_CXX_COMPILER_ID MATCHES "GNU"
-			OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-		target_compile_definitions(${GNS_TARGET} PUBLIC GNUC GNU_COMPILER)
-	endif()
-
 	set_target_properties(${GNS_TARGET} PROPERTIES
 		CXX_STANDARD 11
 		)

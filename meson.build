@@ -105,13 +105,6 @@ else
   error('Could not identify your target operating system')
 endif
 
-# I really do wonder why we need to set a #define to identify the compiler.
-# Doesn't the compiler identify itself?  We should try to get rid of this.
-target_compiler = c_compiler.get_id()
-if target_compiler == 'gcc' or target_compiler == 'clang'
-  cpp_flags += ['-DGNUC', '-DGNU_COMPILER']
-endif
-
 add_project_arguments(cpp_flags, language: 'c')
 add_project_arguments(cpp_flags, language: 'cpp')
 
