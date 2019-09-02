@@ -280,6 +280,12 @@ static void CertStore_OneTimeInit()
 			PublicKey *pKey = new PublicKey;
 			pKey->SlamHardcodedRootCA();
 			uint64 nKeyID = pKey->CalculateKeyID();
+
+			// Make sure calculated ID matches what we expect!
+			char checkID[64];
+			V_sprintf_safe( checkID, "ID%llu", (unsigned long long)nKeyID );
+			AssertFatal( V_stristr( STEAMNETWORKINGSOCKETS_HARDCODED_ROOT_CA_KEY, checkID ) != NULL );
+
 			s_mapPublicKeys.Insert( nKeyID, pKey );
 		}
 	#endif
