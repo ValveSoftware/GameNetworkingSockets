@@ -127,7 +127,7 @@
 	#ifndef _CONSOLE
 		#define _CONSOLE
 	#endif
-	#ifndef POSIX
+	#if !defined(POSIX) && !defined(_WIN32)
 		#define POSIX
 	#endif
 	#define IsNintendoSwitch() true
