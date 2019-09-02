@@ -351,11 +351,11 @@ bool CertStore_AddCertFromBase64( const char *pszBase64, SteamNetworkingErrMsg &
 		// using the signature as as hash/fingerprint.
 		for ( const Cert &c: pKey->m_vecCerts )
 		{
-			if ( c.m_signature == c.m_signature )
+			if ( cert.m_signature == c.m_signature )
 			{
-				Assert( c.m_signed_data == c.m_signed_data );
-				Assert( c.m_ca_key_id == c.m_ca_key_id );
-				Assert( c.m_timeCreated == c.m_timeCreated );
+				Assert( cert.m_signed_data == c.m_signed_data );
+				Assert( cert.m_ca_key_id == c.m_ca_key_id );
+				Assert( cert.m_timeCreated == c.m_timeCreated );
 				return true;
 			}
 		}
