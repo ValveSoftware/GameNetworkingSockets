@@ -26,6 +26,9 @@
 #include "steamtypes.h"
 #include "steamclientpublic.h"
 
+#ifdef NN_NINTENDO_SDK // We always static link on Nintendo
+	#define STEAMNETWORKINGSOCKETS_STATIC_LINK
+#endif
 #if defined( STEAMNETWORKINGSOCKETS_STATIC_LINK )
 	#define STEAMNETWORKINGSOCKETS_INTERFACE extern "C"
 #elif defined( STEAMNETWORKINGSOCKETS_FOREXPORT )

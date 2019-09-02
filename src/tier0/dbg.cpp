@@ -90,13 +90,10 @@ bool Plat_IsInDebugSession()
 #endif
 }
 
-#if defined (POSIX) && !defined( _PS3 )
-static bool s_bSetSigHandler = false;
-#endif
-
 SpewRetval_t DefaultSpewFunc( SpewType_t type, char const *pMsg )
 {
-#if defined (POSIX) && !defined( _PS3 ) // No signals on PS3
+#if defined (POSIX) && !defined( _PS3 ) && !defined( NN_NINTENDO_SDK )
+	static bool s_bSetSigHandler = false;
 	if ( ! s_bSetSigHandler )
 	{
 		signal( SIGTRAP, SIG_IGN );
@@ -131,7 +128,7 @@ static void _ExitFatal()
 #elif defined( _PS3 )
 	sys_process_exit( EXIT_FAILURE );
 #else
-	_exit( EXIT_FAILURE );
+	std::quick_exit( EXIT_FAILURE );
 #endif
 }
 

@@ -345,7 +345,7 @@ static TestSteamNetworkingSocketsCallbacks g_Callbacks;
 
 static void PumpCallbacks()
 {
-	#ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
+	#ifdef STEAMNETWORKINGSOCKETS_STEAM
 		SteamAPI_RunCallbacks();
 	#endif
 	SteamNetworkingSockets()->RunCallbacks( &g_Callbacks );
@@ -637,3 +637,7 @@ int main(  )
 	ShutdownSteamDatagramConnectionSockets();
 	return 0;
 }
+
+#ifdef NN_NINTENDO_SDK
+extern "C" void nnMain() { main(); }
+#endif

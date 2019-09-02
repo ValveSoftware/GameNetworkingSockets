@@ -300,8 +300,8 @@ size_t netadr_t::ToSockadr(void *addr, size_t addr_size) const
 			}
 			auto *s = (struct sockaddr_in*)addr;
 			s->sin_family = AF_INET;
-			s->sin_addr.s_addr =  htonl( INADDR_LOOPBACK );
-			s->sin_port = htons( port );
+			s->sin_addr.s_addr = BigDWord( INADDR_LOOPBACK );
+			s->sin_port = BigWord( port );
 			struct_size = sizeof(sockaddr_in);
 		}
 		break;
@@ -315,8 +315,8 @@ size_t netadr_t::ToSockadr(void *addr, size_t addr_size) const
 			}
 			auto *s = (struct sockaddr_in*)addr;
 			s->sin_family = AF_INET;
-			s->sin_addr.s_addr =  htonl( INADDR_BROADCAST );
-			s->sin_port = htons( port );
+			s->sin_addr.s_addr = BigDWord( INADDR_BROADCAST );
+			s->sin_port = BigWord( port );
 			struct_size = sizeof(sockaddr_in);
 		}
 		break;
@@ -330,8 +330,8 @@ size_t netadr_t::ToSockadr(void *addr, size_t addr_size) const
 			}
 			auto *s = (struct sockaddr_in*)addr;
 			s->sin_family = AF_INET;
-			s->sin_addr.s_addr = htonl( ip );
-			s->sin_port = htons( port );
+			s->sin_addr.s_addr = BigDWord( ip );
+			s->sin_port = BigWord( port );
 			struct_size = sizeof(sockaddr_in);
 		}
 		break;
@@ -348,7 +348,7 @@ size_t netadr_t::ToSockadr(void *addr, size_t addr_size) const
 			COMPILE_TIME_ASSERT( sizeof(s->sin6_addr) == sizeof(ipv6Byte) );
 			memcpy( &s->sin6_addr, ipv6Byte, sizeof(s->sin6_addr) );
 			s->sin6_scope_id = ipv6Scope;
-			s->sin6_port = htons( port );
+			s->sin6_port = BigWord( port );
 			struct_size = sizeof(sockaddr_in6);
 		}
 		break;
@@ -461,7 +461,7 @@ void netadr_t::ToSockadrIPV6(void *addr, size_t addr_size) const
 	GetIPV6( s->sin6_addr.s6_addr );
 	if ( type == NA_IPV6 )
 		s->sin6_scope_id = ipv6Scope;
-	s->sin6_port = htons( port );
+	s->sin6_port = BigWord( port );
 }
 
 bool netadr_t::SetFromSockadr(const void *addr, size_t addr_size)
@@ -484,8 +484,8 @@ bool netadr_t::SetFromSockadr(const void *addr, size_t addr_size)
 			}
 			const auto *sin = (const sockaddr_in *)addr;
 			type = NA_IP;
-			ip = ntohl ( sin->sin_addr.s_addr );
-			port = ntohs( sin->sin_port );
+			ip = BigDWord( sin->sin_addr.s_addr );
+			port = BigWord( sin->sin_port );
 			return true;
 		}
 
@@ -501,7 +501,7 @@ bool netadr_t::SetFromSockadr(const void *addr, size_t addr_size)
 			COMPILE_TIME_ASSERT( sizeof(sin6->sin6_addr) == sizeof(ipv6Byte) );
 			memcpy( ipv6Byte, &sin6->sin6_addr, sizeof(ipv6Byte) );
 			ipv6Scope = sin6->sin6_scope_id;
-			port = ntohs( sin6->sin6_port );
+			port = BigWord( sin6->sin6_port );
 			return true;
 		}
 	}
