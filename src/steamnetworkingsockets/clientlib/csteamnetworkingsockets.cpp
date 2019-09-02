@@ -446,7 +446,9 @@ bool CSteamNetworkingSockets::SetCertificate( const void *pCertificate, int cbCe
 	time_t authTime = m_pSteamNetworkingUtils->GetTimeSecure();
 	const CertAuthScope *pAuthScope = CertStore_CheckCert( msgCertSigned, msgCert, authTime, errMsg );
 	if ( !pAuthScope )
-		return false;
+	{
+		SpewWarning( "SetCertificate: We are not currently able to verify our own cert!  %s.  Continuing anyway!", errMsg );
+	}
 
 	// Extract the identity from the cert
 	SteamNetworkingErrMsg tempErrMsg;
@@ -500,6 +502,9 @@ bool CSteamNetworkingSockets::SetCertificate( const void *pCertificate, int cbCe
 	// Save it off
 	m_msgSignedCert = std::move( msgCertSigned );
 	m_msgCert = std::move( msgCert );
+
+	// Make sure we have everything else we need to do authentication
+	InitAuthentication();
 
 	// OK
 	return true;
