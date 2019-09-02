@@ -379,6 +379,10 @@ public:
 	/// The listen socket through which we were accepted, if any.
 	CSteamNetworkListenSocketBase *m_pParentListenSocket;
 
+	/// Was this connection initiated locally (we are the "client") or remotely (we are the "server")?
+	/// In *most* use cases, "server" cnonections have a listen socket, but not always.
+	bool m_bConnectionInitiatedRemotely;
+
 	/// Our handle in our parent's m_listAcceptedConnections (if we were accepted on a listen socket)
 	int m_hSelfInParentListenSocketMap;
 

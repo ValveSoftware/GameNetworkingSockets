@@ -58,6 +58,13 @@
 #include <tier0/memdbgoff.h>
 #include <steamnetworkingsockets_messages_certs.pb.h>
 
+// Running against Steam?  Then we have some default signaling.
+// Otherwise, we don't
+#ifdef STEAMNETWORKINGSOCKETS_STEAM
+	#define STEAMNETWORKINGSOCKETS_HAS_DEFAULT_P2P_SIGNALING
+#endif
+
+
 // Redefine the macros for byte-swapping, to sure the correct
 // argument size.  We probably should move this into platform.h,
 // but I suspect we'd find a bunch of "bugs" which currently don't

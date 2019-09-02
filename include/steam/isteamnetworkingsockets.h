@@ -22,6 +22,8 @@
 
 class ISteamNetworkingSocketsCallbacks;
 struct SteamNetAuthenticationStatus_t;
+class ISteamNetworkingConnectionCustomSignaling;
+class ISteamNetworkingCustomSignalingRecvContext;
 
 //-----------------------------------------------------------------------------
 /// Lower level networking interface that more closely mirrors the standard

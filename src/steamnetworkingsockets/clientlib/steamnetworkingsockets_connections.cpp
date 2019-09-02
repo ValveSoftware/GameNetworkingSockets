@@ -294,6 +294,7 @@ void CSteamNetworkListenSocketBase::AddChildConnection( CSteamNetworkConnectionB
 	// Setup linkage
 	pConn->m_pParentListenSocket = this;
 	pConn->m_hSelfInParentListenSocketMap = m_mapChildConnections.Insert( key, pConn );
+	pConn->m_bConnectionInitiatedRemotely = true;
 
 	// Connection configuration will inherit from us
 	pConn->m_connectionConfig.Init( &m_connectionConfig );
@@ -354,6 +355,7 @@ CSteamNetworkConnectionBase::CSteamNetworkConnectionBase( CSteamNetworkingSocket
 	m_bCryptKeysValid = false;
 	memset( m_szAppName, 0, sizeof( m_szAppName ) );
 	memset( m_szDescription, 0, sizeof( m_szDescription ) );
+	m_bConnectionInitiatedRemotely = false;
 
 	// Initialize configuration using parent interface for now.
 	m_connectionConfig.Init( &m_pSteamNetworkingSocketsInterface->m_connectionConfig );
