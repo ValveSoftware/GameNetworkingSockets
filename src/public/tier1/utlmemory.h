@@ -19,8 +19,10 @@
 #include "tier0/platform.h"
 #include "tier0/memdbgon.h"
 
+#ifdef _MSC_VER
 #pragma warning(push)
 #pragma warning (disable:4100) // 'identifier' : unreferenced formal parameter
+#endif
 
 //-----------------------------------------------------------------------------
 
@@ -290,6 +292,8 @@ inline const T *CUtlMemory<T>::Base() const
 
 #include "tier0/memdbgoff.h"
 
+#ifdef _MSC_VER
 #pragma warning(pop)
+#endif
 
 #endif // UTLMEMORY_H
