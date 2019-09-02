@@ -786,7 +786,7 @@ bool CSteamNetworkConnectionBase::BRecvCryptoHandshake( const CMsgSteamDatagramC
 	if ( rIdentity > 0 && !identityCert.IsLocalHost() )
 	{
 
-		// They sent an identity.  Then it must match the dentity we expect!
+		// They sent an identity.  Then it must match the identity we expect!
 		if ( !( identityCert == m_identityRemote ) )
 		{
 			ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCert, "Cert was issued to %s, not %s",
@@ -2134,6 +2134,12 @@ CSteamNetworkConnectionPipe::~CSteamNetworkConnectionPipe()
 void CSteamNetworkConnectionPipe::GetConnectionTypeDescription( ConnectionTypeDescription_t &szDescription ) const
 {
 	V_strcpy_safe( szDescription, "pipe" );
+}
+
+void CSteamNetworkConnectionPipe::InitConnectionCrypto( SteamNetworkingMicroseconds usecNow )
+{
+	// Always use unsigned cert, since we won't be doing any real crypto anyway
+	InitLocalCryptoWithUnsignedCert();
 }
 
 EUnsignedCert CSteamNetworkConnectionPipe::AllowRemoteUnsignedCert()
