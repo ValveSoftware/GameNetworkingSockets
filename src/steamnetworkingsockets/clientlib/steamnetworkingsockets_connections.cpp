@@ -1899,11 +1899,23 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 	{
 		Assert( m_statsEndToEnd.m_usecTimeLastRecv > 0 ); // How did we get connected without receiving anything end-to-end?
 
-		SteamNetworkingMicroseconds usecEndToEndConnectionTimeout = m_statsEndToEnd.m_usecTimeLastRecv + (SteamNetworkingMicroseconds)m_connectionConfig.m_TimeoutConnected.Get()*1000;
+		SteamNetworkingMicroseconds usecEndToEndConnectionTimeout = std::max( m_statsEndToEnd.m_usecWhenTimeoutStarted, m_statsEndToEnd.m_usecTimeLastRecv ) + (SteamNetworkingMicroseconds)m_connectionConfig.m_TimeoutConnected.Get()*1000;
 		if ( usecNow >= usecEndToEndConnectionTimeout )
 		{
-			if ( m_statsEndToEnd.m_nReplyTimeoutsSinceLastRecv >= 4 || !BCanSendEndToEndData() )
+			bool bCanSendEndToEnd = BCanSendEndToEndData();
+			if ( m_statsEndToEnd.m_nReplyTimeoutsSinceLastRecv >= 4 || !bCanSendEndToEnd )
 			{
+				if ( bCanSendEndToEnd )
+				{
+					Assert( m_statsEndToEnd.m_usecWhenTimeoutStarted > 0 );
+					SpewMsg( "[%s] Timed out.  %.1fms since last recv, %.1fms since timeout started, %d consecutive failures\n",
+						GetDescription(), ( usecNow - m_statsEndToEnd.m_usecTimeLastRecv ) * 1e-3, ( usecNow - m_statsEndToEnd.m_usecWhenTimeoutStarted ) * 1e-3, m_statsEndToEnd.m_nReplyTimeoutsSinceLastRecv );
+				}
+				else
+				{
+					SpewMsg( "[%s] Timed out.  Cannot send end-to-end.  %.1fms since last recv, %d consecutive failures\n",
+						GetDescription(), ( usecNow - m_statsEndToEnd.m_usecTimeLastRecv ) * 1e-3, m_statsEndToEnd.m_nReplyTimeoutsSinceLastRecv );
+				}
 				ConnectionTimedOut( usecNow );
 				AssertMsg1( GetState() == k_ESteamNetworkingConnectionState_ProblemDetectedLocally || GetState() == k_ESteamNetworkingConnectionState_Linger, "ConnectionTimedOut didn't do what it is supposed to! (%d)", GetState() );
 				return;
