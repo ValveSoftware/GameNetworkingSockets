@@ -1798,6 +1798,7 @@ bool BSteamNetworkingSocketsLowLevelAddRef( SteamDatagramErrMsg &errMsg )
 
 		// Init sockets
 		#ifdef _WIN32
+			#pragma comment( lib, "ws2_32.lib" )
 			WSAData wsaData;
 			if ( ::WSAStartup( MAKEWORD(2, 2), &wsaData ) != 0 ) 
 			{

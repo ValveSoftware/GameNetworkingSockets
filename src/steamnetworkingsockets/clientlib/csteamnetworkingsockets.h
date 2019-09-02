@@ -33,8 +33,6 @@ class CSteamNetworkingSockets : public IClientNetworkingSockets
 public:
 	CSteamNetworkingSockets( CSteamNetworkingUtils *pSteamNetworkingUtils );
 
-	bool m_bHaveLowLevelRef;
-
 	CSteamNetworkingUtils *const m_pSteamNetworkingUtils;
 	CMsgSteamDatagramCertificateSigned m_msgSignedCert;
 	CMsgSteamDatagramCertificate m_msgCert;
@@ -127,7 +125,18 @@ protected:
 	virtual void InternalQueueCallback( int nCallback, int cbCallback, const void *pvCallback ) = 0;
 #endif
 
-protected:
+	bool m_bHaveLowLevelRef;
+	bool BInitLowLevel( SteamNetworkingErrMsg &errMsg )
+	{
+		if ( !m_bHaveLowLevelRef )
+		{
+			if ( !BSteamNetworkingSocketsLowLevelAddRef( errMsg) )
+				return false;
+			m_bHaveLowLevelRef = true;
+		}
+		return true;
+	}
+
 	// Protected - use Destroy()
 	virtual ~CSteamNetworkingSockets();
 };

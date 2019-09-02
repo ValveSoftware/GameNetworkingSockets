@@ -887,7 +887,7 @@ void CSteamNetworkingSockets::RunCallbacks( ISteamNetworkingSocketsCallbacks *pC
 				COMPILE_TIME_ASSERT( sizeof(SteamNetConnectionStatusChangedCallback_t) <= sizeof(x.data) );
 				pCallbacks->OnSteamNetConnectionStatusChanged( (SteamNetConnectionStatusChangedCallback_t*)x.data );
 				break;
-		#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
+		#ifdef STEAMNETWORKINGSOCKETS_ENABLE_P2P
 			case P2PSessionRequest_t::k_iCallback:
 				COMPILE_TIME_ASSERT( sizeof(P2PSessionRequest_t) <= sizeof(x.data) );
 				pCallbacks->OnP2PSessionRequest( (P2PSessionRequest_t*)x.data );
@@ -896,6 +896,8 @@ void CSteamNetworkingSockets::RunCallbacks( ISteamNetworkingSocketsCallbacks *pC
 				COMPILE_TIME_ASSERT( sizeof(P2PSessionConnectFail_t) <= sizeof(x.data) );
 				pCallbacks->OnP2PSessionConnectFail( (P2PSessionConnectFail_t*)x.data );
 				break;
+		#endif
+		#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 			case SteamNetAuthenticationStatus_t::k_iCallback:
 				COMPILE_TIME_ASSERT( sizeof(SteamNetAuthenticationStatus_t) <= sizeof(x.data) );
 				pCallbacks->OnAuthenticationStatusChanged( (SteamNetAuthenticationStatus_t *)x.data );
