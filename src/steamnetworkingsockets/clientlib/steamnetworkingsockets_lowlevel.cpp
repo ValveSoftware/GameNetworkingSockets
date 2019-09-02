@@ -148,7 +148,7 @@ void SteamDatagramTransportLock::Unlock()
 					*(p++) = ',';
 
 				const char *tag = s_pszCurrentLockTags[ i ];
-				int taglen = std::min( int(end-p), V_strlen( tag ) );
+				int taglen = std::min( int(end-p), (int)V_strlen( tag ) );
 				memcpy( p, tag, taglen );
 				p += taglen;
 
