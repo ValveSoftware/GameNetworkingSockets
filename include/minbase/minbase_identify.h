@@ -119,18 +119,14 @@
 #endif
 
 #if defined( _XBOX_ONE )
-	#ifndef _CONSOLE
-		#define _CONSOLE
-	#endif
 	#define IsXboxOne() true
+	#define IsConsole() true
 #elif defined( NN_NINTENDO_SDK )
-	#ifndef _CONSOLE
-		#define _CONSOLE
-	#endif
 	#if !defined(POSIX) && !defined(_WIN32)
 		#define POSIX
 	#endif
 	#define IsNintendoSwitch() true
+	#define IsConsole() true
 #elif defined( _WIN32 )
 	#define IsWindows() true
 	#define IsPC() true
@@ -159,11 +155,7 @@
 	#define IsPC() false
 #endif
 #ifndef IsConsole
-	#ifdef _CONSOLE
-		#define IsConsole() true
-	#else
-		#define IsConsole() false
-	#endif
+	#define IsConsole() false
 #endif
 #ifndef IsNintendoSwitch
 	#define IsNintendoSwitch() false
