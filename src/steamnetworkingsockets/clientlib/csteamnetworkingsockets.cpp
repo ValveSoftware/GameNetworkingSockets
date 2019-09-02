@@ -705,7 +705,7 @@ EResult CSteamNetworkingSockets::FlushMessagesOnConnection( HSteamNetConnection 
 		return k_EResultInvalidParam;
 	return pConn->APIFlushMessageOnConnection();
 }
-	
+
 int CSteamNetworkingSockets::ReceiveMessagesOnConnection( HSteamNetConnection hConn, SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages )
 {
 	SteamDatagramTransportLock scopeLock( "ReceiveMessagesOnConnection" );
