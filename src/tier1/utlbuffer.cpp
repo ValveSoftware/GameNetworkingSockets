@@ -1,12 +1,6 @@
-//===== Copyright 1996-2005, Valve Corporation, All rights reserved. ======//
-//
-// $Header: $
-// $NoKeywords: $
-//
-// Serialization buffer
-//===========================================================================//
+//===== Copyright Valve Corporation, All rights reserved. ======//
 
-#ifndef _XBOX
+#ifdef _MSC_VER
 #pragma warning (disable : 4514)
 #endif
 

@@ -11,8 +11,6 @@
 static const char k_szOpenSSHPrivatKeyPEMHeader[] = "-----BEGIN OPENSSH PRIVATE KEY-----";
 static const char k_szOpenSSHPrivatKeyPEMFooter[] = "-----END OPENSSH PRIVATE KEY-----";
 
-static const uint k_nRSAOAEPOverheadBytes = 42; // fixed-size overhead of OAEP padding scheme
-
 static bool BCheckAndEatBytes( CUtlBuffer &buf, const void *data, int sz )
 {
 	if ( buf.GetBytesRemaining() < sz )
