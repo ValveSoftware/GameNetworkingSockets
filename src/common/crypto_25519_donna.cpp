@@ -30,7 +30,7 @@ void ed25519_sign_sse2( const unsigned char *m, size_t mlen, const ed25519_secre
 #else
 static bool cpuid(uint32 function, uint32& out_eax, uint32& out_ebx, uint32& out_ecx, uint32& out_edx)
 {
-#if defined(GNUC)
+#if defined(__GNUC__)
 #if defined(PLATFORM_64BITS)
 	asm("mov %%rbx, %%rsi\n\t"
 		"cpuid\n\t"

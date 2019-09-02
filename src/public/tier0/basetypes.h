@@ -112,7 +112,7 @@ inline int FindMostSignificantBit( uint32 n )
 	if ( !_BitScanReverse( &b, n ) )
 		return -1;
 	return (int)b;
-#elif defined(GNUC)
+#elif defined(__GNUC__)
 	if ( !n ) return -1;
 	return 31 - (int) __builtin_clz( n );
 #else
@@ -133,7 +133,7 @@ inline int FindMostSignificantBit64( uint64 n )
 	if ( n >> 32 )
 		return 32 + FindMostSignificantBit( n >> 32 );
 	return FindMostSignificantBit( (uint32) n );
-#elif defined(GNUC)
+#elif defined(__GNUC__)
 	if ( !n ) return -1;
 	return 63 - (int) __builtin_clzll( n );
 #else
@@ -150,7 +150,7 @@ inline int FindLeastSignificantBit( uint32 n )
 	if ( !_BitScanForward( &b, n ) )
 		return -1;
 	return (int)b;
-#elif defined(GNUC)
+#elif defined(__GNUC__)
 	if ( !n ) return -1;
 	return __builtin_ctz( n );
 #else
@@ -172,7 +172,7 @@ inline int FindLeastSignificantBit64( uint64 n )
 	if ( n >> 32 )
 		return 32 + FindLeastSignificantBit( (uint32)(n >> 32) );
 	return -1;
-#elif defined(GNUC)
+#elif defined(__GNUC__)
 	if ( !n ) return -1;
 	return __builtin_ctzll( n );
 #else
