@@ -489,6 +489,7 @@ bool CSteamNetworkingSockets::SetCertificate( const void *pCertificate, int cbCe
 	if ( m_identity.IsInvalid() || m_identity.IsLocalHost() )
 	{
 		m_identity = certIdentity;
+		SpewMsg( errMsg, "Local identity established from certificate.  We are '%s'\n", SteamNetworkingIdentityRender( m_identity ).c_str() );
 	}
 	else if ( !( m_identity == certIdentity ) )
 	{
