@@ -127,6 +127,8 @@ static void _ExitFatal()
 	TerminateProcess( GetCurrentProcess(), EXIT_FAILURE ); // die, die RIGHT NOW! (don't call exit() so destructors will not get run)
 #elif defined( _PS3 )
 	sys_process_exit( EXIT_FAILURE );
+#elif defined( __clang__ )
+	abort();
 #else
 	std::quick_exit( EXIT_FAILURE );
 #endif
