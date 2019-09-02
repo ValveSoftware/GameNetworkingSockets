@@ -23,6 +23,7 @@
 #include <new>
 #include <utility>
 #include <string.h>
+#include <time.h>
 
 #include "minbase/minbase_types.h"
 #include "minbase/minbase_decls.h"
