@@ -31,7 +31,7 @@
 	#include <Windows.h>
 #endif
 
-#ifdef _WIN32
+#ifdef _XBOX_ONE
 	#include <combaseapi.h>
 #endif
 
@@ -118,7 +118,10 @@ void SteamDatagramTransportLock::Unlock()
 	#endif
 
 	// Yelp if we held the lock for longer than the threshold.
-	AssertMsg1( usecElapsedTooLong == 0, "SteamDatagramTransportLock held for %.1fms!", usecElapsedTooLong*1e-3 );
+	if ( usecElapsedTooLong != 0 )
+	{
+		SpewWarning( "SteamDatagramTransportLock held for %.1fms.  This can be a performance problem.", usecElapsedTooLong*1e-3 );
+	}
 }
 
 void SteamDatagramTransportLock::SetLongLockWarningThresholdMS( int msWarningThreshold )
@@ -1827,8 +1830,8 @@ bool BSteamNetworkingSocketsLowLevelAddRef( SteamDatagramErrMsg &errMsg )
 		// need to load up libraries and stuff.
 		SteamDatagramTransportLock::SetLongLockWarningThresholdMS( 500 );
 
-		// Initialize COM and sockets on Win32
-		#ifdef _WIN32
+		// Initialize COM
+		#ifdef _XBOX_ONE
 		{
 			HRESULT hr = ::CoInitializeEx( nullptr, COINIT_MULTITHREADED );
 			if ( !SUCCEEDED( hr ) )
@@ -1836,12 +1839,19 @@ bool BSteamNetworkingSocketsLowLevelAddRef( SteamDatagramErrMsg &errMsg )
 				V_sprintf_safe( errMsg, "CoInitializeEx returned %x", hr );
 				return false;
 			}
+		}
+		#endif
 
+		// Initialize sockets
+		#ifdef _WIN32
+		{
 			#pragma comment( lib, "ws2_32.lib" )
 			WSAData wsaData;
 			if ( ::WSAStartup( MAKEWORD(2, 2), &wsaData ) != 0 ) 
 			{
-				::CoUninitialize();
+				#ifdef _XBOX_ONE
+					::CoUninitialize();
+				#endif
 				V_strcpy_safe( errMsg, "WSAStartup failed" );
 				return false;
 			}
@@ -1909,6 +1919,8 @@ void SteamNetworkingSocketsLowLevelDecRef()
 	// Nuke sockets and COM
 	#ifdef _WIN32
 		::WSACleanup();
+	#endif
+	#ifdef _XBOX_ONE
 		::CoUninitialize();
 	#endif
 }
