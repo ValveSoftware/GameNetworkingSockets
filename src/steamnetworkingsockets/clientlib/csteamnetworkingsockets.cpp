@@ -580,16 +580,32 @@ EResult CSteamNetworkingSockets::AcceptConnection( HSteamNetConnection hConn )
 	SteamDatagramTransportLock scopeLock;
 	CSteamNetworkConnectionBase *pConn = GetConnectionByHandle( hConn );
 	if ( !pConn )
+	{
+		SpewError( "Cannot accept connection #%u; invalid connection handle", hConn );
 		return k_EResultInvalidParam;
+	}
 
 	// Should only be called for connections accepted on listen socket.
 	// (E.g., not connections initiated locally.)
 	if ( pConn->m_pParentListenSocket == nullptr )
+	{
+		SpewError( "[%s] Should not be trying to acccept this connection, it was not received on a listen socket.", pConn->GetDescription() );
 		return k_EResultInvalidParam;
+	}
 
 	// Must be in in state ready to be accepted
 	if ( pConn->GetState() != k_ESteamNetworkingConnectionState_Connecting )
+	{
+		if ( pConn->GetState() == k_ESteamNetworkingConnectionState_ClosedByPeer )
+		{
+			SpewWarning( "[%s] Cannot accept connection; already closed by remote host.", pConn->GetDescription() );
+		}
+		else
+		{
+			SpewError( "[%s] Cannot accept connection, current state is %d.", pConn->GetDescription(), pConn->GetState() );
+		}
 		return k_EResultInvalidState;
+	}
 
 	// Protocol-specific handling
 	return pConn->APIAcceptConnection();
