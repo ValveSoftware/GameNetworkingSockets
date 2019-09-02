@@ -18,11 +18,6 @@
 // Temporarily turn off Valve defines
 #include "tier0/valve_off.h"
 
-#if !defined(_WCHAR_T_DEFINED) && !defined(GNUC)
-typedef unsigned short wchar_t;
-#define _WCHAR_T_DEFINED
-#endif
-
 // char8
 // char8 is equivalent to char, and should be used when you really need a char
 // (for example, when calling an external function that's declared to take
