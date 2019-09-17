@@ -66,15 +66,13 @@ public:
 	CConnectionTransportUDP( CSteamNetworkConnectionUDP &connection );
 
 	// Implements CSteamNetworkConnectionTransport
-	virtual void TransportFreeResources();
+	virtual void TransportFreeResources() override;
 	virtual bool SendDataPacket( SteamNetworkingMicroseconds usecNow ) override;
 	virtual int SendEncryptedDataChunk( const void *pChunk, int cbChunk, SendPacketContext_t &ctx ) override;
 	virtual bool BCanSendEndToEndConnectRequest() const override;
 	virtual bool BCanSendEndToEndData() const override;
 	virtual void SendEndToEndConnectRequest( SteamNetworkingMicroseconds usecNow ) override;
 	virtual void SendEndToEndStatsMsg( EStatsReplyRequest eRequest, SteamNetworkingMicroseconds usecNow, const char *pszReason ) override;
-
-	// We need to customize our thinking to handle the connection state machine
 	virtual void ConnectionStateChanged( ESteamNetworkingConnectionState eOldState ) override;
 
 	/// Interface used to talk to the remote host
