@@ -89,6 +89,11 @@ message CMsgSteamDatagramCertificateSigned
 	/// Signature over the certificate, using the key identified
 	/// by ca_key_id.
 	optional bytes ca_signature = 6;
+
+	/// In a few instances, we want to use the same message to include the private
+	/// key and the corresponding cert.  Most of the time this field should not be
+	/// present!
+	optional bytes private_key_data = 1;
 }
 
 // A request by a client to a CA to issue a cert.

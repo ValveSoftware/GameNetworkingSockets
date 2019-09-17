@@ -55,9 +55,6 @@ public:
 	// If you pass NULL, the number of bytes required is returned.
 	virtual uint32 GetRawData( void *pData ) const = 0;
 
-	// Get raw data as a std::string
-	bool GetRawDataAsStdString( std::string *pResult ) const;
-
 	// Set raw data.  Returns true on success.  Regardless of the outcome,
 	// your buffer will be wiped.
 	bool SetRawDataAndWipeInput( void *pData, size_t cbData );
@@ -69,6 +66,13 @@ public:
 	// Initialize a key object from a hex encoded string of the raw key bytes
 	bool SetFromHexEncodedString( const char *pchEncodedKey );
 	bool SetFromBase64EncodedString( const char *pchEncodedKey );
+
+	// Get raw data as a std::string
+	bool GetRawDataAsStdString( std::string *pResult ) const;
+
+	// Set raw data from a std::string.  (Useful for dealing with protobuf)
+	// NOTE: DOES NOT WIPE THE INPUT
+	bool SetRawDataFromStdString( const std::string &s ) { return SetRawDataWithoutWipingInput( s.c_str(), s.length() ); }
 
 	// Load from some sort of formatted buffer.  (Not the raw binary key data.)
 	virtual bool LoadFromAndWipeBuffer( void *pBuffer, size_t cBytes );

@@ -57,27 +57,77 @@ private:
 //
 /////////////////////////////////////////////////////////////////////////////
 
-/// A connection over raw UDP
-class CSteamNetworkConnectionUDP : public CSteamNetworkConnectionBase
+class CSteamNetworkConnectionUDP;
+
+/// Ordinary UDP transport
+class CConnectionTransportUDP final : public CConnectionTransport
 {
 public:
-	CSteamNetworkConnectionUDP( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface );
-	virtual ~CSteamNetworkConnectionUDP();
+	CConnectionTransportUDP( CSteamNetworkConnectionUDP &connection );
 
-	virtual void FreeResources() override;
-
-	/// Convenience wrapper to do the upcast, since we know what sort of
-	/// listen socket we were connected on.
-	inline CSteamNetworkListenSocketDirectUDP *ListenSocket() const { return assert_cast<CSteamNetworkListenSocketDirectUDP *>( m_pParentListenSocket ); }
-
-	/// Implements CSteamNetworkConnectionBase
+	// Implements CSteamNetworkConnectionTransport
+	virtual void TransportFreeResources();
 	virtual bool SendDataPacket( SteamNetworkingMicroseconds usecNow ) override;
 	virtual int SendEncryptedDataChunk( const void *pChunk, int cbChunk, SendPacketContext_t &ctx ) override;
-	virtual EResult APIAcceptConnection() override;
 	virtual bool BCanSendEndToEndConnectRequest() const override;
 	virtual bool BCanSendEndToEndData() const override;
 	virtual void SendEndToEndConnectRequest( SteamNetworkingMicroseconds usecNow ) override;
 	virtual void SendEndToEndStatsMsg( EStatsReplyRequest eRequest, SteamNetworkingMicroseconds usecNow, const char *pszReason ) override;
+
+	// We need to customize our thinking to handle the connection state machine
+	virtual void ConnectionStateChanged( ESteamNetworkingConnectionState eOldState ) override;
+
+	/// Interface used to talk to the remote host
+	IBoundUDPSocket *m_pSocket;
+
+	bool BConnect( const netadr_t &netadrRemote, SteamDatagramErrMsg &errMsg );
+	bool BAccept( CSharedSocket *pSharedSock, const netadr_t &netadrRemote, SteamDatagramErrMsg &errMsg );
+
+	void SendConnectOK( SteamNetworkingMicroseconds usecNow );
+
+	static bool CreateLoopbackPair( CConnectionTransportUDP *pTransport[2] );
+
+protected:
+	virtual ~CConnectionTransportUDP(); // Don't call operator delete directly
+
+	static void PacketReceived( const void *pPkt, int cbPkt, const netadr_t &adrFrom, CConnectionTransportUDP *pSelf );
+
+	void Received_Data( const uint8 *pPkt, int cbPkt, SteamNetworkingMicroseconds usecNow );
+	void Received_ChallengeReply( const CMsgSteamSockets_UDP_ChallengeReply &msg, SteamNetworkingMicroseconds usecNow );
+	void Received_ConnectOK( const CMsgSteamSockets_UDP_ConnectOK &msg, SteamNetworkingMicroseconds usecNow );
+	void Received_ConnectionClosed( const CMsgSteamSockets_UDP_ConnectionClosed &msg, SteamNetworkingMicroseconds usecNow );
+	void Received_NoConnection( const CMsgSteamSockets_UDP_NoConnection &msg, SteamNetworkingMicroseconds usecNow );
+	void Received_ChallengeOrConnectRequest( const char *pszDebugPacketType, uint32 unPacketConnectionID, SteamNetworkingMicroseconds usecNow );
+
+	void SendPaddedMsg( uint8 nMsgID, const google::protobuf::MessageLite &msg );
+	void SendMsg( uint8 nMsgID, const google::protobuf::MessageLite &msg );
+	void SendPacket( const void *pkt, int cbPkt );
+	void SendPacketGather( int nChunks, const iovec *pChunks, int cbSendTotal );
+
+	void SendConnectionClosedOrNoConnection();
+	void SendNoConnection( uint32 unFromConnectionID, uint32 unToConnectionID );
+
+	/// Process stats message, either inline or standalone
+	void RecvStats( const CMsgSteamSockets_UDP_Stats &msgStatsIn, bool bInline, SteamNetworkingMicroseconds usecNow );
+	void SendStatsMsg( EStatsReplyRequest eReplyRequested, SteamNetworkingMicroseconds usecNow, const char *pszReason );
+	void TrackSentStats( const CMsgSteamSockets_UDP_Stats &msgStatsOut, bool bInline, SteamNetworkingMicroseconds usecNow );
+
+	void PopulateSendPacketContext( UDPSendPacketContext_t &ctx, EStatsReplyRequest eReplyRequested );
+};
+
+/// A connection over ordinary UDP
+class CSteamNetworkConnectionUDP : public CSteamNetworkConnectionBase
+{
+public:
+	CSteamNetworkConnectionUDP( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface );
+
+	/// Convenience wrapper to do the upcast, since we know what sort of
+	/// listen socket we were connected on.
+	inline CSteamNetworkListenSocketDirectUDP *ListenSocket() const { return assert_cast<CSteamNetworkListenSocketDirectUDP *>( m_pParentListenSocket ); }
+	inline CConnectionTransportUDP *Transport() const { return assert_cast<CConnectionTransportUDP *>( m_pTransport ); }
+
+	/// Implements CSteamNetworkConnectionBase
+	virtual EResult APIAcceptConnection() override;
 	virtual void ThinkConnection( SteamNetworkingMicroseconds usecNow ) override;
 	virtual void GetConnectionTypeDescription( ConnectionTypeDescription_t &szDescription ) const override;
 	virtual EUnsignedCert AllowRemoteUnsignedCert() override;
@@ -97,39 +147,8 @@ public:
 		const CMsgSteamDatagramSessionCryptInfoSigned &msgSessionInfo,
 		SteamDatagramErrMsg &errMsg
 	);
-
 protected:
-
-	/// Interface used to talk to the remote host
-	IBoundUDPSocket *m_pSocket;
-
-	// We need to customize our thinking to handle the connection state machine
-	virtual void ConnectionStateChanged( ESteamNetworkingConnectionState eOldState ) override;
-
-	static void PacketReceived( const void *pPkt, int cbPkt, const netadr_t &adrFrom, CSteamNetworkConnectionUDP *pSelf );
-
-	void Received_Data( const uint8 *pPkt, int cbPkt, SteamNetworkingMicroseconds usecNow );
-	void Received_ChallengeReply( const CMsgSteamSockets_UDP_ChallengeReply &msg, SteamNetworkingMicroseconds usecNow );
-	void Received_ConnectOK( const CMsgSteamSockets_UDP_ConnectOK &msg, SteamNetworkingMicroseconds usecNow );
-	void Received_ConnectionClosed( const CMsgSteamSockets_UDP_ConnectionClosed &msg, SteamNetworkingMicroseconds usecNow );
-	void Received_NoConnection( const CMsgSteamSockets_UDP_NoConnection &msg, SteamNetworkingMicroseconds usecNow );
-	void Received_ChallengeOrConnectRequest( const char *pszDebugPacketType, uint32 unPacketConnectionID, SteamNetworkingMicroseconds usecNow );
-
-	void SendPaddedMsg( uint8 nMsgID, const google::protobuf::MessageLite &msg );
-	void SendMsg( uint8 nMsgID, const google::protobuf::MessageLite &msg );
-	void SendPacket( const void *pkt, int cbPkt );
-	void SendPacketGather( int nChunks, const iovec *pChunks, int cbSendTotal );
-
-	void SendConnectOK( SteamNetworkingMicroseconds usecNow );
-	void SendConnectionClosedOrNoConnection();
-	void SendNoConnection( uint32 unFromConnectionID, uint32 unToConnectionID );
-
-	/// Process stats message, either inline or standalone
-	void RecvStats( const CMsgSteamSockets_UDP_Stats &msgStatsIn, bool bInline, SteamNetworkingMicroseconds usecNow );
-	void SendStatsMsg( EStatsReplyRequest eReplyRequested, SteamNetworkingMicroseconds usecNow, const char *pszReason );
-	void TrackSentStats( const CMsgSteamSockets_UDP_Stats &msgStatsOut, bool bInline, SteamNetworkingMicroseconds usecNow );
-
-	void PopulateSendPacketContext( UDPSendPacketContext_t &ctx, EStatsReplyRequest eReplyRequested );
+	virtual ~CSteamNetworkConnectionUDP(); // Use ConnectionDestroySelfNow
 };
 
 /// A connection over loopback

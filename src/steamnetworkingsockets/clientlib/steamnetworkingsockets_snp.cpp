@@ -1318,6 +1318,13 @@ bool CSteamNetworkConnectionBase::SNP_SendPacket( SendPacketContext_t &ctx )
 	Assert( BStateIsConnectedForWirePurposes() );
 	Assert( !m_senderState.m_mapInFlightPacketsByPktNum.empty() );
 
+	// We must have transport!
+	if ( !m_pTransport )
+	{
+		Assert( false );
+		return false;
+	}
+
 	SteamNetworkingMicroseconds usecNow = ctx.m_usecNow;
 
 	// Get max size of plaintext we could send.
@@ -1759,16 +1766,21 @@ bool CSteamNetworkConnectionBase::SNP_SendPacket( SendPacketContext_t &ctx )
 		nullptr, 0 // no AAD
 	) );
 
+	//SpewMsg( "Send encrypt IV %llu + %02x%02x%02x%02x  encrypted %d %02x%02x%02x%02x\n",
+	//	*(uint64 *)&m_cryptIVSend.m_buf,
+	//	m_cryptIVSend.m_buf[8], m_cryptIVSend.m_buf[9], m_cryptIVSend.m_buf[10], m_cryptIVSend.m_buf[11],
+	//	cbEncrypted,
+	//	arEncryptedChunk[0], arEncryptedChunk[1], arEncryptedChunk[2],arEncryptedChunk[3]
+	//);
+
 	// Restore the IV to the base value
 	*(uint64 *)&m_cryptIVSend.m_buf -= LittleQWord( m_statsEndToEnd.m_nNextSendSequenceNumber );
 
 	Assert( (int)cbEncrypted >= cbPlainText );
 	Assert( (int)cbEncrypted <= k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend ); // confirm that pad above was not necessary and we never exceed k_nMaxSteamDatagramTransportPayload, even after encrypting
 
-	//SpewMsg( "Send encrypt IV %llu + %02x%02x%02x%02x, key %02x%02x%02x%02x\n", *(uint64 *)&m_cryptIVSend.m_buf, m_cryptIVSend.m_buf[8], m_cryptIVSend.m_buf[9], m_cryptIVSend.m_buf[10], m_cryptIVSend.m_buf[11], m_cryptKeySend.m_buf[0], m_cryptKeySend.m_buf[1], m_cryptKeySend.m_buf[2], m_cryptKeySend.m_buf[3] );
-
 	// Connection-specific method to send it
-	int nBytesSent = SendEncryptedDataChunk( arEncryptedChunk, cbEncrypted, ctx );
+	int nBytesSent = m_pTransport->SendEncryptedDataChunk( arEncryptedChunk, cbEncrypted, ctx );
 	if ( nBytesSent <= 0 )
 		return false;
 
@@ -2945,7 +2957,7 @@ SteamNetworkingMicroseconds CSteamNetworkConnectionBase::SNP_ThinkSendState( Ste
 
 	// Keep sending packets until we run out of tokens
 	int nPacketsSent = 0;
-	for (;;)
+	while ( m_pTransport )
 	{
 
 		if ( nPacketsSent > k_nMaxPacketsPerThink )
@@ -2970,7 +2982,7 @@ SteamNetworkingMicroseconds CSteamNetworkConnectionBase::SNP_ThinkSendState( Ste
 		}
 
 		// Send the next data packet.
-		if ( !SendDataPacket( usecNow ) )
+		if ( !m_pTransport->SendDataPacket( usecNow ) )
 		{
 			// Problem sending packet.  Nuke token bucket, but request
 			// a wakeup relatively quick to check on our state again
@@ -3141,6 +3153,10 @@ SteamNetworkingMicroseconds CSteamNetworkConnectionBase::SNP_GetNextThinkTime( S
 		AssertMsg( false, "We shouldn't be trying to think SNP when not fully connected" );
 		return k_nThinkTime_Never;
 	}
+
+	// We cannot send any packets if we don't have transport
+	if ( !m_pTransport )
+		return k_nThinkTime_Never;
 
 	// Start with the time when the receiver needs to flush out ack.
 	SteamNetworkingMicroseconds usecNextThink = m_receiverState.TimeWhenFlushAcks();

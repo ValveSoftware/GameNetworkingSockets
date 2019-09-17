@@ -35,6 +35,7 @@ class CSteamNetworkingSockets;
 class CSteamNetworkingMessages;
 class CSteamNetworkConnectionBase;
 class CSharedSocket;
+class CConnectionTransport;
 struct SteamNetworkingMessageQueue;
 struct SNPAckSerializerHelper;
 struct CertAuthScope;
@@ -141,6 +142,9 @@ struct SendPacketContext : SendPacketContext_t
 //
 /////////////////////////////////////////////////////////////////////////////
 
+/// Actual implementation of SteamNetworkingMessage_t, which is the API
+/// visible type.  Has extra fields needed to put the message into intrusive
+/// linked lists.
 class CSteamNetworkingMessage : public SteamNetworkingMessage_t
 {
 public:
@@ -182,6 +186,7 @@ public:
 	void UnlinkFromQueue( Links CSteamNetworkingMessage::*pMbrLinks );
 };
 
+/// A doubly-linked list of CSteamNetworkingMessage
 struct SteamNetworkingMessageQueue
 {
 	CSteamNetworkingMessage *m_pFirst = nullptr;
@@ -270,7 +275,7 @@ protected:
 /// transport.  Most of the common functionality for implementing reliable
 /// connections on top of unreliable datagrams, connection quality measurement,
 /// etc is implemented here. 
-class CSteamNetworkConnectionBase : protected IThinker
+class CSteamNetworkConnectionBase : public IThinker
 {
 public:
 
@@ -316,6 +321,9 @@ public:
 	// Debug description
 	inline const char *GetDescription() const { return m_szDescription; }
 
+	/// When something changes that goes into the description, call this to rebuild the description
+	void SetDescription();
+
 	/// High level state of the connection
 	ESteamNetworkingConnectionState GetState() const { return m_eConnectionState; }
 
@@ -336,7 +344,7 @@ public:
 	inline SteamNetworkingMicroseconds GetTimeEnteredConnectionState() const { return m_usecWhenEnteredConnectionState; }
 
 	/// Fill in connection details
-	virtual void PopulateConnectionInfo( SteamNetConnectionInfo_t &info ) const;
+	virtual void ConnectionPopulateInfo( SteamNetConnectionInfo_t &info ) const;
 
 //
 // Lifetime management
@@ -348,8 +356,11 @@ public:
 	/// Free up all resources.  Close sockets, etc
 	virtual void FreeResources();
 
-	/// Destroy the connection NOW
-	void Destroy();
+	/// Nuke all transports
+	virtual void DestroyTransport();
+
+	/// Free resources and self-destruct NOW
+	void ConnectionDestroySelfNow();
 
 //
 // Connection state machine
@@ -368,6 +379,11 @@ public:
 
 	/// What interface is responsible for this connection?
 	CSteamNetworkingSockets *const m_pSteamNetworkingSocketsInterface;
+
+	/// Current active transport for this connection.
+	/// MIGHT BE NULL in certain failure / edge cases!
+	/// Might change during the connection lifetime.
+	CConnectionTransport *m_pTransport;
 
 	/// Our public handle
 	HSteamNetConnection m_hConnectionSelf;
@@ -410,6 +426,10 @@ public:
 
 	/// Connection configuration
 	ConnectionConfig m_connectionConfig;
+
+	/// The reason code for why the connection was closed.
+	ESteamNetConnectionEnd m_eEndReason;
+	ConnectionEndDebugMsg m_szEndDebug;
 
 	/// MTU values for this connection
 	int m_cbMTUPacketSize = 0;
@@ -455,99 +475,12 @@ public:
 		return m_receiverState.TimeWhenFlushAcks() < INT64_MAX || SNP_TimeWhenWantToSendNextPacket() < INT64_MAX;
 	}
 
-	/// Called by SNP pacing layer, when it has some data to send and there is bandwidth available.
-	/// The derived class should setup a context, reserving the space it needs, and then call SNP_SendPacket.
-	/// Returns true if a packet was sent successfuly, false if there was a problem.
-	virtual bool SendDataPacket( SteamNetworkingMicroseconds usecNow ) = 0;
-
 	/// Send a data packet now, even if we don't have the bandwidth available.  Returns true if a packet was
 	/// sent successfully, false if there was a problem.  This will call SendEncryptedDataChunk to do the work
 	bool SNP_SendPacket( SendPacketContext_t &ctx );
 
 	/// Called to (maybe) post a callback
 	virtual void PostConnectionStateChangedCallback( ESteamNetworkingConnectionState eOldAPIState, ESteamNetworkingConnectionState eNewAPIState );
-
-protected:
-	CSteamNetworkConnectionBase( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface );
-	virtual ~CSteamNetworkConnectionBase(); // hidden destructor, don't call directly.  Use Destroy()
-
-	/// Initialize connection bookkeeping
-	bool BInitConnection( SteamNetworkingMicroseconds usecNow, int nOptions, const SteamNetworkingConfigValue_t *pOptions, SteamDatagramErrMsg &errMsg );
-
-	/// Called from BInitConnection, to start obtaining certs, etc
-	virtual void InitConnectionCrypto( SteamNetworkingMicroseconds usecNow );
-
-	/// If this is a direct UDP connection, what is the address of the remote host?
-	/// FIXME - Should we delete this and move to derived classes?
-	/// It's not always meaningful
-	netadr_t m_netAdrRemote;
-
-	/// The reason code for why the connection was closed.
-	ESteamNetConnectionEnd m_eEndReason;
-	ConnectionEndDebugMsg m_szEndDebug;
-
-	/// User data
-	int64 m_nUserData;
-
-	/// Name assigned by app (for debugging)
-	char m_szAppName[ k_cchSteamNetworkingMaxConnectionDescription ];
-
-	/// More complete debug description (for debugging)
-	char m_szDescription[ k_cchSteamNetworkingMaxConnectionDescription ];
-	void SetDescription();
-
-	/// Set the connection description.  Should include the connection type and peer address.
-	typedef char ConnectionTypeDescription_t[64];
-	virtual void GetConnectionTypeDescription( ConnectionTypeDescription_t &szDescription ) const = 0;
-
-	// Implements IThinker.
-	// Connections do not override this.  Do any periodic work in ThinkConnection()
-	virtual void Think( SteamNetworkingMicroseconds usecNow ) OVERRIDE final;
-
-	/// Check state of connection.  Check for timeouts, and schedule time when we
-	/// should think next
-	void CheckConnectionStateAndSetNextThinkTime( SteamNetworkingMicroseconds usecNow );
-
-	/// Misc periodic processing.
-	/// Called from within CheckConnectionStateAndSetNextThinkTime.
-	virtual void ThinkConnection( SteamNetworkingMicroseconds usecNow );
-
-	/// Called when a timeout is detected
-	void ConnectionTimedOut( SteamNetworkingMicroseconds usecNow );
-
-	/// Called when a timeout is detected.  Derived connection types can inspect this
-	/// to provide a more specific explanation.  Base class just uses the generic reason codes.
-	virtual void GuessTimeoutReason( ESteamNetConnectionEnd &nReasonCode, ConnectionEndDebugMsg &msg, SteamNetworkingMicroseconds usecNow );
-
-	/// Hook to allow connections to customize message sending.
-	/// (E.g. loopback.)
-	virtual EResult _APISendMessageToConnection( const void *pData, uint32 cbData, int nSendFlags );
-
-	/// Base class calls this to ask derived class to surround the 
-	/// "chunk" with the appropriate framing, and route it to the 
-	/// appropriate host.  A "chunk" might contain a mix of reliable 
-	/// and unreliable data.  We use the same framing for data 
-	/// payloads for all connection types.  Return value is 
-	/// the number of bytes written to the network layer, UDP/IP 
-	/// header is not included.
-	///
-	/// pConnectionContext is whatever the connection later passed
-	/// to SNP_SendPacket, if the connection initiated the sending
-	/// of the packet
-	virtual int SendEncryptedDataChunk( const void *pChunk, int cbChunk, SendPacketContext_t &ctx ) = 0;
-
-	/// Called when we receive a complete message.  Should allocate a message object and put it into the proper queues
-	void ReceivedMessage( const void *pData, int cbData, int64 nMsgNum, SteamNetworkingMicroseconds usecNow );
-
-	/// Called when the state changes
-	virtual void ConnectionStateChanged( ESteamNetworkingConnectionState eOldState );
-
-	/// Return true if we are currently able to send end-to-end messages.
-	virtual bool BCanSendEndToEndConnectRequest() const = 0;
-	virtual bool BCanSendEndToEndData() const = 0;
-	virtual void SendEndToEndConnectRequest( SteamNetworkingMicroseconds usecNow ) = 0;
-	virtual void SendEndToEndStatsMsg( EStatsReplyRequest eRequest, SteamNetworkingMicroseconds usecNow, const char *pszReason ) = 0;
-	//virtual bool BSendEndToEndPing( SteamNetworkingMicroseconds usecNow );
 
 	void QueueEndToEndAck( bool bImmediate, SteamNetworkingMicroseconds usecNow )
 	{
@@ -573,6 +506,78 @@ protected:
 		return m_statsEndToEnd.NeedToSend( usecNow );
 	}
 
+	inline const CMsgSteamDatagramSessionCryptInfoSigned &GetSignedCryptLocal() { return m_msgSignedCryptLocal; }
+	inline const CMsgSteamDatagramCertificateSigned &GetSignedCertLocal() { return m_msgSignedCertLocal; }
+	inline bool BCertHasIdentity() const { return m_bCertHasIdentity; }
+	inline bool BCryptKeysValid() const { return m_bCryptKeysValid; }
+
+	/// Called when we send an end-to-end connect request
+	void SentEndToEndConnectRequest( SteamNetworkingMicroseconds usecNow )
+	{
+
+		// Reset timeout/retry for this reply.  But if it fails, we'll start
+		// the whole handshake over again.  It keeps the code simpler, and the
+		// challenge value has a relatively short expiry anyway.
+		m_usecWhenSentConnectRequest = usecNow;
+		EnsureMinThinkTime( usecNow + k_usecConnectRetryInterval );
+	}
+
+	// Check the certs, save keys, etc
+	bool BRecvCryptoHandshake( const CMsgSteamDatagramCertificateSigned &msgCert, const CMsgSteamDatagramSessionCryptInfoSigned &msgSessionInfo, bool bServer );
+
+	/// Check state of connection.  Check for timeouts, and schedule time when we
+	/// should think next
+	void CheckConnectionStateAndSetNextThinkTime( SteamNetworkingMicroseconds usecNow );
+
+protected:
+	CSteamNetworkConnectionBase( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface );
+	virtual ~CSteamNetworkConnectionBase(); // hidden destructor, don't call directly.  Use Destroy()
+
+	/// Initialize connection bookkeeping
+	bool BInitConnection( SteamNetworkingMicroseconds usecNow, int nOptions, const SteamNetworkingConfigValue_t *pOptions, SteamDatagramErrMsg &errMsg );
+
+	/// Called from BInitConnection, to start obtaining certs, etc
+	virtual void InitConnectionCrypto( SteamNetworkingMicroseconds usecNow );
+
+	/// If this is a direct UDP connection, what is the address of the remote host?
+	/// FIXME - Should we delete this and move to derived classes?
+	/// It's not always meaningful
+	netadr_t m_netAdrRemote;
+
+	/// User data
+	int64 m_nUserData;
+
+	/// Name assigned by app (for debugging)
+	char m_szAppName[ k_cchSteamNetworkingMaxConnectionDescription ];
+
+	/// More complete debug description (for debugging)
+	char m_szDescription[ k_cchSteamNetworkingMaxConnectionDescription ];
+
+	/// Set the connection description.  Should include the connection type and peer address.
+	typedef char ConnectionTypeDescription_t[64];
+	virtual void GetConnectionTypeDescription( ConnectionTypeDescription_t &szDescription ) const = 0;
+
+	// Implements IThinker.
+	// Connections do not override this.  Do any periodic work in ThinkConnection()
+	virtual void Think( SteamNetworkingMicroseconds usecNow ) OVERRIDE final;
+
+	/// Misc periodic processing.
+	/// Called from within CheckConnectionStateAndSetNextThinkTime.
+	virtual void ThinkConnection( SteamNetworkingMicroseconds usecNow );
+
+	/// Called when a timeout is detected
+	void ConnectionTimedOut( SteamNetworkingMicroseconds usecNow );
+
+	/// Called when a timeout is detected.  Derived connection types can inspect this
+	/// to provide a more specific explanation.  Base class just uses the generic reason codes.
+	virtual void GuessTimeoutReason( ESteamNetConnectionEnd &nReasonCode, ConnectionEndDebugMsg &msg, SteamNetworkingMicroseconds usecNow );
+
+	/// Hook to allow connections to customize message sending.
+	/// (E.g. loopback.)
+	virtual EResult _APISendMessageToConnection( const void *pData, uint32 cbData, int nSendFlags );
+
+	/// Called when we receive a complete message.  Should allocate a message object and put it into the proper queues
+	void ReceivedMessage( const void *pData, int cbData, int64 nMsgNum, SteamNetworkingMicroseconds usecNow );
 
 	/// Timestamp when we last sent an end-to-end connection request packet
 	SteamNetworkingMicroseconds m_usecWhenSentConnectRequest;
@@ -608,9 +613,6 @@ protected:
 	// and what makes GCM the most efficient. 
 	AutoWipeFixedSizeBuffer<12> m_cryptIVSend;
 	AutoWipeFixedSizeBuffer<12> m_cryptIVRecv;
-
-	// Check the certs, save keys, etc
-	bool BRecvCryptoHandshake( const CMsgSteamDatagramCertificateSigned &msgCert, const CMsgSteamDatagramSessionCryptInfoSigned &msgSessionInfo, bool bServer );
 
 	/// Check if the remote cert (m_msgCertRemote) is acceptable.  If not, return the
 	/// appropriate connection code and error message.  If pCACertAuthScope is NULL, the
@@ -700,8 +702,75 @@ private:
 	#endif
 };
 
+/// Abstract base class for sending end-to-end data for a connection.
+///
+/// NOTE: Eventually, a connection may have more than one transport,
+/// and dynamically switch between them.  (E.g. it will try local LAN,
+/// NAT piercing, then fallback to relay)
+class CConnectionTransport
+{
+public:
+
+	/// The connection we were created to service.  A given transport object
+	/// is always created for a single connection (and that will not change,
+	/// hence this is a reference and not a pointer).  However, a connection may
+	/// create more than one transport.
+	CSteamNetworkConnectionBase &m_connection;
+
+	/// Use this function to actually delete the object.  Do not use operator delete
+	void TransportDestroySelfNow();
+
+	/// Free up transport resources.  Called just before destruction.  If you have cleanup
+	/// that might involved calling virtual methods, do it in here
+	virtual void TransportFreeResources();
+
+	/// Called by SNP pacing layer, when it has some data to send and there is bandwidth available.
+	/// The derived class should setup a context, reserving the space it needs, and then call SNP_SendPacket.
+	/// Returns true if a packet was sent successfully, false if there was a problem.
+	virtual bool SendDataPacket( SteamNetworkingMicroseconds usecNow ) = 0;
+
+	/// Connection will call this to ask the transport to surround the
+	/// "chunk" with the appropriate framing, and route it to the 
+	/// appropriate host.  A "chunk" might contain a mix of reliable 
+	/// and unreliable data.  We use the same framing for data 
+	/// payloads for all connection types.  Return value is 
+	/// the number of bytes written to the network layer, UDP/IP 
+	/// header is not included.
+	///
+	/// ctx is whatever the transport passed to SNP_SendPacket, if the
+	/// connection initiated the sending of the packet
+	virtual int SendEncryptedDataChunk( const void *pChunk, int cbChunk, SendPacketContext_t &ctx ) = 0;
+
+	/// Return true if we are currently able to send end-to-end messages.
+	virtual bool BCanSendEndToEndConnectRequest() const = 0;
+	virtual bool BCanSendEndToEndData() const = 0;
+	virtual void SendEndToEndConnectRequest( SteamNetworkingMicroseconds usecNow ) = 0;
+	virtual void SendEndToEndStatsMsg( EStatsReplyRequest eRequest, SteamNetworkingMicroseconds usecNow, const char *pszReason ) = 0;
+	virtual void TransportPopulateConnectionInfo( SteamNetConnectionInfo_t &info ) const;
+	virtual void GetDetailedConnectionStatus( SteamNetworkingDetailedConnectionStatus &stats, SteamNetworkingMicroseconds usecNow );
+
+	/// Called when the connection state changes.  Some transports need to do stuff
+	virtual void ConnectionStateChanged( ESteamNetworkingConnectionState eOldState );
+
+	// Some accessors for commonly needed info
+	inline ESteamNetworkingConnectionState ConnectionState() const { return m_connection.GetState(); }
+	inline uint32 ConnectionIDLocal() const { return m_connection.m_unConnectionIDLocal; }
+	inline uint32 ConnectionIDRemote() const { return m_connection.m_unConnectionIDRemote; }
+	inline CSteamNetworkListenSocketBase *ListenSocket() const { return m_connection.m_pParentListenSocket; }
+	inline const SteamNetworkingIdentity &IdentityLocal() const { return m_connection.m_identityLocal; }
+	inline const SteamNetworkingIdentity &IdentityRemote() const { return m_connection.m_identityRemote; }
+	inline const char *ConnectionDescription() const { return m_connection.GetDescription(); }
+
+protected:
+
+	inline CConnectionTransport( CSteamNetworkConnectionBase &conn ) : m_connection( conn ) {}
+	virtual ~CConnectionTransport() {} // Destructor protected -- use Destroy()
+};
+
 /// Dummy loopback/pipe connection that doesn't actually do any network work.
-class CSteamNetworkConnectionPipe final : public CSteamNetworkConnectionBase
+/// For these types of connections, the distinction between connection and transport
+/// is not realyl useful
+class CSteamNetworkConnectionPipe final : public CSteamNetworkConnectionBase, public CConnectionTransport
 {
 public:
 
@@ -711,20 +780,23 @@ public:
 	CSteamNetworkConnectionPipe *m_pPartner;
 
 	// CSteamNetworkConnectionBase overrides
-	virtual bool BCanSendEndToEndConnectRequest() const override;
-	virtual bool BCanSendEndToEndData() const override;
-	virtual void SendEndToEndConnectRequest( SteamNetworkingMicroseconds usecNow ) override;
-	virtual void SendEndToEndStatsMsg( EStatsReplyRequest eRequest, SteamNetworkingMicroseconds usecNow, const char *pszReason ) override;
 	virtual EResult APIAcceptConnection() override;
-	virtual bool SendDataPacket( SteamNetworkingMicroseconds usecNow ) override;
-	virtual int SendEncryptedDataChunk( const void *pChunk, int cbChunk, SendPacketContext_t &ctx ) override;
 	virtual EResult _APISendMessageToConnection( const void *pData, uint32 cbData, int nSendFlags ) override;
-	virtual void ConnectionStateChanged( ESteamNetworkingConnectionState eOldState ) override;
 	virtual void PostConnectionStateChangedCallback( ESteamNetworkingConnectionState eOldAPIState, ESteamNetworkingConnectionState eNewAPIState ) override;
 	virtual void InitConnectionCrypto( SteamNetworkingMicroseconds usecNow ) override;
 	virtual EUnsignedCert AllowRemoteUnsignedCert() override;
 	virtual EUnsignedCert AllowLocalUnsignedCert() override;
 	virtual void GetConnectionTypeDescription( ConnectionTypeDescription_t &szDescription ) const override;
+	virtual void DestroyTransport() override;
+
+	// CSteamNetworkConnectionTransport
+	virtual void ConnectionStateChanged( ESteamNetworkingConnectionState eOldState ) override;
+	virtual bool SendDataPacket( SteamNetworkingMicroseconds usecNow ) override;
+	virtual bool BCanSendEndToEndConnectRequest() const override;
+	virtual bool BCanSendEndToEndData() const override;
+	virtual void SendEndToEndConnectRequest( SteamNetworkingMicroseconds usecNow ) override;
+	virtual void SendEndToEndStatsMsg( EStatsReplyRequest eRequest, SteamNetworkingMicroseconds usecNow, const char *pszReason ) override;
+	virtual int SendEncryptedDataChunk( const void *pChunk, int cbChunk, SendPacketContext_t &ctx ) override;
 
 private:
 

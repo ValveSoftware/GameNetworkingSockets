@@ -247,6 +247,7 @@ CSteamNetworkingSockets::CSteamNetworkingSockets( CSteamNetworkingUtils *pSteamN
 , m_pSteamNetworkingUtils( pSteamNetworkingUtils )
 {
 	m_connectionConfig.Init( nullptr );
+	m_identity.Clear();
 }
 
 CSteamNetworkingSockets::~CSteamNetworkingSockets()
@@ -286,7 +287,7 @@ void CSteamNetworkingSockets::KillConnections()
 		CSteamNetworkConnectionBase *pConn = g_mapConnections[idx];
 		if ( pConn->m_pSteamNetworkingSocketsInterface == this )
 		{
-			pConn->Destroy();
+			pConn->ConnectionDestroySelfNow();
 			Assert( !g_mapConnections.IsValidIndex( idx ) );
 		}
 	}
@@ -441,18 +442,51 @@ bool CSteamNetworkingSockets::SetCertificate( const void *pCertificate, int cbCe
 		return false;
 	}
 
-	// Make sure the cert actually matches our public key.
-	if ( !m_keyPrivateKey.IsValid() )
-	{
-		// WAT
-		V_strcpy_safe( errMsg, "Cannot set cert.  No private key?" );
-		return false;
-	}
+	// We currently only support one key type
 	if ( msgCert.key_type() != CMsgSteamDatagramCertificate_EKeyType_ED25519 || msgCert.key_data().size() != 32 )
 	{
 		V_strcpy_safe( errMsg, "Cert has invalid public key" );
 		return false;
 	}
+
+	// Does cert contain a private key?
+	if ( msgCertSigned.has_private_key_data() )
+	{
+		// The degree to which the key is actually "private" is not
+		// really known to us.  However there are some use cases where
+		// we will accept a cert 
+		const std::string &private_key_data = msgCertSigned.private_key_data();
+		if ( m_keyPrivateKey.IsValid() )
+		{
+
+			// We already chose a private key, so the cert must match.
+			// For the most common use cases, we choose a private
+			// key and it never leaves the current process.
+			if ( m_keyPrivateKey.GetRawDataSize() != private_key_data.length()
+				|| memcmp( m_keyPrivateKey.GetRawDataPtr(), private_key_data.c_str(), private_key_data.length() ) != 0 )
+			{
+				V_strcpy_safe( errMsg, "Private key mismatch" );
+				return false;
+			}
+		}
+		else
+		{
+			// We haven't chosen a private key yet, so we'll accept this one.
+			if ( !m_keyPrivateKey.SetRawDataFromStdString( private_key_data ) )
+			{
+				V_strcpy_safe( errMsg, "Invalid private key" );
+				return false;
+			}
+		}
+	}
+	else if ( !m_keyPrivateKey.IsValid() )
+	{
+		// WAT
+		V_strcpy_safe( errMsg, "Cannot set cert.  No private key?" );
+		return false;
+	}
+
+	// Make sure the cert actually matches our public key.
 	if ( memcmp( msgCert.key_data().c_str(), m_keyPrivateKey.GetPublicKeyRawData(), 32 ) != 0 )
 	{
 		V_strcpy_safe( errMsg, "Cert public key does not match our private key" );
@@ -555,8 +589,7 @@ HSteamNetConnection CSteamNetworkingSockets::ConnectByIPAddress( const SteamNetw
 	if ( !pConn->BInitConnect( address, nOptions, pOptions, errMsg ) )
 	{
 		SpewError( "Cannot create IPv4 connection.  %s", errMsg );
-		pConn->FreeResources();
-		delete pConn;
+		pConn->ConnectionDestroySelfNow();
 		return k_HSteamNetConnection_Invalid;
 	}
 
@@ -574,11 +607,10 @@ EResult CSteamNetworkingSockets::AcceptConnection( HSteamNetConnection hConn )
 		return k_EResultInvalidParam;
 	}
 
-	// Should only be called for connections accepted on listen socket.
-	// (E.g., not connections initiated locally.)
-	if ( pConn->m_pParentListenSocket == nullptr )
+	// Should only be called for connections initiated remotely
+	if ( !pConn->m_bConnectionInitiatedRemotely )
 	{
-		SpewError( "[%s] Should not be trying to acccept this connection, it was not received on a listen socket.", pConn->GetDescription() );
+		SpewError( "[%s] Should not be trying to acccept this connection, it was not initiated remotely.", pConn->GetDescription() );
 		return k_EResultInvalidParam;
 	}
 
@@ -706,7 +738,7 @@ bool CSteamNetworkingSockets::GetConnectionInfo( HSteamNetConnection hConn, Stea
 	if ( !pConn )
 		return false;
 	if ( pInfo )
-		pConn->PopulateConnectionInfo( *pInfo );
+		pConn->ConnectionPopulateInfo( *pInfo );
 	return true;
 }
 
@@ -939,6 +971,8 @@ void CSteamNetworkingSockets::InternalQueueCallback( int nCallback, int cbCallba
 // CSteamNetworkingUtils
 //
 /////////////////////////////////////////////////////////////////////////////
+
+CSteamNetworkingUtils::~CSteamNetworkingUtils() {}
 
 SteamNetworkingMicroseconds CSteamNetworkingUtils::GetLocalTimestamp()
 {

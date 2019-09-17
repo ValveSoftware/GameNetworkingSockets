@@ -1849,7 +1849,7 @@ void ReallySpewType( ESteamNetworkingSocketsDebugOutputType eType, const char *p
 	pfnDebugOutput( eType, buf );
 }
 
-#ifdef STEAMNETWORKINGSOCKETS_STANDALONELIB
+#if defined( STEAMNETWORKINGSOCKETS_STANDALONELIB ) && !defined( STEAMNETWORKINGSOCKETS_STREAMINGCLIENT )
 static SpewRetval_t SDRSpewFunc( SpewType_t type, char const *pMsg )
 {
 	V_StripTrailingWhitespaceASCII( const_cast<char*>( pMsg ) );
@@ -1937,7 +1937,7 @@ bool BSteamNetworkingSocketsLowLevelAddRef( SteamDatagramErrMsg &errMsg )
 		#endif
 
 		// Latch Steam codebase's logging system so we get spew and asserts
-		#ifdef STEAMNETWORKINGSOCKETS_STANDALONELIB
+		#if defined( STEAMNETWORKINGSOCKETS_STANDALONELIB ) && !defined( STEAMNETWORKINGSOCKETS_STREAMINGCLIENT )
 			SpewOutputFunc( SDRSpewFunc );
 		#endif
 

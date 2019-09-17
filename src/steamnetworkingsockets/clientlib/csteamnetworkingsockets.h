@@ -144,6 +144,7 @@ protected:
 class CSteamNetworkingUtils : public IClientNetworkingUtils
 {
 public:
+	virtual ~CSteamNetworkingUtils();
 
 	virtual SteamNetworkingMicroseconds GetLocalTimestamp() override;
 	virtual void SetDebugOutputFunction( ESteamNetworkingSocketsDebugOutputType eDetailLevel, FSteamNetworkingSocketsDebugOutput pfnFunc ) override;
