@@ -1031,7 +1031,14 @@ static ConfigValue<T> *EvaluateScopeConfigValue( GlobalConfigValueEntry *pEntry,
 
 		case k_ESteamNetworkingConfig_Connection:
 		{
-			CSteamNetworkConnectionBase *pConn = GetConnectionByHandleForAPI( HSteamNetConnection( scopeObj ) );
+			// NOTE: Not using GetConnectionByHandleForAPI here.  In a few places in the code,
+			// we need to be able to set config options for connections that are being created.
+			// Really, we ought to plumb through these calls to an internal interface, so that
+			// we would know that they should be given access.  Right now they are coming in
+			// the "front door".  So this means if the app tries to set a config option on a
+			// connection that technically no longer exists, we will actually allow that, when
+			// we probably should fail the call.
+			CSteamNetworkConnectionBase *pConn = GetConnectionByHandle( HSteamNetConnection( scopeObj ) );
 			if ( pConn )
 			{
 				if ( pEntry->m_eScope == k_ESteamNetworkingConfig_Connection )
