@@ -676,6 +676,7 @@ struct ConnectionConfig
 	ConfigValue<int32> m_MTU_PacketSize;
 	ConfigValue<int32> m_NagleTime;
 	ConfigValue<int32> m_IP_AllowWithoutAuth;
+	ConfigValue<int32> m_Unencrypted;
 
 	ConfigValue<int32> m_LogLevel_AckRTT;
 	ConfigValue<int32> m_LogLevel_PacketDecode;

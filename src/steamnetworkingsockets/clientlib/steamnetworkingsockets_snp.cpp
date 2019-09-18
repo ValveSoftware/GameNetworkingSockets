@@ -1329,6 +1329,7 @@ bool CSteamNetworkConnectionBase::SNP_SendPacket( SendPacketContext_t &ctx )
 
 	// Get max size of plaintext we could send.
 	// AES-GCM has a fixed size overhead, for the tag.
+	// FIXME - but what we if we aren't using AES-GCM!
 	int cbMaxPlaintextPayload = std::max( 0, ctx.m_cbMaxEncryptedPayload-k_cbSteamNetwokingSocketsEncrytionTagSize );
 	cbMaxPlaintextPayload = std::min( cbMaxPlaintextPayload, m_cbMaxPlaintextPayloadSend );
 
@@ -1747,40 +1748,59 @@ bool CSteamNetworkConnectionBase::SNP_SendPacket( SendPacketContext_t &ctx )
 		return 0;
 	}
 
-	//
-	// Encrypt it
-	//
+	// OK, we have a plaintext payload.  Encrypt and send it.
+	// What cipher are we using?
+	int nBytesSent = 0;
+	switch ( m_eNegotiatedCipher )
+	{
+		default:
+			AssertMsg1( false, "Bogus cipher %d", m_eNegotiatedCipher );
+			break;
 
-	Assert( m_bCryptKeysValid );
+		case k_ESteamNetworkingSocketsCipher_NULL:
+		{
 
-	// Adjust the IV by the packet number
-	*(uint64 *)&m_cryptIVSend.m_buf += LittleQWord( m_statsEndToEnd.m_nNextSendSequenceNumber );
+			// No encryption!
+			// Ask current transport to deliver it
+			nBytesSent = m_pTransport->SendEncryptedDataChunk( payload, cbPlainText, ctx );
+		}
+		break;
 
-	// Encrypt the chunk
-	uint8 arEncryptedChunk[ k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend + 64 ]; // Should not need pad
-	uint32 cbEncrypted = sizeof(arEncryptedChunk);
-	DbgVerify( m_cryptContextSend.Encrypt(
-		payload, cbPlainText, // plaintext
-		m_cryptIVSend.m_buf, // IV
-		arEncryptedChunk, &cbEncrypted, // output
-		nullptr, 0 // no AAD
-	) );
+		case k_ESteamNetworkingSocketsCipher_AES_256_GCM:
+		{
 
-	//SpewMsg( "Send encrypt IV %llu + %02x%02x%02x%02x  encrypted %d %02x%02x%02x%02x\n",
-	//	*(uint64 *)&m_cryptIVSend.m_buf,
-	//	m_cryptIVSend.m_buf[8], m_cryptIVSend.m_buf[9], m_cryptIVSend.m_buf[10], m_cryptIVSend.m_buf[11],
-	//	cbEncrypted,
-	//	arEncryptedChunk[0], arEncryptedChunk[1], arEncryptedChunk[2],arEncryptedChunk[3]
-	//);
+			Assert( m_bCryptKeysValid );
 
-	// Restore the IV to the base value
-	*(uint64 *)&m_cryptIVSend.m_buf -= LittleQWord( m_statsEndToEnd.m_nNextSendSequenceNumber );
+			// Adjust the IV by the packet number
+			*(uint64 *)&m_cryptIVSend.m_buf += LittleQWord( m_statsEndToEnd.m_nNextSendSequenceNumber );
 
-	Assert( (int)cbEncrypted >= cbPlainText );
-	Assert( (int)cbEncrypted <= k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend ); // confirm that pad above was not necessary and we never exceed k_nMaxSteamDatagramTransportPayload, even after encrypting
+			// Encrypt the chunk
+			uint8 arEncryptedChunk[ k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend + 64 ]; // Should not need pad
+			uint32 cbEncrypted = sizeof(arEncryptedChunk);
+			DbgVerify( m_cryptContextSend.Encrypt(
+				payload, cbPlainText, // plaintext
+				m_cryptIVSend.m_buf, // IV
+				arEncryptedChunk, &cbEncrypted, // output
+				nullptr, 0 // no AAD
+			) );
 
-	// Connection-specific method to send it
-	int nBytesSent = m_pTransport->SendEncryptedDataChunk( arEncryptedChunk, cbEncrypted, ctx );
+			//SpewMsg( "Send encrypt IV %llu + %02x%02x%02x%02x  encrypted %d %02x%02x%02x%02x\n",
+			//	*(uint64 *)&m_cryptIVSend.m_buf,
+			//	m_cryptIVSend.m_buf[8], m_cryptIVSend.m_buf[9], m_cryptIVSend.m_buf[10], m_cryptIVSend.m_buf[11],
+			//	cbEncrypted,
+			//	arEncryptedChunk[0], arEncryptedChunk[1], arEncryptedChunk[2],arEncryptedChunk[3]
+			//);
+
+			// Restore the IV to the base value
+			*(uint64 *)&m_cryptIVSend.m_buf -= LittleQWord( m_statsEndToEnd.m_nNextSendSequenceNumber );
+
+			Assert( (int)cbEncrypted >= cbPlainText );
+			Assert( (int)cbEncrypted <= k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend ); // confirm that pad above was not necessary and we never exceed k_nMaxSteamDatagramTransportPayload, even after encrypting
+
+			// Ask current transport to deliver it
+			nBytesSent = m_pTransport->SendEncryptedDataChunk( arEncryptedChunk, cbEncrypted, ctx );
+		}
+	}
 	if ( nBytesSent <= 0 )
 		return false;
 

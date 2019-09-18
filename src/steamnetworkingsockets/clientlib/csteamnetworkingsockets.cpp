@@ -51,6 +51,7 @@ DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, MTU_PacketSize, 1300, k_cbSteamNetwor
 #else
 	DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, IP_AllowWithoutAuth, 0, 0, 2 );
 #endif
+DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, Unencrypted, 0, 0, 3 );
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, LogLevel_AckRTT, k_ESteamNetworkingSocketsDebugOutputType_Everything, k_ESteamNetworkingSocketsDebugOutputType_Error, k_ESteamNetworkingSocketsDebugOutputType_Everything );
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, LogLevel_PacketDecode, k_ESteamNetworkingSocketsDebugOutputType_Everything, k_ESteamNetworkingSocketsDebugOutputType_Error, k_ESteamNetworkingSocketsDebugOutputType_Everything );
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, LogLevel_Message, k_ESteamNetworkingSocketsDebugOutputType_Everything, k_ESteamNetworkingSocketsDebugOutputType_Error, k_ESteamNetworkingSocketsDebugOutputType_Everything );
@@ -607,28 +608,7 @@ EResult CSteamNetworkingSockets::AcceptConnection( HSteamNetConnection hConn )
 		return k_EResultInvalidParam;
 	}
 
-	// Should only be called for connections initiated remotely
-	if ( !pConn->m_bConnectionInitiatedRemotely )
-	{
-		SpewError( "[%s] Should not be trying to acccept this connection, it was not initiated remotely.", pConn->GetDescription() );
-		return k_EResultInvalidParam;
-	}
-
-	// Must be in in state ready to be accepted
-	if ( pConn->GetState() != k_ESteamNetworkingConnectionState_Connecting )
-	{
-		if ( pConn->GetState() == k_ESteamNetworkingConnectionState_ClosedByPeer )
-		{
-			SpewWarning( "[%s] Cannot accept connection; already closed by remote host.", pConn->GetDescription() );
-		}
-		else
-		{
-			SpewError( "[%s] Cannot accept connection, current state is %d.", pConn->GetDescription(), pConn->GetState() );
-		}
-		return k_EResultInvalidState;
-	}
-
-	// Protocol-specific handling
+	// Accept it
 	return pConn->APIAcceptConnection();
 }
 

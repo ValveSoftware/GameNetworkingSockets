@@ -1000,6 +1000,13 @@ enum ESteamNetworkingConfigValue
 	/// will not fragment, based on k_ESteamNetworkingConfig_MTU_PacketSize
 	k_ESteamNetworkingConfig_MTU_DataSize = 33,
 
+	/// [connection int32] Allow unencrypted (and unauthenticated) communication.
+	/// 0: Not allowed (the default)
+	/// 1: Allowed, but prefer encrypted
+	/// 2: Allowed, and preferred
+	/// 3: Required.  (Fail the connection if the peer requires encryption.)
+	k_ESteamNetworkingConfig_Unencrypted = 34,
+
 	//
 	// Settings for SDR relayed connections
 	//

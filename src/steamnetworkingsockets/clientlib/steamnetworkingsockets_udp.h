@@ -125,7 +125,7 @@ public:
 	inline CConnectionTransportUDP *Transport() const { return assert_cast<CConnectionTransportUDP *>( m_pTransport ); }
 
 	/// Implements CSteamNetworkConnectionBase
-	virtual EResult APIAcceptConnection() override;
+	virtual EResult AcceptConnection() override;
 	virtual void ThinkConnection( SteamNetworkingMicroseconds usecNow ) override;
 	virtual void GetConnectionTypeDescription( ConnectionTypeDescription_t &szDescription ) const override;
 	virtual EUnsignedCert AllowRemoteUnsignedCert() override;

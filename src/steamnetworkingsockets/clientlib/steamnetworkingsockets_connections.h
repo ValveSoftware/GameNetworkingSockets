@@ -298,7 +298,8 @@ public:
 	/// Accept a connection.  This will involve sending a message
 	/// to the client, and calling ConnectionState_Connected on the connection
 	/// to transition it to the connected state.
-	virtual EResult APIAcceptConnection() = 0;
+	EResult APIAcceptConnection();
+	virtual EResult AcceptConnection();
 
 	/// Fill in quick connection stats
 	void APIGetQuickConnectionStatus( SteamNetworkingQuickConnectionStatus &stats );
@@ -455,7 +456,7 @@ public:
 	/// Called when the async process to request a cert has failed.
 	void CertRequestFailed( ESteamNetConnectionEnd nConnectionEndReason, const char *pszMsg );
 	bool BHasLocalCert() const { return m_msgSignedCertLocal.has_cert(); }
-	void InitLocalCrypto( const CMsgSteamDatagramCertificateSigned &msgSignedCert, const CECSigningPrivateKey &keyPrivate, bool bCertHasIdentity );
+	void SetLocalCert( const CMsgSteamDatagramCertificateSigned &msgSignedCert, const CECSigningPrivateKey &keyPrivate, bool bCertHasIdentity );
 	void InterfaceGotCert();
 
 	void SNP_PopulateP2PSessionStateStats( P2PSessionState_t &info ) const;
@@ -524,6 +525,7 @@ public:
 
 	// Check the certs, save keys, etc
 	bool BRecvCryptoHandshake( const CMsgSteamDatagramCertificateSigned &msgCert, const CMsgSteamDatagramSessionCryptInfoSigned &msgSessionInfo, bool bServer );
+	bool BFinishCryptoHandshake( bool bServer );
 
 	/// Check state of connection.  Check for timeouts, and schedule time when we
 	/// should think next
@@ -588,18 +590,24 @@ protected:
 
 	void ClearCrypto();
 	bool BThinkCryptoReady( SteamNetworkingMicroseconds usecNow );
-	void InitLocalCryptoWithUnsignedCert();
+	void SetLocalCertUnsigned();
+	void FinalizeLocalCrypto();
+	void SetCryptoCipherList();
 
-	// Remote crypt info
+	// Remote cert and crypt info.  We need to hand on to the original serialized version briefly
+	std::string m_sCertRemote;
+	std::string m_sCryptRemote;
 	CMsgSteamDatagramCertificate m_msgCertRemote;
 	CMsgSteamDatagramSessionCryptInfo m_msgCryptRemote;
 
 	// Local crypto info for this connection
+	CECSigningPrivateKey m_keyPrivate; // Private key corresponding to our cert.  We'll wipe this in FinalizeLocalCrypto, as soon as we've locked in the crypto properties we're going to use
 	CECKeyExchangePrivateKey m_keyExchangePrivateKeyLocal;
 	CMsgSteamDatagramSessionCryptInfo m_msgCryptLocal;
 	CMsgSteamDatagramSessionCryptInfoSigned m_msgSignedCryptLocal;
 	CMsgSteamDatagramCertificateSigned m_msgSignedCertLocal;
 	bool m_bCertHasIdentity; // Does the cert contain the identity we will use for this connection?
+	ESteamNetworkingSocketsCipher m_eNegotiatedCipher;
 
 	// AES keys used in each direction
 	bool m_bCryptKeysValid;
@@ -780,7 +788,6 @@ public:
 	CSteamNetworkConnectionPipe *m_pPartner;
 
 	// CSteamNetworkConnectionBase overrides
-	virtual EResult APIAcceptConnection() override;
 	virtual EResult _APISendMessageToConnection( const void *pData, uint32 cbData, int nSendFlags ) override;
 	virtual void PostConnectionStateChangedCallback( ESteamNetworkingConnectionState eOldAPIState, ESteamNetworkingConnectionState eNewAPIState ) override;
 	virtual void InitConnectionCrypto( SteamNetworkingMicroseconds usecNow ) override;

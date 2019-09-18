@@ -981,7 +981,7 @@ bool CSteamNetworkConnectionUDP::BBeginAccept(
 	return true;
 }
 
-EResult CSteamNetworkConnectionUDP::APIAcceptConnection()
+EResult CSteamNetworkConnectionUDP::AcceptConnection()
 {
 	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 

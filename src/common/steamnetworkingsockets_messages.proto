@@ -10,7 +10,17 @@ option optimize_for = SPEED;
 // We don't use the service generation functionality
 option cc_generic_services = false;
 
-// Session keys used in key exchange
+// Different crypto ciphers we support
+enum ESteamNetworkingSocketsCipher
+{
+	k_ESteamNetworkingSocketsCipher_INVALID = 0; // Dummy value
+	k_ESteamNetworkingSocketsCipher_NULL = 1; // No encryption or authentication
+	k_ESteamNetworkingSocketsCipher_AES_256_GCM = 2; // AES256 in GCM mode with 12-byte security tag.  Basically equivalent to TLS_AES_256_GCM_xxx
+	//k_ESteamNetworkingSocketsCipher_CHACHA20_POLY1305 = 3;
+};
+
+// Used in crypto handshake.  Clients describe what they are willing to use,
+// servers decide what will be used, and reply with the negotiated values.
 message CMsgSteamDatagramSessionCryptInfo
 {
 
@@ -26,6 +36,12 @@ message CMsgSteamDatagramSessionCryptInfo
 
 	optional fixed64 nonce = 3; // Additional nonce used for key generation
 	optional uint32 protocol_version = 4; // Protocol version used.  Must match the version in the header
+
+	/// Clients specify the list of ciphers, in preference order.
+	/// Servers will specify only the single cipher they selected (assuming they allowed the connection).
+	/// If this list is empty (legacy client), then it should be interpreted the same
+	/// as if there were a single entry with k_ESteamNetworkingSocketsCipher_AES_256_GCM
+	repeated ESteamNetworkingSocketsCipher ciphers = 5;
 };
 
 // Session keys used in key exchange

@@ -416,6 +416,7 @@ CSteamNetworkConnectionBase::CSteamNetworkConnectionBase( CSteamNetworkingSocket
 	m_pMessagesSession = nullptr;
 	m_bCertHasIdentity = false;
 	m_bCryptKeysValid = false;
+	m_eNegotiatedCipher = k_ESteamNetworkingSocketsCipher_INVALID;
 	memset( m_szAppName, 0, sizeof( m_szAppName ) );
 	memset( m_szDescription, 0, sizeof( m_szDescription ) );
 	m_bConnectionInitiatedRemotely = false;
@@ -669,6 +670,8 @@ void CSteamNetworkConnectionBase::InitConnectionCrypto( SteamNetworkingMicroseco
 
 void CSteamNetworkConnectionBase::ClearCrypto()
 {
+	m_eNegotiatedCipher = k_ESteamNetworkingSocketsCipher_INVALID;
+	m_keyPrivate.Wipe();
 	m_msgCertRemote.Clear();
 	m_msgCryptRemote.Clear();
 
@@ -712,7 +715,7 @@ bool CSteamNetworkConnectionBase::BThinkCryptoReady( SteamNetworkingMicroseconds
 	// is meaningless.  No peer should ever honor such a certificate.
 	if ( m_identityLocal.IsLocalHost() )
 	{
-		InitLocalCryptoWithUnsignedCert();
+		SetLocalCertUnsigned();
 		return true;
 	}
 
@@ -721,14 +724,14 @@ bool CSteamNetworkConnectionBase::BThinkCryptoReady( SteamNetworkingMicroseconds
 	{
 
 		// Use it!
-		InitLocalCrypto( m_pSteamNetworkingSocketsInterface->m_msgSignedCert, m_pSteamNetworkingSocketsInterface->m_keyPrivateKey, m_pSteamNetworkingSocketsInterface->BCertHasIdentity() );
+		SetLocalCert( m_pSteamNetworkingSocketsInterface->m_msgSignedCert, m_pSteamNetworkingSocketsInterface->m_keyPrivateKey, m_pSteamNetworkingSocketsInterface->BCertHasIdentity() );
 		return true;
 	}
 
 	// Check if we want to intentionally disable auth
 	if ( AllowLocalUnsignedCert() == k_EUnsignedCert_Allow )
 	{
-		InitLocalCryptoWithUnsignedCert();
+		SetLocalCertUnsigned();
 		return true;
 	}
 
@@ -754,20 +757,76 @@ void CSteamNetworkConnectionBase::InterfaceGotCert()
 		return;
 
 	// Setup with this cert
-	InitLocalCrypto( m_pSteamNetworkingSocketsInterface->m_msgSignedCert, m_pSteamNetworkingSocketsInterface->m_keyPrivateKey, m_pSteamNetworkingSocketsInterface->BCertHasIdentity() );
+	SetLocalCert( m_pSteamNetworkingSocketsInterface->m_msgSignedCert, m_pSteamNetworkingSocketsInterface->m_keyPrivateKey, m_pSteamNetworkingSocketsInterface->BCertHasIdentity() );
 
 	// Don't check state machine now, let's just schedule immediate wake up to deal with it
 	SetNextThinkTime( SteamNetworkingSockets_GetLocalTimestamp() );
 }
 
-void CSteamNetworkConnectionBase::InitLocalCrypto( const CMsgSteamDatagramCertificateSigned &msgSignedCert, const CECSigningPrivateKey &keyPrivate, bool bCertHasIdentity )
+void CSteamNetworkConnectionBase::SetLocalCert( const CMsgSteamDatagramCertificateSigned &msgSignedCert, const CECSigningPrivateKey &keyPrivate, bool bCertHasIdentity )
 {
 	Assert( msgSignedCert.has_cert() );
 	Assert( keyPrivate.IsValid() );
 
+	// Ug, we have to save off the private key.  I hate to have copies of the private key,
+	// but we'll only keep this around for a brief time.  It's possible for the
+	// interface to get a new cert (with a new private key) while we are starting this
+	// connection.  We'll keep using the old one, which may be totally valid.
+	DbgVerify( m_keyPrivate.CopyFrom( keyPrivate ) );
+
 	// Save off the signed certificate
 	m_msgSignedCertLocal = msgSignedCert;
 	m_bCertHasIdentity = bCertHasIdentity;
+
+	// If we are the "client", then we can wrap it up right now
+	if ( !m_bConnectionInitiatedRemotely )
+	{
+		SetCryptoCipherList();
+		FinalizeLocalCrypto();
+	}
+}
+
+void CSteamNetworkConnectionBase::SetCryptoCipherList()
+{
+	Assert( m_msgCryptLocal.ciphers_size() == 0 ); // Should only do this once
+
+	// Select the ciphers we want to use, in preference order
+	int unencrypted = m_connectionConfig.m_Unencrypted.Get();
+	switch ( unencrypted )
+	{
+		default:
+			AssertMsg( false, "Unexpected value for 'Unencrypted' config value" );
+		case 0:
+			// Not allowed
+			m_msgCryptLocal.add_ciphers( k_ESteamNetworkingSocketsCipher_AES_256_GCM );
+			break;
+
+		case 1:
+			// Allowed, but prefer encrypted
+			m_msgCryptLocal.add_ciphers( k_ESteamNetworkingSocketsCipher_AES_256_GCM );
+			m_msgCryptLocal.add_ciphers( k_ESteamNetworkingSocketsCipher_NULL );
+			break;
+
+		case 2:
+			// Allowed, preferred
+			m_msgCryptLocal.add_ciphers( k_ESteamNetworkingSocketsCipher_NULL );
+			m_msgCryptLocal.add_ciphers( k_ESteamNetworkingSocketsCipher_AES_256_GCM );
+			break;
+
+		case 3:
+			// Required
+			m_msgCryptLocal.add_ciphers( k_ESteamNetworkingSocketsCipher_NULL );
+			break;
+	}
+}
+
+void CSteamNetworkConnectionBase::FinalizeLocalCrypto()
+{
+	Assert( m_msgCryptLocal.ciphers_size() > 0 );
+
+	// Should only do this once
+	Assert( m_keyPrivate.IsValid() );
+	Assert( !m_msgSignedCryptLocal.has_info() );
 
 	// Set protocol version
 	m_msgCryptLocal.set_protocol_version( k_nCurrentProtocolVersion );
@@ -786,11 +845,13 @@ void CSteamNetworkConnectionBase::InitLocalCrypto( const CMsgSteamDatagramCertif
 	// Serialize and sign the crypt key with the private key that matches this cert
 	m_msgSignedCryptLocal.set_info( m_msgCryptLocal.SerializeAsString() );
 	CryptoSignature_t sig;
-	keyPrivate.GenerateSignature( m_msgSignedCryptLocal.info().c_str(), m_msgSignedCryptLocal.info().length(), &sig );
+	m_keyPrivate.GenerateSignature( m_msgSignedCryptLocal.info().c_str(), m_msgSignedCryptLocal.info().length(), &sig );
 	m_msgSignedCryptLocal.set_signature( &sig, sizeof(sig) );
+
+	m_keyPrivate.Wipe();
 }
 
-void CSteamNetworkConnectionBase::InitLocalCryptoWithUnsignedCert()
+void CSteamNetworkConnectionBase::SetLocalCertUnsigned()
 {
 
 	// Generate a keypair
@@ -813,7 +874,7 @@ void CSteamNetworkConnectionBase::InitLocalCryptoWithUnsignedCert()
 	msgSignedCert.set_cert( msgCert.SerializeAsString() );
 
 	// Standard init, as if this were a normal cert
-	InitLocalCrypto( msgSignedCert, keyPrivate, true );
+	SetLocalCert( msgSignedCert, keyPrivate, true );
 }
 
 void CSteamNetworkConnectionBase::CertRequestFailed( ESteamNetConnectionEnd nConnectionEndReason, const char *pszMsg )
@@ -836,7 +897,7 @@ void CSteamNetworkConnectionBase::CertRequestFailed( ESteamNetConnectionEnd nCon
 	}
 	if ( eLocalUnsignedCert == k_EUnsignedCert_AllowWarn )
 		SpewWarning( "[%s] Continuing with self-signed cert.\n", GetDescription() );
-	InitLocalCryptoWithUnsignedCert();
+	SetLocalCertUnsigned();
 
 	// Schedule immediate wake up to check on state machine
 	SetNextThinkTime( SteamNetworkingSockets_GetLocalTimestamp() );
@@ -851,8 +912,10 @@ bool CSteamNetworkConnectionBase::BRecvCryptoHandshake( const CMsgSteamDatagramC
 	if ( m_bCryptKeysValid )
 	{
 		// FIXME - Probably should check that they aren't changing any keys.
+		Assert( m_eNegotiatedCipher != k_ESteamNetworkingSocketsCipher_INVALID );
 		return true;
 	}
+	Assert( m_eNegotiatedCipher == k_ESteamNetworkingSocketsCipher_INVALID );
 
 	// Make sure we have what we need
 	if ( !msgCert.has_cert() || !msgSessionInfo.has_info() )
@@ -860,6 +923,11 @@ bool CSteamNetworkConnectionBase::BRecvCryptoHandshake( const CMsgSteamDatagramC
 		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCrypt, "Crypto handshake missing cert or session data" );
 		return false;
 	}
+
+	// Save off the exact serialized data in the cert and crypt info,
+	// for key generation material.
+	m_sCertRemote = msgCert.cert();
+	m_sCryptRemote = msgSessionInfo.info();
 
 	// If they presented a signature, it must be valid
 	const CertAuthScope *pCACertAuthScope = nullptr; 
@@ -879,7 +947,7 @@ bool CSteamNetworkConnectionBase::BRecvCryptoHandshake( const CMsgSteamDatagramC
 	{
 
 		// Deserialize the cert
-		if ( !m_msgCertRemote.ParseFromString( msgCert.cert() ) )
+		if ( !m_msgCertRemote.ParseFromString( m_sCertRemote ) )
 		{
 			ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCrypt, "Cert failed protobuf decode" );
 			return false;
@@ -948,14 +1016,14 @@ bool CSteamNetworkConnectionBase::BRecvCryptoHandshake( const CMsgSteamDatagramC
 	}
 
 	// Check the signature of the crypt info
-	if ( !BCheckSignature( msgSessionInfo.info(), m_msgCertRemote.key_type(), m_msgCertRemote.key_data(), msgSessionInfo.signature(), errMsg ) )
+	if ( !BCheckSignature( m_sCryptRemote, m_msgCertRemote.key_type(), m_msgCertRemote.key_data(), msgSessionInfo.signature(), errMsg ) )
 	{
 		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCrypt, "%s", errMsg );
 		return false;
 	}
 
 	// Deserialize crypt info
-	if ( !m_msgCryptRemote.ParseFromString( msgSessionInfo.info() ) )
+	if ( !m_msgCryptRemote.ParseFromString( m_sCryptRemote ) )
 	{
 		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCrypt, "Crypt info failed protobuf decode" );
 		return false;
@@ -977,28 +1045,14 @@ bool CSteamNetworkConnectionBase::BRecvCryptoHandshake( const CMsgSteamDatagramC
 	}
 	m_statsEndToEnd.m_nPeerProtocolVersion = m_msgCryptRemote.protocol_version();
 
-	// Key exchange public key
-	CECKeyExchangePublicKey keyExchangePublicKeyRemote;
-	if ( m_msgCryptRemote.key_type() != CMsgSteamDatagramSessionCryptInfo_EKeyType_CURVE25519 )
-	{
-		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCrypt, "Unsupported DH key type" );
-		return false;
-	}
-	if ( !keyExchangePublicKeyRemote.SetRawDataWithoutWipingInput( m_msgCryptRemote.key_data().c_str(), m_msgCryptRemote.key_data().length() ) )
-	{
-		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCrypt, "Invalid DH key" );
-		return false;
-	}
+	// Check for legacy client that didn't send a list of ciphers
+	if ( m_msgCryptRemote.ciphers_size() == 0 )
+		m_msgCryptRemote.add_ciphers( k_ESteamNetworkingSocketsCipher_AES_256_GCM );
 
 	// We need our own cert.  If we don't have one by now, then we might try generating one
-	if ( m_msgSignedCertLocal.has_cert() )
+	if ( !m_msgSignedCertLocal.has_cert() )
 	{
-		Assert( m_msgCryptLocal.has_nonce() );
-		Assert( m_msgCryptLocal.has_key_data() );
-		Assert( m_msgCryptLocal.has_key_type() );
-	}
-	else
-	{
+
 		// Double-check that this is allowed
 		EUnsignedCert eLocalUnsignedCert = AllowLocalUnsignedCert();
 		if ( eLocalUnsignedCert == k_EUnsignedCert_Disallow )
@@ -1012,7 +1066,80 @@ bool CSteamNetworkConnectionBase::BRecvCryptoHandshake( const CMsgSteamDatagramC
 			SpewWarning( "[%s] Continuing with self-signed cert.\n", GetDescription() );
 
 		// Proceed with an unsigned cert
-		InitLocalCryptoWithUnsignedCert();
+		SetLocalCertUnsigned();
+	}
+
+	// If we are the client, then we have everything we need and can finish up right now
+	if ( !bServer )
+	{
+		// The server MUST send back the single cipher that they decided to use
+		if ( m_msgCryptRemote.ciphers_size() != 1 )
+		{
+			ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCrypt, "Server must select exactly only one cipher!" );
+			return false;
+		}
+		if ( !BFinishCryptoHandshake( bServer ) )
+		{
+			Assert( GetState() == k_ESteamNetworkingConnectionState_ProblemDetectedLocally );
+			return false;
+		}
+	}
+
+	return true;
+}
+
+bool CSteamNetworkConnectionBase::BFinishCryptoHandshake( bool bServer )
+{
+
+	// On the server, we have been waiting to decide what ciphers we are willing to use.
+	// (Because we want to give the app to set any connection options).
+	if ( m_bConnectionInitiatedRemotely )
+	{
+		Assert( m_msgCryptLocal.ciphers_size() == 0 );
+		SetCryptoCipherList();
+	}
+	Assert( m_msgCryptLocal.ciphers_size() > 0 );
+	
+	// Find a mutually-acceptable cipher
+	Assert( m_eNegotiatedCipher == k_ESteamNetworkingSocketsCipher_INVALID );
+	m_eNegotiatedCipher = k_ESteamNetworkingSocketsCipher_INVALID;
+	for ( int eCipher : m_msgCryptLocal.ciphers() )
+	{
+		if ( std::find( m_msgCryptRemote.ciphers().begin(), m_msgCryptRemote.ciphers().end(), eCipher ) != m_msgCryptRemote.ciphers().end() )
+		{
+			m_eNegotiatedCipher = ESteamNetworkingSocketsCipher(eCipher);
+			break;
+		}
+	}
+	if ( m_eNegotiatedCipher == k_ESteamNetworkingSocketsCipher_INVALID )
+	{
+		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCrypt, "Failed to negotiate mutually-agreeable cipher" );
+		return false;
+	}
+
+	// If we're the server, then lock in that single cipher as the only
+	// acceptable cipher, and then we are ready to seal up our crypt info
+	// and send it back to them in accept message(s)
+	if ( m_bConnectionInitiatedRemotely )
+	{
+		Assert( !m_msgSignedCryptLocal.has_info() );
+		m_msgCryptLocal.clear_ciphers();
+		m_msgCryptLocal.add_ciphers( m_eNegotiatedCipher );
+		FinalizeLocalCrypto();
+	}
+	Assert( m_msgSignedCryptLocal.has_info() );
+
+	// Key exchange public key
+	CECKeyExchangePublicKey keyExchangePublicKeyRemote;
+	if ( m_msgCryptRemote.key_type() != CMsgSteamDatagramSessionCryptInfo_EKeyType_CURVE25519 )
+	{
+		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCrypt, "Unsupported DH key type" );
+		return false;
+	}
+	if ( !keyExchangePublicKeyRemote.SetRawDataWithoutWipingInput( m_msgCryptRemote.key_data().c_str(), m_msgCryptRemote.key_data().length() ) )
+	{
+		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCrypt, "Invalid DH key" );
+		return false;
 	}
 
 	// Diffie–Hellman key exchange to get "premaster secret"
@@ -1057,7 +1184,7 @@ bool CSteamNetworkConnectionBase::BRecvCryptoHandshake( const CMsgSteamDatagramC
 
 	uint8 *expandOrder[4] = { cryptKeySend.m_buf, cryptKeyRecv.m_buf, m_cryptIVSend.m_buf, m_cryptIVRecv.m_buf };
 	int expandSize[4] = { cryptKeySend.k_nSize, cryptKeyRecv.k_nSize, m_cryptIVSend.k_nSize, m_cryptIVRecv.k_nSize };
-	const std::string *context[4] = { &msgCert.cert(), &m_msgSignedCertLocal.cert(), &msgSessionInfo.info(), &m_msgSignedCryptLocal.info() };
+	const std::string *context[4] = { &m_sCertRemote, &m_msgSignedCertLocal.cert(), &m_sCryptRemote, &m_msgSignedCryptLocal.info() };
 	uint32 unConnectionIDContext[2] = { LittleDWord( m_unConnectionIDLocal ), LittleDWord( m_unConnectionIDRemote ) };
 
 	// Make sure that both peers do things the same, so swap "local" and "remote" on one side arbitrarily.
@@ -1115,6 +1242,10 @@ bool CSteamNetworkConnectionBase::BRecvCryptoHandshake( const CMsgSteamDatagramC
 	//
 	SecureZeroMemory( bufContext.Base(), bufContext.SizeAllocated() );
 	SecureZeroMemory( expandTemp, sizeof(expandTemp) );
+
+	// This isn't sensitive info, but we don't need it any more, so go ahead and free up memory
+	m_sCertRemote.clear();
+	m_sCryptRemote.clear();
 
 	// Make sure the connection description is set.
 	// This is often called after we know who the remote host is
@@ -1353,38 +1484,60 @@ int64 CSteamNetworkConnectionBase::DecryptDataChunk( uint16 nWireSeqNum, int cbP
 	if ( nFullSequenceNumber <= 0 )
 		return 0;
 
-	// Adjust the IV by the packet number
-	*(uint64 *)&m_cryptIVRecv.m_buf += LittleQWord( nFullSequenceNumber );
-	//SpewMsg( "Recv decrypt IV %llu + %02x%02x%02x%02x  encrypted %d %02x%02x%02x%02x\n",
-	//	*(uint64 *)&m_cryptIVRecv.m_buf,
-	//	m_cryptIVRecv.m_buf[8], m_cryptIVRecv.m_buf[9], m_cryptIVRecv.m_buf[10], m_cryptIVRecv.m_buf[11],
-	//	cbChunk,
-	//	*((byte*)pChunk + 0), *((byte*)pChunk + 1), *((byte*)pChunk + 2), *((byte*)pChunk + 3)
-	//);
+	// What cipher are we using?
+	switch ( m_eNegotiatedCipher )
+	{
+		default:
+			AssertMsg1( false, "Bogus cipher %d", m_eNegotiatedCipher );
+			return 0;
 
-	// Decrypt the chunk and check the auth tag
-	bool bDecryptOK = m_cryptContextRecv.Decrypt(
-		pChunk, cbChunk, // encrypted
-		m_cryptIVRecv.m_buf, // IV
-		pDecrypted, &cbDecrypted, // output
-		nullptr, 0 // no AAD
-	);
+		case k_ESteamNetworkingSocketsCipher_NULL:
+		{
 
-	// Restore the IV to the base value
-	*(uint64 *)&m_cryptIVRecv.m_buf -= LittleQWord( nFullSequenceNumber );
+			// No encryption!
+			cbDecrypted = cbChunk;
+			memcpy( pDecrypted, pChunk, cbDecrypted );
+		}
+		break;
+
+		case k_ESteamNetworkingSocketsCipher_AES_256_GCM:
+		{
+
+			// Adjust the IV by the packet number
+			*(uint64 *)&m_cryptIVRecv.m_buf += LittleQWord( nFullSequenceNumber );
+			//SpewMsg( "Recv decrypt IV %llu + %02x%02x%02x%02x  encrypted %d %02x%02x%02x%02x\n",
+			//	*(uint64 *)&m_cryptIVRecv.m_buf,
+			//	m_cryptIVRecv.m_buf[8], m_cryptIVRecv.m_buf[9], m_cryptIVRecv.m_buf[10], m_cryptIVRecv.m_buf[11],
+			//	cbChunk,
+			//	*((byte*)pChunk + 0), *((byte*)pChunk + 1), *((byte*)pChunk + 2), *((byte*)pChunk + 3)
+			//);
+
+			// Decrypt the chunk and check the auth tag
+			bool bDecryptOK = m_cryptContextRecv.Decrypt(
+				pChunk, cbChunk, // encrypted
+				m_cryptIVRecv.m_buf, // IV
+				pDecrypted, &cbDecrypted, // output
+				nullptr, 0 // no AAD
+			);
+
+			// Restore the IV to the base value
+			*(uint64 *)&m_cryptIVRecv.m_buf -= LittleQWord( nFullSequenceNumber );
 	
-	// Did decryption fail?
-	if ( !bDecryptOK ) {
+			// Did decryption fail?
+			if ( !bDecryptOK ) {
 
-		// Just drop packet.
-		// The assumption is that we either have a bug or some weird thing,
-		// or that somebody is spoofing / tampering.  If it's the latter
-		// we don't want to magnify the impact of their efforts
-		SpewWarningRateLimited( usecNow, "[%s] Packet data chunk failed to decrypt!  Could be tampering/spoofing or a bug.", GetDescription() );
-		return 0;
+				// Just drop packet.
+				// The assumption is that we either have a bug or some weird thing,
+				// or that somebody is spoofing / tampering.  If it's the latter
+				// we don't want to magnify the impact of their efforts
+				SpewWarningRateLimited( usecNow, "[%s] Packet data chunk failed to decrypt!  Could be tampering/spoofing or a bug.", GetDescription() );
+				return 0;
+			}
+
+			//SpewVerbose( "Connection %u recv seqnum %lld (gap=%d) sz=%d %02x %02x %02x %02x\n", m_unConnectionID, unFullSequenceNumber, nGap, cbDecrypted, arDecryptedChunk[0], arDecryptedChunk[1], arDecryptedChunk[2], arDecryptedChunk[3] );
+		}
+		break;
 	}
-
-	//SpewVerbose( "Connection %u recv seqnum %lld (gap=%d) sz=%d %02x %02x %02x %02x\n", m_unConnectionID, unFullSequenceNumber, nGap, cbDecrypted, arDecryptedChunk[0], arDecryptedChunk[1], arDecryptedChunk[2], arDecryptedChunk[3] );
 
 	// OK, we have high confidence that this packet is actually from our peer and has not
 	// been tampered with.  Check the gap.  If it's too big, that means we are risking losing
@@ -1428,6 +1581,62 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int64 nFullSequence
 	// Packet is OK.  Track end-to-end flow.
 	m_statsEndToEnd.TrackProcessSequencedPacket( nFullSequenceNumber, usecNow, usecTimeSinceLast );
 	return true;
+}
+
+EResult CSteamNetworkConnectionBase::APIAcceptConnection()
+{
+	// Must be in in state ready to be accepted
+	if ( GetState() != k_ESteamNetworkingConnectionState_Connecting )
+	{
+		if ( GetState() == k_ESteamNetworkingConnectionState_ClosedByPeer )
+		{
+			SpewWarning( "[%s] Cannot accept connection; already closed by remote host.", GetDescription() );
+		}
+		else
+		{
+			SpewError( "[%s] Cannot accept connection, current state is %d.", GetDescription(), GetState() );
+		}
+		return k_EResultInvalidState;
+	}
+
+	// Should only be called for connections initiated remotely
+	if ( !m_bConnectionInitiatedRemotely )
+	{
+		SpewError( "[%s] Should not be trying to acccept this connection, it was not initiated remotely.", GetDescription() );
+		return k_EResultInvalidParam;
+	}
+
+	// Select the cipher.  We needed to wait until now to do it, because the app
+	// might have set connection options on a new connection.
+	Assert( m_eNegotiatedCipher == k_ESteamNetworkingSocketsCipher_INVALID );
+	if ( !BFinishCryptoHandshake( true ) )
+		return k_EResultHandshakeFailed;
+
+	// Derived class knows what to do next
+	EResult eResult = AcceptConnection();
+	if ( eResult == k_EResultOK )
+	{
+		// Make sure they properly transitioned the connection state
+		AssertMsg2(
+			GetState() == k_ESteamNetworkingConnectionState_FindingRoute || GetState() == k_ESteamNetworkingConnectionState_Connected,
+			"[%s] AcceptConnection put the connection into state %d", GetDescription(), (int)GetState() );
+	}
+	else
+	{
+		// Nuke connection if we fail.  (If they provided a more specific reason and already closed
+		// the connection, this won't do anything.)
+		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_InternalError, "Failed to accept connection." );
+	}
+
+	return eResult;
+}
+
+EResult CSteamNetworkConnectionBase::AcceptConnection()
+{
+
+	// You need to override this if your connection type can be accepted
+	Assert( false );
+	return k_EResultFail;
 }
 
 void CSteamNetworkConnectionBase::APICloseConnection( int nReason, const char *pszDebug, bool bEnableLinger )
@@ -2307,6 +2516,9 @@ CSteamNetworkConnectionPipe::CSteamNetworkConnectionPipe( CSteamNetworkingSocket
 , m_pPartner( nullptr )
 {
 	m_identityLocal = identity;
+
+	// This is not strictly necessary, but it's nice to make it official
+	m_connectionConfig.m_Unencrypted.Set( 3 );
 }
 
 CSteamNetworkConnectionPipe::~CSteamNetworkConnectionPipe()
@@ -2322,7 +2534,7 @@ void CSteamNetworkConnectionPipe::GetConnectionTypeDescription( ConnectionTypeDe
 void CSteamNetworkConnectionPipe::InitConnectionCrypto( SteamNetworkingMicroseconds usecNow )
 {
 	// Always use unsigned cert, since we won't be doing any real crypto anyway
-	InitLocalCryptoWithUnsignedCert();
+	SetLocalCertUnsigned();
 }
 
 EUnsignedCert CSteamNetworkConnectionPipe::AllowRemoteUnsignedCert()
@@ -2421,12 +2633,6 @@ bool CSteamNetworkConnectionPipe::BCanSendEndToEndData() const
 void CSteamNetworkConnectionPipe::SendEndToEndConnectRequest( SteamNetworkingMicroseconds usecNow )
 {
 	AssertMsg( false, "Inconceivable!" );
-}
-
-EResult CSteamNetworkConnectionPipe::APIAcceptConnection()
-{
-	AssertMsg( false, "Inconceivable!" );
-	return k_EResultFail;
 }
 
 bool CSteamNetworkConnectionPipe::SendDataPacket( SteamNetworkingMicroseconds usecNow )
