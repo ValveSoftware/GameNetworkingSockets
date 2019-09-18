@@ -15,6 +15,11 @@
 #include <mutex>
 #include <atomic>
 
+#ifdef POSIX
+#include <pthread.h>
+#include <sched.h>
+#endif
+
 #include "steamnetworkingsockets_lowlevel.h"
 #include "../steamnetworkingsockets_internal.h"
 #include <vstdlib/random.h>
@@ -1357,7 +1362,32 @@ static void SteamDatagramThreadProc()
 	// to process the packet.  We should be asleep most of the time waiting
 	// for packets to arrive.
 	#if defined(_WIN32)
-	DbgVerify( SetThreadPriority( GetCurrentThread(), THREAD_PRIORITY_HIGHEST ) );
+		DbgVerify( SetThreadPriority( GetCurrentThread(), THREAD_PRIORITY_HIGHEST ) );
+	#elif defined(POSIX)
+		// This probably won't work on Linux, because you cannot raise thread priority
+		// without being root.  But on some systems it works.  So we try, and if it
+		// works, great.
+		struct sched_param sched;
+		int policy;
+		pthread_t thread = pthread_self();
+		if ( pthread_getschedparam(thread, &policy, &sched) == 0 )
+		{
+			// Make sure we're not already at max.  No matter what, we don't
+			// want to lower our priority!  On linux, it appears that what happens
+			// is that the current and max priority values here are 0.
+			int max_priority = sched_get_priority_max(policy);
+			//printf( "pthread_getschedparam worked, policy=%d, pri=%d, max_pri=%d\n", policy, sched.sched_priority, max_priority );
+			if ( max_priority > sched.sched_priority )
+			{
+
+				// Determine new priority.
+				int min_priority = sched_get_priority_min(policy);
+				sched.sched_priority = std::max( sched.sched_priority+1, (min_priority + max_priority*3) / 4 );
+
+				// Try to set it
+				pthread_setschedparam( thread, policy, &sched );
+			}
+		}
 	#endif
 
 	#if defined(_WIN32) && !defined(__GNUC__)
