@@ -701,7 +701,7 @@ struct SteamNetworkingQuickConnectionStatus
 /// and our peer might, too.
 const int k_cbMaxSteamNetworkingSocketsMessageSizeSend = 512 * 1024;
 
-/// A message that has been received
+/// A message that has been received.
 struct SteamNetworkingMessage_t
 {
 
@@ -711,13 +711,18 @@ struct SteamNetworkingMessage_t
 	/// Size of the payload.
 	uint32 m_cbSize;
 
-	/// The connection this came from.  (Not used when using the ISteamMessages interface)
+	/// For messages received on connections: what connection did this come from?
+	/// For outgoing messages: what connection to send it to?
+	/// Not used when using the ISteamNetworkingMessages interface
 	HSteamNetConnection m_conn;
 
-	/// Who sent this to us?
-	SteamNetworkingIdentity m_sender;
+	/// For inbound messages: Who sent this to us?
+	/// For outbound messages on connections: not used.
+	/// For outbound messages on the ad-hoc ISteamNetworkingMessages interface: who should we send this to?
+	SteamNetworkingIdentity m_identityPeer;
 
-	/// The user data associated with the connection.
+	/// For messages received on connections, this is the user data
+	/// associated with the connection.
 	///
 	/// This is *usually* the same as calling GetConnection() and then
 	/// fetching the user data associated with that connection, but for
@@ -730,12 +735,16 @@ struct SteamNetworkingMessage_t
 	/// - This is an inline call, so it's *much* faster.
 	/// - You might have closed the connection, so fetching the user data
 	///   would not be possible.
+	///
+	/// Not used when sending messages, 
 	int64 m_nConnUserData;
 
-	/// Local timestamps when it was received
+	/// Local timestamp when the message was received
+	/// Not used for outbound messages.
 	SteamNetworkingMicroseconds m_usecTimeReceived;
 
-	/// Message number assigned by the sender
+	/// Message number assigned by the sender.
+	/// This is not used for outbound messages
 	int64 m_nMessageNumber;
 
 	/// Function used to free up m_pData.  This mechanism exists so that
@@ -746,33 +755,39 @@ struct SteamNetworkingMessage_t
 	/// free( pMsg->m_pData );
 	void (*m_pfnFreeData)( SteamNetworkingMessage_t *pMsg );
 
-	/// Function to used to decrement reference count and, if it's zero, release
-	/// the message.  You should not normally need to access this directly.
-	/// (Use Release(), and don't set this.)
+	/// Function to used to decrement the internal reference count and, if
+	/// it's zero, release the message.  You should not set this function pointer,
+	/// or need to access this directly!  Use the Release() function instead!
 	void (*m_pfnRelease)( SteamNetworkingMessage_t *pMsg );
 
-	/// The channel number the message was received on.
-	/// (Not used for messages received on "connections")
+	/// When using ISteamNetworkingMessages, the channel number the message was received on
+	/// (Not used for messages sent or received on "connections")
 	int m_nChannel;
 
-	/// Pad to multiple of 8 bytes
-	int m___nPadDummy;
+	/// Bitmask of k_nSteamNetworkingSend_xxx flags.
+	/// For received messages, only the k_nSteamNetworkingSend_Reliable bit is valid.
+	/// For outbound messages, all bits are relevant
+	int m_nFlags;
 
-	#ifdef __cplusplus
+	/// You MUST call this when you're done with the object,
+	/// to free up memory, etc.
+	inline void Release();
 
-		/// You MUST call this when you're done with the object,
-		/// to free up memory, etc.
-		inline void Release();
-
-		// For code compatibility, some accessors
-		inline uint32 GetSize() const { return m_cbSize; }
-		inline const void *GetData() const { return m_pData; }
-		inline int GetChannel() const { return m_nChannel; }
-		inline HSteamNetConnection GetConnection() const { return m_conn; }
-		inline int64 GetConnectionUserData() const { return m_nConnUserData; }
-		inline SteamNetworkingMicroseconds GetTimeReceived() const { return m_usecTimeReceived; }
-		inline int64 GetMessageNumber() const { return m_nMessageNumber; }
-	#endif
+	// For code compatibility, some accessors
+	inline uint32 GetSize() const { return m_cbSize; }
+	inline const void *GetData() const { return m_pData; }
+	inline int GetChannel() const { return m_nChannel; }
+	inline HSteamNetConnection GetConnection() const { return m_conn; }
+	inline int64 GetConnectionUserData() const { return m_nConnUserData; }
+	inline SteamNetworkingMicroseconds GetTimeReceived() const { return m_usecTimeReceived; }
+	inline int64 GetMessageNumber() const { return m_nMessageNumber; }
+protected:
+	// Declare destructor protected.  You should never need to declare a message
+	// object on the stack or create one yourself.
+	// - You will receive a pointer to a message object when you receive messages (e.g. ISteamNetworkingSockets::ReceiveMessagesOnConnection)
+	// - You can allocate a message object for efficient sending using ISteamNetworkingUtils::AllocateMessage
+	// - Call Release() to free the object
+	inline ~SteamNetworkingMessage_t() {}
 };
 
 //

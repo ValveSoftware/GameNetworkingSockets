@@ -77,16 +77,20 @@ void CSteamNetworkingMessage::DefaultFreeData( SteamNetworkingMessage_t *pMsg )
 }
 
 
-void SteamNetworkingMessage_t_Release( SteamNetworkingMessage_t *pIMsg )
+void CSteamNetworkingMessage::ReleaseFunc( SteamNetworkingMessage_t *pIMsg )
 {
 	CSteamNetworkingMessage *pMsg = static_cast<CSteamNetworkingMessage *>( pIMsg );
 
+	// Decrement reference count, make sure we are the last one
+	int nOldRefCount = pMsg->m_nRefCount.fetch_sub(1);
+	AssertMsg( nOldRefCount > 0, "CSteamNetworkingMessage refcount bug or use-after-free!" );
+	if ( nOldRefCount != 1 )
+		return;
+
 	// Free up the buffer, if we have one
-	if ( pMsg->m_pData )
-	{
+	if ( pMsg->m_pData && pMsg->m_pfnFreeData )
 		(*pMsg->m_pfnFreeData)( pMsg );
-		pMsg->m_pData = nullptr;
-	}
+	pMsg->m_pData = nullptr; // Just for grins
 
 	// We must not currently be in any queue.  In fact, our parent
 	// might have been destroyed.
@@ -102,30 +106,58 @@ void SteamNetworkingMessage_t_Release( SteamNetworkingMessage_t *pIMsg )
 	delete pMsg;
 }
 
-CSteamNetworkingMessage *CSteamNetworkingMessage::New( CSteamNetworkConnectionBase *pParent, uint32 cbSize, int64 nMsgNum, SteamNetworkingMicroseconds usecNow )
+CSteamNetworkingMessage *CSteamNetworkingMessage::New( uint32 cbSize )
 {
 	// FIXME Should avoid this dynamic memory call with some sort of pooling
 	CSteamNetworkingMessage *pMsg = new CSteamNetworkingMessage;
+	memset( pMsg, 0, sizeof(CSteamNetworkingMessage) );
+
+	// Allocate buffer if requested
+	if ( cbSize )
+	{
+		pMsg->m_pData = malloc( cbSize );
+		if ( pMsg->m_pData == nullptr )
+		{
+			delete pMsg;
+			AssertMsg1( false, "Failed to allocate %d-byte message buffer", cbSize );
+			return nullptr;
+		}
+		pMsg->m_cbSize = cbSize;
+		pMsg->m_pfnFreeData = CSteamNetworkingMessage::DefaultFreeData;
+	}
+
+	pMsg->m_nChannel = -1;
+
+	// Set the release function
+	pMsg->m_pfnRelease = ReleaseFunc;
+
+	// Initialize the reference count
+	pMsg->m_nRefCount = 1;
+	return pMsg;
+}
+
+CSteamNetworkingMessage *CSteamNetworkingMessage::New( CSteamNetworkConnectionBase *pParent, uint32 cbSize, int64 nMsgNum, int nFlags, SteamNetworkingMicroseconds usecNow )
+{
+	CSteamNetworkingMessage *pMsg = New( cbSize );
+	if ( !pMsg )
+	{
+		// Failed!  if it's for a reliable message, then we must abort the connection.
+		// If unreliable message....well we've spewed, but let's try to keep on chugging.
+		if ( pParent && ( nFlags & k_nSteamNetworkingSend_Reliable ) )
+			pParent->ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_InternalError, "Failed to allocate buffer to receive reliable message" );
+		return nullptr;
+	}
 
 	if ( pParent )
 	{
-		pMsg->m_sender = pParent->m_identityRemote;
+		pMsg->m_identityPeer = pParent->m_identityRemote;
 		pMsg->m_conn = pParent->m_hConnectionSelf;
 		pMsg->m_nConnUserData = pParent->GetUserData();
 	}
-	else
-	{
-		memset( &pMsg->m_sender, 0, sizeof(pMsg->m_sender) );
-		pMsg->m_conn = k_HSteamNetConnection_Invalid;
-		pMsg->m_nConnUserData = 0;
-	}
-	pMsg->m_pData = malloc( cbSize );
-	pMsg->m_cbSize = cbSize;
-	pMsg->m_nChannel = -1;
 	pMsg->m_usecTimeReceived = usecNow;
 	pMsg->m_nMessageNumber = nMsgNum;
-	pMsg->m_pfnFreeData = CSteamNetworkingMessage::DefaultFreeData;
-	pMsg->m_pfnRelease = SteamNetworkingMessage_t_Release;
+	pMsg->m_nFlags = nFlags;
+
 	return pMsg;
 }
 
@@ -1810,7 +1842,7 @@ void CSteamNetworkConnectionBase::SetState( ESteamNetworkingConnectionState eNew
 	}
 }
 
-void CSteamNetworkConnectionBase::ReceivedMessage( const void *pData, int cbData, int64 nMsgNum, SteamNetworkingMicroseconds usecNow )
+bool CSteamNetworkConnectionBase::ReceivedMessage( const void *pData, int cbData, int64 nMsgNum, int nFlags, SteamNetworkingMicroseconds usecNow )
 {
 //	// !TEST! Enable this during connection test to trap bogus messages earlier
 //		struct TestMsg
@@ -1825,10 +1857,27 @@ void CSteamNetworkConnectionBase::ReceivedMessage( const void *pData, int cbData
 //		// Size makes sense?
 //		Assert( sizeof(*pTestMsg) - sizeof(pTestMsg->m_data) + pTestMsg->m_cbSize == cbData );
 
+	// Create a message
+	CSteamNetworkingMessage *pMsg = CSteamNetworkingMessage::New( this, cbData, nMsgNum, nFlags, usecNow );
+	if ( !pMsg )
+		return false;
+
+	// Copy the data
+	memcpy( pMsg->m_pData, pData, cbData );
+
+	// Receive it
+	ReceivedMessage( pMsg );
+
+	return true;
+}
+
+void CSteamNetworkConnectionBase::ReceivedMessage( CSteamNetworkingMessage *pMsg )
+{
+
 	SpewType( m_connectionConfig.m_LogLevel_Message.Get(), "[%s] RecvMessage MsgNum=%lld sz=%d\n",
 		GetDescription(),
-		(long long)nMsgNum,
-		cbData );
+		(long long)pMsg->m_nMessageNumber,
+		pMsg->m_cbSize );
 
 	// Special case for internal connections used by Messages interface
 	if ( m_pMessagesInterface )
@@ -1839,20 +1888,19 @@ void CSteamNetworkConnectionBase::ReceivedMessage( const void *pData, int cbData
 			// How did we get here?  We should be closed, and once closed,
 			// we should not receive any more messages
 			AssertMsg2( false, "Received message for connection %s associated with Messages interface, but no session.  Connection state is %d", GetDescription(), (int)GetState() );
+			pMsg->Release();
 		}
 		else if ( m_pMessagesSession->m_pConnection != this )
 		{
 			AssertMsg2( false, "Connection/session linkage bookkeeping bug!  %s state %d", GetDescription(), (int)GetState() );
+			pMsg->Release();
 		}
 		else
 		{
-			m_pMessagesSession->ReceivedMessage( pData, cbData, nMsgNum, usecNow );
+			m_pMessagesSession->ReceivedMessage( pMsg );
 		}
 		return;
 	}
-
-	// Create a message
-	CSteamNetworkingMessage *pMsg = CSteamNetworkingMessage::New( this, cbData, nMsgNum, usecNow );
 
 	// Add to end of my queue.
 	pMsg->LinkToQueueTail( &CSteamNetworkingMessage::m_linksSameConnection, &m_queueRecvMessages );
@@ -1860,9 +1908,6 @@ void CSteamNetworkConnectionBase::ReceivedMessage( const void *pData, int cbData
 	// If we are an inbound, accepted connection, link into the listen socket's queue
 	if ( m_pParentListenSocket )
 		pMsg->LinkToQueueTail( &CSteamNetworkingMessage::m_linksSecondaryQueue, &m_pParentListenSocket->m_queueRecvMessages );
-
-	// Copy the data
-	memcpy( const_cast<void*>( pMsg->GetData() ), pData, cbData );
 }
 
 void CSteamNetworkConnectionBase::PostConnectionStateChangedCallback( ESteamNetworkingConnectionState eOldAPIState, ESteamNetworkingConnectionState eNewAPIState )
@@ -1915,7 +1960,9 @@ void CSteamNetworkConnectionBase::ConnectionState_ProblemDetectedLocally( ESteam
 			break;
 	}
 
-	CheckConnectionStateAndSetNextThinkTime( usecNow );
+	// We don't have enough context to know if it's safe to act now.  Just schedule an immediate
+	// wake up call so we will take action at the next safe time
+	SetNextThinkTimeASAP();
 }
 
 void CSteamNetworkConnectionBase::ConnectionState_FinWait()
@@ -1941,7 +1988,10 @@ void CSteamNetworkConnectionBase::ConnectionState_FinWait()
 		case k_ESteamNetworkingConnectionState_FindingRoute:
 		case k_ESteamNetworkingConnectionState_Connected:
 			SetState( k_ESteamNetworkingConnectionState_FinWait, usecNow );
-			CheckConnectionStateAndSetNextThinkTime( usecNow );
+
+			// We don't have enough context to know if it's safe to act now.  Just schedule an immediate
+			// wake up call so we will take action at the next safe time
+			SetNextThinkTimeASAP();
 			break;
 	}
 }
@@ -2565,7 +2615,7 @@ EResult CSteamNetworkConnectionPipe::_APISendMessageToConnection( const void *pD
 	int64 nMsgNum = ++m_senderState.m_nLastSentMsgNum;
 
 	// Pass directly to our partner
-	m_pPartner->ReceivedMessage( pData, cbData, nMsgNum, usecNow );
+	m_pPartner->ReceivedMessage( pData, cbData, nMsgNum, nSendFlags, usecNow );
 
 	return k_EResultOK;
 }

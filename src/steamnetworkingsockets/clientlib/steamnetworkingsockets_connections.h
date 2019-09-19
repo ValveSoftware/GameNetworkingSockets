@@ -148,7 +148,8 @@ struct SendPacketContext : SendPacketContext_t
 class CSteamNetworkingMessage : public SteamNetworkingMessage_t
 {
 public:
-	static CSteamNetworkingMessage *New( CSteamNetworkConnectionBase *pParent, uint32 cbSize, int64 nMsgNum, SteamNetworkingMicroseconds usecNow );
+	static CSteamNetworkingMessage *New( CSteamNetworkConnectionBase *pParent, uint32 cbSize, int64 nMsgNum, int nFlags, SteamNetworkingMicroseconds usecNow );
+	static CSteamNetworkingMessage *New( uint32 cbSize );
 	static void DefaultFreeData( SteamNetworkingMessage_t *pMsg );
 
 	/// Remove it from queues
@@ -160,6 +161,9 @@ public:
 		CSteamNetworkingMessage *m_pPrev = nullptr;
 		CSteamNetworkingMessage *m_pNext = nullptr;
 	};
+
+	/// Reference count
+	std::atomic<int> m_nRefCount;
 
 	/// Next message on the same connection
 	Links m_linksSameConnection;
@@ -184,6 +188,9 @@ public:
 
 	void LinkToQueueTail( Links CSteamNetworkingMessage::*pMbrLinks, SteamNetworkingMessageQueue *pQueue );
 	void UnlinkFromQueue( Links CSteamNetworkingMessage::*pMbrLinks );
+
+private:
+	static void ReleaseFunc( SteamNetworkingMessage_t *pIMsg );
 };
 
 /// A doubly-linked list of CSteamNetworkingMessage
@@ -216,7 +223,7 @@ class ISteamNetworkingMessagesSession
 {
 public:
 	CSteamNetworkConnectionBase *m_pConnection; // active connection, if any.  Might be NULL!
-	virtual void ReceivedMessage( const void *pData, int cbData, int64 nMsgNum, SteamNetworkingMicroseconds usecNow ) = 0;
+	virtual void ReceivedMessage( CSteamNetworkingMessage *pMsg ) = 0;
 	virtual void ConnectionStateChanged( ESteamNetworkingConnectionState eOldState, ESteamNetworkingConnectionState eNewState ) = 0;
 };
 
@@ -579,7 +586,8 @@ protected:
 	virtual EResult _APISendMessageToConnection( const void *pData, uint32 cbData, int nSendFlags );
 
 	/// Called when we receive a complete message.  Should allocate a message object and put it into the proper queues
-	void ReceivedMessage( const void *pData, int cbData, int64 nMsgNum, SteamNetworkingMicroseconds usecNow );
+	bool ReceivedMessage( const void *pData, int cbData, int64 nMsgNum, int nFlags, SteamNetworkingMicroseconds usecNow );
+	void ReceivedMessage( CSteamNetworkingMessage *pMsg );
 
 	/// Timestamp when we last sent an end-to-end connection request packet
 	SteamNetworkingMicroseconds m_usecWhenSentConnectRequest;

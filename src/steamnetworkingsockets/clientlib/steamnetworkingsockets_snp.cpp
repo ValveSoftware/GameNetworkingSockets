@@ -2234,7 +2234,7 @@ void CSteamNetworkConnectionBase::SNP_ReceiveUnreliableSegment( int64 nMsgNum, i
 
 		// Deliver it immediately, don't go through the fragmentation assembly process below.
 		// (Although that would work.)
-		ReceivedMessage( pSegmentData, cbSegmentSize, nMsgNum, usecNow );
+		ReceivedMessage( pSegmentData, cbSegmentSize, nMsgNum, k_nSteamNetworkingSend_Unreliable, usecNow );
 		return;
 	}
 
@@ -2320,13 +2320,16 @@ void CSteamNetworkConnectionBase::SNP_ReceiveUnreliableSegment( int64 nMsgNum, i
 			return;
 	}
 
+	CSteamNetworkingMessage *pMsg = CSteamNetworkingMessage::New( this, cbMessageSize, nMsgNum, k_nSteamNetworkingSend_Unreliable, usecNow );
+	if ( !pMsg )
+		return;
+
 	// OK, we have the complete message!  Gather the
 	// segments into a contiguous buffer
-	uint8 *pMessage = new uint8[ cbMessageSize ];
 	for (;;)
 	{
 		Assert( itMsgStart->first.m_nMsgNum == nMsgNum );
-		memcpy( pMessage + itMsgStart->first.m_nOffset, itMsgStart->second.m_buf, itMsgStart->second.m_cbSize );
+		memcpy( (char *)pMsg->m_pData + itMsgStart->first.m_nOffset, itMsgStart->second.m_buf, itMsgStart->second.m_cbSize );
 
 		// Done?
 		if ( itMsgStart->second.m_bLast )
@@ -2343,12 +2346,7 @@ void CSteamNetworkConnectionBase::SNP_ReceiveUnreliableSegment( int64 nMsgNum, i
 	} while ( itMsgStart != end && itMsgStart->first.m_nMsgNum == nMsgNum );
 
 	// Deliver the message.
-	ReceivedMessage( pMessage, cbMessageSize, nMsgNum, usecNow );
-
-	// Clean up
-	// !SPEED! It would be best if we could hand ownership of this buffer to
-	// ReceivedMessage, instead of having that function copy it.
-	delete[] pMessage;
+	ReceivedMessage( pMsg );
 }
 
 bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int64 nSegBegin, const uint8 *pSegmentData, int cbSegmentSize, SteamNetworkingMicroseconds usecNow )
@@ -2687,7 +2685,8 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 		}
 
 		// We have a full message!  Queue it
-		ReceivedMessage( pReliableDecode, cbMsgSize, nMsgNum, usecNow );
+		if ( !ReceivedMessage( pReliableDecode, cbMsgSize, nMsgNum, k_nSteamNetworkingSend_Reliable, usecNow ) )
+			return false;
 		pReliableDecode += cbMsgSize;
 		int cbStreamConsumed = pReliableDecode-pReliableStart;
 
