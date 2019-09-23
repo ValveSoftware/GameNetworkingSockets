@@ -34,19 +34,30 @@ public:
 	/// Offset in reliable stream of the header byte.  0 if we're not reliable.
 	inline int64 SNPSend_ReliableStreamPos() const { return m_nConnUserData; }
 	inline void SNPSend_SetReliableStreamPos( int64 x ) { m_nConnUserData = x; }
+	inline int SNPSend_ReliableStreamSize() const
+	{
+		DbgAssert( m_nFlags & k_nSteamNetworkingSend_Reliable && m_nConnUserData > 0 && m_cbSNPSendReliableHeader > 0 && m_cbSize >= m_cbSNPSendReliableHeader );
+		return m_cbSize;
+	}
 
 	inline bool SNPSend_IsReliable() const
 	{
 		if ( m_nFlags & k_nSteamNetworkingSend_Reliable )
 		{
-			Assert( m_nConnUserData > 0 );
+			DbgAssert( m_nConnUserData > 0 && m_cbSNPSendReliableHeader > 0 && m_cbSize >= m_cbSNPSendReliableHeader );
 			return true;
 		}
-		Assert( m_nConnUserData == 0 );
+		DbgAssert( m_nConnUserData == 0 && m_cbSNPSendReliableHeader == 0 );
 		return false;
 	}
 
-	inline int SNPSend_Size() const { return m_cbSize; }
+	// Reliable stream header
+	int m_cbSNPSendReliableHeader;
+	byte *SNPSend_ReliableHeader()
+	{
+		// !KLUDGE! Reuse the peer identity to hold the reliable header
+		return (byte*)&m_identityPeer;
+	}
 
 	/// Remove it from queues
 	void Unlink();

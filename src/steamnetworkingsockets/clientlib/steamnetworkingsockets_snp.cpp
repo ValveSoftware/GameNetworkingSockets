@@ -299,10 +299,9 @@ EResult CSteamNetworkConnectionBase::SNP_SendMessage( CSteamNetworkingMessage *p
 	if ( pSendMessage->m_nFlags & k_nSteamNetworkingSend_Reliable )
 	{
 		pSendMessage->SNPSend_SetReliableStreamPos( m_senderState.m_nReliableStreamPos );
-		Assert( pSendMessage->SNPSend_IsReliable() );
 
 		// Generate the header
-		byte hdr[ 32 ];
+		byte *hdr = pSendMessage->SNPSend_ReliableHeader();
 		hdr[0] = 0;
 		byte *hdrEnd = hdr+1;
 		int64 nMsgNumGap = pSendMessage->m_nMessageNumber - m_senderState.m_nLastSendMsgNumReliable;
@@ -321,18 +320,10 @@ EResult CSteamNetworkConnectionBase::SNP_SendMessage( CSteamNetworkingMessage *p
 			hdr[0] |= (byte)( 0x20 | ( cbData & 0x1f ) );
 			hdrEnd = SerializeVarInt( hdrEnd, cbData>>5U );
 		}
-		int cbHdr = hdrEnd - hdr;
+		pSendMessage->m_cbSNPSendReliableHeader = hdrEnd - hdr;
 
-		// Copy the data into the message, with the header prepended
-		// FIXME We should keep the header and data separate!
-		int cbNewSize = cbHdr+cbData;
-		void *pNewData = malloc( cbNewSize );
-		memcpy( pNewData, hdr, cbHdr );
-		memcpy( (char*)pNewData + cbHdr, pSendMessage->m_pData, cbData );
-
-		pSendMessage->m_cbSize = cbNewSize;
-		pSendMessage->m_pData = pNewData;
-		pSendMessage->m_pfnFreeData = CSteamNetworkingMessage::DefaultFreeData;
+		// Grow the total size of the message by the header
+		pSendMessage->m_cbSize += pSendMessage->m_cbSNPSendReliableHeader;
 
 		// Advance stream pointer
 		m_senderState.m_nReliableStreamPos += pSendMessage->m_cbSize;
@@ -344,14 +335,17 @@ EResult CSteamNetworkConnectionBase::SNP_SendMessage( CSteamNetworkingMessage *p
 		// Remember last sent reliable message number, so we can know how to
 		// encode the next one
 		m_senderState.m_nLastSendMsgNumReliable = pSendMessage->m_nMessageNumber;
+
+		Assert( pSendMessage->SNPSend_IsReliable() );
 	}
 	else
 	{
 		pSendMessage->SNPSend_SetReliableStreamPos( 0 );
-		Assert( !pSendMessage->SNPSend_IsReliable() );
 
 		++m_senderState.m_nMessagesSentUnreliable;
 		m_senderState.m_cbPendingUnreliable += pSendMessage->m_cbSize;
+
+		Assert( !pSendMessage->SNPSend_IsReliable() );
 	}
 
 	// Add to pending list
@@ -1184,7 +1178,7 @@ struct EncodedSegment
 	{
 		Assert( nBegin < nEnd );
 		//Assert( nBegin + k_cbSteamNetworkingSocketsMaxReliableMessageSegment >= nEnd ); // Max sure we don't exceed max segment size
-		Assert( pMsg->m_cbSize > 0 );
+		Assert( pMsg->SNPSend_IsReliable() );
 
 		// Start filling out the header with the top three bits = 010,
 		// identifying this as a reliable segment
@@ -1495,7 +1489,7 @@ bool CSteamNetworkConnectionBase::SNP_SendPacket( SendPacketContext_t &ctx )
 				break;
 			}
 			CSteamNetworkingMessage *pSendMsg = m_senderState.m_messagesQueued.m_pFirst;
-			Assert( m_senderState.m_cbCurrentSendMessageSent < pSendMsg->SNPSend_Size() );
+			Assert( m_senderState.m_cbCurrentSendMessageSent < pSendMsg->m_cbSize );
 
 			// Start a new segment
 			EncodedSegment &seg = *push_back_get_ptr( vecSegments );
@@ -1514,7 +1508,7 @@ bool CSteamNetworkConnectionBase::SNP_SendPacket( SendPacketContext_t &ctx )
 				// We limit the size of reliable segments, to make
 				// sure that we don't make an excessively large
 				// one and then have a hard time retrying it later.
-				int cbDesiredSegSize = pSendMsg->SNPSend_Size() - m_senderState.m_cbCurrentSendMessageSent;
+				int cbDesiredSegSize = pSendMsg->m_cbSize - m_senderState.m_cbCurrentSendMessageSent;
 				if ( cbDesiredSegSize > m_cbMaxReliableMessageSegment )
 				{
 					cbDesiredSegSize = m_cbMaxReliableMessageSegment;
@@ -1557,14 +1551,14 @@ bool CSteamNetworkConnectionBase::SNP_SendPacket( SendPacketContext_t &ctx )
 				// Truncate, and leave the message in the queue
 				seg.m_cbSegSize = std::min( seg.m_cbSegSize, cbBytesRemainingForSegments - seg.m_cbHdr );
 				m_senderState.m_cbCurrentSendMessageSent += seg.m_cbSegSize;
-				Assert( m_senderState.m_cbCurrentSendMessageSent < pSendMsg->SNPSend_Size() );
+				Assert( m_senderState.m_cbCurrentSendMessageSent < pSendMsg->m_cbSize );
 				cbBytesRemainingForSegments -= seg.m_cbHdr + seg.m_cbSegSize;
 				break;
 			}
 
 			// The whole message fit (perhaps exactly, without the size byte)
 			// Reset send pointer for the next message
-			Assert( m_senderState.m_cbCurrentSendMessageSent + seg.m_cbSegSize == pSendMsg->SNPSend_Size() );
+			Assert( m_senderState.m_cbCurrentSendMessageSent + seg.m_cbSegSize == pSendMsg->m_cbSize );
 			m_senderState.m_cbCurrentSendMessageSent = 0;
 
 			// Remove message from queue,w e have transfered ownership to the segment and will
@@ -1678,10 +1672,7 @@ bool CSteamNetworkConnectionBase::SNP_SendPacket( SendPacketContext_t &ctx )
 
 		// Copy the header
 		memcpy( pPayloadPtr, seg.m_hdr, seg.m_cbHdr ); pPayloadPtr += seg.m_cbHdr;
-
-		// Copy the data
 		Assert( pPayloadPtr+seg.m_cbSegSize <= pPayloadEnd );
-		memcpy( pPayloadPtr, (char*)seg.m_pMsg->m_pData + seg.m_nOffset, seg.m_cbSegSize ); pPayloadPtr += seg.m_cbSegSize;
 
 		// Reliable?
 		if ( seg.m_pMsg->SNPSend_IsReliable() )
@@ -1689,6 +1680,30 @@ bool CSteamNetworkConnectionBase::SNP_SendPacket( SendPacketContext_t &ctx )
 			// We should never encode an empty range of the stream, that is worthless.
 			// (Even an empty reliable message requires some framing in the stream.)
 			Assert( seg.m_cbSegSize > 0 );
+
+			// Copy the unreliable segment into the packet.  Does the portion we are serializing
+			// begin in the header?
+			if ( seg.m_nOffset < seg.m_pMsg->m_cbSNPSendReliableHeader )
+			{
+				int cbCopyHdr = std::min( seg.m_cbSegSize, seg.m_pMsg->m_cbSNPSendReliableHeader - seg.m_nOffset );
+
+				memcpy( pPayloadPtr, seg.m_pMsg->SNPSend_ReliableHeader() + seg.m_nOffset, cbCopyHdr );
+				pPayloadPtr += cbCopyHdr;
+
+				int cbCopyBody = seg.m_cbSegSize - cbCopyHdr;
+				if ( cbCopyBody > 0 )
+				{
+					memcpy( pPayloadPtr, seg.m_pMsg->m_pData, cbCopyBody );
+					pPayloadPtr += cbCopyBody;
+				}
+			}
+			else
+			{
+				// This segment is entirely from the message body
+				memcpy( pPayloadPtr, (char*)seg.m_pMsg->m_pData + seg.m_nOffset - seg.m_pMsg->m_cbSNPSendReliableHeader, seg.m_cbSegSize );
+				pPayloadPtr += seg.m_cbSegSize;
+			}
+
 
 			// Remember that this range is in-flight
 			SNPRange_t range;
@@ -1720,13 +1735,17 @@ bool CSteamNetworkConnectionBase::SNP_SendPacket( SendPacketContext_t &ctx )
 		else
 		{
 			// We should only encode an empty segment if the message itself is empty
-			Assert( seg.m_cbSegSize > 0 || ( seg.m_cbSegSize == 0 && seg.m_pMsg->SNPSend_Size() == 0 ) );
+			Assert( seg.m_cbSegSize > 0 || ( seg.m_cbSegSize == 0 && seg.m_pMsg->m_cbSize == 0 ) );
 
 			// Check some stuff
-			Assert( bStillInQueue == ( seg.m_nOffset + seg.m_cbSegSize < seg.m_pMsg->SNPSend_Size() ) ); // If we ended the message, we should have removed it from the queue
+			Assert( bStillInQueue == ( seg.m_nOffset + seg.m_cbSegSize < seg.m_pMsg->m_cbSize ) ); // If we ended the message, we should have removed it from the queue
 			Assert( bStillInQueue == ( ( seg.m_hdr[0] & 0x20 ) == 0 ) );
 			Assert( bStillInQueue || seg.m_pMsg->m_links.m_pNext == nullptr ); // If not in the queue, we should be detached
 			Assert( seg.m_pMsg->m_links.m_pPrev == nullptr ); // We should either be at the head of the queue, or detached
+
+			// Copy the unreliable segment into the packet
+			memcpy( pPayloadPtr, (char*)seg.m_pMsg->m_pData + seg.m_nOffset, seg.m_cbSegSize );
+			pPayloadPtr += seg.m_cbSegSize;
 
 			// Spew
 			SpewType( nLogLevelPacketDecode+1, "[%s]   encode pkt %lld unreliable msg %lld offset %d+%d=%d\n",
