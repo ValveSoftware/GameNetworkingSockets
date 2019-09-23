@@ -45,7 +45,7 @@
 
 namespace SteamNetworkingSocketsLib {
 
-int g_nSteamDatagramSocketBufferSize = 128*1024;
+int g_nSteamDatagramSocketBufferSize = 256*1024;
 
 /// Global lock for all local data structures
 #ifdef MSVC_STL_MUTEX_WORKAROUND
