@@ -1353,9 +1353,110 @@ void ProcessThinkers()
 /////////////////////////////////////////////////////////////////////////////
 
 std::atomic<bool> g_bWantThreadRunning;
+static bool s_bManualPollMode;
+
+//
+// Polling function.
+// On entry: lock is held *exactly once*
+// Returns: true - we want to keep running, lock is held
+// Returns: false - stop request detected, lock no longer held
+//
+static bool SteamNetworkingSockets_InternalPoll( int msWait )
+{
+	SteamDatagramTransportLock::AssertHeldByCurrentThread(); // We should own the lock
+	Assert( SteamDatagramTransportLock::s_nLocked == 1 ); // exactly once
+
+	// Figure out how long to sleep
+	if ( s_queueThinkers.Count() > 0 )
+	{
+		IThinker *pNextThinker = s_queueThinkers.ElementAtHead();
+
+		// Calc wait time to wake up as late as possible,
+		// rounded up to the nearest millisecond.
+		SteamNetworkingMicroseconds usecNextWakeTime = pNextThinker->GetLatestThinkTime();
+		SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
+		int64 usecUntilNextThinkTime = usecNextWakeTime - usecNow;
+
+		if ( usecNow >= pNextThinker->GetEarliestThinkTime() )
+		{
+			// Earliest thinker in the queue is ready to go now.
+			// There is no point in going to sleep
+			msWait = 0;
+		}
+		else if ( usecUntilNextThinkTime <= 1000 )
+		{
+			// Less than 1ms until time to wake up?  But not yet reached the
+			// time for him to think?  This guy is asking for more resolution
+			// than we can provide.  Just squawk and sleep 1ms.  (We *do* need to
+			// sleep some amount of time, because this guy isn't going to get
+			// ejected from the queue until the earliest think time comes around,
+			// so we'll just be in an infinite loop complaining about the same thing
+			// over and over.)
+			msWait = 1;
+			AssertMsg( false, "Thinker requested submillisecond wait time precision." );
+		}
+		else
+		{
+
+			// Set wake time to wake up just at the last moment.
+			msWait = usecUntilNextThinkTime/1000;
+			Assert( msWait >= 1 );
+			usecNextWakeTime = usecNow + msWait*1000;
+			Assert( usecNextWakeTime <= pNextThinker->GetLatestThinkTime() );
+			Assert( usecNextWakeTime >= pNextThinker->GetEarliestThinkTime() );
+
+			// If we assume that the actual time we spend waiting might be
+			// up to 1ms shorter or longer than we request (in reality it
+			// could be much worse!), then attempting to wake up
+			// "at the last minute" might actually be too late.  If we can,
+			// back up to wake up 1ms earlier.  The reality is that if a thinker
+			// is requesting 1ms precision, they might just be asking for more than
+			// the underlying operating system can deliver.
+			if ( usecNextWakeTime+1000 > pNextThinker->GetLatestThinkTime() && usecNextWakeTime-1000 < pNextThinker->GetEarliestThinkTime() )
+			{
+				--msWait;
+				usecNextWakeTime -= 1000;
+			}
+
+			// But don't ever sleep for too long, just in case.  This timeout
+			// is long enough so that if we have a bug where we really need to
+			// be explicitly waking the thread for good perf, we will notice
+			// the delay.  But not so long that a bug in some rare 
+			// shutdown race condition (or the like) will be catastrophic
+			msWait = Min( msWait, 5000 );
+		}
+	}
+
+	// Poll sockets
+	if ( !PollRawUDPSockets( msWait ) )
+	{
+		// Shutdown request, and they did NOT re-acquire the lock
+		return false;
+	}
+
+	SteamDatagramTransportLock::AssertHeldByCurrentThread(); // We should own the lock
+	Assert( SteamDatagramTransportLock::s_nLocked == 1 ); // exactly once
+
+	// Shutdown request?
+	if ( !g_bWantThreadRunning )
+	{
+		SteamDatagramTransportLock::Unlock();
+		return false; // Shutdown request, we have released the lock
+	}
+
+	// Check for periodic processing
+	ProcessThinkers();
+
+	// Close any sockets pending delete, if we discarded a server
+	// We can close the sockets safely now, because we know we're
+	// not polling on them and we know we hold the lock
+	ProcessPendingDestroyClosedRawUDPSockets();
+	return true;
+}
 
 static void SteamNetworkingThreadProc()
 {
+	Assert( !s_bManualPollMode );
 
 	// This is an "interrupt" thread.  When an incoming packet raises the event,
 	// we need to take priority above normal threads and wake up immediately
@@ -1434,98 +1535,7 @@ static void SteamNetworkingThreadProc()
 	SeedWeakRandomGenerator();
 
 	// Keep looping until we're asked to terminate
-	for (;;)
-	{
-		SteamDatagramTransportLock::AssertHeldByCurrentThread(); // We should own the lock
-		Assert( SteamDatagramTransportLock::s_nLocked == 1 ); // exactly once
-
-		// Figure out how long to sleep
-		int msWait = 100;
-		if ( s_queueThinkers.Count() > 0 )
-		{
-			IThinker *pNextThinker = s_queueThinkers.ElementAtHead();
-
-			// Calc wait time to wake up as late as possible,
-			// rounded up to the nearest millisecond.
-			SteamNetworkingMicroseconds usecNextWakeTime = pNextThinker->GetLatestThinkTime();
-			SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
-			int64 usecUntilNextThinkTime = usecNextWakeTime - usecNow;
-
-			if ( usecNow >= pNextThinker->GetEarliestThinkTime() )
-			{
-				// Earliest thinker in the queue is ready to go now.
-				// There is no point in going to sleep
-				msWait = 0;
-			}
-			else if ( usecUntilNextThinkTime <= 1000 )
-			{
-				// Less than 1ms until time to wake up?  But not yet reached the
-				// time for him to think?  This guy is asking for more resolution
-				// than we can provide.  Just squawk and sleep 1ms.  (We *do* need to
-				// sleep some amount of time, because this guy isn't going to get
-				// ejected from the queue until the earliest think time comes around,
-				// so we'll just be in an infinite loop complaining about the same thing
-				// over and over.)
-				msWait = 1;
-				AssertMsg( false, "Thinker requested submillisecond wait time precision." );
-			}
-			else
-			{
-
-				// Set wake time to wake up just at the last moment.
-				msWait = usecUntilNextThinkTime/1000;
-				Assert( msWait >= 1 );
-				usecNextWakeTime = usecNow + msWait*1000;
-				Assert( usecNextWakeTime <= pNextThinker->GetLatestThinkTime() );
-				Assert( usecNextWakeTime >= pNextThinker->GetEarliestThinkTime() );
-
-				// If we assume that the actual time we spend waiting might be
-				// up to 1ms shorter or longer than we request (in reality it
-				// could be much worse!), then attempting to wake up
-				// "at the last minute" might actually be too late.  If we can,
-				// back up to wake up 1ms earlier.  The reality is that if a thinker
-				// is requesting 1ms precision, they might just be asking for more than
-				// the underlying operating system can deliver.
-				if ( usecNextWakeTime+1000 > pNextThinker->GetLatestThinkTime() && usecNextWakeTime-1000 < pNextThinker->GetEarliestThinkTime() )
-				{
-					--msWait;
-					usecNextWakeTime -= 1000;
-				}
-
-				// But don't ever sleep for too long, just in case.  This timeout
-				// is long enough so that if we have a bug where we really need to
-				// be explicitly waking the thread for good perf, we will notice
-				// the delay.  But not so long that a bug in some rare 
-				// shutdown race condition (or the like) will be catastrophic
-				msWait = Min( msWait, 5000 );
-			}
-		}
-
-		// Poll sockets
-		if ( !PollRawUDPSockets( msWait ) )
-		{
-			// Shutdown request, and they did NOT re-aquire the lock
-			break;
-		}
-
-		SteamDatagramTransportLock::AssertHeldByCurrentThread(); // We should own the lock
-		Assert( SteamDatagramTransportLock::s_nLocked == 1 ); // exactly once
-
-		// Shutdown request?
-		if ( !g_bWantThreadRunning )
-		{
-			SteamDatagramTransportLock::Unlock();
-			break;
-		}
-
-		// Check for periodic processing
-		ProcessThinkers();
-
-		// Close any sockets pending delete, if we discarded a server
-		// We can close the sockets safely now, because we know we're
-		// not polling on them and we know we hold the lock
-		ProcessPendingDestroyClosedRawUDPSockets();
-	}
+	while ( SteamNetworkingSockets_InternalPoll( 100 ) ) {}
 }
 
 static bool BEnsureSteamDatagramThreadRunning( SteamDatagramErrMsg &errMsg )
@@ -1593,7 +1603,8 @@ static bool BEnsureSteamDatagramThreadRunning( SteamDatagramErrMsg &errMsg )
 	// Create the thread and start socket processing
 	g_bWantThreadRunning = true;
 
-	s_pThreadSteamDatagram = new std::thread( SteamNetworkingThreadProc );
+	if ( !s_bManualPollMode )
+		s_pThreadSteamDatagram = new std::thread( SteamNetworkingThreadProc );
 
 	return true;
 }
@@ -2111,4 +2122,35 @@ SteamNetworkingMicroseconds SteamNetworkingSockets_GetLocalTimestamp()
 }
 
 } // namespace SteamNetworkingSocketsLib
+
+using namespace SteamNetworkingSocketsLib;
+
+#if defined( STEAMNETWORKINGSOCKETS_PARTNER ) || defined( STEAMNETWORKINGSOCKETS_STREAMINGCLIENT )
+
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetManualPollMode()
+{
+	// Must call this before initializing library
+	Assert( s_nLowLevelSupportRefCount == 0 );
+	Assert( !g_bWantThreadRunning );
+	s_bManualPollMode = true;
+}
+
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_Poll( int msMaxWaitTime )
+{
+	Assert( s_bManualPollMode );
+	Assert( s_nLowLevelSupportRefCount > 0 );
+	Assert( g_bWantThreadRunning );
+
+	while ( !SteamDatagramTransportLock::TryLock( "SteamNetworkingSockets_Poll", 1 ) )
+	{
+		if ( --msMaxWaitTime <= 0 )
+			return;
+	}
+
+	bool bStillLocked = SteamNetworkingSockets_InternalPoll( msMaxWaitTime );
+	if ( bStillLocked )
+		SteamDatagramTransportLock::Unlock();
+}
+
+#endif
 
