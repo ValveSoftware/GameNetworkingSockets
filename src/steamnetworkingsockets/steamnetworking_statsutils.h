@@ -733,6 +733,22 @@ protected:
 	void InitInternal( SteamNetworkingMicroseconds usecNow );
 	void ThinkInternal( SteamNetworkingMicroseconds usecNow );
 
+	/// Get time when we need to take action or think
+	inline SteamNetworkingMicroseconds GetNextThinkTimeInternal( SteamNetworkingMicroseconds usecNow ) const
+	{
+		SteamNetworkingMicroseconds usecResult = LinkStatsTrackerBase::GetNextThinkTimeInternal( usecNow );
+		if ( !m_bDisconnected )
+		{
+			if ( !m_usecInFlightReplyTimeout )
+			{
+				// Time when BNeedToSendKeepalive will return true
+				usecResult = std::min( usecResult, m_usecTimeLastRecv + k_usecKeepAliveInterval );
+			}
+		}
+
+		return usecResult;
+	}
+
 private:
 
 	void UpdateSpeedInterval( SteamNetworkingMicroseconds usecNow );

@@ -568,11 +568,6 @@ SteamNetworkingMicroseconds LinkStatsTrackerBase::GetNextThinkTimeInternal( Stea
 		{
 			usecResult = std::min( usecResult, m_usecInFlightReplyTimeout );
 		}
-		else if ( m_usecTimeLastRecv )
-		{
-			// Time when BNeedToSendKeepalive will return true
-			usecResult = std::min( usecResult, m_usecTimeLastRecv + k_usecKeepAliveInterval );
-		}
 
 		// Time when BNeedToSendPingImmediate will return true
 		if ( m_nReplyTimeoutsSinceLastRecv > 0 )
