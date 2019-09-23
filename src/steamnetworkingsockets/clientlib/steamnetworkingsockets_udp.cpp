@@ -1326,14 +1326,15 @@ void CConnectionTransportUDP::Received_Data( const uint8 *pPkt, int cbPkt, Steam
 	int cbChunk = pPktEnd - pIn;
 
 	// Decrypt it, and check packet number
-	uint8 arDecryptedChunk[ k_cbSteamNetworkingSocketsMaxPlaintextPayloadRecv ];
-	uint32 cbDecrypted = sizeof(arDecryptedChunk);
-	int64 nFullSequenceNumber = m_connection.DecryptDataChunk( nWirePktNumber, cbPkt, pChunk, cbChunk, arDecryptedChunk, cbDecrypted, usecNow );
+	uint8 tempDecrypted[ k_cbSteamNetworkingSocketsMaxPlaintextPayloadRecv ];
+	void *pDecrypted = tempDecrypted;
+	uint32 cbDecrypted = sizeof(tempDecrypted);
+	int64 nFullSequenceNumber = m_connection.DecryptDataChunk( nWirePktNumber, cbPkt, pChunk, cbChunk, pDecrypted, cbDecrypted, usecNow );
 	if ( nFullSequenceNumber <= 0 )
 		return;
 
 	// Process plaintext
-	if ( !m_connection.ProcessPlainTextDataChunk( nFullSequenceNumber, arDecryptedChunk, cbDecrypted, 0, usecNow ) )
+	if ( !m_connection.ProcessPlainTextDataChunk( nFullSequenceNumber, pDecrypted, cbDecrypted, 0, usecNow ) )
 		return;
 
 	// Process the stats, if any
