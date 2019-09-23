@@ -675,13 +675,47 @@ bool CSteamNetworkingSockets::GetConnectionName( HSteamNetConnection hPeer, char
 	return true;
 }
 
-EResult CSteamNetworkingSockets::SendMessageToConnection( HSteamNetConnection hConn, const void *pData, uint32 cbData, int nSendFlags )
+EResult CSteamNetworkingSockets::SendMessageToConnection( HSteamNetConnection hConn, const void *pData, uint32 cbData, int nSendFlags, int64 *pOutMessageNumber )
 {
 	SteamDatagramTransportLock scopeLock( "SendMessageToConnection" );
 	CSteamNetworkConnectionBase *pConn = GetConnectionByHandleForAPI( hConn );
 	if ( !pConn )
 		return k_EResultInvalidParam;
-	return pConn->APISendMessageToConnection( pData, cbData, nSendFlags );
+	return pConn->APISendMessageToConnection( pData, cbData, nSendFlags, pOutMessageNumber );
+}
+
+void CSteamNetworkingSockets::SendMessages( int nMessages, SteamNetworkingMessage_t *const *pMessages, int64 *pOutMessageNumberOrResult )
+{
+	SteamDatagramTransportLock scopeLock( "SendMessages" );
+	for ( int i = 0 ; i < nMessages ; ++i )
+	{
+
+		// Sanity check that message is valid
+		CSteamNetworkingMessage *pMsg = static_cast<CSteamNetworkingMessage*>( pMessages[i] );
+		if ( !pMsg )
+		{
+			if ( pOutMessageNumberOrResult )
+				pOutMessageNumberOrResult[i] = -k_EResultInvalidParam;
+			continue;
+		}
+
+		// Locate connection
+		CSteamNetworkConnectionBase *pConn = GetConnectionByHandleForAPI( pMsg->m_conn );
+		if ( !pConn )
+		{
+			if ( pOutMessageNumberOrResult )
+				pOutMessageNumberOrResult[i] = -k_EResultInvalidParam;
+			pMsg->Release();
+			continue;
+		}
+
+		// Attempt to send
+		int64 result = pConn->APISendMessageToConnection( pMsg );
+
+		// Return result for this message if they asked for it
+		if ( pOutMessageNumberOrResult )
+			pOutMessageNumberOrResult[i] = result;
+	}
 }
 
 EResult CSteamNetworkingSockets::FlushMessagesOnConnection( HSteamNetConnection hConn )
@@ -953,6 +987,11 @@ void CSteamNetworkingSockets::InternalQueueCallback( int nCallback, int cbCallba
 /////////////////////////////////////////////////////////////////////////////
 
 CSteamNetworkingUtils::~CSteamNetworkingUtils() {}
+
+SteamNetworkingMessage_t *CSteamNetworkingUtils::AllocateMessage( int cbAllocateBuffer )
+{
+	return CSteamNetworkingMessage::New( cbAllocateBuffer );
+}
 
 SteamNetworkingMicroseconds CSteamNetworkingUtils::GetLocalTimestamp()
 {

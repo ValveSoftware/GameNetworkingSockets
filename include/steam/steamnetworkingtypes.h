@@ -769,6 +769,13 @@ struct SteamNetworkingMessage_t
 	/// For outbound messages, all bits are relevant
 	int m_nFlags;
 
+	/// Arbitrary user data that you can use when sending messages using
+	/// ISteamNetworkingUtils::AllocateMessage and ISteamNetworkingSockets::SendMessage.
+	/// (The callback you set in m_pfnFreeData might use this field.)
+	///
+	/// Not used for received messages.
+	int64 m_nUserData;
+
 	/// You MUST call this when you're done with the object,
 	/// to free up memory, etc.
 	inline void Release();

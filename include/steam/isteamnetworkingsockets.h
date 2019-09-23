@@ -202,6 +202,9 @@ public:
 	/// sockets that does not write excessively small chunks will 
 	/// work without any changes. 
 	///
+	/// The pOutMessageNumber is an optional pointer to receive the
+	/// message number assigned to the message, if sending was successful.
+	///
 	/// Returns:
 	/// - k_EResultInvalidParam: invalid connection handle, or the individual message is too big.
 	///   (See k_cbMaxSteamNetworkingSocketsMessageSizeSend)
@@ -211,7 +214,41 @@ public:
 	///   we were not ready to send it.
 	/// - k_EResultLimitExceeded: there was already too much data queued to be sent.
 	///   (See k_ESteamNetworkingConfig_SendBufferSize)
-	virtual EResult SendMessageToConnection( HSteamNetConnection hConn, const void *pData, uint32 cbData, int nSendFlags ) = 0;
+	virtual EResult SendMessageToConnection( HSteamNetConnection hConn, const void *pData, uint32 cbData, int nSendFlags, int64 *pOutMessageNumber ) = 0;
+
+	/// Send one or more messages without copying the message payload.
+	/// This is the most efficient way to send messages. To use this
+	/// function, you must first allocate a message object using
+	/// ISteamNetworkingUtils::AllocateMessage.  (Do not declare one
+	/// on the stack or allocate your own.)
+	///
+	/// You should fill in the message payload.  You can either let
+	/// it allocate the buffer for you and then fill in the payload,
+	/// or if you already have a buffer allocated, you can just point
+	/// m_pData at your buffer and set the callback to the appropriate function
+	/// to free it.  Note that if you use your own buffer, it MUST remain valid
+	/// until the callback is executed.  And also note that your callback can be
+	/// invoked at ant time from any thread (perhaps even before SendMessages
+	/// returns!), so it MUST be fast and threadsafe.
+	///
+	/// You MUST also fill in:
+	/// - m_conn - the handle of the connection to send the message to
+	/// - m_nFlags - bitmask of k_nSteamNetworkingSend_xxx flags.
+	///
+	/// All other fields are currently reserved and should not be modified.
+	///
+	/// The library will take ownership of the message structures.  They may
+	/// be modified or become invalid at any time, so you must not read them
+	/// after passing them to this function.
+	///
+	/// pOutMessageNumberOrResult is an optional array that will receive,
+	/// for each message, the message number that was assigned to the message
+	/// if sending was successful.  If sending failed, then a negative EResult
+	/// valid is placed into the array.  For example, the array will hold
+	/// -k_EResultInvalidState if the connection was in an invalid state.
+	/// See ISteamNetworkingSockets::SendMessageToConnection for possible
+	/// failure codes.
+	virtual void SendMessages( int nMessages, SteamNetworkingMessage_t *const *pMessages, int64 *pOutMessageNumberOrResult ) = 0;
 
 	/// Flush any messages waiting on the Nagle timer and send them
 	/// at the next transmission opportunity (often that means right now).
@@ -372,7 +409,7 @@ public:
 protected:
 	~ISteamNetworkingSockets(); // Silence some warnings
 };
-#define STEAMNETWORKINGSOCKETS_INTERFACE_VERSION "SteamNetworkingSockets005"
+#define STEAMNETWORKINGSOCKETS_INTERFACE_VERSION "SteamNetworkingSockets006"
 
 extern "C" {
 

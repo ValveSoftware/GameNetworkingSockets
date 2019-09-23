@@ -65,8 +65,10 @@ public:
 	struct Links
 	{
 		SteamNetworkingMessageQueue *m_pQueue;
-		CSteamNetworkingMessage *m_pPrev ;
+		CSteamNetworkingMessage *m_pPrev;
 		CSteamNetworkingMessage *m_pNext;
+
+		inline void Clear() { m_pQueue = nullptr; m_pPrev = nullptr; m_pNext = nullptr; }
 	};
 
 	/// Intrusive links for the "primary" list we are in

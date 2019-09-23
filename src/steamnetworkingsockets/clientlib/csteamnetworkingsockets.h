@@ -82,7 +82,8 @@ public:
 	virtual int64 GetConnectionUserData( HSteamNetConnection hPeer ) override;
 	virtual void SetConnectionName( HSteamNetConnection hPeer, const char *pszName ) override;
 	virtual bool GetConnectionName( HSteamNetConnection hPeer, char *pszName, int nMaxLen ) override;
-	virtual EResult SendMessageToConnection( HSteamNetConnection hConn, const void *pData, uint32 cbData, int nSendFlags ) override;
+	virtual EResult SendMessageToConnection( HSteamNetConnection hConn, const void *pData, uint32 cbData, int nSendFlags, int64 *pOutMessageNumber ) override;
+	virtual void SendMessages( int nMessages, SteamNetworkingMessage_t *const *pMessages, int64 *pOutMessageNumberOrResult ) override;
 	virtual EResult FlushMessagesOnConnection( HSteamNetConnection hConn ) override;
 	virtual int ReceiveMessagesOnConnection( HSteamNetConnection hConn, SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages ) override;
 	virtual int ReceiveMessagesOnListenSocket( HSteamListenSocket hSocket, SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages ) override;
@@ -145,6 +146,8 @@ class CSteamNetworkingUtils : public IClientNetworkingUtils
 {
 public:
 	virtual ~CSteamNetworkingUtils();
+
+	virtual SteamNetworkingMessage_t *AllocateMessage( int cbAllocateBuffer ) override;
 
 	virtual SteamNetworkingMicroseconds GetLocalTimestamp() override;
 	virtual void SetDebugOutputFunction( ESteamNetworkingSocketsDebugOutputType eDetailLevel, FSteamNetworkingSocketsDebugOutput pfnFunc ) override;

@@ -261,7 +261,7 @@ void CSteamNetworkConnectionBase::SNP_ShutdownConnection()
 }
 
 //-----------------------------------------------------------------------------
-EResult CSteamNetworkConnectionBase::SNP_SendMessage( CSteamNetworkingMessage *pSendMessage, SteamNetworkingMicroseconds usecNow )
+int64 CSteamNetworkConnectionBase::SNP_SendMessage( CSteamNetworkingMessage *pSendMessage, SteamNetworkingMicroseconds usecNow )
 {
 	int cbData = (int)pSendMessage->m_cbSize;
 
@@ -270,7 +270,7 @@ EResult CSteamNetworkConnectionBase::SNP_SendMessage( CSteamNetworkingMessage *p
 	{
 		SpewWarning( "Connection already has %u bytes pending, cannot queue any more messages\n", m_senderState.PendingBytesTotal() );
 		pSendMessage->Release();
-		return k_EResultLimitExceeded; 
+		return -k_EResultLimitExceeded; 
 	}
 
 	// Check if they try to send a really large message
@@ -341,6 +341,7 @@ EResult CSteamNetworkConnectionBase::SNP_SendMessage( CSteamNetworkingMessage *p
 	else
 	{
 		pSendMessage->SNPSend_SetReliableStreamPos( 0 );
+		pSendMessage->m_cbSNPSendReliableHeader = 0;
 
 		++m_senderState.m_nMessagesSentUnreliable;
 		m_senderState.m_cbPendingUnreliable += pSendMessage->m_cbSize;
@@ -391,7 +392,7 @@ EResult CSteamNetworkConnectionBase::SNP_SendMessage( CSteamNetworkingMessage *p
 		EnsureMinThinkTime( usecNextThink, +1 );
 	}
 
-	return k_EResultOK;
+	return pSendMessage->m_nMessageNumber;
 }
 
 EResult CSteamNetworkConnectionBase::SNP_FlushMessage( SteamNetworkingMicroseconds usecNow )

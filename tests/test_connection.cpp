@@ -178,7 +178,7 @@ struct SFakePeer
 			m_hSteamNetConnection, 
 			&msg,
 			cbSend,
-			msg.m_bReliable ? k_nSteamNetworkingSend_Reliable : k_nSteamNetworkingSend_Unreliable );
+			msg.m_bReliable ? k_nSteamNetworkingSend_Reliable : k_nSteamNetworkingSend_Unreliable, nullptr );
 
 		if ( result != k_EResultOK )
 		{

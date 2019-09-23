@@ -22,6 +22,35 @@ struct SteamRelayNetworkStatus_t;
 class ISteamNetworkingUtils
 {
 public:
+	//
+	// Efficient message sending
+	//
+
+	/// Allocate and initialize a message object.  Usually the reason
+	/// you call this is to pass it to ISteamNetworkingSockets::SendMessages.
+	/// The returned object will have all of the relevant fields cleared to zero.
+	///
+	/// Optionally you can also request that this system allocate space to
+	/// hold the payload itself.  If cbAllocateBuffer is nonzero, the system
+	/// will allocate memory to hold a payload of at least cbAllocateBuffer bytes.
+	/// m_pData will point to the allocated buffer, m_cbSize will be set to the
+	/// size, and m_pfnFreeData will be set to the proper function to free up
+	/// the buffer.
+	///
+	/// If cbAllocateBuffer=0, then no buffer is allocated.  m_pData will be NULL,
+	/// m_cbSize will be zero, and m_pfnFreeData will be NULL.  You will need to
+	/// set each of these.
+	///
+	/// You can use SteamNetworkingMessage_t::Release to free up the message
+	/// bookkeeping object and any associated buffer.  See
+	/// ISteamNetworkingSockets::SendMessages for details on reference
+	/// counting and ownership.
+	virtual SteamNetworkingMessage_t *AllocateMessage( int cbAllocateBuffer ) = 0;
+
+	//
+	// Access to Steam Datagram Relay (SDR) network
+	//
+
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 	// Ping measurement utilities using Valve's relay network
 #endif // #ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
@@ -61,8 +90,9 @@ public:
 	///
 	/// Except when debugging, you should only use k_ESteamNetworkingSocketsDebugOutputType_Msg
 	/// or k_ESteamNetworkingSocketsDebugOutputType_Warning.  For best performance, do NOT
-	/// request a high detail level and then filter out messages in your callback.  Instead,
-	/// call function function to adjust the desired level of detail.
+	/// request a high detail level and then filter out messages in your callback.  This incurs
+	/// all of the expense of formatting the messages, which are then discarded.  Setting a high
+	/// priority value (low numeric value) here allows the library to avoid doing this work.
 	///
 	/// IMPORTANT: This may be called from a service thread, while we own a mutex, etc.
 	/// Your output function must be threadsafe and fast!  Do not make any other
@@ -129,7 +159,7 @@ public:
 protected:
 	~ISteamNetworkingUtils(); // Silence some warnings
 };
-#define STEAMNETWORKINGUTILS_INTERFACE_VERSION "SteamNetworkingUtils002"
+#define STEAMNETWORKINGUTILS_INTERFACE_VERSION "SteamNetworkingUtils003"
 
 // Global accessor.
 #ifdef STEAMNETWORKINGSOCKETS_STANDALONELIB

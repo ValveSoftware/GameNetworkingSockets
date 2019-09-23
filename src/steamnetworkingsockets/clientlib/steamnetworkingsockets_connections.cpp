@@ -104,7 +104,9 @@ CSteamNetworkingMessage *CSteamNetworkingMessage::New( uint32 cbSize )
 {
 	// FIXME Should avoid this dynamic memory call with some sort of pooling
 	CSteamNetworkingMessage *pMsg = new CSteamNetworkingMessage;
-	memset( pMsg, 0, sizeof(CSteamNetworkingMessage) );
+
+	// NOTE: Intentionally not memsetting the whole thing;
+	// this struct is pretty big.
 
 	// Allocate buffer if requested
 	if ( cbSize )
@@ -113,17 +115,32 @@ CSteamNetworkingMessage *CSteamNetworkingMessage::New( uint32 cbSize )
 		if ( pMsg->m_pData == nullptr )
 		{
 			delete pMsg;
-			AssertMsg1( false, "Failed to allocate %d-byte message buffer", cbSize );
+			SpewError( "Failed to allocate %d-byte message buffer", cbSize );
 			return nullptr;
 		}
 		pMsg->m_cbSize = cbSize;
 		pMsg->m_pfnFreeData = CSteamNetworkingMessage::DefaultFreeData;
 	}
+	else
+	{
+		pMsg->m_cbSize = 0;
+		pMsg->m_pData = nullptr;
+		pMsg->m_pfnFreeData = nullptr;
+	}
 
-	pMsg->m_nChannel = -1;
+	// Clear identity
+	pMsg->m_conn = k_HSteamNetConnection_Invalid;
+	pMsg->m_identityPeer.m_eType = k_ESteamNetworkingIdentityType_Invalid;
+	pMsg->m_identityPeer.m_cbSize = 0;
 
 	// Set the release function
 	pMsg->m_pfnRelease = ReleaseFunc;
+
+	// Clear these fields
+	pMsg->m_nChannel = -1;
+	pMsg->m_nFlags = 0;
+	pMsg->m_links.Clear();
+	pMsg->m_linksSecondaryQueue.Clear();
 
 	return pMsg;
 }
@@ -1411,8 +1428,10 @@ void CSteamNetworkConnectionBase::APIGetDetailedConnectionStatus( SteamNetworkin
 	SNP_PopulateDetailedStats( stats.m_statsEndToEnd );
 }
 
-EResult CSteamNetworkConnectionBase::APISendMessageToConnection( const void *pData, uint32 cbData, int nSendFlags )
+EResult CSteamNetworkConnectionBase::APISendMessageToConnection( const void *pData, uint32 cbData, int nSendFlags, int64 *pOutMessageNumber )
 {
+	if ( pOutMessageNumber )
+		*pOutMessageNumber = -1;
 
 	// Check connection state
 	switch ( GetState() )
@@ -1449,10 +1468,53 @@ EResult CSteamNetworkConnectionBase::APISendMessageToConnection( const void *pDa
 	memcpy( pMsg->m_pData, pData, cbData );
 
 	// Connection-type specific logic
+	int64 nMsgNumberOrResult = _APISendMessageToConnection( pMsg );
+	if ( nMsgNumberOrResult > 0 )
+	{
+		if ( pOutMessageNumber )
+			*pOutMessageNumber = nMsgNumberOrResult;
+		return k_EResultOK;
+	}
+	return EResult( -nMsgNumberOrResult );
+}
+
+int64 CSteamNetworkConnectionBase::APISendMessageToConnection( CSteamNetworkingMessage *pMsg )
+{
+
+	// Check connection state
+	switch ( GetState() )
+	{
+		case k_ESteamNetworkingConnectionState_None:
+		case k_ESteamNetworkingConnectionState_FinWait:
+		case k_ESteamNetworkingConnectionState_Linger:
+		case k_ESteamNetworkingConnectionState_Dead:
+		default:
+			AssertMsg( false, "Why are making API calls on this connection?" );
+			pMsg->Release();
+			return -k_EResultInvalidState;
+
+		case k_ESteamNetworkingConnectionState_Connecting:
+		case k_ESteamNetworkingConnectionState_FindingRoute:
+			if ( pMsg->m_nFlags & k_nSteamNetworkingSend_NoDelay )
+			{
+				pMsg->Release();
+				return -k_EResultIgnored;
+			}
+			break;
+
+		case k_ESteamNetworkingConnectionState_Connected:
+			break;
+
+		case k_ESteamNetworkingConnectionState_ClosedByPeer:
+		case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
+			pMsg->Release();
+			return -k_EResultNoConnection;
+	}
+
 	return _APISendMessageToConnection( pMsg );
 }
 
-EResult CSteamNetworkConnectionBase::_APISendMessageToConnection( CSteamNetworkingMessage *pMsg )
+int64 CSteamNetworkConnectionBase::_APISendMessageToConnection( CSteamNetworkingMessage *pMsg )
 {
 
 	// Message too big?
@@ -1460,7 +1522,7 @@ EResult CSteamNetworkConnectionBase::_APISendMessageToConnection( CSteamNetworki
 	{
 		AssertMsg2( false, "Message size %d is too big.  Max is %d", pMsg->m_cbSize, k_cbMaxSteamNetworkingSocketsMessageSizeSend );
 		pMsg->Release();
-		return k_EResultInvalidParam;
+		return -k_EResultInvalidParam;
 	}
 
 	// Pass to reliability layer
@@ -2616,14 +2678,14 @@ EUnsignedCert CSteamNetworkConnectionPipe::AllowLocalUnsignedCert()
 	return k_EUnsignedCert_Allow;
 }
 
-EResult CSteamNetworkConnectionPipe::_APISendMessageToConnection( CSteamNetworkingMessage *pMsg )
+int64 CSteamNetworkConnectionPipe::_APISendMessageToConnection( CSteamNetworkingMessage *pMsg )
 {
 	if ( !m_pPartner )
 	{
 		// Caller should have checked the connection at a higher level, so this is a bug
 		AssertMsg( false, "No partner pipe?" );
 		pMsg->Release();
-		return k_EResultFail;
+		return -k_EResultFail;
 	}
 	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 
@@ -2634,7 +2696,8 @@ EResult CSteamNetworkConnectionPipe::_APISendMessageToConnection( CSteamNetworki
 	// NOTE: This assumes that we can muck with the structure,
 	//       and that the caller won't need to look at the original
 	//       object any more.
-	pMsg->m_nMessageNumber = ++m_senderState.m_nLastSentMsgNum;
+	int nMsgNum = ++m_senderState.m_nLastSentMsgNum;
+	pMsg->m_nMessageNumber = nMsgNum;
 	pMsg->m_conn = m_pPartner->m_hConnectionSelf;
 	pMsg->m_identityPeer = m_pPartner->m_identityRemote;
 	pMsg->m_nConnUserData = m_pPartner->m_nUserData;
@@ -2643,7 +2706,7 @@ EResult CSteamNetworkConnectionPipe::_APISendMessageToConnection( CSteamNetworki
 	// Pass directly to our partner
 	m_pPartner->ReceivedMessage( pMsg );
 
-	return k_EResultOK;
+	return nMsgNum;
 }
 
 void CSteamNetworkConnectionPipe::FakeSendStats( SteamNetworkingMicroseconds usecNow, int cbPktSize )
