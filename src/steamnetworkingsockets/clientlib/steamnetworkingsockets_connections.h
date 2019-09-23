@@ -36,7 +36,6 @@ class CSteamNetworkingMessages;
 class CSteamNetworkConnectionBase;
 class CSharedSocket;
 class CConnectionTransport;
-struct SteamNetworkingMessageQueue;
 struct SNPAckSerializerHelper;
 struct CertAuthScope;
 
@@ -134,87 +133,6 @@ struct SendPacketContext : SendPacketContext_t
 	}
 
 	void CalcMaxEncryptedPayloadSize( size_t cbHdrReserve, CSteamNetworkConnectionBase *pConnection );
-};
-
-/////////////////////////////////////////////////////////////////////////////
-//
-// Message storage implementation
-//
-/////////////////////////////////////////////////////////////////////////////
-
-/// Actual implementation of SteamNetworkingMessage_t, which is the API
-/// visible type.  Has extra fields needed to put the message into intrusive
-/// linked lists.
-class CSteamNetworkingMessage : public SteamNetworkingMessage_t
-{
-public:
-	static CSteamNetworkingMessage *New( CSteamNetworkConnectionBase *pParent, uint32 cbSize, int64 nMsgNum, int nFlags, SteamNetworkingMicroseconds usecNow );
-	static CSteamNetworkingMessage *New( uint32 cbSize );
-	static void DefaultFreeData( SteamNetworkingMessage_t *pMsg );
-
-	/// Remove it from queues
-	void Unlink();
-
-	struct Links
-	{
-		SteamNetworkingMessageQueue *m_pQueue = nullptr;
-		CSteamNetworkingMessage *m_pPrev = nullptr;
-		CSteamNetworkingMessage *m_pNext = nullptr;
-	};
-
-	/// Reference count
-	std::atomic<int> m_nRefCount;
-
-	/// Next message on the same connection
-	Links m_linksSameConnection;
-
-	/// Next message from the same listen socket or P2P channel (depending on message type)
-	Links m_linksSecondaryQueue;
-
-	/// Override connection handle
-	inline void SetConnection( HSteamNetConnection hConn ) { m_conn = hConn; }
-
-	/// Setup user data
-	inline void SetConnectionUserData( int64 nUserData )
-	{
-		m_nConnUserData = nUserData;
-	}
-
-	/// Setup P2P channel
-	inline void SetChannel( int nChannel )
-	{
-		m_nChannel = nChannel;
-	}
-
-	void LinkToQueueTail( Links CSteamNetworkingMessage::*pMbrLinks, SteamNetworkingMessageQueue *pQueue );
-	void UnlinkFromQueue( Links CSteamNetworkingMessage::*pMbrLinks );
-
-private:
-	static void ReleaseFunc( SteamNetworkingMessage_t *pIMsg );
-};
-
-/// A doubly-linked list of CSteamNetworkingMessage
-struct SteamNetworkingMessageQueue
-{
-	CSteamNetworkingMessage *m_pFirst = nullptr;
-	CSteamNetworkingMessage *m_pLast = nullptr;
-
-	inline bool IsEmpty() const
-	{
-		if ( m_pFirst )
-		{
-			Assert( m_pLast );
-			return false;
-		}
-		Assert( !m_pLast );
-		return true;
-	}
-
-	/// Remove the first messages out of the queue (up to nMaxMessages).  Returns the number returned
-	int RemoveMessages( SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages );
-
-	/// Delete all queued messages
-	void PurgeMessages();
 };
 
 /// Connections created through the "messages" interface are not directly exposed to the app.
@@ -583,7 +501,7 @@ protected:
 
 	/// Hook to allow connections to customize message sending.
 	/// (E.g. loopback.)
-	virtual EResult _APISendMessageToConnection( const void *pData, uint32 cbData, int nSendFlags );
+	virtual EResult _APISendMessageToConnection( CSteamNetworkingMessage *pMsg );
 
 	/// Called when we receive a complete message.  Should allocate a message object and put it into the proper queues
 	bool ReceivedMessage( const void *pData, int cbData, int64 nMsgNum, int nFlags, SteamNetworkingMicroseconds usecNow );
@@ -650,7 +568,7 @@ protected:
 
 	void SNP_InitializeConnection( SteamNetworkingMicroseconds usecNow );
 	void SNP_ShutdownConnection();
-	EResult SNP_SendMessage( SteamNetworkingMicroseconds usecNow, const void *pData, int cbData, int nSendFlags );
+	EResult SNP_SendMessage( CSteamNetworkingMessage *pSendMessage, SteamNetworkingMicroseconds usecNow );
 	SteamNetworkingMicroseconds SNP_ThinkSendState( SteamNetworkingMicroseconds usecNow );
 	SteamNetworkingMicroseconds SNP_GetNextThinkTime( SteamNetworkingMicroseconds usecNow );
 	SteamNetworkingMicroseconds SNP_TimeWhenWantToSendNextPacket() const;
@@ -796,7 +714,7 @@ public:
 	CSteamNetworkConnectionPipe *m_pPartner;
 
 	// CSteamNetworkConnectionBase overrides
-	virtual EResult _APISendMessageToConnection( const void *pData, uint32 cbData, int nSendFlags ) override;
+	virtual EResult _APISendMessageToConnection( CSteamNetworkingMessage *pMsg ) override;
 	virtual void PostConnectionStateChangedCallback( ESteamNetworkingConnectionState eOldAPIState, ESteamNetworkingConnectionState eNewAPIState ) override;
 	virtual void InitConnectionCrypto( SteamNetworkingMicroseconds usecNow ) override;
 	virtual EUnsignedCert AllowRemoteUnsignedCert() override;

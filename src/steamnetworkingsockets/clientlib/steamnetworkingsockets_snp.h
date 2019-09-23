@@ -12,6 +12,92 @@ struct P2PSessionState_t;
 namespace SteamNetworkingSocketsLib {
 
 class CSteamNetworkConnectionBase;
+struct SteamNetworkingMessageQueue;
+
+/// Actual implementation of SteamNetworkingMessage_t, which is the API
+/// visible type.  Has extra fields needed to put the message into intrusive
+/// linked lists.
+class CSteamNetworkingMessage : public SteamNetworkingMessage_t
+{
+public:
+	static CSteamNetworkingMessage *New( CSteamNetworkConnectionBase *pParent, uint32 cbSize, int64 nMsgNum, int nFlags, SteamNetworkingMicroseconds usecNow );
+	static CSteamNetworkingMessage *New( uint32 cbSize );
+	static void DefaultFreeData( SteamNetworkingMessage_t *pMsg );
+
+	/// OK to delay sending this message until this time.  Set to zero to explicitly force
+	/// Nagle timer to expire and send now (but this should behave the same as if the
+	/// timer < usecNow).  If the timer is cleared, then all messages with lower message numbers
+	/// are also cleared.
+	inline SteamNetworkingMicroseconds SNPSend_UsecNagle() const { return m_usecTimeReceived; }
+	inline void SNPSend_SetUsecNagle( SteamNetworkingMicroseconds x ) { m_usecTimeReceived = x; }
+
+	/// Offset in reliable stream of the header byte.  0 if we're not reliable.
+	inline int64 SNPSend_ReliableStreamPos() const { return m_nConnUserData; }
+	inline void SNPSend_SetReliableStreamPos( int64 x ) { m_nConnUserData = x; }
+
+	inline bool SNPSend_IsReliable() const
+	{
+		if ( m_nFlags & k_nSteamNetworkingSend_Reliable )
+		{
+			Assert( m_nConnUserData > 0 );
+			return true;
+		}
+		Assert( m_nConnUserData == 0 );
+		return false;
+	}
+
+	inline int SNPSend_Size() const { return m_cbSize; }
+
+	/// Remove it from queues
+	void Unlink();
+
+	struct Links
+	{
+		SteamNetworkingMessageQueue *m_pQueue;
+		CSteamNetworkingMessage *m_pPrev ;
+		CSteamNetworkingMessage *m_pNext;
+	};
+
+	/// Intrusive links for the "primary" list we are in
+	Links m_links;
+
+	/// Intrusive links for any secondary list we may be in.  (Same listen socket or
+	/// P2P channel, depending on message type)
+	Links m_linksSecondaryQueue;
+
+	void LinkToQueueTail( Links CSteamNetworkingMessage::*pMbrLinks, SteamNetworkingMessageQueue *pQueue );
+	void UnlinkFromQueue( Links CSteamNetworkingMessage::*pMbrLinks );
+
+private:
+	// Use New and Release()!!
+	inline CSteamNetworkingMessage() {}
+	inline ~CSteamNetworkingMessage() {}
+	static void ReleaseFunc( SteamNetworkingMessage_t *pIMsg );
+};
+
+/// A doubly-linked list of CSteamNetworkingMessage
+struct SteamNetworkingMessageQueue
+{
+	CSteamNetworkingMessage *m_pFirst = nullptr;
+	CSteamNetworkingMessage *m_pLast = nullptr;
+
+	inline bool empty() const
+	{
+		if ( m_pFirst )
+		{
+			Assert( m_pLast );
+			return false;
+		}
+		Assert( !m_pLast );
+		return true;
+	}
+
+	/// Remove the first messages out of the queue (up to nMaxMessages).  Returns the number returned
+	int RemoveMessages( SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages );
+
+	/// Delete all queued messages
+	void PurgeMessages();
+};
 
 /// Maximum number of packets we will send in one Think() call.
 const int k_nMaxPacketsPerThink = 16;
@@ -68,94 +154,40 @@ struct SNPInFlightPacket_t
 	vstd::small_vector<SNPRange_t,1> m_vecReliableSegments;
 };
 
-/// Track an outbound message in various states
-struct SNPSendMessage_t
+struct SSNPSendMessageList : public SteamNetworkingMessageQueue
 {
-	// FIXME Probably should provide an optimized allocator for this,
-	// since these are small and are created and destroyed often.
-
-	~SNPSendMessage_t()
-	{
-		delete [] m_pData;
-	}
-
-	/// Message number.
-	int64 m_nMsgNum;
-
-	/// Messages are kept in doubly-linked lists, ordered by message number
-	SNPSendMessage_t *m_pNext;
-	SNPSendMessage_t *m_pPrev;
-
-	/// OK to delay sending this message until this time.  Set to zero to explicitly force
-	/// Nagle timer to expire and send now (but this should behave the same as if the
-	/// timer < usecNow).  If the timer is cleared, then all messages with lower message numbers
-	/// are also cleared.
-	SteamNetworkingMicroseconds m_usecNagle;
-
-	// Memory buffer that we own.  NOTE: for reliable messages, the
-	// reliable header is generated and saved at the time we accept the
-	// message from the app.
-	int m_cbSize;
-	byte *m_pData;
-
-	/// Offset in reliable stream of the header byte.  0 if we're not reliable.
-	int64 m_nReliableStreamPos;
-};
-
-struct SSNPSendMessageList
-{
-	SNPSendMessage_t *m_pFirst = nullptr;
-	SNPSendMessage_t *m_pLast = nullptr;
-
-	/// Return true if the list is empty
-	inline bool empty() const
-	{
-		if ( m_pFirst == nullptr )
-		{
-			Assert( m_pLast == nullptr );
-			return true;
-		}
-		Assert( m_pLast != nullptr );
-		return false;
-	}
-
-	/// Delete all elements.  This should only be called if you own the messages!
-	void delete_all()
-	{
-		while ( m_pFirst )
-			delete pop_front();
-		Assert( m_pLast == nullptr );
-	}
 
 	/// Unlink the message at the head, if any and return it.
 	/// Unlike STL pop_front, this will return nullptr if the
 	/// list is empty
-	SNPSendMessage_t *pop_front()
+	CSteamNetworkingMessage *pop_front()
 	{
-		SNPSendMessage_t *pResult = m_pFirst;
+		CSteamNetworkingMessage *pResult = m_pFirst;
 		if ( pResult )
 		{
 			Assert( m_pLast );
-			Assert( pResult->m_pPrev == nullptr );
-			m_pFirst = pResult->m_pNext;
+			Assert( pResult->m_links.m_pQueue == this );
+			Assert( pResult->m_links.m_pPrev == nullptr );
+			m_pFirst = pResult->m_links.m_pNext;
 			if ( m_pFirst )
 			{
-				Assert( m_pFirst->m_pPrev == pResult );
-				Assert( m_pFirst->m_nMsgNum > pResult->m_nMsgNum );
-				m_pFirst->m_pPrev = nullptr;
+				Assert( m_pFirst->m_links.m_pPrev == pResult );
+				Assert( m_pFirst->m_nMessageNumber > pResult->m_nMessageNumber );
+				m_pFirst->m_links.m_pPrev = nullptr;
 			}
 			else
 			{
 				Assert( m_pLast == pResult );
 				m_pLast = nullptr;
 			}
-			pResult->m_pNext = nullptr;
+			pResult->m_links.m_pQueue = nullptr;
+			pResult->m_links.m_pNext = nullptr;
 		}
 		return pResult;
 	}
 
 	/// Optimized insertion when we know it goes at the end
-	void push_back( SNPSendMessage_t *pMsg )
+	void push_back( CSteamNetworkingMessage *pMsg )
 	{
 		if ( m_pFirst == nullptr )
 		{
@@ -165,12 +197,13 @@ struct SSNPSendMessageList
 		else
 		{
 			// Messages are always kept in message number order
-			Assert( pMsg->m_nMsgNum > m_pLast->m_nMsgNum );
-			Assert( m_pLast->m_pNext == nullptr );
-			m_pLast->m_pNext = pMsg;
+			Assert( pMsg->m_nMessageNumber > m_pLast->m_nMessageNumber );
+			Assert( m_pLast->m_links.m_pNext == nullptr );
+			m_pLast->m_links.m_pNext = pMsg;
 		}
-		pMsg->m_pNext = nullptr;
-		pMsg->m_pPrev = m_pLast;
+		pMsg->m_links.m_pQueue = this;
+		pMsg->m_links.m_pNext = nullptr;
+		pMsg->m_links.m_pPrev = m_pLast;
 		m_pLast = pMsg;
 	}
 
@@ -233,11 +266,11 @@ struct SSNPSenderState
 	/// Nagle timer on all pending messages
 	void ClearNagleTimers()
 	{
-		SNPSendMessage_t *pMsg = m_messagesQueued.m_pLast;
-		while ( pMsg && pMsg->m_usecNagle )
+		CSteamNetworkingMessage *pMsg = m_messagesQueued.m_pLast;
+		while ( pMsg && pMsg->SNPSend_UsecNagle() )
 		{
-			pMsg->m_usecNagle = 0;
-			pMsg = pMsg->m_pPrev;
+			pMsg->SNPSend_SetUsecNagle( 0 );
+			pMsg = pMsg->m_links.m_pPrev;
 		}
 	}
 
@@ -288,11 +321,11 @@ struct SSNPSenderState
 	///
 	/// The "value" portion of the map is the message that has the first bit of
 	/// reliable data we need for this message
-	std::map<SNPRange_t,SNPSendMessage_t*,SNPRange_t::NonOverlappingLess> m_listInFlightReliableRange;
+	std::map<SNPRange_t,CSteamNetworkingMessage*,SNPRange_t::NonOverlappingLess> m_listInFlightReliableRange;
 
 	/// Ordered list of ranges that have been put on the wire,
 	/// but have been detected as dropped, and now need to be retried.
-	std::map<SNPRange_t,SNPSendMessage_t*,SNPRange_t::NonOverlappingLess> m_listReadyRetryReliableRange;
+	std::map<SNPRange_t,CSteamNetworkingMessage*,SNPRange_t::NonOverlappingLess> m_listReadyRetryReliableRange;
 
 	/// Oldest packet sequence number that we are still asking peer
 	/// to send acks for.
@@ -317,7 +350,7 @@ struct SSNPRecvUnreliableSegmentKey
 
 struct SSNPRecvUnreliableSegmentData
 {
-	int m_cbSize = -1;
+	int m_cbSegSize = -1;
 	bool m_bLast = false;
 	char m_buf[ k_cbSteamNetworkingSocketsMaxPlaintextPayloadRecv ];
 };

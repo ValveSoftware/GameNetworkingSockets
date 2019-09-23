@@ -81,12 +81,6 @@ void CSteamNetworkingMessage::ReleaseFunc( SteamNetworkingMessage_t *pIMsg )
 {
 	CSteamNetworkingMessage *pMsg = static_cast<CSteamNetworkingMessage *>( pIMsg );
 
-	// Decrement reference count, make sure we are the last one
-	int nOldRefCount = pMsg->m_nRefCount.fetch_sub(1);
-	AssertMsg( nOldRefCount > 0, "CSteamNetworkingMessage refcount bug or use-after-free!" );
-	if ( nOldRefCount != 1 )
-		return;
-
 	// Free up the buffer, if we have one
 	if ( pMsg->m_pData && pMsg->m_pfnFreeData )
 		(*pMsg->m_pfnFreeData)( pMsg );
@@ -94,9 +88,9 @@ void CSteamNetworkingMessage::ReleaseFunc( SteamNetworkingMessage_t *pIMsg )
 
 	// We must not currently be in any queue.  In fact, our parent
 	// might have been destroyed.
-	Assert( !pMsg->m_linksSameConnection.m_pQueue );
-	Assert( !pMsg->m_linksSameConnection.m_pPrev );
-	Assert( !pMsg->m_linksSameConnection.m_pNext );
+	Assert( !pMsg->m_links.m_pQueue );
+	Assert( !pMsg->m_links.m_pPrev );
+	Assert( !pMsg->m_links.m_pNext );
 	Assert( !pMsg->m_linksSecondaryQueue.m_pQueue );
 	Assert( !pMsg->m_linksSecondaryQueue.m_pPrev );
 	Assert( !pMsg->m_linksSecondaryQueue.m_pNext );
@@ -131,8 +125,6 @@ CSteamNetworkingMessage *CSteamNetworkingMessage::New( uint32 cbSize )
 	// Set the release function
 	pMsg->m_pfnRelease = ReleaseFunc;
 
-	// Initialize the reference count
-	pMsg->m_nRefCount = 1;
 	return pMsg;
 }
 
@@ -230,14 +222,14 @@ void CSteamNetworkingMessage::UnlinkFromQueue( Links CSteamNetworkingMessage::*p
 void CSteamNetworkingMessage::Unlink()
 {
 	// Unlink from any queues we are in
-	UnlinkFromQueue( &CSteamNetworkingMessage::m_linksSameConnection );
+	UnlinkFromQueue( &CSteamNetworkingMessage::m_links );
 	UnlinkFromQueue( &CSteamNetworkingMessage::m_linksSecondaryQueue );
 }
 
 void SteamNetworkingMessageQueue::PurgeMessages()
 {
 
-	while ( !IsEmpty() )
+	while ( !empty() )
 	{
 		CSteamNetworkingMessage *pMsg = m_pFirst;
 		pMsg->Unlink();
@@ -250,7 +242,7 @@ int SteamNetworkingMessageQueue::RemoveMessages( SteamNetworkingMessage_t **ppOu
 {
 	int nMessagesReturned = 0;
 
-	while ( !IsEmpty() && nMessagesReturned < nMaxMessages )
+	while ( !empty() && nMessagesReturned < nMaxMessages )
 	{
 		// Locate message, put into caller's list
 		CSteamNetworkingMessage *pMsg = m_pFirst;
@@ -462,7 +454,7 @@ CSteamNetworkConnectionBase::~CSteamNetworkConnectionBase()
 {
 	Assert( m_hConnectionSelf == k_HSteamNetConnection_Invalid );
 	Assert( m_eConnectionState == k_ESteamNetworkingConnectionState_Dead );
-	Assert( m_queueRecvMessages.IsEmpty() );
+	Assert( m_queueRecvMessages.empty() );
 	Assert( m_pParentListenSocket == nullptr );
 	Assert( m_pMessagesSession == nullptr );
 }
@@ -1334,10 +1326,10 @@ void CSteamNetworkConnectionBase::SetUserData( int64 nUserData )
 	// of the queue yet.  This way we don't expose the client to weird
 	// race conditions where they create a connection, and before they
 	// are able to install their user data, some messages come in
-	for ( CSteamNetworkingMessage *m = m_queueRecvMessages.m_pFirst ; m ; m = m->m_linksSameConnection.m_pNext )
+	for ( CSteamNetworkingMessage *m = m_queueRecvMessages.m_pFirst ; m ; m = m->m_links.m_pNext )
 	{
-		Assert( m->GetConnection() == m_hConnectionSelf );
-		m->SetConnectionUserData( m_nUserData );
+		Assert( m->m_conn == m_hConnectionSelf );
+		m->m_nConnUserData = m_nUserData;
 	}
 }
 
@@ -1447,23 +1439,33 @@ EResult CSteamNetworkConnectionBase::APISendMessageToConnection( const void *pDa
 			return k_EResultNoConnection;
 	}
 
+	// Fill out a message object
+	CSteamNetworkingMessage *pMsg = CSteamNetworkingMessage::New( cbData );
+	if ( !pMsg )
+		return k_EResultFail;
+	pMsg->m_nFlags = nSendFlags;
+
+	// Copy in the payload
+	memcpy( pMsg->m_pData, pData, cbData );
+
 	// Connection-type specific logic
-	return _APISendMessageToConnection( pData, cbData, nSendFlags );
+	return _APISendMessageToConnection( pMsg );
 }
 
-EResult CSteamNetworkConnectionBase::_APISendMessageToConnection( const void *pData, uint32 cbData, int nSendFlags )
+EResult CSteamNetworkConnectionBase::_APISendMessageToConnection( CSteamNetworkingMessage *pMsg )
 {
 
 	// Message too big?
-	if ( cbData > k_cbMaxSteamNetworkingSocketsMessageSizeSend )
+	if ( pMsg->m_cbSize > k_cbMaxSteamNetworkingSocketsMessageSizeSend )
 	{
-		AssertMsg2( false, "Message size %d is too big.  Max is %d", cbData, k_cbMaxSteamNetworkingSocketsMessageSizeSend );
+		AssertMsg2( false, "Message size %d is too big.  Max is %d", pMsg->m_cbSize, k_cbMaxSteamNetworkingSocketsMessageSizeSend );
+		pMsg->Release();
 		return k_EResultInvalidParam;
 	}
 
 	// Pass to reliability layer
 	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
-	return SNP_SendMessage( usecNow, pData, cbData, nSendFlags );
+	return SNP_SendMessage( pMsg, usecNow );
 }
 
 
@@ -1903,7 +1905,7 @@ void CSteamNetworkConnectionBase::ReceivedMessage( CSteamNetworkingMessage *pMsg
 	}
 
 	// Add to end of my queue.
-	pMsg->LinkToQueueTail( &CSteamNetworkingMessage::m_linksSameConnection, &m_queueRecvMessages );
+	pMsg->LinkToQueueTail( &CSteamNetworkingMessage::m_links, &m_queueRecvMessages );
 
 	// If we are an inbound, accepted connection, link into the listen socket's queue
 	if ( m_pParentListenSocket )
@@ -2599,23 +2601,32 @@ EUnsignedCert CSteamNetworkConnectionPipe::AllowLocalUnsignedCert()
 	return k_EUnsignedCert_Allow;
 }
 
-EResult CSteamNetworkConnectionPipe::_APISendMessageToConnection( const void *pData, uint32 cbData, int nSendFlags )
+EResult CSteamNetworkConnectionPipe::_APISendMessageToConnection( CSteamNetworkingMessage *pMsg )
 {
 	if ( !m_pPartner )
 	{
 		// Caller should have checked the connection at a higher level, so this is a bug
 		AssertMsg( false, "No partner pipe?" );
+		pMsg->Release();
 		return k_EResultFail;
 	}
 	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 
 	// Fake a bunch of stats
-	FakeSendStats( usecNow, cbData );
+	FakeSendStats( usecNow, pMsg->m_cbSize );
 
-	int64 nMsgNum = ++m_senderState.m_nLastSentMsgNum;
+	// Set fields to their values applicable on the receiving side
+	// NOTE: This assumes that we can muck with the structure,
+	//       and that the caller won't need to look at the original
+	//       object any more.
+	pMsg->m_nMessageNumber = ++m_senderState.m_nLastSentMsgNum;
+	pMsg->m_conn = m_pPartner->m_hConnectionSelf;
+	pMsg->m_identityPeer = m_pPartner->m_identityRemote;
+	pMsg->m_nConnUserData = m_pPartner->m_nUserData;
+	pMsg->m_usecTimeReceived = usecNow;
 
 	// Pass directly to our partner
-	m_pPartner->ReceivedMessage( pData, cbData, nMsgNum, nSendFlags, usecNow );
+	m_pPartner->ReceivedMessage( pMsg );
 
 	return k_EResultOK;
 }
