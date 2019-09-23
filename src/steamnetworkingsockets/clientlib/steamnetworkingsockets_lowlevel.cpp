@@ -1354,7 +1354,7 @@ void ProcessThinkers()
 
 std::atomic<bool> g_bWantThreadRunning;
 
-static void SteamDatagramThreadProc()
+static void SteamNetworkingThreadProc()
 {
 
 	// This is an "interrupt" thread.  When an incoming packet raises the event,
@@ -1403,7 +1403,7 @@ static void SteamDatagramThreadProc()
 		THREADNAME_INFO info;
 		{
 			info.dwType = 0x1000;
-			info.szName = "SteamDatagram";
+			info.szName = "SteamNetworking";
 			info.dwThreadID = GetCurrentThreadId();
 			info.dwFlags = 0;
 		}
@@ -1446,7 +1446,7 @@ static void SteamDatagramThreadProc()
 			IThinker *pNextThinker = s_queueThinkers.ElementAtHead();
 
 			// Calc wait time to wake up as late as possible,
-			// routed up to the nearest millisecond.
+			// rounded up to the nearest millisecond.
 			SteamNetworkingMicroseconds usecNextWakeTime = pNextThinker->GetLatestThinkTime();
 			SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 			int64 usecUntilNextThinkTime = usecNextWakeTime - usecNow;
@@ -1593,7 +1593,7 @@ static bool BEnsureSteamDatagramThreadRunning( SteamDatagramErrMsg &errMsg )
 	// Create the thread and start socket processing
 	g_bWantThreadRunning = true;
 
-	s_pThreadSteamDatagram = new std::thread( SteamDatagramThreadProc );
+	s_pThreadSteamDatagram = new std::thread( SteamNetworkingThreadProc );
 
 	return true;
 }
