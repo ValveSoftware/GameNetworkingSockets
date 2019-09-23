@@ -709,7 +709,7 @@ struct SteamNetworkingMessage_t
 	void *m_pData;
 
 	/// Size of the payload.
-	uint32 m_cbSize;
+	int m_cbSize;
 
 	/// For messages received on connections: what connection did this come from?
 	/// For outgoing messages: what connection to send it to?
