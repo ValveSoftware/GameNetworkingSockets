@@ -1958,6 +1958,9 @@ void CSteamNetworkConnectionBase::ConnectionState_ProblemDetectedLocally( ESteam
 		case k_ESteamNetworkingConnectionState_Connecting:
 		case k_ESteamNetworkingConnectionState_FindingRoute:
 		case k_ESteamNetworkingConnectionState_Connected:
+
+			SpewMsg( "[%s] problem detected locally (%d): %s\n", GetDescription(), (int)m_eEndReason, m_szEndDebug );
+
 			SetState( k_ESteamNetworkingConnectionState_ProblemDetectedLocally, usecNow );
 			break;
 	}
@@ -2040,6 +2043,9 @@ void CSteamNetworkConnectionBase::ConnectionState_ClosedByPeer( int nReason, con
 			else if ( m_szEndDebug[0] == '\0' )
 				V_strcpy_safe( m_szEndDebug, "The remote host closed the connection." );
 			m_eEndReason = ESteamNetConnectionEnd( nReason );
+
+			SpewMsg( "[%s] closed by peer\n", GetDescription() );
+
 			SetState( k_ESteamNetworkingConnectionState_ClosedByPeer, SteamNetworkingSockets_GetLocalTimestamp() );
 			break;
 	}
@@ -2066,6 +2072,10 @@ void CSteamNetworkConnectionBase::ConnectionState_Connected( SteamNetworkingMicr
 				// We must receive a packet in order to be connected!
 				Assert( m_statsEndToEnd.m_usecTimeLastRecv > 0 );
 
+				// Spew, if this is newsworthy
+				if ( !m_bConnectionInitiatedRemotely || GetState() == k_ESteamNetworkingConnectionState_FindingRoute )
+					SpewMsg( "[%s] connected\n", GetDescription() );
+
 				SetState( k_ESteamNetworkingConnectionState_Connected, usecNow );
 
 				SNP_InitializeConnection( usecNow );
@@ -2077,8 +2087,8 @@ void CSteamNetworkConnectionBase::ConnectionState_Connected( SteamNetworkingMicr
 			break;
 	}
 
-	// Make sure if we have any data already queued, that we start sending it out ASAP
-	CheckConnectionStateAndSetNextThinkTime( usecNow );
+	// Schedule a wakeup call ASAP so we can start sending out packets immediately
+	SetNextThinkTimeASAP();
 }
 
 void CSteamNetworkConnectionBase::ConnectionState_FindingRoute( SteamNetworkingMicroseconds usecNow )
@@ -2098,6 +2108,11 @@ void CSteamNetworkConnectionBase::ConnectionState_FindingRoute( SteamNetworkingM
 			break;
 
 		case k_ESteamNetworkingConnectionState_Connecting:
+
+			// Spew, if this is newsworthy
+			if ( !m_bConnectionInitiatedRemotely )
+				SpewMsg( "[%s] finding route\n", GetDescription() );
+
 			SetState( k_ESteamNetworkingConnectionState_FindingRoute, usecNow );
 			break;
 
@@ -2105,8 +2120,8 @@ void CSteamNetworkConnectionBase::ConnectionState_FindingRoute( SteamNetworkingM
 			break;
 	}
 
-	// Make sure if we have any data already queued, that we start sending it out ASAP
-	CheckConnectionStateAndSetNextThinkTime( usecNow );
+	// Schedule a wakeup call ASAP so we can start sending out packets immediately
+	SetNextThinkTimeASAP();
 }
 
 void CSteamNetworkConnectionBase::Think( SteamNetworkingMicroseconds usecNow )
