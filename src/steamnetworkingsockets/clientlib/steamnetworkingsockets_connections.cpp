@@ -1426,6 +1426,9 @@ void CSteamNetworkConnectionBase::APIGetDetailedConnectionStatus( SteamNetworkin
 
 	// Congestion control and bandwidth estimation
 	SNP_PopulateDetailedStats( stats.m_statsEndToEnd );
+
+	if ( m_pTransport )
+		m_pTransport->GetDetailedConnectionStatus( stats, usecNow );
 }
 
 EResult CSteamNetworkConnectionBase::APISendMessageToConnection( const void *pData, uint32 cbData, int nSendFlags, int64 *pOutMessageNumber )
