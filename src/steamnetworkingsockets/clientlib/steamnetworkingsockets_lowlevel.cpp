@@ -77,7 +77,7 @@ void SteamDatagramTransportLock::AddTag( const char *pszTag )
 	}
 
 	s_pszCurrentLockTags[ s_nCurrentLockTags ] = pszTag;
-	s_nCurrentLockTagCounts[ s_nCurrentLockTags ] = 0;
+	s_nCurrentLockTagCounts[ s_nCurrentLockTags ] = 1;
 	++s_nCurrentLockTags;
 }
 
@@ -231,7 +231,8 @@ COMPILE_TIME_ASSERT( 2000000000000ll < k_nInitialTimestampMin );
 COMPILE_TIME_ASSERT( k_nInitialTimestampMin < k_nInitialTimestamp );
 static std::atomic<long long> s_usecTimeOffset( k_nInitialTimestamp );
 
-static int s_nLowLevelSupportRefCount = 0;
+static volatile int s_nLowLevelSupportRefCount;
+static volatile bool s_bManualPollMode;
 
 /////////////////////////////////////////////////////////////////////////////
 //
@@ -545,7 +546,7 @@ bool IRawUDPSocket::BSendRawPacketGather( int nChunks, const iovec *pChunks, con
 	SteamDatagramTransportLock::AssertHeldByCurrentThread();
 
 	// Silently ignore a request to send a packet anytime we're in the process of shutting down the system
-	if ( !g_bWantThreadRunning )
+	if ( s_nLowLevelSupportRefCount <= 0 )
 		return true;
 
 	// Fake loss?
@@ -601,12 +602,14 @@ void IRawUDPSocket::Close()
 	s_packetLagQueue.AboutToDestroySocket( self );
 
 	// Make sure we don't delay doing this too long
-	if ( s_pThreadSteamDatagram && s_pThreadSteamDatagram->get_id() != std::this_thread::get_id() )
+	if ( s_bManualPollMode || ( s_pThreadSteamDatagram && s_pThreadSteamDatagram->get_id() != std::this_thread::get_id() ) )
 	{
+		// Another thread might be polling right now
 		WakeSteamDatagramThread();
 	}
 	else
 	{
+		// We can take care of it right now
 		ProcessPendingDestroyClosedRawUDPSockets();
 	}
 }
@@ -886,7 +889,7 @@ IRawUDPSocket *OpenRawUDPSocket( CRecvPacketCallback callback, SteamDatagramErrM
 /// Poll all of our sockets, and dispatch the packets received.
 /// This will return true if we own the lock, or false if we detected
 /// a shutdown request and bailed without re-squiring the lock.
-static bool PollRawUDPSockets( int nMaxTimeoutMS )
+static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 {
 	// This should only ever be called from our one thread proc,
 	// and we assume that it will have locked the lock exactly once.
@@ -943,7 +946,7 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS )
 	SteamDatagramTransportLock::Unlock();
 
 	// Shutdown request?
-	if ( !g_bWantThreadRunning )
+	if ( s_nLowLevelSupportRefCount <= 0 || s_bManualPollMode != bManualPoll )
 		return false; // ABORT THREAD
 
 	// Wait for data on one of the sockets, or for us to be asked to wake up
@@ -960,7 +963,7 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS )
 		// Shutdown request?  We've potentially been waiting a long time.
 		// Don't attempt to grab the lock again if we know we want to shutdown,
 		// that is just a waste of time.
-		if ( !g_bWantThreadRunning )
+		if ( s_nLowLevelSupportRefCount <= 0 || s_bManualPollMode != bManualPoll )
 			return false;
 
 		// Try to acquire the lock.  But don't wait forever, in case the other thread has the lock
@@ -974,7 +977,7 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS )
 		// false even if no other thread holds the lock.  (For performance reasons.)
 		// So we check how long we have actually been waiting.
 		SteamNetworkingMicroseconds usecElapsed = SteamNetworkingSockets_GetLocalTimestamp() - usecStartedLocking;
-		AssertMsg1( usecElapsed < 50*1000 || !g_bWantThreadRunning || Plat_IsInDebugSession(), "SDR service thread gave up on lock after waiting %dms.  This directly adds to delay of processing of network packets!", int( usecElapsed/1000 ) );
+		AssertMsg1( usecElapsed < 50*1000 || s_nLowLevelSupportRefCount <= 0 || s_bManualPollMode != bManualPoll || Plat_IsInDebugSession(), "SDR service thread gave up on lock after waiting %dms.  This directly adds to delay of processing of network packets!", int( usecElapsed/1000 ) );
 	}
 
 	// Recv socket data from any sockets that might have data, and execute the callbacks.
@@ -1028,7 +1031,7 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS )
 		// logically closed to the calling code.
 		while ( pSock->m_callback.m_fnCallback )
 		{
-			if ( !g_bWantThreadRunning )
+			if ( s_nLowLevelSupportRefCount <= 0 )
 				return true; // current thread owns the lock
 
 			sockaddr_storage from;
@@ -1352,16 +1355,13 @@ void ProcessThinkers()
 //
 /////////////////////////////////////////////////////////////////////////////
 
-std::atomic<bool> g_bWantThreadRunning;
-static bool s_bManualPollMode;
-
 //
 // Polling function.
 // On entry: lock is held *exactly once*
 // Returns: true - we want to keep running, lock is held
 // Returns: false - stop request detected, lock no longer held
 //
-static bool SteamNetworkingSockets_InternalPoll( int msWait )
+static bool SteamNetworkingSockets_InternalPoll( int msWait, bool bManualPoll )
 {
 	SteamDatagramTransportLock::AssertHeldByCurrentThread(); // We should own the lock
 	Assert( SteamDatagramTransportLock::s_nLocked == 1 ); // exactly once
@@ -1428,7 +1428,7 @@ static bool SteamNetworkingSockets_InternalPoll( int msWait )
 	}
 
 	// Poll sockets
-	if ( !PollRawUDPSockets( msWait ) )
+	if ( !PollRawUDPSockets( msWait, bManualPoll ) )
 	{
 		// Shutdown request, and they did NOT re-acquire the lock
 		return false;
@@ -1438,7 +1438,7 @@ static bool SteamNetworkingSockets_InternalPoll( int msWait )
 	Assert( SteamDatagramTransportLock::s_nLocked == 1 ); // exactly once
 
 	// Shutdown request?
-	if ( !g_bWantThreadRunning )
+	if ( s_nLowLevelSupportRefCount <= 0 || s_bManualPollMode != bManualPoll )
 	{
 		SteamDatagramTransportLock::Unlock();
 		return false; // Shutdown request, we have released the lock
@@ -1456,7 +1456,6 @@ static bool SteamNetworkingSockets_InternalPoll( int msWait )
 
 static void SteamNetworkingThreadProc()
 {
-	Assert( !s_bManualPollMode );
 
 	// This is an "interrupt" thread.  When an incoming packet raises the event,
 	// we need to take priority above normal threads and wake up immediately
@@ -1526,7 +1525,7 @@ static void SteamNetworkingThreadProc()
 	// where we want to shut down immediately after starting the thread
 	do
 	{
-		if ( !g_bWantThreadRunning )
+		if ( s_nLowLevelSupportRefCount <= 0 || s_bManualPollMode )
 			return;
 	} while ( !SteamDatagramTransportLock::TryLock( "ServiceThread", 10 ) );
 
@@ -1534,128 +1533,36 @@ static void SteamNetworkingThreadProc()
 	// this thread, if so
 	SeedWeakRandomGenerator();
 
+	SpewVerbose( "Service thread running.\n" );
+
 	// Keep looping until we're asked to terminate
-	while ( SteamNetworkingSockets_InternalPoll( 100 ) ) {}
-}
-
-static bool BEnsureSteamDatagramThreadRunning( SteamDatagramErrMsg &errMsg )
-{
-
-	// Make sure and call time function at least once
-	// just before we start up our thread, so we don't lurch
-	// on our first reading after the thread is running and
-	// take action to correct this.
-	SteamNetworkingSockets_GetLocalTimestamp();
-
-	if ( s_pThreadSteamDatagram )
+	while ( SteamNetworkingSockets_InternalPoll( 100, false ) )
 	{
-		Assert( g_bWantThreadRunning );
-		return true;
+		// If they activate manual poll mode, then bail!
+		if ( s_bManualPollMode )
+		{
+			SteamDatagramTransportLock::Unlock();
+			break;
+		}
 	}
-	Assert( !g_bWantThreadRunning );
 
-	// Create thread communication object used to wake the background thread efficiently
-	// in case a thinker priority changes or we want to shutdown
-	#if defined( _WIN32 )
-		Assert( s_hEventWakeThread == INVALID_HANDLE_VALUE );
-
-		// Note: Using "automatic reset" style event.
-		s_hEventWakeThread = CreateEvent( nullptr, false, false, nullptr );
-		if ( s_hEventWakeThread == NULL || s_hEventWakeThread == INVALID_HANDLE_VALUE )
-		{
-			s_hEventWakeThread = INVALID_HANDLE_VALUE;
-			V_sprintf_safe( errMsg, "CreateEvent() call failed.  Error code 0x%08x.", GetLastError() );
-			return false;
-		}
-	#elif defined( NN_NINTENDO_SDK )
-		// Sorry, but this code is covered under NDA with Nintendo, and
-		// we don't have permission to distribute it.
-	#else
-		Assert( s_hSockWakeThreadRead == INVALID_SOCKET );
-		Assert( s_hSockWakeThreadWrite == INVALID_SOCKET );
-		int sockType = SOCK_DGRAM;
-		#ifdef LINUX
-			sockType |= SOCK_CLOEXEC;
-		#endif
-		int sock[2];
-		if ( socketpair( AF_LOCAL, sockType, 0, sock ) != 0 )
-		{
-			V_sprintf_safe( errMsg, "socketpair() call failed.  Error code 0x%08x.", GetLastSocketError() );
-			return false;
-		}
-
-		s_hSockWakeThreadRead = sock[0];
-		s_hSockWakeThreadWrite = sock[1];
-
-		unsigned int opt;
-		opt = 1;
-		if ( ioctlsocket( s_hSockWakeThreadRead, FIONBIO, (unsigned long*)&opt ) != 0 )
-		{
-			AssertMsg1( false, "Failed to set socket nonblocking mode.  Error code 0x%08x.", GetLastSocketError() );
-		}
-		opt = 1;
-		if ( ioctlsocket( s_hSockWakeThreadWrite, FIONBIO, (unsigned long*)&opt ) != 0 )
-		{
-			AssertMsg1( false, "Failed to set socket nonblocking mode.  Error code 0x%08x.", GetLastSocketError() );
-		}
-	#endif
-
-	// Create the thread and start socket processing
-	g_bWantThreadRunning = true;
-
-	if ( !s_bManualPollMode )
-		s_pThreadSteamDatagram = new std::thread( SteamNetworkingThreadProc );
-
-	return true;
+	SpewVerbose( "Service thread exiting.\n" );
 }
 
 static void StopSteamDatagramThread()
 {
+	// They should have set some sort of flag that will cause us the thread to stop
+	Assert( s_nLowLevelSupportRefCount == 0 || s_bManualPollMode );
 
-	// Should only be called while we have the lock
-	SteamDatagramTransportLock::AssertHeldByCurrentThread();
+	// Send wake up signal
+	WakeSteamDatagramThread();
 
-	// We don't want the thread running
-	g_bWantThreadRunning = false;
+	// Wait for thread to finish
+	s_pThreadSteamDatagram->join();
 
-	if ( s_pThreadSteamDatagram )
-	{
-		// Send wake up signal
-		WakeSteamDatagramThread();
-
-		// Wait for thread to finish
-		s_pThreadSteamDatagram->join();
-
-		// Clean up
-		delete s_pThreadSteamDatagram;
-		s_pThreadSteamDatagram = nullptr;
-	}
-
-	// Destory wake communication objects
-	#if defined( _WIN32 )
-		if ( s_hEventWakeThread != INVALID_HANDLE_VALUE )
-		{
-			CloseHandle( s_hEventWakeThread );
-			s_hEventWakeThread = INVALID_HANDLE_VALUE;
-		}
-	#elif defined( NN_NINTENDO_SDK )
-		// Sorry, but this code is covered under NDA with Nintendo, and
-		// we don't have permission to distribute it.
-	#else
-		if ( s_hSockWakeThreadRead != INVALID_SOCKET )
-		{
-			closesocket( s_hSockWakeThreadRead );
-			s_hSockWakeThreadRead = INVALID_SOCKET;
-		}
-		if ( s_hSockWakeThreadWrite != INVALID_SOCKET )
-		{
-			closesocket( s_hSockWakeThreadWrite );
-			s_hSockWakeThreadWrite = INVALID_SOCKET;
-		}
-	#endif
-
-	// Make sure we don't leak any sockets.
-	ProcessPendingDestroyClosedRawUDPSockets();
+	// Clean up
+	delete s_pThreadSteamDatagram;
+	s_pThreadSteamDatagram = nullptr;
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -1940,6 +1847,12 @@ bool BSteamNetworkingSocketsLowLevelAddRef( SteamDatagramErrMsg &errMsg )
 {
 	SteamDatagramTransportLock::AssertHeldByCurrentThread();
 
+	// Make sure and call time function at least once
+	// just before we start up our thread, so we don't lurch
+	// on our first reading after the thread is running and
+	// take action to correct this.
+	SteamNetworkingSockets_GetLocalTimestamp();
+
 	// First time init?
 	if ( s_nLowLevelSupportRefCount == 0 )
 	{
@@ -1984,6 +1897,54 @@ bool BSteamNetworkingSocketsLowLevelAddRef( SteamDatagramErrMsg &errMsg )
 
 		// Make sure random number generator is seeded
 		SeedWeakRandomGenerator();
+
+		// Create thread communication object used to wake the background thread efficiently
+		// in case a thinker priority changes or we want to shutdown
+		#if defined( _WIN32 )
+			Assert( s_hEventWakeThread == INVALID_HANDLE_VALUE );
+
+			// Note: Using "automatic reset" style event.
+			s_hEventWakeThread = CreateEvent( nullptr, false, false, nullptr );
+			if ( s_hEventWakeThread == NULL || s_hEventWakeThread == INVALID_HANDLE_VALUE )
+			{
+				s_hEventWakeThread = INVALID_HANDLE_VALUE;
+				V_sprintf_safe( errMsg, "CreateEvent() call failed.  Error code 0x%08x.", GetLastError() );
+				return false;
+			}
+		#elif defined( NN_NINTENDO_SDK )
+			// Sorry, but this code is covered under NDA with Nintendo, and
+			// we don't have permission to distribute it.
+		#else
+			Assert( s_hSockWakeThreadRead == INVALID_SOCKET );
+			Assert( s_hSockWakeThreadWrite == INVALID_SOCKET );
+			int sockType = SOCK_DGRAM;
+			#ifdef LINUX
+				sockType |= SOCK_CLOEXEC;
+			#endif
+			int sock[2];
+			if ( socketpair( AF_LOCAL, sockType, 0, sock ) != 0 )
+			{
+				V_sprintf_safe( errMsg, "socketpair() call failed.  Error code 0x%08x.", GetLastSocketError() );
+				return false;
+			}
+
+			s_hSockWakeThreadRead = sock[0];
+			s_hSockWakeThreadWrite = sock[1];
+
+			unsigned int opt;
+			opt = 1;
+			if ( ioctlsocket( s_hSockWakeThreadRead, FIONBIO, (unsigned long*)&opt ) != 0 )
+			{
+				AssertMsg1( false, "Failed to set socket nonblocking mode.  Error code 0x%08x.", GetLastSocketError() );
+			}
+			opt = 1;
+			if ( ioctlsocket( s_hSockWakeThreadWrite, FIONBIO, (unsigned long*)&opt ) != 0 )
+			{
+				AssertMsg1( false, "Failed to set socket nonblocking mode.  Error code 0x%08x.", GetLastSocketError() );
+			}
+		#endif
+
+		SpewMsg( "Initialized low level socket/threading support.\n" );
 	}
 
 	//extern void KludgePrintPublicKey();
@@ -1991,12 +1952,9 @@ bool BSteamNetworkingSocketsLowLevelAddRef( SteamDatagramErrMsg &errMsg )
 
 	++s_nLowLevelSupportRefCount;
 
-	// Fire up the thread
-	if ( !BEnsureSteamDatagramThreadRunning( errMsg ) )
-	{
-		SteamNetworkingSocketsLowLevelDecRef();
-		return false;
-	}
+	// Make sure the thread is running, if it should be
+	if ( !s_bManualPollMode && !s_pThreadSteamDatagram )
+		s_pThreadSteamDatagram = new std::thread( SteamNetworkingThreadProc );
 
 	return true;
 }
@@ -2010,6 +1968,8 @@ void SteamNetworkingSocketsLowLevelDecRef()
 	--s_nLowLevelSupportRefCount;
 	if ( s_nLowLevelSupportRefCount > 0 )
 		return;
+
+	SpewMsg( "Shutting down low level socket/threading support.\n" );
 
 	// Give us a extra time here.  This is a one-time shutdown function.
 	// There is a potential race condition / deadlock with the service thread,
@@ -2026,8 +1986,32 @@ void SteamNetworkingSocketsLowLevelDecRef()
 		AssertMsg( false, "Trying to close low level socket support, but we still have sockets open!" );
 	}
 
-	// Shutdown the thread
-	StopSteamDatagramThread();
+	// Stop the service thread, if we have one
+	if ( s_pThreadSteamDatagram )
+		StopSteamDatagramThread();
+
+	// Destory wake communication objects
+	#if defined( _WIN32 )
+		if ( s_hEventWakeThread != INVALID_HANDLE_VALUE )
+		{
+			CloseHandle( s_hEventWakeThread );
+			s_hEventWakeThread = INVALID_HANDLE_VALUE;
+		}
+	#elif defined( NN_NINTENDO_SDK )
+		// Sorry, but this code is covered under NDA with Nintendo, and
+		// we don't have permission to distribute it.
+	#else
+		if ( s_hSockWakeThreadRead != INVALID_SOCKET )
+		{
+			closesocket( s_hSockWakeThreadRead );
+			s_hSockWakeThreadRead = INVALID_SOCKET;
+		}
+		if ( s_hSockWakeThreadWrite != INVALID_SOCKET )
+		{
+			closesocket( s_hSockWakeThreadWrite );
+			s_hSockWakeThreadWrite = INVALID_SOCKET;
+		}
+	#endif
 
 	// Make sure we actually destroy socket objects.  It's safe to do so now.
 	ProcessPendingDestroyClosedRawUDPSockets();
@@ -2092,7 +2076,7 @@ SteamNetworkingMicroseconds SteamNetworkingSockets_GetLocalTimestamp()
 			// Should be the common case - only a relatively small of time has elapsed
 			break;
 		}
-		if ( !SteamNetworkingSocketsLib::g_bWantThreadRunning )
+		if ( SteamNetworkingSocketsLib::s_nLowLevelSupportRefCount <= 0 )
 		{
 			// We don't have any expectation that we should be updating the timer frequently,
 			// so  a big jump in the value just means they aren't calling it very often
@@ -2125,21 +2109,42 @@ SteamNetworkingMicroseconds SteamNetworkingSockets_GetLocalTimestamp()
 
 using namespace SteamNetworkingSocketsLib;
 
-#if defined( STEAMNETWORKINGSOCKETS_PARTNER ) || defined( STEAMNETWORKINGSOCKETS_STREAMINGCLIENT )
-
-STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetManualPollMode()
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetManualPollMode( bool bFlag )
 {
-	// Must call this before initializing library
-	Assert( s_nLowLevelSupportRefCount == 0 );
-	Assert( !g_bWantThreadRunning );
-	s_bManualPollMode = true;
+	if ( s_bManualPollMode == bFlag )
+		return;
+	SteamDatagramTransportLock scopeLock( "SteamNetworkingSockets_SetManualPollMode" );
+	s_bManualPollMode = bFlag;
+
+	// Check for starting/stopping the thread
+	if ( s_pThreadSteamDatagram )
+	{
+		// Thread is active.  Should it be?
+		if ( s_nLowLevelSupportRefCount <= 0 || s_bManualPollMode )
+		{
+			SpewMsg( "Service thread is running, and manual poll mode actiavted.  Stopping service thread.\n" );
+			StopSteamDatagramThread();
+		}
+	}
+	else
+	{
+		if ( s_nLowLevelSupportRefCount > 0 && !s_bManualPollMode )
+		{
+			// Start up the thread
+			SpewMsg( "Service thread is not running, and manual poll mode was turned off, starting service thread.\n" );
+			s_pThreadSteamDatagram = new std::thread( SteamNetworkingThreadProc );
+		}
+	}
 }
 
 STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_Poll( int msMaxWaitTime )
 {
-	Assert( s_bManualPollMode );
+	if ( !s_bManualPollMode )
+	{
+		AssertMsg( false, "Not in manual poll mode!" );
+		return;
+	}
 	Assert( s_nLowLevelSupportRefCount > 0 );
-	Assert( g_bWantThreadRunning );
 
 	while ( !SteamDatagramTransportLock::TryLock( "SteamNetworkingSockets_Poll", 1 ) )
 	{
@@ -2147,10 +2152,7 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_Poll( int msMaxWait
 			return;
 	}
 
-	bool bStillLocked = SteamNetworkingSockets_InternalPoll( msMaxWaitTime );
+	bool bStillLocked = SteamNetworkingSockets_InternalPoll( msMaxWaitTime, true );
 	if ( bStillLocked )
 		SteamDatagramTransportLock::Unlock();
 }
-
-#endif
-
