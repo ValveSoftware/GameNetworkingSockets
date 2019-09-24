@@ -370,7 +370,7 @@ public:
 		}
 
 		// Limit to something sane
-		msDelay = Min( msDelay, 5000 );
+		msDelay = std::min( msDelay, 5000 );
 		const SteamNetworkingMicroseconds usecTime = SteamNetworkingSockets_GetLocalTimestamp() + msDelay * 1000;
 
 		// Find the right place to insert the packet.
@@ -1199,8 +1199,8 @@ void IThinker::SetNextThinkTime( SteamNetworkingMicroseconds usecTargetThinkTime
 	{
 		Assert( m_usecNextThinkTimeTarget == k_nThinkTime_Never );
 		m_usecNextThinkTimeTarget = usecTargetThinkTime;
-		m_usecNextThinkTimeEarliest = Min( usecTargetThinkTime, usecLimit );
-		m_usecNextThinkTimeLatest = Max( usecTargetThinkTime, usecLimit );
+		m_usecNextThinkTimeEarliest = std::min( usecTargetThinkTime, usecLimit );
+		m_usecNextThinkTimeLatest = std::max( usecTargetThinkTime, usecLimit );
 		s_queueThinkers.Insert( this );
 	}
 	else
@@ -1212,8 +1212,8 @@ void IThinker::SetNextThinkTime( SteamNetworkingMicroseconds usecTargetThinkTime
 
 		// Set the new schedule time
 		m_usecNextThinkTimeTarget = usecTargetThinkTime;
-		m_usecNextThinkTimeEarliest = Min( usecTargetThinkTime, usecLimit );
-		m_usecNextThinkTimeLatest = Max( usecTargetThinkTime, usecLimit );
+		m_usecNextThinkTimeEarliest = std::min( usecTargetThinkTime, usecLimit );
+		m_usecNextThinkTimeLatest = std::max( usecTargetThinkTime, usecLimit );
 
 		// And update our position in the queue
 		s_queueThinkers.RevaluateElement( m_queueIndex );
@@ -1241,8 +1241,8 @@ void IThinker::EnsureMinThinkTime( SteamNetworkingMicroseconds usecTargetThinkTi
 	}
 
 	SteamNetworkingMicroseconds usecLimit = usecTargetThinkTime + nSlackMS*1000;
-	SteamNetworkingMicroseconds usecNextThinkTimeEarliest = Min( usecTargetThinkTime, usecLimit );
-	SteamNetworkingMicroseconds usecNextThinkTimeLatest = Max( usecTargetThinkTime, usecLimit );
+	SteamNetworkingMicroseconds usecNextThinkTimeEarliest = std::min( usecTargetThinkTime, usecLimit );
+	SteamNetworkingMicroseconds usecNextThinkTimeLatest = std::max( usecTargetThinkTime, usecLimit );
 
 	// Save current time when the next thinker wants service
 	SteamNetworkingMicroseconds usecNextWake = ( s_queueThinkers.Count() > 0 ) ? s_queueThinkers.ElementAtHead()->GetLatestThinkTime() : k_nThinkTime_Never;
@@ -1272,9 +1272,9 @@ void IThinker::EnsureMinThinkTime( SteamNetworkingMicroseconds usecTargetThinkTi
 			return;
 
 		// Push the scheduled time up
-		m_usecNextThinkTimeTarget = Min( m_usecNextThinkTimeTarget, usecTargetThinkTime );
-		m_usecNextThinkTimeEarliest = Min( m_usecNextThinkTimeEarliest, usecNextThinkTimeEarliest );
-		m_usecNextThinkTimeLatest = Min( m_usecNextThinkTimeLatest, usecNextThinkTimeLatest );
+		m_usecNextThinkTimeTarget = std::min( m_usecNextThinkTimeTarget, usecTargetThinkTime );
+		m_usecNextThinkTimeEarliest = std::min( m_usecNextThinkTimeEarliest, usecNextThinkTimeEarliest );
+		m_usecNextThinkTimeLatest = std::min( m_usecNextThinkTimeLatest, usecNextThinkTimeLatest );
 
 		Assert( m_usecNextThinkTimeEarliest <= m_usecNextThinkTimeTarget );
 		Assert( m_usecNextThinkTimeTarget <= m_usecNextThinkTimeLatest );
@@ -1376,12 +1376,13 @@ static bool SteamNetworkingSockets_InternalPoll( int msWait, bool bManualPoll )
 		SteamNetworkingMicroseconds usecNextWakeTime = pNextThinker->GetLatestThinkTime();
 		SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 		int64 usecUntilNextThinkTime = usecNextWakeTime - usecNow;
+		int msTaskWait;
 
 		if ( usecNow >= pNextThinker->GetEarliestThinkTime() )
 		{
 			// Earliest thinker in the queue is ready to go now.
 			// There is no point in going to sleep
-			msWait = 0;
+			msTaskWait = 0;
 		}
 		else if ( usecUntilNextThinkTime <= 1000 )
 		{
@@ -1392,16 +1393,16 @@ static bool SteamNetworkingSockets_InternalPoll( int msWait, bool bManualPoll )
 			// ejected from the queue until the earliest think time comes around,
 			// so we'll just be in an infinite loop complaining about the same thing
 			// over and over.)
-			msWait = 1;
+			msTaskWait = 1;
 			AssertMsg( false, "Thinker requested submillisecond wait time precision." );
 		}
 		else
 		{
 
 			// Set wake time to wake up just at the last moment.
-			msWait = usecUntilNextThinkTime/1000;
-			Assert( msWait >= 1 );
-			usecNextWakeTime = usecNow + msWait*1000;
+			msTaskWait = usecUntilNextThinkTime/1000;
+			Assert( msTaskWait >= 1 );
+			usecNextWakeTime = usecNow + msTaskWait *1000;
 			Assert( usecNextWakeTime <= pNextThinker->GetLatestThinkTime() );
 			Assert( usecNextWakeTime >= pNextThinker->GetEarliestThinkTime() );
 
@@ -1414,7 +1415,7 @@ static bool SteamNetworkingSockets_InternalPoll( int msWait, bool bManualPoll )
 			// the underlying operating system can deliver.
 			if ( usecNextWakeTime+1000 > pNextThinker->GetLatestThinkTime() && usecNextWakeTime-1000 < pNextThinker->GetEarliestThinkTime() )
 			{
-				--msWait;
+				--msTaskWait;
 				usecNextWakeTime -= 1000;
 			}
 
@@ -1423,8 +1424,11 @@ static bool SteamNetworkingSockets_InternalPoll( int msWait, bool bManualPoll )
 			// be explicitly waking the thread for good perf, we will notice
 			// the delay.  But not so long that a bug in some rare 
 			// shutdown race condition (or the like) will be catastrophic
-			msWait = Min( msWait, 5000 );
+			msTaskWait = std::min( msTaskWait, 5000 );
 		}
+
+		// Limit to what the caller has requested
+		msWait = std::min( msWait, msTaskWait );
 	}
 
 	// Poll sockets
@@ -1536,7 +1540,7 @@ static void SteamNetworkingThreadProc()
 	SpewVerbose( "Service thread running.\n" );
 
 	// Keep looping until we're asked to terminate
-	while ( SteamNetworkingSockets_InternalPoll( 100, false ) )
+	while ( SteamNetworkingSockets_InternalPoll( 5000, false ) )
 	{
 		// If they activate manual poll mode, then bail!
 		if ( s_bManualPollMode )
