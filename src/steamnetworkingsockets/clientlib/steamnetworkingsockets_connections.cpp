@@ -1111,7 +1111,7 @@ bool CSteamNetworkConnectionBase::BRecvCryptoHandshake( const CMsgSteamDatagramC
 	}
 
 	// If we are the client, then we have everything we need and can finish up right now
-	if ( !bServer )
+	if ( !m_bConnectionInitiatedRemotely )
 	{
 		// The server MUST send back the single cipher that they decided to use
 		if ( m_msgCryptRemote.ciphers_size() != 1 )
@@ -2648,6 +2648,7 @@ CSteamNetworkConnectionPipe::CSteamNetworkConnectionPipe( CSteamNetworkingSocket
 , m_pPartner( nullptr )
 {
 	m_identityLocal = identity;
+	m_pTransport = this;
 
 	// This is not strictly necessary, but it's nice to make it official
 	m_connectionConfig.m_Unencrypted.Set( 3 );
