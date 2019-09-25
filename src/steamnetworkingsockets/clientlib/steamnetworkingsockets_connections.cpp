@@ -1903,10 +1903,14 @@ void CSteamNetworkConnectionBase::SetState( ESteamNetworkingConnectionState eNew
 			// If we've completed key exchange, then we should be connected
 			Assert( !m_bCryptKeysValid );
 
-			// And we shouldn't mark stats object as ready until we go connecteded
+			// And we shouldn't mark stats object as ready until we go connected
 			Assert( m_statsEndToEnd.IsDisconnected() );
 			break;
 	}
+
+	// If we have a transport, give it a chance to react to the state change
+	if ( m_pTransport )
+		m_pTransport->ConnectionStateChanged( eOldState );
 }
 
 bool CSteamNetworkConnectionBase::ReceivedMessage( const void *pData, int cbData, int64 nMsgNum, int nFlags, SteamNetworkingMicroseconds usecNow )
