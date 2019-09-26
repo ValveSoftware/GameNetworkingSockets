@@ -1470,8 +1470,10 @@ EResult CSteamNetworkConnectionBase::APISendMessageToConnection( const void *pDa
 	// Copy in the payload
 	memcpy( pMsg->m_pData, pData, cbData );
 
+	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
+
 	// Connection-type specific logic
-	int64 nMsgNumberOrResult = _APISendMessageToConnection( pMsg );
+	int64 nMsgNumberOrResult = _APISendMessageToConnection( pMsg, usecNow, nullptr );
 	if ( nMsgNumberOrResult > 0 )
 	{
 		if ( pOutMessageNumber )
@@ -1481,7 +1483,7 @@ EResult CSteamNetworkConnectionBase::APISendMessageToConnection( const void *pDa
 	return EResult( -nMsgNumberOrResult );
 }
 
-int64 CSteamNetworkConnectionBase::APISendMessageToConnection( CSteamNetworkingMessage *pMsg )
+int64 CSteamNetworkConnectionBase::APISendMessageToConnection( CSteamNetworkingMessage *pMsg, SteamNetworkingMicroseconds usecNow, bool *pbThinkImmediately )
 {
 
 	// Check connection state
@@ -1514,10 +1516,10 @@ int64 CSteamNetworkConnectionBase::APISendMessageToConnection( CSteamNetworkingM
 			return -k_EResultNoConnection;
 	}
 
-	return _APISendMessageToConnection( pMsg );
+	return _APISendMessageToConnection( pMsg, usecNow, pbThinkImmediately );
 }
 
-int64 CSteamNetworkConnectionBase::_APISendMessageToConnection( CSteamNetworkingMessage *pMsg )
+int64 CSteamNetworkConnectionBase::_APISendMessageToConnection( CSteamNetworkingMessage *pMsg, SteamNetworkingMicroseconds usecNow, bool *pbThinkImmediately )
 {
 
 	// Message too big?
@@ -1528,9 +1530,8 @@ int64 CSteamNetworkConnectionBase::_APISendMessageToConnection( CSteamNetworking
 		return -k_EResultInvalidParam;
 	}
 
-	// Pass to reliability layer
-	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
-	return SNP_SendMessage( pMsg, usecNow );
+	// Pass to reliability layer.
+	return SNP_SendMessage( pMsg, usecNow, pbThinkImmediately );
 }
 
 
@@ -2686,8 +2687,9 @@ EUnsignedCert CSteamNetworkConnectionPipe::AllowLocalUnsignedCert()
 	return k_EUnsignedCert_Allow;
 }
 
-int64 CSteamNetworkConnectionPipe::_APISendMessageToConnection( CSteamNetworkingMessage *pMsg )
+int64 CSteamNetworkConnectionPipe::_APISendMessageToConnection( CSteamNetworkingMessage *pMsg, SteamNetworkingMicroseconds usecNow, bool *pbThinkImmediately )
 {
+	NOTE_UNUSED( pbThinkImmediately );
 	if ( !m_pPartner )
 	{
 		// Caller should have checked the connection at a higher level, so this is a bug
@@ -2695,7 +2697,6 @@ int64 CSteamNetworkConnectionPipe::_APISendMessageToConnection( CSteamNetworking
 		pMsg->Release();
 		return -k_EResultFail;
 	}
-	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 
 	// Fake a bunch of stats
 	FakeSendStats( usecNow, pMsg->m_cbSize );

@@ -853,7 +853,7 @@ const int k_nSteamNetworkingSend_NoDelay = 4;
 // - there is a sufficiently large number of messages queued up already such that the current message
 //   will not be placed on the wire in the next ~200ms or so.
 //
-// if a message is dropped for these reasons, k_EResultIgnored will be returned.
+// If a message is dropped for these reasons, k_EResultIgnored will be returned.
 const int k_nSteamNetworkingSend_UnreliableNoDelay = k_nSteamNetworkingSend_Unreliable|k_nSteamNetworkingSend_NoDelay|k_nSteamNetworkingSend_NoNagle;
 
 // Reliable message send. Can send up to k_cbMaxSteamNetworkingSocketsMessageSizeSend bytes in a single message. 
@@ -871,6 +871,21 @@ const int k_nSteamNetworkingSend_Reliable = 8;
 //
 // Migration note: This is equivalent to k_EP2PSendReliable
 const int k_nSteamNetworkingSend_ReliableNoNagle = k_nSteamNetworkingSend_Reliable|k_nSteamNetworkingSend_NoNagle;
+
+// By default, message sending is queued, and the work of encryption and talking to
+// the operating system sockets, etc is done on a service thread.  This is usually a
+// a performance win when messages are sent from the "main thread".  However, if this
+// flag is set, and data is ready to be sent immediately (either from this message
+// or earlier queued data), then that work will be done in the current thread, before
+// the current call returns.  If data is not ready to be sent (due to rate limiting
+// or Nagle), then this flag has no effect.
+//
+// This is an advanced flag used to control performance at a very low level.  For
+// most applications running on modern hardware with more than one CPU core, doing
+// the work of sending on a service thread will yield the best performance.  Only
+// use this flag if you have a really good reason and understand what you are doing.
+// Otherwise you will probably just make performance worse.
+const int k_nSteamNetworkingSend_UseCurrentThread = 16;
 
 //
 // Ping location / measurement

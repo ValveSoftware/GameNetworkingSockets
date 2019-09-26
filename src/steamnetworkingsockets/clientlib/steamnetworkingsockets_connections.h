@@ -215,7 +215,7 @@ public:
 	EResult APISendMessageToConnection( const void *pData, uint32 cbData, int nSendFlags, int64 *pOutMessageNumber );
 
 	/// Send a message.  Returns the assigned message number, or a negative EResult value
-	int64 APISendMessageToConnection( CSteamNetworkingMessage *pMsg );
+	int64 APISendMessageToConnection( CSteamNetworkingMessage *pMsg, SteamNetworkingMicroseconds usecNow, bool *pbThinkImmediately = nullptr );
 
 	/// Flush any messages queued for Nagle
 	EResult APIFlushMessageOnConnection();
@@ -504,7 +504,7 @@ protected:
 
 	/// Hook to allow connections to customize message sending.
 	/// (E.g. loopback.)
-	virtual int64 _APISendMessageToConnection( CSteamNetworkingMessage *pMsg );
+	virtual int64 _APISendMessageToConnection( CSteamNetworkingMessage *pMsg, SteamNetworkingMicroseconds usecNow, bool *pbThinkImmediately );
 
 	/// Called when we receive a complete message.  Should allocate a message object and put it into the proper queues
 	bool ReceivedMessage( const void *pData, int cbData, int64 nMsgNum, int nFlags, SteamNetworkingMicroseconds usecNow );
@@ -571,7 +571,7 @@ protected:
 
 	void SNP_InitializeConnection( SteamNetworkingMicroseconds usecNow );
 	void SNP_ShutdownConnection();
-	int64 SNP_SendMessage( CSteamNetworkingMessage *pSendMessage, SteamNetworkingMicroseconds usecNow );
+	int64 SNP_SendMessage( CSteamNetworkingMessage *pSendMessage, SteamNetworkingMicroseconds usecNow, bool *pbThinkImmediately );
 	SteamNetworkingMicroseconds SNP_ThinkSendState( SteamNetworkingMicroseconds usecNow );
 	SteamNetworkingMicroseconds SNP_GetNextThinkTime( SteamNetworkingMicroseconds usecNow );
 	SteamNetworkingMicroseconds SNP_TimeWhenWantToSendNextPacket() const;
@@ -717,7 +717,7 @@ public:
 	CSteamNetworkConnectionPipe *m_pPartner;
 
 	// CSteamNetworkConnectionBase overrides
-	virtual int64 _APISendMessageToConnection( CSteamNetworkingMessage *pMsg ) override;
+	virtual int64 _APISendMessageToConnection( CSteamNetworkingMessage *pMsg, SteamNetworkingMicroseconds usecNow, bool *pbThinkImmediately ) override;
 	virtual void PostConnectionStateChangedCallback( ESteamNetworkingConnectionState eOldAPIState, ESteamNetworkingConnectionState eNewAPIState ) override;
 	virtual void InitConnectionCrypto( SteamNetworkingMicroseconds usecNow ) override;
 	virtual EUnsignedCert AllowRemoteUnsignedCert() override;

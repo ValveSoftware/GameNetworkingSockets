@@ -261,9 +261,13 @@ void CSteamNetworkConnectionBase::SNP_ShutdownConnection()
 }
 
 //-----------------------------------------------------------------------------
-int64 CSteamNetworkConnectionBase::SNP_SendMessage( CSteamNetworkingMessage *pSendMessage, SteamNetworkingMicroseconds usecNow )
+int64 CSteamNetworkConnectionBase::SNP_SendMessage( CSteamNetworkingMessage *pSendMessage, SteamNetworkingMicroseconds usecNow, bool *pbThinkImmediately )
 {
 	int cbData = (int)pSendMessage->m_cbSize;
+
+	// Assume we won't want to wake up immediately
+	if ( pbThinkImmediately )
+		*pbThinkImmediately = false;
 
 	// Check if we're full
 	if ( m_senderState.PendingBytesTotal() + cbData > m_connectionConfig.m_SendBufferSize.Get() )
@@ -368,31 +372,67 @@ int64 CSteamNetworkConnectionBase::SNP_SendMessage( CSteamNetworkingMessage *pSe
 	if ( pSendMessage->m_nFlags & k_nSteamNetworkingSend_NoNagle )
 		m_senderState.ClearNagleTimers();
 
+	// Save the message number.  The code below might end up deleting the message we just queued
+	int64 result = pSendMessage->m_nMessageNumber;
+
 	// Schedule wakeup at the appropriate time.  (E.g. right now, if we're ready to send, 
 	// or at the Nagle time, if Nagle is active.)
+	//
+	// NOTE: Right now we might not actually be capable of sending end to end data.
+	// But that case is relatievly rare, and nothing will break if we try to right now.
+	// On the other hand, just asking the question involved a virtual function call,
+	// and it will return success most of the time, so let's not make the check here.
 	if ( GetState() == k_ESteamNetworkingConnectionState_Connected )
 	{
 		SteamNetworkingMicroseconds usecNextThink = SNP_GetNextThinkTime( usecNow );
 
-		// If we are rate limiting, spew about it
-		if ( m_senderState.m_messagesQueued.m_pFirst->SNPSend_UsecNagle() == 0 && usecNextThink > usecNow )
+		// Ready to send now?
+		if ( usecNextThink > usecNow )
 		{
-			SpewVerbose( "[%s] RATELIM QueueTime is %.1fms, SendRate=%.1fk, BytesQueued=%d\n", 
-				GetDescription(),
-				m_senderState.CalcTimeUntilNextSend() * 1e-3,
-				m_senderState.m_n_x * ( 1.0/1024.0),
-				m_senderState.PendingBytesTotal()
-			);
-		}
 
-		// Set a wakeup call.  If this is newer than the next time anything else needs to
-		// wake up (e.g. the important case of "ASAP"), then it will trigger the service
-		// thread to wake up, and so if we are ready to send packets right now, it should
-		// begin very soon in the other thread, as soon as this thread releases the lock
-		EnsureMinThinkTime( usecNextThink, +1 );
+			// We are rate limiting.  Spew about it?
+			if ( m_senderState.m_messagesQueued.m_pFirst->SNPSend_UsecNagle() == 0 )
+			{
+				SpewVerbose( "[%s] RATELIM QueueTime is %.1fms, SendRate=%.1fk, BytesQueued=%d\n", 
+					GetDescription(),
+					m_senderState.CalcTimeUntilNextSend() * 1e-3,
+					m_senderState.m_n_x * ( 1.0/1024.0),
+					m_senderState.PendingBytesTotal()
+				);
+			}
+
+			// Set a wakeup call.
+			EnsureMinThinkTime( usecNextThink, +1 );
+		}
+		else
+		{
+
+			// We're ready to send right now.  Check if we should!
+			if ( pSendMessage->m_nFlags & k_nSteamNetworkingSend_UseCurrentThread )
+			{
+
+				// We should send in this thread, before the API entry point
+				// that the app used returns.  Is the caller gonna handle this?
+				if ( pbThinkImmediately )
+				{
+					// Caller says they will handle it
+					*pbThinkImmediately = true;
+				}
+				else
+				{
+					// Caller wants us to just do it here.
+					CheckConnectionStateAndSetNextThinkTime( usecNow );
+				}
+			}
+			else
+			{
+				// Wake up the service thread ASAP to send this in the background thread
+				SetNextThinkTimeASAP();
+			}
+		}
 	}
 
-	return pSendMessage->m_nMessageNumber;
+	return result;
 }
 
 EResult CSteamNetworkConnectionBase::SNP_FlushMessage( SteamNetworkingMicroseconds usecNow )

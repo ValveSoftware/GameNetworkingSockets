@@ -687,6 +687,10 @@ EResult CSteamNetworkingSockets::SendMessageToConnection( HSteamNetConnection hC
 void CSteamNetworkingSockets::SendMessages( int nMessages, SteamNetworkingMessage_t *const *pMessages, int64 *pOutMessageNumberOrResult )
 {
 	SteamDatagramTransportLock scopeLock( "SendMessages" );
+	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
+
+	vstd::small_vector<CSteamNetworkConnectionBase *,64 > vecConnectionsToCheck;
+
 	for ( int i = 0 ; i < nMessages ; ++i )
 	{
 
@@ -710,12 +714,21 @@ void CSteamNetworkingSockets::SendMessages( int nMessages, SteamNetworkingMessag
 		}
 
 		// Attempt to send
-		int64 result = pConn->APISendMessageToConnection( pMsg );
+		bool bThinkImmediately = false;
+		int64 result = pConn->APISendMessageToConnection( pMsg, usecNow, &bThinkImmediately );
 
 		// Return result for this message if they asked for it
 		if ( pOutMessageNumberOrResult )
 			pOutMessageNumberOrResult[i] = result;
+
+		if ( bThinkImmediately && !has_element( vecConnectionsToCheck, pConn ) )
+			vecConnectionsToCheck.push_back( pConn );
 	}
+
+	// Now if any connections indicated that we should do the sending work immediately,
+	// give them a chance to send immediately
+	for ( CSteamNetworkConnectionBase *pConn: vecConnectionsToCheck )
+		pConn->CheckConnectionStateAndSetNextThinkTime( usecNow );
 }
 
 EResult CSteamNetworkingSockets::FlushMessagesOnConnection( HSteamNetConnection hConn )
