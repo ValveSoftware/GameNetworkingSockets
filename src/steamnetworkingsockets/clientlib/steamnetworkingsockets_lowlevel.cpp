@@ -231,7 +231,7 @@ COMPILE_TIME_ASSERT( 2000000000000ll < k_nInitialTimestampMin );
 COMPILE_TIME_ASSERT( k_nInitialTimestampMin < k_nInitialTimestamp );
 static std::atomic<long long> s_usecTimeOffset( k_nInitialTimestamp );
 
-static volatile int s_nLowLevelSupportRefCount;
+static std::atomic<int> s_nLowLevelSupportRefCount(0);
 static volatile bool s_bManualPollMode;
 
 /////////////////////////////////////////////////////////////////////////////
@@ -546,7 +546,7 @@ bool IRawUDPSocket::BSendRawPacketGather( int nChunks, const iovec *pChunks, con
 	SteamDatagramTransportLock::AssertHeldByCurrentThread();
 
 	// Silently ignore a request to send a packet anytime we're in the process of shutting down the system
-	if ( s_nLowLevelSupportRefCount <= 0 )
+	if ( s_nLowLevelSupportRefCount.load(std::memory_order_acquire) <= 0 )
 		return true;
 
 	// Fake loss?
@@ -719,7 +719,7 @@ static CRawUDPSocketImpl *OpenRawUDPSocketInternal( CRecvPacketCallback callback
 	SteamDatagramTransportLock::SetLongLockWarningThresholdMS( "OpenRawUDPSocketInternal", 100 );
 
 	// Make sure have been initialized
-	if ( s_nLowLevelSupportRefCount <= 0 )
+	if ( s_nLowLevelSupportRefCount.load(std::memory_order_acquire) <= 0 )
 	{
 		V_strcpy_safe( errMsg, "Internal order of operations bug.  Can't create socket, because low level systems not initialized" );
 		AssertMsg( false, errMsg );
@@ -946,7 +946,7 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 	SteamDatagramTransportLock::Unlock();
 
 	// Shutdown request?
-	if ( s_nLowLevelSupportRefCount <= 0 || s_bManualPollMode != bManualPoll )
+	if ( s_nLowLevelSupportRefCount.load(std::memory_order_acquire) <= 0 || s_bManualPollMode != bManualPoll )
 		return false; // ABORT THREAD
 
 	// Wait for data on one of the sockets, or for us to be asked to wake up
@@ -963,7 +963,7 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 		// Shutdown request?  We've potentially been waiting a long time.
 		// Don't attempt to grab the lock again if we know we want to shutdown,
 		// that is just a waste of time.
-		if ( s_nLowLevelSupportRefCount <= 0 || s_bManualPollMode != bManualPoll )
+		if ( s_nLowLevelSupportRefCount.load(std::memory_order_acquire) <= 0 || s_bManualPollMode != bManualPoll )
 			return false;
 
 		// Try to acquire the lock.  But don't wait forever, in case the other thread has the lock
@@ -977,7 +977,7 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 		// false even if no other thread holds the lock.  (For performance reasons.)
 		// So we check how long we have actually been waiting.
 		SteamNetworkingMicroseconds usecElapsed = SteamNetworkingSockets_GetLocalTimestamp() - usecStartedLocking;
-		AssertMsg1( usecElapsed < 50*1000 || s_nLowLevelSupportRefCount <= 0 || s_bManualPollMode != bManualPoll || Plat_IsInDebugSession(), "SDR service thread gave up on lock after waiting %dms.  This directly adds to delay of processing of network packets!", int( usecElapsed/1000 ) );
+		AssertMsg1( usecElapsed < 50*1000 || s_nLowLevelSupportRefCount.load(std::memory_order_acquire) <= 0 || s_bManualPollMode != bManualPoll || Plat_IsInDebugSession(), "SDR service thread gave up on lock after waiting %dms.  This directly adds to delay of processing of network packets!", int( usecElapsed/1000 ) );
 	}
 
 	// Recv socket data from any sockets that might have data, and execute the callbacks.
@@ -1031,7 +1031,7 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 		// logically closed to the calling code.
 		while ( pSock->m_callback.m_fnCallback )
 		{
-			if ( s_nLowLevelSupportRefCount <= 0 )
+			if ( s_nLowLevelSupportRefCount.load(std::memory_order_acquire) <= 0 )
 				return true; // current thread owns the lock
 
 			sockaddr_storage from;
@@ -1442,7 +1442,7 @@ static bool SteamNetworkingSockets_InternalPoll( int msWait, bool bManualPoll )
 	Assert( SteamDatagramTransportLock::s_nLocked == 1 ); // exactly once
 
 	// Shutdown request?
-	if ( s_nLowLevelSupportRefCount <= 0 || s_bManualPollMode != bManualPoll )
+	if ( s_nLowLevelSupportRefCount.load(std::memory_order_acquire) <= 0 || s_bManualPollMode != bManualPoll )
 	{
 		SteamDatagramTransportLock::Unlock();
 		return false; // Shutdown request, we have released the lock
@@ -1529,7 +1529,7 @@ static void SteamNetworkingThreadProc()
 	// where we want to shut down immediately after starting the thread
 	do
 	{
-		if ( s_nLowLevelSupportRefCount <= 0 || s_bManualPollMode )
+		if ( s_nLowLevelSupportRefCount.load(std::memory_order_acquire) <= 0 || s_bManualPollMode )
 			return;
 	} while ( !SteamDatagramTransportLock::TryLock( "ServiceThread", 10 ) );
 
@@ -1556,7 +1556,7 @@ static void SteamNetworkingThreadProc()
 static void StopSteamDatagramThread()
 {
 	// They should have set some sort of flag that will cause us the thread to stop
-	Assert( s_nLowLevelSupportRefCount == 0 || s_bManualPollMode );
+	Assert( s_nLowLevelSupportRefCount.load(std::memory_order_acquire) == 0 || s_bManualPollMode );
 
 	// Send wake up signal
 	WakeSteamDatagramThread();
@@ -1858,7 +1858,7 @@ bool BSteamNetworkingSocketsLowLevelAddRef( SteamDatagramErrMsg &errMsg )
 	SteamNetworkingSockets_GetLocalTimestamp();
 
 	// First time init?
-	if ( s_nLowLevelSupportRefCount == 0 )
+	if ( s_nLowLevelSupportRefCount.load(std::memory_order_acquire) == 0 )
 	{
 		CCrypto::Init();
 
@@ -1954,7 +1954,7 @@ bool BSteamNetworkingSocketsLowLevelAddRef( SteamDatagramErrMsg &errMsg )
 	//extern void KludgePrintPublicKey();
 	//KludgePrintPublicKey();
 
-	++s_nLowLevelSupportRefCount;
+	s_nLowLevelSupportRefCount.fetch_add(1, std::memory_order_acq_rel);
 
 	// Make sure the thread is running, if it should be
 	if ( !s_bManualPollMode && !s_pThreadSteamDatagram )
@@ -1966,11 +1966,11 @@ bool BSteamNetworkingSocketsLowLevelAddRef( SteamDatagramErrMsg &errMsg )
 void SteamNetworkingSocketsLowLevelDecRef()
 {
 	SteamDatagramTransportLock::AssertHeldByCurrentThread();
-	Assert( s_nLowLevelSupportRefCount > 0 );
 
 	// Last user is now done?
-	--s_nLowLevelSupportRefCount;
-	if ( s_nLowLevelSupportRefCount > 0 )
+	int nLastRefCount = s_nLowLevelSupportRefCount.fetch_sub(1, std::memory_order_acq_rel);
+	Assert( nLastRefCount > 0 );
+	if ( nLastRefCount > 1 )
 		return;
 
 	SpewMsg( "Shutting down low level socket/threading support.\n" );
@@ -2080,7 +2080,7 @@ SteamNetworkingMicroseconds SteamNetworkingSockets_GetLocalTimestamp()
 			// Should be the common case - only a relatively small of time has elapsed
 			break;
 		}
-		if ( SteamNetworkingSocketsLib::s_nLowLevelSupportRefCount <= 0 )
+		if ( SteamNetworkingSocketsLib::s_nLowLevelSupportRefCount.load(std::memory_order_acquire) <= 0 )
 		{
 			// We don't have any expectation that we should be updating the timer frequently,
 			// so  a big jump in the value just means they aren't calling it very often
@@ -2124,7 +2124,7 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetManualPollMode( 
 	if ( s_pThreadSteamDatagram )
 	{
 		// Thread is active.  Should it be?
-		if ( s_nLowLevelSupportRefCount <= 0 || s_bManualPollMode )
+		if ( s_nLowLevelSupportRefCount.load(std::memory_order_acquire) <= 0 || s_bManualPollMode )
 		{
 			SpewMsg( "Service thread is running, and manual poll mode actiavted.  Stopping service thread.\n" );
 			StopSteamDatagramThread();
@@ -2132,7 +2132,7 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetManualPollMode( 
 	}
 	else
 	{
-		if ( s_nLowLevelSupportRefCount > 0 && !s_bManualPollMode )
+		if ( s_nLowLevelSupportRefCount.load(std::memory_order_acquire) > 0 && !s_bManualPollMode )
 		{
 			// Start up the thread
 			SpewMsg( "Service thread is not running, and manual poll mode was turned off, starting service thread.\n" );
@@ -2148,7 +2148,7 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_Poll( int msMaxWait
 		AssertMsg( false, "Not in manual poll mode!" );
 		return;
 	}
-	Assert( s_nLowLevelSupportRefCount > 0 );
+	Assert( s_nLowLevelSupportRefCount.load(std::memory_order_acquire) > 0 );
 
 	while ( !SteamDatagramTransportLock::TryLock( "SteamNetworkingSockets_Poll", 1 ) )
 	{
