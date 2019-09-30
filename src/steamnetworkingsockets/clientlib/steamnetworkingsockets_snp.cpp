@@ -402,7 +402,7 @@ int64 CSteamNetworkConnectionBase::SNP_SendMessage( CSteamNetworkingMessage *pSe
 			}
 
 			// Set a wakeup call.
-			EnsureMinThinkTime( usecNextThink, +1 );
+			EnsureMinThinkTime( usecNextThink );
 		}
 		else
 		{
@@ -465,7 +465,7 @@ EResult CSteamNetworkConnectionBase::SNP_FlushMessage( SteamNetworkingMicrosecon
 
 	// Schedule wakeup at the appropriate time.  (E.g. right now, if we're ready to send.)
 	SteamNetworkingMicroseconds usecNextThink = SNP_GetNextThinkTime( usecNow );
-	EnsureMinThinkTime( usecNextThink, +1 );
+	EnsureMinThinkTime( usecNextThink );
 	return k_EResultOK;
 }
 

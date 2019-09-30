@@ -1135,7 +1135,7 @@ struct ThinkerLess
 {
 	bool operator()( const IThinker *a, const IThinker *b ) const
 	{
-		return a->GetLatestThinkTime() > b->GetLatestThinkTime();
+		return a->GetNextThinkTime() > b->GetNextThinkTime();
 	}
 };
 class ThinkerSetIndex
@@ -1147,9 +1147,7 @@ public:
 static CUtlPriorityQueue<IThinker*,ThinkerLess,ThinkerSetIndex> s_queueThinkers;
 
 IThinker::IThinker()
-: m_usecNextThinkTimeTarget( k_nThinkTime_Never )
-, m_usecNextThinkTimeEarliest( k_nThinkTime_Never )
-, m_usecNextThinkTimeLatest( k_nThinkTime_Never )
+: m_usecNextThinkTime( k_nThinkTime_Never )
 , m_queueIndex( -1 )
 {
 }
@@ -1164,7 +1162,7 @@ IThinker::~IThinker()
 	#pragma GCC diagnostic ignored "-Wstrict-overflow"
 #endif
 
-void IThinker::SetNextThinkTime( SteamNetworkingMicroseconds usecTargetThinkTime, int nSlackMS )
+void IThinker::SetNextThinkTime( SteamNetworkingMicroseconds usecTargetThinkTime )
 {
 	Assert( usecTargetThinkTime > 0 );
 
@@ -1178,29 +1176,18 @@ void IThinker::SetNextThinkTime( SteamNetworkingMicroseconds usecTargetThinkTime
 			Assert( m_queueIndex == -1 );
 		}
 
-		m_usecNextThinkTimeTarget = k_nThinkTime_Never;
-		m_usecNextThinkTimeEarliest = k_nThinkTime_Never;
-		m_usecNextThinkTimeLatest = k_nThinkTime_Never;
+		m_usecNextThinkTime = k_nThinkTime_Never;
 		return;
 	}
 
-	if ( nSlackMS == 0 )
-	{
-		Assert( false );
-		nSlackMS = +1;
-	}
-	SteamNetworkingMicroseconds usecLimit = usecTargetThinkTime + nSlackMS*1000;
-
 	// Save current time when the next thinker wants service
-	SteamNetworkingMicroseconds usecNextWake = ( s_queueThinkers.Count() > 0 ) ? s_queueThinkers.ElementAtHead()->GetLatestThinkTime() : k_nThinkTime_Never;
+	SteamNetworkingMicroseconds usecNextWake = ( s_queueThinkers.Count() > 0 ) ? s_queueThinkers.ElementAtHead()->GetNextThinkTime() : k_nThinkTime_Never;
 
 	// Not currently scheduled?
 	if ( m_queueIndex < 0 )
 	{
-		Assert( m_usecNextThinkTimeTarget == k_nThinkTime_Never );
-		m_usecNextThinkTimeTarget = usecTargetThinkTime;
-		m_usecNextThinkTimeEarliest = std::min( usecTargetThinkTime, usecLimit );
-		m_usecNextThinkTimeLatest = std::max( usecTargetThinkTime, usecLimit );
+		Assert( m_usecNextThinkTime == k_nThinkTime_Never );
+		m_usecNextThinkTime = usecTargetThinkTime;
 		s_queueThinkers.Insert( this );
 	}
 	else
@@ -1208,12 +1195,10 @@ void IThinker::SetNextThinkTime( SteamNetworkingMicroseconds usecTargetThinkTime
 
 		// We're already scheduled.
 		Assert( s_queueThinkers.Element( m_queueIndex ) == this );
-		Assert( m_usecNextThinkTimeTarget != k_nThinkTime_Never );
+		Assert( m_usecNextThinkTime != k_nThinkTime_Never );
 
 		// Set the new schedule time
-		m_usecNextThinkTimeTarget = usecTargetThinkTime;
-		m_usecNextThinkTimeEarliest = std::min( usecTargetThinkTime, usecLimit );
-		m_usecNextThinkTimeLatest = std::max( usecTargetThinkTime, usecLimit );
+		m_usecNextThinkTime = usecTargetThinkTime;
 
 		// And update our position in the queue
 		s_queueThinkers.RevaluateElement( m_queueIndex );
@@ -1225,77 +1210,10 @@ void IThinker::SetNextThinkTime( SteamNetworkingMicroseconds usecTargetThinkTime
 
 	// Do we need service before we were previously schedule to wake up?
 	// If so, wake the thread now so that it can redo its schedule work
-	if ( m_usecNextThinkTimeLatest < usecNextWake )
-		WakeSteamDatagramThread();
-}
-
-void IThinker::EnsureMinThinkTime( SteamNetworkingMicroseconds usecTargetThinkTime, int nSlackMS )
-{
-	Assert( usecTargetThinkTime < k_nThinkTime_Never );
-	Assert( nSlackMS != 0 );
-
-	if ( nSlackMS == 0 )
-	{
-		Assert( false );
-		nSlackMS = +1;
-	}
-
-	SteamNetworkingMicroseconds usecLimit = usecTargetThinkTime + nSlackMS*1000;
-	SteamNetworkingMicroseconds usecNextThinkTimeEarliest = std::min( usecTargetThinkTime, usecLimit );
-	SteamNetworkingMicroseconds usecNextThinkTimeLatest = std::max( usecTargetThinkTime, usecLimit );
-
-	// Save current time when the next thinker wants service
-	SteamNetworkingMicroseconds usecNextWake = ( s_queueThinkers.Count() > 0 ) ? s_queueThinkers.ElementAtHead()->GetLatestThinkTime() : k_nThinkTime_Never;
-
-	// Not currently scheduled?
-	if ( m_queueIndex < 0 )
-	{
-		Assert( m_usecNextThinkTimeTarget == k_nThinkTime_Never );
-		m_usecNextThinkTimeTarget = usecTargetThinkTime;
-		m_usecNextThinkTimeEarliest = usecNextThinkTimeEarliest;
-		m_usecNextThinkTimeLatest = usecNextThinkTimeLatest;
-		s_queueThinkers.Insert( this );
-	}
-	else
-	{
-
-		// We're already scheduled.
-		Assert( s_queueThinkers.Element( m_queueIndex ) == this );
-		Assert( m_usecNextThinkTimeTarget != k_nThinkTime_Never );
-
-		Assert( m_usecNextThinkTimeEarliest <= m_usecNextThinkTimeTarget );
-		Assert( m_usecNextThinkTimeTarget <= m_usecNextThinkTimeLatest );
-		Assert( m_usecNextThinkTimeEarliest+1000 <= m_usecNextThinkTimeLatest );
-
-		// No change needed?
-		if ( usecTargetThinkTime >= m_usecNextThinkTimeTarget && usecNextThinkTimeLatest >= m_usecNextThinkTimeLatest )
-			return;
-
-		// Push the scheduled time up
-		m_usecNextThinkTimeTarget = std::min( m_usecNextThinkTimeTarget, usecTargetThinkTime );
-		m_usecNextThinkTimeEarliest = std::min( m_usecNextThinkTimeEarliest, usecNextThinkTimeEarliest );
-		m_usecNextThinkTimeLatest = std::min( m_usecNextThinkTimeLatest, usecNextThinkTimeLatest );
-
-		Assert( m_usecNextThinkTimeEarliest <= m_usecNextThinkTimeTarget );
-		Assert( m_usecNextThinkTimeTarget <= m_usecNextThinkTimeLatest );
-
-		// Make sure our window has enough tolerance.  If this code kicks in,
-		// the sequence of requests has made it a bit ambiguous exactly
-		// which request "earlier" than the other.
-		if ( m_usecNextThinkTimeEarliest+1000 > m_usecNextThinkTimeLatest )
-			m_usecNextThinkTimeEarliest = m_usecNextThinkTimeLatest-1000;
-
-		// And update our position in the queue
-		s_queueThinkers.RevaluateElement( m_queueIndex );
-	}
-
-	// Check that we know our place
-	Assert( m_queueIndex >= 0 );
-	Assert( s_queueThinkers.Element( m_queueIndex ) == this );
-
-	// Do we need service before we were previously schedule to wake up?
-	// If so, wake the thread now so that it can redo its schedule work
-	if ( m_usecNextThinkTimeLatest < usecNextWake )
+	// NOTE: On Windows we could use a waitable timer.  This would avoid
+	// waking up the service thread just to re-schedule when it should
+	// wake up for real.
+	if ( m_usecNextThinkTime < usecNextWake )
 		WakeSteamDatagramThread();
 }
 
@@ -1317,13 +1235,8 @@ void ProcessThinkers()
 		// a thinker.
 		SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 
-		// Scheduled too far in the future?  Note that
-		// there could be other items in the queue with
-		// a greater tolerance, that we could go ahead
-		// and process now.  However, since they are later
-		// in the queue we know that we can wait to wake
-		// them up.
-		if ( pNextThinker->GetEarliestThinkTime() >= usecNow )
+		// Scheduled too far in the future?
+		if ( pNextThinker->GetNextThinkTime() >= usecNow )
 		{
 			// Keep waiting
 			break;
@@ -1373,63 +1286,43 @@ static bool SteamNetworkingSockets_InternalPoll( int msWait, bool bManualPoll )
 
 		// Calc wait time to wake up as late as possible,
 		// rounded up to the nearest millisecond.
-		SteamNetworkingMicroseconds usecNextWakeTime = pNextThinker->GetLatestThinkTime();
+		SteamNetworkingMicroseconds usecNextWakeTime = pNextThinker->GetNextThinkTime();
 		SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 		int64 usecUntilNextThinkTime = usecNextWakeTime - usecNow;
-		int msTaskWait;
 
-		if ( usecNow >= pNextThinker->GetEarliestThinkTime() )
+		if ( usecNow >= usecNextWakeTime )
 		{
 			// Earliest thinker in the queue is ready to go now.
 			// There is no point in going to sleep
-			msTaskWait = 0;
-		}
-		else if ( usecUntilNextThinkTime <= 1000 )
-		{
-			// Less than 1ms until time to wake up?  But not yet reached the
-			// time for him to think?  This guy is asking for more resolution
-			// than we can provide.  Just squawk and sleep 1ms.  (We *do* need to
-			// sleep some amount of time, because this guy isn't going to get
-			// ejected from the queue until the earliest think time comes around,
-			// so we'll just be in an infinite loop complaining about the same thing
-			// over and over.)
-			msTaskWait = 1;
-			AssertMsg( false, "Thinker requested submillisecond wait time precision." );
+			msWait = 0;
 		}
 		else
 		{
 
-			// Set wake time to wake up just at the last moment.
-			msTaskWait = usecUntilNextThinkTime/1000;
-			Assert( msTaskWait >= 1 );
-			usecNextWakeTime = usecNow + msTaskWait *1000;
-			Assert( usecNextWakeTime <= pNextThinker->GetLatestThinkTime() );
-			Assert( usecNextWakeTime >= pNextThinker->GetEarliestThinkTime() );
+			// Set wake time to wake up at the target time.  We assume the scheduler
+			// only has 1ms precision, so we round to the nearest ms, so that we don't
+			// always wake up exactly 1ms early, go to sleep and wait for 1ms.
+			//
+			// NOTE: On linux, we have a precise timer and we could probably do better
+			// than this.  On windows, we could use an alertable timer, and presumably when
+			// we set the we could use a high precision relative time, and Windows could do
+			// smart stuff.
+			int msTaskWait = ( usecUntilNextThinkTime + 500 ) / 1000;
 
-			// If we assume that the actual time we spend waiting might be
-			// up to 1ms shorter or longer than we request (in reality it
-			// could be much worse!), then attempting to wake up
-			// "at the last minute" might actually be too late.  If we can,
-			// back up to wake up 1ms earlier.  The reality is that if a thinker
-			// is requesting 1ms precision, they might just be asking for more than
-			// the underlying operating system can deliver.
-			if ( usecNextWakeTime+1000 > pNextThinker->GetLatestThinkTime() && usecNextWakeTime-1000 < pNextThinker->GetEarliestThinkTime() )
-			{
-				--msTaskWait;
-				usecNextWakeTime -= 1000;
-			}
+			// We must wait at least 1 ms
+			msTaskWait = std::max( 1, msTaskWait );
 
-			// But don't ever sleep for too long, just in case.  This timeout
-			// is long enough so that if we have a bug where we really need to
-			// be explicitly waking the thread for good perf, we will notice
-			// the delay.  But not so long that a bug in some rare 
-			// shutdown race condition (or the like) will be catastrophic
-			msTaskWait = std::min( msTaskWait, 5000 );
+			// Limit to what the caller has requested
+			msWait = std::min( msWait, msTaskWait );
 		}
-
-		// Limit to what the caller has requested
-		msWait = std::min( msWait, msTaskWait );
 	}
+
+	// Con't ever sleep for too long, just in case.  This timeout
+	// is long enough so that if we have a bug where we really need to
+	// be explicitly waking the thread for good perf, we will notice
+	// the delay.  But not so long that a bug in some rare 
+	// shutdown race condition (or the like) will be catastrophic
+	msWait = std::min( msWait, 5000 );
 
 	// Poll sockets
 	if ( !PollRawUDPSockets( msWait, bManualPoll ) )

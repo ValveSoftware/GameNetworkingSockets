@@ -2214,17 +2214,10 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 {
 	// Assume a default think interval just to make sure we check in periodically
 	SteamNetworkingMicroseconds usecMinNextThinkTime = usecNow + k_nMillion;
-	SteamNetworkingMicroseconds usecMaxNextThinkTime = usecMinNextThinkTime + 100*1000;
 
-	auto UpdateMinThinkTime = [&]( SteamNetworkingMicroseconds usecTime, int msTol ) {
+	auto UpdateMinThinkTime = [&]( SteamNetworkingMicroseconds usecTime ) {
 		if ( usecTime < usecMinNextThinkTime )
 			usecMinNextThinkTime = usecTime;
-		SteamNetworkingMicroseconds usecEnd = usecTime + msTol*1000;
-		#ifdef _MSC_VER // Fix warning about optimization assuming no overflow
-		Assert( usecEnd > usecTime );
-		#endif
-		if ( usecEnd < usecMaxNextThinkTime )
-			usecMaxNextThinkTime = usecEnd;
 	};
 
 	// Check our state
@@ -2297,7 +2290,7 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 
 			if ( m_pParentListenSocket || m_eConnectionState == k_ESteamNetworkingConnectionState_FindingRoute )
 			{
-				UpdateMinThinkTime( usecTimeout, +10 );
+				UpdateMinThinkTime( usecTimeout );
 			}
 			else
 			{
@@ -2323,7 +2316,7 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 					}
 				}
 
-				UpdateMinThinkTime( usecRetry, +5 );
+				UpdateMinThinkTime( usecRetry );
 			}
 		} break;
 
@@ -2349,11 +2342,11 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 
 				// Set a pretty tight tolerance if SNP wants to wake up at a certain time.
 				if ( usecNextThinkSNP < k_nThinkTime_Never )
-					UpdateMinThinkTime( usecNextThinkSNP, +1 );
+					UpdateMinThinkTime( usecNextThinkSNP );
 			}
 			else
 			{
-				UpdateMinThinkTime( usecNow + 20*1000, +5 );
+				UpdateMinThinkTime( usecNow + 20*1000 );
 			}
 		} break;
 	}
@@ -2417,7 +2410,7 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 			}
 
 			// Make sure we are waking up regularly to check in while this is going on
-			UpdateMinThinkTime( usecNow + 50*1000, +100 );
+			UpdateMinThinkTime( usecNow + 50*1000 );
 		}
 
 		// Check for keepalives of varying urgency.
@@ -2441,12 +2434,12 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 				else
 				{
 					// Nothing we can do right now.  Just check back in a little bit.
-					UpdateMinThinkTime( usecNow+20*1000, +5 );
+					UpdateMinThinkTime( usecNow+20*1000 );
 				}
 			}
 			else
 			{
-				UpdateMinThinkTime( usecSendAggressivePing, +20 );
+				UpdateMinThinkTime( usecSendAggressivePing );
 			}
 		}
 
@@ -2469,18 +2462,18 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 				else
 				{
 					// Nothing we can do right now.  Just check back in a little bit.
-					UpdateMinThinkTime( usecNow+20*1000, +5 );
+					UpdateMinThinkTime( usecNow+20*1000 );
 				}
 			}
 			else
 			{
 				// Not right now, but schedule a wakeup call to do it
-				UpdateMinThinkTime( usecSendKeepalive, +100 );
+				UpdateMinThinkTime( usecSendKeepalive );
 			}
 		}
 		else
 		{
-			UpdateMinThinkTime( m_statsEndToEnd.m_usecInFlightReplyTimeout, +10 );
+			UpdateMinThinkTime( m_statsEndToEnd.m_usecInFlightReplyTimeout );
 		}
 	}
 
@@ -2490,18 +2483,14 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 	{
 		AssertMsg1( false, "Scheduled next think time must be in in the future.  It's %lldusec in the past", (long long)( usecNow - usecMinNextThinkTime ) );
 		usecMinNextThinkTime = usecNow + 1000;
-		usecMaxNextThinkTime = usecMinNextThinkTime + 2000;
 	}
 
 	// Hook for derived class to do its connection-type-specific stuff
 	ThinkConnection( usecNow );
 
 	// Schedule next time to think, if derived class didn't request an earlier
-	// wakeup call.  We ask that we not be woken up early, because none of the code
-	// above who is setting this timeout will trigger, and we'll just go back to
-	// sleep again.  So better to be just a tiny bit late than a tiny bit early.
-	Assert( usecMaxNextThinkTime >= usecMinNextThinkTime+1000 );
-	EnsureMinThinkTime( usecMinNextThinkTime, (usecMaxNextThinkTime-usecMinNextThinkTime)/1000 );
+	// wakeup call.
+	EnsureMinThinkTime( usecMinNextThinkTime );
 }
 
 void CSteamNetworkConnectionBase::ThinkConnection( SteamNetworkingMicroseconds usecNow )

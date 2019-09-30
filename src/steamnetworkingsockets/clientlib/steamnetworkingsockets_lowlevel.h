@@ -250,48 +250,36 @@ public:
 	virtual void Think( SteamNetworkingMicroseconds usecNow ) = 0;
 
 	/// Called to set when you next want to get your Think() callback.
-	///
-	/// nSlackMS indicates whether you want your callback a bit early or
-	/// a bit late, and exactly how much earlier or later you are willing
-	/// to accept.  A negative number means you are willing to be woken up
-	/// at least N milliseconds early, but would prefer to not be woken up late.
-	/// A positive number means that you are willing to be woken up late, but
-	/// not early.
-	///
-	/// You must accept at least 1ms of slack in one direction or the other.  2ms
-	/// is better.
-	void SetNextThinkTime( SteamNetworkingMicroseconds usecTargetThinkTime, int nSlackMS = +2 );
+	/// You should assume that, due to scheduler inaccuracy, you could
+	/// get your callback 1 or 2 ms late.
+	void SetNextThinkTime( SteamNetworkingMicroseconds usecTargetThinkTime );
 
 	/// Adjust schedule time to the earlier of the current schedule time,
 	/// or the given time.
-	void EnsureMinThinkTime( SteamNetworkingMicroseconds usecTargetThinkTime, int nSlackMS = +2 );
+	inline void EnsureMinThinkTime( SteamNetworkingMicroseconds usecTargetThinkTime )
+	{
+		if ( usecTargetThinkTime < m_usecNextThinkTime )
+			SetNextThinkTime( usecTargetThinkTime );
+	}
 
 	/// Clear the next think time.  You won't get a callback.
-	void ClearNextThinkTime() { SetNextThinkTime( k_nThinkTime_Never, 0 ); }
+	void ClearNextThinkTime() { SetNextThinkTime( k_nThinkTime_Never ); }
 
 	/// Request an immediate wakeup.
-	void SetNextThinkTimeASAP() { SetNextThinkTime( 1, +1 ); }
+	void SetNextThinkTimeASAP() { EnsureMinThinkTime( 1 ); }
 
 	/// Fetch time when the next Think() call is currently scheduled to
 	/// happen.
-	inline SteamNetworkingMicroseconds GetTargetThinkTime() const { return m_usecNextThinkTimeTarget; }
-
-	/// Get earliest time when we want to be woken up
-	inline SteamNetworkingMicroseconds GetEarliestThinkTime() const { return m_usecNextThinkTimeEarliest; }
-
-	/// Get latest time when we want to be woken up
-	inline SteamNetworkingMicroseconds GetLatestThinkTime() const { return m_usecNextThinkTimeLatest; }
+	inline SteamNetworkingMicroseconds GetNextThinkTime() const { return m_usecNextThinkTime; }
 
 	/// Return true if we are scheduled to get our callback
-	inline bool IsScheduled() const { return m_usecNextThinkTimeTarget != k_nThinkTime_Never; }
+	inline bool IsScheduled() const { return m_usecNextThinkTime != k_nThinkTime_Never; }
 
 protected:
 	IThinker();
 
 private:
-	SteamNetworkingMicroseconds m_usecNextThinkTimeTarget;
-	SteamNetworkingMicroseconds m_usecNextThinkTimeLatest;
-	SteamNetworkingMicroseconds m_usecNextThinkTimeEarliest;
+	SteamNetworkingMicroseconds m_usecNextThinkTime;
 	int m_queueIndex;
 	friend class ThinkerSetIndex;
 };
