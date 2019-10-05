@@ -144,6 +144,17 @@ bool CSteamNetworkListenSocketDirectUDP::BInit( const SteamNetworkingIPAddr &loc
 	if ( !BInitListenSocketCommon( nOptions, pOptions, errMsg ) )
 		return false;
 
+	// Do we need a cert?
+	if ( m_connectionConfig.m_IP_AllowWithoutAuth.Get() == 0 )
+	{
+		#ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
+			V_strcpy_safe( errMsg, "No cert authority, must set IP_AllowWithoutAuth" );
+			return false;
+		#else
+			m_pSteamNetworkingSocketsInterface->AsyncCertRequest();
+		#endif
+	}
+
 	m_pSock = new CSharedSocket;
 	if ( !m_pSock->BInit( localAddr, CRecvPacketCallback( ReceivedFromUnknownHost, this ), errMsg ) )
 	{

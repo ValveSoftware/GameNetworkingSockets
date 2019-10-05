@@ -553,20 +553,6 @@ HSteamListenSocket CSteamNetworkingSockets::CreateListenSocketIP( const SteamNet
 	SteamDatagramTransportLock scopeLock( "CreateListenSocketIP" );
 	SteamDatagramErrMsg errMsg;
 
-	// FIXME probably should make it such that they can set the option
-	// in the option list?
-	// Might we want a cert?  If so, make sure async process to get one is in
-	// progress (or try again if we tried earlier and failed)
-	if ( m_connectionConfig.m_IP_AllowWithoutAuth.Get() == 0 )
-	{
-		#ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
-			SpewError( "Need cert authority!" );
-			return k_HSteamListenSocket_Invalid;
-		#else
-			AsyncCertRequest();
-		#endif
-	}
-
 	CSteamNetworkListenSocketDirectUDP *pSock = new CSteamNetworkListenSocketDirectUDP( this );
 	if ( !pSock )
 		return k_HSteamListenSocket_Invalid;
