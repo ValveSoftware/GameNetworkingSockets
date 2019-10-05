@@ -8,12 +8,14 @@
 #include <steam/isteamnetworkingsockets.h>
 #include <steam/isteamnetworkingutils.h>
 
-#ifdef STEAMNETWORKINGSOCKETS_STEAMCLIENT
-	#include <common/steam/iclientnetworkingsockets.h>
-	#include <common/steam/iclientnetworkingutils.h>
+#if defined( STEAMNETWORKINGSOCKETS_STEAMCLIENT ) || defined( STEAMNETWORKINGSOCKETS_STREAMINGCLIENT )
+	#include "../../common/steam/iclientnetworkingsockets.h"
+	#include "../../common/steam/iclientnetworkingutils.h"
+	#define ICLIENTNETWORKING_OVERRIDE override
 #else
 	typedef ISteamNetworkingSockets IClientNetworkingSockets;
 	typedef ISteamNetworkingUtils IClientNetworkingUtils;
+	#define ICLIENTNETWORKING_OVERRIDE
 #endif
 
 #include "steamnetworkingsockets_connections.h"
@@ -57,7 +59,7 @@ public:
 	/// Perform cleanup and self-destruct.  Use this instead of
 	/// calling operator delete.  This solves some complications
 	/// due to calling virtual functions from within destructor.
-	virtual void Destroy();
+	virtual void Destroy() ICLIENTNETWORKING_OVERRIDE;
 
 	const SteamNetworkingIdentity &InternalGetIdentity()
 	{
