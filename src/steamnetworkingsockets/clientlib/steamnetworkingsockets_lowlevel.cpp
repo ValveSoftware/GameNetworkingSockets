@@ -12,8 +12,6 @@
 #endif
 
 #include <thread>
-#include <mutex>
-#include <atomic>
 
 #ifdef POSIX
 #include <pthread.h>
@@ -22,6 +20,7 @@
 
 #include "steamnetworkingsockets_lowlevel.h"
 #include "../steamnetworkingsockets_internal.h"
+#include "../external/yamc/fair_mutex.h"
 #include <vstdlib/random.h>
 #include <tier1/utlpriorityqueue.h>
 #include <tier1/utllinkedlist.h>
@@ -32,7 +31,6 @@
 // which then calls the timer again, and subtracts it back off....It's really bad. Just go directly to the underlying Win32
 // primitives
 #ifdef _MSC_VER
-	#define MSVC_STL_MUTEX_WORKAROUND
 	#include <Windows.h>
 #endif
 
@@ -48,11 +46,7 @@ namespace SteamNetworkingSocketsLib {
 int g_nSteamDatagramSocketBufferSize = 256*1024;
 
 /// Global lock for all local data structures
-#ifdef MSVC_STL_MUTEX_WORKAROUND
-	HANDLE s_hSteamDatagramTransportMutex = INVALID_HANDLE_VALUE; 
-#else
-	static std::recursive_timed_mutex s_steamDatagramTransportMutex;
-#endif
+static yamc::fair::recursive_timed_mutex s_steamDatagramTransportMutex;
 int SteamDatagramTransportLock::s_nLocked;
 static SteamNetworkingMicroseconds s_usecWhenLocked;
 static std::thread::id s_threadIDLockOwner;
@@ -98,26 +92,15 @@ void SteamDatagramTransportLock::OnLocked( const char *pszTag )
 
 void SteamDatagramTransportLock::Lock( const char *pszTag )
 {
-	#ifdef MSVC_STL_MUTEX_WORKAROUND
-		if ( s_hSteamDatagramTransportMutex == INVALID_HANDLE_VALUE ) // This is not actually threadsafe, but we assume that client code will call (and wait for the return of) some Init() call before invoking any API calls.
-			s_hSteamDatagramTransportMutex = ::CreateMutex( NULL, FALSE, NULL );
-		DWORD res = ::WaitForSingleObject( s_hSteamDatagramTransportMutex, INFINITE );
-		Assert( res == WAIT_OBJECT_0 );
-	#else
-		s_steamDatagramTransportMutex.lock();
-	#endif
+	s_steamDatagramTransportMutex.lock();
 	OnLocked( pszTag );
 }
 
 bool SteamDatagramTransportLock::TryLock( const char *pszTag, int msTimeout )
 {
-	#ifdef MSVC_STL_MUTEX_WORKAROUND
-		if ( ::WaitForSingleObject( s_hSteamDatagramTransportMutex, msTimeout ) != WAIT_OBJECT_0 )
-			return false;
-	#else
-		if ( !s_steamDatagramTransportMutex.try_lock_for( std::chrono::milliseconds( msTimeout ) ) )
-			return false;
-	#endif
+	if ( !s_steamDatagramTransportMutex.try_lock_for( std::chrono::milliseconds( msTimeout ) ) )
+		return false;
+
 	OnLocked( pszTag );
 	return true;
 }
@@ -171,11 +154,7 @@ void SteamDatagramTransportLock::Unlock()
 		s_nCurrentLockTags = 0;
 	}
 	--s_nLocked;
-	#ifdef MSVC_STL_MUTEX_WORKAROUND
-		DbgVerify( ReleaseMutex( s_hSteamDatagramTransportMutex ) );
-	#else
-		s_steamDatagramTransportMutex.unlock();
-	#endif
+	s_steamDatagramTransportMutex.unlock();
 
 	// Yelp if we held the lock for longer than the threshold.
 	if ( usecElapsedTooLong != 0 )
