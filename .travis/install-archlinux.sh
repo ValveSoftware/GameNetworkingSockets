@@ -15,6 +15,7 @@ PACKAGES=(
 
 PACKAGES+=(protobuf)
 PACKAGES+=(openssl)
+PACKAGES+=(libsodium)
 
 pacman --noconfirm -Sy "${PACKAGES[@]}"
 

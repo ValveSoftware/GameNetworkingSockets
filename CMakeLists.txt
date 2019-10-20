@@ -33,7 +33,7 @@ option(LIGHT_TESTS "Use smaller/shorter tests for simple integration testing (e.
 #
 # Primary crypto library (for AES, SHA256, etc)
 #
-set(useCryptoOptions OpenSSL BCrypt)
+set(useCryptoOptions OpenSSL libsodium BCrypt)
 set(USE_CRYPTO "OpenSSL" CACHE STRING "Crypto library to use for AES/SHA256")
 set_property(CACHE USE_CRYPTO PROPERTY STRINGS ${useCryptoOptions})
 
@@ -74,7 +74,7 @@ endif()
 #
 # Secondary crypto library (for ed25519/curve25519).
 #
-set(useCrypto25519Options OpenSSL Reference)
+set(useCrypto25519Options OpenSSL libsodium Reference)
 set(USE_CRYPTO25519 "${useCrypto25519Default}" CACHE STRING "Crypto library to use for ed25519/curve25519")
 set_property(CACHE USE_CRYPTO25519 PROPERTY STRINGS ${useCrypto25519Options})
 
@@ -105,6 +105,16 @@ endif()
 
 if(USE_CRYPTO25519 STREQUAL "OpenSSL" AND NOT OPENSSL_HAS_25519_RAW)
 	message(FATAL_ERROR "This version of OpenSSL does not support ed25519/curve25519. Please use -DUSE_CRYPTO25519=Reference or upgrade OpenSSL to 1.1.1 or later")
+endif()
+
+if(USE_CRYPTO STREQUAL "libsodium" OR USE_CRYPTO25519 STREQUAL "libsodium")
+	find_package(sodium REQUIRED)
+endif()
+
+if(USE_CRYPTO STREQUAL "libsodium")
+	if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "amd64.*|x86_64.*|AMD64.*|i686.*|i386.*|x86.*")
+		message(FATAL_ERROR "-DUSE_CRYPTO=libsodium invalid, libsodium AES implementation only works on x86/x86_64 CPUs")
+	endif()
 endif()
 
 add_subdirectory(examples)

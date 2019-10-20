@@ -20,6 +20,7 @@ PACKAGES=(
 
 PACKAGES+=(protobuf-dev)
 PACKAGES+=(openssl-dev)
+PACKAGES+=(libsodium-dev)
 
 apk add "${PACKAGES[@]}"
 

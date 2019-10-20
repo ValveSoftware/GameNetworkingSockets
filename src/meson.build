@@ -36,6 +36,10 @@ if use_crypto == 'OpenSSL' or use_crypto25519 == 'OpenSSL'
   endif
 endif
 
+if use_crypto == 'libsodium' or use_crypto25519 == 'libsodium'
+  dependencies += [ dependency('libsodium') ]
+endif
+
 dependencies += [
   dep_threads,
   dependency('protobuf', version: '>=3.0.0'),
@@ -102,9 +106,22 @@ if use_crypto == 'BCrypt'
   sources += [ 'common/crypto_bcrypt.cpp' ]
 endif
 
+if use_crypto == 'libsodium'
+  if target_machine.cpu_family() != 'x86' and target_machine.cpu_family() != 'x86_64'
+    error('-Duse_crypto=libsodium invalid, libsodium AES implementation only works on x86/x86_64 CPUs')
+  endif
+  cpp_flags += [ '-DSTEAMNETWORKINGSOCKETS_CRYPTO_LIBSODIUM' ]
+  sources += [ 'common/crypto_libsodium.cpp' ]
+endif
+
 if use_crypto25519 == 'OpenSSL'
   cpp_flags += [ '-DSTEAMNETWORKINGSOCKETS_CRYPTO_25519_OPENSSL' ]
   sources += [ 'common/crypto_25519_openssl.cpp' ]
+endif
+
+if use_crypto25519 == 'libsodium'
+  cpp_flags += [ '-DSTEAMNETWORKINGSOCKETS_CRYPTO_25519_LIBSODIUM' ]
+  sources += [ 'common/crypto_25519_libsodium.cpp' ]
 endif
 
 if use_crypto25519 == 'Reference'
