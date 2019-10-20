@@ -11,6 +11,7 @@ compiler:
 
 env:
   - IMAGE=ubuntu IMAGE_TAG=latest
+  - IMAGE=ubuntu IMAGE_TAG=latest CRYPTO=libsodium
   - IMAGE=ubuntu IMAGE_TAG=rolling
   - IMAGE=ubuntu IMAGE_TAG=devel
   - IMAGE=fedora IMAGE_TAG=latest
@@ -22,10 +23,10 @@ before_install:
   - docker ps
 
 install:
-  - docker exec -e CC=$CC -e CXX=$CXX -t $CONTAINER bash .travis/install-$IMAGE.sh
+  - docker exec -e CC=$CC -e CXX=$CXX -e CRYPTO=$CRYPTO -t $CONTAINER bash .travis/install-$IMAGE.sh
   - docker exec -e CC=$CC -e CXX=$CXX -t $CONTAINER bash .travis/install-post.sh
 
 script:
-  - docker exec -e CC=$CC -e CXX=$CXX -t $CONTAINER bash .travis/script.sh
+  - docker exec -e CC=$CC -e CXX=$CXX -e CRYPTO=$CRYPTO -t $CONTAINER bash .travis/script.sh
 
 # vim: set ts=2 sts=2 sw=2 et:

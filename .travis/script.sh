@@ -19,6 +19,11 @@ MESON_ARGS=(
 	-DWerror=true
 )
 
+if [[ $CRYPTO == "libsodium" ]]; then
+	CMAKE_ARGS+=(-DUSE_LIBSODIUM=ON)
+	MESON_ARGS+=(-Duse_libsodium=true)
+fi
+
 BUILD_SANITIZERS=1
 [[ $(uname -s) == MINGW* ]] && BUILD_SANITIZERS=0
 

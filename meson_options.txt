@@ -12,3 +12,8 @@ option('use_bcrypt',
   type: 'boolean',
   value: false,
   description: 'Use BCrypt API for cryptography (encryption/decryption, hashing) on Windows')
+
+option('use_libsodium',
+  type: 'boolean',
+  value: false,
+  description: 'Use libsodium for cryptography')

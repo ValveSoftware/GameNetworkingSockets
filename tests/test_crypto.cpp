@@ -307,8 +307,6 @@ void TestSymmetricAuthCryptoVectors()
 	#endif
 
 	// Check against known test vectors
-	TestSymmetricAuthCrypto_EncryptTestVectorFile( TEST_VECTOR_DIR "gcmEncryptExtIV128.rsp" );
-	TestSymmetricAuthCrypto_EncryptTestVectorFile( TEST_VECTOR_DIR "gcmEncryptExtIV192.rsp" );
 	TestSymmetricAuthCrypto_EncryptTestVectorFile( TEST_VECTOR_DIR "gcmEncryptExtIV256.rsp" );
 }
 

@@ -8,8 +8,9 @@ protoc = generator(protoc_bin,
   arguments : ['-I@CURRENT_SOURCE_DIR@/common', '--proto_path=@CURRENT_SOURCE_DIR@', '--cpp_out=@BUILD_DIR@', '@INPUT@'])
 
 use_bcrypt = get_option('use_bcrypt')
+use_libsodium = get_option('use_libsodium')
 
-if not use_bcrypt
+if not use_bcrypt and not use_libsodium
   min_libcrypto = dependency('libcrypto', version: '>=1.1.0')
   good_libcrypto = dependency('libcrypto', version: '>=1.1.1', required: false)
 
@@ -28,6 +29,17 @@ if not use_bcrypt
   result = c_compiler.links(code, dependencies: dependencies, name: 'EVP API')
   if not result
     error('Your OpenSSL version appears to be too old. Check that you\'re using OpenSSL 1.1.0 or later.')
+  endif
+else
+  good_libcrypto = disabler()
+endif
+
+if use_libsodium
+  libsodium = dependency('libsodium', required: true)
+  if libsodium.found()
+    dependencies += [ libsodium ]
+  else
+    error('use_libsodium is on, but libsodium wasn\'t found!')
   endif
 endif
 
@@ -87,6 +99,12 @@ if use_bcrypt
   dependencies += [ c_compiler.find_library('bcrypt') ]
   sources += [ 'common/crypto_bcrypt.cpp' ]
   cpp_flags += [ '-DED25519_HASH_BCRYPT', '-DSTEAMNETWORKINGSOCKETS_CRYPTO_BCRYPT' ]
+elif use_libsodium
+  cpp_flags += [ '-DSTEAMNETWORKINGSOCKETS_CRYPTO_LIBSODIUM', '-DSTEAMNETWORKINGSOCKETS_CRYPTO_25519_LIBSODIUM']
+  sources += [
+    'common/crypto_libsodium.cpp',
+    'common/crypto_25519_libsodium.cpp'
+  ]
 else
   cpp_flags += [ '-DSTEAMNETWORKINGSOCKETS_CRYPTO_VALVEOPENSSL' ]
   sources += [
@@ -102,7 +120,7 @@ else
 endif
 
 # Use reference 25519 crypto implementation?
-if use_bcrypt or not good_libcrypto.found()
+if not use_libsodium and (use_bcrypt or not good_libcrypto.found())
   cpp_flags += [ '-DVALVE_CRYPTO_25519_DONNA' ]
   sources += [
     'common/crypto_25519_donna.cpp',

@@ -4,7 +4,8 @@ include(CheckSymbolExists)
 include(CMakePushCheckState)
 
 find_package(Protobuf REQUIRED)
-if (NOT USE_BCRYPT)
+
+if (NOT USE_BCRYPT AND NOT USE_LIBSODIUM)
 	find_package(OpenSSL REQUIRED)
 
 	# Ensure the OpenSSL version is recent enough. We need a bunch of EVP
@@ -21,6 +22,14 @@ if (NOT USE_BCRYPT)
 	check_symbol_exists(EVP_PKEY_get_raw_public_key openssl/evp.h OPENSSL_HAS_25519_RAW)
 	cmake_pop_check_state()
 endif()
+
+if(USE_LIBSODIUM)
+	find_package(sodium REQUIRED)
+	if(NOT sodium_FOUND)
+		message(FATAL_ERROR "USE_LIBSODIUM is On, but libsodium wasn't found!")
+	endif()
+endif()
+
 find_package(Threads REQUIRED)
 
 set(GNS_PROTOS
@@ -58,6 +67,12 @@ if(USE_BCRYPT)
     set(GNS_SRCS ${GNS_SRCS}
         "common/crypto_bcrypt.cpp"
     )
+elseif(USE_LIBSODIUM)
+	set(GNS_CRYPTO_DEFINES ${GNS_CRYPTO_DEFINES} STEAMNETWORKINGSOCKETS_CRYPTO_LIBSODIUM STEAMNETWORKINGSOCKETS_CRYPTO_25519_LIBSODIUM)
+	set(GNS_SRCS ${GNS_SRCS}
+		"common/crypto_libsodium.cpp"
+		"common/crypto_25519_libsodium.cpp"
+	)
 else()
     set(GNS_CRYPTO_DEFINES  ${GNS_CRYPTO_DEFINES} STEAMNETWORKINGSOCKETS_CRYPTO_VALVEOPENSSL)
 	set(GNS_SRCS ${GNS_SRCS}
@@ -75,7 +90,7 @@ else()
 endif()
 
 # Use reference 25519 crypto implementation?
-if(USE_BCRYPT OR NOT OPENSSL_HAS_25519_RAW)
+if(NOT USE_LIBSODIUM AND (USE_BCRYPT OR NOT OPENSSL_HAS_25519_RAW))
 	set(GNS_CRYPTO_DEFINES ${GNS_CRYPTO_DEFINES} VALVE_CRYPTO_25519_DONNA)
 	set(GNS_SRCS ${GNS_SRCS}
 		"common/crypto_25519_donna.cpp"
@@ -158,9 +173,15 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 		Threads::Threads
 	)
 
-	if(NOT USE_BCRYPT)
+	if(NOT USE_BCRYPT AND NOT USE_LIBSODIUM)
 		target_link_libraries(${GNS_TARGET} PUBLIC
 			OpenSSL::Crypto
+		)
+	endif()
+
+	if(USE_LIBSODIUM)
+		target_link_libraries(${GNS_TARGET} PRIVATE
+			sodium
 		)
 	endif()
 
@@ -224,7 +245,7 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 				/wd4146   # include/google/protobuf/wire_format_lite.h(863): warning C4146: unary minus operator applied to unsigned type, result still unsigned
 				/wd4530   # .../xlocale(319): warning C4530: C++ exception handler used, but unwind semantics are not enabled. Specify /EHsc
 				/wd4244   # google/protobuf/wire_format_lite.h(935): warning C4244: 'argument': conversion from 'google::protobuf::uint64' to 'google::protobuf::uint32', possible loss of data
-				/wd4251   # 'google::protobuf::io::CodedOutputStream::default_serialization_deterministic_': struct 'std::atomic<bool>' needs to have dll-interface to be used by clients of class 
+				/wd4251   # 'google::protobuf::io::CodedOutputStream::default_serialization_deterministic_': struct 'std::atomic<bool>' needs to have dll-interface to be used by clients of class
 				)
 			if(NOT TARGET_TYPE STREQUAL STATIC_LIBRARY)
 				target_compile_options(${GNS_TARGET} PRIVATE

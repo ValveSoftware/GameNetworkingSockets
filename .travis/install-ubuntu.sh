@@ -10,6 +10,11 @@ locale-gen en_US.UTF-8
 PACKAGES=(build-essential pkg-config cmake meson clang)
 
 PACKAGES+=(libprotobuf-dev protobuf-compiler)
-PACKAGES+=(libssl-dev)
+
+if [[ $CRYPTO == "libsodium" ]]; then
+    PACKAGES+=(libsodium-dev)
+else
+    PACKAGES+=(libssl-dev)
+fi
 
 apt-get install -y "${PACKAGES[@]}"
