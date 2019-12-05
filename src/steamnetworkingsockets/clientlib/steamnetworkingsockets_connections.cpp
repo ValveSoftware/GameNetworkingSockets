@@ -170,6 +170,46 @@ CSteamNetworkingMessage *CSteamNetworkingMessage::New( CSteamNetworkConnectionBa
 	return pMsg;
 }
 
+void CSteamNetworkingMessage::LinkBefore( CSteamNetworkingMessage *pSuccessor, Links CSteamNetworkingMessage::*pMbrLinks, SteamNetworkingMessageQueue *pQueue )
+{
+	// Make sure we're not already in a queue
+	UnlinkFromQueue( pMbrLinks );
+
+	// No successor?
+	if ( !pSuccessor )
+	{
+		LinkToQueueTail( pMbrLinks, pQueue );
+		return;
+	}
+
+	// Otherwise, the queue cannot be empty, since it at least contains the successor
+	Assert( pQueue->m_pFirst );
+	Assert( pQueue->m_pLast );
+	Assert( (pSuccessor->*pMbrLinks).m_pQueue == pQueue );
+
+	CSteamNetworkingMessage *pPrev = (pSuccessor->*pMbrLinks).m_pPrev;
+	if ( pPrev )
+	{
+		Assert( pQueue->m_pFirst != pSuccessor );
+		Assert( (pPrev->*pMbrLinks).m_pNext == pSuccessor );
+		Assert( (pPrev->*pMbrLinks).m_pQueue == pQueue );
+
+		(pPrev->*pMbrLinks).m_pNext = this;
+		(this->*pMbrLinks).m_pPrev = pPrev;
+	}
+	else
+	{
+		Assert( pQueue->m_pFirst == pSuccessor );
+		pQueue->m_pFirst = this;
+		(this->*pMbrLinks).m_pPrev = nullptr; // Should already be null, but let's slam it again anyway
+	}
+
+	// Finish up
+	(this->*pMbrLinks).m_pQueue = pQueue;
+	(this->*pMbrLinks).m_pNext = pSuccessor;
+	(pSuccessor->*pMbrLinks).m_pPrev = this;
+}
+
 void CSteamNetworkingMessage::LinkToQueueTail( Links CSteamNetworkingMessage::*pMbrLinks, SteamNetworkingMessageQueue *pQueue )
 {
 	// Locate previous link that should point to us.
@@ -277,20 +317,111 @@ int SteamNetworkingMessageQueue::RemoveMessages( SteamNetworkingMessage_t **ppOu
 
 /////////////////////////////////////////////////////////////////////////////
 //
+// CSteamNetworkPollGroup
+//
+/////////////////////////////////////////////////////////////////////////////
+
+CSteamNetworkPollGroup::CSteamNetworkPollGroup( CSteamNetworkingSockets *pInterface )
+: m_pSteamNetworkingSocketsInterface( pInterface )
+, m_hPollGroupSelf( k_HSteamListenSocket_Invalid )
+{
+}
+
+CSteamNetworkPollGroup::~CSteamNetworkPollGroup()
+{
+	FOR_EACH_VEC_BACK( m_vecConnections, i )
+	{
+		CSteamNetworkConnectionBase *pConn = m_vecConnections[i];
+		Assert( pConn->m_pPollGroup == this );
+		pConn->RemoveFromPollGroup();
+		Assert( m_vecConnections.Count() == i );
+	}
+
+	// We should not have any messages now!  but if we do, unlink them
+	Assert( m_queueRecvMessages.empty() );
+
+	// But if we do, unlink them but leave them in the main queue.
+	while ( !m_queueRecvMessages.empty() )
+	{
+		CSteamNetworkingMessage *pMsg = m_queueRecvMessages.m_pFirst;
+
+		// The poll group queue is the "secondary queue"
+		Assert( pMsg->m_linksSecondaryQueue.m_pQueue == &m_queueRecvMessages );
+
+		// They should be in some other queue (for the connection) as the main queue.
+		// That owns them and make sure they get deleted!
+		Assert( pMsg->m_links.m_pQueue != nullptr );
+
+		// OK, do the work
+		pMsg->UnlinkFromQueue( &CSteamNetworkingMessage::m_linksSecondaryQueue );
+
+		// Make sure it worked.
+		Assert( pMsg != m_queueRecvMessages.m_pFirst );
+	}
+
+	// Remove us from global table, if we're in it
+	if ( m_hPollGroupSelf != k_HSteamNetPollGroup_Invalid )
+	{
+		int idx = m_hPollGroupSelf & 0xffff;
+		if ( g_mapPollGroups.IsValidIndex( idx ) && g_mapPollGroups[ idx ] == this )
+		{
+			g_mapPollGroups[ idx ] = nullptr; // Just for grins
+			g_mapPollGroups.Remove( idx );
+		}
+		else
+		{
+			AssertMsg( false, "Poll group handle bookkeeping bug!" );
+		}
+
+		m_hPollGroupSelf = k_HSteamNetPollGroup_Invalid;
+	}
+}
+
+void CSteamNetworkPollGroup::AssignHandleAndAddToGlobalTable()
+{
+	Assert( m_hPollGroupSelf == k_HSteamNetPollGroup_Invalid );
+
+	// We actually don't do map "lookups".  We assume the number of listen sockets
+	// is going to be reasonably small.
+	static int s_nDummy;
+	++s_nDummy;
+	int idx = g_mapPollGroups.Insert( s_nDummy, this );
+	Assert( idx < 0x1000 );
+
+	// Use upper 15 bits as a connection sequence number, so that listen socket handles
+	// are not reused within a short time period.
+	// (The top bit is reserved, so that listen socket handles and poll group handles
+	// come from a different namespace, so that we can immediately detect using the wrong
+	// and make that bug more obvious.)
+	static uint32 s_nUpperBits = 0;
+	s_nUpperBits += 0x10000;
+	if ( s_nUpperBits & 0x10000000 )
+		s_nUpperBits = 0x10000;
+
+	// Set the handle
+	m_hPollGroupSelf = HSteamNetPollGroup( idx | s_nUpperBits | 0x80000000 );
+}
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
 // CSteamNetworkListenSocketBase
 //
 /////////////////////////////////////////////////////////////////////////////
 
 CSteamNetworkListenSocketBase::CSteamNetworkListenSocketBase( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface )
 : m_pSteamNetworkingSocketsInterface( pSteamNetworkingSocketsInterface )
+, m_hListenSocketSelf( k_HSteamListenSocket_Invalid )
+#ifdef STEAMNETWORKINGSOCKETS_STEAMCLIENT
+, m_legacyPollGroup( pSteamNetworkingSocketsInterface )
+#endif
 {
-	m_hListenSocketSelf = k_HSteamListenSocket_Invalid;
 	m_connectionConfig.Init( &pSteamNetworkingSocketsInterface->m_connectionConfig );
 }
 
 CSteamNetworkListenSocketBase::~CSteamNetworkListenSocketBase()
 {
-	AssertMsg( m_mapChildConnections.Count() == 0 && !m_queueRecvMessages.m_pFirst && !m_queueRecvMessages.m_pLast, "Destroy() not used properly" );
+	AssertMsg( m_mapChildConnections.Count() == 0, "Destroy() not used properly" );
 
 	// Remove us from global table, if we're in it
 	if ( m_hListenSocketSelf != k_HSteamListenSocket_Invalid )
@@ -299,7 +430,7 @@ CSteamNetworkListenSocketBase::~CSteamNetworkListenSocketBase()
 		if ( g_mapListenSockets.IsValidIndex( idx ) && g_mapListenSockets[ idx ] == this )
 		{
 			g_mapListenSockets[ idx ] = nullptr; // Just for grins
-			g_mapListenSockets.RemoveAt( idx );
+			g_mapListenSockets.Remove( idx );
 		}
 		else
 		{
@@ -323,11 +454,14 @@ bool CSteamNetworkListenSocketBase::BInitListenSocketCommon( int nOptions, const
 		int idx = g_mapListenSockets.Insert( s_nDummy, this );
 		Assert( idx < 0x1000 );
 
-		// Use upper 16 bits as a connection sequence number, so that listen socket handles
+		// Use upper 15 bits as a connection sequence number, so that listen socket handles
 		// are not reused within a short time period.
+		// (The top bit is reserved, so that listen socket handles and poll group handles
+		// come from a different namespace, so that we can immediately detect using the wrong
+		// and make that bug more obvious.)
 		static uint32 s_nUpperBits = 0;
 		s_nUpperBits += 0x10000;
-		if ( s_nUpperBits == 0 )
+		if ( s_nUpperBits & 0x10000000 )
 			s_nUpperBits = 0x10000;
 
 		// Add it to our table of listen sockets
@@ -381,11 +515,6 @@ bool CSteamNetworkListenSocketBase::APIGetAddress( SteamNetworkingIPAddr *pAddre
 	return false;
 }
 
-int CSteamNetworkListenSocketBase::APIReceiveMessages( SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages )
-{
-	return m_queueRecvMessages.RemoveMessages( ppOutMessages, nMaxMessages );
-}
-
 void CSteamNetworkListenSocketBase::AddChildConnection( CSteamNetworkConnectionBase *pConn )
 {
 	Assert( pConn->m_pParentListenSocket == nullptr );
@@ -402,6 +531,12 @@ void CSteamNetworkListenSocketBase::AddChildConnection( CSteamNetworkConnectionB
 
 	// Connection configuration will inherit from us
 	pConn->m_connectionConfig.Init( &m_connectionConfig );
+
+	// If we are possibly providing an old interface that did not have poll groups,
+	// add the connection to the default poll group
+	#ifdef STEAMNETWORKINGSOCKETS_STEAMCLIENT
+	pConn->SetPollGroup( &m_legacyPollGroup );
+	#endif
 }
 
 void CSteamNetworkListenSocketBase::AboutToDestroyChildConnection( CSteamNetworkConnectionBase *pConn )
@@ -452,6 +587,7 @@ CSteamNetworkConnectionBase::CSteamNetworkConnectionBase( CSteamNetworkingSocket
 	m_unConnectionIDLocal = 0;
 	m_unConnectionIDRemote = 0;
 	m_pParentListenSocket = nullptr;
+	m_pPollGroup = nullptr;
 	m_hSelfInParentListenSocketMap = -1;
 	m_pMessagesInterface = nullptr;
 	m_pMessagesSession = nullptr;
@@ -520,6 +656,9 @@ void CSteamNetworkConnectionBase::FreeResources()
 	// Discard any messages that weren't retrieved
 	m_queueRecvMessages.PurgeMessages();
 
+	// If we are in a poll group, remove us from the group
+	RemoveFromPollGroup();
+
 	// Detach from the listen socket that owns us, if any
 	if ( m_pParentListenSocket )
 		m_pParentListenSocket->AboutToDestroyChildConnection( this );
@@ -575,6 +714,95 @@ void CSteamNetworkConnectionBase::DestroyTransport()
 		m_pTransport->TransportDestroySelfNow();
 		m_pTransport = nullptr;
 	}
+}
+
+void CSteamNetworkConnectionBase::RemoveFromPollGroup()
+{
+	if ( !m_pPollGroup )
+		return;
+
+	// Scan all of our messages, and make sure they are not in the secondary queue
+	for ( CSteamNetworkingMessage *pMsg = m_queueRecvMessages.m_pFirst ; pMsg ; pMsg = pMsg->m_linksSecondaryQueue.m_pNext )
+	{
+		Assert( pMsg->m_links.m_pQueue == &m_queueRecvMessages );
+
+		// It *should* be in the secondary queue of the poll group
+		Assert( pMsg->m_linksSecondaryQueue.m_pQueue == &m_pPollGroup->m_queueRecvMessages );
+
+		// OK, do the work
+		pMsg->UnlinkFromQueue( &CSteamNetworkingMessage::m_linksSecondaryQueue );
+	}
+
+	// Remove us from the poll group's list.  DbgVerify because we should be in the list!
+	DbgVerify( m_pPollGroup->m_vecConnections.FindAndFastRemove( this ) );
+
+	// We're not in a poll group anymore
+	m_pPollGroup = nullptr;
+}
+
+void CSteamNetworkConnectionBase::SetPollGroup( CSteamNetworkPollGroup *pPollGroup )
+{
+
+	// Quick early-out for no change
+	if ( m_pPollGroup == pPollGroup )
+		return;
+
+	// Clearing it?
+	if ( !pPollGroup )
+	{
+		RemoveFromPollGroup();
+		return;
+	}
+
+	// Scan all messages that are already queued for this connection,
+	// and insert them into the poll groups queue in the (approximate)
+	// appropriate spot.  Using local timestamps should be really close
+	// for ordering messages between different connections.  Remember
+	// that the API very clearly does not provide strong guarantees
+	// regarding ordering of messages from different connections, and
+	// really anybody who is expecting or relying on such guarantees
+	// is probably doing something wrong.
+	CSteamNetworkingMessage *pInsertBefore = pPollGroup->m_queueRecvMessages.m_pFirst;
+	for ( CSteamNetworkingMessage *pMsg = m_queueRecvMessages.m_pFirst ; pMsg ; pMsg = pMsg->m_links.m_pNext )
+	{
+		Assert( pMsg->m_links.m_pQueue == &m_queueRecvMessages );
+
+		// Unlink it from existing poll group queue, if any
+		if ( pMsg->m_linksSecondaryQueue.m_pQueue )
+		{
+			Assert( m_pPollGroup && pMsg->m_linksSecondaryQueue.m_pQueue == &m_pPollGroup->m_queueRecvMessages );
+			pMsg->UnlinkFromQueue( &CSteamNetworkingMessage::m_linksSecondaryQueue );
+		}
+		else
+		{
+			Assert( !m_pPollGroup );
+		}
+
+		// Scan forward in the poll group message queue, until we find the insertion point
+		for (;;)
+		{
+
+			// End of queue?
+			if ( !pInsertBefore )
+			{
+				pMsg->LinkToQueueTail( &CSteamNetworkingMessage::m_linksSecondaryQueue, &pPollGroup->m_queueRecvMessages );
+				break;
+			}
+
+			Assert( pInsertBefore->m_linksSecondaryQueue.m_pQueue == &pPollGroup->m_queueRecvMessages );
+			if ( pInsertBefore->m_usecTimeReceived > pMsg->m_usecTimeReceived )
+			{
+				pMsg->LinkBefore( pInsertBefore, &CSteamNetworkingMessage::m_linksSecondaryQueue, &pPollGroup->m_queueRecvMessages );
+				break;
+			}
+
+			pInsertBefore = pInsertBefore->m_linksSecondaryQueue.m_pNext;
+		}
+	}
+
+	m_pPollGroup = pPollGroup;
+	Assert( !m_pPollGroup->m_vecConnections.HasElement( this ) );
+	m_pPollGroup->m_vecConnections.AddToTail( this );
 }
 
 bool CSteamNetworkConnectionBase::BInitConnection( SteamNetworkingMicroseconds usecNow, int nOptions, const SteamNetworkingConfigValue_t *pOptions, SteamDatagramErrMsg &errMsg )
@@ -1977,9 +2205,9 @@ void CSteamNetworkConnectionBase::ReceivedMessage( CSteamNetworkingMessage *pMsg
 	// Add to end of my queue.
 	pMsg->LinkToQueueTail( &CSteamNetworkingMessage::m_links, &m_queueRecvMessages );
 
-	// If we are an inbound, accepted connection, link into the listen socket's queue
-	if ( m_pParentListenSocket )
-		pMsg->LinkToQueueTail( &CSteamNetworkingMessage::m_linksSecondaryQueue, &m_pParentListenSocket->m_queueRecvMessages );
+	// Add to the poll group, if we are in one
+	if ( m_pPollGroup )
+		pMsg->LinkToQueueTail( &CSteamNetworkingMessage::m_linksSecondaryQueue, &m_pPollGroup->m_queueRecvMessages );
 }
 
 void CSteamNetworkConnectionBase::PostConnectionStateChangedCallback( ESteamNetworkingConnectionState eOldAPIState, ESteamNetworkingConnectionState eNewAPIState )

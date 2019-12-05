@@ -147,6 +147,33 @@ public:
 
 /////////////////////////////////////////////////////////////////////////////
 //
+// CSteamNetworkPollGroup
+//
+/////////////////////////////////////////////////////////////////////////////
+
+class CSteamNetworkPollGroup
+{
+public:
+	CSteamNetworkPollGroup( CSteamNetworkingSockets *pInterface );
+	~CSteamNetworkPollGroup();
+
+	/// What interface is responsible for this listen socket?
+	CSteamNetworkingSockets *const m_pSteamNetworkingSocketsInterface;
+
+	/// Linked list of messages received through any connection on this listen socket
+	SteamNetworkingMessageQueue m_queueRecvMessages;
+
+	/// Index into the global list
+	HSteamNetPollGroup m_hPollGroupSelf;
+
+	/// List of connections that are in this poll group
+	CUtlVector<CSteamNetworkConnectionBase *> m_vecConnections;
+
+	void AssignHandleAndAddToGlobalTable();
+};
+
+/////////////////////////////////////////////////////////////////////////////
+//
 // CSteamNetworkListenSocketBase
 //
 /////////////////////////////////////////////////////////////////////////////
@@ -165,14 +192,10 @@ public:
 	/// This gets called on an accepted connection before it gets destroyed
 	virtual void AboutToDestroyChildConnection( CSteamNetworkConnectionBase *pConn );
 
-	int APIReceiveMessages( SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages );
 	virtual bool APIGetAddress( SteamNetworkingIPAddr *pAddress );
 
 	/// Map of child connections
 	CUtlHashMap<RemoteConnectionKey_t, CSteamNetworkConnectionBase *, std::equal_to<RemoteConnectionKey_t>, RemoteConnectionKey_t::Hash > m_mapChildConnections;
-
-	/// Linked list of messages received through any connection on this listen socket
-	SteamNetworkingMessageQueue m_queueRecvMessages;
 
 	/// Index into the global list
 	HSteamListenSocket m_hListenSocketSelf;
@@ -182,6 +205,11 @@ public:
 
 	/// Configuration options that will apply to all connections accepted through this listen socket
 	ConnectionConfig m_connectionConfig;
+
+	/// For legacy interface.
+	#ifdef STEAMNETWORKINGSOCKETS_STEAMCLIENT
+	CSteamNetworkPollGroup m_legacyPollGroup;
+	#endif
 
 protected:
 	CSteamNetworkListenSocketBase( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface );
@@ -325,6 +353,15 @@ public:
 
 	/// The listen socket through which we were accepted, if any.
 	CSteamNetworkListenSocketBase *m_pParentListenSocket;
+
+	/// What poll group are we assigned to?
+	CSteamNetworkPollGroup *m_pPollGroup;
+
+	/// Assign poll group
+	void SetPollGroup( CSteamNetworkPollGroup *pPollGroup );
+
+	/// Remove us from the poll group we are in (if any)
+	void RemoveFromPollGroup();
 
 	/// Was this connection initiated locally (we are the "client") or remotely (we are the "server")?
 	/// In *most* use cases, "server" cnonections have a listen socket, but not always.
@@ -761,6 +798,7 @@ inline void SendPacketContext<TStatsMsg>::CalcMaxEncryptedPayloadSize( size_t cb
 
 extern CUtlHashMap<uint16, CSteamNetworkConnectionBase *, std::equal_to<uint16>, Identity<uint16> > g_mapConnections;
 extern CUtlHashMap<int, CSteamNetworkListenSocketBase *, std::equal_to<int>, Identity<int> > g_mapListenSockets;
+extern CUtlHashMap<int, CSteamNetworkPollGroup *, std::equal_to<int>, Identity<int> > g_mapPollGroups;
 
 extern bool BCheckGlobalSpamReplyRateLimit( SteamNetworkingMicroseconds usecNow );
 extern CSteamNetworkConnectionBase *GetConnectionByHandle( HSteamNetConnection sock );

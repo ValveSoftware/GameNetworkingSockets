@@ -243,6 +243,9 @@ public:
 		m_hListenSock = m_pInterface->CreateListenSocketIP( serverLocalAddr, 0, nullptr );
 		if ( m_hListenSock == k_HSteamListenSocket_Invalid )
 			FatalError( "Failed to listen on port %d", nPort );
+		m_hPollGroup = m_pInterface->CreatePollGroup();
+		if ( m_hPollGroup == k_HSteamNetPollGroup_Invalid )
+			FatalError( "Failed to listen on port %d", nPort );
 		Printf( "Server listening on port %d\n", nPort );
 
 		while ( !g_bQuit )
@@ -268,10 +271,17 @@ public:
 			m_pInterface->CloseConnection( it.first, 0, "Server Shutdown", true );
 		}
 		m_mapClients.clear();
+
+		m_pInterface->CloseListenSocket( m_hListenSock );
+		m_hListenSock = k_HSteamListenSocket_Invalid;
+
+		m_pInterface->DestroyPollGroup( m_hPollGroup );
+		m_hPollGroup = k_HSteamNetPollGroup_Invalid;
 	}
 private:
 
 	HSteamListenSocket m_hListenSock;
+	HSteamNetPollGroup m_hPollGroup;
 	ISteamNetworkingSockets *m_pInterface;
 
 	struct Client_t
@@ -302,7 +312,7 @@ private:
 		while ( !g_bQuit )
 		{
 			ISteamNetworkingMessage *pIncomingMsg = nullptr;
-			int numMsgs = m_pInterface->ReceiveMessagesOnListenSocket( m_hListenSock, &pIncomingMsg, 1 );
+			int numMsgs = m_pInterface->ReceiveMessagesOnPollGroup( m_hPollGroup, &pIncomingMsg, 1 );
 			if ( numMsgs == 0 )
 				break;
 			if ( numMsgs < 0 )
@@ -465,6 +475,14 @@ private:
 					// destroy whatever we have on our side.
 					m_pInterface->CloseConnection( pInfo->m_hConn, 0, nullptr, false );
 					Printf( "Can't accept connection.  (It was already closed?)" );
+					break;
+				}
+
+				// Assign the poll group
+				if ( !m_pInterface->SetConnectionPollGroup( pInfo->m_hConn, m_hPollGroup ) )
+				{
+					m_pInterface->CloseConnection( pInfo->m_hConn, 0, nullptr, false );
+					Printf( "Failed to set poll group?" );
 					break;
 				}
 

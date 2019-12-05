@@ -78,6 +78,7 @@ public:
 	/// P2P channel, depending on message type)
 	Links m_linksSecondaryQueue;
 
+	void LinkBefore( CSteamNetworkingMessage *pSuccessor, Links CSteamNetworkingMessage::*pMbrLinks, SteamNetworkingMessageQueue *pQueue );
 	void LinkToQueueTail( Links CSteamNetworkingMessage::*pMbrLinks, SteamNetworkingMessageQueue *pQueue );
 	void UnlinkFromQueue( Links CSteamNetworkingMessage::*pMbrLinks );
 

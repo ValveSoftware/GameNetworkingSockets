@@ -83,11 +83,6 @@ STEAMNETWORKINGSOCKETS_INTERFACE int SteamAPI_ISteamNetworkingSockets_ReceiveMes
 	return ((ISteamNetworkingSockets*)instancePtr)->ReceiveMessagesOnConnection( hConn, ppOutMessages, nMaxMessages );
 }
 
-STEAMNETWORKINGSOCKETS_INTERFACE int SteamAPI_ISteamNetworkingSockets_ReceiveMessagesOnListenSocket( intptr_t instancePtr, HSteamListenSocket hSocket, SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages )
-{
-	return ((ISteamNetworkingSockets*)instancePtr)->ReceiveMessagesOnListenSocket( hSocket, ppOutMessages, nMaxMessages );
-}
-
 STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_GetConnectionInfo( intptr_t instancePtr, HSteamNetConnection hConn, SteamNetConnectionInfo_t *pInfo )
 {
 	return ((ISteamNetworkingSockets*)instancePtr)->GetConnectionInfo( hConn, pInfo );

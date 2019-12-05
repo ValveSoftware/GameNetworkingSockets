@@ -67,9 +67,16 @@ struct SteamRelayNetworkStatus_t;
 typedef uint32 HSteamNetConnection;
 const HSteamNetConnection k_HSteamNetConnection_Invalid = 0;
 
-/// Handle used to identify a "listen socket".
+/// Handle used to identify a "listen socket".  Unlike traditional
+/// Berkeley sockets, a listen socket and a connection are two
+/// different abstractions.
 typedef uint32 HSteamListenSocket;
 const HSteamListenSocket k_HSteamListenSocket_Invalid = 0;
+
+/// Handle used to identify a poll group, used to query many
+/// connections at once efficiently.
+typedef uint32 HSteamNetPollGroup;
+const HSteamNetPollGroup k_HSteamNetPollGroup_Invalid = 0;
 
 /// Max length of diagnostic error message
 const int k_cchMaxSteamNetworkingErrMsg = 1024;
@@ -86,7 +93,7 @@ typedef uint32 SteamNetworkingPOPID;
 /// microseconds.  This is guaranteed to increase over time during the lifetime
 /// of a process, but not globally across runs.  You don't need to worry about
 /// the value wrapping around.  Note that the underlying clock might not actually have
-/// microsecond *resolution*.
+/// microsecond resolution.
 typedef int64 SteamNetworkingMicroseconds;
 
 /// Describe the status of a particular network resource

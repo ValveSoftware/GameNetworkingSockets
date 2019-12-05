@@ -244,7 +244,7 @@ public:
 	/// pOutMessageNumberOrResult is an optional array that will receive,
 	/// for each message, the message number that was assigned to the message
 	/// if sending was successful.  If sending failed, then a negative EResult
-	/// valid is placed into the array.  For example, the array will hold
+	/// value is placed into the array.  For example, the array will hold
 	/// -k_EResultInvalidState if the connection was in an invalid state.
 	/// See ISteamNetworkingSockets::SendMessageToConnection for possible
 	/// failure codes.
@@ -273,7 +273,7 @@ public:
 	/// Reliable messages will be received in the order they were sent (and with the
 	/// same sizes --- see SendMessageToConnection for on this subtle difference from a stream socket).
 	///
-	/// Unreliable messages may be dropped, or delivered out of order withrespect to
+	/// Unreliable messages may be dropped, or delivered out of order with respect to
 	/// each other or with respect to reliable messages.  The same unreliable message
 	/// may be received multiple times.
 	///
@@ -281,16 +281,6 @@ public:
 	/// of them free up resources after you are done.  It is safe to keep the object alive for
 	/// a little while (put it into some queue, etc), and you may call Release() from any thread.
 	virtual int ReceiveMessagesOnConnection( HSteamNetConnection hConn, SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages ) = 0; 
-
-	/// Same as ReceiveMessagesOnConnection, but will return the next message available
-	/// on any connection that was accepted through the specified listen socket.  Examine
-	/// SteamNetworkingMessage_t::m_conn to know which client connection.
-	///
-	/// Delivery order of messages among different clients is not defined.  They may
-	/// be returned in an order different from what they were actually received.  (Delivery
-	/// order of messages from the same client is well defined, and thus the order of the
-	/// messages is relevant!)
-	virtual int ReceiveMessagesOnListenSocket( HSteamListenSocket hSocket, SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages ) = 0; 
 
 	/// Returns basic information about the high-level state of the connection.
 	virtual bool GetConnectionInfo( HSteamNetConnection hConn, SteamNetConnectionInfo_t *pInfo ) = 0;
@@ -378,13 +368,66 @@ public:
 	/// details, pass non-NULL to receive them.
 	virtual ESteamNetworkingAvailability GetAuthenticationStatus( SteamNetAuthenticationStatus_t *pDetails ) = 0;
 
+	//
+	// Poll groups.  A poll group is a set of connections that can be polled efficiently.
+	// (In our API, to "poll" a connection means to retrieve all pending messages.  We
+	// actually don't have an API to "poll" the connection *state*, like BSD sockets.)
+	//
+
+	/// Create a new poll group.
+	///
+	/// You should destroy the poll group when you are done using DestroyPollGroup
+	virtual HSteamNetPollGroup CreatePollGroup() = 0;
+
+	/// Destroy a poll group created with CreatePollGroup().
+	///
+	/// If there are any connections in the poll group, they are removed from the group,
+	/// and left in a state where they are not part of any poll group.
+	/// Returns false if passed an invalid poll group handle.
+	virtual bool DestroyPollGroup( HSteamNetPollGroup hPollGroup ) = 0;
+
+	/// Assign a connection to a poll group.  Note that a connection may only belong to a
+	/// single poll group.  Adding a connection to a poll group implicitly removes it from
+	/// any other poll group it is in.
+	///
+	/// You can pass k_HSteamNetPollGroup_Invalid to remove a connection from its current
+	/// poll group without adding it to a new poll group.
+	///
+	/// If there are received messages currently pending on the connection, an attempt
+	/// is made to add them to the queue of messages for the poll group in approximately
+	/// the order that would have applied if the connection was already part of the poll
+	/// group at the time that the messages were received.
+	///
+	/// Returns false if the connection handle is invalid, or if the poll group handle
+	/// is invalid (and not k_HSteamNetPollGroup_Invalid).
+	virtual bool SetConnectionPollGroup( HSteamNetConnection hConn, HSteamNetPollGroup hPollGroup ) = 0;
+
+	/// Same as ReceiveMessagesOnConnection, but will return the next messages available
+	/// on any connection in the poll group.  Examine SteamNetworkingMessage_t::m_conn
+	/// to know which connection.  (SteamNetworkingMessage_t::m_nConnUserData might also
+	/// be useful.)
+	///
+	/// Delivery order of messages among different connections will usually match the
+	/// order that the last packet was received which completed the message.  But this
+	/// is not a strong guarantee, especially for packets received right as a connection
+	/// is being assigned to poll group.
+	///
+	/// Delivery order of messages on the same connection is well defined and the
+	/// same guarantees are present as mentioned in ReceiveMessagesOnConnection.
+	/// (But the messages are not grouped by connection, so they will not necessarily
+	/// appear consecutively in the list; they may be interleaved with messages for
+	/// other connections.)
+	virtual int ReceiveMessagesOnPollGroup( HSteamNetPollGroup hPollGroup, SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages ) = 0; 
+
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 	// Dedicated servers hosted in known data centers
 	// Relayed connections using custom signaling protocol
 #endif // #ifndef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 
-/// Certificate provision by the application.  (On Steam, Steam will handle all this automatically)
-#ifndef STEAMNETWORKINGSOCKETS_STEAM
+//
+// Certificate provision by the application.  On Steam, we normally handle all this automatically
+// and you will not need to use these advanced functions.
+//
 
 	/// Get blob that describes a certificate request.  You can send this to your game coordinator.
 	/// Upon entry, *pcbBlob should contain the size of the buffer.  On successful exit, it will
@@ -397,7 +440,6 @@ public:
 	/// Set the certificate.  The certificate blob should be the output of
 	/// SteamDatagram_CreateCert.
 	virtual bool SetCertificate( const void *pCertificate, int cbCertificate, SteamNetworkingErrMsg &errMsg ) = 0;
-#endif
 
 	// Invoke all callbacks queued for this interface.
 	// On Steam, callbacks are dispatched via the ordinary Steamworks callbacks mechanism.
@@ -409,7 +451,7 @@ public:
 protected:
 	~ISteamNetworkingSockets(); // Silence some warnings
 };
-#define STEAMNETWORKINGSOCKETS_INTERFACE_VERSION "SteamNetworkingSockets006"
+#define STEAMNETWORKINGSOCKETS_INTERFACE_VERSION "SteamNetworkingSockets008"
 
 extern "C" {
 
