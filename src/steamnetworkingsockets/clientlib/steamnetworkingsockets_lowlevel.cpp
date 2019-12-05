@@ -1164,7 +1164,12 @@ IThinker::~IThinker()
 
 void IThinker::SetNextThinkTime( SteamNetworkingMicroseconds usecTargetThinkTime )
 {
-	Assert( usecTargetThinkTime > 0 );
+	// Protect against us blowing up because of an invalid think time
+	if ( usecTargetThinkTime <= 0 )
+	{
+		AssertMsg1( false, "Attempt to set target think time to %lld", (long long)usecTargetThinkTime );
+		usecTargetThinkTime = Plat_USTime() + 5000;
+	}
 
 	// Clearing it?
 	if ( usecTargetThinkTime == k_nThinkTime_Never )
@@ -1221,6 +1226,7 @@ void ProcessThinkers()
 {
 
 	// Until the queue is empty
+	int nIterations = 0;
 	while ( s_queueThinkers.Count() > 0 )
 	{
 
@@ -1239,6 +1245,13 @@ void ProcessThinkers()
 		if ( pNextThinker->GetNextThinkTime() >= usecNow )
 		{
 			// Keep waiting
+			break;
+		}
+
+		++nIterations;
+		if ( nIterations > 10000 )
+		{
+			AssertMsg1( false, "Processed thinkers %d times -- probably one thinker keeps requesting an immediate wakeup call.", nIterations );
 			break;
 		}
 
@@ -1317,7 +1330,7 @@ static bool SteamNetworkingSockets_InternalPoll( int msWait, bool bManualPoll )
 		}
 	}
 
-	// Con't ever sleep for too long, just in case.  This timeout
+	// Don't ever sleep for too long, just in case.  This timeout
 	// is long enough so that if we have a bug where we really need to
 	// be explicitly waking the thread for good perf, we will notice
 	// the delay.  But not so long that a bug in some rare 
