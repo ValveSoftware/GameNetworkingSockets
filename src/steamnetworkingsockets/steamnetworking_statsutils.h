@@ -133,26 +133,11 @@ struct PingTracker
 	/// Number of valid entries in m_arPing.
 	int m_nValidPings;
 
-	/// Do we have a full sample?
-	bool HasFullSample() const { return m_nValidPings >= V_ARRAYSIZE(m_arPing); }
-
 	/// Time when the most recent ping was received
 	SteamNetworkingMicroseconds TimeRecvMostRecentPing() const { return m_arPing[0].m_usecTimeRecv; }
 
-	/// Time when the oldest ping was received
-	SteamNetworkingMicroseconds TimeRecvOldestPing() const { return ( m_nValidPings > 0 ) ? m_arPing[m_nValidPings-1].m_usecTimeRecv : 0; }
-
-	/// Ping estimate, being pessimistic
-	int PessimisticPingEstimate() const;
-
-	/// Ping estimate, being optimistic
-	int OptimisticPingEstimate() const;
-
-	/// Estimate a conservative (i.e. err on the large side) timeout for the connection
-	SteamNetworkingMicroseconds CalcConservativeTimeout() const
-	{
-		return ( m_nSmoothedPing >= 0 ) ? ( PessimisticPingEstimate()*2000 + 250000 ) : k_nMillion;
-	}
+	/// Return the worst of the pings in the small sample of recent pings
+	int WorstPingInRecentSample() const;
 
 	/// Smoothed ping value
 	int m_nSmoothedPing;
@@ -185,9 +170,11 @@ struct PingTrackerDetailed : PingTracker
 		m_histogram.AddSample( nPingMS );
 	}
 
-	/// Total number of pings we have received
-	inline int TotalPingsReceived() const { return m_sample.NumSamplesTotal(); }
-
+	/// Estimate a conservative (i.e. err on the large side) timeout for the connection
+	SteamNetworkingMicroseconds CalcConservativeTimeout() const
+	{
+		return ( m_nSmoothedPing >= 0 ) ? ( WorstPingInRecentSample()*2000 + 250000 ) : k_nMillion;
+	}
 	/// Track sample of pings received so we can generate percentiles.
 	/// Also tracks how many pings we have received total
 	PercentileGenerator<uint16> m_sample;
@@ -206,25 +193,6 @@ struct PingTrackerDetailed : PingTracker
 		s.m_nPingNtile95th = m_sample.NumSamples() < 20 ? -1 : m_sample.GetPercentile( .95f );
 		s.m_nPingNtile98th = m_sample.NumSamples() < 50 ? -1 : m_sample.GetPercentile( .98f );
 	}
-};
-
-/// Ping tracker that only tracks totals
-struct PingTrackerBasic : PingTracker
-{
-	void Reset()
-	{
-		PingTracker::Reset();
-		m_nTotalPingsReceived = 0;
-	}
-	void ReceivedPing( int nPingMS, SteamNetworkingMicroseconds usecNow )
-	{
-		PingTracker::ReceivedPing( nPingMS, usecNow );
-		++m_nTotalPingsReceived;
-	}
-
-	inline int TotalPingsReceived() const { return m_nTotalPingsReceived; }
-
-	int m_nTotalPingsReceived;
 };
 
 /// Token bucket rate limiter

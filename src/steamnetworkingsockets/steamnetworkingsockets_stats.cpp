@@ -115,7 +115,7 @@ void PingTracker::ReceivedPing( int nPingMS, SteamNetworkingMicroseconds usecNow
 	}
 }
 
-int PingTracker::PessimisticPingEstimate() const
+int PingTracker::WorstPingInRecentSample() const
 {
 	if ( m_nValidPings < 1 )
 	{
@@ -125,19 +125,6 @@ int PingTracker::PessimisticPingEstimate() const
 	int nResult = m_arPing[0].m_nPingMS;
 	for ( int i = 1 ; i < m_nValidPings ; ++i )
 		nResult = Max( nResult, m_arPing[i].m_nPingMS );
-	return nResult;
-}
-
-int PingTracker::OptimisticPingEstimate() const
-{
-	if ( m_nValidPings < 1 )
-	{
-		AssertMsg( false, "Tried to make an optimistic ping estimate without any ping data at all!" );
-		return 50;
-	}
-	int nResult = m_arPing[0].m_nPingMS;
-	for ( int i = 1 ; i < m_nValidPings ; ++i )
-		nResult = Min( nResult, m_arPing[i].m_nPingMS );
 	return nResult;
 }
 
