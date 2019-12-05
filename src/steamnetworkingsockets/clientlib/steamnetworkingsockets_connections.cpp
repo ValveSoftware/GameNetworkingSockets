@@ -2215,10 +2215,16 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 	// Assume a default think interval just to make sure we check in periodically
 	SteamNetworkingMicroseconds usecMinNextThinkTime = usecNow + k_nMillion;
 
-	auto UpdateMinThinkTime = [&]( SteamNetworkingMicroseconds usecTime ) {
-		if ( usecTime < usecMinNextThinkTime )
-			usecMinNextThinkTime = usecTime;
-	};
+	// Use a macro so that if we assert, we'll get a real line number
+	#define UpdateMinThinkTime(x) \
+	{ \
+		/* assign into temporary in case x is an expression with side effects */ \
+		SteamNetworkingMicroseconds usecNextThink = (x);  \
+		if ( usecNextThink < usecMinNextThinkTime ) { \
+			Assert( usecNextThink > 0 ); \
+			usecMinNextThinkTime = usecNextThink; \
+		} \
+	}
 
 	// Check our state
 	switch ( m_eConnectionState )
@@ -2491,6 +2497,8 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 	// Schedule next time to think, if derived class didn't request an earlier
 	// wakeup call.
 	EnsureMinThinkTime( usecMinNextThinkTime );
+
+	#undef UpdateMinThinkTime
 }
 
 void CSteamNetworkConnectionBase::ThinkConnection( SteamNetworkingMicroseconds usecNow )
