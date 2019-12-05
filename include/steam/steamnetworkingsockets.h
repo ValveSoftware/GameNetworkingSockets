@@ -23,6 +23,12 @@ STEAMNETWORKINGSOCKETS_INTERFACE bool GameNetworkingSockets_Init( const SteamNet
 // Close all connections and listen sockets and free all resources
 STEAMNETWORKINGSOCKETS_INTERFACE void GameNetworkingSockets_Kill();
 
+//
+// Statistics about the global lock.
+//
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetLockWaitWarningThreshold( SteamNetworkingMicroseconds usecThreshold );
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetLockAcquiredCallback( void (*callback)( SteamNetworkingMicroseconds usecWaited ) );
+
 }
 
 /// Callback dispatch mechanism.  Override this and then use

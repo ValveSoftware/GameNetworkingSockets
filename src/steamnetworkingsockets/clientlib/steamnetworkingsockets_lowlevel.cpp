@@ -45,6 +45,9 @@
 
 namespace SteamNetworkingSocketsLib {
 
+// By default, complain if we hold the lock for more than this long
+constexpr SteamNetworkingMicroseconds k_usecDefaultLongLockHeldWarningThreshold = 5*1000;
+
 int g_nSteamDatagramSocketBufferSize = 256*1024;
 
 /// Global lock for all local data structures
@@ -56,11 +59,14 @@ int g_nSteamDatagramSocketBufferSize = 256*1024;
 int SteamDatagramTransportLock::s_nLocked;
 static SteamNetworkingMicroseconds s_usecWhenLocked;
 static std::thread::id s_threadIDLockOwner;
-static int64 s_usecLongLockWarningThreshold;
+static SteamNetworkingMicroseconds s_usecLongLockWarningThreshold;
+static SteamNetworkingMicroseconds s_usecIgnoreLongLockWaitTimeUntil;
 static int s_nCurrentLockTags;
 constexpr int k_nMaxCurrentLockTags = 8;
 static const char *s_pszCurrentLockTags[k_nMaxCurrentLockTags];
 static int s_nCurrentLockTagCounts[k_nMaxCurrentLockTags];
+static void (*s_fLockAcquiredCallback)( SteamNetworkingMicroseconds usecWaited );
+static SteamNetworkingMicroseconds s_usecLockWaitWarningThreshold = 2*1000;
 
 void SteamDatagramTransportLock::AddTag( const char *pszTag )
 {
@@ -81,36 +87,55 @@ void SteamDatagramTransportLock::AddTag( const char *pszTag )
 	++s_nCurrentLockTags;
 }
 
-void SteamDatagramTransportLock::OnLocked( const char *pszTag )
+void SteamDatagramTransportLock::OnLocked( const char *pszTag, SteamNetworkingMicroseconds usecTimeStartedLocking )
 {
 	++s_nLocked;
+	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
+	SteamNetworkingMicroseconds usecTimeSpentWaitingOnLock = usecNow - usecTimeStartedLocking;
 	if ( s_nLocked == 1 )
 	{
-		s_usecWhenLocked = SteamNetworkingSockets_GetLocalTimestamp();
+		s_usecWhenLocked = usecNow;
 		s_threadIDLockOwner = std::this_thread::get_id();
-
-		// By default, complain if we hold the lock for more than this long
-		s_usecLongLockWarningThreshold = 20*1000;
+		s_usecLongLockWarningThreshold = k_usecDefaultLongLockHeldWarningThreshold;
 		s_nCurrentLockTags = 0;
+
+		if ( usecTimeSpentWaitingOnLock > s_usecLockWaitWarningThreshold && usecNow > s_usecIgnoreLongLockWaitTimeUntil )
+			SpewWarning( "Waited %.1fms for SteamNetworkingSockets lock", usecTimeSpentWaitingOnLock*1e-3 );
+
+		auto callback = s_fLockAcquiredCallback; // save to temp, to prevent very narrow race condition where variable is cleared after we null check it, and we call null
+		if ( callback )
+			callback( usecTimeSpentWaitingOnLock );
+	}
+	else
+	{
+		// This thread already held the lock
+		Assert( s_threadIDLockOwner == std::this_thread::get_id() );
+
+		// Getting it again had better be nearly instantaneous!
+		AssertMsg1( usecTimeSpentWaitingOnLock < 100, "Waited %lldusec to take second lock on the same thread??", (long long)usecTimeSpentWaitingOnLock );
 	}
 	AddTag( pszTag );
 }
 
 void SteamDatagramTransportLock::Lock( const char *pszTag )
 {
+	SteamNetworkingMicroseconds usecTimeStartedLocking;
 	#ifdef MSVC_STL_MUTEX_WORKAROUND
 		if ( s_hSteamDatagramTransportMutex == INVALID_HANDLE_VALUE ) // This is not actually threadsafe, but we assume that client code will call (and wait for the return of) some Init() call before invoking any API calls.
 			s_hSteamDatagramTransportMutex = ::CreateMutex( NULL, FALSE, NULL );
+		usecTimeStartedLocking = SteamNetworkingSockets_GetLocalTimestamp();
 		DWORD res = ::WaitForSingleObject( s_hSteamDatagramTransportMutex, INFINITE );
 		Assert( res == WAIT_OBJECT_0 );
 	#else
+		usecTimeStartedLocking = SteamNetworkingSockets_GetLocalTimestamp();
 		s_steamDatagramTransportMutex.lock();
 	#endif
-	OnLocked( pszTag );
+	OnLocked( pszTag, usecTimeStartedLocking );
 }
 
 bool SteamDatagramTransportLock::TryLock( const char *pszTag, int msTimeout )
 {
+	SteamNetworkingMicroseconds usecTimeStartedLocking = SteamNetworkingSockets_GetLocalTimestamp();
 	#ifdef MSVC_STL_MUTEX_WORKAROUND
 		if ( ::WaitForSingleObject( s_hSteamDatagramTransportMutex, msTimeout ) != WAIT_OBJECT_0 )
 			return false;
@@ -118,7 +143,7 @@ bool SteamDatagramTransportLock::TryLock( const char *pszTag, int msTimeout )
 		if ( !s_steamDatagramTransportMutex.try_lock_for( std::chrono::milliseconds( msTimeout ) ) )
 			return false;
 	#endif
-	OnLocked( pszTag );
+	OnLocked( pszTag, usecTimeStartedLocking );
 	return true;
 }
 
@@ -180,7 +205,7 @@ void SteamDatagramTransportLock::Unlock()
 	// Yelp if we held the lock for longer than the threshold.
 	if ( usecElapsedTooLong != 0 )
 	{
-		SpewWarning( "SteamDatagramTransportLock held for %.1fms.  (Performance warning).  %s", usecElapsedTooLong*1e-3, tags );
+		SpewWarning( "SteamNetworkingSockets lock held for %.1fms.  (Performance warning).  %s", usecElapsedTooLong*1e-3, tags );
 	}
 }
 
@@ -189,7 +214,10 @@ void SteamDatagramTransportLock::SetLongLockWarningThresholdMS( const char *pszT
 	AssertHeldByCurrentThread( pszTag );
 	SteamNetworkingMicroseconds usecWarningThreshold = SteamNetworkingMicroseconds{msWarningThreshold}*1000;
 	if ( s_usecLongLockWarningThreshold < usecWarningThreshold )
+	{
 		s_usecLongLockWarningThreshold = usecWarningThreshold;
+		s_usecIgnoreLongLockWaitTimeUntil = SteamNetworkingSockets_GetLocalTimestamp() + s_usecLongLockWarningThreshold;
+	}
 }
 
 void SteamDatagramTransportLock::AssertHeldByCurrentThread()
@@ -2065,4 +2093,14 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_Poll( int msMaxWait
 	bool bStillLocked = SteamNetworkingSockets_InternalPoll( msMaxWaitTime, true );
 	if ( bStillLocked )
 		SteamDatagramTransportLock::Unlock();
+}
+
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetLockWaitWarningThreshold( SteamNetworkingMicroseconds usecTheshold )
+{
+	s_usecLockWaitWarningThreshold = usecTheshold;
+}
+
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetLockAcquiredCallback( void (*callback)( SteamNetworkingMicroseconds usecWaited ) )
+{
+	s_fLockAcquiredCallback = callback;
 }

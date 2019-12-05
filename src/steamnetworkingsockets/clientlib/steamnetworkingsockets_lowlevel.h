@@ -345,7 +345,7 @@ struct SteamDatagramTransportLock
 	static void AddTag( const char *pszTag );
 	static int s_nLocked;
 private:
-	static void OnLocked( const char *pszTag );
+	static void OnLocked( const char *pszTag, SteamNetworkingMicroseconds usecTimeStartedLocking );
 };
 
 #ifdef DBGFLAG_VALIDATE
