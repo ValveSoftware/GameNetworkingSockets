@@ -339,12 +339,13 @@ struct SteamDatagramTransportLock
 	static void Lock( const char *pszTag );
 	static bool TryLock( const char *pszTag, int msTimeout );
 	static void Unlock();
-	static void OnLocked( const char *pszTag );
 	static void AssertHeldByCurrentThread();
 	static void AssertHeldByCurrentThread( const char *pszTag );
 	static void SetLongLockWarningThresholdMS( const char *pszTag, int msWarningThreshold );
 	static void AddTag( const char *pszTag );
 	static int s_nLocked;
+private:
+	static void OnLocked( const char *pszTag );
 };
 
 #ifdef DBGFLAG_VALIDATE
