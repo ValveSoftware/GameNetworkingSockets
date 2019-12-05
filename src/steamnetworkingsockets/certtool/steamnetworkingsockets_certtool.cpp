@@ -8,13 +8,14 @@
 #include <stdint.h>
 #include <inttypes.h>
 #include <time.h>
-#include <ujson/ujson.hpp>
 
 #include "../steamnetworkingsockets_internal.h"
 #include "crypto.h"
 #include "keypair.h"
 #include <vstdlib/random.h>
 //#include "curl/curl.h"
+
+#include <picojson.h>
 
 // Must be the last include
 #include <tier0/memdbgon.h>
@@ -71,7 +72,7 @@ std::vector<SteamNetworkingPOPID> s_vecPOPIDs;
 std::vector<AppId_t> s_vecAppIDs;
 int s_nExpiryDays = k_nDefaultExpiryDays;
 bool s_bOutputJSON;
-ujson::object s_jsonOutput;
+picojson::object s_jsonOutput;
 
 static void PrintArgSummaryAndExit( int returnCode = 1 )
 {
@@ -161,8 +162,8 @@ static void AddPublicKeyInfoToJSON()
 	std::string sKeyID = PublicKeyIDAsString();
 	std::string sComment = "ID"+sKeyID;
 
-	s_jsonOutput.push_back( ujson::name_value_pair( "public_key_id", PublicKeyIDAsString() ) );
-	s_jsonOutput.push_back( ujson::name_value_pair( "public_key", PublicKeyAsAuthorizedKeys() ) );
+	s_jsonOutput[ "public_key_id" ] = picojson::value( PublicKeyIDAsString() );
+	s_jsonOutput[ "public_key" ] = picojson::value( PublicKeyAsAuthorizedKeys() );
 }
 
 void GenKeyPair()
@@ -211,7 +212,7 @@ void GenKeyPair()
 	DbgVerify( privKey.GetAsPEM( text, sizeof(text), &cbText ) );
 	Printf( "%s\n", text );
 
-	s_jsonOutput.push_back( ujson::name_value_pair( "private_key", text ) );
+	s_jsonOutput[ "private_key" ] = picojson::value( text );
 
 	// Round trip sanity check
 	{
@@ -224,7 +225,7 @@ void GenKeyPair()
 static const char k_szSDRCertPEMHeader[] = "-----BEGIN STEAMDATAGRAM CERT-----";
 static const char k_szSDRCertPEMFooter[] = "-----END STEAMDATAGRAM CERT-----";
 
-void PrintCertInfo( const CMsgSteamDatagramCertificateSigned &msgSigned, ujson::object &outJSON )
+void PrintCertInfo( const CMsgSteamDatagramCertificateSigned &msgSigned, picojson::object &outJSON )
 {
 	char szTemp[ 256 ];
 
@@ -248,7 +249,7 @@ void PrintCertInfo( const CMsgSteamDatagramCertificateSigned &msgSigned, ujson::
 
 	std::string sPOPIDs;
 	{
-		ujson::array pop_ids;
+		picojson::array pop_ids;
 		for ( SteamNetworkingPOPID id: msgCert.gameserver_datacenter_ids() )
 		{
 			GetSteamNetworkingLocationPOPStringFromID( id, szTemp );
@@ -256,17 +257,17 @@ void PrintCertInfo( const CMsgSteamDatagramCertificateSigned &msgSigned, ujson::
 			if ( !sPOPIDs.empty() )
 				sPOPIDs += ' ';
 			sPOPIDs += szTemp;
-			pop_ids.push_back( ujson::value( szTemp ) );
+			pop_ids.push_back( picojson::value( szTemp ) );
 		}
 		if ( !pop_ids.empty() )
 		{
-			outJSON.push_back( ujson::name_value_pair( "pop_ids", pop_ids ) );
+			outJSON[ "pop_ids" ] = picojson::value( pop_ids );
 		}
 	}
 
 	std::string sAppIDs;
 	{
-		ujson::array app_ids;
+		picojson::array app_ids;
 		for ( AppId_t id: msgCert.app_ids() )
 		{
 			V_sprintf_safe( szTemp, "%u", id );
@@ -274,21 +275,21 @@ void PrintCertInfo( const CMsgSteamDatagramCertificateSigned &msgSigned, ujson::
 			if ( !sAppIDs.empty() )
 				sAppIDs += ' ';
 			sAppIDs += szTemp;
-			app_ids.push_back( ujson::value( id ) );
+			app_ids.push_back( picojson::value( (double)id ) );
 		}
 		if ( !app_ids.empty() )
 		{
-			outJSON.push_back( ujson::name_value_pair( "app_ids", app_ids ) );
+			outJSON[ "app_ids" ] = picojson::value( app_ids );
 		}
 	}
 
 	uint64 key_id = CalculatePublicKeyID( pubKey );
 
-	outJSON.push_back( ujson::name_value_pair( "time_created", (uint32)timeCreated ) );
-	outJSON.push_back( ujson::name_value_pair( "time_created_string", szTimeCreated ) );
-	outJSON.push_back( ujson::name_value_pair( "time_expiry", (uint32)timeExpiry ) );
-	outJSON.push_back( ujson::name_value_pair( "time_expiry_string", szTimeExpiry ) );
-	outJSON.push_back( ujson::name_value_pair( "ca_key_id", KeyIDAsString( msgSigned.ca_key_id() ) ) );
+	outJSON[ "time_created" ] = picojson::value( (double)timeCreated );
+	outJSON[ "time_created_string" ] = picojson::value( szTimeCreated );
+	outJSON[ "time_expiry" ] = picojson::value( (double)timeExpiry );
+	outJSON[ "time_expiry_string" ] = picojson::value( szTimeExpiry );
+	outJSON[ "ca_key_id" ] = picojson::value( KeyIDAsString( msgSigned.ca_key_id() ) );
 
 	Printf( "#Public key . . . : %s ID%s\n", PublicKeyAsAuthorizedKeys( pubKey ).c_str(), KeyIDAsString( key_id ).c_str() );
 	Printf( "#Created. . . . . : %s (%llu)\n", szTimeCreated, (unsigned long long)timeCreated );
@@ -355,7 +356,7 @@ void CreateCert()
 	Printf( "%s", CertToPEM( msgSigned ).c_str() );
 
 	std::string pem_json = CertToBase64( msgSigned, "" );
-	s_jsonOutput.push_back( ujson::name_value_pair( "cert", pem_json ) );
+	s_jsonOutput[ "cert" ] = picojson::value( pem_json );
 
 	PrintCertInfo( msgSigned, s_jsonOutput );
 }
@@ -375,7 +376,7 @@ void PrintHDKey( const TCryptoKey &key, const char *pszPlainTextHeader, const ch
 	DbgVerify( CCrypto::HexEncode( bufTemp.Base(), cbRaw, pszHex, cbText ) );
 
 	Printf( "%s: %s\n", pszPlainTextHeader, pszHex );
-	s_jsonOutput.push_back( ujson::name_value_pair( pszJSON, pszHex ) );
+	s_jsonOutput[ pszJSON ] = picojson::value( pszHex );
 
 	// !TEST! Round-trip to make sure we are working
 	TCryptoKey keyCheck;
@@ -579,7 +580,7 @@ int main( int argc, char **argv )
 
 	if ( s_bOutputJSON )
 	{
-		puts( ujson::to_string( s_jsonOutput ).c_str() );
+		puts( picojson::value( s_jsonOutput ).serialize( true ).c_str() );
 	}
 
 	return 0;
