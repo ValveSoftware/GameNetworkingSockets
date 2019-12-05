@@ -710,6 +710,7 @@ extern GlobalConfigValue<int32> g_Config_FakePacketReorder_Time;
 extern GlobalConfigValue<float> g_Config_FakePacketDup_Send;
 extern GlobalConfigValue<float> g_Config_FakePacketDup_Recv;
 extern GlobalConfigValue<int32> g_Config_FakePacketDup_TimeMax;
+extern GlobalConfigValue<int32> g_Config_EnumerateDevVars;
 
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 extern GlobalConfigValue<int32> g_Config_SDRClient_ConsecutitivePingTimeoutsFailInitial;
@@ -719,6 +720,7 @@ extern GlobalConfigValue<int32> g_Config_SDRClient_SingleSocket;
 extern GlobalConfigValue<int32> g_Config_LogLevel_SDRRelayPings;
 extern GlobalConfigValue<std::string> g_Config_SDRClient_ForceRelayCluster;
 extern GlobalConfigValue<std::string> g_Config_SDRClient_ForceProxyAddr;
+extern GlobalConfigValue<std::string> g_Config_SDRClient_FakeClusterPing;
 #endif
 
 // This awkwardness (adding and subtracting sizeof(intptr_t)) silences an UBSan

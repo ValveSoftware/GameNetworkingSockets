@@ -144,6 +144,9 @@ public:
 	/// pOutNextValue can be used to iterate through all of the known configuration values.
 	/// (Use GetFirstConfigValue() to begin the iteration, will be k_ESteamNetworkingConfig_Invalid on the last value)
 	/// Any of the output parameters can be NULL if you do not need that information.
+	///
+	/// See k_ESteamNetworkingConfig_EnumerateDevVars for some more info about "dev" variables,
+	/// which are usually excluded from the set of variables enumerated using this function.
 	virtual bool GetConfigValueInfo( ESteamNetworkingConfigValue eValue, const char **pOutName, ESteamNetworkingConfigDataType *pOutDataType, ESteamNetworkingConfigScope *pOutScope, ESteamNetworkingConfigValue *pOutNextValue ) = 0;
 
 	/// Return the lowest numbered configuration value available in the current environment.

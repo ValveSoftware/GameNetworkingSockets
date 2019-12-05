@@ -36,6 +36,7 @@ DEFINE_GLOBAL_CONFIGVAL( int32, FakePacketReorder_Time, 15, 0, 5000 );
 DEFINE_GLOBAL_CONFIGVAL( float, FakePacketDup_Send, 0.0f, 0.0f, 100.0f );
 DEFINE_GLOBAL_CONFIGVAL( float, FakePacketDup_Recv, 0.0f, 0.0f, 100.0f );
 DEFINE_GLOBAL_CONFIGVAL( int32, FakePacketDup_TimeMax, 10, 0, 5000 );
+DEFINE_GLOBAL_CONFIGVAL( int32, EnumerateDevVars, 0, 0, 1 );
 
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, TimeoutInitial, 10000, 0, INT32_MAX );
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, TimeoutConnected, 10000, 0, INT32_MAX );
@@ -1409,6 +1410,20 @@ ESteamNetworkingGetConfigValueResult CSteamNetworkingUtils::GetConfigValue(
 	return k_ESteamNetworkingGetConfigValue_BadValue;
 }
 
+bool IsDevConfigValue( ESteamNetworkingConfigValue eVal )
+{
+	switch  ( eVal )
+	{
+		case k_ESteamNetworkingConfig_IP_AllowWithoutAuth:
+		case k_ESteamNetworkingConfig_Unencrypted:
+		case k_ESteamNetworkingConfig_EnumerateDevVars:
+		case k_ESteamNetworkingConfig_SDRClient_FakeClusterPing:
+			return true;
+	}
+
+	return false;
+}
+
 bool CSteamNetworkingUtils::GetConfigValueInfo( ESteamNetworkingConfigValue eValue,
 	const char **pOutName, ESteamNetworkingConfigDataType *pOutDataType,
 	ESteamNetworkingConfigScope *pOutScope, ESteamNetworkingConfigValue *pOutNextValue )
@@ -1426,10 +1441,21 @@ bool CSteamNetworkingUtils::GetConfigValueInfo( ESteamNetworkingConfigValue eVal
 
 	if ( pOutNextValue )
 	{
-		if ( pVal->m_pNextEntry )
-			*pOutNextValue = pVal->m_pNextEntry->m_eValue;
-		else
-			*pOutNextValue = k_ESteamNetworkingConfig_Invalid;
+		const GlobalConfigValueEntry *pNext = pVal;
+		for (;;)
+		{
+			pNext = pNext->m_pNextEntry;
+			if ( !pNext )
+			{
+				*pOutNextValue = k_ESteamNetworkingConfig_Invalid;
+				break;
+			}
+			if ( g_Config_EnumerateDevVars.Get() || !IsDevConfigValue( pNext->m_eValue ) )
+			{
+				*pOutNextValue = pNext->m_eValue;
+				break;
+			}
+		};
 	}
 
 	return true;
@@ -1438,6 +1464,7 @@ bool CSteamNetworkingUtils::GetConfigValueInfo( ESteamNetworkingConfigValue eVal
 ESteamNetworkingConfigValue CSteamNetworkingUtils::GetFirstConfigValue()
 {
 	EnsureConfigValueTableInitted();
+	Assert( !IsDevConfigValue( s_vecConfigValueTable[0]->m_eValue ) );
 	return s_vecConfigValueTable[0]->m_eValue;
 }
 
