@@ -1673,10 +1673,8 @@ bool CSteamNetworkConnectionBase::SNP_SendPacket( SendPacketContext_t &ctx )
 	// We are gonna send a packet.  Start filling out an entry so that when it's acked (or nacked)
 	// we can know what to do.
 	Assert( m_senderState.m_mapInFlightPacketsByPktNum.lower_bound( m_statsEndToEnd.m_nNextSendSequenceNumber ) == m_senderState.m_mapInFlightPacketsByPktNum.end() );
-	std::pair<int64,SNPInFlightPacket_t> pairInsert( m_statsEndToEnd.m_nNextSendSequenceNumber, SNPInFlightPacket_t{} );
+	std::pair<int64,SNPInFlightPacket_t> pairInsert( m_statsEndToEnd.m_nNextSendSequenceNumber, SNPInFlightPacket_t{ usecNow, false, {} } );
 	SNPInFlightPacket_t &inFlightPkt = pairInsert.second;
-	inFlightPkt.m_usecWhenSent = usecNow;
-	inFlightPkt.m_bNack = false;
 
 	// We might have gone over exactly one byte, because we counted the size byte of the last
 	// segment, which doesn't actually need to be sent
