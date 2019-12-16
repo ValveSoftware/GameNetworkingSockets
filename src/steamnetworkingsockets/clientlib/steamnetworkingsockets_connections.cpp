@@ -366,7 +366,7 @@ CSteamNetworkPollGroup::~CSteamNetworkPollGroup()
 		if ( g_mapPollGroups.IsValidIndex( idx ) && g_mapPollGroups[ idx ] == this )
 		{
 			g_mapPollGroups[ idx ] = nullptr; // Just for grins
-			g_mapPollGroups.Remove( idx );
+			g_mapPollGroups.RemoveAt( idx );
 		}
 		else
 		{
@@ -430,7 +430,7 @@ CSteamNetworkListenSocketBase::~CSteamNetworkListenSocketBase()
 		if ( g_mapListenSockets.IsValidIndex( idx ) && g_mapListenSockets[ idx ] == this )
 		{
 			g_mapListenSockets[ idx ] = nullptr; // Just for grins
-			g_mapListenSockets.Remove( idx );
+			g_mapListenSockets.RemoveAt( idx );
 		}
 		else
 		{
