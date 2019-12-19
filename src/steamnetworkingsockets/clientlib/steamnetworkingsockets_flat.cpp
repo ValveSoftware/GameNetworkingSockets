@@ -117,9 +117,30 @@ STEAMNETWORKINGSOCKETS_INTERFACE ESteamNetworkingAvailability SteamAPI_ISteamNet
 {
 	return ((ISteamNetworkingSockets*)instancePtr)->InitAuthentication();
 }
+
 STEAMNETWORKINGSOCKETS_INTERFACE ESteamNetworkingAvailability SteamAPI_ISteamNetworkingSockets_GetAuthenticationStatus( intptr_t instancePtr, SteamNetAuthenticationStatus_t *pDetails )
 {
 	return ((ISteamNetworkingSockets*)instancePtr)->GetAuthenticationStatus( pDetails );
+}
+
+STEAMNETWORKINGSOCKETS_INTERFACE HSteamNetPollGroup SteamAPI_ISteamNetworkingSockets_CreatePollGroup( intptr_t instancePtr )
+{
+	return ((ISteamNetworkingSockets*)instancePtr)->CreatePollGroup();
+}
+
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_DestroyPollGroup( intptr_t instancePtr, HSteamNetPollGroup hPollGroup )
+{
+	return ((ISteamNetworkingSockets*)instancePtr)->DestroyPollGroup( hPollGroup );
+}
+
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_SetConnectionPollGroup( intptr_t instancePtr, HSteamNetConnection hConn, HSteamNetPollGroup hPollGroup )
+{
+	return ((ISteamNetworkingSockets*)instancePtr)->SetConnectionPollGroup( hConn, hPollGroup);
+}
+
+STEAMNETWORKINGSOCKETS_INTERFACE int SteamAPI_ISteamNetworkingSockets_ReceiveMessagesOnPollGroup( intptr_t instancePtr, HSteamNetPollGroup hPollGroup, SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages )
+{
+	return ((ISteamNetworkingSockets*)instancePtr)->ReceiveMessagesOnPollGroup( hPollGroup, ppOutMessages, nMaxMessages );
 }
 
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
