@@ -492,10 +492,10 @@ void CSteamNetworkListenSocketDirectUDP::SendMsg( uint8 nMsgID, const google::pr
 
 	uint8 pkt[ k_cbSteamNetworkingSocketsMaxUDPMsgLen ];
 	pkt[0] = nMsgID;
-	int cbPkt = msg.ByteSize()+1;
+	ProtoMsgSize cbPkt = msg.ProtoByteSize()+1;
 	if ( cbPkt > sizeof(pkt) )
 	{
-		AssertMsg3( false, "Msg type %d is %d bytes, larger than MTU of %d bytes", int( nMsgID ), cbPkt, (int)sizeof(pkt) );
+		AssertMsg3( false, "Msg type %d is %d bytes, larger than MTU of %d bytes", int( nMsgID ), int( cbPkt ), (int)sizeof(pkt) );
 		return;
 	}
 	uint8 *pEnd = msg.SerializeWithCachedSizesToArray( pkt+1 );
@@ -511,7 +511,7 @@ void CSteamNetworkListenSocketDirectUDP::SendPaddedMsg( uint8 nMsgID, const goog
 	uint8 pkt[ k_cbSteamNetworkingSocketsMaxUDPMsgLen ];
 	memset( pkt, 0, sizeof(pkt) ); // don't send random bits from our process memory over the wire!
 	UDPPaddedMessageHdr *hdr = (UDPPaddedMessageHdr *)pkt;
-	int nMsgLength = msg.ByteSize();
+	ProtoMsgSize nMsgLength = msg.ProtoByteSize();
 	hdr->m_nMsgID = nMsgID;
 	hdr->m_nMsgLength = LittleWord( uint16( nMsgLength ) );
 	uint8 *pEnd = msg.SerializeWithCachedSizesToArray( pkt + sizeof(*hdr) );
@@ -1017,10 +1017,10 @@ void CConnectionTransportUDP::SendMsg( uint8 nMsgID, const google::protobuf::Mes
 
 	uint8 pkt[ k_cbSteamNetworkingSocketsMaxUDPMsgLen ];
 	pkt[0] = nMsgID;
-	int cbPkt = msg.ByteSize()+1;
+	ProtoMsgSize cbPkt = msg.ProtoByteSize()+1;
 	if ( cbPkt > sizeof(pkt) )
 	{
-		AssertMsg3( false, "Msg type %d is %d bytes, larger than MTU of %d bytes", int( nMsgID ), cbPkt, (int)sizeof(pkt) );
+		AssertMsg3( false, "Msg type %d is %d bytes, larger than MTU of %d bytes", int( nMsgID ), int( cbPkt ), (int)sizeof(pkt) );
 		return;
 	}
 	uint8 *pEnd = msg.SerializeWithCachedSizesToArray( pkt+1 );
@@ -1035,7 +1035,7 @@ void CConnectionTransportUDP::SendPaddedMsg( uint8 nMsgID, const google::protobu
 	uint8 pkt[ k_cbSteamNetworkingSocketsMaxUDPMsgLen ];
 	V_memset( pkt, 0, sizeof(pkt) ); // don't send random bits from our process memory over the wire!
 	UDPPaddedMessageHdr *hdr = (UDPPaddedMessageHdr *)pkt;
-	int nMsgLength = msg.ByteSize();
+	ProtoMsgSize nMsgLength = msg.ProtoByteSize();
 	if ( nMsgLength + sizeof(*hdr) > k_cbSteamNetworkingSocketsMaxUDPMsgLen )
 	{
 		AssertMsg3( false, "Msg type %d is %d bytes, larger than MTU of %d bytes", int( nMsgID ), int( nMsgLength + sizeof(*hdr) ), (int)sizeof(pkt) );

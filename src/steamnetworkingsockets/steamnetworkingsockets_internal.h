@@ -110,6 +110,14 @@ struct iovec;
 // Internal stuff goes in a private namespace
 namespace SteamNetworkingSocketsLib {
 
+#if GOOGLE_PROTOBUF_VERSION < 3004000
+using ProtoMsgSize = int;
+#define ProtoByteSize ByteSize
+#else
+using ProtoMsgSize = size_t;
+#define ProtoByteSize ByteSizeLong
+#endif
+
 struct SteamDatagramLinkStats;
 struct SteamDatagramLinkLifetimeStats;
 struct SteamDatagramLinkInstantaneousStats;

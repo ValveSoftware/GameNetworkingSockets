@@ -97,13 +97,13 @@ struct SendPacketContext : SendPacketContext_t
 
 	uint32 m_nFlags; // Message flags that we need to set.
 	TStatsMsg msg; // Type-specific stats message
-	int m_cbMsgSize; // Size of message
-	int m_cbTotalSize; // Size needed in the header, including the serialized size field
+	ProtoMsgSize m_cbMsgSize; // Size of message
+	ProtoMsgSize m_cbTotalSize; // Size needed in the header, including the serialized size field
 
 	void SlamFlagsAndCalcSize()
 	{
 		SetStatsMsgFlagsIfNotImplied( msg, m_nFlags );
-		m_cbTotalSize = m_cbMsgSize = msg.ByteSize();
+		m_cbTotalSize = m_cbMsgSize = msg.ProtoByteSize();
 		if ( m_cbMsgSize > 0 )
 			m_cbTotalSize += VarIntSerializedSize( (uint32)m_cbMsgSize );
 	}
