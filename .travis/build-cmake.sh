@@ -32,16 +32,20 @@ CMAKE_ARGS=(
 	-DWERROR=ON
 )
 
-set -x
-
 BUILD_SANITIZERS=${BUILD_SANITIZERS:-0}
 [[ $(uname -s) == MINGW* ]] && BUILD_SANITIZERS=0
+
+# Noticed that Clang's tsan and asan don't behave well on non-x86_64 Travis
+# builders, so let's just disable them on there.
+[[ $(uname -m) != x86_64 ]] && [[ ${CXX} == *clang* ]] && BUILD_SANITIZERS=0
+
+set -x
 
 # Build some tests with sanitizers
 if [[ $BUILD_SANITIZERS -ne 0 ]]; then
 	cmake_configure build-asan ${CMAKE_ARGS[@]} -DSANITIZE_ADDRESS:BOOL=ON
 	cmake_configure build-ubsan ${CMAKE_ARGS[@]} -DSANITIZE_UNDEFINED:BOOL=ON
-	if [[ ${CXX} == *clang* ]] && [[ "$(uname -m)" == "x86_64" ]]; then
+	if [[ ${CXX} == *clang* ]]; then
 		cmake_configure build-tsan ${CMAKE_ARGS[@]} -DSANITIZE_THREAD:BOOL=ON
 	fi
 fi
