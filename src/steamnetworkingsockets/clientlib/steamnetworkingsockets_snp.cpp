@@ -2020,8 +2020,8 @@ uint8 *CSteamNetworkConnectionBase::SNP_SerializeAckBlocks( const SNPAckSerializ
 	if ( m_receiverState.m_mapPacketGaps.size() == 1 )
 	{
 		int64 nLastRecvPktNum = m_statsEndToEnd.m_nMaxRecvPktNum;
-		*pLatestPktNum = uint16( nLastRecvPktNum );
-		*pTimeSinceLatestPktNum = SNPAckSerializerHelper::EncodeTimeSince( usecNow, m_statsEndToEnd.m_usecTimeLastRecvSeq );
+		*pLatestPktNum = LittleWord( (uint16)nLastRecvPktNum );
+		*pTimeSinceLatestPktNum = LittleWord( (uint16)SNPAckSerializerHelper::EncodeTimeSince( usecNow, m_statsEndToEnd.m_usecTimeLastRecvSeq ) );
 
 		SpewType( nLogLevelPacketDecode+1, "[%s]   encode pkt %lld last recv %lld (no loss)\n",
 			GetDescription(),
