@@ -28,7 +28,7 @@ jobs:
       env: IMAGE=ubuntu IMAGE_TAG=rolling
 
 before_install:
-  - docker run -d --rm --cap-add SYS_PTRACE --name builder -e LC_ALL="en_US.UTF-8" -e LANG="en_US.UTF-8" -v $(pwd):/travis -w /travis $IMAGE:$IMAGE_TAG tail -f /dev/null
+  - docker run -d --rm --cap-add SYS_PTRACE --name builder -e LC_ALL="C" -e LANG="C" -v $(pwd):/travis -w /travis $IMAGE:$IMAGE_TAG tail -f /dev/null
   - docker ps
   - docker exec -e TRAVIS_BUILD=1 -e IMAGE=$IMAGE -e IMAGE_TAG=$IMAGE_TAG -t builder sh .travis/preinstall.sh
 
