@@ -5,6 +5,19 @@
 
 set -ex
 
+cmake_configure() {
+	BUILD_DIR="$1"
+	shift
+	mkdir -p "$BUILD_DIR"
+	(cd "$BUILD_DIR"; cmake "$@" ..)
+}
+
+cmake_build() {
+	BUILD_DIR="$1"
+	shift
+	cmake --build "$BUILD_DIR" -- "$@"
+}
+
 CMAKE_ARGS=(
 	-G Ninja
 	-DLIGHT_TESTS:BOOL=ON
@@ -16,26 +29,24 @@ BUILD_SANITIZERS=1
 
 # Build some tests with sanitizers
 if [[ $BUILD_SANITIZERS -ne 0 ]]; then
-	mkdir -p build-{a,ub,t}san
-	cmake -S . -B build-asan ${CMAKE_ARGS[@]} -DSANITIZE_ADDRESS:BOOL=ON
-	cmake -S . -B build-ubsan ${CMAKE_ARGS[@]} -DSANITIZE_UNDEFINED:BOOL=ON
+	cmake_configure build-asan ${CMAKE_ARGS[@]} -DSANITIZE_ADDRESS:BOOL=ON
+	cmake_configure build-ubsan ${CMAKE_ARGS[@]} -DSANITIZE_UNDEFINED:BOOL=ON
 	if [[ ${CXX} == *clang* ]]; then
-		cmake -S . -B build-tsan ${CMAKE_ARGS[@]} -DSANITIZE_THREAD:BOOL=ON
+		cmake_configure build-tsan ${CMAKE_ARGS[@]} -DSANITIZE_THREAD:BOOL=ON
 	fi
 fi
 
-mkdir -p build-cmake
-cmake -S . -B build-cmake ${CMAKE_ARGS[@]} -DCMAKE_BUILD_TYPE=RelWithDebInfo ..
+cmake_configure build-cmake ${CMAKE_ARGS[@]} -DCMAKE_BUILD_TYPE=RelWithDebInfo ..
 
 # Build normal unsanitized binaries
-ninja -C build-cmake
+cmake_build build-cmake
 
 # Build specific extended tests for code correctness validation
 if [[ $BUILD_SANITIZERS -ne 0 ]]; then
-	ninja -C build-asan test_connection test_crypto
-	ninja -C build-ubsan test_connection test_crypto
+	cmake_build build-asan test_connection test_crypto
+	cmake_build build-ubsan test_connection test_crypto
 	if [[ -d build-tsan ]]; then
-		ninja -C build-tsan test_connection test_crypto
+		cmake_build build-tsan test_connection test_crypto
 	fi
 fi
 
