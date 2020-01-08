@@ -11,6 +11,7 @@ compiler:
 
 env:
   - IMAGE=alpine IMAGE_TAG=latest
+  - IMAGE=archlinux IMAGE_TAG=latest
   - IMAGE=ubuntu IMAGE_TAG=latest
   - IMAGE=ubuntu IMAGE_TAG=rolling
   - IMAGE=ubuntu IMAGE_TAG=devel
