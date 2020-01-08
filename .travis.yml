@@ -30,14 +30,14 @@ jobs:
 before_install:
   - docker run -d --rm --cap-add SYS_PTRACE --name builder -e LC_ALL="en_US.UTF-8" -e LANG="en_US.UTF-8" -v $(pwd):/travis -w /travis $IMAGE:$IMAGE_TAG tail -f /dev/null
   - docker ps
-  - docker exec -e IMAGE=$IMAGE -e IMAGE_TAG=$IMAGE_TAG -t builder sh .travis/preinstall.sh
+  - docker exec -e TRAVIS_BUILD=1 -e IMAGE=$IMAGE -e IMAGE_TAG=$IMAGE_TAG -t builder sh .travis/preinstall.sh
 
 install:
-  - docker exec -e IMAGE=$IMAGE -e IMAGE_TAG=$IMAGE_TAG -t builder bash .travis/install-$IMAGE.sh
-  - docker exec -e IMAGE=$IMAGE -e IMAGE_TAG=$IMAGE_TAG -t builder bash .travis/install-post.sh
+  - docker exec -e TRAVIS_BUILD=1 -e IMAGE=$IMAGE -e IMAGE_TAG=$IMAGE_TAG -t builder bash .travis/install-$IMAGE.sh
+  - docker exec -e TRAVIS_BUILD=1 -e IMAGE=$IMAGE -e IMAGE_TAG=$IMAGE_TAG -t builder bash .travis/install-post.sh
 
 script:
-  - docker exec -e IMAGE=$IMAGE -e IMAGE_TAG=$IMAGE_TAG -t builder bash .travis/build.sh
+  - docker exec -e TRAVIS_BUILD=1 -e IMAGE=$IMAGE -e IMAGE_TAG=$IMAGE_TAG -t builder bash .travis/build.sh
   - docker kill builder
 
 # vim: set ts=2 sts=2 sw=2 et:

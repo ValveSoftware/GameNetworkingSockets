@@ -34,6 +34,7 @@ die() {
 FOUND_CLANG=0
 FOUND_GCC=0
 
+TRAVIS_BUILD=${TRAVIS_BUILD:-0}
 export BUILD_SANITIZERS=0
 
 # Only run sanitizers on a couple of the builder types.
@@ -41,6 +42,11 @@ if [[ "$IMAGE" == "ubuntu" ]] && [[ "$IMAGE_TAG" == "rolling" ]]; then
 	export BUILD_SANITIZERS=1
 fi
 if [[ "$IMAGE" == "fedora" ]] && [[ "$IMAGE_TAG" == "rawhide" ]]; then
+	export BUILD_SANITIZERS=1
+fi
+if [[ "$TRAVIS_BUILD" -eq 0 ]]; then
+	# If we're doing a non-Travis build, we should build the sanitizers for our
+	# own debugging.
 	export BUILD_SANITIZERS=1
 fi
 
