@@ -1,5 +1,6 @@
 #include <assert.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <stdarg.h>
 #include <string.h>
 #include <string>
@@ -189,6 +190,7 @@ struct SFakePeer
 				 (long long)msg.m_nMsgNum, 
 				 msg.m_cbSize,
 				 GetQueuedSendBytes() );
+			abort();
 		}
 	#if 0
 		else
