@@ -1,5 +1,7 @@
 language: minimal
 
+dist: bionic
+
 services:
   - docker
 
