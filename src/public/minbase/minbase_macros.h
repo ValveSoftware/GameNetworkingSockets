@@ -95,9 +95,9 @@
 
 // Used to step into the debugger
 #ifdef _WIN64
-	#define DebuggerBreak()  do { __debugbreak() } while(0)
+	#define DebuggerBreak()  do { __debugbreak(); } while(0)
 #elif defined(_WIN32)
-	#define DebuggerBreak()  do { __asm { int 3 } } while(0)
+	#define DebuggerBreak()  do { __asm { int 3 }; } while(0)
 #elif defined( COMPILER_GCC )
 	#if defined( _PS3 )
 		#if defined( _CERT )
