@@ -60,12 +60,12 @@
 	#endif
 #endif
 
-#if ( defined(__i386__) || defined( __x86_64__ ) || defined(__arm__) || defined(__arm64__) || defined(__aarch64__) || defined(_XBOX) ) && !defined(VALVE_LITTLE_ENDIAN)
+#if ( (defined(__GNUC__) && defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__) || defined(__LITTLE_ENDIAN__) || defined(__i386__) || defined( __x86_64__ ) || defined(__arm__) || defined(__arm64__) || defined(__aarch64__) || defined(_XBOX) ) && !defined(VALVE_LITTLE_ENDIAN)
 #define VALVE_LITTLE_ENDIAN 1
 #endif
 
-#if ( defined( _SGI_SOURCE ) || defined( _PS3 ) ) && !defined(VALVE_BIG_ENDIAN)
-#define	VALVE_BIG_ENDIAN 1
+#if ( (defined(__GNUC__) && defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__) || defined(__BIG_ENDIAN__) || defined( _SGI_SOURCE ) || defined( _PS3 ) ) && !defined(VALVE_BIG_ENDIAN)
+#define VALVE_BIG_ENDIAN 1
 #endif
 
 #if defined( VALVE_LITTLE_ENDIAN ) == defined( VALVE_BIG_ENDIAN )
