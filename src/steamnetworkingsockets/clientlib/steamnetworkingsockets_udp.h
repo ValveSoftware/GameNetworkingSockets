@@ -146,7 +146,7 @@ public:
 		SteamDatagramErrMsg &errMsg
 	);
 protected:
-	virtual ~CSteamNetworkConnectionUDP(); // Use ConnectionDestroySelfNow
+	virtual ~CSteamNetworkConnectionUDP(); // hidden destructor, don't call directly.  Use ConnectionDestroySelfNow
 };
 
 /// A connection over loopback

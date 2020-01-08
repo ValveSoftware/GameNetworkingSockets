@@ -316,7 +316,8 @@ public:
 	/// Nuke all transports
 	virtual void DestroyTransport();
 
-	/// Free resources and self-destruct NOW
+	/// Free resources and self-destruct NOW.  Call this
+	/// if you know it's safe.  If you don't, use QueueDestroy()
 	void ConnectionDestroySelfNow();
 
 //
@@ -364,7 +365,7 @@ public:
 	void RemoveFromPollGroup();
 
 	/// Was this connection initiated locally (we are the "client") or remotely (we are the "server")?
-	/// In *most* use cases, "server" cnonections have a listen socket, but not always.
+	/// In *most* use cases, "server" connections have a listen socket, but not always.
 	bool m_bConnectionInitiatedRemotely;
 
 	/// Our handle in our parent's m_listAcceptedConnections (if we were accepted on a listen socket)
@@ -446,6 +447,7 @@ public:
 	bool SNP_SendPacket( SendPacketContext_t &ctx );
 
 	/// Called to (maybe) post a callback
+	bool m_bSupressStateChangeCallbacks;
 	virtual void PostConnectionStateChangedCallback( ESteamNetworkingConnectionState eOldAPIState, ESteamNetworkingConnectionState eNewAPIState );
 
 	void QueueEndToEndAck( bool bImmediate, SteamNetworkingMicroseconds usecNow )
@@ -498,7 +500,7 @@ public:
 
 protected:
 	CSteamNetworkConnectionBase( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface );
-	virtual ~CSteamNetworkConnectionBase(); // hidden destructor, don't call directly.  Use Destroy()
+	virtual ~CSteamNetworkConnectionBase(); // hidden destructor, don't call directly.  Use ConnectionDestroySelfNow()
 
 	/// Initialize connection bookkeeping
 	bool BInitConnection( SteamNetworkingMicroseconds usecNow, int nOptions, const SteamNetworkingConfigValue_t *pOptions, SteamDatagramErrMsg &errMsg );
@@ -738,7 +740,7 @@ public:
 protected:
 
 	inline CConnectionTransport( CSteamNetworkConnectionBase &conn ) : m_connection( conn ) {}
-	virtual ~CConnectionTransport() {} // Destructor protected -- use Destroy()
+	virtual ~CConnectionTransport() {} // Destructor protected -- use TransportDestroySelfNow()
 };
 
 /// Dummy loopback/pipe connection that doesn't actually do any network work.

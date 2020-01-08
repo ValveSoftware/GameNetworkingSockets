@@ -533,9 +533,12 @@ void CSteamNetworkListenSocketBase::AddChildConnection( CSteamNetworkConnectionB
 	pConn->m_connectionConfig.Init( &m_connectionConfig );
 
 	// If we are possibly providing an old interface that did not have poll groups,
-	// add the connection to the default poll group
+	// add the connection to the default poll group.  (But note that certain use cases,
+	// e.g. custom signaling, the poll group may have already been assigned by the app code.
+	// Don't override it, if so.)
 	#ifdef STEAMNETWORKINGSOCKETS_STEAMCLIENT
-	pConn->SetPollGroup( &m_legacyPollGroup );
+	if ( !pConn->m_pPollGroup )
+		pConn->SetPollGroup( &m_legacyPollGroup );
 	#endif
 }
 
@@ -598,7 +601,8 @@ CSteamNetworkConnectionBase::CSteamNetworkConnectionBase( CSteamNetworkingSocket
 	memset( m_szDescription, 0, sizeof( m_szDescription ) );
 	m_bConnectionInitiatedRemotely = false;
 	m_pTransport = nullptr;
-
+	m_bSupressStateChangeCallbacks = false;
+ 
 	// Initialize configuration using parent interface for now.
 	m_connectionConfig.Init( &m_pSteamNetworkingSocketsInterface->m_connectionConfig );
 }
@@ -2052,36 +2056,39 @@ void CSteamNetworkConnectionBase::SetState( ESteamNetworkingConnectionState eNew
 	ESteamNetworkingConnectionState eNewAPIState = CollapseConnectionStateToAPIState( GetState() );
 
 	// Internal connection used by the higher-level messages interface?
-	if ( m_pMessagesInterface )
+	if ( !m_bSupressStateChangeCallbacks )
 	{
-		// Are we still associated with our session?
-		if ( m_pMessagesSession )
+		if ( m_pMessagesInterface )
 		{
-			// How did we get here?  We should be closed!
-			if ( m_pMessagesSession->m_pConnection != this )
+			// Are we still associated with our session?
+			if ( m_pMessagesSession )
 			{
-				AssertMsg2( false, "Connection/session linkage bookkeeping bug!  %s state %d", GetDescription(), (int)GetState() );
+				// How did we get here?  We should be closed!
+				if ( m_pMessagesSession->m_pConnection != this )
+				{
+					AssertMsg2( false, "Connection/session linkage bookkeeping bug!  %s state %d", GetDescription(), (int)GetState() );
+				}
+				else
+				{
+					m_pMessagesSession->ConnectionStateChanged( eOldAPIState, eNewAPIState );
+				}
 			}
 			else
 			{
-				m_pMessagesSession->ConnectionStateChanged( eOldAPIState, eNewAPIState );
+				// We should only detach after being closed or destroyed.
+				AssertMsg2( GetState() == k_ESteamNetworkingConnectionState_FinWait || GetState() == k_ESteamNetworkingConnectionState_Dead || GetState() == k_ESteamNetworkingConnectionState_None,
+					"Connection %s has detatched from messages session, but is in state %d", GetDescription(), (int)GetState() );
 			}
 		}
 		else
 		{
-			// We should only detach after being closed or destroyed.
-			AssertMsg2( GetState() == k_ESteamNetworkingConnectionState_FinWait || GetState() == k_ESteamNetworkingConnectionState_Dead || GetState() == k_ESteamNetworkingConnectionState_None,
-				"Connection %s has detatched from messages session, but is in state %d", GetDescription(), (int)GetState() );
-		}
-	}
-	else
-	{
 
-		// Ordinary connection.  Check for posting callback, if connection state has changed from
-		// an API perspective
-		if ( eOldAPIState != eNewAPIState )
-		{
-			PostConnectionStateChangedCallback( eOldAPIState, eNewAPIState );
+			// Ordinary connection.  Check for posting callback, if connection state has changed from
+			// an API perspective
+			if ( eOldAPIState != eNewAPIState )
+			{
+				PostConnectionStateChangedCallback( eOldAPIState, eNewAPIState );
+			}
 		}
 	}
 
@@ -2502,7 +2509,7 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 			{
 				// Check if the application just didn't ever respond, it's probably a bug.
 				// We should squawk about this and let them know.
-				if ( m_eConnectionState != k_ESteamNetworkingConnectionState_FindingRoute && m_pParentListenSocket )
+				if ( m_eConnectionState != k_ESteamNetworkingConnectionState_FindingRoute && m_bConnectionInitiatedRemotely )
 				{
 					if ( m_pMessagesSession )
 					{
@@ -2522,7 +2529,7 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 				return;
 			}
 
-			if ( m_pParentListenSocket || m_eConnectionState == k_ESteamNetworkingConnectionState_FindingRoute )
+			if ( m_bConnectionInitiatedRemotely || m_eConnectionState == k_ESteamNetworkingConnectionState_FindingRoute )
 			{
 				UpdateMinThinkTime( usecTimeout );
 			}
