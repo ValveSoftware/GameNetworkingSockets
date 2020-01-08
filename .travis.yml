@@ -2,8 +2,12 @@ language: minimal
 
 dist: bionic
 
+os: linux
+
 services:
   - docker
+
+arch: amd64
 
 env:
   - IMAGE=alpine IMAGE_TAG=latest
@@ -13,6 +17,15 @@ env:
   - IMAGE=ubuntu IMAGE_TAG=devel
   - IMAGE=fedora IMAGE_TAG=latest
   - IMAGE=fedora IMAGE_TAG=rawhide
+
+jobs:
+  include:
+    - arch: arm64
+      env: IMAGE=ubuntu IMAGE_TAG=rolling
+    - arch: ppc64le
+      env: IMAGE=ubuntu IMAGE_TAG=rolling
+    - arch: s390x
+      env: IMAGE=ubuntu IMAGE_TAG=rolling
 
 before_install:
   - docker run -d --rm --cap-add SYS_PTRACE --name builder -e LC_ALL="en_US.UTF-8" -e LANG="en_US.UTF-8" -v $(pwd):/travis -w /travis $IMAGE:$IMAGE_TAG tail -f /dev/null
