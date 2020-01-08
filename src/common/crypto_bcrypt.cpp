@@ -8,7 +8,7 @@
 
 #include <windows.h>
 #include <stdio.h>
-#include <Bcrypt.h>
+#include <bcrypt.h>
 #pragma comment(lib, "Bcrypt.lib")
 
 #ifndef NT_SUCCESS
