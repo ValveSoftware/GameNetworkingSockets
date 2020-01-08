@@ -15,17 +15,16 @@ env:
   - IMAGE=fedora IMAGE_TAG=rawhide
 
 before_install:
-  - export CONTAINER=${IMAGE}-${IMAGE_TAG}
-  - docker run -d --rm --cap-add SYS_PTRACE --name $CONTAINER -e LC_ALL="en_US.UTF-8" -e LANG="en_US.UTF-8" -v $(pwd):/travis -w /travis $IMAGE:$IMAGE_TAG tail -f /dev/null
+  - docker run -d --rm --cap-add SYS_PTRACE --name builder -e LC_ALL="en_US.UTF-8" -e LANG="en_US.UTF-8" -v $(pwd):/travis -w /travis $IMAGE:$IMAGE_TAG tail -f /dev/null
   - docker ps
-  - docker exec -t $CONTAINER sh .travis/preinstall.sh
+  - docker exec -t builder sh .travis/preinstall.sh
 
 install:
-  - docker exec -t $CONTAINER bash .travis/install-$IMAGE.sh
-  - docker exec -t $CONTAINER bash .travis/install-post.sh
+  - docker exec -t builder bash .travis/install-$IMAGE.sh
+  - docker exec -t builder bash .travis/install-post.sh
 
 script:
-  - docker exec -t $CONTAINER bash .travis/build.sh
-  - docker kill $CONTAINER
+  - docker exec -t builder bash .travis/build.sh
+  - docker kill builder
 
 # vim: set ts=2 sts=2 sw=2 et:
