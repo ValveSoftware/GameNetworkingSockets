@@ -29,6 +29,10 @@
 #endif
 
 #ifdef LINUX
+// valgrind.h doesn't compile on s390x right now for some reason. Disable it.
+#if defined( __s390x__ )
+#define NVALGRIND
+#endif
 #include "tier0/valgrind.h"
 #endif
 
