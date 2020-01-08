@@ -16,6 +16,16 @@ has() {
 FOUND_CLANG=0
 FOUND_GCC=0
 
+export BUILD_SANITIZERS=0
+
+# Only run sanitizers on a couple of the builder types.
+if [[ "$IMAGE" == "ubuntu" ]] && [[ "$IMAGE_TAG" == "rolling" ]]; then
+	export BUILD_SANITIZERS=1
+fi
+if [[ "$IMAGE" == "fedora" ]] && [[ "$IMAGE_TAG" == "rawhide" ]]; then
+	export BUILD_SANITIZERS=1
+fi
+
 if has clang && has clang++; then
 	echo "Beginning build tests with Clang" >&2
 	export CC=clang CXX=clang++

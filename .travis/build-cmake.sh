@@ -34,7 +34,7 @@ CMAKE_ARGS=(
 
 set -x
 
-BUILD_SANITIZERS=1
+BUILD_SANITIZERS=${BUILD_SANITIZERS:-0}
 [[ $(uname -s) == MINGW* ]] && BUILD_SANITIZERS=0
 
 # Build some tests with sanitizers
