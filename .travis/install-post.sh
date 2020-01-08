@@ -7,5 +7,6 @@ cmake --version
 meson --version
 g++ --version
 clang++ --version
+uname -a
 
 exit 0
