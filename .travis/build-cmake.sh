@@ -34,7 +34,7 @@ ninja -C build-cmake
 if [[ $BUILD_SANITIZERS -ne 0 ]]; then
 	ninja -C build-asan test_connection test_crypto
 	ninja -C build-ubsan test_connection test_crypto
-	if [ -d build-tsan ]; then
+	if [[ -d build-tsan ]]; then
 		ninja -C build-tsan test_connection test_crypto
 	fi
 fi
@@ -46,7 +46,7 @@ build-cmake/tests/test_connection
 # Run sanitized builds
 if [[ $BUILD_SANITIZERS -ne 0 ]]; then
 	for SANITIZER in asan ubsan tsan; do
-		[ -d build-${SANITIZER} ] || continue
+		[[ -d build-${SANITIZER} ]] || continue
 		build-${SANITIZER}/tests/test_crypto
 		build-${SANITIZER}/tests/test_connection
 	done
