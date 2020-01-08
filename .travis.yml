@@ -29,7 +29,7 @@ install:
   - docker exec -e CC=$CC -e CXX=$CXX -t $CONTAINER bash .travis/install-post.sh
 
 script:
-  - docker exec -e CC=$CC -e CXX=$CXX -t $CONTAINER bash .travis/script.sh
+  - docker exec -e CC=$CC -e CXX=$CXX -t $CONTAINER bash .travis/build.sh
   - docker kill $CONTAINER
 
 # vim: set ts=2 sts=2 sw=2 et:
