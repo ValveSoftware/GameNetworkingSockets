@@ -39,6 +39,10 @@ BUILD_SANITIZERS=${BUILD_SANITIZERS:-0}
 # builders, so let's just disable them on there.
 [[ $(uname -m) != x86_64 ]] && [[ ${CXX} == *clang* ]] && BUILD_SANITIZERS=0
 
+# Something's wrong with the GCC -fsanitize=address build on the s390x Travis
+# builder, and it fails to link properly.
+[[ $(uname -m) == s390x ]] && BUILD_SANITIZERS=0
+
 set -x
 
 # Build some tests with sanitizers
