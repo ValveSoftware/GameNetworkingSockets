@@ -110,13 +110,18 @@ struct iovec;
 // Internal stuff goes in a private namespace
 namespace SteamNetworkingSocketsLib {
 
-#if GOOGLE_PROTOBUF_VERSION < 3004000
-using ProtoMsgSize = int;
-#define ProtoByteSize ByteSize
-#else
-using ProtoMsgSize = size_t;
-#define ProtoByteSize ByteSizeLong
-#endif
+// Determine serialized size of protobuf msg.
+// Always return int, because size_t is dumb,
+// and unsigned types are from the devil.
+template <typename TMsg>
+inline int ProtoMsgByteSize( const TMsg &msg )
+{
+	#if GOOGLE_PROTOBUF_VERSION < 3004000
+		return msg.ByteSize();
+	#else
+		return static_cast<int>( msg.ByteSizeLong() );
+	#endif
+}
 
 struct SteamDatagramLinkStats;
 struct SteamDatagramLinkLifetimeStats;

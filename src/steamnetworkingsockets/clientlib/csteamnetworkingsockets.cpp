@@ -425,7 +425,7 @@ bool CSteamNetworkingSockets::GetCertificateRequest( int *pcbBlob, void *pBlob, 
 	}
 
 	// Check size
-	ProtoMsgSize cb = msgRequest.ProtoByteSize();
+	int cb = ProtoMsgByteSize( msgRequest );
 	if ( !pBlob )
 	{
 		*pcbBlob = cb;

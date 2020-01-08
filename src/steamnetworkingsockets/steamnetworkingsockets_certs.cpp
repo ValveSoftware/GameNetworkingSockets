@@ -93,7 +93,7 @@ bool BSteamNetworkingIdentityFromLegacyBinaryProtobuf( SteamNetworkingIdentity &
 	{
 		V_sprintf_safe( errMsg, "Unrecognized identity format.  (%d unknown field(s), first ID=%d)", msgIdentity.unknown_fields().field_count(), msgIdentity.unknown_fields().field(0).number() );
 	}
-	else if ( msgIdentity.ProtoByteSize() == 0 )
+	else if ( ProtoMsgByteSize( msgIdentity ) == 0 )
 	{
 		V_strcpy_safe( errMsg, "Empty identity msg" );
 	}
