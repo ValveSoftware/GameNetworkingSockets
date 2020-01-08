@@ -274,7 +274,7 @@ struct SSNPSenderState
 		if ( m_flTokenBucket >= 0.0f )
 			return 0;
 
-		return SteamNetworkingMicroseconds( m_flTokenBucket * -1e6 / (float)m_n_x ) + 1; // +1 to make sure that if we don't have any tokens, we never return 0, since zero means "ready right now"
+		return SteamNetworkingMicroseconds( m_flTokenBucket * -1e6f / (float)m_n_x ) + 1; // +1 to make sure that if we don't have any tokens, we never return 0, since zero means "ready right now"
 	}
 
 	/// Nagle timer on all pending messages
