@@ -9,7 +9,7 @@
 #define MINBASE_IDENTIFY_H
 #pragma once
 
-#if defined(__x86_64__) || defined(__arm64__) || defined(__aarch64__) || defined(_WIN64)
+#if defined(_LP64) || defined(__x86_64__) || defined(__arm64__) || defined(__aarch64__) || defined(_WIN64)
 	#define X64BITS
 	#define PLATFORM_64BITS
 #endif // __x86_64__
