@@ -95,26 +95,26 @@
 
 // Used to step into the debugger
 #ifdef _WIN64
-	#define DebuggerBreak()  __debugbreak()
+	#define DebuggerBreak()  do { __debugbreak() } while(0)
 #elif defined(_WIN32)
-	#define DebuggerBreak()  __asm { int 3 }
+	#define DebuggerBreak()  do { __asm { int 3 } } while(0)
 #elif defined( COMPILER_GCC )
 	#if defined( _PS3 )
 		#if defined( _CERT )
 			#define DebuggerBreak() ((void)0)
 		#else
-			#define DebuggerBreak() {  __asm volatile ("tw 31,1,1"); }
+			#define DebuggerBreak() do {  __asm volatile ("tw 31,1,1"); } while(0)
 		#endif
 	#elif defined(__i386__) || defined(__x86_64__)
-		#define DebuggerBreak()  __asm__ __volatile__ ( "int $3" );
+		#define DebuggerBreak()  do { __asm__ __volatile__ ( "int $3" ); } while(0)
 	#else
-		#define DebuggerBreak()
+		#define DebuggerBreak() do { } while(0)
 	#endif
 #elif defined( COMPILER_SNC ) && defined( COMPILER_PS3 )
 	static volatile bool sPS3_SuppressAssertsInThisFile = false; // you can throw this in the debugger to temporarily disable asserts inside any particular .cpp module.
 	#define DebuggerBreak() if (!sPS3_SuppressAssertsInThisFile) __builtin_snpause(); // <sergiy> from SNC Migration Guide, tw 31,1,1
 #else
-	#define DebuggerBreak()  __asm__ __volatile__ ( "int $3" );
+	#define DebuggerBreak()  do { __asm__ __volatile__ ( "int $3" ); } while(0)
 #endif
 
 #if defined(_WIN64)
