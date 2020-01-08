@@ -3,7 +3,7 @@
 # CMake build tests
 #
 
-set -ex
+set -e
 
 cmake_configure() {
 	BUILD_DIR="$1"
@@ -18,11 +18,21 @@ cmake_build() {
 	cmake --build "$BUILD_DIR" -- "$@"
 }
 
+cleanup() {
+	echo "Cleaning up CMake build directories" >&2
+	rm -rf build-{a,ub,t}san build-cmake
+}
+
+trap cleanup EXIT
+cleanup
+
 CMAKE_ARGS=(
 	-G Ninja
 	-DLIGHT_TESTS:BOOL=ON
 	-DWERROR=ON
 )
+
+set -x
 
 BUILD_SANITIZERS=1
 [[ $(uname -s) == MINGW* ]] && BUILD_SANITIZERS=0
@@ -62,5 +72,7 @@ if [[ $BUILD_SANITIZERS -ne 0 ]]; then
 		build-${SANITIZER}/tests/test_connection
 	done
 fi
+
+set +x
 
 exit 0
