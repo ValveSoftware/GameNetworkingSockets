@@ -10,6 +10,7 @@ compiler:
   - clang
 
 env:
+  - IMAGE=alpine IMAGE_TAG=latest
   - IMAGE=ubuntu IMAGE_TAG=latest
   - IMAGE=ubuntu IMAGE_TAG=rolling
   - IMAGE=ubuntu IMAGE_TAG=devel
@@ -20,6 +21,7 @@ before_install:
   - export CONTAINER=${IMAGE}-${IMAGE_TAG}
   - docker run -d --rm --cap-add SYS_PTRACE --name $CONTAINER -e LC_ALL="en_US.UTF-8" -e LANG="en_US.UTF-8" -v $(pwd):/travis -w /travis $IMAGE:$IMAGE_TAG tail -f /dev/null
   - docker ps
+  - docker exec -e CC=$CC -e CXX=$CXX -t $CONTAINER sh .travis/preinstall.sh
 
 install:
   - docker exec -e CC=$CC -e CXX=$CXX -t $CONTAINER bash .travis/install-$IMAGE.sh
