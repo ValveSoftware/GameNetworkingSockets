@@ -41,7 +41,7 @@ BUILD_SANITIZERS=${BUILD_SANITIZERS:-0}
 if [[ $BUILD_SANITIZERS -ne 0 ]]; then
 	cmake_configure build-asan ${CMAKE_ARGS[@]} -DSANITIZE_ADDRESS:BOOL=ON
 	cmake_configure build-ubsan ${CMAKE_ARGS[@]} -DSANITIZE_UNDEFINED:BOOL=ON
-	if [[ ${CXX} == *clang* ]]; then
+	if [[ ${CXX} == *clang* ]] && [[ "$(uname -m)" == "x86_64" ]]; then
 		cmake_configure build-tsan ${CMAKE_ARGS[@]} -DSANITIZE_THREAD:BOOL=ON
 	fi
 fi
