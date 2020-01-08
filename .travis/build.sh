@@ -13,6 +13,24 @@ has() {
 	return 1
 }
 
+has_clang() {
+	has clang && has clang++
+}
+
+has_gcc() {
+	has gcc && has g++
+}
+
+msg() {
+	echo "$1" >&2
+}
+
+die() {
+	msg "$1"
+	exit 1
+}
+
+
 FOUND_CLANG=0
 FOUND_GCC=0
 
@@ -26,27 +44,28 @@ if [[ "$IMAGE" == "fedora" ]] && [[ "$IMAGE_TAG" == "rawhide" ]]; then
 	export BUILD_SANITIZERS=1
 fi
 
-if has clang && has clang++; then
-	echo "Beginning build tests with Clang" >&2
+msg "Image is $IMAGE:$IMAGE_TAG, sanitizers enabled: $BUILD_SANITIZERS"
+
+# We need at least one build system available
+has cmake || has meson || die "No build system available"
+
+# We also need at least one compiler
+has_clang || has_gcc || die "No compiler available"
+
+if has_clang; then
+	msg "Beginning build tests with Clang"
 	export CC=clang CXX=clang++
-	bash .travis/build-meson.sh
-	bash .travis/build-cmake.sh
-	FOUND_CLANG=1
+	has meson && bash .travis/build-meson.sh
+	has cmake && bash .travis/build-cmake.sh
 fi
 
-if has gcc && has g++; then
-	echo "Beginning build tests with GCC" >&2
+if has_gcc; then
+	msg "Beginning build tests with GCC"
 	export CC=gcc CXX=g++
-	bash .travis/build-meson.sh
-	bash .travis/build-cmake.sh
-	FOUND_GCC=1
+	has meson && bash .travis/build-meson.sh
+	has cmake && bash .travis/build-cmake.sh
 fi
 
-if [[ $FOUND_CLANG -eq 0 ]] && [[ $FOUND_GCC -eq 0 ]]; then
-	echo "FAILED: Couldn't find either Clang or GCC, no tests were run." >&2
-	exit 1
-fi
-
-echo "All builds and tests executed successfully." >&2
+msg "All builds and tests executed successfully."
 
 exit 0
