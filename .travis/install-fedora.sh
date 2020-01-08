@@ -19,3 +19,5 @@ PACKAGES+=(protobuf-compiler protobuf-devel)
 PACKAGES+=(openssl-devel)
 
 dnf install -y "${PACKAGES[@]}"
+
+exit 0

@@ -67,3 +67,5 @@ if [[ $BUILD_SANITIZERS -ne 0 ]]; then
 		build-${SANITIZER}/tests/test_connection
 	done
 fi
+
+exit 0
