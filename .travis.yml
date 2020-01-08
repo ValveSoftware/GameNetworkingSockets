@@ -10,13 +10,16 @@ services:
 arch: amd64
 
 env:
-  - IMAGE=alpine IMAGE_TAG=latest
-  - IMAGE=archlinux IMAGE_TAG=latest
-  - IMAGE=ubuntu IMAGE_TAG=latest
-  - IMAGE=ubuntu IMAGE_TAG=rolling
-  - IMAGE=ubuntu IMAGE_TAG=devel
-  - IMAGE=fedora IMAGE_TAG=latest
-  - IMAGE=fedora IMAGE_TAG=rawhide
+  global:
+    - CONTAINER_NAME=travis-docker-builder
+  jobs:
+    - IMAGE=alpine IMAGE_TAG=latest
+    - IMAGE=archlinux IMAGE_TAG=latest
+    - IMAGE=ubuntu IMAGE_TAG=latest
+    - IMAGE=ubuntu IMAGE_TAG=rolling
+    - IMAGE=ubuntu IMAGE_TAG=devel
+    - IMAGE=fedora IMAGE_TAG=latest
+    - IMAGE=fedora IMAGE_TAG=rawhide
 
 jobs:
   include:
@@ -28,16 +31,16 @@ jobs:
       env: IMAGE=ubuntu IMAGE_TAG=rolling
 
 before_install:
-  - docker run -d --rm --cap-add SYS_PTRACE --name builder -e LC_ALL="C" -e LANG="C" -v $(pwd):/travis -w /travis $IMAGE:$IMAGE_TAG tail -f /dev/null
+  - docker run -d --rm --cap-add SYS_PTRACE --name $CONTAINER_NAME -e LC_ALL="C" -e LANG="C" -v $(pwd):/travis -w /travis $IMAGE:$IMAGE_TAG tail -f /dev/null
   - docker ps
-  - docker exec -e TRAVIS_BUILD=1 -e IMAGE=$IMAGE -e IMAGE_TAG=$IMAGE_TAG -t builder sh .travis/preinstall.sh
+  - docker exec -e TRAVIS_BUILD=1 -e IMAGE=$IMAGE -e IMAGE_TAG=$IMAGE_TAG -t $CONTAINER_NAME sh .travis/preinstall.sh
 
 install:
-  - docker exec -e TRAVIS_BUILD=1 -e IMAGE=$IMAGE -e IMAGE_TAG=$IMAGE_TAG -t builder bash .travis/install-$IMAGE.sh
-  - docker exec -e TRAVIS_BUILD=1 -e IMAGE=$IMAGE -e IMAGE_TAG=$IMAGE_TAG -t builder bash .travis/install-post.sh
+  - docker exec -e TRAVIS_BUILD=1 -e IMAGE=$IMAGE -e IMAGE_TAG=$IMAGE_TAG -t $CONTAINER_NAME bash .travis/install-$IMAGE.sh
+  - docker exec -e TRAVIS_BUILD=1 -e IMAGE=$IMAGE -e IMAGE_TAG=$IMAGE_TAG -t $CONTAINER_NAME bash .travis/install-post.sh
 
 script:
-  - docker exec -e TRAVIS_BUILD=1 -e IMAGE=$IMAGE -e IMAGE_TAG=$IMAGE_TAG -t builder bash .travis/build.sh
-  - docker kill builder
+  - docker exec -e TRAVIS_BUILD=1 -e IMAGE=$IMAGE -e IMAGE_TAG=$IMAGE_TAG -t $CONTAINER_NAME bash .travis/build.sh
+  - docker kill $CONTAINER_NAME
 
 # vim: set ts=2 sts=2 sw=2 et:
