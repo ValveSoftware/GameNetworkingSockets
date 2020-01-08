@@ -6,7 +6,9 @@
 #
 set -ex
 
-rm -rf build-{a,ub,t}san build-meson build-cmake
+cleanup() {
+	rm -rf build-{a,ub,t}san build-meson build-cmake
+}
 
 CMAKE_ARGS=(
 	-G Ninja
@@ -21,6 +23,9 @@ MESON_ARGS=(
 
 BUILD_SANITIZERS=1
 [[ $(uname -s) == MINGW* ]] && BUILD_SANITIZERS=0
+
+trap cleanup EXIT
+cleanup
 
 # Build some tests with sanitizers
 if [[ $BUILD_SANITIZERS -ne 0 ]]; then
