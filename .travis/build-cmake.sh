@@ -15,7 +15,7 @@ cmake_configure() {
 cmake_build() {
 	BUILD_DIR="$1"
 	shift
-	cmake --build "$BUILD_DIR" -- "$@"
+	cmake --build "$BUILD_DIR" -- -v "$@"
 }
 
 cleanup() {
