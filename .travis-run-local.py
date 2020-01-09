@@ -20,6 +20,10 @@ def env_parse(env, arch=None):
     kv = { k: v for k, v in [ s.split('=') for s in kv_str ] }
 
     # Ugly trick to prepare for running commands for this image
+    try:
+        del os.environ['IMAGE_PREFIX']
+    except KeyError:
+        pass
     os.environ.update(kv)
 
     if 'IMAGE' not in kv or 'IMAGE_TAG' not in kv:
@@ -29,7 +33,9 @@ def env_parse(env, arch=None):
     image = '%s:%s' % (kv['IMAGE'], kv['IMAGE_TAG'])
 
     if arch is not None:
-        return docker_arch(arch) + '/' + image
+        image_prefix = docker_arch(arch) + '/'
+        os.environ['IMAGE_PREFIX'] = image_prefix
+        return image_prefix + image
 
     return image
 
