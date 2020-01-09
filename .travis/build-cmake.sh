@@ -43,6 +43,9 @@ BUILD_SANITIZERS=${BUILD_SANITIZERS:-0}
 # builder, and it fails to link properly.
 [[ $(uname -m) == s390x ]] && BUILD_SANITIZERS=0
 
+# Foreign architecture docker containers don't support sanitizers.
+[[ $(uname -m) != x86_64 ]] && grep -q -e AuthenticAMD -e GenuineIntel /proc/cpuinfo && BUILD_SANITIZERS=0
+
 set -x
 
 # Build some tests with sanitizers
