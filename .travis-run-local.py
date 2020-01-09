@@ -90,19 +90,6 @@ def kill_and_wait():
         time.sleep(3)
     log.info("Container has exited.")
 
-def needs_qemu_binaries():
-    required_bins = [
-        '/usr/bin/qemu-aarch64-static',
-        '/usr/bin/qemu-ppc64le-static',
-        '/usr/bin/qemu-s390x-static',
-    ]
-    for filename in required_bins:
-        if not os.path.exists(filename):
-            log.warning("QEMU userspace emulation binary %s is missing, will use binary from multiarch image", filename)
-            return True
-        log.info("QEMU userspace emulation binary %s is present", filename)
-    return False
-
 def main():
     global log
     log = init_logging()
@@ -110,21 +97,14 @@ def main():
     log.info("Parsing Travis configuration file")
     travis = read_travis_yml()
 
-    if needs_qemu_binaries():
-        multiarch_image = 'multiarch/qemu-user-static:latest'
-    else:
-        multiarch_image = 'multiarch/qemu-user-static:register'
-
-    log.info("Will run image %s to enable support for foreign architecture containers", multiarch_image)
-
     # Pull the images down first
     log.info("Pulling Docker images")
-    docker_pull(multiarch_image)
+    docker_pull('multiarch/qemu-user-static')
     pull_images(travis)
 
     # Initialize system environment
     log.info("Preparing system to run foreign architecture containers")
-    subprocess.run(['docker', 'run', '--rm', '--privileged', multiarch_image, '--reset', '-p', 'yes'], check=True)
+    subprocess.run(['docker', 'run', '--rm', '--privileged', 'multiarch/qemu-user-static', '--reset', '-p', 'yes'], check=True)
 
     # Run native tests first
     kill_and_wait()
