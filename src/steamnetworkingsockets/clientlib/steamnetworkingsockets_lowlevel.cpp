@@ -28,10 +28,10 @@
 #include "crypto.h"
 
 // Ugggggggggg MSVC VS2013 STL bug: try_lock_for doesn't actually respect the timeout, it always ends up using an infinite timeout.
-// And even in 2015, the code is calling the timer and to convert a relative time to an absolute time, and waiting until that time,
-// which then calls the timer again, and subtracts it back off....It's really bad. Just go directly to the underlying Win32
-// primitives
-#ifdef _MSC_VER
+// And even in 2015, the code is calling the timer to get current time, to convert a relative time to an absolute time, and then
+// waiting until that absolute time, which then calls the timer again....and subtracts it back off....It's really bad. Just go
+// directly to the underlying Win32 primitives.  Looks like the Visual Studio 2017 STL implementation is sane, though.
+#if defined(_MSC_VER) && _MSC_VER < 1914
 	#define MSVC_STL_MUTEX_WORKAROUND
 	#include <Windows.h>
 #endif
