@@ -298,11 +298,11 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIdentity_ToString(
 
 		case k_ESteamNetworkingIdentityType_GenericBytes:
 			V_strncpy( buf, "gen:", cbBuf );
-			if ( cbBuf > 8 )
+			if ( cbBuf > 5 )
 			{
 				static const char hexdigits[] = "0123456789abcdef";
-				char *d = buf+7;
-				int l = std::min( identity.m_cbSize, int(cbBuf-8) / 2 );
+				char *d = buf+4;
+				int l = std::min( identity.m_cbSize, int(cbBuf-5) / 2 );
 				for ( int i = 0 ; i < l ; ++i )
 				{
 					uint8 b = identity.m_genericBytes[i];
