@@ -334,8 +334,11 @@ STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIdentity_ParseStri
 	if ( pszStr == nullptr || *pszStr == '\0' )
 		return false;
 
-	if ( V_strcmp( pszStr, "invalid" ) == 0 )
-		return true; // Specifically parsed as invalid is considered "success"!
+// NOTE: Reversing this decision.  99% of use cases, we really want the function to return
+//       false unless the identity is valid.  The 1% of cases that want to allow this can
+//       specifically check for this string.
+//	if ( V_strcmp( pszStr, "invalid" ) == 0 )
+//		return true; // Specifically parsed as invalid is considered "success"!
 
 	size_t sizeofData = sizeofIdentity - sizeofHeader;
 
@@ -395,43 +398,52 @@ STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIdentity_ParseStri
 		return pIdentity->SetGenericBytes( tmp, nBytes );
 	}
 
-	// Unknown prefix.  But does it looks like it is a string
-	// of the form <prefix>:data ?  We assume that we will only
-	// ever use prefixes from a restricted character set, and we
-	// won't ever make them too long.
-	int cchPrefix = 0;
-	do
-	{
-		// Invalid type prefix or end of string?
-		// Note: lowercase ONLY.  Identifiers are case sensitive (we need this to be true
-		// because we want to be able to hash them and compare them as dumb bytes), so
-		// any use of uppercase letters is really asking for big problems.
-		char c = pszStr[cchPrefix];
-		if ( ( c < 'a' || c > 'z' )
-			&& ( c < '0' || c > '9' )
-			&& c != '_'
-		) {
-			return false;
-		}
-
-		// Char is OK to be in the prefix, move on
-		++cchPrefix;
-		if ( cchPrefix > 16 )
-			return false;
-	} while ( pszStr[cchPrefix] != ':' );
-
-	// OK, as far as we can tell, it might be valid --- unless it's too long
-	int cbSize = V_strlen(pszStr)+1;
-	if ( cbSize > SteamNetworkingIdentity::k_cchMaxString )
+	// Unknown prefix.
+	// The relays should always be running the latest code.  No client should
+	// be using a protocol newer than a relay.
+	#ifdef IS_STEAMDATAGRAMROUTER
 		return false;
-	if ( (size_t)cbSize > sizeofData )
-		return false;
+	#else
 
-	// Just save the exact raw string we were asked to "parse".  We don't
-	// really understand it, but for many purposes just using the string
-	// as an identifier will work fine!
-	pIdentity->m_eType = k_ESteamNetworkingIdentityType_UnknownType;
-	pIdentity->m_cbSize = cbSize;
-	memcpy( pIdentity->m_szUnknownRawString, pszStr, cbSize );
-	return true;
+		// Does it looks like it is a string
+		// of the form <prefix>:data ?  We assume that we will only
+		// ever use prefixes from a restricted character set, and we
+		// won't ever make them too long.
+		int cchPrefix = 0;
+		do
+		{
+			// Invalid type prefix or end of string?
+			// Note: lowercase ONLY.  Identifiers are case sensitive (we need this to be true
+			// because we want to be able to hash them and compare them as dumb bytes), so
+			// any use of uppercase letters is really asking for big problems.
+			char c = pszStr[cchPrefix];
+			if ( ( c < 'a' || c > 'z' )
+				&& ( c < '0' || c > '9' )
+				&& c != '_'
+			) {
+				return false;
+			}
+
+			// Char is OK to be in the prefix, move on
+			++cchPrefix;
+			if ( cchPrefix > 16 )
+				return false;
+		} while ( pszStr[cchPrefix] != ':' );
+
+		// OK, as far as we can tell, it might be valid --- unless it's too long
+		int cbSize = V_strlen(pszStr)+1;
+		if ( cbSize > SteamNetworkingIdentity::k_cchMaxString )
+			return false;
+		if ( (size_t)cbSize > sizeofData )
+			return false;
+
+		// Just save the exact raw string we were asked to "parse".  We don't
+		// really understand it, but for many purposes just using the string
+		// as an identifier will work fine!
+		pIdentity->m_eType = k_ESteamNetworkingIdentityType_UnknownType;
+		pIdentity->m_cbSize = cbSize;
+		memcpy( pIdentity->m_szUnknownRawString, pszStr, cbSize );
+
+		return true;
+	#endif
 }
