@@ -24,7 +24,7 @@ endif
 
 flags_cxx = [
   '-fno-rtti',
-  '-fexceptions',
+  '-fno-exceptions',
   '-fvisibility-inlines-hidden',
 ]
 

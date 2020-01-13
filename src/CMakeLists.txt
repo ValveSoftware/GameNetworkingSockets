@@ -121,7 +121,7 @@ set(GNS_CXX_FLAGS
 	-Wno-reorder
 	-Wno-non-virtual-dtor
 	-Wno-zero-as-null-pointer-constant
-	-fexceptions
+	-fno-exceptions
 )
 
 if(NOT SANITIZE_UNDEFINED)
