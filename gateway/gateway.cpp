@@ -419,10 +419,10 @@ public:
 	{
 		m_blockCount++;
 		// erase entries atleast 5 blocks old to keep map small
-		for(auto it: m_mapIncomingMessageHashes)
+		for(const auto& kv: m_mapIncomingMessageHashes)
 		{
-			if(m_blockCount - it->second >= 5)
-				m_mapIncomingMessageHashes.erase(it);
+			if(m_blockCount - kv.second>= 5)
+				m_mapIncomingMessageHashes.erase(kv);
 		}
 	}
 	void Run( uint16 nPort )
