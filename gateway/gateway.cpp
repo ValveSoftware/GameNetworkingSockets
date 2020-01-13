@@ -379,7 +379,7 @@ public:
 	}
 	void ClearIncomingHashes()
 	{
-		m_setIncomingMessageHashes.clear();
+		m_mapIncomingMessageHashes.clear();
 	}
 	void Run( uint16 nPort )
 	{
@@ -481,7 +481,7 @@ private:
 	std::set< std::string > m_setIncomingWhitelist;
 	std::set< GatewayClient *> m_setOutgoingClients;
 	// force unique messages before relaying to outgoing or processing to Syscoin Core
-	std::set< SHA256Digest_t > m_setIncomingMessageHashes;
+	std::map< SHA256Digest_t , bool> m_mapIncomingMessageHashes;
 	std::vector<ISteamNetworkingMessage *> m_vecMessagesIncomingBuffer;
 
 
@@ -520,7 +520,7 @@ private:
 
 			SHA256Digest_t digest;
 			CCrypto::GenerateSHA256Digest( pIncomingMsg->m_pData, pIncomingMsg->m_cbSize, &digest );
-			auto ret = m_setIncomingMessageHashes.emplace(digest);
+			auto ret = m_mapIncomingMessageHashes.emplace(std::move(digest), true);
 			if (!ret.second){
 				// message already exists
 				continue;
