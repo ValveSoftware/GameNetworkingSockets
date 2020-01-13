@@ -393,7 +393,8 @@ public:
 			}
 			else if(env_str == hashBlock)
 			{
-				Printf( "Received blockhash %s sequence %" PRIxPTR "\n", msg_str.c_str(), seq );	
+				Printf( "Received blockhash %s sequence %" PRIxPTR "\n", msg_str.c_str(), seq );
+				ClearIncomingHashes();	
 			}
 			std::this_thread::sleep_for( std::chrono::milliseconds( 10 ) );
 		}
@@ -416,10 +417,17 @@ public:
 	}
 	void ClearIncomingHashes()
 	{
-		m_setIncomingMessageHashes.clear();
+		m_blockCount++;
+		// erase entries atleast 5 blocks old to keep map small
+		for(auto it: m_mapIncomingMessageHashes)
+		{
+			if(m_blockCount - it->second >= 5)
+				m_mapIncomingMessageHashes.erase(it);
+		}
 	}
 	void Run( uint16 nPort )
 	{
+		m_blockCount = 0;
 		// Select instance to use.  For now we'll always use the default.
 		// But we could use SteamGameServerNetworkingSockets() on Steam.
 		m_pInterface = SteamNetworkingSockets();
@@ -509,7 +517,7 @@ private:
 	HSteamListenSocket m_hListenSock;
 	HSteamNetPollGroup m_hPollGroup;
 	ISteamNetworkingSockets *m_pInterface;
-
+	uint32 m_blockCount;
 	struct Client_t
 	{
 		std::string m_sNick;
@@ -520,7 +528,7 @@ private:
 	std::set< std::string > m_setIncomingWhitelist;
 	std::set< GatewayClient *> m_setOutgoingClients;
 	// force unique messages before relaying to outgoing or processing to Syscoin Core
-	std::set< std::vector<unsigned char> > m_setIncomingMessageHashes;
+	std::map< std::vector<unsigned char>, uint32 > m_mapIncomingMessageHashes;
 	std::vector<ISteamNetworkingMessage *> m_vecMessagesIncomingBuffer;
 
 
@@ -560,7 +568,7 @@ private:
 			SHA256Digest_t digest;
 			CCrypto::GenerateSHA256Digest( pIncomingMsg->m_pData, (size_t)pIncomingMsg->m_cbSize, &digest );
 			std::vector<unsigned char> vec(digest, digest+sizeof(digest));
-			auto ret = m_setIncomingMessageHashes.emplace(std::move(vec));
+			auto ret = m_mapIncomingMessageHashes.emplace(std::move(vec), m_blockCount);
 			if (!ret.second){
 				// message already exists
 				continue;
