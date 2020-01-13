@@ -1,6 +1,5 @@
 find_package(JSONCPP REQUIRED)
 find_package(JSONRPCCPP REQUIRED)
-find_package(curl REQUIRED)
 
 add_executable(
 	gateway
