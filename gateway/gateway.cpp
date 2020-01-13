@@ -401,22 +401,21 @@ public:
 		HttpClient client(SyscoinCoreRPCURL);
   		m_rpcClient = new Client(client);
 		// parse outgoing peer list, for relays incoming messages from Syscoin Core or from incoming peer
-		std::set< SteamNetworkingIPAddr> setOutgoingWhitelist;
+		std::set< std::string > setOutgoingWhitelist;
 		for(const auto& peer: outgoingListPeers){
-			SteamNetworkingIPAddr addrRemote;
-			if(addrRemote.ParseString(peer.c_str()))
-				setOutgoingWhitelist.insert(addrRemote);
+			setOutgoingWhitelist.insert(peer);
 		}
 		// parse incoming peer list and save it to whitelist for allowed peers to connect to this server
 		for(const auto& peer: incomingListPeers){
-			SteamNetworkingIPAddr addrRemote;
-			if(addrRemote.ParseString(peer.c_str()))
-				m_setIncomingWhitelist.insert(addrRemote);
+			m_setIncomingWhitelist.insert(peer);
 		}
 		
 		for ( const auto &addr: setOutgoingWhitelist )
 		{
-			GatewayClient client(addr);
+			SteamNetworkingIPAddr addrObj;
+			if(!addrObj.ParseString(addr.c_str()))
+				continue;
+			GatewayClient client(addrObj);
 			if ( client.m_hConnection == k_HSteamNetConnection_Invalid )
 				FatalError( "Failed to create connection" );
 			m_setOutgoingClients.emplace(&client); 
@@ -479,7 +478,7 @@ private:
 
 	std::map< HSteamNetConnection, Client_t > m_mapIncomingClients;
 	// who's allowed to connect to you and send this server messages?
-	std::set< SteamNetworkingIPAddr> m_setIncomingWhitelist;
+	std::set< std::string > m_setIncomingWhitelist;
 	std::set< GatewayClient *> m_setOutgoingClients;
 	// force unique messages before relaying to outgoing or processing to Syscoin Core
 	std::set< SHA256Digest_t > m_setIncomingMessageHashes;
@@ -643,7 +642,9 @@ private:
 				assert( m_mapIncomingClients.find( pInfo->m_hConn ) == m_mapIncomingClients.end() );
 
 				// if not in our whitelist we close connection
-				if(m_setIncomingWhitelist.find( pInfo->m_info.m_addrRemote ) != m_setIncomingWhitelist.end())
+				char addrStr[SteamNetworkingIPAddr.k_cchMaxString];
+				pInfo->m_info.m_addrRemote.ToString(addrStr, SteamNetworkingIPAddr.k_cchMaxString, true);
+				if(m_setIncomingWhitelist.find( std::string(addrStr) ) != m_setIncomingWhitelist.end())
 				{
 					m_pInterface->CloseConnection( pInfo->m_hConn, 0, nullptr, false );
 					Printf( "Can't accept connection.  Not in whitelist..." );
