@@ -12,7 +12,10 @@ PACKAGES=(build-essential pkg-config cmake meson clang)
 
 PACKAGES+=(libprotobuf-dev protobuf-compiler)
 PACKAGES+=(libssl-dev)
-PACKAGES+=(libcurl4-openssl-dev libjsoncpp-dev libjsonrpccpp-dev libjsonrpccpp-tools)
+PACKAGES+=(libcurl4-openssl-dev)
+PACKAGES+=(libjsoncpp-dev)
+PACKAGES+=(libjsonrpccpp-dev)
+PACKAGES+=(libjsonrpccpp-tools)
 
 apt-get install -y "${PACKAGES[@]}"
 
