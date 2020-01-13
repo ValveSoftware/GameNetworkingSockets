@@ -1,7 +1,7 @@
 cxx_compiler = meson.get_compiler('cpp')
 dependencies = [
   dep_threads,
-  dep_GameNetworkingSockets_so, # Declared in the other project
+  dep_GameNetworkingSockets_static, # Declared in the other project
   cxx_compiler.find_library('jsoncpp'),
   cxx_compiler.find_library('jsonrpccpp-common'),
   cxx_compiler.find_library('jsonrpccpp-client')

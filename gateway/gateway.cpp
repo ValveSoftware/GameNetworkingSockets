@@ -519,7 +519,7 @@ private:
 			assert( m_mapIncomingClients.find( pIncomingMsg->m_conn ) != m_mapIncomingClients.end() );
 
 			SHA256Digest_t digest;
-			CCrypto::GenerateSHA256Digest( pIncomingMsg->m_pData, pIncomingMsg->m_cbSize, &digest );
+			CCrypto::GenerateSHA256Digest( pIncomingMsg->m_pData, (size_t)pIncomingMsg->m_cbSize, &digest );
 			std::vector<unsigned char> vec(digest, digest+sizeof(digest));
 			auto ret = m_setIncomingMessageHashes.emplace(std::move(vec));
 			if (!ret.second){
