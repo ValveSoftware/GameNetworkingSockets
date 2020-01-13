@@ -403,13 +403,13 @@ public:
 		// parse outgoing peer list, for relays incoming messages from Syscoin Core or from incoming peer
 		std::set< SteamNetworkingIPAddr> setOutgoingWhitelist;
 		for(const auto& peer: outgoingListPeers){
-			SteamNetworkingIdentity addrRemote;
+			SteamNetworkingIPAddr addrRemote;
 			if(addrRemote.ParseString(peer.c_str()))
 				setOutgoingWhitelist.insert(addrRemote);
 		}
 		// parse incoming peer list and save it to whitelist for allowed peers to connect to this server
 		for(const auto& peer: incomingListPeers){
-			SteamNetworkingIdentity addrRemote;
+			SteamNetworkingIPAddr addrRemote;
 			if(addrRemote.ParseString(peer.c_str()))
 				m_setIncomingWhitelist.insert(addrRemote);
 		}
