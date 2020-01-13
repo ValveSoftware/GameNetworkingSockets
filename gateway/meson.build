@@ -8,5 +8,6 @@ dependencies = [
 executable('gateway',
   'gateway.cpp',
   dependencies: dependencies,
+  include_directories: include_directories('../src', '../src/public', '../src/common')
 )
 

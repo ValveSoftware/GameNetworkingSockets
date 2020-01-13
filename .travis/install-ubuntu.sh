@@ -12,6 +12,7 @@ PACKAGES=(build-essential pkg-config cmake meson clang)
 
 PACKAGES+=(libprotobuf-dev protobuf-compiler)
 PACKAGES+=(libssl-dev)
+PACKAGES+=(libjsonrpccpp-dev libjsonrpccpp-tools)
 
 apt-get install -y "${PACKAGES[@]}"
 
