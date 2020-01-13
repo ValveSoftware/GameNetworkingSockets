@@ -404,13 +404,13 @@ public:
 		std::set< SteamNetworkingIPAddr> setOutgoingWhitelist;
 		for(const auto& peer: outgoingListPeers){
 			SteamNetworkingIdentity addrRemote;
-			SteamAPI_SteamNetworkingIPAddr_ParseString(&addrRemote, peer);
+			SteamAPI_SteamNetworkingIPAddr_ParseString(&addrRemote, peer.c_str());
 			setOutgoingWhitelist.insert(addrRemote);
 		}
 		// parse incoming peer list and save it to whitelist for allowed peers to connect to this server
 		for(const auto& peer: incomingListPeers){
 			SteamNetworkingIdentity addrRemote;
-			SteamAPI_SteamNetworkingIPAddr_ParseString(&addrRemote, peer);
+			SteamAPI_SteamNetworkingIPAddr_ParseString(&addrRemote, peer.c_str());
 			m_setIncomingWhitelist.insert(addrRemote);
 		}
 		
