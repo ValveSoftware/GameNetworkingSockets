@@ -524,7 +524,8 @@ private:
 				// message already exists
 				continue;
 			}
-			m_mapIncomingMessageHashes[digest] = true;
+			// Add digest to map of hashes, using std::map wacky syntax
+			m_mapIncomingMessageHashes[digest];
 	
 
 			// sends to outgoing peers, queue up on the wire as fast as possible
