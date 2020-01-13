@@ -1,5 +1,6 @@
 find_package(JSONCPP REQUIRED)
 find_package(JSONRPCCPP REQUIRED)
+find_package(ZeroMQ REQUIRED)
 
 if(CMAKE_SYSTEM_NAME MATCHES Linux)
 	add_definitions(-DPOSIX)
@@ -15,7 +16,7 @@ add_executable(
 	gateway
 	gateway.cpp)
 target_include_directories(gateway PUBLIC ../include ../src ../src/public ../src/common)
-target_link_libraries(gateway GameNetworkingSockets_s jsoncpp jsonrpccpp-common jsonrpccpp-client)
+target_link_libraries(gateway GameNetworkingSockets_s jsoncpp jsonrpccpp-common jsonrpccpp-client libzmq3)
 add_sanitizers(gateway)
 
 # vim: set ts=4 sts=4 sw=4 noet:

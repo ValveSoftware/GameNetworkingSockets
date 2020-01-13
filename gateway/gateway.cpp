@@ -31,7 +31,7 @@
 #endif
 #include <jsonrpccpp/client.h>
 #include <jsonrpccpp/client/connectors/httpclient.h>
-
+#include <zmq.hpp>
 using namespace jsonrpc;
 using namespace std;
 
@@ -47,6 +47,7 @@ SteamNetworkingMicroseconds g_logTimeZero;
 std::vector<std::string> outgoingListPeers = {"127.0.0.1:1234"};
 std::vector<std::string> incomingListPeers = {"127.0.0.1:5678"};
 std::string SyscoinCoreRPCURL = "http://u:p@localhost:8369";
+std::string SyscoinCoreZMQURL = "tcp://127.0.0.1:28332";
 // We do this because I won't want to figure out how to cleanly shut
 // down the thread that is reading from stdin.
 static void NukeProcess( int rc )
@@ -361,6 +362,40 @@ private:
 class GatewayServer : private ISteamNetworkingSocketsCallbacks
 {
 public:
+	void ReadFromCore()
+	{
+		zmq::context_t context(1);
+		zmq::socket_t subscriber(context, ZMQ_SUB);
+  		const char *rawTx = "rawtx";
+    	subscriber.setsockopt(ZMQ_SUBSCRIBE, filter, strlen (filter));
+		const char *hashBlock = "hashblock";
+    	subscriber.setsockopt(ZMQ_SUBSCRIBE, filter1, strlen (filter1));
+		int HWM = 0;
+		subscriber.setsockopt(ZMQ_RCVHWM, &HWM, sizeof(HWM));
+		subscriber.connect(SyscoinCoreZMQURL);
+		while( !g_bQuit )
+		{
+			zmq::message_t env;
+			subscriber.recv(&env);
+			std::string env_str = std::string(static_cast<char*>(env.data()), env.size());
+			Printf( "Received topic %s\n", env_str.c_str() );
+			zmq::message_t msg;
+			subscriber.recv(&msg);
+			std::string msg_str = std::string(static_cast<char*>(msg.data()), msg.size());
+			zmq::message_t sequence;
+			subscriber.recv(&sequence);
+			uint32 seq = reinterpret_cast<uint32>(sequence.data()), sequence.size();
+			if(env_str == rawTx)
+			{
+				Printf( "Received tx %s sequence %d\n", msg_str.c_str(), seq );	
+			}
+			else if(env_str == hashBlock)
+			{
+				Printf( "Received blockhash %s sequence %d\n", msg_str.c_str(), seq );	
+			}
+			std::this_thread::sleep_for( std::chrono::milliseconds( 10 ) );
+		}
+	}
 	void PushToCore()
 	{
 		// batch process call to Syscoin Core to send and accept transaction in mempool
@@ -422,6 +457,8 @@ public:
 			std::thread t(&GatewayClient::Run, &client);
 			t.join();
 		}
+		std::thread t(&GatewayServer::ReadFromCore, this);
+		t.join();
 		while ( !g_bQuit )
 		{
 			PollIncomingMessages();

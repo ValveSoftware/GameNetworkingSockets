@@ -4,7 +4,8 @@ dependencies = [
   dep_GameNetworkingSockets_static, # Declared in the other project
   dependency('jsoncpp'),
   dependency('libjsonrpccpp-common'),
-  dependency('libjsonrpccpp-client')
+  dependency('libjsonrpccpp-client'),
+  dependency('libzmq3')
 ]
 
 
