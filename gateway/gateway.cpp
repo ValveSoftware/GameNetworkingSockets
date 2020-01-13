@@ -367,9 +367,9 @@ public:
 		zmq::context_t context(1);
 		zmq::socket_t subscriber(context, ZMQ_SUB);
   		const char *rawTx = "rawtx";
-    	subscriber.setsockopt(ZMQ_SUBSCRIBE, filter, strlen (filter));
+    	subscriber.setsockopt(ZMQ_SUBSCRIBE, rawTx, strlen (rawTx));
 		const char *hashBlock = "hashblock";
-    	subscriber.setsockopt(ZMQ_SUBSCRIBE, filter1, strlen (filter1));
+    	subscriber.setsockopt(ZMQ_SUBSCRIBE, hashBlock, strlen (hashBlock));
 		int HWM = 0;
 		subscriber.setsockopt(ZMQ_RCVHWM, &HWM, sizeof(HWM));
 		subscriber.connect(SyscoinCoreZMQURL);
@@ -384,7 +384,7 @@ public:
 			std::string msg_str = std::string(static_cast<char*>(msg.data()), msg.size());
 			zmq::message_t sequence;
 			subscriber.recv(&sequence);
-			uint32 seq = reinterpret_cast<uint32>(sequence.data()), sequence.size();
+			uint32 seq = static_cast<uint32>(sequence.data()), sequence.size();
 			if(env_str == rawTx)
 			{
 				Printf( "Received tx %s sequence %d\n", msg_str.c_str(), seq );	

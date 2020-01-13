@@ -1,6 +1,5 @@
 find_package(JSONCPP REQUIRED)
 find_package(JSONRPCCPP REQUIRED)
-find_package(ZeroMQ REQUIRED)
 
 if(CMAKE_SYSTEM_NAME MATCHES Linux)
 	add_definitions(-DPOSIX)
