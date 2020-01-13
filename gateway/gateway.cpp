@@ -375,7 +375,7 @@ public:
 			message->Release();
 		}
 		m_vecMessagesIncomingBuffer.clear();
-		m_rpcClient.CallProcedures(bc);
+		m_rpcClient->CallProcedures(bc);
 	}
 	void ClearIncomingHashes()
 	{
@@ -399,24 +399,24 @@ public:
 			FatalError( "Failed to listen on port %d", nPort );
 		Printf( "Server listening on port %d\n", nPort );
 		HttpClient client(SyscoinCoreRPCURL);
-  		m_rpcClient = Client(client);
+  		m_rpcClient = new Client(client);
 		// parse outgoing peer list, for relays incoming messages from Syscoin Core or from incoming peer
 		std::set< SteamNetworkingIPAddr> setOutgoingWhitelist;
 		for(const auto& peer: outgoingListPeers){
 			SteamNetworkingIdentity addrRemote;
-			SteamNetworkingIPAddr_ParseString(&addrRemote, "127.0.0.1");
+			SteamAPI_SteamNetworkingIPAddr_ParseString(&addrRemote, peer);
 			setOutgoingWhitelist.insert(addrRemote);
 		}
 		// parse incoming peer list and save it to whitelist for allowed peers to connect to this server
 		for(const auto& peer: incomingListPeers){
 			SteamNetworkingIdentity addrRemote;
-			SteamNetworkingIPAddr_ParseString(&addrRemote, "127.0.0.1");
+			SteamAPI_SteamNetworkingIPAddr_ParseString(&addrRemote, peer);
 			m_setIncomingWhitelist.insert(addrRemote);
 		}
 		
-		for ( auto it: setOutgoingWhitelist )
+		for ( const auto &addr: setOutgoingWhitelist )
 		{
-			GatewayClient client(*it);
+			GatewayClient client(addr);
 			if ( client.m_hConnection == k_HSteamNetConnection_Invalid )
 				FatalError( "Failed to create connection" );
 			m_setOutgoingClients.emplace(&client); 
@@ -446,7 +446,7 @@ public:
 			// to flush this out and close gracefully.
 			m_pInterface->CloseConnection( it.first, 0, "Server Shutdown", true );
 		}
-		for ( const auto *c: m_setOutgoingClients )
+		for ( auto *c: m_setOutgoingClients )
 		{
 			// Close the connection.  We use "linger mode" to ask SteamNetworkingSockets
 			// to flush this out and close gracefully.
@@ -462,9 +462,12 @@ public:
 
 		m_pInterface->DestroyPollGroup( m_hPollGroup );
 		m_hPollGroup = k_HSteamNetPollGroup_Invalid;
+
+		delete m_rpcClient;
+		m_rpcClient = NULL;
 	}
 private:
-	Client m_rpcClient;
+	Client *m_rpcClient;
 	HSteamListenSocket m_hListenSock;
 	HSteamNetPollGroup m_hPollGroup;
 	ISteamNetworkingSockets *m_pInterface;
@@ -497,9 +500,9 @@ private:
 	}
 	void SendMessageToAllOutgoingClients( const void *pData, const uint32& cbData )
 	{
-		for ( auto &c: m_mapOutgoingClients )
+		for ( auto *c: m_mapOutgoingClients )
 		{
-			c.SendMessageToClient(pData, chData);
+			c->SendMessageToClient(pData, chData);
 		}
 	}
 
