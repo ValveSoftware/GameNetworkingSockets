@@ -5,7 +5,7 @@ dependencies = [
   dependency('jsoncpp'),
   dependency('libjsonrpccpp-common'),
   dependency('libjsonrpccpp-client'),
-  dependency('czmq')
+  dependency('libczmq')
 ]
 
 executable('gateway',
