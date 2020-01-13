@@ -374,8 +374,8 @@ public:
 			// release memory
 			message->Release();
 		}
-		m_vecMessagesIncomingBuffer.clear();
 		m_rpcClient->CallProcedures(bc);
+		m_vecMessagesIncomingBuffer.clear();
 	}
 	void ClearIncomingHashes()
 	{
