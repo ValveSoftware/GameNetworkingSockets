@@ -521,7 +521,7 @@ private:
 			SHA256Digest_t digest;
 			CCrypto::GenerateSHA256Digest( pIncomingMsg->m_pData, pIncomingMsg->m_cbSize, &digest );
 			std::vector<unsigned char> vec(digest, digest+sizeof(digest));
-			auto ret = m_setIncomingMessageHashes.emplace(vec);
+			auto ret = m_setIncomingMessageHashes.emplace(std::move(vec));
 			if (!ret.second){
 				// message already exists
 				continue;
