@@ -12,6 +12,8 @@
 #include <mutex>
 #include <queue>
 #include <map>
+#include <set>
+#include <vector>
 #include <cctype>
 
 #include <steam/steamnetworkingsockets.h>
@@ -363,7 +365,7 @@ public:
 	{
 		// batch process call to Syscoin Core to send and accept transaction in mempool
 		BatchCall bc;
-		for(const ISteamNetworkingMessage* message: m_vecMessagesIncomingBuffer){
+		for(ISteamNetworkingMessage* message: m_vecMessagesIncomingBuffer){
 			Json::Value param;
 			const unsigned char* msgbuf = reinterpret_cast<unsigned char*>(pIncomingMsg->m_pData); 
 			std::vector vec(msgbuf, msgbuf+pIncomingMsg->m_cbSize);
@@ -667,7 +669,7 @@ private:
 				}
 
 				// Send them a welcome message
-				sprintf( temp, "Welcome, stranger.  Thou art known to us for now as '%s'; upon thine command '/nick' we shall know thee otherwise.", nick ); 
+				sprintf( temp, "Welcome, stranger.  Thou art known to us for now as '%s'; upon thine command '/nick' we shall know thee otherwise.", pInfo->m_info.m_szConnectionDescription ); 
 				SendStringToClient( pInfo->m_hConn, temp ); 
 
 				// Also send them a list of everybody who is already connected
