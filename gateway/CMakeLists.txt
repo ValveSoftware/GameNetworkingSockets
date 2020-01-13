@@ -4,6 +4,7 @@ find_package(JSONRPCCPP REQUIRED)
 add_executable(
 	gateway
 	gateway.cpp)
+target_include_directories(gateway PRIVATE ../src ../src/public ../src/common)
 target_link_libraries(gateway GameNetworkingSockets jsoncpp jsonrpccpp-common jsonrpccpp-client)
 add_sanitizers(gateway)
 
