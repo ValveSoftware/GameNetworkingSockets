@@ -481,7 +481,7 @@ private:
 	std::set< std::string > m_setIncomingWhitelist;
 	std::set< GatewayClient *> m_setOutgoingClients;
 	// force unique messages before relaying to outgoing or processing to Syscoin Core
-	std::map< SHA256Digest_t , bool> m_mapIncomingMessageHashes;
+	std::map< SHA256Digest_t, Client_t > m_mapIncomingMessageHashes;
 	std::vector<ISteamNetworkingMessage *> m_vecMessagesIncomingBuffer;
 
 
