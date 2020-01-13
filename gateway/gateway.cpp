@@ -520,7 +520,7 @@ private:
 
 			SHA256Digest_t digest;
 			CCrypto::GenerateSHA256Digest( pIncomingMsg->m_pData, pIncomingMsg->m_cbSize, &digest );
-			auto ret = m_mapIncomingMessageHashes.emplace(std::piecewise_construct, std::forward_as_tuple(digest), std::forward_as_tuple(true));
+			auto ret = m_mapIncomingMessageHashes.emplace(std::piecewise_construct, std::forward_as_tuple(digest),true);
 			if (!ret.second){
 				// message already exists
 				continue;
