@@ -369,7 +369,7 @@ public:
 			Json::Value param;
 			const unsigned char* msgbuf = reinterpret_cast<unsigned char*>(message->m_pData); 
 			std::vector<unsigned char> vec(msgbuf, msgbuf+message->m_cbSize);
-  			param["rawtx"] = HexStr(vec.begin(), vec.end());
+  			param["rawtx"] = HexStr(vec);
 			bc.addCall("sendrawtransaction", param, false);
 			// release memory
 			message->Release();
