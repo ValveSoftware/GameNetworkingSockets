@@ -379,7 +379,7 @@ public:
 	}
 	void ClearIncomingHashes()
 	{
-		m_mapIncomingMessageHashes.clear();
+		m_setIncomingMessageHashes.clear();
 	}
 	void Run( uint16 nPort )
 	{
@@ -481,7 +481,7 @@ private:
 	std::set< std::string > m_setIncomingWhitelist;
 	std::set< GatewayClient *> m_setOutgoingClients;
 	// force unique messages before relaying to outgoing or processing to Syscoin Core
-	std::map< SHA256Digest_t, Client_t > m_mapIncomingMessageHashes;
+	std::set< std::string > m_setIncomingMessageHashes;
 	std::vector<ISteamNetworkingMessage *> m_vecMessagesIncomingBuffer;
 
 
@@ -520,12 +520,11 @@ private:
 
 			SHA256Digest_t digest;
 			CCrypto::GenerateSHA256Digest( pIncomingMsg->m_pData, pIncomingMsg->m_cbSize, &digest );
-			if (m_mapIncomingMessageHashes.find(digest) != m_mapIncomingMessageHashes.end()){
+			auto ret = m_setIncomingMessageHashes.emplace(HexStr(digest));
+			if (!ret.second){
 				// message already exists
 				continue;
 			}
-			// Add digest to map of hashes, using std::map wacky syntax
-			m_mapIncomingMessageHashes[digest];
 	
 
 			// sends to outgoing peers, queue up on the wire as fast as possible
