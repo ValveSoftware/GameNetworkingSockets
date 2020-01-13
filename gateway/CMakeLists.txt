@@ -1,5 +1,5 @@
-find_package(jsoncpp REQUIRED)
-find_package(jsonrpccpp REQUIRED)
+find_package(JSONCPP REQUIRED)
+find_package(JSONRPCCPP REQUIRED)
 find_package(curl REQUIRED)
 
 add_executable(
