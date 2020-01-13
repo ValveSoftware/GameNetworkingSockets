@@ -377,25 +377,23 @@ public:
 		while( !g_bQuit )
 		{
 			char *topic;
-			char *frame;
-			zmsg_t *msg;
-			int rc = zsock_recv(socket, "sm", &topic, &msg);
+			char *pData;
+			uint32 cbData;
+			uint32 seq;
+			int rc = zsock_recv(socket, "sp44", &topic, &pData, &cbData, &seq);
 			assert(rc == 0);
 			Printf( "Received topic %s\n", topic );
-			frame = zmsg_popstr(msg);
 			if(strcmp(topic, rawTx) == 0)
 			{
-				Printf( "Received tx %s\n", frame );	
+				Printf( "Received tx in bytes %d\n", cbData );
+				SendMessageToAllOutgoingClients(pData, cbData);	
 			}
 			else if(strcmp(topic, hashBlock) == 0)
 			{
-				Printf( "Received blockhash %s\n", frame );
+				Printf( "Received blockhash in bytes %d\n", cbData );
 				ClearIncomingHashes();	
 			}
-			free(frame);
 			free(topic);
-			zmsg_destroy(&msg);
-			std::this_thread::sleep_for( std::chrono::milliseconds( 10 ) );
 		}
 		zsock_destroy(&socket);
 	}
