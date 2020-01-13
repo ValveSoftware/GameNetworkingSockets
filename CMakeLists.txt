@@ -52,6 +52,7 @@ if (WIN32)
 endif()
 
 add_subdirectory(examples)
+add_subdirectory(gateway)
 add_subdirectory(src)
 add_subdirectory(tests)
 
