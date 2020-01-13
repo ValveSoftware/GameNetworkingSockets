@@ -384,7 +384,7 @@ public:
 			std::string msg_str = std::string(static_cast<char*>(msg.data()), msg.size());
 			zmq::message_t sequence;
 			subscriber.recv(&sequence);
-			std::uintptr_t seq = reinterpret_cast<std::uintptr_t>(sequence.data()), sequence.size();
+			std::uintptr_t seq = reinterpret_cast<std::uintptr_t>(sequence.data());
 			if(env_str == rawTx)
 			{
 				Printf( "Received tx %s sequence %" PRIxPTR "\n", msg_str.c_str(), seq );	
