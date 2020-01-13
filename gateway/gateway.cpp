@@ -642,9 +642,9 @@ private:
 				assert( m_mapIncomingClients.find( pInfo->m_hConn ) == m_mapIncomingClients.end() );
 
 				// if not in our whitelist we close connection
-				char addrStr[SteamNetworkingIPAddr.k_cchMaxString];
-				pInfo->m_info.m_addrRemote.ToString(addrStr, SteamNetworkingIPAddr.k_cchMaxString, true);
-				if(m_setIncomingWhitelist.find( std::string(addrStr) ) != m_setIncomingWhitelist.end())
+				char szAddr[SteamNetworkingIPAddr.k_cchMaxString];
+				pInfo->m_info.m_addrRemote.ToString(szAddr, sizeof(szAddr), true);
+				if(m_setIncomingWhitelist.find( std::string(szAddr) ) != m_setIncomingWhitelist.end())
 				{
 					m_pInterface->CloseConnection( pInfo->m_hConn, 0, nullptr, false );
 					Printf( "Can't accept connection.  Not in whitelist..." );
