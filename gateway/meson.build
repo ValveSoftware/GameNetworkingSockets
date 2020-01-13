@@ -3,7 +3,7 @@ dependencies = [
   dep_threads,
   dep_GameNetworkingSockets_static, # Declared in the other project
   dependency('jsoncpp', version: '>=0.10.7'),
-  dependency('libjsonrpccpp', version: '>=1.2.0')
+  dependency('jsonrpccpp', version: '>=1.2.0')
 ]
 
 executable('gateway',
