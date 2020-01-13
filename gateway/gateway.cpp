@@ -263,7 +263,7 @@ public:
 		// Start connecting
 		char szAddr[ SteamNetworkingIPAddr::k_cchMaxString ];
 		serverAddr.ToString( szAddr, sizeof(szAddr), true );
-		Printf( "Connecting to chat server at %s", szAddr );
+		Printf( "Connecting to gateway server at %s", szAddr );
 		m_hConnection = m_pInterface->ConnectByIPAddress( serverAddr, 0, nullptr );
 	}
 	void Run( )
@@ -744,7 +744,7 @@ int main( int argc, const char *argv[] )
 	InitSteamDatagramConnectionSockets();
 	LocalUserInput_Init();
 
-	ChatServer server;
+	GatewayServer server;
 	server.Run( (uint16)nPort );
 
 	ShutdownSteamDatagramConnectionSockets();
