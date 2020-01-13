@@ -642,7 +642,7 @@ private:
 				assert( m_mapIncomingClients.find( pInfo->m_hConn ) == m_mapIncomingClients.end() );
 
 				// if not in our whitelist we close connection
-				char szAddr[SteamNetworkingIPAddr.k_cchMaxString];
+				char szAddr[ SteamNetworkingIPAddr::k_cchMaxString ];
 				pInfo->m_info.m_addrRemote.ToString(szAddr, sizeof(szAddr), true);
 				if(m_setIncomingWhitelist.find( std::string(szAddr) ) != m_setIncomingWhitelist.end())
 				{
