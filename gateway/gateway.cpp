@@ -366,7 +366,7 @@ class GatewayServer : private ISteamNetworkingSocketsCallbacks
 public:
 	void ReadFromCore()
 	{
-		zsock_t *socket = zsock_new_sub(SyscoinCoreZMQURL);
+		zsock_t *socket = zsock_new_sub(SyscoinCoreZMQURL, "");
   		assert(socket);
 		const char *rawTx = "rawtx";
 		const char *hashBlock = "hashblock";
@@ -383,11 +383,11 @@ public:
 			assert(rc == 0);
 			Printf( "Received topic %s\n", topic );
 			frame = zmsg_popstr(msg);
-			if(strchr(topic, rawTx))
+			if(strcmp(topic, rawTx) == 0)
 			{
 				Printf( "Received tx %s\n", frame );	
 			}
-			else if(strchr(topic, hashBlock))
+			else if(strcmp(topic, hashBlock) == 0)
 			{
 				Printf( "Received blockhash %s\n", frame );
 				ClearIncomingHashes();	
