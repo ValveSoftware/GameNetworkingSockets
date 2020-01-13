@@ -366,7 +366,7 @@ class GatewayServer : private ISteamNetworkingSocketsCallbacks
 public:
 	void ReadFromCore()
 	{
-		zsock_t *socket = zsock_new_sub(SyscoinCoreZMQURL, "");
+		zsock_t *socket = zsock_new_sub(SyscoinCoreZMQURL.c_str(), "");
   		assert(socket);
 		const char *rawTx = "rawtx";
 		const char *hashBlock = "hashblock";
