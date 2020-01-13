@@ -14,7 +14,7 @@ endif()
 add_executable(
 	gateway
 	gateway.cpp)
-target_include_directories(gateway PUBLIC ../src ../src/public ../src/common)
+target_include_directories(gateway PUBLIC ../include ../src ../src/public ../src/common)
 target_link_libraries(gateway GameNetworkingSockets_static jsoncpp jsonrpccpp-common jsonrpccpp-client)
 add_sanitizers(gateway)
 
