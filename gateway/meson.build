@@ -8,6 +8,8 @@ dependencies = [
   dependency('libzmq')
 ]
 
+cxx_flags = -fexceptions
+add_project_arguments(cxx_flags, language: 'cpp')
 
 executable('gateway',
   'gateway.cpp',
