@@ -500,9 +500,9 @@ private:
 	}
 	void SendMessageToAllOutgoingClients( const void *pData, const uint32& cbData )
 	{
-		for ( auto *c: m_mapOutgoingClients )
+		for ( auto *c: m_setOutgoingClients )
 		{
-			c->SendMessageToClient(pData, chData);
+			c->SendMessageToClient(pData, cbData);
 		}
 	}
 
@@ -689,7 +689,7 @@ private:
 				}
 
 				// Let everybody else know who they are for now
-				sprintf( temp, "Hark!  A stranger hath joined this merry host.  For now we shall call them '%s'", nick ); 
+				sprintf( temp, "Hark!  A stranger hath joined this merry host.  For now we shall call them '%s'", pInfo->m_info.m_szConnectionDescription ); 
 				SendStringToAllIncomingClients( temp, pInfo->m_hConn ); 
 
 				// Add them to the client list, using std::map wacky syntax
