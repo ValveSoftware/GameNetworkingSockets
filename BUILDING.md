@@ -59,7 +59,7 @@ your package manager.
 
 Ubuntu/Debian:
 ```
-# apt install libprotobuf-dev protobuf-compiler libjsonrpccpp-dev libjsonrpccpp-tools
+# apt install libprotobuf-dev protobuf-compiler libjsonrpccpp-dev libjsonrpccpp-tools libczmq-dev
 ```
 
 Arch Linux:
