@@ -7,8 +7,8 @@ dependencies = [
   dependency('libjsonrpccpp-client'),
   dependency('libzmq')
 ]
-
-cxx_flags = -fexceptions
+cxx_flags = []
+cxx_flags += cxx_compiler.first_supported_argument(['-fexceptions')
 add_project_arguments(cxx_flags, language: 'cpp')
 
 executable('gateway',
