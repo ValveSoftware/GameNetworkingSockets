@@ -384,14 +384,14 @@ public:
 			std::string msg_str = std::string(static_cast<char*>(msg.data()), msg.size());
 			zmq::message_t sequence;
 			subscriber.recv(&sequence);
-			uint32 seq = static_cast<uint32>(sequence.data()), sequence.size();
+			std::uintptr_t seq = reinterpret_cast<std::uintptr_t>(sequence.data()), sequence.size();
 			if(env_str == rawTx)
 			{
-				Printf( "Received tx %s sequence %d\n", msg_str.c_str(), seq );	
+				Printf( "Received tx %s sequence %" PRIxPTR "\n", msg_str.c_str(), seq );	
 			}
 			else if(env_str == hashBlock)
 			{
-				Printf( "Received blockhash %s sequence %d\n", msg_str.c_str(), seq );	
+				Printf( "Received blockhash %s sequence %" PRIxPTR "\n", msg_str.c_str(), seq );	
 			}
 			std::this_thread::sleep_for( std::chrono::milliseconds( 10 ) );
 		}
