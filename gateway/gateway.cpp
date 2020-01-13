@@ -421,7 +421,7 @@ public:
 		// erase entries atleast 5 blocks old to keep map small
 		for (auto it = m_mapIncomingMessageHashes.cbegin(); it != m_mapIncomingMessageHashes.cend() /* not hoisted */; /* no increment */)
 		{
-			if(m_blockCount - kv.second>= 5)
+			if(m_blockCount - it->second>= 5)
 			{
 				it = m_mapIncomingMessageHashes.erase(it);
 			}
