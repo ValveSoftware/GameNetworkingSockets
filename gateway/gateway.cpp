@@ -31,7 +31,7 @@
 #endif
 #include <jsonrpccpp/client.h>
 #include <jsonrpccpp/client/connectors/httpclient.h>
-#include <zmq.hpp>
+#include <czmq.h>
 #include <stdint.h>
 #include <inttypes.h>
 using namespace jsonrpc;
@@ -366,38 +366,38 @@ class GatewayServer : private ISteamNetworkingSocketsCallbacks
 public:
 	void ReadFromCore()
 	{
-		zmq::context_t context(1);
-		zmq::socket_t subscriber(context, ZMQ_SUB);
-  		const char *rawTx = "rawtx";
-    	subscriber.setsockopt(ZMQ_SUBSCRIBE, rawTx, strlen (rawTx));
+		zsock_t *socket = zsock_new_sub(SyscoinCoreZMQURL);
+  		assert(socket);
+		const char *rawTx = "rawtx";
 		const char *hashBlock = "hashblock";
-    	subscriber.setsockopt(ZMQ_SUBSCRIBE, hashBlock, strlen (hashBlock));
-		int HWM = 0;
-		subscriber.setsockopt(ZMQ_RCVHWM, &HWM, sizeof(HWM));
-		subscriber.connect(SyscoinCoreZMQURL);
+		zsock_set_subscribe(socket, rawTx);
+		zsock_set_subscribe(socket, hashBlock);
+		zsock_set_rcvhwm(socket, 0);
+		
 		while( !g_bQuit )
 		{
-			zmq::message_t env;
-			subscriber.recv(&env);
-			std::string env_str = std::string(static_cast<char*>(env.data()), env.size());
-			Printf( "Received topic %s\n", env_str.c_str() );
-			zmq::message_t msg;
-			subscriber.recv(&msg);
-			std::string msg_str = std::string(static_cast<char*>(msg.data()), msg.size());
-			zmq::message_t sequence;
-			subscriber.recv(&sequence);
-			std::uintptr_t seq = reinterpret_cast<std::uintptr_t>(sequence.data());
-			if(env_str == rawTx)
+			char *topic;
+			char *frame;
+			zmsg_t *msg;
+			int rc = zsock_recv(socket, "sm", &topic, &msg);
+			assert(rc == 0);
+			Printf( "Received topic %s\n", topic );
+			frame = zmsg_popstr(msg);
+			if(strchr(topic, rawTx))
 			{
-				Printf( "Received tx %s sequence %" PRIxPTR "\n", msg_str.c_str(), seq );	
+				Printf( "Received tx %s\n", frame );	
 			}
-			else if(env_str == hashBlock)
+			else if(strchr(topic, hashBlock))
 			{
-				Printf( "Received blockhash %s sequence %" PRIxPTR "\n", msg_str.c_str(), seq );
+				Printf( "Received blockhash %s\n", frame );
 				ClearIncomingHashes();	
 			}
+			free(frame);
+			free(topic);
+			zmsg_destroy(&msg);
 			std::this_thread::sleep_for( std::chrono::milliseconds( 10 ) );
 		}
+		zsock_destroy(&socket);
 	}
 	void PushToCore()
 	{
