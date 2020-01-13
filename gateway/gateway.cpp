@@ -32,6 +32,7 @@
 #include <jsonrpccpp/client.h>
 #include <jsonrpccpp/client/connectors/httpclient.h>
 #include <zmq.hpp>
+#include <stdint.h>
 using namespace jsonrpc;
 using namespace std;
 
