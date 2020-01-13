@@ -46,7 +46,7 @@ bool g_bQuit = false;
 SteamNetworkingMicroseconds g_logTimeZero;
 std::vector<std::string> outgoingListPeers = {"127.0.0.1"};
 std::vector<std::string> incomingListPeers = {"127.0.0.1"};
-std::string SyscoinCoreRPCURL = "http://u:p@localhost:8369"
+std::string SyscoinCoreRPCURL = "http://u:p@localhost:8369";
 // We do this because I won't want to figure out how to cleanly shut
 // down the thread that is reading from stdin.
 static void NukeProcess( int rc )
@@ -367,8 +367,8 @@ public:
 		BatchCall bc;
 		for(ISteamNetworkingMessage* message: m_vecMessagesIncomingBuffer){
 			Json::Value param;
-			const unsigned char* msgbuf = reinterpret_cast<unsigned char*>(pIncomingMsg->m_pData); 
-			std::vector vec(msgbuf, msgbuf+pIncomingMsg->m_cbSize);
+			const unsigned char* msgbuf = reinterpret_cast<unsigned char*>(message->m_pData); 
+			std::vector<unsigned char> vec(msgbuf, msgbuf+message->m_cbSize);
   			param["rawtx"] = HexStr(vec.begin(), vec.end());
 			bc.addCall("sendrawtransaction", param, false);
 			// release memory
