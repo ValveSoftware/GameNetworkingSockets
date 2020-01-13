@@ -2,9 +2,8 @@ cxx_compiler = meson.get_compiler('cpp')
 dependencies = [
   dep_threads,
   dep_GameNetworkingSockets_static, # Declared in the other project
-  cxx_compiler.find_library('jsoncpp'),
-  cxx_compiler.find_library('jsonrpccpp-common'),
-  cxx_compiler.find_library('jsonrpccpp-client')
+  dependency('libjsoncpp', version: '>=0.10.7'),
+  dependency('libjsonrpccpp', version: '>=1.2.0')
 ]
 
 executable('gateway',
