@@ -5,7 +5,7 @@ dependencies = [
   dependency('jsoncpp'),
   dependency('libjsonrpccpp-common'),
   dependency('libjsonrpccpp-client'),
-  dependency('libzmq3')
+  dependency('zmq')
 ]
 
 
