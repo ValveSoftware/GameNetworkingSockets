@@ -419,7 +419,7 @@ public:
 			GatewayClient client(*it);
 			if ( client.m_hConnection == k_HSteamNetConnection_Invalid )
 				FatalError( "Failed to create connection" );
-			m_setOutgoingClients.insert(client); 
+			m_setOutgoingClients.emplace(&client); 
 			std::thread t(&GatewayClient::Run, &client);
 			t.join();
 		}
@@ -446,12 +446,12 @@ public:
 			// to flush this out and close gracefully.
 			m_pInterface->CloseConnection( it.first, 0, "Server Shutdown", true );
 		}
-		for ( const auto &c: m_setOutgoingClients )
+		for ( const auto *c: m_setOutgoingClients )
 		{
 			// Close the connection.  We use "linger mode" to ask SteamNetworkingSockets
 			// to flush this out and close gracefully.
-			c.m_pInterface->CloseConnection( c.m_hConnection, 0, "Server Shutdown", true );
-			c.m_hConnection = k_HSteamNetConnection_Invalid;
+			c->m_pInterface->CloseConnection( c->m_hConnection, 0, "Server Shutdown", true );
+			c->m_hConnection = k_HSteamNetConnection_Invalid;
 		}
 		m_mapIncomingClients.clear();
 		m_setOutgoingClients.clear();
@@ -477,7 +477,7 @@ private:
 	std::map< HSteamNetConnection, Client_t > m_mapIncomingClients;
 	// who's allowed to connect to you and send this server messages?
 	std::set< SteamNetworkingIPAddr> m_setIncomingWhitelist;
-	std::set< GatewayClient > m_setOutgoingClients;
+	std::set< GatewayClient *> m_setOutgoingClients;
 	// force unique messages before relaying to outgoing or processing to Syscoin Core
 	std::set< SHA256Digest_t > m_setIncomingMessageHashes;
 	std::vector<ISteamNetworkingMessage *> m_vecMessagesIncomingBuffer;
@@ -518,7 +518,7 @@ private:
 
 			SHA256Digest_t digest;
 			CCrypto::GenerateSHA256Digest( pIncomingMsg->m_pData, pIncomingMsg->m_cbSize, &digest );
-			auto ret = m_setIncomingMessageHashes.emplace(digest);
+			auto ret = m_setIncomingMessageHashes.emplace(std::move(digest));
 			if (!ret.second){
 				// message already exists
 				continue;
