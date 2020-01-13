@@ -44,8 +44,8 @@ using namespace std;
 bool g_bQuit = false;
 
 SteamNetworkingMicroseconds g_logTimeZero;
-std::vector<std::string> outgoingListPeers = {"127.0.0.1"};
-std::vector<std::string> incomingListPeers = {"127.0.0.1"};
+std::vector<std::string> outgoingListPeers = {"127.0.0.1:1234"};
+std::vector<std::string> incomingListPeers = {"127.0.0.1:5678"};
 std::string SyscoinCoreRPCURL = "http://u:p@localhost:8369";
 // We do this because I won't want to figure out how to cleanly shut
 // down the thread that is reading from stdin.
@@ -649,7 +649,7 @@ private:
 				if(m_setIncomingWhitelist.find( std::string(szAddr) ) != m_setIncomingWhitelist.end())
 				{
 					m_pInterface->CloseConnection( pInfo->m_hConn, 0, nullptr, false );
-					Printf( "Can't accept connection.  Not in whitelist..." );
+					Printf( "Can't accept connection %s.  Not in whitelist...", szAddr ); 
 					break;
 				}
 				Printf( "Connection request from %s", pInfo->m_info.m_szConnectionDescription );
