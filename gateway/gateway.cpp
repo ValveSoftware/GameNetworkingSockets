@@ -606,7 +606,7 @@ private:
 			if (!ret.second){
 				// message already exists
 				if(g_bDebug)
-					Printf( "PollIncomingMessages: Duplicate inventory hash %s\n", HexStr(vec)).c_str());
+					Printf( "PollIncomingMessages: Duplicate inventory hash %s\n", HexStr(vec).c_str());
 				continue;
 			}
 	
