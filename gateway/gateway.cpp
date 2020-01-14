@@ -448,12 +448,10 @@ public:
 		m_pInterface = SteamNetworkingSockets();
 
 		// Start listening
-		m_nPort = nPort;
-		SteamNetworkingIPAddr serverLocalAddr;
-		serverLocalAddr.Clear();
-		serverLocalAddr.m_port = m_nPort;
+		m_serverLocalAddr.Clear();
+		m_serverLocalAddr.m_port = nPort;
 		
-		m_hListenSock = m_pInterface->CreateListenSocketIP( serverLocalAddr, 0, nullptr );
+		m_hListenSock = m_pInterface->CreateListenSocketIP( m_serverLocalAddr, 0, nullptr );
 		if ( m_hListenSock == k_HSteamListenSocket_Invalid )
 			FatalError( "Failed to listen on port %d", nPort );
 		m_hPollGroup = m_pInterface->CreatePollGroup();
@@ -559,7 +557,7 @@ private:
 	HSteamNetPollGroup m_hPollGroup;
 	ISteamNetworkingSockets *m_pInterface;
 	uint32 m_blockCount;
-	uint16 m_nPort;
+	SteamNetworkingIPAddr m_serverLocalAddr;
 	struct Client_t
 	{
 		std::string m_sNick;
@@ -746,10 +744,7 @@ private:
 					Printf( "Can't accept connection %s.  Not in whitelist...", szAddr ); 
 					break;
 				}
-				SteamNetworkingIPAddr serverLocalAddr;
-				serverLocalAddr.Clear();
-				serverLocalAddr.m_port = m_nPort;
-				if(pInfo->m_hConn.m_addrRemote == serverLocalAddr)
+				if(pInfo->m_hConn.m_addrRemote == m_serverLocalAddr)
 				{
 					m_pInterface->CloseConnection( pInfo->m_hConn, 0, nullptr, false );
 					Printf( "Can't accept connection from yourself" ); 
