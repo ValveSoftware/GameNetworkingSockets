@@ -309,8 +309,6 @@ private:
 			case k_ESteamNetworkingConnectionState_ClosedByPeer:
 			case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
 			{
-				g_bQuit = true;
-
 				// Print an appropriate message
 				if ( pInfo->m_eOldState == k_ESteamNetworkingConnectionState_Connecting )
 				{
@@ -526,7 +524,7 @@ public:
 		{
 			// Close the connection.  We use "linger mode" to ask SteamNetworkingSockets
 			// to flush this out and close gracefully.
-			c->m_pInterface->CloseConnection( c->m_hConnection, 0, "Server Shutdown", true );
+			c->m_pInterface->CloseConnection( c->m_hConnection, 0, "Server Shutdown", false );
 			c->m_hConnection = k_HSteamNetConnection_Invalid;
 		}
 		if(g_bDebug)
@@ -705,7 +703,7 @@ private:
 					m_mapIncomingClients.erase( itClient );
 
 					// Send a message so everybody else knows what happened
-					SendStringToAllIncomingClients( temp );
+					SendStringToAllIncomingClients( temp, pInfo->m_hConn );
 				}
 				else
 				{
