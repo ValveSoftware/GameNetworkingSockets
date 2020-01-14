@@ -416,7 +416,8 @@ public:
 			// release memory
 			message->Release();
 		}
-		m_rpcClient->CallProcedures(bc);
+		if(!m_vecMessagesIncomingBuffer.empty())
+			m_rpcClient->CallProcedures(bc);
 		if(g_bDebug && !m_vecMessagesIncomingBuffer.empty())
 			Printf( "PushToCore: Done\n");
 		m_vecMessagesIncomingBuffer.clear();
