@@ -279,9 +279,9 @@ public:
 			std::this_thread::sleep_for( std::chrono::milliseconds( 10 ) );
 		}
 	}
-	void SendMessageToClient( const void *pData, const uint32& cbData )
+	void SendMessageToClient( const void *pData, const uint32& cbData, HSteamNetConnection except = k_HSteamNetConnection_Invalid)
 	{
-		if(m_hConnection != k_HSteamNetConnection_Invalid)
+		if(m_hConnection != except)
 			m_pInterface->SendMessageToConnection( m_hConnection, pData, cbData, k_nSteamNetworkingSend_UnreliableNoDelay, nullptr );
 	}
 	HSteamNetConnection m_hConnection;
@@ -576,11 +576,11 @@ private:
 				SendStringToClient( c.first, str );
 		}
 	}
-	void SendMessageToAllOutgoingClients( const void *pData, const uint32& cbData )
+	void SendMessageToAllOutgoingClients( const void *pData, const uint32& cbData, HSteamNetConnection except = k_HSteamNetConnection_Invalid )
 	{
 		for ( auto *c: m_setOutgoingClients )
 		{
-			c->SendMessageToClient(pData, cbData);
+			c->SendMessageToClient(pData, cbData, except);
 		}
 	}
 
@@ -613,7 +613,7 @@ private:
 			if(g_bDebug)
 				Printf( "PollIncomingMessages: Sending inventory to all outgoing clients\n");
 			// sends to outgoing peers, queue up on the wire as fast as possible
-			SendMessageToAllOutgoingClients( pIncomingMsg->m_pData,  pIncomingMsg->m_cbSize );
+			SendMessageToAllOutgoingClients( pIncomingMsg->m_pData,  pIncomingMsg->m_cbSize, pIncomingMsg->m_conn  );
 			
 			m_vecMessagesIncomingBuffer.emplace_back(pIncomingMsg);
 			
