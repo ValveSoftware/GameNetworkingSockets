@@ -366,22 +366,22 @@ public:
 	{
 		if(g_bDebug)
 			Printf( "ReadFromCore: Setting up ZMQ\n" );
-		zsock_t *socket = zsock_new_sub(SyscoinCoreZMQURL.c_str(), "");
+		zsock_t *socket = zsock_new_sub(SyscoinCoreZMQURL.c_str(), NULL);
   		assert(socket);
 		const char *rawTx = "rawtx";
 		const char *hashBlock = "hashblock";
 		zsock_set_subscribe(socket, rawTx);
 		zsock_set_subscribe(socket, hashBlock);
-		zsock_set_rcvhwm(socket, 0);
+		zsock_set_unbounded(socket); // hwm = 0
 		if(g_bDebug)
 			Printf( "ReadFromCore: Setup complete\n" );
 		while( !g_bQuit )
 		{
 			char *topic;
-			char *pData;
+			void *pData;
 			uint32 cbData;
 			uint32 seq;
-			int rc = zsock_recv(socket, "sp44", &topic, &pData, &cbData, &seq);
+			int rc = zsock_recv(socket, "spuu", &topic, &pData, &cbData, &seq);
 			assert(rc == 0);
 			if(g_bDebug)
 				Printf( "ReadFromCore: Received topic %s\n", topic );
