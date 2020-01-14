@@ -471,7 +471,8 @@ public:
 			SteamNetworkingIPAddr addrObj;
 			if(!addrObj.ParseString(peer.c_str())){
 				if(g_bDebug)
-					Printf( "Could not parse incoming peer %s\n" , addr.c_str());
+					Printf( "Could not parse incoming peer %s\n" , peer.c_str());
+				continue;
 			}
 			char szAddr[ SteamNetworkingIPAddr::k_cchMaxString ];
 			addrObj.ToString(szAddr, sizeof(szAddr), false);
