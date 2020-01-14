@@ -485,14 +485,14 @@ public:
 			if(g_bDebug)
 				Printf( "Starting client thread for %s\n" , addr.c_str());
 			std::thread t(&GatewayClient::Run, &client);
-			t.join();
+			t.detach();
 			if(g_bDebug)
 				Printf( "Started client thread for %s\n" , addr.c_str());
 		}
 		if(g_bDebug)
 			Printf( "Starting ZMQ thread\n");		
 		std::thread t(&GatewayServer::ReadFromCore, this);
-		t.join();
+		t.detach();
 		if(g_bDebug)
 			Printf( "Started ZMQ thread\n");		
 		while ( !g_bQuit )
