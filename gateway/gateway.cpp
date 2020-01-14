@@ -601,7 +601,7 @@ private:
 			CCrypto::GenerateSHA256Digest( pIncomingMsg->m_pData, (size_t)pIncomingMsg->m_cbSize, &digest );
 			std::vector<unsigned char> vec(digest, digest+sizeof(digest));
 			if(g_bDebug)
-				Printf( "PollIncomingMessages: Received inventory of %d bytes, hash %s\n", pIncomingMsg->m_cbSize, HexStr(vec)).c_str());
+				Printf( "PollIncomingMessages: Received inventory of %d bytes, hash %s\n", pIncomingMsg->m_cbSize, HexStr(vec).c_str());
 			auto ret = m_mapIncomingMessageHashes.emplace(std::move(vec), m_blockCount);
 			if (!ret.second){
 				// message already exists
