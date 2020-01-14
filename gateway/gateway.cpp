@@ -44,7 +44,7 @@ using namespace std;
 /////////////////////////////////////////////////////////////////////////////
 
 bool g_bQuit = false;
-
+bool g_bDebug = true;
 SteamNetworkingMicroseconds g_logTimeZero;
 std::vector<std::string> outgoingListPeers = {"127.0.0.1:1234"};
 std::vector<std::string> incomingListPeers = {"127.0.0.1:5678"};
@@ -366,6 +366,8 @@ class GatewayServer : private ISteamNetworkingSocketsCallbacks
 public:
 	void ReadFromCore()
 	{
+		if(g_bDebug)
+			Printf( "ReadFromCore: Setting up ZMQ\n" );
 		zsock_t *socket = zsock_new_sub(SyscoinCoreZMQURL.c_str(), "");
   		assert(socket);
 		const char *rawTx = "rawtx";
@@ -373,7 +375,8 @@ public:
 		zsock_set_subscribe(socket, rawTx);
 		zsock_set_subscribe(socket, hashBlock);
 		zsock_set_rcvhwm(socket, 0);
-		
+		if(g_bDebug)
+			Printf( "ReadFromCore: Setup complete\n" );
 		while( !g_bQuit )
 		{
 			char *topic;
@@ -382,15 +385,18 @@ public:
 			uint32 seq;
 			int rc = zsock_recv(socket, "sp44", &topic, &pData, &cbData, &seq);
 			assert(rc == 0);
-			Printf( "Received topic %s\n", topic );
+			if(g_bDebug)
+				Printf( "ReadFromCore: Received topic %s\n", topic );
 			if(strcmp(topic, rawTx) == 0)
 			{
-				Printf( "Received tx in bytes %d\n", cbData );
+				if(g_bDebug)
+					Printf( "ReadFromCore: Received tx in bytes %d, relaying to all outgoing clients\n", cbData );
 				SendMessageToAllOutgoingClients(pData, cbData);	
 			}
 			else if(strcmp(topic, hashBlock) == 0)
 			{
-				Printf( "Received blockhash in bytes %d\n", cbData );
+				if(g_bDebug)
+					Printf( "ReadFromCore: Received blockhash in bytes %d\n", cbData );
 				ClearIncomingHashes();	
 			}
 			free(topic);
@@ -399,6 +405,8 @@ public:
 	}
 	void PushToCore()
 	{
+		if(g_bDebug && !m_vecMessagesIncomingBuffer.empty())
+			Printf( "PushToCore: Pushing %d inventory items to Syscoin Core\n", m_vecMessagesIncomingBuffer.size());
 		// batch process call to Syscoin Core to send and accept transaction in mempool
 		BatchCall bc;
 		for(ISteamNetworkingMessage* message: m_vecMessagesIncomingBuffer){
@@ -411,6 +419,8 @@ public:
 			message->Release();
 		}
 		m_rpcClient->CallProcedures(bc);
+		if(g_bDebug && !m_vecMessagesIncomingBuffer.empty())
+			Printf( "PushToCore: Done\n");
 		m_vecMessagesIncomingBuffer.clear();
 	}
 	void ClearIncomingHashes()
@@ -419,8 +429,10 @@ public:
 		// erase entries atleast 5 blocks old to keep map small
 		for (auto it = m_mapIncomingMessageHashes.cbegin(); it != m_mapIncomingMessageHashes.cend() /* not hoisted */; /* no increment */)
 		{
-			if(m_blockCount - it->second>= 5)
+			if(m_blockCount - it->second >= 5)
 			{
+				if(g_bDebug)
+					Printf( "ClearIncomingHashes: Removing hash %s that was %d blocks hold\n", HexStr(it->first).c_str(), m_blockCount - it->second);
 				it = m_mapIncomingMessageHashes.erase(it);
 			}
 			else
@@ -449,6 +461,7 @@ public:
 		Printf( "Server listening on port %d\n", nPort );
 		HttpClient client(SyscoinCoreRPCURL);
   		m_rpcClient = new Client(client);
+		Printf( "Syscoin RPC client on %s\n" , SyscoinCoreRPCURL.c_str());
 		// parse outgoing peer list, for relays incoming messages from Syscoin Core or from incoming peer
 		std::set< std::string > setOutgoingWhitelist;
 		for(const auto& peer: outgoingListPeers){
@@ -462,17 +475,28 @@ public:
 		for ( const auto &addr: setOutgoingWhitelist )
 		{
 			SteamNetworkingIPAddr addrObj;
-			if(!addrObj.ParseString(addr.c_str()))
+			if(!addrObj.ParseString(addr.c_str())){
+				if(g_bDebug)
+					Printf( "Could not parse outgoing peer %s\n" , addr.c_str());
 				continue;
+			}
 			GatewayClient client(addrObj);
 			if ( client.m_hConnection == k_HSteamNetConnection_Invalid )
 				FatalError( "Failed to create connection" );
 			m_setOutgoingClients.emplace(&client); 
+			if(g_bDebug)
+				Printf( "Starting client thread for %s\n" , addr.c_str());
 			std::thread t(&GatewayClient::Run, &client);
 			t.join();
+			if(g_bDebug)
+				Printf( "Started client thread for %s\n" , addr.c_str());
 		}
+		if(g_bDebug)
+			Printf( "Starting ZMQ thread\n");		
 		std::thread t(&GatewayServer::ReadFromCore, this);
 		t.join();
+		if(g_bDebug)
+			Printf( "Started ZMQ thread\n");		
 		while ( !g_bQuit )
 		{
 			PollIncomingMessages();
@@ -496,6 +520,8 @@ public:
 			// to flush this out and close gracefully.
 			m_pInterface->CloseConnection( it.first, 0, "Server Shutdown", true );
 		}
+		if(g_bDebug)
+			Printf( "Shutdown outgoing connections\n");
 		for ( auto *c: m_setOutgoingClients )
 		{
 			// Close the connection.  We use "linger mode" to ask SteamNetworkingSockets
@@ -503,6 +529,8 @@ public:
 			c->m_pInterface->CloseConnection( c->m_hConnection, 0, "Server Shutdown", true );
 			c->m_hConnection = k_HSteamNetConnection_Invalid;
 		}
+		if(g_bDebug)
+			Printf( "Close sockets and clean up memory\n");		
 		m_mapIncomingClients.clear();
 		m_setOutgoingClients.clear();
 		m_setIncomingWhitelist.clear();
@@ -568,17 +596,22 @@ private:
 				FatalError( "Error checking for messages" );
 			assert( numMsgs == 1 && pIncomingMsg );
 			assert( m_mapIncomingClients.find( pIncomingMsg->m_conn ) != m_mapIncomingClients.end() );
-
+		
 			SHA256Digest_t digest;
 			CCrypto::GenerateSHA256Digest( pIncomingMsg->m_pData, (size_t)pIncomingMsg->m_cbSize, &digest );
 			std::vector<unsigned char> vec(digest, digest+sizeof(digest));
+			if(g_bDebug)
+				Printf( "PollIncomingMessages: Received inventory of %d bytes, hash %s\n", pIncomingMsg->m_cbSize, HexStr(vec)).c_str());
 			auto ret = m_mapIncomingMessageHashes.emplace(std::move(vec), m_blockCount);
 			if (!ret.second){
 				// message already exists
+				if(g_bDebug)
+					Printf( "PollIncomingMessages: Duplicate inventory hash %s\n", HexStr(vec)).c_str());
 				continue;
 			}
 	
-
+			if(g_bDebug)
+				Printf( "PollIncomingMessages: Sending inventory to all outgoing clients\n");
 			// sends to outgoing peers, queue up on the wire as fast as possible
 			SendMessageToAllOutgoingClients( pIncomingMsg->m_pData,  pIncomingMsg->m_cbSize );
 			
@@ -782,7 +815,8 @@ R"usage(Usage:
 int main( int argc, const char *argv[] )
 {
 	int nPort = DEFAULT_SERVER_PORT;
-
+	if(g_bDebug)
+		Printf( "Starting server in Debug mode\n" );
 	for ( int i = 1 ; i < argc ; ++i )
 	{
 		if ( !strcmp( argv[i], "--port" ) )
@@ -802,12 +836,14 @@ int main( int argc, const char *argv[] )
 	// Create client and server sockets
 	InitSteamDatagramConnectionSockets();
 	LocalUserInput_Init();
-
+	if(g_bDebug)
+		Printf( "Trying to run server\n" );
 	GatewayServer server;
 	server.Run( (uint16)nPort );
 
 	ShutdownSteamDatagramConnectionSockets();
-
+	if(g_bDebug)
+		Printf( "Shutting down...\n" );
 	// Ug, why is there no simple solution for portable, non-blocking console user input?
 	// Just nuke the process
 	//LocalUserInput_Kill();
