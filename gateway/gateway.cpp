@@ -279,10 +279,10 @@ public:
 			std::this_thread::sleep_for( std::chrono::milliseconds( 10 ) );
 		}
 	}
-	void SendMessageToClient( const void *pData, const uint32& cbData, HSteamNetConnection except = k_HSteamNetConnection_Invalid)
+	void SendMessageToClient( const char *msg, HSteamNetConnection except = k_HSteamNetConnection_Invalid)
 	{
 		if(m_hConnection != except)
-			m_pInterface->SendMessageToConnection( m_hConnection, pData, cbData, k_nSteamNetworkingSend_UnreliableNoDelay, nullptr );
+			m_pInterface->SendMessageToConnection( m_hConnection, msg, (uint32)strlen(msg), k_nSteamNetworkingSend_UnreliableNoDelay, nullptr );
 	}
 	HSteamNetConnection m_hConnection;
 	ISteamNetworkingSockets *m_pInterface;
@@ -378,26 +378,25 @@ public:
 		while( !g_bQuit )
 		{
 			char *topic;
-			void *pData;
-			uint32 cbData;
-			uint32 seq;
-			int rc = zsock_recv(socket, "spuu", &topic, &pData, &cbData, &seq);
+			char *msg;
+			int rc = zsock_recv(socket, "ss", &topic, &msg);
 			assert(rc == 0);
 			if(g_bDebug)
 				Printf( "ReadFromCore: Received topic %s\n", topic );
 			if(strcmp(topic, rawTx) == 0)
 			{
 				if(g_bDebug)
-					Printf( "ReadFromCore: Received tx in bytes %d, relaying to all outgoing clients\n", cbData );
-				SendMessageToAllOutgoingClients(pData, cbData);	
+					Printf( "ReadFromCore: Received tx in bytes %d, relaying to all outgoing clients\n", strlen(msg) );
+				SendMessageToAllOutgoingClients(msg);	
 			}
 			else if(strcmp(topic, hashBlock) == 0)
 			{
 				if(g_bDebug)
-					Printf( "ReadFromCore: Received blockhash in bytes %d\n", cbData );
+					Printf( "ReadFromCore: Received blockhash in bytes %d\n", strlen(msg) );
 				ClearIncomingHashes();	
 			}
 			free(topic);
+			free(msg);
 		}
 		zsock_destroy(&socket);
 	}
@@ -584,11 +583,11 @@ private:
 				SendStringToClient( c.first, str );
 		}
 	}
-	void SendMessageToAllOutgoingClients( const void *pData, const uint32& cbData, HSteamNetConnection except = k_HSteamNetConnection_Invalid )
+	void SendMessageToAllOutgoingClients( const char *msg, HSteamNetConnection except = k_HSteamNetConnection_Invalid )
 	{
 		for ( auto *c: m_setOutgoingClients )
 		{
-			c->SendMessageToClient(pData, cbData, except);
+			c->SendMessageToClient(msg, except);
 		}
 	}
 
@@ -621,7 +620,7 @@ private:
 			if(g_bDebug)
 				Printf( "PollIncomingMessages: Sending inventory to all outgoing clients\n");
 			// sends to outgoing peers, queue up on the wire as fast as possible
-			SendMessageToAllOutgoingClients( pIncomingMsg->m_pData,  pIncomingMsg->m_cbSize, pIncomingMsg->m_conn  );
+			//SendMessageToAllOutgoingClients( pIncomingMsg->m_pData,  pIncomingMsg->m_cbSize, pIncomingMsg->m_conn  );
 			
 			m_vecMessagesIncomingBuffer.emplace_back(pIncomingMsg);
 			
