@@ -378,25 +378,28 @@ public:
 		while( !g_bQuit )
 		{
 			char *topic;
-			char *msg;
-			int rc = zsock_recv(socket, "ss", &topic, &msg);
+			char *frame;
+			zmsg_t *msg;
+			int rc = zsock_recv(socket, "sm", &topic, &msg);
 			assert(rc == 0);
 			if(g_bDebug)
 				Printf( "ReadFromCore: Received topic %s\n", topic );
+			frame = zmsg_popstr(msg);
 			if(strcmp(topic, rawTx) == 0)
 			{
 				if(g_bDebug)
-					Printf( "ReadFromCore: Received tx in bytes %d, relaying to all outgoing clients\n", strlen(msg) );
-				SendMessageToAllOutgoingClients(msg);	
+					Printf( "ReadFromCore: Received tx in bytes %d, relaying to all outgoing clients\n", strlen(frame) );
+				SendMessageToAllOutgoingClients(frame);	
 			}
 			else if(strcmp(topic, hashBlock) == 0)
 			{
 				if(g_bDebug)
-					Printf( "ReadFromCore: Received blockhash in bytes %d\n", strlen(msg) );
+					Printf( "ReadFromCore: Received blockhash in bytes %d\n", strlen(frame) );
 				ClearIncomingHashes();	
 			}
+			free(frame);
 			free(topic);
-			free(msg);
+			zmsg_destroy(&msg);	
 		}
 		zsock_destroy(&socket);
 	}
