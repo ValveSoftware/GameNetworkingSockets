@@ -468,7 +468,14 @@ public:
 		}
 		// parse incoming peer list and save it to whitelist for allowed peers to connect to this server
 		for(const auto& peer: incomingListPeers){
-			m_setIncomingWhitelist.insert(peer);
+			SteamNetworkingIPAddr addrObj;
+			if(!addrObj.ParseString(peer.c_str())){
+				if(g_bDebug)
+					Printf( "Could not parse incoming peer %s\n" , addr.c_str());
+			}
+			char szAddr[ SteamNetworkingIPAddr::k_cchMaxString ];
+			addrObj.ToString(szAddr, sizeof(szAddr), false);
+			m_setIncomingWhitelist.insert(std::string(szAddr));
 		}
 		
 		for ( const auto &addr: setOutgoingWhitelist )
@@ -728,8 +735,8 @@ private:
 
 				// if not in our whitelist we close connection
 				char szAddr[ SteamNetworkingIPAddr::k_cchMaxString ];
-				pInfo->m_info.m_addrRemote.ToString(szAddr, sizeof(szAddr), true);
-				if(m_setIncomingWhitelist.find( std::string(szAddr) ) != m_setIncomingWhitelist.end())
+				pInfo->m_info.m_addrRemote.ToString(szAddr, sizeof(szAddr), false);
+				if(m_setIncomingWhitelist.find( std::string(szAddr) ) == m_setIncomingWhitelist.end())
 				{
 					m_pInterface->CloseConnection( pInfo->m_hConn, 0, nullptr, false );
 					Printf( "Can't accept connection %s.  Not in whitelist...", szAddr ); 
