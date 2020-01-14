@@ -744,7 +744,7 @@ private:
 					Printf( "Can't accept connection %s.  Not in whitelist...", szAddr ); 
 					break;
 				}
-				if(pInfo->m_hConn.m_addrRemote == m_serverLocalAddr)
+				if(pInfo->m_info.m_addrRemote == m_serverLocalAddr)
 				{
 					m_pInterface->CloseConnection( pInfo->m_hConn, 0, nullptr, false );
 					Printf( "Can't accept connection from yourself" ); 
