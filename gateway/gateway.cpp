@@ -47,7 +47,7 @@ bool g_bQuit = false;
 bool g_bDebug = true;
 SteamNetworkingMicroseconds g_logTimeZero;
 std::vector<std::string> outgoingListPeers = {"127.0.0.1:1234"};
-std::vector<std::string> incomingListPeers = {"127.0.0.1:5678"};
+std::vector<std::string> incomingListPeers = {"127.0.0.1"};
 std::string SyscoinCoreRPCURL = "http://u:p@localhost:8369";
 std::string SyscoinCoreZMQURL = "tcp://127.0.0.1:28332";
 // We do this because I won't want to figure out how to cleanly shut
@@ -448,9 +448,11 @@ public:
 		m_pInterface = SteamNetworkingSockets();
 
 		// Start listening
+		m_nPort = nPort;
 		SteamNetworkingIPAddr serverLocalAddr;
 		serverLocalAddr.Clear();
-		serverLocalAddr.m_port = nPort;
+		serverLocalAddr.m_port = m_nPort;
+		
 		m_hListenSock = m_pInterface->CreateListenSocketIP( serverLocalAddr, 0, nullptr );
 		if ( m_hListenSock == k_HSteamListenSocket_Invalid )
 			FatalError( "Failed to listen on port %d", nPort );
@@ -557,6 +559,7 @@ private:
 	HSteamNetPollGroup m_hPollGroup;
 	ISteamNetworkingSockets *m_pInterface;
 	uint32 m_blockCount;
+	uint16 m_nPort;
 	struct Client_t
 	{
 		std::string m_sNick;
@@ -742,6 +745,15 @@ private:
 					m_pInterface->CloseConnection( pInfo->m_hConn, 0, nullptr, false );
 					Printf( "Can't accept connection %s.  Not in whitelist...", szAddr ); 
 					break;
+				}
+				SteamNetworkingIPAddr serverLocalAddr;
+				serverLocalAddr.Clear();
+				serverLocalAddr.m_port = m_nPort;
+				if(pInfo->m_hConn.m_addrRemote == serverLocalAddr)
+				{
+					m_pInterface->CloseConnection( pInfo->m_hConn, 0, nullptr, false );
+					Printf( "Can't accept connection from yourself" ); 
+					break;	
 				}
 				Printf( "Connection request from %s", pInfo->m_info.m_szConnectionDescription );
 
