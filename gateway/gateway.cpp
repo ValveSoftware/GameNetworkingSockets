@@ -377,7 +377,6 @@ public:
 			Printf( "ReadFromCore: Setup complete\n" );
 		while( !g_bQuit )
 		{
-			char *topic;
 			zmsg_t *msg = zmsg_recv (socket);
 			assert(msg);
 			char *topic = zmsg_popstr (msg);
