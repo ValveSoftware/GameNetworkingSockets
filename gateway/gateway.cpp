@@ -478,7 +478,7 @@ public:
 			FatalError( "Failed to listen on port %d", nPort );
 		Printf( "Server listening on port %d\n", nPort );
 		HttpClient client(SyscoinCoreRPCURL);
-  		m_rpcClient = new Client(client);
+  		m_rpcClient = new Client(client, jsonrpc::JSONRPC_CLIENT_V1);
 		Printf( "Syscoin RPC client on %s\n" , SyscoinCoreRPCURL.c_str());
 		// parse outgoing peer list, for relays incoming messages from Syscoin Core or from incoming peer
 		std::set< std::string > setOutgoingWhitelist;
