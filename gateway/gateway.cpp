@@ -437,9 +437,10 @@ public:
 	}
 	void StartGatewayThreads()
 	{
-		if(m_rpcClient == NULL)
+		if(m_rpcClient != NULL)
 		{
 			Printf( "Gateway already started!\n");
+			return;
 		}
 		HttpClient client(SyscoinCoreRPCURL);
   		m_rpcClient = new Client(client, jsonrpc::JSONRPC_CLIENT_V1);
