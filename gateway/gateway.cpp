@@ -279,16 +279,6 @@ private:
 
 	virtual void OnSteamNetConnectionStatusChanged( SteamNetConnectionStatusChangedCallback_t *pInfo ) override
 	{
-		bool found = false;
-		for(const GatewayClient* client:m_setOutgoingClients)
-		{
-			if(client->m_hConnection == pInfo->m_hConn)
-			{
-				found = true;
-				break;
-			}
-		}
-		assert( found );
 		assert( m_hConnection != k_HSteamNetConnection_Invalid );
 
 		// What's the state of the connection?
@@ -344,7 +334,6 @@ private:
 		}
 	}
 };
-std::set< GatewayClient *> m_setOutgoingClients;
 /////////////////////////////////////////////////////////////////////////////
 //
 // GatewayServer
@@ -578,6 +567,7 @@ private:
 	};
 
 	std::map< HSteamNetConnection, Client_t > m_mapIncomingClients;
+	std::set< GatewayClient *> m_setOutgoingClients;
 	// who's allowed to connect to you and send this server messages?
 	std::set< std::string > m_setIncomingWhitelist;
 	// force unique messages before relaying to outgoing or processing to Syscoin Core
