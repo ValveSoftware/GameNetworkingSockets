@@ -368,6 +368,7 @@ public:
 	// note we use memcmp to do a comparison check of the topic, because we cast the frame data to char * we can do this, the czmq call's all allocate objects
 	// which need to be free'd making them less efficient than simply getting pointers. Note that SendMessageToAllOutgoingClients will internally copy and allocate data
 	// before it puts it on the wire for UDP, so in entire process there should only be two allocations, zmsg_t here (which is free'd by zmsg_destroy) and the message data inside of the GameNetworkingSockets library
+	// Note: We don't use libzmq (which is C++) because that library throws exceptions and we explicitely compile GameNetworkingSockets with -fno-exceptions for optimization
 	void ReadFromCore()
 	{
 		if(g_bDebug)
@@ -383,7 +384,7 @@ public:
 		{
 			zmsg_t *msg = zmsg_recv (socket);
 			assert(msg);
-			 //  Filter a signal that may come from a dying actor
+			 //  Filter a signal that may come from a dying actor, taken from czmq zsock_recv() which is a helper but allocates objects we can get around using zmq directly with C
 			if (zmsg_signal (msg) >= 0) {
 				zmsg_destroy (&msg);
 				if(g_bDebug)
