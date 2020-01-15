@@ -412,7 +412,7 @@ public:
 				const unsigned char* msgbuf = reinterpret_cast<unsigned char*>(pData); 
 				std::vector<unsigned char> vec(msgbuf, msgbuf+size);
 				param["blockhash"] = HexStr(vec);
-				bc.addCall("sendrawtransaction", param, false);
+				bc.addCall("getblock", param, false);
 				BatchResponse response = m_rpcClient->CallProcedures(bc);
 				Printf( "ReadFromCore: batch call error: %d %s\n", response.hasErrors()? 1:0, response.getErrorMessage(1).c_str());
 			}
