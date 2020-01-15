@@ -410,7 +410,7 @@ public:
 			// release memory
 			message->Release();
 		}
-		if(!m_vecMessagesIncomingBuffer.empty()){
+		if(!m_vecMessagesIncomingBuffer.empty() && m_rpcClient){
 			BatchResponse response = m_rpcClient->CallProcedures(bc);
 			if(g_bDebug)
 				Printf( "PushToCore: batch call error: %d err: %s\n", response.hasErrors()? 1:0, response.getErrorMessage(1).c_str());
@@ -437,24 +437,12 @@ public:
 			}
 		}
 	}
-	void Run( uint16 nPort )
+	void StartGatewayThreads()
 	{
-		m_blockCount = 0;
-		// Select instance to use.  For now we'll always use the default.
-		// But we could use SteamGameServerNetworkingSockets() on Steam.
-		m_pInterface = SteamNetworkingSockets();
-
-		// Start listening
-		m_serverLocalAddr.Clear();
-		m_serverLocalAddr.m_port = nPort;
-		
-		m_hListenSock = m_pInterface->CreateListenSocketIP( m_serverLocalAddr, 0, nullptr );
-		if ( m_hListenSock == k_HSteamListenSocket_Invalid )
-			FatalError( "Failed to listen on port %d", nPort );
-		m_hPollGroup = m_pInterface->CreatePollGroup();
-		if ( m_hPollGroup == k_HSteamNetPollGroup_Invalid )
-			FatalError( "Failed to listen on port %d", nPort );
-		Printf( "Server listening on port %d\n", nPort );
+		if(m_rpcClient == NULL)
+		{
+			Printf( "Gateway already started!\n");
+		}
 		HttpClient client(SyscoinCoreRPCURL);
   		m_rpcClient = new Client(client, jsonrpc::JSONRPC_CLIENT_V1);
 		Printf( "Syscoin RPC client on %s\n" , SyscoinCoreRPCURL.c_str());
@@ -462,18 +450,6 @@ public:
 		std::set< std::string > setOutgoingWhitelist;
 		for(const auto& peer: outgoingListPeers){
 			setOutgoingWhitelist.insert(peer);
-		}
-		// parse incoming peer list and save it to whitelist for allowed peers to connect to this server
-		for(const auto& peer: incomingListPeers){
-			SteamNetworkingIPAddr addrObj;
-			if(!addrObj.ParseString(peer.c_str())){
-				if(g_bDebug)
-					Printf( "Could not parse incoming peer %s\n" , peer.c_str());
-				continue;
-			}
-			char szAddr[ SteamNetworkingIPAddr::k_cchMaxString ];
-			addrObj.ToString(szAddr, sizeof(szAddr), false);
-			m_setIncomingWhitelist.insert(std::string(szAddr));
 		}
 		
 		for ( const auto &addr: setOutgoingWhitelist )
@@ -500,7 +476,39 @@ public:
 		std::thread t(&GatewayServer::ReadFromCore, this);
 		t.detach();
 		if(g_bDebug)
-			Printf( "Started ZMQ thread\n");		
+			Printf( "Started ZMQ thread\n");
+	}
+	void Run( uint16 nPort )
+	{
+		m_blockCount = 0;
+		m_rpcClient = NULL;
+		// Select instance to use.  For now we'll always use the default.
+		// But we could use SteamGameServerNetworkingSockets() on Steam.
+		m_pInterface = SteamNetworkingSockets();
+
+		// Start listening
+		m_serverLocalAddr.Clear();
+		m_serverLocalAddr.m_port = nPort;
+		
+		m_hListenSock = m_pInterface->CreateListenSocketIP( m_serverLocalAddr, 0, nullptr );
+		if ( m_hListenSock == k_HSteamListenSocket_Invalid )
+			FatalError( "Failed to listen on port %d", nPort );
+		m_hPollGroup = m_pInterface->CreatePollGroup();
+		if ( m_hPollGroup == k_HSteamNetPollGroup_Invalid )
+			FatalError( "Failed to listen on port %d", nPort );
+		Printf( "Server listening on port %d\n", nPort );
+		// parse incoming peer list and save it to whitelist for allowed peers to connect to this server
+		for(const auto& peer: incomingListPeers){
+			SteamNetworkingIPAddr addrObj;
+			if(!addrObj.ParseString(peer.c_str())){
+				if(g_bDebug)
+					Printf( "Could not parse incoming peer %s\n" , peer.c_str());
+				continue;
+			}
+			char szAddr[ SteamNetworkingIPAddr::k_cchMaxString ];
+			addrObj.ToString(szAddr, sizeof(szAddr), false);
+			m_setIncomingWhitelist.insert(std::string(szAddr));
+		}
 		while ( !g_bQuit )
 		{
 			PollIncomingMessages();
@@ -641,9 +649,14 @@ private:
 				Printf( "Shutting down server" );
 				break;
 			}
+			else if ( strcmp( cmd.c_str(), "/connect" ) == 0 )
+			{
+				StartGatewayThreads();
+				break;
+			}
 
 			// That's the only command we support
-			Printf( "The server only knows one command: '/quit'" );
+			Printf( "The server only knows two commands: '/quit' or '/connect" );
 		}
 	}
 
