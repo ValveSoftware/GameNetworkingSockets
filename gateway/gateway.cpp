@@ -406,7 +406,15 @@ public:
 			{
 				if(g_bDebug)
 					Printf( "ReadFromCore: Received blockhash in bytes %d\n", size );
-				ClearIncomingHashes();	
+				ClearIncomingHashes();
+				BatchCall bc;
+				Json::Value param;
+				const unsigned char* msgbuf = reinterpret_cast<unsigned char*>(message->m_pData); 
+				std::vector<unsigned char> vec(msgbuf, msgbuf+message->m_cbSize);
+				param["blockhash"] = HexStr(vec);
+				bc.addCall("getblock", param, false);
+				BatchResponse response = m_rpcClient->CallProcedures(bc);
+				Printf( "ReadFromCore: batch call error: %d\n", response.hasErrors()? 1:0);
 			}
 			zmsg_destroy (&msg);
 		}
@@ -422,7 +430,7 @@ public:
 			Json::Value param;
 			const unsigned char* msgbuf = reinterpret_cast<unsigned char*>(message->m_pData); 
 			std::vector<unsigned char> vec(msgbuf, msgbuf+message->m_cbSize);
-  			param["rawtx"] = HexStr(vec);
+  			param["hexstring"] = HexStr(vec);
 			bc.addCall("sendrawtransaction", param, false);
 			// release memory
 			message->Release();
