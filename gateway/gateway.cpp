@@ -368,10 +368,8 @@ public:
 			Printf( "ReadFromCore: Setting up ZMQ\n" );
 		zsock_t *socket = zsock_new_sub(SyscoinCoreZMQURL.c_str(), NULL);
   		assert(socket);
-		const char *rawTx = "rawtx";
-		const char *hashBlock = "hashblock";
-		zsock_set_subscribe(socket, rawTx);
-		zsock_set_subscribe(socket, hashBlock);
+		zsock_set_subscribe(socket, "rawtx");
+		zsock_set_subscribe(socket, "hashblock");
 		zsock_set_unbounded(socket); // hwm = 0
 		if(g_bDebug)
 			Printf( "ReadFromCore: Setup complete\n" );
@@ -379,26 +377,33 @@ public:
 		{
 			zmsg_t *msg = zmsg_recv (socket);
 			assert(msg);
-			char *topic = zmsg_popstr (msg);
-			zframe_t *frame = zmsg_next (msg);
+			 //  Filter a signal that may come from a dying actor
+			if (zmsg_signal (msg) >= 0) {
+				zmsg_destroy (&msg);
+				if(g_bDebug)
+					Printf( "ReadFromCore: Dying actor, quitting zmq loop...\n" );
+				break;
+			}
+			zframe_t *frame = zmsg_first (msg);
+			char *topic = (char*)zframe_data (frame);
+			frame = zmsg_next (msg);
 			void *pData = zframe_data (frame);
 			size_t size = zframe_size (frame);
 			if(g_bDebug)
 				Printf( "ReadFromCore: Received topic %s\n", topic );
-			if(strcmp(topic, rawTx) == 0)
+			if(memcmp(topic, "rawtx", 5) == 0)
 			{
 				if(g_bDebug)
 					Printf( "ReadFromCore: Received tx in bytes %d, relaying to all outgoing clients\n", size );
 				SendMessageToAllOutgoingClients(pData, size);	
 			}
-			else if(strcmp(topic, hashBlock) == 0)
+			else if(memcmp(topic, "hashblock", 9) == 0)
 			{
 				if(g_bDebug)
 					Printf( "ReadFromCore: Received blockhash in bytes %d\n", size );
 				ClearIncomingHashes();	
 			}
 			zmsg_destroy (&msg);
-			free(topic);
 		}
 		zsock_destroy(&socket);
 	}
