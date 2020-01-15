@@ -574,7 +574,7 @@ private:
 	};
 
 	std::map< HSteamNetConnection, Client_t > m_mapIncomingClients;
-	std::set< GatewayClient> m_setOutgoingClients;
+	std::set< GatewayClient*> m_setOutgoingClients;
 	// who's allowed to connect to you and send this server messages?
 	std::set< std::string > m_setIncomingWhitelist;
 	// force unique messages before relaying to outgoing or processing to Syscoin Core
