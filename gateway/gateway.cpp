@@ -362,6 +362,12 @@ private:
 class GatewayServer : private ISteamNetworkingSocketsCallbacks
 {
 public:
+	// efficient implementation of subscribing to zmq publisher from Syscoin Core
+	// it does not allocate memory for topic/message, passes it straight through to SendMessageToAllOutgoingClients for tx
+	// and for block we just need indication it was a new block so we can clear incoming message hashes that are received tx's from other gateway peers
+	// note we use memcmp to do a comparison check of the topic, because we cast the frame data to char * we can do this, the czmq call's all allocate objects
+	// which need to be free'd making them less efficient than simply getting pointers. Note that SendMessageToAllOutgoingClients will internally copy and allocate data
+	// before it puts it on the wire for UDP, so in entire process there should only be two allocations, zmsg_t here (which is free'd by zmsg_destroy) and the message data inside of the GameNetworkingSockets library
 	void ReadFromCore()
 	{
 		if(g_bDebug)
