@@ -46,7 +46,7 @@ using namespace std;
 bool g_bQuit = false;
 bool g_bDebug = true;
 SteamNetworkingMicroseconds g_logTimeZero;
-std::vector<std::string> outgoingListPeers = {"127.0.0.1:1234"};
+std::vector<std::string> outgoingListPeers = {"127.0.0.1:1234"}; // Use IPv6 here in production! MTP of UDP @ IPv6 is 1280 bytes vs IPv4 which is 500 bytes
 std::vector<std::string> incomingListPeers = {"127.0.0.1"};
 std::string SyscoinCoreRPCURL = "http://u:p@localhost:18370";
 std::string SyscoinCoreZMQURL = "tcp://127.0.0.1:28332";
