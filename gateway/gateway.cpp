@@ -254,6 +254,14 @@ public:
 		Printf( "Connecting to gateway server at %s", szAddr );
 		m_hConnection = m_pInterface->ConnectByIPAddress( serverAddr, 0, nullptr );
 	}
+	~GatewayClient()
+	{
+		Printf( "Closing Gatewayclient...\n");
+		// Close the connection.  We use "linger mode" to ask SteamNetworkingSockets
+		// to flush this out and close gracefully.
+		m_pInterface->CloseConnection( c->m_hConnection, 0, "Server Shutdown", false );
+		m_hConnection = k_HSteamNetConnection_Invalid;
+	}
 	void Run( )
 	{
 		while ( !g_bQuit )
@@ -459,13 +467,13 @@ public:
 					Printf( "Could not parse outgoing peer %s\n" , addr.c_str());
 				continue;
 			}
-			GatewayClient client(addrObj);
-			if ( client.m_hConnection == k_HSteamNetConnection_Invalid )
+			GatewayClient *client = new Client(addrObj);
+			if ( client->m_hConnection == k_HSteamNetConnection_Invalid )
 				FatalError( "Failed to create connection" );
-			m_setOutgoingClients.emplace(&client); 
+			m_setOutgoingClients.emplace(client); 
 			if(g_bDebug)
 				Printf( "Starting client thread for %s\n" , addr.c_str());
-			std::thread t(&GatewayClient::Run, &client);
+			std::thread t(&GatewayClient::Run, client);
 			t.detach();
 			if(g_bDebug)
 				Printf( "Started client thread for %s\n" , addr.c_str());
@@ -535,10 +543,8 @@ public:
 			Printf( "Shutdown outgoing connections\n");
 		for ( auto *c: m_setOutgoingClients )
 		{
-			// Close the connection.  We use "linger mode" to ask SteamNetworkingSockets
-			// to flush this out and close gracefully.
-			c->m_pInterface->CloseConnection( c->m_hConnection, 0, "Server Shutdown", false );
-			c->m_hConnection = k_HSteamNetConnection_Invalid;
+			delete c;
+			c = NULL;
 		}
 		if(g_bDebug)
 			Printf( "Close sockets and clean up memory\n");		
@@ -568,7 +574,7 @@ private:
 	};
 
 	std::map< HSteamNetConnection, Client_t > m_mapIncomingClients;
-	std::set< GatewayClient *> m_setOutgoingClients;
+	std::set< GatewayClient> m_setOutgoingClients;
 	// who's allowed to connect to you and send this server messages?
 	std::set< std::string > m_setIncomingWhitelist;
 	// force unique messages before relaying to outgoing or processing to Syscoin Core
