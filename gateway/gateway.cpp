@@ -389,8 +389,6 @@ public:
 			frame = zmsg_next (msg);
 			void *pData = zframe_data (frame);
 			size_t size = zframe_size (frame);
-			if(g_bDebug)
-				Printf( "ReadFromCore: Received topic %s\n", topic );
 			if(memcmp(topic, "rawtx", 5) == 0)
 			{
 				if(g_bDebug)
