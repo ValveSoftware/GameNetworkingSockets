@@ -470,7 +470,7 @@ public:
 			GatewayClient *client = new Client(addrObj);
 			if ( client->m_hConnection == k_HSteamNetConnection_Invalid )
 				FatalError( "Failed to create connection" );
-			m_setOutgoingClients.emplace(client); 
+			m_setOutgoingClients.insert(client); 
 			if(g_bDebug)
 				Printf( "Starting client thread for %s\n" , addr.c_str());
 			std::thread t(&GatewayClient::Run, client);
@@ -598,7 +598,8 @@ private:
 	{
 		for ( auto *c: m_setOutgoingClients )
 		{
-			c->SendMessageToClient(data, size, except);
+			if(c != NULL)
+				c->SendMessageToClient(data, size, except);
 		}
 	}
 
