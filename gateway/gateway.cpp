@@ -378,10 +378,9 @@ public:
 		while( !g_bQuit )
 		{
 			char *topic;
-			char *msg;
 			zmsg_t *msg = zmsg_recv (socket);
 			assert(msg);
-			char *string = zmsg_popstr (msg);
+			char *topic = zmsg_popstr (msg);
 			frame_t *frame = zmsg_next (msg);
 			void *pData = zframe_data (frame);
 			size_t size = zframe_size (frame);
