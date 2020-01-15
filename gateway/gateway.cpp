@@ -279,7 +279,16 @@ private:
 
 	virtual void OnSteamNetConnectionStatusChanged( SteamNetConnectionStatusChangedCallback_t *pInfo ) override
 	{
-		assert( pInfo->m_hConn == m_hConnection );
+		bool found = false;
+		for(const GatewayClient* client:m_setOutgoingClients)
+		{
+			if(client->m_hConnection == pInfo->m_hConn)
+			{
+				found = true;
+				break;
+			}
+		}
+		assert( found );
 		assert( m_hConnection != k_HSteamNetConnection_Invalid );
 
 		// What's the state of the connection?
