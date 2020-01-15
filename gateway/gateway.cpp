@@ -177,19 +177,6 @@ void LocalUserInput_Init()
 	} );
 }
 
-void LocalUserInput_Kill()
-{
-// Does not work.  We won't clean up, we'll just nuke the process.
-//	g_bQuit = true;
-//	_close( fileno( stdin ) );
-//
-//	if ( s_pThreadUserInput )
-//	{
-//		s_pThreadUserInput->join();
-//		delete s_pThreadUserInput;
-//		s_pThreadUserInput = nullptr;
-//	}
-}
 
 // You really gotta wonder what kind of pedantic garbage was
 // going through the minds of people who designed std::string
@@ -868,8 +855,6 @@ int main( int argc, const char *argv[] )
 	ShutdownSteamDatagramConnectionSockets();
 	if(g_bDebug)
 		Printf( "Shutting down...\n" );
-	// Ug, why is there no simple solution for portable, non-blocking console user input?
-	// Just nuke the process
-	//LocalUserInput_Kill();
+		
 	NukeProcess(0);
 }
