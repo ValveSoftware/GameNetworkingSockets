@@ -254,12 +254,12 @@ public:
 		Printf( "Connecting to gateway server at %s", szAddr );
 		m_hConnection = m_pInterface->ConnectByIPAddress( serverAddr, 0, nullptr );
 	}
-	~GatewayClient()
+	virtual ~GatewayClient()
 	{
 		Printf( "Closing Gatewayclient...\n");
 		// Close the connection.  We use "linger mode" to ask SteamNetworkingSockets
 		// to flush this out and close gracefully.
-		m_pInterface->CloseConnection( c->m_hConnection, 0, "Server Shutdown", false );
+		m_pInterface->CloseConnection( m_hConnection, 0, "Server Shutdown", false );
 		m_hConnection = k_HSteamNetConnection_Invalid;
 	}
 	void Run( )
@@ -467,7 +467,7 @@ public:
 					Printf( "Could not parse outgoing peer %s\n" , addr.c_str());
 				continue;
 			}
-			GatewayClient *client = new Client(addrObj);
+			GatewayClient *client = new GatewayClient(addrObj);
 			if ( client->m_hConnection == k_HSteamNetConnection_Invalid )
 				FatalError( "Failed to create connection" );
 			m_setOutgoingClients.insert(client); 
