@@ -46,9 +46,9 @@ using namespace std;
 bool g_bQuit = false;
 bool g_bDebug = true;
 SteamNetworkingMicroseconds g_logTimeZero;
-std::vector<std::string> outgoingListPeers = {"127.0.0.1:1234"};
+std::vector<std::string> outgoingListPeers;
 std::vector<std::string> incomingListPeers = {"127.0.0.1"};
-std::string SyscoinCoreRPCURL = "http://u:p@localhost:8369";
+std::string SyscoinCoreRPCURL = "http://u:p@localhost:18370";
 std::string SyscoinCoreZMQURL = "tcp://127.0.0.1:28332";
 // We do this because I won't want to figure out how to cleanly shut
 // down the thread that is reading from stdin.
@@ -412,9 +412,9 @@ public:
 				const unsigned char* msgbuf = reinterpret_cast<unsigned char*>(pData); 
 				std::vector<unsigned char> vec(msgbuf, msgbuf+size);
 				param["blockhash"] = HexStr(vec);
-				bc.addCall("getblock", param, false);
+				bc.addCall("sendrawtransaction", param, false);
 				BatchResponse response = m_rpcClient->CallProcedures(bc);
-				Printf( "ReadFromCore: batch call error: %d\n", response.hasErrors()? 1:0);
+				Printf( "ReadFromCore: batch call error: %d %s\n", response.hasErrors()? 1:0, response.getErrorMessage(1).c_str());
 			}
 			zmsg_destroy (&msg);
 		}
