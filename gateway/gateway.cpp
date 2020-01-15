@@ -414,7 +414,7 @@ public:
 				param["blockhash"] = HexStr(vec);
 				bc.addCall("getblock", param, false);
 				BatchResponse response = m_rpcClient->CallProcedures(bc);
-				Printf( "ReadFromCore: batch call error: %d err: %s response %s\n", response.hasErrors()? 1:0, response.getErrorMessage(1).c_str(), response.getResult(1).toStyledString().c_str());
+				Printf( "ReadFromCore: batch call error: %d err: %s response %s\n", response.hasErrors()? 1:0, response.getErrorMessage(0).c_str(), response.getResult(0).toStyledString().c_str());
 			}
 			zmsg_destroy (&msg);
 		}
