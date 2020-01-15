@@ -380,7 +380,7 @@ public:
 			zmsg_t *msg = zmsg_recv (socket);
 			assert(msg);
 			char *topic = zmsg_popstr (msg);
-			frame_t *frame = zmsg_next (msg);
+			zframe_t *frame = zmsg_next (msg);
 			void *pData = zframe_data (frame);
 			size_t size = zframe_size (frame);
 			if(g_bDebug)
