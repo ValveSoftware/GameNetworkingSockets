@@ -287,8 +287,6 @@ private:
 
 	virtual void OnSteamNetConnectionStatusChanged( SteamNetConnectionStatusChangedCallback_t *pInfo ) override
 	{
-		assert( m_hConnection != k_HSteamNetConnection_Invalid );
-
 		// What's the state of the connection?
 		switch ( pInfo->m_info.m_eState )
 		{
@@ -322,8 +320,11 @@ private:
 				// to finish up.  The reason information do not matter in this case,
 				// and we cannot linger because it's already closed on the other end,
 				// so we just pass 0's.
-				m_pInterface->CloseConnection( pInfo->m_hConn, 0, nullptr, false );
-				m_hConnection = k_HSteamNetConnection_Invalid;
+				if(m_hConnection != k_HSteamNetConnection_Invalid)
+				{
+					m_pInterface->CloseConnection( pInfo->m_hConn, 0, nullptr, false );
+					m_hConnection = k_HSteamNetConnection_Invalid;
+				}
 				break;
 			}
 
