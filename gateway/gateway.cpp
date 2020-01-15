@@ -409,8 +409,8 @@ public:
 				ClearIncomingHashes();
 				BatchCall bc;
 				Json::Value param;
-				const unsigned char* msgbuf = reinterpret_cast<unsigned char*>(message->m_pData); 
-				std::vector<unsigned char> vec(msgbuf, msgbuf+message->m_cbSize);
+				const unsigned char* msgbuf = reinterpret_cast<unsigned char*>(pData); 
+				std::vector<unsigned char> vec(msgbuf, msgbuf+size);
 				param["blockhash"] = HexStr(vec);
 				bc.addCall("getblock", param, false);
 				BatchResponse response = m_rpcClient->CallProcedures(bc);
