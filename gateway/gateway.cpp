@@ -100,11 +100,11 @@ static void Printf( const char *fmt, ... )
 	DebugOutput( k_ESteamNetworkingSocketsDebugOutputType_Msg, text );
 }
 
-static void InitSteamDatagramConnectionSockets(ISteamNetworkingSockets *pInterface)
+static ISteamNetworkingSockets * InitSteamDatagramConnectionSockets()
 {
 
 	SteamDatagramErrMsg errMsg;
-	pInterface = GameNetworkingSockets_Init( nullptr, errMsg );
+	ISteamNetworkingSockets *pInterface = GameNetworkingSockets_Init( nullptr, errMsg );
 	if ( !pInterface )
 		FatalError( "GameNetworkingSockets_Init failed.  %s", errMsg );
 
@@ -112,6 +112,7 @@ static void InitSteamDatagramConnectionSockets(ISteamNetworkingSockets *pInterfa
 	g_logTimeZero = SteamNetworkingUtils()->GetLocalTimestamp();
 
 	SteamNetworkingUtils()->SetDebugOutputFunction( k_ESteamNetworkingSocketsDebugOutputType_Msg, DebugOutput );
+	return pInterface;
 }
 
 static void ShutdownSteamDatagramConnectionSockets(ISteamNetworkingSockets *pInterface)
@@ -236,7 +237,7 @@ class GatewayClient : private ISteamNetworkingSocketsCallbacks
 public:
 	GatewayClient(const SteamNetworkingIPAddr &serverAddr){
 		// Select instance to use.  For now we'll always use the default.
-		InitSteamDatagramConnectionSockets(m_pInterface);
+		m_pInterface = InitSteamDatagramConnectionSockets();
 		// Start connecting
 		char szAddr[ SteamNetworkingIPAddr::k_cchMaxString ];
 		serverAddr.ToString( szAddr, sizeof(szAddr), true );
@@ -503,7 +504,7 @@ public:
 		m_blockCount = 0;
 		m_rpcClient = NULL;
 
-		InitSteamDatagramConnectionSockets(m_pInterface);
+		m_pInterface = InitSteamDatagramConnectionSockets();
 
 		// Start listening
 		m_serverLocalAddr.Clear();
