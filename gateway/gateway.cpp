@@ -17,7 +17,7 @@
 #include <cctype>
 
 #include <steam/steamnetworkingsockets.h>
-#include "../src/steamnetworkingsockets/clientlib/steamnetworkingsockets_connections.h"
+#include "steamnetworkingsockets_connections.h"
 #include "crypto.h"
 #include <steam/isteamnetworkingutils.h>
 #ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
