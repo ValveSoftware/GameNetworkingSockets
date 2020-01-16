@@ -67,7 +67,7 @@ static void InitSteamDatagramConnectionSockets()
 {
 	#ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
 		SteamDatagramErrMsg errMsg;
-		pSteamNetworkingSockets = GameNetworkingSockets_Init( nullptr, errMsg );
+		pSteamNetworkingSockets = GameNetworkingSockets_Init( nullptr, errMsg )
 		if ( ! pSteamNetworkingSockets )
 		{
 			fprintf( stderr, "GameNetworkingSockets_Init failed.  %s", errMsg );
