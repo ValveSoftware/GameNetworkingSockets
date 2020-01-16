@@ -266,8 +266,28 @@ public:
 	{
 		while ( !g_bQuit )
 		{
+			PollIncomingMessages();
 			PollConnectionStateChanges();
 			std::this_thread::sleep_for( std::chrono::milliseconds( 10 ) );
+		}
+	}
+	void PollIncomingMessages()
+	{
+		while ( !g_bQuit )
+		{
+			ISteamNetworkingMessage *pIncomingMsg = nullptr;
+			int numMsgs = m_pInterface->ReceiveMessagesOnConnection( m_hConnection, &pIncomingMsg, 1 );
+			if ( numMsgs == 0 )
+				break;
+			if ( numMsgs < 0 )
+				FatalError( "Error checking for messages" );
+
+			// Just echo anything we get from the server
+			fwrite( pIncomingMsg->m_pData, 1, pIncomingMsg->m_cbSize, stdout );
+			fputc( '\n', stdout );
+
+			// We don't need this anymore.
+			pIncomingMsg->Release();
 		}
 	}
 	void SendMessageToClient(const void *data, size_t size, HSteamNetConnection except = k_HSteamNetConnection_Invalid)
