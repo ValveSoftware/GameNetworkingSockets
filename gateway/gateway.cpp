@@ -348,6 +348,7 @@ private:
 			}
 
 			case k_ESteamNetworkingConnectionState_Connecting:
+				Printf( "Client connection request from %s", pInfo->m_info.m_szConnectionDescription );
 				// We will get this callback when we start connecting.
 				// We can ignore this.
 				break;
