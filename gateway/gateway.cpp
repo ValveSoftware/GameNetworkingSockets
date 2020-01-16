@@ -50,6 +50,8 @@ std::vector<std::string> outgoingListPeers = {"127.0.0.1:1234"}; // Use IPv6 her
 std::vector<std::string> incomingListPeers = {"127.0.0.1"};
 std::string SyscoinCoreRPCURL = "http://u:p@localhost:18370";
 std::string SyscoinCoreZMQURL = "tcp://127.0.0.1:28332";
+// who's allowed to connect to you and send this server messages?
+std::set< std::string > m_setIncomingWhitelist;
 // We do this because I won't want to figure out how to cleanly shut
 // down the thread that is reading from stdin.
 static void NukeProcess( int rc )
@@ -615,8 +617,6 @@ private:
 
 	std::map< HSteamNetConnection, Client_t > m_mapIncomingClients;
 	std::set< GatewayClient*> m_setOutgoingClients;
-	// who's allowed to connect to you and send this server messages?
-	std::set< std::string > m_setIncomingWhitelist;
 	// force unique messages before relaying to outgoing or processing to Syscoin Core
 	std::map< std::vector<unsigned char>, uint32 > m_mapIncomingMessageHashes;
 	std::vector<ISteamNetworkingMessage *> m_vecMessagesIncomingBuffer;
