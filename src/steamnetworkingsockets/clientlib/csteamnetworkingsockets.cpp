@@ -1604,7 +1604,7 @@ STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets* GameNetworkingSockets_
 	if ( !pSteamNetworkingSockets->BInitGameNetworkingSockets( pIdentity, errMsg ) )
 	{
 		pSteamNetworkingSockets->Destroy();
-		return nullptr;
+		return false;
 	}
 
 	return pSteamNetworkingSockets;
@@ -1618,6 +1618,11 @@ STEAMNETWORKINGSOCKETS_INTERFACE void GameNetworkingSockets_Kill(ISteamNetworkin
 		pSteamNetworkingSockets->Destroy();
 		pSteamNetworkingSockets = nullptr;
 	}
+}
+
+STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets *SteamNetworkingSockets()
+{
+	return s_pSteamNetworkingSockets;
 }
 
 STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingUtils *SteamNetworkingUtils()
