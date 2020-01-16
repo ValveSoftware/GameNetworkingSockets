@@ -414,6 +414,7 @@ public:
 			Printf( "PushToCore: Pushing %d inventory items to Syscoin Core\n", m_vecMessagesIncomingBuffer.size());
 		// batch process call to Syscoin Core to send and accept transaction in mempool
 		BatchCall bc;
+		bool added = false;
 		for(ISteamNetworkingMessage* message: m_vecMessagesIncomingBuffer){
 			Json::Value param;
 			const unsigned char* msgbuf = reinterpret_cast<unsigned char*>(message->m_pData); 
@@ -422,8 +423,9 @@ public:
 			bc.addCall("sendrawtransaction", param, false);
 			// release memory
 			message->Release();
+			added = true;
 		}
-		if(!m_vecMessagesIncomingBuffer.empty() && m_rpcClient){
+		if(added && m_rpcClient != NULL){
 			BatchResponse response = m_rpcClient->CallProcedures(bc);
 			if(g_bDebug)
 				Printf( "PushToCore: batch call error: %d err: %s\n", response.hasErrors()? 1:0, response.getErrorMessage(1).c_str());
