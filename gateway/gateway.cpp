@@ -50,8 +50,6 @@ std::vector<std::string> outgoingListPeers = {"127.0.0.1:1234"}; // Use IPv6 her
 std::vector<std::string> incomingListPeers = {"127.0.0.1"};
 std::string SyscoinCoreRPCURL = "http://u:p@localhost:18370";
 std::string SyscoinCoreZMQURL = "tcp://127.0.0.1:28332";
-// who's allowed to connect to you and send this server messages?
-std::set< std::string > m_setIncomingWhitelist;
 // We do this because I won't want to figure out how to cleanly shut
 // down the thread that is reading from stdin.
 static void NukeProcess( int rc )
@@ -350,24 +348,7 @@ private:
 			}
 
 			case k_ESteamNetworkingConnectionState_Connecting:
-				Printf( "Client Connection request from %s", pInfo->m_info.m_szConnectionDescription );
-				// if the connection is from someone on the incoming whitelist (we were expecting a connection to us, we accept)
-				char szAddr[ SteamNetworkingIPAddr::k_cchMaxString ];
-				pInfo->m_info.m_addrRemote.ToString(szAddr, sizeof(szAddr), false);
-				if(m_setIncomingWhitelist.find( std::string(szAddr) ) != m_setIncomingWhitelist.end())
-				{
-					// A client is attempting to connect
-					// Try to accept the connection.
-					if ( m_pInterface->AcceptConnection( pInfo->m_hConn ) != k_EResultOK )
-					{
-						// This could fail.  If the remote host tried to connect, but then
-						// disconnected, the connection may already be half closed.  Just
-						// destroy whatever we have on our side.
-						m_pInterface->CloseConnection( pInfo->m_hConn, 0, nullptr, false );
-						Printf( "Can't accept connection.  (It was already closed?)" );
-						break;
-					}
-				}
+				Printf( "Client Connection request %s", pInfo->m_info.m_szConnectionDescription );
 				// We will get this callback when we start connecting.
 				// We can ignore this.
 				break;
@@ -617,6 +598,8 @@ private:
 
 	std::map< HSteamNetConnection, Client_t > m_mapIncomingClients;
 	std::set< GatewayClient*> m_setOutgoingClients;
+	// who's allowed to connect to you and send this server messages?
+	std::set< std::string > m_setIncomingWhitelist;
 	// force unique messages before relaying to outgoing or processing to Syscoin Core
 	std::map< std::vector<unsigned char>, uint32 > m_mapIncomingMessageHashes;
 	std::vector<ISteamNetworkingMessage *> m_vecMessagesIncomingBuffer;
