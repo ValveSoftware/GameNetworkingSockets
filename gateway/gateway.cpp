@@ -366,6 +366,7 @@ public:
 		zsock_t *socket = zsock_new_sub(SyscoinCoreZMQURL.c_str(), NULL);
   		assert(socket);
 		zsock_set_subscribe(socket, "rawtx");
+		zsock_set_subscribe(socket, "rawmempooltx");
 		zsock_set_subscribe(socket, "hashblock");
 		zsock_set_unbounded(socket); // hwm = 0
 		if(g_bDebug)
@@ -389,7 +390,12 @@ public:
 			if(memcmp(topic, "rawtx", 5) == 0)
 			{
 				if(g_bDebug)
-					Printf( "ReadFromCore: Received tx in bytes %d, relaying to all outgoing clients\n", size );
+					Printf( "ReadFromCore: Received tx in bytes %d\n", size );	
+			}
+			if(memcmp(topic, "rawmempooltx", 12) == 0)
+			{
+				if(g_bDebug)
+					Printf( "ReadFromCore: Received mempool tx in bytes %d, relaying to all outgoing clients\n", size );
 				SendMessageToAllOutgoingClients(pData, size);	
 			}
 			else if(memcmp(topic, "hashblock", 9) == 0)
