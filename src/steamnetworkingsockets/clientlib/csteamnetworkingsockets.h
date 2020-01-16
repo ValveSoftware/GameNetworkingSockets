@@ -55,7 +55,11 @@ public:
 	virtual void AsyncCertRequest() = 0;
 	virtual void CacheIdentity() = 0;
 #endif
-
+	/// Perform cleanup and self-destruct.  Use this instead of
+	/// calling operator delete.  This solves some complications
+	/// due to calling virtual functions from within destructor.
+	virtual void Destroy() ICLIENTNETWORKING_OVERRIDE;
+	
 	const SteamNetworkingIdentity &InternalGetIdentity()
 	{
 		if ( m_identity.IsInvalid() )
