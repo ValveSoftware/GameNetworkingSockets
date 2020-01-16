@@ -100,23 +100,31 @@ static void Printf( const char *fmt, ... )
 	DebugOutput( k_ESteamNetworkingSocketsDebugOutputType_Msg, text );
 }
 
-CSteamNetworkingSockets* InitSteamDatagramConnectionSockets()
+static void InitSteamDatagramConnectionSockets()
 {
-	SteamDatagramErrMsg errMsg;
-	CSteamNetworkingSockets *pSteamNetworkingSockets = new CSteamNetworkingSockets( ( CSteamNetworkingUtils *)SteamNetworkingUtils() );
-	if ( !pSteamNetworkingSockets->BInitGameNetworkingSockets( nullptr, errMsg ) )
-	{
-		pSteamNetworkingSockets->Destroy();
-		FatalError( "BInitGameNetworkingSockets failed.  %s", errMsg );
-	}
+	#ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
+		SteamDatagramErrMsg errMsg;
+		if ( !GameNetworkingSockets_Init( nullptr, errMsg ) )
+			FatalError( "GameNetworkingSockets_Init failed.  %s", errMsg );
+	#else
+		SteamDatagramClient_SetAppID( 570 ); // Just set something, doesn't matter what
+	
+		SteamDatagramErrMsg errMsg;
+		if ( !SteamDatagramClient_Init( true, errMsg ) )
+			FatalError( "SteamDatagramClient_Init failed.  %s", errMsg );
+
+		// Authentication is disabled automatically in the open-source
+		// version since we don't have a trusted third party to issue
+		// certs.
+		SteamNetworkingUtils()->SetGlobalConfigValueInt32( k_ESteamNetworkingConfig_IP_AllowWithoutAuth, 1 );
+	#endif
 
 	g_logTimeZero = SteamNetworkingUtils()->GetLocalTimestamp();
 
 	SteamNetworkingUtils()->SetDebugOutputFunction( k_ESteamNetworkingSocketsDebugOutputType_Msg, DebugOutput );
-	return pSteamNetworkingSockets;
 }
 
-void ShutdownSteamDatagramConnectionSockets(CSteamNetworkingSockets* pSteamNetworkingSockets)
+static void ShutdownSteamDatagramConnectionSockets()
 {
 	// Give connections time to finish up.  This is an application layer protocol
 	// here, it's not TCP.  Note that if you have an application and you need to be
@@ -125,11 +133,11 @@ void ShutdownSteamDatagramConnectionSockets(CSteamNetworkingSockets* pSteamNetwo
 	// you can pool the connection to see if any reliable data is pending.
 	std::this_thread::sleep_for( std::chrono::milliseconds( 500 ) );
 
-	if(pSteamNetworkingSockets)
-	{
-		pSteamNetworkingSockets->Destroy()
-		pSteamNetworkingSockets = nullptr;
-	}
+	#ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
+		GameNetworkingSockets_Kill();
+	#else
+		SteamDatagramClient_Kill();
+	#endif
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -238,7 +246,7 @@ class GatewayClient : private ISteamNetworkingSocketsCallbacks
 public:
 	GatewayClient(const SteamNetworkingIPAddr &serverAddr){
 		// Select instance to use.  For now we'll always use the default.
-		m_pInterface = InitSteamDatagramConnectionSockets();
+		m_pInterface = SteamNetworkingSockets();
 
 		// Start connecting
 		char szAddr[ SteamNetworkingIPAddr::k_cchMaxString ];
@@ -253,7 +261,6 @@ public:
 		// to flush this out and close gracefully.
 		m_pInterface->CloseConnection( m_hConnection, 0, "Server Shutdown", false );
 		m_hConnection = k_HSteamNetConnection_Invalid;
-		ShutdownSteamDatagramConnectionSockets(m_pInterface);
 	}
 	void Run( )
 	{
@@ -505,8 +512,9 @@ public:
 	{
 		m_blockCount = 0;
 		m_rpcClient = NULL;
-
-		m_pInterface = InitSteamDatagramConnectionSockets();
+		// Select instance to use.  For now we'll always use the default.
+		// But we could use SteamGameServerNetworkingSockets() on Steam.
+		m_pInterface = SteamNetworkingSockets();
 
 		// Start listening
 		m_serverLocalAddr.Clear();
@@ -575,7 +583,6 @@ public:
 
 		delete m_rpcClient;
 		m_rpcClient = NULL;
-		ShutdownSteamDatagramConnectionSockets(m_pInterface);
 	}
 private:
 	Client *m_rpcClient;
@@ -880,11 +887,14 @@ int main( int argc, const char *argv[] )
 	}
 
 	// Create client and server sockets
+	InitSteamDatagramConnectionSockets();
 	LocalUserInput_Init();
 	if(g_bDebug)
 		Printf( "Trying to run server\n" );
 	GatewayServer server;
 	server.Run( (uint16)nPort );
+
+	ShutdownSteamDatagramConnectionSockets();
 	if(g_bDebug)
 		Printf( "Shutting down...\n" );
 		
