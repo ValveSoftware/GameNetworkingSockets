@@ -436,16 +436,10 @@ public:
 			added = true;
 		}
 		if(added && m_rpcClient != nullptr){
-			if(g_bDebug)
-				Printf( "PushToCore: Calling core\n");
 			BatchResponse response = m_rpcClient->CallProcedures(bc);
-			if(g_bDebug)
-				Printf( "PushToCore: Core called\n");
 			if(g_bDebug && response.hasErrors())
 				Printf( "PushToCore: batch call error: %d err: %s\n", response.hasErrors()? 1:0, response.getErrorMessage(1).c_str());
 		}
-		if(g_bDebug && !m_vecMessagesIncomingBuffer.empty())
-			Printf( "PushToCore: Done\n");
 		m_vecMessagesIncomingBuffer.clear();
 	}
 	void ClearIncomingHashes()
@@ -468,13 +462,14 @@ public:
 	}
 	void StartGatewayThreads()
 	{
-		if(m_rpcClient != nullptr)
+		if(m_rpcClient != nullptr || m_httpClient != nullptr)
 		{
 			Printf( "Gateway already started!\n");
 			return;
 		}
-		HttpClient client(SyscoinCoreRPCURL);
-  		m_rpcClient = new Client(client, jsonrpc::JSONRPC_CLIENT_V1);
+		m_httpClient = new HttpClient(SyscoinCoreRPCURL);
+  		m_rpcClient = new Client(*m_httpClient, jsonrpc::JSONRPC_CLIENT_V1);
+		m_httpClient->SetTimeout(50000);
 		Printf( "Syscoin RPC client on %s\n" , SyscoinCoreRPCURL.c_str());
 		// parse outgoing peer list, for relays incoming messages from Syscoin Core or from incoming peer
 		std::set< std::string > setOutgoingWhitelist;
@@ -512,7 +507,7 @@ public:
 	{
 		m_blockCount = 0;
 		m_rpcClient = nullptr;
-
+		m_httpClient = nullptr;
 		m_pInterface = InitSteamDatagramConnectionSockets();
 
 		// Start listening
@@ -579,12 +574,16 @@ public:
 
 		m_pInterface->DestroyPollGroup( m_hPollGroup );
 		m_hPollGroup = k_HSteamNetPollGroup_Invalid;
-
-		delete m_rpcClient;
+		if(m_rpcClient != nullptr)
+			delete m_rpcClient;
 		m_rpcClient = nullptr;
+		if(m_httpClient != nullptr)
+			delete m_httpClient;
+		m_httpClient = nullptr;
 		ShutdownSteamDatagramConnectionSockets(m_pInterface);
 	}
 private:
+	HttpClient *m_httpClient
 	Client *m_rpcClient;
 	HSteamListenSocket m_hListenSock;
 	HSteamNetPollGroup m_hPollGroup;
