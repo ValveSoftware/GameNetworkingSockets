@@ -583,7 +583,7 @@ public:
 		ShutdownSteamDatagramConnectionSockets(m_pInterface);
 	}
 private:
-	HttpClient *m_httpClient
+	HttpClient *m_httpClient;
 	Client *m_rpcClient;
 	HSteamListenSocket m_hListenSock;
 	HSteamNetPollGroup m_hPollGroup;
