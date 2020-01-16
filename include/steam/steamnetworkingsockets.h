@@ -18,10 +18,10 @@ extern "C" {
 // interface that is returned by SteamNetworkingSockets().
 //
 // On failure, false is returned, and a non-localized diagtnostic message is returned.
-STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets* GameNetworkingSockets_Init( const SteamNetworkingIdentity *pIdentity, SteamNetworkingErrMsg &errMsg );
+STEAMNETWORKINGSOCKETS_INTERFACE bool GameNetworkingSockets_Init( const SteamNetworkingIdentity *pIdentity, SteamNetworkingErrMsg &errMsg );
 
 // Close all connections and listen sockets and free all resources
-STEAMNETWORKINGSOCKETS_INTERFACE void GameNetworkingSockets_Kill(ISteamNetworkingSockets *pSteamNetworkingSockets);
+STEAMNETWORKINGSOCKETS_INTERFACE void GameNetworkingSockets_Kill();
 
 //
 // Statistics about the global lock.

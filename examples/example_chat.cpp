@@ -89,12 +89,11 @@ static void Printf( const char *fmt, ... )
 	DebugOutput( k_ESteamNetworkingSocketsDebugOutputType_Msg, text );
 }
 
-static void InitSteamDatagramConnectionSockets(ISteamNetworkingSockets *pInterface)
+static void InitSteamDatagramConnectionSockets()
 {
 	#ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
 		SteamDatagramErrMsg errMsg;
-		pInterface = GameNetworkingSockets_Init( nullptr, errMsg );
-		if ( !pInterface )
+		if ( !GameNetworkingSockets_Init( nullptr, errMsg ) )
 			FatalError( "GameNetworkingSockets_Init failed.  %s", errMsg );
 	#else
 		SteamDatagramClient_SetAppID( 570 ); // Just set something, doesn't matter what
@@ -118,7 +117,7 @@ static void InitSteamDatagramConnectionSockets(ISteamNetworkingSockets *pInterfa
 	SteamNetworkingUtils()->SetDebugOutputFunction( k_ESteamNetworkingSocketsDebugOutputType_Msg, DebugOutput );
 }
 
-static void ShutdownSteamDatagramConnectionSockets(ISteamNetworkingSockets *pInterface)
+static void ShutdownSteamDatagramConnectionSockets()
 {
 	// Give connections time to finish up.  This is an application layer protocol
 	// here, it's not TCP.  Note that if you have an application and you need to be
@@ -128,7 +127,7 @@ static void ShutdownSteamDatagramConnectionSockets(ISteamNetworkingSockets *pInt
 	std::this_thread::sleep_for( std::chrono::milliseconds( 500 ) );
 
 	#ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
-		GameNetworkingSockets_Kill(pInterface);
+		GameNetworkingSockets_Kill();
 	#else
 		SteamDatagramClient_Kill();
 	#endif
@@ -235,7 +234,7 @@ public:
 	{
 		// Select instance to use.  For now we'll always use the default.
 		// But we could use SteamGameServerNetworkingSockets() on Steam.
-		InitSteamDatagramConnectionSockets(m_pInterface);
+		m_pInterface = SteamNetworkingSockets();
 
 		// Start listening
 		SteamNetworkingIPAddr serverLocalAddr;
@@ -278,7 +277,6 @@ public:
 
 		m_pInterface->DestroyPollGroup( m_hPollGroup );
 		m_hPollGroup = k_HSteamNetPollGroup_Invalid;
-		ShutdownSteamDatagramConnectionSockets(m_pInterface);
 	}
 private:
 
@@ -547,7 +545,8 @@ public:
 	void Run( const SteamNetworkingIPAddr &serverAddr )
 	{
 		// Select instance to use.  For now we'll always use the default.
-		InitSteamDatagramConnectionSockets(m_pInterface);
+		m_pInterface = SteamNetworkingSockets();
+
 		// Start connecting
 		char szAddr[ SteamNetworkingIPAddr::k_cchMaxString ];
 		serverAddr.ToString( szAddr, sizeof(szAddr), true );
@@ -563,7 +562,6 @@ public:
 			PollLocalUserInput();
 			std::this_thread::sleep_for( std::chrono::milliseconds( 10 ) );
 		}
-		ShutdownSteamDatagramConnectionSockets(m_pInterface);
 	}
 private:
 
@@ -745,7 +743,7 @@ int main( int argc, const char *argv[] )
 		PrintUsageAndExit();
 
 	// Create client and server sockets
-	
+	InitSteamDatagramConnectionSockets();
 	LocalUserInput_Init();
 
 	if ( bClient )
@@ -759,6 +757,7 @@ int main( int argc, const char *argv[] )
 		server.Run( (uint16)nPort );
 	}
 
+	ShutdownSteamDatagramConnectionSockets();
 
 	// Ug, why is there no simple solution for portable, non-blocking console user input?
 	// Just nuke the process

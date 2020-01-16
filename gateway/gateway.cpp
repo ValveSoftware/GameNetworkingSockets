@@ -101,21 +101,23 @@ static void Printf( const char *fmt, ... )
 	DebugOutput( k_ESteamNetworkingSocketsDebugOutputType_Msg, text );
 }
 
-static void InitSteamDatagramConnectionSockets(ISteamNetworkingSockets *pInterface)
+ISteamNetworkingSockets* InitSteamDatagramConnectionSockets()
 {
-
 	SteamDatagramErrMsg errMsg;
-	pInterface = GameNetworkingSockets_Init( nullptr, errMsg );
-	if ( !pInterface )
-		FatalError( "GameNetworkingSockets_Init failed.  %s", errMsg );
-
+	CSteamNetworkingSockets *pSteamNetworkingSockets = new CSteamNetworkingSockets( ( CSteamNetworkingUtils *)SteamNetworkingUtils() );
+	if ( !pSteamNetworkingSockets->BInitGameNetworkingSockets( nullptr, errMsg ) )
+	{
+		pSteamNetworkingSockets->Destroy();
+		FatalError( "BInitGameNetworkingSockets failed.  %s", errMsg );
+	}
 
 	g_logTimeZero = SteamNetworkingUtils()->GetLocalTimestamp();
 
 	SteamNetworkingUtils()->SetDebugOutputFunction( k_ESteamNetworkingSocketsDebugOutputType_Msg, DebugOutput );
+	return pSteamNetworkingSockets;
 }
 
-static void ShutdownSteamDatagramConnectionSockets(ISteamNetworkingSockets *pInterface)
+static void ShutdownSteamDatagramConnectionSockets(ISteamNetworkingSockets* pSteamNetworkingSockets)
 {
 	// Give connections time to finish up.  This is an application layer protocol
 	// here, it's not TCP.  Note that if you have an application and you need to be
@@ -124,11 +126,11 @@ static void ShutdownSteamDatagramConnectionSockets(ISteamNetworkingSockets *pInt
 	// you can pool the connection to see if any reliable data is pending.
 	std::this_thread::sleep_for( std::chrono::milliseconds( 500 ) );
 
-	#ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
-		GameNetworkingSockets_Kill(pInterface);
-	#else
-		SteamDatagramClient_Kill();
-	#endif
+	if(pSteamNetworkingSockets)
+	{
+		pSteamNetworkingSockets->Destroy()
+		pSteamNetworkingSockets = nullptr;
+	}
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -237,7 +239,8 @@ class GatewayClient : private ISteamNetworkingSocketsCallbacks
 public:
 	GatewayClient(const SteamNetworkingIPAddr &serverAddr){
 		// Select instance to use.  For now we'll always use the default.
-		InitSteamDatagramConnectionSockets(m_pInterface);
+		m_pInterface = InitSteamDatagramConnectionSockets();
+
 		// Start connecting
 		char szAddr[ SteamNetworkingIPAddr::k_cchMaxString ];
 		serverAddr.ToString( szAddr, sizeof(szAddr), true );
@@ -504,7 +507,7 @@ public:
 		m_blockCount = 0;
 		m_rpcClient = NULL;
 
-		InitSteamDatagramConnectionSockets(m_pInterface);
+		m_pInterface = InitSteamDatagramConnectionSockets();
 
 		// Start listening
 		m_serverLocalAddr.Clear();

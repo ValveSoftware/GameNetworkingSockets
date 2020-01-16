@@ -1594,10 +1594,18 @@ using namespace SteamNetworkingSocketsLib;
 
 #ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
 
+static CSteamNetworkingSockets *s_pSteamNetworkingSockets = nullptr;
 
-STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets* GameNetworkingSockets_Init( const SteamNetworkingIdentity *pIdentity, SteamNetworkingErrMsg &errMsg )
+STEAMNETWORKINGSOCKETS_INTERFACE bool GameNetworkingSockets_Init( const SteamNetworkingIdentity *pIdentity, SteamNetworkingErrMsg &errMsg )
 {
 	SteamDatagramTransportLock lock( "GameNetworkingSockets_Init" );
+
+	// Already initted?
+	if ( s_pSteamNetworkingSockets )
+	{
+		AssertMsg( false, "GameNetworkingSockets_init called multiple times?" );
+		return true;
+	}
 
 	// Init basic functionality
 	CSteamNetworkingSockets *pSteamNetworkingSockets = new CSteamNetworkingSockets( ( CSteamNetworkingUtils *)SteamNetworkingUtils() );
@@ -1607,16 +1615,17 @@ STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets* GameNetworkingSockets_
 		return false;
 	}
 
-	return pSteamNetworkingSockets;
+	s_pSteamNetworkingSockets = pSteamNetworkingSockets;
+	return true;
 }
 
-STEAMNETWORKINGSOCKETS_INTERFACE void GameNetworkingSockets_Kill(ISteamNetworkingSockets *pSteamNetworkingSockets)
+STEAMNETWORKINGSOCKETS_INTERFACE void GameNetworkingSockets_Kill()
 {
 	SteamDatagramTransportLock lock( "GameNetworkingSockets_Kill" );
-	if ( pSteamNetworkingSockets )
+	if ( s_pSteamNetworkingSockets )
 	{
-		pSteamNetworkingSockets->Destroy();
-		pSteamNetworkingSockets = nullptr;
+		s_pSteamNetworkingSockets->Destroy();
+		s_pSteamNetworkingSockets = nullptr;
 	}
 }
 
