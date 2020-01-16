@@ -100,7 +100,7 @@ static void Printf( const char *fmt, ... )
 	DebugOutput( k_ESteamNetworkingSocketsDebugOutputType_Msg, text );
 }
 
-STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets* InitSteamDatagramConnectionSockets()
+static CSteamNetworkingSockets* InitSteamDatagramConnectionSockets()
 {
 	SteamDatagramErrMsg errMsg;
 	CSteamNetworkingSockets *pSteamNetworkingSockets = new CSteamNetworkingSockets( ( CSteamNetworkingUtils *)SteamNetworkingUtils() );
@@ -116,7 +116,7 @@ STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets* InitSteamDatagramConne
 	return pSteamNetworkingSockets;
 }
 
-static void ShutdownSteamDatagramConnectionSockets(ISteamNetworkingSockets* pSteamNetworkingSockets)
+static void ShutdownSteamDatagramConnectionSockets(CSteamNetworkingSockets* pSteamNetworkingSockets)
 {
 	// Give connections time to finish up.  This is an application layer protocol
 	// here, it's not TCP.  Note that if you have an application and you need to be
