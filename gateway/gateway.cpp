@@ -348,7 +348,24 @@ private:
 			}
 
 			case k_ESteamNetworkingConnectionState_Connecting:
-				Printf( "Client connection request from %s", pInfo->m_info.m_szConnectionDescription );
+				Printf( "Client Connection request from %s", pInfo->m_info.m_szConnectionDescription );
+				// if the connection is from someone on the incoming whitelist (we were expecting a connection to us, we accept)
+				char szAddr[ SteamNetworkingIPAddr::k_cchMaxString ];
+				pInfo->m_info.m_addrRemote.ToString(szAddr, sizeof(szAddr), false);
+				if(m_setIncomingWhitelist.find( std::string(szAddr) ) != m_setIncomingWhitelist.end())
+				{
+					// A client is attempting to connect
+					// Try to accept the connection.
+					if ( m_pInterface->AcceptConnection( pInfo->m_hConn ) != k_EResultOK )
+					{
+						// This could fail.  If the remote host tried to connect, but then
+						// disconnected, the connection may already be half closed.  Just
+						// destroy whatever we have on our side.
+						m_pInterface->CloseConnection( pInfo->m_hConn, 0, nullptr, false );
+						Printf( "Can't accept connection.  (It was already closed?)" );
+						break;
+					}
+				}
 				// We will get this callback when we start connecting.
 				// We can ignore this.
 				break;
