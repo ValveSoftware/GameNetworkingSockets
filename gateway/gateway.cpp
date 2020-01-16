@@ -36,7 +36,7 @@
 #include <inttypes.h>
 using namespace jsonrpc;
 using namespace std;
-ISteamNetworkingSockets *m_pInterface;
+
 /////////////////////////////////////////////////////////////////////////////
 //
 // Common stuff
@@ -237,7 +237,7 @@ class GatewayClient : private ISteamNetworkingSocketsCallbacks
 public:
 	GatewayClient(const SteamNetworkingIPAddr &serverAddr){
 		// Select instance to use.  For now we'll always use the default.
-		
+		m_pInterface = InitSteamDatagramConnectionSockets();
 		// Start connecting
 		char szAddr[ SteamNetworkingIPAddr::k_cchMaxString ];
 		serverAddr.ToString( szAddr, sizeof(szAddr), true );
@@ -251,7 +251,7 @@ public:
 		// to flush this out and close gracefully.
 		m_pInterface->CloseConnection( m_hConnection, 0, "Server Shutdown", false );
 		m_hConnection = k_HSteamNetConnection_Invalid;
-		//ShutdownSteamDatagramConnectionSockets(m_pInterface);
+		ShutdownSteamDatagramConnectionSockets(m_pInterface);
 	}
 	void Run( )
 	{
@@ -286,7 +286,7 @@ public:
 			m_pInterface->SendMessageToConnection( m_hConnection, data, (uint32)size, k_nSteamNetworkingSend_UnreliableNoDelay, nullptr );
 	}
 	HSteamNetConnection m_hConnection;
-	//ISteamNetworkingSockets *m_pInterface;
+	ISteamNetworkingSockets *m_pInterface;
 private:
 
 
@@ -504,7 +504,7 @@ public:
 		m_blockCount = 0;
 		m_rpcClient = NULL;
 
-		//m_pInterface = InitSteamDatagramConnectionSockets();
+		m_pInterface = InitSteamDatagramConnectionSockets();
 
 		// Start listening
 		m_serverLocalAddr.Clear();
@@ -573,13 +573,13 @@ public:
 
 		delete m_rpcClient;
 		m_rpcClient = NULL;
-		
+		ShutdownSteamDatagramConnectionSockets(m_pInterface);
 	}
 private:
 	Client *m_rpcClient;
 	HSteamListenSocket m_hListenSock;
 	HSteamNetPollGroup m_hPollGroup;
-	
+	ISteamNetworkingSockets *m_pInterface;
 	uint32 m_blockCount;
 	SteamNetworkingIPAddr m_serverLocalAddr;
 	struct Client_t
@@ -876,7 +876,7 @@ int main( int argc, const char *argv[] )
 
 		PrintUsageAndExit();
 	}
-	m_pInterface = InitSteamDatagramConnectionSockets();
+
 	// Create client and server sockets
 	LocalUserInput_Init();
 	if(g_bDebug)
@@ -885,6 +885,6 @@ int main( int argc, const char *argv[] )
 	server.Run( (uint16)nPort );
 	if(g_bDebug)
 		Printf( "Shutting down...\n" );
-	ShutdownSteamDatagramConnectionSockets(m_pInterface);	
+		
 	NukeProcess(0);
 }
