@@ -374,7 +374,7 @@ public:
 	{
 		if(g_bDebug)
 			Printf( "ReadFromCore: Setting up ZMQ\n" );
-		zsock_t *socket = zsock_new_sub(SyscoinCoreZMQURL.c_str(), NULL);
+		zsock_t *socket = zsock_new_sub(SyscoinCoreZMQURL.c_str(), nullptr);
   		assert(socket);
 		zsock_set_subscribe(socket, "rawmempooltx");
 		zsock_set_subscribe(socket, "hashblock");
@@ -435,11 +435,13 @@ public:
 			message->Release();
 			added = true;
 		}
-		if(added && m_rpcClient != NULL){
+		if(added && m_rpcClient != nullptr){
 			if(g_bDebug)
 				Printf( "PushToCore: Calling core\n");
 			BatchResponse response = m_rpcClient->CallProcedures(bc);
 			if(g_bDebug)
+				Printf( "PushToCore: Core called\n");
+			if(g_bDebug && response.hasErrors())
 				Printf( "PushToCore: batch call error: %d err: %s\n", response.hasErrors()? 1:0, response.getErrorMessage(1).c_str());
 		}
 		if(g_bDebug && !m_vecMessagesIncomingBuffer.empty())
@@ -466,7 +468,7 @@ public:
 	}
 	void StartGatewayThreads()
 	{
-		if(m_rpcClient != NULL)
+		if(m_rpcClient != nullptr)
 		{
 			Printf( "Gateway already started!\n");
 			return;
@@ -509,7 +511,7 @@ public:
 	void Run( uint16 nPort )
 	{
 		m_blockCount = 0;
-		m_rpcClient = NULL;
+		m_rpcClient = nullptr;
 
 		m_pInterface = InitSteamDatagramConnectionSockets();
 
@@ -564,7 +566,7 @@ public:
 		for ( auto *c: m_setOutgoingClients )
 		{
 			delete c;
-			c = NULL;
+			c = nullptr;
 		}
 		if(g_bDebug)
 			Printf( "Close sockets and clean up memory\n");		
@@ -579,7 +581,7 @@ public:
 		m_hPollGroup = k_HSteamNetPollGroup_Invalid;
 
 		delete m_rpcClient;
-		m_rpcClient = NULL;
+		m_rpcClient = nullptr;
 		ShutdownSteamDatagramConnectionSockets(m_pInterface);
 	}
 private:
@@ -619,7 +621,7 @@ private:
 	{
 		for ( auto *c: m_setOutgoingClients )
 		{
-			if(c != NULL)
+			if(c != nullptr)
 				c->SendMessageToClient(data, size, except);
 		}
 	}
