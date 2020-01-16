@@ -422,6 +422,11 @@ public:
 		bool added = false;
 		for(ISteamNetworkingMessage* message: m_vecMessagesIncomingBuffer){
 			Json::Value param;
+			if(!message)
+			{
+				Printf( "PushToCore: Message was not valid!\n");
+				continue;
+			}
 			const unsigned char* msgbuf = reinterpret_cast<unsigned char*>(message->m_pData); 
 			std::vector<unsigned char> vec(msgbuf, msgbuf+message->m_cbSize);
   			param["hexstring"] = HexStr(vec);
@@ -431,6 +436,8 @@ public:
 			added = true;
 		}
 		if(added && m_rpcClient != NULL){
+			if(g_bDebug)
+				Printf( "PushToCore: Calling core\n");
 			BatchResponse response = m_rpcClient->CallProcedures(bc);
 			if(g_bDebug)
 				Printf( "PushToCore: batch call error: %d err: %s\n", response.hasErrors()? 1:0, response.getErrorMessage(1).c_str());
@@ -803,7 +810,7 @@ private:
 				}
 
 				// Send them a welcome message
-				sprintf( temp, "Welcome, stranger.  Thou art known to us for now as '%s'; upon thine command '/nick' we shall know thee otherwise.", pInfo->m_info.m_szConnectionDescription ); 
+				sprintf( temp, "Welcome, stranger.  Thou art known to us for now as '%s'", pInfo->m_info.m_szConnectionDescription ); 
 				SendStringToClient( pInfo->m_hConn, temp ); 
 
 				// Also send them a list of everybody who is already connected
