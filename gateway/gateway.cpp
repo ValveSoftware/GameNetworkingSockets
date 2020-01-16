@@ -17,7 +17,6 @@
 #include <cctype>
 
 #include <steam/steamnetworkingsockets.h>
-#include "src/steamnetworkingsockets/clientlib/steamnetworkingsockets_connections.h"
 #include "crypto.h"
 #include <steam/isteamnetworkingutils.h>
 #ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
@@ -101,7 +100,7 @@ static void Printf( const char *fmt, ... )
 	DebugOutput( k_ESteamNetworkingSocketsDebugOutputType_Msg, text );
 }
 
-ISteamNetworkingSockets* InitSteamDatagramConnectionSockets()
+STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets* InitSteamDatagramConnectionSockets()
 {
 	SteamDatagramErrMsg errMsg;
 	CSteamNetworkingSockets *pSteamNetworkingSockets = new CSteamNetworkingSockets( ( CSteamNetworkingUtils *)SteamNetworkingUtils() );
