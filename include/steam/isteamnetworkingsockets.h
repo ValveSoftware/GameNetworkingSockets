@@ -448,6 +448,7 @@ public:
 #ifdef STEAMNETWORKINGSOCKETS_STANDALONELIB
 	virtual void RunCallbacks( ISteamNetworkingSocketsCallbacks *pCallbacks ) = 0;
 #endif
+	virtual void Destroy() = 0;
 protected:
 	~ISteamNetworkingSockets(); // Silence some warnings
 };
@@ -465,7 +466,7 @@ extern "C" {
 #elif defined( STEAMNETWORKINGSOCKETS_OPENSOURCE ) || defined( STEAMNETWORKINGSOCKETS_STREAMINGCLIENT )
 
 	// Opensource GameNetworkingSockets
-	STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets *SteamNetworkingSockets();
+	//STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets *SteamNetworkingSockets();
 
 #else
 
