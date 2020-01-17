@@ -45,6 +45,7 @@ using namespace std;
 
 bool g_bQuit = false;
 bool g_bDebug = true;
+size_t g_IPV6MTU = 1132; // 	1300(MTU Default config) - (1300 - (1248(k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend) -  16(k_cbSteamNetwokingSocketsEncrytionTagSize)) -  100(k_cbSteamNetworkingSocketsNoFragmentHeaderReserve)
 SteamNetworkingMicroseconds g_logTimeZero;
 std::vector<std::string> outgoingListPeers = {"127.0.0.1:1234"}; // Use IPv6 here in production! MTU of UDP @ IPv6 is 1280 bytes vs IPv4 which is 500 bytes
 std::vector<std::string> incomingListPeers = {"127.0.0.1"};
@@ -283,7 +284,7 @@ public:
 	void SendMessageToClient(const void *data, size_t size, HSteamNetConnection except = k_HSteamNetConnection_Invalid)
 	{
 		if(m_hConnection != except)
-			m_pInterface->SendMessageToConnection( m_hConnection, data, (uint32)size, size > 1280? k_nSteamNetworkingSend_ReliableNoNagle: k_nSteamNetworkingSend_UnreliableNoDelay, nullptr );
+			m_pInterface->SendMessageToConnection( m_hConnection, data, (uint32)size, size > g_IPV6MTU? k_nSteamNetworkingSend_ReliableNoNagle: k_nSteamNetworkingSend_UnreliableNoDelay, nullptr );
 	}
 	HSteamNetConnection m_hConnection;
 	ISteamNetworkingSockets *m_pInterface;
