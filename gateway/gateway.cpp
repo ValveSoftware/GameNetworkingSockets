@@ -283,7 +283,7 @@ public:
 	void SendMessageToClient(const void *data, size_t size, HSteamNetConnection except = k_HSteamNetConnection_Invalid)
 	{
 		if(m_hConnection != except)
-			m_pInterface->SendMessageToConnection( m_hConnection, data, (uint32)size, k_nSteamNetworkingSend_UnreliableNoDelay, nullptr );
+			m_pInterface->SendMessageToConnection( m_hConnection, data, (uint32)size, size > 1280? k_nSteamNetworkingSend_ReliableNoNagle: k_nSteamNetworkingSend_UnreliableNoDelay, nullptr );
 	}
 	HSteamNetConnection m_hConnection;
 	ISteamNetworkingSockets *m_pInterface;
@@ -497,7 +497,7 @@ public:
 				Printf( "Started client thread for %s\n" , addr.c_str());
 		}
 		if(g_bDebug)
-			Printf( "Starting ZMQ thread\n");		
+			Printf( "Starting ZMQ thread\n");	 	
 		std::thread t(&GatewayServer::ReadFromCore, this);
 		t.detach();
 		if(g_bDebug)
