@@ -7,15 +7,13 @@
 #include <time.h>
 #include <steam/isteamnetworkingsockets.h>
 #include <steam/isteamnetworkingutils.h>
-
+#define ICLIENTNETWORKING_OVERRIDE override
 #if defined( STEAMNETWORKINGSOCKETS_STEAMCLIENT ) || defined( STEAMNETWORKINGSOCKETS_STREAMINGCLIENT )
 	#include "../../common/steam/iclientnetworkingsockets.h"
 	#include "../../common/steam/iclientnetworkingutils.h"
-	#define ICLIENTNETWORKING_OVERRIDE override
 #else
 	typedef ISteamNetworkingSockets IClientNetworkingSockets;
 	typedef ISteamNetworkingUtils IClientNetworkingUtils;
-	#define ICLIENTNETWORKING_OVERRIDE
 #endif
 
 #include "steamnetworkingsockets_connections.h"
