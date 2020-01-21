@@ -9,6 +9,7 @@ apk update
 # Base build packages
 PACKAGES=(
 	clang
+	clang-dev
 	gcc
 	g++
 	cmake
