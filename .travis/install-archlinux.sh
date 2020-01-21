@@ -7,6 +7,7 @@ set -ex
 # Base build packages
 PACKAGES=(
 	base-devel
+	ccache
 	clang
 	cmake
 	meson

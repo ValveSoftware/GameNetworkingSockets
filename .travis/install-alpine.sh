@@ -12,6 +12,7 @@ PACKAGES=(
 	clang-dev
 	gcc
 	g++
+	ccache
 	cmake
 	meson
 	pkgconf

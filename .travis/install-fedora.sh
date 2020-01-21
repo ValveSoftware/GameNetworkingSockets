@@ -9,6 +9,7 @@ PACKAGES=(
 	gcc-c++
 	libasan
 	libubsan
+	ccache
 	clang
 	cmake
 	meson
