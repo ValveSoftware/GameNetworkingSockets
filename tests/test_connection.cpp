@@ -65,6 +65,13 @@ static void Printf( const char *fmt, ... )
 
 static void InitSteamDatagramConnectionSockets()
 {
+	g_fpLog = fopen( "log.txt", "wt" );
+	g_logTimeZero = SteamNetworkingUtils()->GetLocalTimestamp();
+
+	SteamNetworkingUtils()->SetDebugOutputFunction( k_ESteamNetworkingSocketsDebugOutputType_Debug, DebugOutput );
+	//SteamNetworkingUtils()->SetDebugOutputFunction( k_ESteamNetworkingSocketsDebugOutputType_Verbose, DebugOutput );
+	//SteamNetworkingUtils()->SetDebugOutputFunction( k_ESteamNetworkingSocketsDebugOutputType_Msg, DebugOutput );
+
 	#ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
 		SteamDatagramErrMsg errMsg;
 		if ( !GameNetworkingSockets_Init( nullptr, errMsg ) )
@@ -85,13 +92,6 @@ static void InitSteamDatagramConnectionSockets()
 			exit(1);
 		}
 	#endif
-
-	g_fpLog = fopen( "log.txt", "wt" );
-	g_logTimeZero = SteamNetworkingUtils()->GetLocalTimestamp();
-
-	SteamNetworkingUtils()->SetDebugOutputFunction( k_ESteamNetworkingSocketsDebugOutputType_Debug, DebugOutput );
-	//SteamNetworkingUtils()->SetDebugOutputFunction( k_ESteamNetworkingSocketsDebugOutputType_Verbose, DebugOutput );
-	//SteamNetworkingUtils()->SetDebugOutputFunction( k_ESteamNetworkingSocketsDebugOutputType_Msg, DebugOutput );
 }
 
 static void ShutdownSteamDatagramConnectionSockets()
