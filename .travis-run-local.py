@@ -1,4 +1,14 @@
 #!/usr/bin/python
+"""
+Usage:
+    .travis-run-local.py [--arch=<arch>] [--image=<image> --image-tag=<tag>]
+
+Options:
+    -h --help          Print this help message.
+    --arch=<arch>      Only build in containers with this CPU architecture. [default: any]
+    --image=<image>    Only build for this image name. [default: any]
+    --image-tag=<tag>  Only build for this image tag. [default: any]
+"""
 
 import logging
 import os
@@ -6,6 +16,7 @@ import subprocess
 import sys
 import time
 import yaml
+from docopt import docopt
 
 def read_travis_yml():
     return yaml.load(open('.travis.yml', 'r'), Loader=yaml.SafeLoader)
@@ -15,7 +26,7 @@ def docker_arch(travis_arch):
         return 'arm64v8'
     return travis_arch
 
-def env_parse(env, arch=None):
+def env_parse(env, arch):
     kv_str = env.split()
     kv = { k: v for k, v in [ s.split('=') for s in kv_str ] }
 
@@ -29,10 +40,19 @@ def env_parse(env, arch=None):
     if 'IMAGE' not in kv or 'IMAGE_TAG' not in kv:
         return None
 
+    if options['--arch'] != 'any' and arch != options['--arch']:
+        return None
+
+    if options['--image'] != 'any' and kv['IMAGE'] != options['--image']:
+        return None
+
+    if options['--image-tag'] != 'any' and kv['IMAGE_TAG'] != options['--image-tag']:
+        return None
+
     # e.g. ubuntu:latest
     image = '%s:%s' % (kv['IMAGE'], kv['IMAGE_TAG'])
 
-    if arch is not None:
+    if arch != 'amd64':
         image_prefix = docker_arch(arch) + '/'
         os.environ['IMAGE_PREFIX'] = image_prefix
         return image_prefix + image
@@ -41,11 +61,17 @@ def env_parse(env, arch=None):
 
 def get_images(travis):
     for env in travis['env']['global']:
-        env_parse(env)
+        env_parse(env, travis['arch'])
+
     for env in travis['env']['jobs']:
-        yield env_parse(env)
+        image = env_parse(env, travis['arch'])
+        if image is not None:
+            yield image
+
     for job in travis['jobs']['include']:
-        yield env_parse(job['env'], job['arch'])
+        image = env_parse(job['env'], job['arch'])
+        if image is not None:
+            yield image
 
 def docker_pull(image):
     subprocess.run(['docker', 'pull', image], check=True)
@@ -91,8 +117,11 @@ def kill_and_wait():
     log.info("Container has exited.")
 
 def main():
+    global options
     global log
     log = init_logging()
+
+    options = docopt(__doc__)
 
     log.info("Parsing Travis configuration file")
     travis = read_travis_yml()
