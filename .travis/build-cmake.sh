@@ -20,7 +20,7 @@ cmake_build() {
 
 cleanup() {
 	echo "Cleaning up CMake build directories" >&2
-	rm -rf build-{a,ub,t}san build-cmake
+	rm -rf build-{a,ub,t}san build-cmake build-cmake-ref
 }
 
 trap cleanup EXIT
@@ -57,10 +57,13 @@ if [[ $BUILD_SANITIZERS -ne 0 ]]; then
 	fi
 fi
 
-cmake_configure build-cmake ${CMAKE_ARGS[@]} -DCMAKE_BUILD_TYPE=RelWithDebInfo ..
-
 # Build normal unsanitized binaries
+cmake_configure build-cmake ${CMAKE_ARGS[@]} -DCMAKE_BUILD_TYPE=RelWithDebInfo ..
 cmake_build build-cmake
+
+# Build binaries with reference ed25519/curve25519
+cmake_configure build-cmake-ref ${CMAKE_ARGS[@]} -DCMAKE_BUILD_TYPE=RelWithDebInfo -DUSE_CRYPTO25519=Reference ..
+cmake_build build-cmake-ref
 
 # Build specific extended tests for code correctness validation
 if [[ $BUILD_SANITIZERS -ne 0 ]]; then
@@ -72,6 +75,7 @@ if [[ $BUILD_SANITIZERS -ne 0 ]]; then
 fi
 
 # Run basic tests
+build-cmake-ref/tests/test_crypto
 build-cmake/tests/test_crypto
 build-cmake/tests/test_connection
 

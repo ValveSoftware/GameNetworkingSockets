@@ -4,23 +4,6 @@ include(CheckSymbolExists)
 include(CMakePushCheckState)
 
 find_package(Protobuf REQUIRED)
-if (NOT USE_BCRYPT)
-	find_package(OpenSSL REQUIRED)
-
-	# Ensure the OpenSSL version is recent enough. We need a bunch of EVP
-	# functionality.
-	cmake_push_check_state()
-	set(CMAKE_REQUIRED_LIBRARIES OpenSSL::Crypto)
-	check_symbol_exists(EVP_MD_CTX_free openssl/evp.h OPENSSL_NEW_ENOUGH)
-	if (NOT OPENSSL_NEW_ENOUGH)
-		message(FATAL_ERROR "Your OpenSSL version appears to be too old. Check that you're using OpenSSL 1.1.0 or later.")
-	endif()
-	cmake_pop_check_state()
-	cmake_push_check_state()
-	set(CMAKE_REQUIRED_LIBRARIES OpenSSL::Crypto)
-	check_symbol_exists(EVP_PKEY_get_raw_public_key openssl/evp.h OPENSSL_HAS_25519_RAW)
-	cmake_pop_check_state()
-endif()
 find_package(Threads REQUIRED)
 
 set(GNS_PROTOS
@@ -53,7 +36,7 @@ set(GNS_SRCS
 	"vstdlib/strtools.cpp"
 )
 
-if(USE_BCRYPT)
+if(USE_CRYPTO STREQUAL "BCrypt")
     set(GNS_CRYPTO_DEFINES  ${GNS_CRYPTO_DEFINES} STEAMNETWORKINGSOCKETS_CRYPTO_BCRYPT ED25519_HASH_BCRYPT)
     set(GNS_SRCS ${GNS_SRCS}
         "common/crypto_bcrypt.cpp"
@@ -64,18 +47,18 @@ else()
 		"common/crypto_openssl.cpp"
 		"common/opensslwrapper.cpp"
 	)
+endif()
 
-	# Use OpenSSL for 25519 if possible
-	if(OPENSSL_HAS_25519_RAW)
-		set(GNS_CRYPTO_DEFINES  ${GNS_CRYPTO_DEFINES} STEAMNETWORKINGSOCKETS_CRYPTO_25519_OPENSSL)
-		set(GNS_SRCS ${GNS_SRCS}
-			"common/crypto_25519_openssl.cpp"
-		)
-	endif()
+# Use OpenSSL for 25519 if possible
+if(USE_CRYPTO25519 STREQUAL "OpenSSL")
+	set(GNS_CRYPTO_DEFINES  ${GNS_CRYPTO_DEFINES} STEAMNETWORKINGSOCKETS_CRYPTO_25519_OPENSSL)
+	set(GNS_SRCS ${GNS_SRCS}
+		"common/crypto_25519_openssl.cpp"
+	)
 endif()
 
 # Use reference 25519 crypto implementation?
-if(USE_BCRYPT OR NOT OPENSSL_HAS_25519_RAW)
+if(USE_CRYPTO25519 STREQUAL "Reference")
 	set(GNS_CRYPTO_DEFINES ${GNS_CRYPTO_DEFINES} VALVE_CRYPTO_25519_DONNA)
 	set(GNS_SRCS ${GNS_SRCS}
 		"common/crypto_25519_donna.cpp"
@@ -98,13 +81,19 @@ set(GNS_COMMON_FLAGS
 	-fvisibility=hidden
 	-fno-strict-aliasing
 	-Wall
-	#-Wextra
 	-Wno-unknown-pragmas
 	-Wno-sign-compare
 	-Wno-unused-local-typedef
 	-Wno-unused-const-variable
 	-Wno-nested-anon-types
 )
+
+if(USE_CRYPTO25519 STREQUAL "Reference")
+	# We don't use some of the 25519 functions with static linkage. Silence
+	# -Wunused-function if we're including the reference ed25519/curve25519
+	# stuff.
+	set(GNS_COMMON_FLAGS ${GNS_COMMON_FLAGS} -Wno-unused-function)
+endif()
 
 if(WERROR)
 	set(GNS_COMMON_FLAGS
@@ -158,7 +147,7 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 		Threads::Threads
 	)
 
-	if(NOT USE_BCRYPT)
+	if(USE_CRYPTO STREQUAL "OpenSSL" OR USE_CRYPTO25519 STREQUAL "OpenSSL")
 		target_link_libraries(${GNS_TARGET} PUBLIC
 			OpenSSL::Crypto
 		)
@@ -240,7 +229,7 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 			target_compile_options(${GNS_TARGET} PRIVATE -fno-stack-protector)
 		endif()
 		target_link_libraries(${GNS_TARGET} PUBLIC ws2_32 crypt32)
-		if(USE_BCRYPT)
+		if(USE_CRYPTO STREQUAL "BCrypt")
 			target_link_libraries(${GNS_TARGET} PUBLIC bcrypt)
 		endif()
 	else()
