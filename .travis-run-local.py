@@ -8,7 +8,7 @@ import time
 import yaml
 
 def read_travis_yml():
-    return yaml.load(open('.travis.yml', 'r'))
+    return yaml.load(open('.travis.yml', 'r'), Loader=yaml.SafeLoader)
 
 def docker_arch(travis_arch):
     if travis_arch == 'arm64':
