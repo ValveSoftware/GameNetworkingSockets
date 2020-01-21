@@ -7,9 +7,10 @@ protoc = generator(protoc_bin,
   output    : ['@BASENAME@.pb.cc', '@BASENAME@.pb.h'],
   arguments : ['-I@CURRENT_SOURCE_DIR@/common', '--proto_path=@CURRENT_SOURCE_DIR@', '--cpp_out=@BUILD_DIR@', '@INPUT@'])
 
-use_bcrypt = get_option('use_bcrypt')
+use_crypto = get_option('use_crypto')
+use_crypto25519 = get_option('use_crypto25519')
 
-if not use_bcrypt
+if use_crypto == 'OpenSSL' or use_crypto25519 == 'OpenSSL'
   min_libcrypto = dependency('libcrypto', version: '>=1.1.0')
   good_libcrypto = dependency('libcrypto', version: '>=1.1.1', required: false)
 
@@ -17,6 +18,10 @@ if not use_bcrypt
     dependencies += [ good_libcrypto ]
   else
     dependencies += [ min_libcrypto ]
+  endif
+
+  if use_crypto25519 == 'OpenSSL' and not good_libcrypto.found()
+    error('This version of OpenSSL does not support ed25519/curve25519. Please use -Duse_crypto25519=Reference or upgrade OpenSSL to 1.1.1 or later.')
   endif
 
   code = '''#include <openssl/evp.h>
@@ -83,26 +88,26 @@ sources = [
   'vstdlib/strtools.cpp',
 ]
 
-if use_bcrypt
-  dependencies += [ c_compiler.find_library('bcrypt') ]
-  sources += [ 'common/crypto_bcrypt.cpp' ]
-  cpp_flags += [ '-DED25519_HASH_BCRYPT', '-DSTEAMNETWORKINGSOCKETS_CRYPTO_BCRYPT' ]
-else
+if use_crypto == 'OpenSSL'
   cpp_flags += [ '-DSTEAMNETWORKINGSOCKETS_CRYPTO_VALVEOPENSSL' ]
   sources += [
     'common/opensslwrapper.cpp',
     'common/crypto_openssl.cpp',
   ]
-
-  # Use OpenSSL for 25519 if possible
-  if good_libcrypto.found()
-    cpp_flags += [ '-DSTEAMNETWORKINGSOCKETS_CRYPTO_25519_OPENSSL' ]
-    sources += [ 'common/crypto_25519_openssl.cpp' ]
-  endif
 endif
 
-# Use reference 25519 crypto implementation?
-if use_bcrypt or not good_libcrypto.found()
+if use_crypto == 'BCrypt'
+  dependencies += [ c_compiler.find_library('bcrypt') ]
+  cpp_flags += [ '-DED25519_HASH_BCRYPT', '-DSTEAMNETWORKINGSOCKETS_CRYPTO_BCRYPT' ]
+  sources += [ 'common/crypto_bcrypt.cpp' ]
+endif
+
+if use_crypto25519 == 'OpenSSL'
+  cpp_flags += [ '-DSTEAMNETWORKINGSOCKETS_CRYPTO_25519_OPENSSL' ]
+  sources += [ 'common/crypto_25519_openssl.cpp' ]
+endif
+
+if use_crypto25519 == 'Reference'
   cpp_flags += [ '-DVALVE_CRYPTO_25519_DONNA' ]
   sources += [
     'common/crypto_25519_donna.cpp',

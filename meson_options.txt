@@ -8,7 +8,14 @@ option('Werror',
   value: false,
   description: 'Enable -Werror flag when compiling')
 
-option('use_bcrypt',
-  type: 'boolean',
-  value: false,
-  description: 'Use BCrypt API for cryptography (encryption/decryption, hashing) on Windows')
+option('use_crypto',
+  type: 'combo',
+  value: 'OpenSSL',
+  description: 'Crypto library to use for AES/SHA256',
+  choices: ['OpenSSL', 'BCrypt'])
+
+option('use_crypto25519',
+  type: 'combo',
+  value: 'OpenSSL',
+  description: 'Crypto library to use for ed25519/curve25519',
+  choices: ['OpenSSL', 'Reference'])

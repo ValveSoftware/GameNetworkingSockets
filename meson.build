@@ -51,6 +51,11 @@ if werror
   warn_flags_common += [ '-Werror' ]
 endif
 
+use_crypto_25519 = get_option('use_crypto25519')
+if use_crypto_25519 == 'Reference'
+  warn_flags_common += [ '-Wno-unused-function' ]
+endif
+
 warn_flags_c = [
   '-Wimplicit',
   '-Wstrict-prototypes',
