@@ -58,7 +58,7 @@ connection types or some part of the Steamworks SDK.
 
 ## Building
 
-See [BULDING](BUILDING.md) for more information.
+See [BUILDING](BUILDING.md) for more information.
 
 ## Language bindings
 
