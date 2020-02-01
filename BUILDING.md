@@ -162,7 +162,7 @@ C:\dev\GameNetworkingSockets> mkdir build
 C:\dev\GameNetworkingSockets> cd build
 C:\dev\GameNetworkingSockets\build> set PATH=%PATH%;C:\sdk\protobuf-amd64\bin
 C:\dev\GameNetworkingSockets\build> vcvarsall amd64
-C:\dev\GameNetworkingSockets\build> cmake -G Ninja ..
+C:\dev\GameNetworkingSockets\build> cmake -G Ninja -DCMAKE_BUILD_TYPE=Release ..
 C:\dev\GameNetworkingSockets\build> ninja
 ```
 
