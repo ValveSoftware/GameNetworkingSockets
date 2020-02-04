@@ -1,5 +1,6 @@
 //========= Copyright Valve LLC, All rights reserved. ========================
 #include "crypto.h"
+#include <tier0/dbg.h>
 
 #ifdef STEAMNETWORKINGSOCKETS_CRYPTO_25519_OPENSSL
 

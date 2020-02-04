@@ -3,20 +3,12 @@
 #ifndef CRYPTO_H
 #define CRYPTO_H
 
-#include <tier0/dbg.h>		// for Assert & AssertMsg
-//#include "tier1/passwordhash.h"
-#include "keypair.h"
-#include "steam/steamtypes.h" // Salt_t
+#include <tier0/platform.h>
 #include "crypto_constants.h"
+//#include <tier1/passwordhash.h>
+#include "keypair.h"
 
-const unsigned int k_cubMD5Hash = 16;
-typedef	unsigned char MD5Digest_t[k_cubMD5Hash];
-
-const unsigned int k_cubSHA256Hash = 32;
-typedef	unsigned char SHA256Digest_t[ k_cubSHA256Hash ];
-
-const unsigned int k_cubSHA1Hash = 20;
-typedef	uint8 SHADigest_t[ k_cubSHA1Hash ];
+class CUtlBuffer;
 
 // Base class for symmetric encryption and decryption context.
 // A context is used when you want to use the same encryption

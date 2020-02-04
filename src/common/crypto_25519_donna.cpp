@@ -1,5 +1,6 @@
 //========= Copyright Valve LLC, All rights reserved. ========================
 #include "crypto.h"
+#include <tier0/dbg.h>
 
 #ifdef VALVE_CRYPTO_25519_DONNA
 
