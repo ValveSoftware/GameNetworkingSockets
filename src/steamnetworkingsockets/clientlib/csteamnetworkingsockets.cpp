@@ -590,7 +590,7 @@ HSteamListenSocket CSteamNetworkingSockets::CreateListenSocketIP( const SteamNet
 	if ( !pSock->BInit( localAddr, nOptions, pOptions, errMsg ) )
 	{
 		SpewError( "Cannot create listen socket.  %s", errMsg );
-		delete pSock;
+		pSock->Destroy();
 		return k_HSteamListenSocket_Invalid;
 	}
 

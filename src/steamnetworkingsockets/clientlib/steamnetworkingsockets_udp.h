@@ -21,13 +21,13 @@ class CSteamNetworkListenSocketDirectUDP : public CSteamNetworkListenSocketBase
 {
 public:
 	CSteamNetworkListenSocketDirectUDP( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface );
-	virtual ~CSteamNetworkListenSocketDirectUDP();
 	virtual bool APIGetAddress( SteamNetworkingIPAddr *pAddress ) override;
 
 	/// Setup
 	bool BInit( const SteamNetworkingIPAddr &localAddr, int nOptions, const SteamNetworkingConfigValue_t *pOptions, SteamDatagramErrMsg &errMsg );
 
 private:
+	virtual ~CSteamNetworkListenSocketDirectUDP(); // hidden destructor, don't call directly.  Use Destroy()
 
 	/// The socket we are bound to.  We own this socket.
 	/// Any connections accepted through us become clients of this shared socket.
