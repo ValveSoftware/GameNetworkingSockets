@@ -11,6 +11,7 @@
 
 #include "../steamnetworkingsockets_internal.h"
 #include "crypto.h"
+#include "crypto_25519.h"
 #include "keypair.h"
 #include <vstdlib/random.h>
 //#include "curl/curl.h"

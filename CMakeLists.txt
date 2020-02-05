@@ -20,6 +20,7 @@ set(MSVC_RUNTIME "dynamic")
 configure_msvc_runtime()
 print_default_msvc_flags()
 
+add_definitions( -DVALVE_CRYPTO_ENABLE_25519 )
 if(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
 	add_definitions(
 		-D_CRT_SECURE_NO_WARNINGS

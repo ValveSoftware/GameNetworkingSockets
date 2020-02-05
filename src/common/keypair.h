@@ -6,7 +6,9 @@
 
 #include <steam/steamuniverse.h>
 #include <tier0/platform.h>
+#include <tier0/memdbgoff.h>
 #include <string>
+#include <tier0/memdbgon.h>
 
 #include <stdint.h>
 #include "minbase/minbase_securezeromemory_impl.h"
@@ -85,7 +87,7 @@ public:
 	bool CopyFrom( const CCryptoKeyBase &x );
 
 #ifdef DBGFLAG_VALIDATE
-	void Validate( CValidator &validator, const char *pchName ) const;		// Validate our internal structures
+	virtual void Validate( CValidator &validator, const char *pchName ) const = 0;		// Validate our internal structures
 #endif // DBGFLAG_VALIDATE
 
 protected:
@@ -118,6 +120,10 @@ public:
 	const uint8 *GetRawDataPtr() const { return m_pData; }
 	uint32 GetRawDataSize() const { return m_cbData; }
 
+#ifdef DBGFLAG_VALIDATE
+	virtual void Validate( CValidator &validator, const char *pchName ) const;		// Validate our internal structures
+#endif // DBGFLAG_VALIDATE
+
 protected:
 	virtual bool SetRawData( const void *pData, size_t cbData ) override;
 	inline CCryptoKeyBase_RawBuffer( ECryptoKeyType keyType ) : CCryptoKeyBase( keyType ), m_pData( nullptr ), m_cbData( 0 ) {}
@@ -126,133 +132,17 @@ protected:
 	uint32 m_cbData;
 };
 
-class CEC25519KeyBase : public CCryptoKeyBase_RawBuffer
-{
-public:
-	virtual ~CEC25519KeyBase();
-	virtual bool IsValid() const override;
-	virtual uint32 GetRawData( void *pData ) const override;
-	virtual void Wipe() override;
-
-	void *evp_pkey() const { return m_evp_pkey; }
-protected:
-	virtual bool SetRawData( const void *pData, size_t cbData ) override;
-	inline CEC25519KeyBase( ECryptoKeyType keyType ) : CCryptoKeyBase_RawBuffer( keyType ), m_evp_pkey(nullptr) {}
-
-	// Actually EVP_PKEY*, but we don't want to include OpenSSL headers here,
-	// especially since we might not actually be using OpenSSL for this at all!
-	void *m_evp_pkey;
-};
-
-//-----------------------------------------------------------------------------
-// Purpose: Common base for x25519 and ed25519 public keys on the 25519 curve
-//			The raw data is 32 bytes
-//-----------------------------------------------------------------------------
-class CEC25519PublicKeyBase : public CEC25519KeyBase
-{
-public:
-	virtual ~CEC25519PublicKeyBase();
-protected:
-	CEC25519PublicKeyBase( ECryptoKeyType eType ) : CEC25519KeyBase( eType ) { }
-};
-
-//-----------------------------------------------------------------------------
-// Purpose: Common base for x25519 and ed25519 private keys on the 25519 curve
-//			The raw data is 32 bytes.
-//          NOTE: An old version also stored the public key in the raw data.
-//                We don't do that anymore.)  If you want that, get the public
-//                key data specifically
-//-----------------------------------------------------------------------------
-class CEC25519PrivateKeyBase : public CEC25519KeyBase
-{
-public:
-	virtual ~CEC25519PrivateKeyBase();
-	virtual void Wipe() override;
-	bool GetPublicKey( CEC25519PublicKeyBase *pPublicKey ) const;
-	bool MatchesPublicKey( const CEC25519PublicKeyBase &pPublicKey ) const;
-
-	const uint8 *GetPublicKeyRawData() const { return m_publicKey; }
-
-protected:
-	CEC25519PrivateKeyBase( ECryptoKeyType eType ) : CEC25519KeyBase( eType ) { }
-
-	// We keep a copy of the public key cached.
-	// It is not considered part of the raw key data,
-	// as was previously the case.)
-	uint8 m_publicKey[32];
-
-	bool CachePublicKey();
-	virtual bool SetRawData( const void *pData, size_t cbData ) override;
-};
-
-
-//-----------------------------------------------------------------------------
-// Purpose: Encapsulates an elliptic-curve signature private key (x25519)
-//-----------------------------------------------------------------------------
-class CECKeyExchangePrivateKey : public CEC25519PrivateKeyBase
-{
-public:
-	CECKeyExchangePrivateKey() : CEC25519PrivateKeyBase( k_ECryptoKeyTypeKeyExchangePrivate ) { }
-	virtual ~CECKeyExchangePrivateKey();
-};
-
-
-//-----------------------------------------------------------------------------
-// Purpose: Encapsulates an elliptic-curve key-exchange public key (curve25519)
-//			Internally, this is stored as a 32-byte binary data blob
-//-----------------------------------------------------------------------------
-class CECKeyExchangePublicKey : public CEC25519PublicKeyBase
-{
-public:
-	CECKeyExchangePublicKey() : CEC25519PublicKeyBase( k_ECryptoKeyTypeKeyExchangePublic ) { }
-	virtual ~CECKeyExchangePublicKey();
-};
-
-
-//-----------------------------------------------------------------------------
-// Purpose: Encapsulates an elliptic-curve signature private key (ed25519)
-//			Internally, this is stored as a 64-byte (public, private) pair
-//-----------------------------------------------------------------------------
-class CECSigningPrivateKey : public CEC25519PrivateKeyBase
-{
-public:
-	CECSigningPrivateKey() : CEC25519PrivateKeyBase( k_ECryptoKeyTypeSigningPrivate ) { }
-
-	// Load from PEM
-	virtual bool LoadFromAndWipeBuffer( void *pBuffer, size_t cBytes ) override;
-
-	// Purpose: Get key in PEM text format
-	// Input:	pchPEMData -		Pointer to string buffer to store output in (or NULL to just calculate required size)
-	//			cubPEMData -		Size of pchPEMData buffer
-	//			pcubPEMData -		Pointer to number of bytes written to pchPEMData (including terminating nul), or
-	//								required size of pchPEMData if it is NULL or not big enough.
-	bool GetAsPEM( char *pchPEMData, uint32 cubPEMData, uint32 *pcubPEMData ) const;
-
-	// Parses OpenSSH PEM block.
-	// WARNING: DOES NOT WIPE INPUT.
-	bool ParsePEM( const char *pBuffer, size_t cBytes );
-
-	// Generate an ed25519 public-key signature
-	void GenerateSignature( const void *pData, size_t cbData, CryptoSignature_t *pSignatureOut ) const;
-};
-
-
-//-----------------------------------------------------------------------------
-// Purpose: Encapsulates an elliptic-curve signature public key (x25519)
-//			Internally, this is stored as a 32-byte binary data blob
-//-----------------------------------------------------------------------------
-class CECSigningPublicKey : public CEC25519PublicKeyBase
-{
-public:
-	CECSigningPublicKey() : CEC25519PublicKeyBase( k_ECryptoKeyTypeSigningPublic ) { }
-
-	virtual bool LoadFromAndWipeBuffer( void *pBuffer, size_t cBytes ) override;
-
-	bool GetAsOpenSSHAuthorizedKeys( char *pchData, uint32 cubData, uint32 *pcubData, const char *pszComment = "" ) const;
-	bool SetFromOpenSSHAuthorizedKeys( const char *pchData, size_t cbData );
-
-	bool VerifySignature( const void *pData, size_t cbData, const CryptoSignature_t &signature ) const;
-};
+// Forward declare specific key types.
+class CRSAKeyBase;
+class CRSAPublicKey;
+class CRSAPrivateKey;
+class CEC25519KeyBase;
+class CEC25519PublicKeyBase;
+class CEC25519PrivateKeyBase;
+class CECKeyExchangePrivateKey;
+class CECKeyExchangePublicKey;
+class CECSigningPrivateKey;
+class CECSigningPublicKey;
 
 #endif // KEYPAIR_H
 

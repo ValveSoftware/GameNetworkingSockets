@@ -49,7 +49,7 @@ incdirs = include_directories('.', '../include', 'common', 'public')
 
 cpp_flags = [
   '-DSTEAMNETWORKINGSOCKETS_FOREXPORT',
-  '-DENABLE_OPENSSLCONNECTION',
+  '-DVALVE_CRYPTO_ENABLE_25519',
   '-DCRYPTO_DISABLE_ENCRYPT_WITH_PASSWORD',
   '-DGOOGLE_PROTOBUF_NO_RTTI',
 ]

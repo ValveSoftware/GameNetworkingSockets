@@ -100,25 +100,6 @@ namespace CCrypto
 		const void *pAdditionalAuthenticationData, size_t cbAuthenticationData, // Optional additional authentication data.  Not encrypted, but will be included in the tag, so it can be authenticated.
 		size_t cbTag // Last N bytes in your buffer are assumed to be a tag, and will be checked
 	);
-	
-	//
-	// Secure key exchange (curve25519 elliptic-curve Diffie-Hellman key exchange)
-	//
-
-	// Generate a curve25519 key pair for Diffie-Hellman secure key exchange
-	void GenerateKeyExchangeKeyPair( CECKeyExchangePublicKey *pPublicKey, CECKeyExchangePrivateKey *pPrivateKey );
-	bool PerformKeyExchange( const CECKeyExchangePrivateKey &localPrivateKey, const CECKeyExchangePublicKey &remotePublicKey, SHA256Digest_t *pSharedSecretOut );
-
-	//
-	// Signing and verification (ed25519 elliptic-curve signature scheme)
-	//
-
-	// Generate an ed25519 key pair for public-key signature generation
-	void GenerateSigningKeyPair( CECSigningPublicKey *pPublicKey, CECSigningPrivateKey *pPrivateKey );
-
-	// Legacy compatibility - use the key methods
-	inline void GenerateSignature( const void *pData, size_t cbData, const CECSigningPrivateKey &privateKey, CryptoSignature_t *pSignatureOut ) { privateKey.GenerateSignature( pData, cbData, pSignatureOut ); }
-	inline bool VerifySignature( const void *pData, size_t cbData, const CECSigningPublicKey &publicKey, const CryptoSignature_t &signature ) { return publicKey.VerifySignature( pData, cbData, signature ); }
 
 	bool HexEncode( const void *pubData, const uint32 cubData, char *pchEncodedData, uint32 cchEncodedData );
 	bool HexDecode( const char *pchData, void *pubDecodedData, uint32 *pcubDecodedData );

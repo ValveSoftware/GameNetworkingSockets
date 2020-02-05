@@ -15,6 +15,7 @@
 #include "steamnetworkingsockets_lowlevel.h"
 #include "keypair.h"
 #include "crypto.h"
+#include "crypto_25519.h"
 #include <tier0/memdbgoff.h>
 #include <steamnetworkingsockets_messages.pb.h>
 #include <tier0/memdbgon.h>

@@ -1,5 +1,7 @@
 //========= Copyright Valve LLC, All rights reserved. ========================
+
 #include "crypto.h"
+#include "crypto_25519.h"
 #include <tier0/dbg.h>
 
 #ifdef VALVE_CRYPTO_25519_DONNA
@@ -232,5 +234,5 @@ bool CEC25519PrivateKeyBase::CachePublicKey()
 	return true;
 }
 
-#endif // #ifdef GNS_CRYPTO_25519_REF
+#endif // #ifdef VALVE_CRYPTO_25519_DONNA
 

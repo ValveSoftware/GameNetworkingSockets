@@ -3,7 +3,7 @@
 
 #include <tier1/utlbuffer.h>
 #include <crypto.h>
-#include <crypto_constants.h>
+#include <crypto_25519.h>
 
 #ifdef LINUX
 #include <unistd.h>

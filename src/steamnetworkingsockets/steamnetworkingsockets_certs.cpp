@@ -1,6 +1,7 @@
 //====== Copyright Valve Corporation, All rights reserved. ====================
 
 #include <crypto.h>
+#include <crypto_25519.h>
 #include "steamnetworkingsockets_internal.h"
 
 // Must be the last include
