@@ -1,4 +1,7 @@
 #include "crypto.h"
+#include "crypto_25519.h"
+
+#include <tier0/dbg.h>
 
 #ifdef STEAMNETWORKINGSOCKETS_CRYPTO_25519_LIBSODIUM
 
