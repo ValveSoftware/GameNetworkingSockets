@@ -453,8 +453,6 @@ protected:
 };
 #define STEAMNETWORKINGSOCKETS_INTERFACE_VERSION "SteamNetworkingSockets008"
 
-extern "C" {
-
 // Global accessor.
 #if defined( STEAMNETWORKINGSOCKETS_PARTNER )
 
@@ -555,7 +553,5 @@ struct SteamNetAuthenticationStatus_t
 };
 
 #pragma pack( pop )
-
-}
 
 #endif // ISTEAMNETWORKINGSOCKETS
