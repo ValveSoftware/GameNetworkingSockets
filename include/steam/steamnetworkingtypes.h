@@ -209,6 +209,7 @@ struct SteamNetworkingIPAddr
 	union
 	{
 		uint8 m_ipv6[ 16 ];
+		#ifndef API_GEN // API generator doesn't understand this.  The bindings will just use the accessors
 		struct // IPv4 "mapped address" (rfc4038 section 4.2)
 		{
 			uint64 m_8zeros;
@@ -216,6 +217,7 @@ struct SteamNetworkingIPAddr
 			uint16 m_ffff;
 			uint8 m_ip[ 4 ]; // NOTE: As bytes, i.e. network byte order
 		} m_ipv4;
+		#endif
 	};
 	uint16 m_port; // Host byte order
 
@@ -270,7 +272,7 @@ struct SteamNetworkingIdentity
 
 	/// Parse back a string that was generated using ToString.  If we don't understand the
 	/// string, but it looks "reasonable" (it matches the pattern type:<type-data> and doesn't
-	/// have any funcky characters, etc), then we will return true, and the type is set to
+	/// have any funky characters, etc), then we will return true, and the type is set to
 	/// k_ESteamNetworkingIdentityType_UnknownType.  false will only be returned if the string
 	/// looks invalid.
 	bool ParseString( const char *pszStr );
@@ -788,6 +790,7 @@ struct SteamNetworkingMessage_t
 	inline void Release();
 
 	// For code compatibility, some accessors
+#ifndef API_GEN
 	inline uint32 GetSize() const { return m_cbSize; }
 	inline const void *GetData() const { return m_pData; }
 	inline int GetChannel() const { return m_nChannel; }
@@ -795,6 +798,7 @@ struct SteamNetworkingMessage_t
 	inline int64 GetConnectionUserData() const { return m_nConnUserData; }
 	inline SteamNetworkingMicroseconds GetTimeReceived() const { return m_usecTimeReceived; }
 	inline int64 GetMessageNumber() const { return m_nMessageNumber; }
+#endif
 protected:
 	// Declare destructor protected.  You should never need to declare a message
 	// object on the stack or create one yourself.
@@ -1247,6 +1251,7 @@ const SteamNetworkingPOPID k_SteamDatagramPOPID_dev = ( (uint32)'d' << 16U ) | (
 ///////////////////////////////////////////////////////////////////////////////
 //
 // Internal stuff
+#ifndef API_GEN
 
 // For code compatibility
 typedef SteamNetworkingMessage_t ISteamNetworkingMessage;
@@ -1285,12 +1290,14 @@ inline void SteamNetworkingMessage_t::Release() { (*m_pfnRelease)( this ); }
 #if defined( STEAMNETWORKINGSOCKETS_STATIC_LINK ) || !defined( STEAMNETWORKINGSOCKETS_STEAMCLIENT )
 STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIPAddr_ToString( const SteamNetworkingIPAddr *pAddr, char *buf, size_t cbBuf, bool bWithPort );
 STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIPAddr_ParseString( SteamNetworkingIPAddr *pAddr, const char *pszStr );
-STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIdentity_ToString( const SteamNetworkingIdentity &identity, char *buf, size_t cbBuf );
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIdentity_ToString( const SteamNetworkingIdentity *pIdentity, char *buf, size_t cbBuf );
 STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIdentity_ParseString( SteamNetworkingIdentity *pIdentity, size_t sizeofIdentity, const char *pszStr );
 inline void SteamNetworkingIPAddr::ToString( char *buf, size_t cbBuf, bool bWithPort ) const { SteamAPI_SteamNetworkingIPAddr_ToString( this, buf, cbBuf, bWithPort ); }
 inline bool SteamNetworkingIPAddr::ParseString( const char *pszStr ) { return SteamAPI_SteamNetworkingIPAddr_ParseString( this, pszStr ); }
-inline void SteamNetworkingIdentity::ToString( char *buf, size_t cbBuf ) const { SteamAPI_SteamNetworkingIdentity_ToString( *this, buf, cbBuf ); }
+inline void SteamNetworkingIdentity::ToString( char *buf, size_t cbBuf ) const { SteamAPI_SteamNetworkingIdentity_ToString( this, buf, cbBuf ); }
 inline bool SteamNetworkingIdentity::ParseString( const char *pszStr ) { return SteamAPI_SteamNetworkingIdentity_ParseString( this, sizeof(*this), pszStr ); }
 #endif
+
+#endif // #ifndef API_GEN
 
 #endif // #ifndef STEAMNETWORKINGTYPES

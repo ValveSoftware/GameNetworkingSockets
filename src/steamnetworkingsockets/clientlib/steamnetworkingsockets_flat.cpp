@@ -1,296 +1,183 @@
 //====== Copyright Valve Corporation, All rights reserved. ====================
 
 #include <steam/steamnetworkingsockets_flat.h>
-#include <steam/steamnetworkingsockets.h>
-#include <steam/isteamnetworkingutils.h>
-
-extern "C" {
-
-STEAMNETWORKINGSOCKETS_INTERFACE HSteamListenSocket SteamAPI_ISteamNetworkingSockets_CreateListenSocketIP( intptr_t instancePtr, const SteamNetworkingIPAddr *pAddress, int nOptions, const SteamNetworkingConfigValue_t *pOptions )
-{
-	return ((ISteamNetworkingSockets*)instancePtr)->CreateListenSocketIP( *pAddress, nOptions, pOptions );
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE HSteamNetConnection SteamAPI_ISteamNetworkingSockets_ConnectByIPAddress( intptr_t instancePtr, const SteamNetworkingIPAddr *pAddress, int nOptions, const SteamNetworkingConfigValue_t *pOptions )
-{
-	return ((ISteamNetworkingSockets*)instancePtr)->ConnectByIPAddress( *pAddress, nOptions, pOptions );
-}
 
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
-STEAMNETWORKINGSOCKETS_INTERFACE HSteamNetConnection SteamAPI_ISteamNetworkingSockets_CreateListenSocketP2P( intptr_t instancePtr, int nVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions )
-{
-	return ((ISteamNetworkingSockets*)instancePtr)->CreateListenSocketP2P( nVirtualPort, nOptions, pOptions );
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE HSteamNetConnection SteamAPI_ISteamNetworkingSockets_ConnectP2P( intptr_t instancePtr, const SteamNetworkingIdentity *pIdentity, int nVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions )
-{
-	return ((ISteamNetworkingSockets*)instancePtr)->ConnectP2P( *pIdentity, nVirtualPort, nOptions, pOptions );
-}
+#include <steam/steamdatagram_tickets.h>
 #endif
 
-STEAMNETWORKINGSOCKETS_INTERFACE EResult SteamAPI_ISteamNetworkingSockets_AcceptConnection( intptr_t instancePtr, HSteamNetConnection hConn )
-{
-	return ((ISteamNetworkingSockets*)instancePtr)->AcceptConnection( hConn );
-}
+#ifdef STEAMNETWORKINGSOCKETS_STANDALONELIB
+#include <steam/steamnetworkingsockets.h>
+#endif
 
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_CloseConnection( intptr_t instancePtr, HSteamNetConnection hPeer, int nReason, const char *pszDebug, bool bEnableLinger )
-{
-	return ((ISteamNetworkingSockets*)instancePtr)->CloseConnection( hPeer, nReason, pszDebug, bEnableLinger );
-}
+//--- ISteamNetworkingSockets-------------------------
 
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_CloseListenSocket( intptr_t instancePtr, HSteamListenSocket hSocket )
+STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets *SteamAPI_SteamNetworkingSockets_v008()
 {
-	return ((ISteamNetworkingSockets*)instancePtr)->CloseListenSocket( hSocket );
+	return SteamNetworkingSockets();
 }
-
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_SetConnectionUserData( intptr_t instancePtr, HSteamNetConnection hPeer, int64 nUserData )
+STEAMNETWORKINGSOCKETS_INTERFACE HSteamListenSocket SteamAPI_ISteamNetworkingSockets_CreateListenSocketIP( ISteamNetworkingSockets* self, const SteamNetworkingIPAddr & localAddress, int nOptions, const SteamNetworkingConfigValue_t * pOptions )
 {
-	return ((ISteamNetworkingSockets*)instancePtr)->SetConnectionUserData( hPeer, nUserData );
+	return self->CreateListenSocketIP( localAddress,nOptions,pOptions );
 }
-
-STEAMNETWORKINGSOCKETS_INTERFACE int64 SteamAPI_ISteamNetworkingSockets_GetConnectionUserData( intptr_t instancePtr, HSteamNetConnection hPeer )
+STEAMNETWORKINGSOCKETS_INTERFACE HSteamNetConnection SteamAPI_ISteamNetworkingSockets_ConnectByIPAddress( ISteamNetworkingSockets* self, const SteamNetworkingIPAddr & address, int nOptions, const SteamNetworkingConfigValue_t * pOptions )
 {
-	return ((ISteamNetworkingSockets*)instancePtr)->GetConnectionUserData( hPeer );
+	return self->ConnectByIPAddress( address,nOptions,pOptions );
 }
-
-STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_ISteamNetworkingSockets_SetConnectionName( intptr_t instancePtr, HSteamNetConnection hPeer, const char *pszName )
-{
-	return ((ISteamNetworkingSockets*)instancePtr)->SetConnectionName( hPeer, pszName );
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_GetConnectionName( intptr_t instancePtr, HSteamNetConnection hPeer, char *pszName, int nMaxLen )
-{
-	return ((ISteamNetworkingSockets*)instancePtr)->GetConnectionName( hPeer, pszName, nMaxLen );
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE EResult SteamAPI_ISteamNetworkingSockets_SendMessageToConnection( intptr_t instancePtr, HSteamNetConnection hConn, const void *pData, uint32 cbData, int nSendFlags, int64 *pOutMessageNumber )
-{
-	return ((ISteamNetworkingSockets*)instancePtr)->SendMessageToConnection( hConn, pData, cbData, nSendFlags, pOutMessageNumber );
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_ISteamNetworkingSockets_SendMessages( intptr_t instancePtr, int nMessages, SteamNetworkingMessage_t *const *pMessages, int64 *pOutMessageNumberOrResult )
-{
-	((ISteamNetworkingSockets*)instancePtr)->SendMessages( nMessages, pMessages, pOutMessageNumberOrResult );
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE EResult SteamAPI_ISteamNetworkingSockets_FlushMessagesOnConnection( intptr_t instancePtr, HSteamNetConnection hConn )
-{
-	return ((ISteamNetworkingSockets*)instancePtr)->FlushMessagesOnConnection( hConn );
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE int SteamAPI_ISteamNetworkingSockets_ReceiveMessagesOnConnection( intptr_t instancePtr, HSteamNetConnection hConn, SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages )
-{
-	return ((ISteamNetworkingSockets*)instancePtr)->ReceiveMessagesOnConnection( hConn, ppOutMessages, nMaxMessages );
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_GetConnectionInfo( intptr_t instancePtr, HSteamNetConnection hConn, SteamNetConnectionInfo_t *pInfo )
-{
-	return ((ISteamNetworkingSockets*)instancePtr)->GetConnectionInfo( hConn, pInfo );
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_GetQuickConnectionStatus( intptr_t instancePtr, HSteamNetConnection hConn, SteamNetworkingQuickConnectionStatus *pStats )
-{
-	return ((ISteamNetworkingSockets*)instancePtr)->GetQuickConnectionStatus( hConn, pStats );
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE int SteamAPI_ISteamNetworkingSockets_GetDetailedConnectionStatus( intptr_t instancePtr, HSteamNetConnection hConn, char *pszBuf, int cbBuf )
-{
-	return ((ISteamNetworkingSockets*)instancePtr)->GetDetailedConnectionStatus( hConn, pszBuf, cbBuf );
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_GetListenSocketAddress( intptr_t instancePtr, HSteamListenSocket hSocket, SteamNetworkingIPAddr *pAddress )
-{
-	return ((ISteamNetworkingSockets*)instancePtr)->GetListenSocketAddress( hSocket, pAddress );
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_CreateSocketPair( intptr_t instancePtr, HSteamNetConnection *pOutConnection1, HSteamNetConnection *pOutConnection2, bool bUseNetworkLoopback, const SteamNetworkingIdentity *pIdentity1, const SteamNetworkingIdentity *pIdentity2 )
-{
-	return ((ISteamNetworkingSockets*)instancePtr)->CreateSocketPair( pOutConnection1, pOutConnection2, bUseNetworkLoopback, pIdentity1, pIdentity2 );
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_GetIdentity( intptr_t instancePtr, SteamNetworkingIdentity *pIdentity )
-{
-	return ((ISteamNetworkingSockets*)instancePtr)->GetIdentity( pIdentity );
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE ESteamNetworkingAvailability SteamAPI_ISteamNetworkingSockets_InitAuthentication( intptr_t instancePtr )
-{
-	return ((ISteamNetworkingSockets*)instancePtr)->InitAuthentication();
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE ESteamNetworkingAvailability SteamAPI_ISteamNetworkingSockets_GetAuthenticationStatus( intptr_t instancePtr, SteamNetAuthenticationStatus_t *pDetails )
-{
-	return ((ISteamNetworkingSockets*)instancePtr)->GetAuthenticationStatus( pDetails );
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE HSteamNetPollGroup SteamAPI_ISteamNetworkingSockets_CreatePollGroup( intptr_t instancePtr )
-{
-	return ((ISteamNetworkingSockets*)instancePtr)->CreatePollGroup();
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_DestroyPollGroup( intptr_t instancePtr, HSteamNetPollGroup hPollGroup )
-{
-	return ((ISteamNetworkingSockets*)instancePtr)->DestroyPollGroup( hPollGroup );
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_SetConnectionPollGroup( intptr_t instancePtr, HSteamNetConnection hConn, HSteamNetPollGroup hPollGroup )
-{
-	return ((ISteamNetworkingSockets*)instancePtr)->SetConnectionPollGroup( hConn, hPollGroup);
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE int SteamAPI_ISteamNetworkingSockets_ReceiveMessagesOnPollGroup( intptr_t instancePtr, HSteamNetPollGroup hPollGroup, SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages )
-{
-	return ((ISteamNetworkingSockets*)instancePtr)->ReceiveMessagesOnPollGroup( hPollGroup, ppOutMessages, nMaxMessages );
-}
-
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
-
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_ReceivedRelayAuthTicket( intptr_t instancePtr, const void *pvTicket, int cbTicket, SteamDatagramRelayAuthTicket *pOutParsedTicket )
+STEAMNETWORKINGSOCKETS_INTERFACE HSteamListenSocket SteamAPI_ISteamNetworkingSockets_CreateListenSocketP2P( ISteamNetworkingSockets* self, int nVirtualPort, int nOptions, const SteamNetworkingConfigValue_t * pOptions )
 {
-	return ((ISteamNetworkingSockets*)instancePtr)->ReceivedRelayAuthTicket( pvTicket, cbTicket, pOutParsedTicket );
+	return self->CreateListenSocketP2P( nVirtualPort,nOptions,pOptions );
 }
-
-STEAMNETWORKINGSOCKETS_INTERFACE int SteamAPI_ISteamNetworkingSockets_FindRelayAuthTicketForServer( intptr_t instancePtr, const SteamNetworkingIdentity *pIdentityGameserver, int nVirtualPort, SteamDatagramRelayAuthTicket *pOutParsedTicket )
+STEAMNETWORKINGSOCKETS_INTERFACE HSteamNetConnection SteamAPI_ISteamNetworkingSockets_ConnectP2P( ISteamNetworkingSockets* self, const SteamNetworkingIdentity & identityRemote, int nVirtualPort, int nOptions, const SteamNetworkingConfigValue_t * pOptions )
 {
-	return ((ISteamNetworkingSockets*)instancePtr)->FindRelayAuthTicketForServer( *pIdentityGameserver, nVirtualPort, pOutParsedTicket );
+	return self->ConnectP2P( identityRemote,nVirtualPort,nOptions,pOptions );
 }
-
-STEAMNETWORKINGSOCKETS_INTERFACE HSteamNetConnection SteamAPI_ISteamNetworkingSockets_ConnectToHostedDedicatedServer( intptr_t instancePtr, const SteamNetworkingIdentity *pIdentityTarget, int nVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions )
-{
-	return ((ISteamNetworkingSockets*)instancePtr)->ConnectToHostedDedicatedServer( *pIdentityTarget, nVirtualPort, nOptions, pOptions );
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE uint16 SteamAPI_ISteamNetworkingSockets_GetHostedDedicatedServerPort( intptr_t instancePtr )
-{
-	return ((ISteamNetworkingSockets*)instancePtr)->GetHostedDedicatedServerPort();
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE SteamNetworkingPOPID SteamAPI_ISteamNetworkingSockets_GetHostedDedicatedServerPOPID( intptr_t instancePtr )
-{
-	return ((ISteamNetworkingSockets*)instancePtr)->GetHostedDedicatedServerPOPID();
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE EResult SteamAPI_ISteamNetworkingSockets_GetHostedDedicatedServerAddress( intptr_t instancePtr, SteamDatagramHostedAddress *pRouting )
-{
-	return ((ISteamNetworkingSockets*)instancePtr)->GetHostedDedicatedServerAddress( pRouting );
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE HSteamListenSocket SteamAPI_ISteamNetworkingSockets_CreateHostedDedicatedServerListenSocket( intptr_t instancePtr, int nVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions )
-{
-	return ((ISteamNetworkingSockets*)instancePtr)->CreateHostedDedicatedServerListenSocket( nVirtualPort, nOptions, pOptions );
-}
-STEAMNETWORKINGSOCKETS_INTERFACE EResult SteamAPI_ISteamNetworkingSockets_GetGameCoordinatorServerLogin( intptr_t instancePtr, SteamDatagramGameCoordinatorServerLogin *pLoginInfo, int *pcbSignedBlob, void *pBlob )
-{
-	return ((ISteamNetworkingSockets*)instancePtr)->GetGameCoordinatorServerLogin( pLoginInfo, pcbSignedBlob, pBlob );
-}
-
 #endif // #ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
-
-STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIPAddr_Clear( SteamNetworkingIPAddr *pThis )
+STEAMNETWORKINGSOCKETS_INTERFACE EResult SteamAPI_ISteamNetworkingSockets_AcceptConnection( ISteamNetworkingSockets* self, HSteamNetConnection hConn )
 {
-	pThis->Clear();
+	return self->AcceptConnection( hConn );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_CloseConnection( ISteamNetworkingSockets* self, HSteamNetConnection hPeer, int nReason, const char * pszDebug, bool bEnableLinger )
+{
+	return self->CloseConnection( hPeer,nReason,pszDebug,bEnableLinger );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_CloseListenSocket( ISteamNetworkingSockets* self, HSteamListenSocket hSocket )
+{
+	return self->CloseListenSocket( hSocket );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_SetConnectionUserData( ISteamNetworkingSockets* self, HSteamNetConnection hPeer, int64 nUserData )
+{
+	return self->SetConnectionUserData( hPeer,nUserData );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE int64 SteamAPI_ISteamNetworkingSockets_GetConnectionUserData( ISteamNetworkingSockets* self, HSteamNetConnection hPeer )
+{
+	return self->GetConnectionUserData( hPeer );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_ISteamNetworkingSockets_SetConnectionName( ISteamNetworkingSockets* self, HSteamNetConnection hPeer, const char * pszName )
+{
+	self->SetConnectionName( hPeer,pszName );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_GetConnectionName( ISteamNetworkingSockets* self, HSteamNetConnection hPeer, char * pszName, int nMaxLen )
+{
+	return self->GetConnectionName( hPeer,pszName,nMaxLen );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE EResult SteamAPI_ISteamNetworkingSockets_SendMessageToConnection( ISteamNetworkingSockets* self, HSteamNetConnection hConn, const void * pData, uint32 cbData, int nSendFlags, int64 * pOutMessageNumber )
+{
+	return self->SendMessageToConnection( hConn,pData,cbData,nSendFlags,pOutMessageNumber );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_ISteamNetworkingSockets_SendMessages( ISteamNetworkingSockets* self, int nMessages, SteamNetworkingMessage_t *const * pMessages, int64 * pOutMessageNumberOrResult )
+{
+	self->SendMessages( nMessages,pMessages,pOutMessageNumberOrResult );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE EResult SteamAPI_ISteamNetworkingSockets_FlushMessagesOnConnection( ISteamNetworkingSockets* self, HSteamNetConnection hConn )
+{
+	return self->FlushMessagesOnConnection( hConn );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE int SteamAPI_ISteamNetworkingSockets_ReceiveMessagesOnConnection( ISteamNetworkingSockets* self, HSteamNetConnection hConn, SteamNetworkingMessage_t ** ppOutMessages, int nMaxMessages )
+{
+	return self->ReceiveMessagesOnConnection( hConn,ppOutMessages,nMaxMessages );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_GetConnectionInfo( ISteamNetworkingSockets* self, HSteamNetConnection hConn, SteamNetConnectionInfo_t * pInfo )
+{
+	return self->GetConnectionInfo( hConn,pInfo );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_GetQuickConnectionStatus( ISteamNetworkingSockets* self, HSteamNetConnection hConn, SteamNetworkingQuickConnectionStatus * pStats )
+{
+	return self->GetQuickConnectionStatus( hConn,pStats );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE int SteamAPI_ISteamNetworkingSockets_GetDetailedConnectionStatus( ISteamNetworkingSockets* self, HSteamNetConnection hConn, char * pszBuf, int cbBuf )
+{
+	return self->GetDetailedConnectionStatus( hConn,pszBuf,cbBuf );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_GetListenSocketAddress( ISteamNetworkingSockets* self, HSteamListenSocket hSocket, SteamNetworkingIPAddr * address )
+{
+	return self->GetListenSocketAddress( hSocket,address );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_CreateSocketPair( ISteamNetworkingSockets* self, HSteamNetConnection * pOutConnection1, HSteamNetConnection * pOutConnection2, bool bUseNetworkLoopback, const SteamNetworkingIdentity * pIdentity1, const SteamNetworkingIdentity * pIdentity2 )
+{
+	return self->CreateSocketPair( pOutConnection1,pOutConnection2,bUseNetworkLoopback,pIdentity1,pIdentity2 );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_GetIdentity( ISteamNetworkingSockets* self, SteamNetworkingIdentity * pIdentity )
+{
+	return self->GetIdentity( pIdentity );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE ESteamNetworkingAvailability SteamAPI_ISteamNetworkingSockets_InitAuthentication( ISteamNetworkingSockets* self )
+{
+	return self->InitAuthentication(  );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE ESteamNetworkingAvailability SteamAPI_ISteamNetworkingSockets_GetAuthenticationStatus( ISteamNetworkingSockets* self, SteamNetAuthenticationStatus_t * pDetails )
+{
+	return self->GetAuthenticationStatus( pDetails );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE HSteamNetPollGroup SteamAPI_ISteamNetworkingSockets_CreatePollGroup( ISteamNetworkingSockets* self )
+{
+	return self->CreatePollGroup(  );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_DestroyPollGroup( ISteamNetworkingSockets* self, HSteamNetPollGroup hPollGroup )
+{
+	return self->DestroyPollGroup( hPollGroup );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_SetConnectionPollGroup( ISteamNetworkingSockets* self, HSteamNetConnection hConn, HSteamNetPollGroup hPollGroup )
+{
+	return self->SetConnectionPollGroup( hConn,hPollGroup );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE int SteamAPI_ISteamNetworkingSockets_ReceiveMessagesOnPollGroup( ISteamNetworkingSockets* self, HSteamNetPollGroup hPollGroup, SteamNetworkingMessage_t ** ppOutMessages, int nMaxMessages )
+{
+	return self->ReceiveMessagesOnPollGroup( hPollGroup,ppOutMessages,nMaxMessages );
+}
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_ReceivedRelayAuthTicket( ISteamNetworkingSockets* self, const void * pvTicket, int cbTicket, SteamDatagramRelayAuthTicket * pOutParsedTicket )
+{
+	return self->ReceivedRelayAuthTicket( pvTicket,cbTicket,pOutParsedTicket );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE int SteamAPI_ISteamNetworkingSockets_FindRelayAuthTicketForServer( ISteamNetworkingSockets* self, const SteamNetworkingIdentity & identityGameServer, int nVirtualPort, SteamDatagramRelayAuthTicket * pOutParsedTicket )
+{
+	return self->FindRelayAuthTicketForServer( identityGameServer,nVirtualPort,pOutParsedTicket );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE HSteamNetConnection SteamAPI_ISteamNetworkingSockets_ConnectToHostedDedicatedServer( ISteamNetworkingSockets* self, const SteamNetworkingIdentity & identityTarget, int nVirtualPort, int nOptions, const SteamNetworkingConfigValue_t * pOptions )
+{
+	return self->ConnectToHostedDedicatedServer( identityTarget,nVirtualPort,nOptions,pOptions );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE uint16 SteamAPI_ISteamNetworkingSockets_GetHostedDedicatedServerPort( ISteamNetworkingSockets* self )
+{
+	return self->GetHostedDedicatedServerPort(  );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE SteamNetworkingPOPID SteamAPI_ISteamNetworkingSockets_GetHostedDedicatedServerPOPID( ISteamNetworkingSockets* self )
+{
+	return self->GetHostedDedicatedServerPOPID(  );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE EResult SteamAPI_ISteamNetworkingSockets_GetHostedDedicatedServerAddress( ISteamNetworkingSockets* self, SteamDatagramHostedAddress * pRouting )
+{
+	return self->GetHostedDedicatedServerAddress( pRouting );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE HSteamListenSocket SteamAPI_ISteamNetworkingSockets_CreateHostedDedicatedServerListenSocket( ISteamNetworkingSockets* self, int nVirtualPort, int nOptions, const SteamNetworkingConfigValue_t * pOptions )
+{
+	return self->CreateHostedDedicatedServerListenSocket( nVirtualPort,nOptions,pOptions );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE EResult SteamAPI_ISteamNetworkingSockets_GetGameCoordinatorServerLogin( ISteamNetworkingSockets* self, SteamDatagramGameCoordinatorServerLogin * pLoginInfo, int * pcbSignedBlob, void * pBlob )
+{
+	return self->GetGameCoordinatorServerLogin( pLoginInfo,pcbSignedBlob,pBlob );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE HSteamNetConnection SteamAPI_ISteamNetworkingSockets_ConnectP2PCustomSignaling( ISteamNetworkingSockets* self, ISteamNetworkingConnectionCustomSignaling * pSignaling, const SteamNetworkingIdentity * pPeerIdentity, int nOptions, const SteamNetworkingConfigValue_t * pOptions )
+{
+	return self->ConnectP2PCustomSignaling( pSignaling,pPeerIdentity,nOptions,pOptions );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_ReceivedP2PCustomSignal( ISteamNetworkingSockets* self, const void * pMsg, int cbMsg, ISteamNetworkingCustomSignalingRecvContext * pContext )
+{
+	return self->ReceivedP2PCustomSignal( pMsg,cbMsg,pContext );
+}
+#endif // #ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_GetCertificateRequest( ISteamNetworkingSockets* self, int * pcbBlob, void * pBlob, SteamNetworkingErrMsg & errMsg )
+{
+	return self->GetCertificateRequest( pcbBlob,pBlob,errMsg );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_SetCertificate( ISteamNetworkingSockets* self, const void * pCertificate, int cbCertificate, SteamNetworkingErrMsg & errMsg )
+{
+	return self->SetCertificate( pCertificate,cbCertificate,errMsg );
 }
 
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIPAddr_IsIPv6AllZeros( const SteamNetworkingIPAddr *pThis )
-{
-	return pThis->IsIPv6AllZeros();
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIPAddr_SetIPv6( SteamNetworkingIPAddr *pThis, const uint8 *ipv6, uint16 nPort )
-{
-	pThis->SetIPv6( ipv6, nPort );
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIPAddr_SetIPv4( SteamNetworkingIPAddr *pThis, uint32 nIP, uint16 nPort )
-{
-	pThis->SetIPv4( nIP, nPort );
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIPAddr_IsIPv4( const SteamNetworkingIPAddr *pThis )
-{
-	return pThis->IsIPv4();
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE uint32 SteamAPI_SteamNetworkingIPAddr_GetIPv4( const SteamNetworkingIPAddr *pThis )
-{
-	return pThis->GetIPv4();
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIPAddr_SetIPv6LocalHost( SteamNetworkingIPAddr *pThis, uint16 nPort )
-{
-	pThis->SetIPv6LocalHost( nPort );
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIPAddr_IsLocalHost( const SteamNetworkingIPAddr *pThis )
-{
-	return pThis->IsLocalHost();
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIdentity_Clear( SteamNetworkingIdentity *pThis )
-{
-	pThis->Clear();
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIdentity_IsInvalid( const SteamNetworkingIdentity *pThis )
-{
-	return pThis->IsInvalid();
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIdentity_SetSteamID64( SteamNetworkingIdentity *pThis, uint64 steamID )
-{
-	pThis->SetSteamID64( steamID );
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE uint64 SteamAPI_SteamNetworkingIdentity_GetSteamID64( const SteamNetworkingIdentity *pThis )
-{
-	return pThis->GetSteamID64();
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIdentity_SetIPAddr( SteamNetworkingIdentity *pThis, const SteamNetworkingIPAddr *pAddr )
-{
-	pThis->SetIPAddr( *pAddr );
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE const SteamNetworkingIPAddr *SteamAPI_SteamNetworkingIdentity_GetIPAddr( SteamNetworkingIdentity *pThis )
-{
-	return pThis->GetIPAddr();
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIdentity_SetLocalHost( SteamNetworkingIdentity *pThis )
-{
-	pThis->SetLocalHost();
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIdentity_IsLocalHost( const SteamNetworkingIdentity *pThis )
-{
-	return pThis->IsLocalHost();
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIdentity_SetGenericString( SteamNetworkingIdentity *pThis, const char *pszString )
-{
-	return pThis->SetGenericString( pszString );
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE const char *SteamAPI_SteamNetworkingIdentity_GetGenericString( const SteamNetworkingIdentity *pThis )
-{
-	return pThis->GetGenericString();
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIdentity_SetGenericBytes( SteamNetworkingIdentity *pThis, const void *data, size_t cbLen )
-{
-	return pThis->SetGenericBytes( data, cbLen );
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE const uint8 *SteamAPI_SteamNetworkingIdentity_GetGenericBytes( const SteamNetworkingIdentity *pThis, int *pOutLen )
-{
-	return pThis->GetGenericBytes( *pOutLen );
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIdentity_EqualTo( const SteamNetworkingIdentity *a, const SteamNetworkingIdentity *b )
-{
-	return (*a == *b);
-}
-
+#ifdef STEAMNETWORKINGSOCKETS_STANDALONELIB
 STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_ISteamNetworkingSockets_RunConnectionStatusChangedCallbacks( intptr_t instancePtr, FSteamNetConnectionStatusChangedCallback callback, intptr_t context )
 {
 	struct CallbackAdapter : ISteamNetworkingSocketsCallbacks
@@ -310,111 +197,223 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_ISteamNetworkingSockets_RunConnec
 	CallbackAdapter adapter( callback, context );
 	((ISteamNetworkingSockets*)instancePtr)->RunCallbacks( &adapter );
 }
+#endif
 
-STEAMNETWORKINGSOCKETS_INTERFACE SteamNetworkingMessage_t *SteamAPI_ISteamNetworkingUtils_AllocateMessage( intptr_t instancePtr, int cbAllocateBuffer )
+//--- ISteamNetworkingUtils-------------------------
+
+STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingUtils *SteamAPI_SteamNetworkingUtils_v003()
 {
-	return ((ISteamNetworkingUtils*)instancePtr)->AllocateMessage( cbAllocateBuffer );
+	return SteamNetworkingUtils();
 }
+STEAMNETWORKINGSOCKETS_INTERFACE SteamNetworkingMessage_t * SteamAPI_ISteamNetworkingUtils_AllocateMessage( ISteamNetworkingUtils* self, int cbAllocateBuffer )
+{
+	return self->AllocateMessage( cbAllocateBuffer );
+}
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_ISteamNetworkingUtils_InitRelayNetworkAccess( ISteamNetworkingUtils* self )
+{
+	self->InitRelayNetworkAccess(  );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE ESteamNetworkingAvailability SteamAPI_ISteamNetworkingUtils_GetRelayNetworkStatus( ISteamNetworkingUtils* self, SteamRelayNetworkStatus_t * pDetails )
+{
+	return self->GetRelayNetworkStatus( pDetails );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE float SteamAPI_ISteamNetworkingUtils_GetLocalPingLocation( ISteamNetworkingUtils* self, SteamNetworkPingLocation_t & result )
+{
+	return self->GetLocalPingLocation( result );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE int SteamAPI_ISteamNetworkingUtils_EstimatePingTimeBetweenTwoLocations( ISteamNetworkingUtils* self, const SteamNetworkPingLocation_t & location1, const SteamNetworkPingLocation_t & location2 )
+{
+	return self->EstimatePingTimeBetweenTwoLocations( location1,location2 );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE int SteamAPI_ISteamNetworkingUtils_EstimatePingTimeFromLocalHost( ISteamNetworkingUtils* self, const SteamNetworkPingLocation_t & remoteLocation )
+{
+	return self->EstimatePingTimeFromLocalHost( remoteLocation );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_ISteamNetworkingUtils_ConvertPingLocationToString( ISteamNetworkingUtils* self, const SteamNetworkPingLocation_t & location, char * pszBuf, int cchBufSize )
+{
+	self->ConvertPingLocationToString( location,pszBuf,cchBufSize );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingUtils_ParsePingLocationString( ISteamNetworkingUtils* self, const char * pszString, SteamNetworkPingLocation_t & result )
+{
+	return self->ParsePingLocationString( pszString,result );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingUtils_CheckPingDataUpToDate( ISteamNetworkingUtils* self, float flMaxAgeSeconds )
+{
+	return self->CheckPingDataUpToDate( flMaxAgeSeconds );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE int SteamAPI_ISteamNetworkingUtils_GetPingToDataCenter( ISteamNetworkingUtils* self, SteamNetworkingPOPID popID, SteamNetworkingPOPID * pViaRelayPoP )
+{
+	return self->GetPingToDataCenter( popID,pViaRelayPoP );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE int SteamAPI_ISteamNetworkingUtils_GetDirectPingToPOP( ISteamNetworkingUtils* self, SteamNetworkingPOPID popID )
+{
+	return self->GetDirectPingToPOP( popID );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE int SteamAPI_ISteamNetworkingUtils_GetPOPCount( ISteamNetworkingUtils* self )
+{
+	return self->GetPOPCount(  );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE int SteamAPI_ISteamNetworkingUtils_GetPOPList( ISteamNetworkingUtils* self, SteamNetworkingPOPID * list, int nListSz )
+{
+	return self->GetPOPList( list,nListSz );
+}
+#endif // #ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
+
+STEAMNETWORKINGSOCKETS_INTERFACE SteamNetworkingMicroseconds SteamAPI_ISteamNetworkingUtils_GetLocalTimestamp( ISteamNetworkingUtils* self )
+{
+	return self->GetLocalTimestamp(  );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_ISteamNetworkingUtils_SetDebugOutputFunction( ISteamNetworkingUtils* self, ESteamNetworkingSocketsDebugOutputType eDetailLevel, FSteamNetworkingSocketsDebugOutput pfnFunc )
+{
+	self->SetDebugOutputFunction( eDetailLevel,pfnFunc );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingUtils_SetGlobalConfigValueInt32( ISteamNetworkingUtils* self, ESteamNetworkingConfigValue eValue, int32 val )
+{
+	return self->SetGlobalConfigValueInt32( eValue,val );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingUtils_SetGlobalConfigValueFloat( ISteamNetworkingUtils* self, ESteamNetworkingConfigValue eValue, float val )
+{
+	return self->SetGlobalConfigValueFloat( eValue,val );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingUtils_SetGlobalConfigValueString( ISteamNetworkingUtils* self, ESteamNetworkingConfigValue eValue, const char * val )
+{
+	return self->SetGlobalConfigValueString( eValue,val );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingUtils_SetConnectionConfigValueInt32( ISteamNetworkingUtils* self, HSteamNetConnection hConn, ESteamNetworkingConfigValue eValue, int32 val )
+{
+	return self->SetConnectionConfigValueInt32( hConn,eValue,val );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingUtils_SetConnectionConfigValueFloat( ISteamNetworkingUtils* self, HSteamNetConnection hConn, ESteamNetworkingConfigValue eValue, float val )
+{
+	return self->SetConnectionConfigValueFloat( hConn,eValue,val );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingUtils_SetConnectionConfigValueString( ISteamNetworkingUtils* self, HSteamNetConnection hConn, ESteamNetworkingConfigValue eValue, const char * val )
+{
+	return self->SetConnectionConfigValueString( hConn,eValue,val );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingUtils_SetConfigValue( ISteamNetworkingUtils* self, ESteamNetworkingConfigValue eValue, ESteamNetworkingConfigScope eScopeType, intptr_t scopeObj, ESteamNetworkingConfigDataType eDataType, const void * pArg )
+{
+	return self->SetConfigValue( eValue,eScopeType,scopeObj,eDataType,pArg );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingUtils_SetConfigValueStruct( ISteamNetworkingUtils* self, const SteamNetworkingConfigValue_t & opt, ESteamNetworkingConfigScope eScopeType, intptr_t scopeObj )
+{
+	return self->SetConfigValueStruct( opt,eScopeType,scopeObj );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE ESteamNetworkingGetConfigValueResult SteamAPI_ISteamNetworkingUtils_GetConfigValue( ISteamNetworkingUtils* self, ESteamNetworkingConfigValue eValue, ESteamNetworkingConfigScope eScopeType, intptr_t scopeObj, ESteamNetworkingConfigDataType * pOutDataType, void * pResult, size_t * cbResult )
+{
+	return self->GetConfigValue( eValue,eScopeType,scopeObj,pOutDataType,pResult,cbResult );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingUtils_GetConfigValueInfo( ISteamNetworkingUtils* self, ESteamNetworkingConfigValue eValue, const char ** pOutName, ESteamNetworkingConfigDataType * pOutDataType, ESteamNetworkingConfigScope * pOutScope, ESteamNetworkingConfigValue * pOutNextValue )
+{
+	return self->GetConfigValueInfo( eValue,pOutName,pOutDataType,pOutScope,pOutNextValue );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE ESteamNetworkingConfigValue SteamAPI_ISteamNetworkingUtils_GetFirstConfigValue( ISteamNetworkingUtils* self )
+{
+	return self->GetFirstConfigValue(  );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_ISteamNetworkingUtils_SteamNetworkingIPAddr_ToString( ISteamNetworkingUtils* self, const SteamNetworkingIPAddr & addr, char * buf, uint32 cbBuf, bool bWithPort )
+{
+	self->SteamNetworkingIPAddr_ToString( addr,buf,cbBuf,bWithPort );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingUtils_SteamNetworkingIPAddr_ParseString( ISteamNetworkingUtils* self, SteamNetworkingIPAddr * pAddr, const char * pszStr )
+{
+	return self->SteamNetworkingIPAddr_ParseString( pAddr,pszStr );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_ISteamNetworkingUtils_SteamNetworkingIdentity_ToString( ISteamNetworkingUtils* self, const SteamNetworkingIdentity & identity, char * buf, uint32 cbBuf )
+{
+	self->SteamNetworkingIdentity_ToString( identity,buf,cbBuf );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingUtils_SteamNetworkingIdentity_ParseString( ISteamNetworkingUtils* self, SteamNetworkingIdentity * pIdentity, const char * pszStr )
+{
+	return self->SteamNetworkingIdentity_ParseString( pIdentity,pszStr );
+}
+
+//--- SteamNetworkingIdentity-------------------------
+
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIdentity_Clear( SteamNetworkingIdentity* self )
+{
+	self->Clear(  );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIdentity_IsInvalid( SteamNetworkingIdentity* self )
+{
+	return self->IsInvalid(  );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIdentity_SetSteamID( SteamNetworkingIdentity* self, uint64_steamid steamID )
+{
+	self->SetSteamID( CSteamID(steamID) );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE uint64_steamid SteamAPI_SteamNetworkingIdentity_GetSteamID( SteamNetworkingIdentity* self )
+{
+	return (self->GetSteamID(  )).ConvertToUint64();
+}
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIdentity_SetSteamID64( SteamNetworkingIdentity* self, uint64 steamID )
+{
+	self->SetSteamID64( steamID );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE uint64 SteamAPI_SteamNetworkingIdentity_GetSteamID64( SteamNetworkingIdentity* self )
+{
+	return self->GetSteamID64(  );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIdentity_SetIPAddr( SteamNetworkingIdentity* self, const SteamNetworkingIPAddr & addr )
+{
+	self->SetIPAddr( addr );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE const SteamNetworkingIPAddr * SteamAPI_SteamNetworkingIdentity_GetIPAddr( SteamNetworkingIdentity* self )
+{
+	return self->GetIPAddr(  );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIdentity_SetLocalHost( SteamNetworkingIdentity* self )
+{
+	self->SetLocalHost(  );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIdentity_IsLocalHost( SteamNetworkingIdentity* self )
+{
+	return self->IsLocalHost(  );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIdentity_SetGenericString( SteamNetworkingIdentity* self, const char * pszString )
+{
+	return self->SetGenericString( pszString );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE const char * SteamAPI_SteamNetworkingIdentity_GetGenericString( SteamNetworkingIdentity* self )
+{
+	return self->GetGenericString(  );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIdentity_SetGenericBytes( SteamNetworkingIdentity* self, const void * data, uint32 cbLen )
+{
+	return self->SetGenericBytes( data,cbLen );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE const uint8 * SteamAPI_SteamNetworkingIdentity_GetGenericBytes( SteamNetworkingIdentity* self, int & cbLen )
+{
+	return self->GetGenericBytes( cbLen );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIdentity_IsEqualTo( SteamNetworkingIdentity* self, const SteamNetworkingIdentity & x )
+{
+	return self->operator==( x );
+}
+
+//--- SteamNetworkingMessage_t-------------------------
+
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingMessage_t_Release( SteamNetworkingMessage_t* self )
+{
+	self->Release(  );
+}
+
+//--- SteamDatagramHostedAddress-------------------------
 
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 
-STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_ISteamNetworkingUtils_InitRelayNetworkAccess( intptr_t instancePtr )
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamDatagramHostedAddress_Clear( SteamDatagramHostedAddress* self )
 {
-	((ISteamNetworkingUtils*)instancePtr)->InitRelayNetworkAccess();
+	self->Clear(  );
 }
-
-STEAMNETWORKINGSOCKETS_INTERFACE ESteamNetworkingAvailability SteamAPI_ISteamNetworkingUtils_GetRelayNetworkStatus( intptr_t instancePtr, SteamRelayNetworkStatus_t *pDetails )
+STEAMNETWORKINGSOCKETS_INTERFACE SteamNetworkingPOPID SteamAPI_SteamDatagramHostedAddress_GetPopID( SteamDatagramHostedAddress* self )
 {
-	return ((ISteamNetworkingUtils*)instancePtr)->GetRelayNetworkStatus( pDetails);
+	return self->GetPopID(  );
 }
-
-STEAMNETWORKINGSOCKETS_INTERFACE float SteamAPI_ISteamNetworkingUtils_GetLocalPingLocation( intptr_t instancePtr, SteamNetworkPingLocation_t *result )
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamDatagramHostedAddress_SetDevAddress( SteamDatagramHostedAddress* self, uint32 nIP, uint16 nPort, SteamNetworkingPOPID popid )
 {
-	return ((ISteamNetworkingUtils*)instancePtr)->GetLocalPingLocation( *result );
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE int SteamAPI_ISteamNetworkingUtils_EstimatePingTimeBetweenTwoLocations( intptr_t instancePtr, const SteamNetworkPingLocation_t *location1, const SteamNetworkPingLocation_t *location2 )
-{
-	return ((ISteamNetworkingUtils*)instancePtr)->EstimatePingTimeBetweenTwoLocations( *location1, *location2 );
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE int SteamAPI_ISteamNetworkingUtils_EstimatePingTimeFromLocalHost( intptr_t instancePtr, const SteamNetworkPingLocation_t *remoteLocation )
-{
-	return ((ISteamNetworkingUtils*)instancePtr)->EstimatePingTimeFromLocalHost( *remoteLocation );
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_ISteamNetworkingUtils_ConvertPingLocationToString( intptr_t instancePtr, const SteamNetworkPingLocation_t *location, char *pszBuf, int cchBufSize )
-{
-	((ISteamNetworkingUtils*)instancePtr)->ConvertPingLocationToString( *location, pszBuf, cchBufSize );
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingUtils_ParsePingLocationString( intptr_t instancePtr, const char *pszString, SteamNetworkPingLocation_t *result )
-{
-	return ((ISteamNetworkingUtils*)instancePtr)->ParsePingLocationString( pszString, *result );
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingUtils_CheckPingDataUpToDate( intptr_t instancePtr, float flMaxAgeSeconds )
-{
-	return ((ISteamNetworkingUtils*)instancePtr)->CheckPingDataUpToDate( flMaxAgeSeconds );
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE int SteamAPI_ISteamNetworkingUtils_GetPingToDataCenter( intptr_t instancePtr, SteamNetworkingPOPID popID, SteamNetworkingPOPID *pViaRelayPoP )
-{
-	return ((ISteamNetworkingUtils*)instancePtr)->GetPingToDataCenter( popID, pViaRelayPoP );
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE int SteamAPI_ISteamNetworkingUtils_GetDirectPingToPOP( intptr_t instancePtr, SteamNetworkingPOPID popID )
-{
-	return ((ISteamNetworkingUtils*)instancePtr)->GetDirectPingToPOP( popID );
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE int SteamAPI_ISteamNetworkingUtils_GetPOPCount( intptr_t instancePtr )
-{
-	return ((ISteamNetworkingUtils*)instancePtr)->GetPOPCount();
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE int SteamAPI_ISteamNetworkingUtils_GetPOPList( intptr_t instancePtr, SteamNetworkingPOPID *list, int nListSz )
-{
-	return ((ISteamNetworkingUtils*)instancePtr)->GetPOPList( list, nListSz );
+	self->SetDevAddress( nIP,nPort,popid );
 }
 
 #endif // #ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
-
-STEAMNETWORKINGSOCKETS_INTERFACE SteamNetworkingMicroseconds SteamAPI_ISteamNetworkingUtils_GetLocalTimestamp( intptr_t instancePtr )
-{
-	return ((ISteamNetworkingUtils*)instancePtr)->GetLocalTimestamp();
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_ISteamNetworkingUtils_SetDebugOutputFunction( intptr_t instancePtr, ESteamNetworkingSocketsDebugOutputType eDetailLevel, FSteamNetworkingSocketsDebugOutput pfnFunc )
-{
-	return ((ISteamNetworkingUtils*)instancePtr)->SetDebugOutputFunction( eDetailLevel, pfnFunc );
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingUtils_SetConfigValue( intptr_t instancePtr, ESteamNetworkingConfigValue eValue, ESteamNetworkingConfigScope eScopeType, intptr_t scopeObj,
-	ESteamNetworkingConfigDataType eDataType, const void *pValue )
-{
-	return ((ISteamNetworkingUtils*)instancePtr)->SetConfigValue( eValue, eScopeType, scopeObj, eDataType, pValue );
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE ESteamNetworkingGetConfigValueResult SteamAPI_ISteamNetworkingUtils_GetConfigValue( intptr_t instancePtr, ESteamNetworkingConfigValue eValue, ESteamNetworkingConfigScope eScopeType, intptr_t scopeObj,
-	ESteamNetworkingConfigDataType *pOutDataType, void *pResult, size_t *cbResult )
-{
-	return ((ISteamNetworkingUtils*)instancePtr)->GetConfigValue( eValue, eScopeType, scopeObj, pOutDataType, pResult, cbResult );
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingUtils_GetConfigValueInfo( intptr_t instancePtr, ESteamNetworkingConfigValue eValue, const char **pOutName, ESteamNetworkingConfigDataType *pOutDataType, ESteamNetworkingConfigScope *pOutScope, ESteamNetworkingConfigValue *pOutNextValue )
-{
-	return ((ISteamNetworkingUtils*)instancePtr)->GetConfigValueInfo( eValue, pOutName, pOutDataType, pOutScope, pOutNextValue );
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE ESteamNetworkingConfigValue SteamAPI_ISteamNetworkingUtils_GetFirstConfigValue( intptr_t instancePtr )
-{
-	return ((ISteamNetworkingUtils*)instancePtr)->GetFirstConfigValue();
-}
-
-STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingMessage_t_Release( SteamNetworkingMessage_t *pIMsg )
-{
-	pIMsg->Release();
-}
-
-}

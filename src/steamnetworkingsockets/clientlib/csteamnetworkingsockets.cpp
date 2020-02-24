@@ -1564,7 +1564,7 @@ bool CSteamNetworkingUtils::SteamNetworkingIPAddr_ParseString( SteamNetworkingIP
 
 void CSteamNetworkingUtils::SteamNetworkingIdentity_ToString( const SteamNetworkingIdentity &identity, char *buf, size_t cbBuf )
 {
-	return SteamAPI_SteamNetworkingIdentity_ToString( identity, buf, cbBuf );
+	return SteamAPI_SteamNetworkingIdentity_ToString( &identity, buf, cbBuf );
 }
 
 bool CSteamNetworkingUtils::SteamNetworkingIdentity_ParseString( SteamNetworkingIdentity *pIdentity, const char *pszStr )

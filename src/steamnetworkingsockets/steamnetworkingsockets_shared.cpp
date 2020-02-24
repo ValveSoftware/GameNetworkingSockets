@@ -274,26 +274,26 @@ STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIPAddr_ParseString
 	return true;
 }
 
-STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIdentity_ToString( const SteamNetworkingIdentity &identity, char *buf, size_t cbBuf )
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIdentity_ToString( const SteamNetworkingIdentity *pIdentity, char *buf, size_t cbBuf )
 {
-	switch ( identity.m_eType )
+	switch ( pIdentity->m_eType )
 	{
 		case k_ESteamNetworkingIdentityType_Invalid:
 			V_strncpy( buf, "invalid", cbBuf );
 			break;
 
 		case k_ESteamNetworkingIdentityType_SteamID:
-			V_snprintf( buf, cbBuf, "steamid:%llu", (unsigned long long)identity.m_steamID64 );
+			V_snprintf( buf, cbBuf, "steamid:%llu", (unsigned long long)pIdentity->m_steamID64 );
 			break;
 
 		case k_ESteamNetworkingIdentityType_IPAddress:
 			V_strncpy( buf, "ip:", cbBuf );
 			if ( cbBuf > 4 )
-				identity.m_ip.ToString( buf+3, cbBuf-3, identity.m_ip.m_port != 0 );
+				pIdentity->m_ip.ToString( buf+3, cbBuf-3, pIdentity->m_ip.m_port != 0 );
 			break;
 
 		case k_ESteamNetworkingIdentityType_GenericString:
-			V_snprintf( buf, cbBuf, "str:%s", identity.m_szGenericString );
+			V_snprintf( buf, cbBuf, "str:%s", pIdentity->m_szGenericString );
 			break;
 
 		case k_ESteamNetworkingIdentityType_GenericBytes:
@@ -302,10 +302,10 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIdentity_ToString(
 			{
 				static const char hexdigits[] = "0123456789abcdef";
 				char *d = buf+4;
-				int l = std::min( identity.m_cbSize, int(cbBuf-5) / 2 );
+				int l = std::min( pIdentity->m_cbSize, int(cbBuf-5) / 2 );
 				for ( int i = 0 ; i < l ; ++i )
 				{
-					uint8 b = identity.m_genericBytes[i];
+					uint8 b = pIdentity->m_genericBytes[i];
 					*(d++) = hexdigits[b>>4];
 					*(d++) = hexdigits[b&0xf];
 				}
@@ -314,11 +314,11 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIdentity_ToString(
 			break;
 
 		case k_ESteamNetworkingIdentityType_UnknownType:
-			V_strncpy( buf, identity.m_szUnknownRawString, cbBuf );
+			V_strncpy( buf, pIdentity->m_szUnknownRawString, cbBuf );
 			break;
 
 		default:
-			V_snprintf( buf, cbBuf, "bad_type:%d", identity.m_eType );
+			V_snprintf( buf, cbBuf, "bad_type:%d", pIdentity->m_eType );
 	}
 }
 
