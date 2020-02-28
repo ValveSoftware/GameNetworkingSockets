@@ -19,7 +19,7 @@ env:
     - IMAGE=ubuntu IMAGE_TAG=rolling
     - IMAGE=ubuntu IMAGE_TAG=devel
     - IMAGE=fedora IMAGE_TAG=latest
-    - IMAGE=fedora IMAGE_TAG=rawhide
+    #- IMAGE=fedora IMAGE_TAG=rawhide
 
 jobs:
   include:
