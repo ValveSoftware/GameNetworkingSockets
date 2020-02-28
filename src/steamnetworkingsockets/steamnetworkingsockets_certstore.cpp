@@ -8,6 +8,7 @@
 
 #include <time.h>
 #include <ostream>
+#include <crypto.h>
 #include <crypto_25519.h>
 #include "steamnetworkingsockets_certstore.h"
 #include <tier1/utlhashmap.h>
