@@ -2517,9 +2517,22 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 
 		case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
 		case k_ESteamNetworkingConnectionState_ClosedByPeer:
+		{
 			// We don't send any data packets or keepalives in this state.
-			// We're just waiting for the client API to close us.
-			return;
+			// We're just waiting for the client API to close us.  Let's check
+			// in once after a pretty lengthy delay, and assert if we're stil alive
+			SteamNetworkingMicroseconds usecTimeout = m_usecWhenEnteredConnectionState + 20*k_nMillion;
+			if ( usecNow >= usecTimeout )
+			{
+				SpewBug( "[%s] We are in state %d and have been waiting %.1fs to be cleaned up.  Did you forget to call CloseConnection()?",
+					GetDescription(), m_eConnectionState, ( usecNow - m_usecWhenEnteredConnectionState ) * 1e-6f );
+			}
+			else
+			{
+				SetNextThinkTime( usecTimeout );
+			}
+		}
+		return;
 
 		case k_ESteamNetworkingConnectionState_FindingRoute:
 		case k_ESteamNetworkingConnectionState_Connecting:
