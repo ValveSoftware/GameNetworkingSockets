@@ -99,9 +99,11 @@ void PingTracker::ReceivedPing( int nPingMS, SteamNetworkingMicroseconds usecNow
 
 		default:
 			AssertMsg1( false, "Unexpected valid ping count %d", m_nValidPings );
+			// FALLTHROUGH
 		case 2:
 			// Just received our final sample to complete the sample
 			m_nValidPings = 3;
+			// FALLTHROUGH
 		case 3:
 		{
 			// Full sample.  Take the average of the two best.  Hopefully this strategy ignores a single

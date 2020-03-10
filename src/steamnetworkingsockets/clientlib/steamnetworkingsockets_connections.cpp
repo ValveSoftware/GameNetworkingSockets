@@ -1090,6 +1090,7 @@ void CSteamNetworkConnectionBase::SetCryptoCipherList()
 	{
 		default:
 			AssertMsg( false, "Unexpected value for 'Unencrypted' config value" );
+			// FALLTHROUGH
 		case 0:
 			// Not allowed
 			m_msgCryptLocal.add_ciphers( k_ESteamNetworkingSocketsCipher_AES_256_GCM );
@@ -2591,6 +2592,7 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 				ConnectionState_FinWait();
 				return;
 			}
+			// FALLTHROUGH
 
 		// |
 		// | otherwise, fall through
@@ -3058,6 +3060,7 @@ void CSteamNetworkConnectionPipe::ConnectionStateChanged( ESteamNetworkingConnec
 		case k_ESteamNetworkingConnectionState_ProblemDetectedLocally: // What local "problem" could we have detected??
 		default:
 			AssertMsg1( false, "Invalid state %d", GetState() );
+			// FALLTHROUGH
 		case k_ESteamNetworkingConnectionState_None:
 		case k_ESteamNetworkingConnectionState_Dead:
 		case k_ESteamNetworkingConnectionState_FinWait:

@@ -181,6 +181,7 @@ static bool BConnectionStateExistsToAPI( ESteamNetworkingConnectionState eState 
 	{
 		default:
 			Assert( false );
+			return false;
 		case k_ESteamNetworkingConnectionState_None:
 		case k_ESteamNetworkingConnectionState_Dead:
 		case k_ESteamNetworkingConnectionState_FinWait:
