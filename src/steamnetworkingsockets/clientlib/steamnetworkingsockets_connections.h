@@ -188,7 +188,7 @@ public:
 	virtual void Destroy();
 
 	/// Called when we receive a connection attempt, to setup the linkage.
-	void AddChildConnection( CSteamNetworkConnectionBase *pConn );
+	bool BAddChildConnection( CSteamNetworkConnectionBase *pConn, SteamNetworkingErrMsg &errMsg );
 
 	/// This gets called on an accepted connection before it gets destroyed
 	virtual void AboutToDestroyChildConnection( CSteamNetworkConnectionBase *pConn );

@@ -515,14 +515,33 @@ bool CSteamNetworkListenSocketBase::APIGetAddress( SteamNetworkingIPAddr *pAddre
 	return false;
 }
 
-void CSteamNetworkListenSocketBase::AddChildConnection( CSteamNetworkConnectionBase *pConn )
+bool CSteamNetworkListenSocketBase::BAddChildConnection( CSteamNetworkConnectionBase *pConn, SteamNetworkingErrMsg &errMsg )
 {
-	Assert( pConn->m_pParentListenSocket == nullptr );
-	Assert( pConn->m_hSelfInParentListenSocketMap == -1 );
-	Assert( pConn->m_hConnectionSelf == k_HSteamNetConnection_Invalid );
+	// Safety check
+	if ( pConn->m_pParentListenSocket || pConn->m_hSelfInParentListenSocketMap != -1 || pConn->m_hConnectionSelf != k_HSteamNetConnection_Invalid )
+	{
+		Assert( pConn->m_pParentListenSocket == nullptr );
+		Assert( pConn->m_hSelfInParentListenSocketMap == -1 );
+		Assert( pConn->m_hConnectionSelf == k_HSteamNetConnection_Invalid );
+		V_sprintf_safe( errMsg, "Cannot add child connection - connection already has a parent or is in connection map?" );
+		return false;
+	}
+
+	if ( pConn->m_identityRemote.IsInvalid() || !pConn->m_unConnectionIDRemote )
+	{
+		Assert( !pConn->m_identityRemote.IsInvalid() );
+		Assert( pConn->m_unConnectionIDRemote );
+		V_sprintf_safe( errMsg, "Cannot add child connection - connection not initialized with remote identity/ConnID" );
+		return false;
+	}
 
 	RemoteConnectionKey_t key{ pConn->m_identityRemote, pConn->m_unConnectionIDRemote };
-	Assert( m_mapChildConnections.Find( key ) == m_mapChildConnections.InvalidIndex() );
+	if ( m_mapChildConnections.Find( key ) != m_mapChildConnections.InvalidIndex() )
+	{
+		V_sprintf_safe( errMsg, "Duplicate child connection!  %s %u", SteamNetworkingIdentityRender( pConn->m_identityRemote ).c_str(), pConn->m_unConnectionIDRemote );
+		AssertMsg1( false, "%s", errMsg );
+		return false;
+	}
 
 	// Setup linkage
 	pConn->m_pParentListenSocket = this;
@@ -540,6 +559,8 @@ void CSteamNetworkListenSocketBase::AddChildConnection( CSteamNetworkConnectionB
 	if ( !pConn->m_pPollGroup )
 		pConn->SetPollGroup( &m_legacyPollGroup );
 	#endif
+
+	return true;
 }
 
 void CSteamNetworkListenSocketBase::AboutToDestroyChildConnection( CSteamNetworkConnectionBase *pConn )

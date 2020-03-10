@@ -969,7 +969,8 @@ bool CSteamNetworkConnectionUDP::BBeginAccept(
 
 	m_unConnectionIDRemote = unConnectionIDRemote;
 	m_netAdrRemote = adrFrom;
-	pParent->AddChildConnection( this );
+	if ( !pParent->BAddChildConnection( this, errMsg ) )
+		return false;
 
 	// Let base class do some common initialization
 	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
