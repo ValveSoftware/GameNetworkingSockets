@@ -379,7 +379,7 @@ void V_SplitString2( const char *pString, const char * const *pSeparators, int n
 	}
 }
 
-void V_SplitString( const char *pString, const char *pSeparator, CUtlVector<char*> &outStrings, bool bIncludeEmptyStrings )
+void V_AllocAndSplitString( const char *pString, const char *pSeparator, CUtlVector<char*> &outStrings, bool bIncludeEmptyStrings )
 {
 	V_SplitString2( pString, &pSeparator, 1, outStrings, bIncludeEmptyStrings );
 }
