@@ -395,7 +395,7 @@ struct LinkStatsTrackerBase
 	/// 2 - Yes, send one if possible
 	inline int ReadyToSendTracerPing( SteamNetworkingMicroseconds usecNow ) const
 	{
-		if ( m_bDisconnected )
+		if ( m_bPassive )
 			return 0;
 		SteamNetworkingMicroseconds usecTimeSince = usecNow - std::max( m_ping.m_usecTimeLastSentPingRequest, m_ping.TimeRecvMostRecentPing() );
 		if ( usecTimeSince > k_usecLinkStatsMaxPingRequestInterval )
@@ -411,7 +411,7 @@ struct LinkStatsTrackerBase
 	inline bool BNeedToSendPingImmediate( SteamNetworkingMicroseconds usecNow ) const
 	{
 		return
-			!m_bDisconnected
+			!m_bPassive
 			&& m_nReplyTimeoutsSinceLastRecv > 0 // We're timing out
 			&& m_usecLastSendPacketExpectingImmediateReply+k_usecAggressivePingInterval < usecNow; // we haven't just recently sent an aggressive ping.
 	}
@@ -421,7 +421,7 @@ struct LinkStatsTrackerBase
 	inline bool BNeedToSendKeepalive( SteamNetworkingMicroseconds usecNow ) const
 	{
 		return
-			!m_bDisconnected
+			!m_bPassive
 			&& m_usecInFlightReplyTimeout == 0 // not already tracking some other message for which we expect a reply (and which would confirm that the connection is alive)
 			&& m_usecTimeLastRecv + k_usecKeepAliveInterval < usecNow; // haven't heard from the peer recently
 	}
@@ -431,7 +431,7 @@ struct LinkStatsTrackerBase
 	inline bool BReadyToSendStats( SteamNetworkingMicroseconds usecNow )
 	{
 		bool bResult = false;
-		if ( m_pktNumInFlight == 0 && !m_bDisconnected )
+		if ( m_pktNumInFlight == 0 && !m_bPassive )
 		{
 			if ( m_usecPeerAckedInstaneous + k_usecLinkStatsInstantaneousReportInterval < usecNow && BCheckHaveDataToSendInstantaneous( usecNow ) )
 				bResult = true ;
@@ -567,12 +567,6 @@ struct LinkStatsTrackerBase
 	/// Check if we really need to flush out stats now.
 	bool BNeedToSendStats( SteamNetworkingMicroseconds usecNow );
 
-	/// This is implemented by the template clas LinkStatsTracker,
-	/// which is declared final.  Thus, ideally we will not actually
-	/// use virtual function dispatch, unless we are actually invoked
-	/// through and base class pointer and do not know the exact type.
-	virtual void SetDisconnected( bool bFlag, SteamNetworkingMicroseconds usecNow ) = 0;
-
 protected:
 	// Make sure it's used as abstract base.  Note that we require you to call Init()
 	// with a timestamp value, so the constructor is empty by default.
@@ -600,10 +594,15 @@ protected:
 		TrackSentPingRequest( usecNow, bAllowDelayedReply );
 	}
 
-	/// When the connection is terminated, we set this flag.  At that point we will no
-	/// longer expect the peer to ack, or request to flush stats, etc.  (Although we
-	/// might indicate that we need to send an ack.)
-	bool m_bDisconnected;
+	/// Are we in "passive" state?  When we are "active", we expect that our peer is awake
+	/// and will reply to our messages, and that we should be actively sending our peer
+	/// connection quality statistics and keepalives.  When we are passive, we still measure
+	/// statistics and can receive messages from the peer, and send acknowledgements as necessary.
+	/// but we will indicate that keepalives or stats need to be sent to the peer.
+	bool m_bPassive;
+
+	/// Called to switch the pasive state.  (Should only be called on an actual state change.)
+	void SetPassiveInternal( bool bFlag, SteamNetworkingMicroseconds usecNow );
 
 	/// Check if we really need to flush out stats now.  Derived class should provide the reason strings.
 	/// (See the code.)
@@ -702,11 +701,10 @@ protected:
 	void InitInternal( SteamNetworkingMicroseconds usecNow );
 	void ThinkInternal( SteamNetworkingMicroseconds usecNow );
 
-	/// Get time when we need to take action or think
 	inline SteamNetworkingMicroseconds GetNextThinkTimeInternal( SteamNetworkingMicroseconds usecNow ) const
 	{
 		SteamNetworkingMicroseconds usecResult = LinkStatsTrackerBase::GetNextThinkTimeInternal( usecNow );
-		if ( !m_bDisconnected )
+		if ( !m_bPassive )
 		{
 			if ( !m_usecInFlightReplyTimeout )
 			{
@@ -735,14 +733,14 @@ struct LinkStatsTracker final : public TLinkStatsTracker
 
 	// "Virtual functions" that we are "overriding" at compile time
 	// by the template argument
-	inline void Init( SteamNetworkingMicroseconds usecNow, bool bStartDisconnected = false )
+	inline void Init( SteamNetworkingMicroseconds usecNow, bool bStartPassive = false )
 	{
 		TLinkStatsTracker::InitInternal( usecNow );
-		TLinkStatsTracker::SetDisconnectedInternal( bStartDisconnected, usecNow );
+		TLinkStatsTracker::SetPassiveInternal( bStartPassive, usecNow );
 	}
 	inline void Think( SteamNetworkingMicroseconds usecNow ) { TLinkStatsTracker::ThinkInternal( usecNow ); }
-	virtual void SetDisconnected( bool bFlag, SteamNetworkingMicroseconds usecNow ) override { if ( TLinkStatsTracker::m_bDisconnected != bFlag ) TLinkStatsTracker::SetDisconnectedInternal( bFlag, usecNow ); }
-	inline bool IsDisconnected() const { return TLinkStatsTracker::m_bDisconnected; }
+	inline void SetPassive( bool bFlag, SteamNetworkingMicroseconds usecNow ) { if ( TLinkStatsTracker::m_bPassive != bFlag ) TLinkStatsTracker::SetPassiveInternal( bFlag, usecNow ); }
+	inline bool IsPassive() const { return TLinkStatsTracker::m_bPassive; }
 
 	/// Called after we actually send connection data.  Note that we must have consumed the outgoing sequence
 	/// for that packet (using GetNextSendSequenceNumber), but must *NOT* have consumed any more!
@@ -750,7 +748,7 @@ struct LinkStatsTracker final : public TLinkStatsTracker
 	{
 
 		// Check if we expect our peer to know how to acknowledge this
-		if ( !TLinkStatsTracker::m_bDisconnected )
+		if ( !TLinkStatsTracker::m_bPassive )
 		{
 			TLinkStatsTracker::m_pktNumInFlight = TLinkStatsTracker::m_nNextSendSequenceNumber-1;
 			TLinkStatsTracker::m_bInFlightInstantaneous = msg.has_instantaneous();

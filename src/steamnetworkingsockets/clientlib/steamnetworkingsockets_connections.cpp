@@ -2130,7 +2130,7 @@ void CSteamNetworkConnectionBase::SetState( ESteamNetworkingConnectionState eNew
 
 			// Let stats tracking system know that it shouldn't
 			// expect to be able to get stuff acked, etc
-			m_statsEndToEnd.SetDisconnected( true, m_usecWhenEnteredConnectionState );
+			m_statsEndToEnd.SetPassive( true, m_usecWhenEnteredConnectionState );
 
 			// Go head and free up memory now
 			SNP_ShutdownConnection();
@@ -2143,7 +2143,7 @@ void CSteamNetworkConnectionBase::SetState( ESteamNetworkingConnectionState eNew
 			Assert( m_bCryptKeysValid );
 
 			// Link stats tracker should send and expect, acks, keepalives, etc
-			m_statsEndToEnd.SetDisconnected( false, m_usecWhenEnteredConnectionState );
+			m_statsEndToEnd.SetPassive( false, m_usecWhenEnteredConnectionState );
 			break;
 
 		case k_ESteamNetworkingConnectionState_FindingRoute:
@@ -2151,9 +2151,9 @@ void CSteamNetworkConnectionBase::SetState( ESteamNetworkingConnectionState eNew
 			// Key exchange should be complete.  (We do that when accepting a connection.)
 			Assert( m_bCryptKeysValid );
 
-			// FIXME.  Probably we should NOT set the stats tracker as "connected" yet.
-			//Assert( m_statsEndToEnd.IsDisconnected() );
-			m_statsEndToEnd.SetDisconnected( false, m_usecWhenEnteredConnectionState );
+			// FIXME.  Probably we should NOT set the stats tracker as "active" yet.
+			//Assert( m_statsEndToEnd.IsPassive() );
+			m_statsEndToEnd.SetPassive( false, m_usecWhenEnteredConnectionState );
 			break;
 
 		case k_ESteamNetworkingConnectionState_Connecting:
@@ -2162,7 +2162,7 @@ void CSteamNetworkConnectionBase::SetState( ESteamNetworkingConnectionState eNew
 			Assert( !m_bCryptKeysValid );
 
 			// And we shouldn't mark stats object as ready until we go connected
-			Assert( m_statsEndToEnd.IsDisconnected() );
+			Assert( m_statsEndToEnd.IsPassive() );
 			break;
 	}
 
@@ -2636,7 +2636,7 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 	if ( m_eConnectionState != k_ESteamNetworkingConnectionState_Connecting && m_eConnectionState != k_ESteamNetworkingConnectionState_FindingRoute )
 	{
 		Assert( m_statsEndToEnd.m_usecTimeLastRecv > 0 ); // How did we get connected without receiving anything end-to-end?
-		AssertMsg2( !m_statsEndToEnd.IsDisconnected(), "[%s] stats disconnected, but in state %d?", GetDescription(), (int)GetState() );
+		AssertMsg2( !m_statsEndToEnd.IsPassive(), "[%s] stats passive, but in state %d?", GetDescription(), (int)GetState() );
 
 		// Not able to send end-to-end data?
 		bool bCanSendEndToEnd = m_pTransport && m_pTransport->BCanSendEndToEndData();

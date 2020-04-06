@@ -913,7 +913,7 @@ void CSteamNetworkConnectionUDP::ThinkConnection( SteamNetworkingMicroseconds us
 	//         There's really nothing specific to plain UDP transport here.
 
 	// Check if we have stats we need to flush out
-	if ( !m_statsEndToEnd.IsDisconnected() && m_pTransport )
+	if ( !m_statsEndToEnd.IsPassive() && m_pTransport )
 	{
 
 		// Do we need to send something immediately, for any reason?
