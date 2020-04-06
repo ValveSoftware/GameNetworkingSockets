@@ -1278,12 +1278,6 @@ void CConnectionTransportUDP::Received_Data( const uint8 *pPkt, int cbPkt, Steam
 			SendConnectionClosedOrNoConnection();
 			return;
 
-		case k_ESteamNetworkingConnectionState_Linger:
-			// FIXME: What should we do here?  We are half-closed here, so this
-			// data is definitely going to be ignored.  Do we need to communicate
-			// that state to the remote host somehow?
-			return;
-
 		case k_ESteamNetworkingConnectionState_Connecting:
 			// Ignore it.  We don't have the SteamID of whoever is on the other end yet,
 			// their encryption keys, etc.  The most likely cause is that a server sent
@@ -1291,6 +1285,7 @@ void CConnectionTransportUDP::Received_Data( const uint8 *pPkt, int cbPkt, Steam
 			// have everything yet.
 			return;
 
+		case k_ESteamNetworkingConnectionState_Linger:
 		case k_ESteamNetworkingConnectionState_Connected:
 
 			// We'll process the chunk
