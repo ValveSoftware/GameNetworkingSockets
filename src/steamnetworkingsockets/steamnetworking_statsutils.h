@@ -60,33 +60,29 @@ struct Rate_t
 {
 	void Reset() { memset( this, 0, sizeof(*this) ); }
 
-	int64	m_nTotal;
 	int64	m_nCurrentInterval;
-	//int64	m_nCurrentLongInterval;
+	int64	m_nAccumulator; // does not include the currentinterval
 	float	m_flRate;
-	float	m_flPeakRate;
+
+	int64 Total() const { return m_nAccumulator + m_nCurrentInterval; }
 
 	inline void Process( int64 nIncrement )
 	{
-		m_nTotal += nIncrement;
 		m_nCurrentInterval += nIncrement;
-		//m_nCurrentLongInterval += nIncrement;
 	}
 
 	inline void UpdateInterval( float flIntervalDuration )
 	{
 		m_flRate = float(m_nCurrentInterval) / flIntervalDuration;
-		m_flPeakRate = Max( m_flPeakRate, m_flRate );
+		m_nAccumulator += m_nCurrentInterval;
 		m_nCurrentInterval = 0;
 	}
 
 	inline void operator+=( const Rate_t &x )
 	{
-		m_nTotal += x.m_nTotal;
 		m_nCurrentInterval += x.m_nCurrentInterval;
-		//m_nCurrentLongInterval += x.m_nCurrentLongInterval;
+		m_nAccumulator += x.m_nAccumulator;
 		m_flRate += x.m_flRate;
-		// !NOTE: Don't aggregate peak.  It's ambiguous whether we should take the sum or max.
 	}
 };
 

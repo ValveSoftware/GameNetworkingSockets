@@ -643,10 +643,10 @@ void LinkStatsTrackerBase::GetInstantaneousStats( SteamDatagramLinkInstantaneous
 
 void LinkStatsTrackerBase::GetLifetimeStats( SteamDatagramLinkLifetimeStats &s ) const
 {
-	s.m_nPacketsSent = m_sent.m_packets.m_nTotal;
-	s.m_nBytesSent = m_sent.m_bytes.m_nTotal;
-	s.m_nPacketsRecv = m_recv.m_packets.m_nTotal;
-	s.m_nBytesRecv = m_recv.m_bytes.m_nTotal;
+	s.m_nPacketsSent = m_sent.m_packets.Total();
+	s.m_nBytesSent = m_sent.m_bytes.Total();
+	s.m_nPacketsRecv = m_recv.m_packets.Total();
+	s.m_nBytesRecv = m_recv.m_bytes.Total();
 	s.m_nPktsRecvSequenced = m_nPktsRecvSequenced;
 	s.m_nPktsRecvDropped = m_nPktsRecvDropped;
 	s.m_nPktsRecvOutOfOrder = m_nPktsRecvOutOfOrder;
