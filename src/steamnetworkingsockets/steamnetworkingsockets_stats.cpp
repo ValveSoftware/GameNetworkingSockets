@@ -193,30 +193,6 @@ void LinkStatsTrackerBase::StartNextInterval( SteamNetworkingMicroseconds usecNo
 	m_usecIntervalStart = usecNow;
 }
 
-void LinkStatsTrackerBase::ThinkInternal( SteamNetworkingMicroseconds usecNow )
-{
-	// Check for ending the current QoS interval
-	if ( !m_bPassive && m_usecIntervalStart + k_usecSteamDatagramLinkStatsDefaultInterval < usecNow )
-	{
-		UpdateInterval( usecNow );
-	}
-	
-	// Check for reply timeout that we count.  (We intentionally only allow
-	// one of this type of timeout to be in flight at a time, so that the max
-	// rate that we accumulate them is based on the ping time, instead of the packet
-	// rate.
-	if ( m_usecInFlightReplyTimeout > 0 && m_usecInFlightReplyTimeout < usecNow )
-	{
-		m_usecInFlightReplyTimeout = 0;
-		if ( m_usecWhenTimeoutStarted == 0 )
-		{
-			Assert( m_nReplyTimeoutsSinceLastRecv == 0 );
-			m_usecWhenTimeoutStarted = usecNow;
-		}
-		++m_nReplyTimeoutsSinceLastRecv;
-	}
-}
-
 void LinkStatsTrackerBase::UpdateInterval( SteamNetworkingMicroseconds usecNow )
 {
 	float flElapsed = int64( usecNow - m_usecIntervalStart ) * 1e-6;
@@ -758,16 +734,6 @@ void LinkStatsTrackerEndToEnd::InitInternal( SteamNetworkingMicroseconds usecNow
 	m_nRXSpeedHistogramMax = 0;
 
 	StartNextSpeedInterval( usecNow );
-}
-
-void LinkStatsTrackerEndToEnd::ThinkInternal( SteamNetworkingMicroseconds usecNow )
-{
-	LinkStatsTrackerBase::ThinkInternal( usecNow );
-
-	if ( m_usecSpeedIntervalStart + k_usecSteamDatagramSpeedStatsDefaultInterval < usecNow )
-	{
-		UpdateSpeedInterval( usecNow );
-	}
 }
 
 void LinkStatsTrackerEndToEnd::StartNextSpeedInterval( SteamNetworkingMicroseconds usecNow )

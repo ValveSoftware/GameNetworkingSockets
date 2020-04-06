@@ -583,7 +583,30 @@ protected:
 	void InitInternal( SteamNetworkingMicroseconds usecNow );
 
 	/// Check if it's time to update, and if so, do it.
-	void ThinkInternal( SteamNetworkingMicroseconds usecNow );
+	template <typename TLinkStatsTracker>
+	inline static void ThinkInternal( TLinkStatsTracker *pThis, SteamNetworkingMicroseconds usecNow )
+	{
+		// Check for ending the current QoS interval
+		if ( !pThis->m_bPassive && pThis->m_usecIntervalStart + k_usecSteamDatagramLinkStatsDefaultInterval < usecNow )
+		{
+			pThis->UpdateInterval( usecNow );
+		}
+	
+		// Check for reply timeout that we count.  (We intentionally only allow
+		// one of this type of timeout to be in flight at a time, so that the max
+		// rate that we accumulate them is based on the ping time, instead of the packet
+		// rate.
+		if ( pThis->m_usecInFlightReplyTimeout > 0 && pThis->m_usecInFlightReplyTimeout < usecNow )
+		{
+			pThis->m_usecInFlightReplyTimeout = 0;
+			if ( pThis->m_usecWhenTimeoutStarted == 0 )
+			{
+				Assert( pThis->m_nReplyTimeoutsSinceLastRecv == 0 );
+				pThis->m_usecWhenTimeoutStarted = usecNow;
+			}
+			++pThis->m_nReplyTimeoutsSinceLastRecv;
+		}
+	}
 
 	void GetInstantaneousStats( SteamDatagramLinkInstantaneousStats &s ) const;
 
@@ -720,7 +743,17 @@ struct LinkStatsTrackerEndToEnd : public LinkStatsTrackerBase
 
 protected:
 	void InitInternal( SteamNetworkingMicroseconds usecNow );
-	void ThinkInternal( SteamNetworkingMicroseconds usecNow );
+
+	template <typename TLinkStatsTracker>
+	inline static void ThinkInternal( TLinkStatsTracker *pThis, SteamNetworkingMicroseconds usecNow )
+	{
+		LinkStatsTrackerBase::ThinkInternal( pThis, usecNow );
+
+		if ( pThis->m_usecSpeedIntervalStart + k_usecSteamDatagramSpeedStatsDefaultInterval < usecNow )
+		{
+			pThis->UpdateSpeedInterval( usecNow );
+		}
+	}
 
 	inline SteamNetworkingMicroseconds GetNextThinkTimeInternal( SteamNetworkingMicroseconds usecNow ) const
 	{
@@ -756,7 +789,7 @@ struct LinkStatsTracker final : public TLinkStatsTracker
 		TLinkStatsTracker::InitInternal( usecNow );
 		TLinkStatsTracker::SetPassiveInternal( bStartDisconnected, usecNow );
 	}
-	inline void Think( SteamNetworkingMicroseconds usecNow ) { TLinkStatsTracker::ThinkInternal( usecNow ); }
+	inline void Think( SteamNetworkingMicroseconds usecNow ) { TLinkStatsTracker::ThinkInternal( this, usecNow ); }
 	inline void SetPassive( bool bFlag, SteamNetworkingMicroseconds usecNow ) { if ( TLinkStatsTracker::m_bPassive != bFlag ) TLinkStatsTracker::SetPassiveInternal( bFlag, usecNow ); }
 	inline bool IsPassive() const { return TLinkStatsTracker::m_bPassive; }
 	inline void TrackSentMessageExpectingSeqNumAck( SteamNetworkingMicroseconds usecNow, bool bAllowDelayedReply ) { TLinkStatsTracker::TrackSentMessageExpectingSeqNumAckInternal( this, usecNow, bAllowDelayedReply ); }
