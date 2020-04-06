@@ -282,8 +282,6 @@ struct LinkStatsTrackerBase
 	inline void TrackSentPacket( int cbPktSize )
 	{
 		m_sent.ProcessPacket( cbPktSize );
-		++m_nPktsSentSinceSentInstantaneous;
-		++m_nPktsSentSinceSentLifetime;
 	}
 
 	/// Consume the next sequence number, and record the time at which
@@ -476,30 +474,9 @@ struct LinkStatsTrackerBase
 	SteamDatagramLinkLifetimeStats m_lifetimeRemote;
 	SteamNetworkingMicroseconds m_usecTimeRecvLifetimeRemote;
 
-	/// Local time when peer last acknowledged instantaneous stats.
-	SteamNetworkingMicroseconds m_usecPeerAckedInstaneous;
 	int64 m_pktNumInFlight;
 	bool m_bInFlightInstantaneous;
 	bool m_bInFlightLifetime;
-
-	/// Number of sequenced packets received since we last sent instantaneous stats
-	int m_nPktsRecvSeqSinceSentInstantaneous;
-
-	/// Number of packets we have sent, since we last sent instantaneous stats
-	int m_nPktsSentSinceSentInstantaneous;
-
-	/// Local time when we last sent lifetime stats.
-	SteamNetworkingMicroseconds m_usecPeerAckedLifetime;
-
-	/// Number of sequenced packets received since we last sent lifetime stats
-	int m_nPktsRecvSeqSinceSentLifetime;
-	int m_nPktsSentSinceSentLifetime;
-
-	/// We sent lifetime stats on this seq number, has not been acknowledged.  <0 if none
-	//int m_seqnumUnackedSentLifetime;
-
-	/// We received lifetime stats at this sequence number, and should ack it soon.  <0 if none
-	//int m_seqnumPendingAckRecvTimelife;
 
 	/// Time when the current interval started
 	SteamNetworkingMicroseconds m_usecIntervalStart;
@@ -545,14 +522,14 @@ struct LinkStatsTrackerBase
 	inline void PeerAckedInstantaneous( SteamNetworkingMicroseconds usecNow )
 	{
 		m_usecPeerAckedInstaneous = usecNow;
-		m_nPktsRecvSeqSinceSentInstantaneous = 0;
-		m_nPktsSentSinceSentInstantaneous = 0;
+		m_nPktsRecvSeqWhenPeerAckInstantaneous = m_nPktsRecvSequenced;
+		m_nPktsSentWhenPeerAckInstantaneous = m_sent.m_packets.Total();
 	}
 	inline void PeerAckedLifetime( SteamNetworkingMicroseconds usecNow )
 	{
 		m_usecPeerAckedLifetime = usecNow;
-		m_nPktsRecvSeqSinceSentLifetime = 0;
-		m_nPktsSentSinceSentLifetime = 0;
+		m_nPktsRecvSeqWhenPeerAckLifetime = m_nPktsRecvSequenced;
+		m_nPktsSentWhenPeerAckLifetime = m_sent.m_packets.Total();
 	}
 
 	void InFlightPktAck( SteamNetworkingMicroseconds usecNow )
@@ -665,6 +642,19 @@ protected:
 	}
 
 private:
+
+	// Number of lifetime sequenced packets received, and overall packets sent,
+	// the last time the peer acked stats
+	int64 m_nPktsRecvSeqWhenPeerAckInstantaneous;
+	int64 m_nPktsSentWhenPeerAckInstantaneous;
+	int64 m_nPktsRecvSeqWhenPeerAckLifetime;
+	int64 m_nPktsSentWhenPeerAckLifetime;
+
+	/// Local time when peer last acknowledged lifetime stats.
+	SteamNetworkingMicroseconds m_usecPeerAckedLifetime;
+
+	/// Local time when peer last acknowledged instantaneous stats.
+	SteamNetworkingMicroseconds m_usecPeerAckedInstaneous;
 
 	bool BCheckHaveDataToSendInstantaneous( SteamNetworkingMicroseconds usecNow );
 	bool BCheckHaveDataToSendLifetime( SteamNetworkingMicroseconds usecNow );

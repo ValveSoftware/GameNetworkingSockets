@@ -309,12 +309,10 @@ bool LinkStatsTrackerBase::BCheckPacketNumberOldOrDuplicate( int64 nPktNum )
 	// Update stats
 	++m_nPktsRecvSequencedCurrentInterval;
 	++m_nPktsRecvSequenced;
-	++m_nPktsRecvSeqSinceSentLifetime;
-	++m_nPktsRecvSeqSinceSentInstantaneous;
 
 	// Packet number is increasing?
 	// (Maybe by a lot -- we don't handle that here.)
-	if ( nPktNum > m_nMaxRecvPktNum )
+	if ( likely( nPktNum > m_nMaxRecvPktNum ) )
 		return true;
 
 	// Which block of 64-bit packets is it in?
@@ -376,7 +374,7 @@ void LinkStatsTrackerBase::TrackProcessSequencedPacket( int64 nPktNum, SteamNetw
 	// case will be packets delivered in order, we optimize this logic
 	// for that case.
 	int64 nGap = nPktNum - m_nMaxRecvPktNum;
-	if ( nGap == 1 )
+	if ( likely( nGap == 1 ) )
 	{
 
 		// We've received two packets, in order.  Did the sender supply the time between packets on his side?
@@ -398,66 +396,64 @@ void LinkStatsTrackerBase::TrackProcessSequencedPacket( int64 nPktNum, SteamNetw
 		}
 
 	}
-	else
+	else if ( unlikely( nGap <= 0 ) )
 	{
-		// Classify imperfection based on gap size.
-		if ( nGap >= 100 )
+		// Packet number moving backward
+		// We should have already rejected duplicates
+		Assert( nGap != 0 );
+
+		// Packet number moving in reverse.
+		// It should be a *small* negative step, e.g. packets delivered out of order.
+		// If the packet is really old, we should have already discarded it earlier.
+		Assert( nGap >= -8 * (int64)sizeof(m_recvPktNumberMask) );
+		++m_nPktsRecvOutOfOrder;
+		++m_nPktsRecvWeirdSequenceCurrentInterval;
+
+		// We previously counted this packet as dropped.  Undo that, it wasn't dropped.
+		if ( m_nPktsRecvDropped > 0 )
+		{
+			--m_nPktsRecvDropped;
+		}
+		else
+		{
+			// This is weird.
+			AssertMsg8( false,
+				"No dropped packets, pkt num %lld -> %lld, dup bit not set?  recvseq=%lld, lurch=%lld, ooo=%lld, mask=[0x%llx, 0x%llx].  (%s)",
+				(long long)m_nMaxRecvPktNum, (long long)nPktNum,
+				(long long)m_nPktsRecvSequenced, (long long)m_nPktsRecvSequenceNumberLurch,
+				(long long)m_nPktsRecvOutOfOrder,
+				(unsigned long long)m_recvPktNumberMask[0], (unsigned long long)m_recvPktNumberMask[1],
+				Describe().c_str()
+			);
+		}
+		if ( m_nPktsRecvDroppedCurrentInterval > 0 ) // Might have marked it in the previous interval.  Our stats will be slightly off in this case.  Not worth it to try to get this exactly right.
+			--m_nPktsRecvDroppedCurrentInterval;
+		return;
+	}
+	else 
+	{
+		// Packet number moving forward, i.e. a dropped packet
+		// Large gap?
+		if ( unlikely( nGap >= 100 ) )
 		{
 			// Very weird.
 			++m_nPktsRecvSequenceNumberLurch;
 			++m_nPktsRecvWeirdSequenceCurrentInterval;
 
-			// Continue to code below, reseting the sequence number
-			// for packets going forward.
+			// Reset the sequence number for packets going forward.
+			InitMaxRecvPktNum( nPktNum );
+			return;
 		}
-		else if ( nGap > 0 )
-		{
-			// Probably the most common case, we just dropped a packet
-			int nDropped = nGap-1;
-			m_nPktsRecvDropped += nDropped;
-			m_nPktsRecvDroppedCurrentInterval += nDropped;
-		}
-		else if ( nGap == 0 )
-		{
-			// We should have already rejected duplicates
-			Assert( false );
-		}
-		else
-		{
-			// Packet number moving in reverse.
-			// It should be a *small* negative step, e.g. packets delivered out of order.
-			// If the packet is really old, we should have already discarded it earlier.
-			Assert( nGap >= -8 * (int64)sizeof(m_recvPktNumberMask) );
-			++m_nPktsRecvOutOfOrder;
-			++m_nPktsRecvWeirdSequenceCurrentInterval;
 
-			// We previously counted this packet as dropped.  Undo that, it wasn't dropped.
-			if ( m_nPktsRecvDropped > 0 )
-			{
-				--m_nPktsRecvDropped;
-			}
-			else
-			{
-				// This is weird.
-				AssertMsg2( false,
-					"No dropped packets, pkt num %lld -> %lld, dup bit not set?  recvseq=%lld, lurch=%lld, ooo=%lld.  (%s)",
-					(long long)m_nMaxRecvPktNum, (long long)nPktNum,
-					(long long)m_nPktsRecvSequenced, (long long)m_nPktsRecvSequenceNumberLurch,
-					(long long)m_nPktsRecvOutOfOrder, Describe().c_str()
-				);
-			}
-			if ( m_nPktsRecvDroppedCurrentInterval > 0 ) // Might have marked it in the previous interval.  Our stats will be slightly off in this case.  Not worth it tro try to get this exactly right.
-				--m_nPktsRecvDroppedCurrentInterval;
-
-		}
+		// Probably the most common case (after a perfect packet stream), we just dropped a packet or two
+		int nDropped = nGap-1;
+		m_nPktsRecvDropped += nDropped;
+		m_nPktsRecvDroppedCurrentInterval += nDropped;
 	}
 
 	// Save highest known sequence number for next time.
-	if ( nGap > 0 )
-	{
-		m_nMaxRecvPktNum += nGap;
-		m_usecTimeLastRecvSeq = usecNow;
-	}
+	m_nMaxRecvPktNum = nPktNum;
+	m_usecTimeLastRecvSeq = usecNow;
 }
 
 bool LinkStatsTrackerBase::BCheckHaveDataToSendInstantaneous( SteamNetworkingMicroseconds usecNow )
@@ -474,8 +470,8 @@ bool LinkStatsTrackerBase::BCheckHaveDataToSendInstantaneous( SteamNetworkingMic
 	Assert( usecElapsed >= k_usecLinkStatsInstantaneousReportMinInterval ); // don't call this unless you know it's been long enough!
 	int nThreshold = usecElapsed / k_usecActiveConnectionSendInterval;
 
-	// Have they been trying to talk to us?
-	if ( m_nPktsRecvSeqSinceSentInstantaneous > nThreshold || m_nPktsSentSinceSentInstantaneous > nThreshold )
+	// Has there been any traffic worth reporting on in this interval?
+	if ( m_nPktsRecvSeqWhenPeerAckInstantaneous + nThreshold < m_nPktsRecvSequenced || m_nPktsSentWhenPeerAckInstantaneous + nThreshold < m_sent.m_packets.Total() )
 		return true;
 
 	// Connection has been idle since the last time we sent instantaneous stats.
@@ -491,7 +487,7 @@ bool LinkStatsTrackerBase::BCheckHaveDataToSendLifetime( SteamNetworkingMicrosec
 	Assert( !m_bPassive );
 
 	// Make sure we have something new to report since the last time we sent stats
-	if ( m_nPktsRecvSeqSinceSentLifetime > 100 || m_nPktsSentSinceSentLifetime > 100 )
+	if ( m_nPktsRecvSeqWhenPeerAckLifetime + 100 < m_nPktsRecvSequenced || m_nPktsSentWhenPeerAckLifetime + 100 < m_sent.m_packets.Total() )
 		return true;
 
 	// Reset the timer.  But do NOT reset the packet counters.  So if the connection isn't
