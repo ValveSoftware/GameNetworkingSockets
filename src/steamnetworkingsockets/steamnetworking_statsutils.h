@@ -574,6 +574,9 @@ struct LinkStatsTrackerBase
 	/// Check if we really need to flush out stats now.
 	bool BNeedToSendStats( SteamNetworkingMicroseconds usecNow );
 
+	/// Describe this stats tracker, for debugging, asserts, etc
+	virtual std::string Describe() const = 0;
+
 protected:
 	// Make sure it's used as abstract base.  Note that we require you to call Init()
 	// with a timestamp value, so the constructor is empty by default.
@@ -747,6 +750,9 @@ struct LinkStatsTrackerEndToEnd : public LinkStatsTrackerBase
 		};
 		return LinkStatsTrackerBase::NeedToSendStats( usecNow, arpszReasons );
 	}
+
+	/// Describe this stats tracker, for debugging, asserts, etc
+	virtual std::string Describe() const override { return "EndToEnd"; }
 
 protected:
 	void InitInternal( SteamNetworkingMicroseconds usecNow );

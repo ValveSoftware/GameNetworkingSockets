@@ -439,7 +439,12 @@ void LinkStatsTrackerBase::TrackProcessSequencedPacket( int64 nPktNum, SteamNetw
 			else
 			{
 				// This is weird.
-				AssertMsg2( false, "No dropped packets, but pkt num %lld -> %lld and bit is not set?", (long long)m_nMaxRecvPktNum, (long long)nPktNum );
+				AssertMsg2( false,
+					"No dropped packets, pkt num %lld -> %lld, dup bit not set?  recvseq=%lld, lurch=%lld, ooo=%lld.  (%s)",
+					(long long)m_nMaxRecvPktNum, (long long)nPktNum,
+					(long long)m_nPktsRecvSequenced, (long long)m_nPktsRecvSequenceNumberLurch,
+					(long long)m_nPktsRecvOutOfOrder, Describe().c_str()
+				);
 			}
 			if ( m_nPktsRecvDroppedCurrentInterval > 0 ) // Might have marked it in the previous interval.  Our stats will be slightly off in this case.  Not worth it tro try to get this exactly right.
 				--m_nPktsRecvDroppedCurrentInterval;
