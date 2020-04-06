@@ -107,6 +107,24 @@ struct iovec
 struct iovec;
 #endif
 
+// likely() and unlikely().  Branch hints
+// This is an idiom from the linux kernel
+#ifdef __GNUC__
+	#ifndef likely
+		#define likely(x) __builtin_expect (!!(x), 1)
+	#endif
+	#ifndef unlikely
+		#define unlikely(x) __builtin_expect (!!(x), 0)
+	#endif
+#else
+	#ifndef likely
+		#define likely(x) (x)
+	#endif
+	#ifndef unlikely
+		#define unlikely(x) (x)
+	#endif
+#endif
+
 // Internal stuff goes in a private namespace
 namespace SteamNetworkingSocketsLib {
 
