@@ -13,6 +13,7 @@
 #include <tier1/utlhashmap.h>
 #include <tier1/netadr.h>
 #include "steamnetworkingsockets_lowlevel.h"
+#include "../steamnetworkingsockets_thinker.h"
 #include "keypair.h"
 #include "crypto.h"
 #include "crypto_25519.h"
