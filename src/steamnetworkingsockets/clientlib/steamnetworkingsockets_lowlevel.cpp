@@ -40,6 +40,9 @@
 	#include <combaseapi.h>
 #endif
 
+// Time low level send/recv calls and packet processing
+//#define STEAMNETWORKINGSOCKETS_LOWLEVEL_TIME_SOCKET_CALLS
+
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
 
@@ -323,6 +326,10 @@ public:
 		//Log_Detailed( LOG_STEAMDATAGRAM_CLIENT, "%4db -> %s %02x %02x %02x %02x %02x ...\n",
 		//	cbPkt, CUtlNetAdrRender( adrTo ).String(), pbPkt[0], pbPkt[1], pbPkt[2], pbPkt[3], pbPkt[4] );
 
+		#ifdef STEAMNETWORKINGSOCKETS_LOWLEVEL_TIME_SOCKET_CALLS
+			SteamNetworkingMicroseconds usecSendStart = SteamNetworkingSockets_GetLocalTimestamp();
+		#endif
+
 		#ifdef WIN32
 			// Confirm that iovec and WSABUF are indeed bitwise equivalent
 			COMPILE_TIME_ASSERT( sizeof( iovec ) == sizeof( WSABUF ) );
@@ -341,7 +348,7 @@ public:
 				nullptr, // lpOverlapped
 				nullptr // lpCompletionRoutine
 			);
-			return ( r == 0 );
+			bool bResult = ( r == 0 );
 		#else
 			msghdr msg;
 			msg.msg_name = (sockaddr *)&destAddress;
@@ -353,8 +360,22 @@ public:
 			msg.msg_flags = 0;
 
 			int r = ::sendmsg( m_socket, &msg, 0 );
-			return ( r >= 0 ); // just check for -1 for error, since we don't want to take the time here to scan the iovec and sum up the expected total number of bytes sent
+			bool bResult = ( r >= 0 ); // just check for -1 for error, since we don't want to take the time here to scan the iovec and sum up the expected total number of bytes sent
 		#endif
+
+		#ifdef STEAMNETWORKINGSOCKETS_LOWLEVEL_TIME_SOCKET_CALLS
+			SteamNetworkingMicroseconds usecSendEnd = SteamNetworkingSockets_GetLocalTimestamp();
+			if ( usecSendEnd > s_usecIgnoreLongLockWaitTimeUntil )
+			{
+				SteamNetworkingMicroseconds usecSendElapsed = usecSendEnd - usecSendStart;
+				if ( usecSendElapsed > 1000 )
+				{
+					SpewWarning( "UDP send took %.1fms\n", usecSendElapsed*1e-3 );
+				}
+			}
+		#endif
+
+		return bResult;
 	}
 };
 
@@ -1062,9 +1083,25 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 			if ( s_nLowLevelSupportRefCount.load(std::memory_order_acquire) <= 0 )
 				return true; // current thread owns the lock
 
+			#ifdef STEAMNETWORKINGSOCKETS_LOWLEVEL_TIME_SOCKET_CALLS
+				SteamNetworkingMicroseconds usecRecvFromStart = SteamNetworkingSockets_GetLocalTimestamp();
+			#endif
+
 			sockaddr_storage from;
 			socklen_t fromlen = sizeof(from);
 			int ret = ::recvfrom( pSock->m_socket, buf, sizeof( buf ), 0, (sockaddr *)&from, &fromlen );
+
+			#ifdef STEAMNETWORKINGSOCKETS_LOWLEVEL_TIME_SOCKET_CALLS
+				SteamNetworkingMicroseconds usecRecvFromEnd = SteamNetworkingSockets_GetLocalTimestamp();
+				if ( usecRecvFromEnd > s_usecIgnoreLongLockWaitTimeUntil )
+				{
+					SteamNetworkingMicroseconds usecRecvFromElapsed = usecRecvFromEnd - usecRecvFromStart;
+					if ( usecRecvFromElapsed > 1000 )
+					{
+						SpewWarning( "recvfrom took %.1fms\n", usecRecvFromElapsed*1e-3 );
+					}
+				}
+			#endif
 
 			// Negative value means nothing more to read.
 			//
@@ -1133,6 +1170,18 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 
 				pSock->m_callback( buf, ret, adr );
 			}
+
+			#ifdef STEAMNETWORKINGSOCKETS_LOWLEVEL_TIME_SOCKET_CALLS
+				SteamNetworkingMicroseconds usecProcessPacketEnd = SteamNetworkingSockets_GetLocalTimestamp();
+				if ( usecProcessPacketEnd > s_usecIgnoreLongLockWaitTimeUntil )
+				{
+					SteamNetworkingMicroseconds usecProcessPacketElapsed = usecProcessPacketEnd - usecRecvFromEnd;
+					if ( usecProcessPacketElapsed > 1000 )
+					{
+						SpewWarning( "process packet took %.1fms\n", usecProcessPacketElapsed*1e-3 );
+					}
+				}
+			#endif
 		}
 	}
 
