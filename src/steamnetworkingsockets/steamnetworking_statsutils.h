@@ -446,6 +446,7 @@ struct LinkStatsTrackerBase
 	/// actually send it.  (We might be looking for a good opportunity, and the data we want
 	/// to send doesn't fit.)
 	void PopulateMessage( CMsgSteamDatagramConnectionQuality &msg, SteamNetworkingMicroseconds usecNow );
+	void PopulateLifetimeMessage( CMsgSteamDatagramLinkLifetimeStats &msg );
 
 	/// Called when we send a packet for which we expect a reply and
 	/// for which we expect to get latency info.

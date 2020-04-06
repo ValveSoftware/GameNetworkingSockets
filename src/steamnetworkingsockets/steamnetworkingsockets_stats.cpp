@@ -590,12 +590,17 @@ void LinkStatsTrackerBase::PopulateMessage( CMsgSteamDatagramConnectionQuality &
 		// Ready to send lifetime stats?
 		if ( m_usecPeerAckedLifetime + k_usecLinkStatsLifetimeReportMinInterval < usecNow && BCheckHaveDataToSendLifetime( usecNow ) )
 		{
-			// !KLUDGE! Go through public struct as intermediary to keep code simple.
-			SteamDatagramLinkLifetimeStats sLifetime;
-			GetLifetimeStats( sLifetime );
-			LinkStatsLifetimeStructToMsg( sLifetime, *msg.mutable_lifetime() );
+			PopulateLifetimeMessage( *msg.mutable_lifetime() );
 		}
 	}
+}
+
+void LinkStatsTrackerBase::PopulateLifetimeMessage( CMsgSteamDatagramLinkLifetimeStats &msg )
+{
+	// !KLUDGE! Go through public struct as intermediary to keep code simple.
+	SteamDatagramLinkLifetimeStats sLifetime;
+	GetLifetimeStats( sLifetime );
+	LinkStatsLifetimeStructToMsg( sLifetime, msg );
 }
 
 void LinkStatsTrackerBase::TrackSentMessageExpectingReply( SteamNetworkingMicroseconds usecNow, bool bAllowDelayedReply )
