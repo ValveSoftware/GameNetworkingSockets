@@ -2290,6 +2290,17 @@ void CSteamNetworkConnectionBase::SNP_ReceiveUnreliableSegment( int64 nMsgNum, i
 {
 	SpewType( m_connectionConfig.m_LogLevel_PacketDecode.Get()+1, "[%s] RX msg %lld offset %d+%d=%d %02x ... %02x\n", GetDescription(), nMsgNum, nOffset, cbSegmentSize, nOffset+cbSegmentSize, ((byte*)pSegmentData)[0], ((byte*)pSegmentData)[cbSegmentSize-1] );
 
+	// Ignore data segments when we are not going to process them (e.g. linger)
+	if ( GetState() != k_ESteamNetworkingConnectionState_Connected )
+	{
+		SpewType( m_connectionConfig.m_LogLevel_PacketDecode.Get()+1, "[%s] discarding msg %lld [%d,%d) as connection is in state %d\n",
+			GetDescription(),
+			nMsgNum,
+			nOffset, nOffset+cbSegmentSize,
+			(int)GetState() );
+		return;
+	}
+
 	// Check for a common special case: non-fragmented message.
 	if ( nOffset == 0 && bLastSegmentInMessage )
 	{
@@ -2432,6 +2443,17 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 		SpewWarningRateLimited( usecNow, "[%s] decode pkt %lld empty reliable segment?\n",
 			GetDescription(),
 			(long long)nPktNum );
+		return true;
+	}
+
+	// Ignore data segments when we are not going to process them (e.g. linger)
+	if ( GetState() != k_ESteamNetworkingConnectionState_Connected )
+	{
+		SpewType( nLogLevelPacketDecode, "[%s]   discarding pkt %lld [%lld,%lld) as connection is in state %d\n",
+			GetDescription(),
+			(long long)nPktNum,
+			(long long)nSegBegin, (long long)nSegEnd,
+			(int)GetState() );
 		return true;
 	}
 
