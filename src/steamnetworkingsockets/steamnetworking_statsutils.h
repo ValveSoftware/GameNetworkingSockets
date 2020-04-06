@@ -592,20 +592,27 @@ protected:
 			pThis->UpdateInterval( usecNow );
 		}
 	
-		// Check for reply timeout that we count.  (We intentionally only allow
-		// one of this type of timeout to be in flight at a time, so that the max
-		// rate that we accumulate them is based on the ping time, instead of the packet
-		// rate.
+		// Check for reply timeout.
 		if ( pThis->m_usecInFlightReplyTimeout > 0 && pThis->m_usecInFlightReplyTimeout < usecNow )
 		{
-			pThis->m_usecInFlightReplyTimeout = 0;
-			if ( pThis->m_usecWhenTimeoutStarted == 0 )
-			{
-				Assert( pThis->m_nReplyTimeoutsSinceLastRecv == 0 );
-				pThis->m_usecWhenTimeoutStarted = usecNow;
-			}
-			++pThis->m_nReplyTimeoutsSinceLastRecv;
+			pThis->InFlightReplyTimeout( usecNow );
 		}
+	}
+
+	/// Called when m_usecInFlightReplyTimeout is reached.  We intentionally only allow
+	/// one of this type of timeout to be in flight at a time, so that the max
+	/// rate that we accumulate them is based on the ping time, instead of the packet
+	/// rate.
+	template <typename TLinkStatsTracker>
+	inline static void InFlightReplyTimeoutInternal( TLinkStatsTracker *pThis, SteamNetworkingMicroseconds usecNow )
+	{
+		pThis->m_usecInFlightReplyTimeout = 0;
+		if ( pThis->m_usecWhenTimeoutStarted == 0 )
+		{
+			Assert( pThis->m_nReplyTimeoutsSinceLastRecv == 0 );
+			pThis->m_usecWhenTimeoutStarted = usecNow;
+		}
+		++pThis->m_nReplyTimeoutsSinceLastRecv;
 	}
 
 	void GetInstantaneousStats( SteamDatagramLinkInstantaneousStats &s ) const;
@@ -796,6 +803,7 @@ struct LinkStatsTracker final : public TLinkStatsTracker
 	inline void TrackSentPingRequest( SteamNetworkingMicroseconds usecNow, bool bAllowDelayedReply ) { TLinkStatsTracker::TrackSentPingRequestInternal( this, usecNow, bAllowDelayedReply ); }
 	inline SteamNetworkingMicroseconds GetNextThinkTime( SteamNetworkingMicroseconds usecNow ) const { return TLinkStatsTracker::GetNextThinkTimeInternal( usecNow ); }
 	inline void ReceivedPing( int nPingMS, SteamNetworkingMicroseconds usecNow ) { TLinkStatsTracker::ReceivedPingInternal( this, nPingMS, usecNow ); }
+	inline void InFlightReplyTimeout( SteamNetworkingMicroseconds usecNow ) { TLinkStatsTracker::InFlightReplyTimeoutInternal( this, usecNow ); }
 
 	/// Called after we actually send connection data.  Note that we must have consumed the outgoing sequence
 	/// for that packet (using GetNextSendSequenceNumber), but must *NOT* have consumed any more!
