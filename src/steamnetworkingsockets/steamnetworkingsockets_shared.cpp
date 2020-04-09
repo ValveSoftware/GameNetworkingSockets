@@ -160,7 +160,7 @@ const char *GetAvailabilityString( ESteamNetworkingAvailability a )
 	return "???";
 }
 
-static uint32 Murmorhash32( const void *data, size_t len )
+uint32 Murmorhash32( const void *data, size_t len )
 {
   uint32 h = 0;
   const uint8 *key = (const uint8 *)data;

@@ -435,6 +435,8 @@ extern uint64_t siphash( const uint8_t *in, uint64_t inlen, const uint8_t *k );
 extern std::string Indent( const char *s );
 inline std::string Indent( const std::string &s ) { return Indent( s.c_str() ); }
 
+/// Generic hash
+extern uint32 Murmorhash32( const void *data, size_t len );
 
 /// Generate a fingerprint for a public that is reasonably collision resistant,
 /// although not really cryptographically secure.  (We are in charge of the
