@@ -12,6 +12,7 @@
 #include <steam/steamnetworkingtypes.h>
 #include <tier1/netadr.h>
 #include <tier1/utlhashmap.h>
+#include "../steamnetworkingsockets_internal.h"
 
 struct iovec;
 
@@ -63,9 +64,21 @@ public:
 	/// lag (steamdatagram_fakepacketlag_send and steamdatagram_fakepacketreorder_send), and
 	/// duplication (steamdatagram_fakepacketdup_send)
 	bool BSendRawPacket( const void *pPkt, int cbPkt, const netadr_t &adrTo ) const;
+	inline bool BSendRawPacket( const void *pPkt, int cbPkt, const SteamNetworkingIPAddr &adrTo ) const
+	{
+		netadr_t netadrTo;
+		SteamNetworkingIPAddrToNetAdr( netadrTo, adrTo );
+		return BSendRawPacket( pPkt, cbPkt, netadrTo );
+	}
 
 	/// Gather-based send.  Simulated lag, loss, etc are applied
 	bool BSendRawPacketGather( int nChunks, const iovec *pChunks, const netadr_t &adrTo ) const;
+	inline bool BSendRawPacketGather( int nChunks, const iovec *pChunks, const SteamNetworkingIPAddr &adrTo ) const
+	{
+		netadr_t netadrTo;
+		SteamNetworkingIPAddrToNetAdr( netadrTo, adrTo );
+		return BSendRawPacketGather( nChunks, pChunks, netadrTo );
+	}
 
 	/// Logically close the socket.  This might not actually close the socket IMMEDIATELY,
 	/// there may be a slight delay.  (On the order of a few milliseconds.)  But you will not

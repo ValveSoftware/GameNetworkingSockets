@@ -1449,7 +1449,7 @@ int SteamNetworkingDetailedConnectionStatus::Print( char *pszBuf, int cbBuf )
 		LinkStatsPrintToBuf( "    ", m_statsEndToEnd, buf );
 	}
 
-	if ( m_unPrimaryRouterIP )
+	if ( m_szPrimaryRouterName[0] != '\0' )
 	{
 		buf.Printf( "Primary router: %s", m_szPrimaryRouterName );
 
@@ -1460,12 +1460,7 @@ int SteamNetworkingDetailedConnectionStatus::Print( char *pszBuf, int cbBuf )
 			buf.Printf( "  Ping to relay = %d\n", nPrimaryFrontPing );
 		LinkStatsPrintToBuf( "    ", m_statsPrimaryRouter, buf );
 
-		if ( m_unBackupRouterIP == 0 )
-		{
-			// Probably should only print this if we have reason to expect that a backup relay is expected
-			//buf.Printf( "No backup router selected\n" );
-		}
-		else
+		if ( m_szBackupRouterName[0] != '\0' )
 		{
 			buf.Printf( "Backup router: %s  Ping = %d+%d=%d (front+back=total)\n",
 				m_szBackupRouterName,
