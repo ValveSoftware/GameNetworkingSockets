@@ -1794,6 +1794,23 @@ bool BSteamNetworkingSocketsLowLevelAddRef( SteamDatagramErrMsg &errMsg )
 	if ( !s_bManualPollMode && !s_pThreadSteamDatagram )
 		s_pThreadSteamDatagram = new std::thread( SteamNetworkingThreadProc );
 
+	// Install an axexit handler, so that if static destruction is triggered without
+	// cleaning up the library properly, we won't crash.
+	static bool s_bInstalledAtExitHandler = false;
+	if ( !s_bInstalledAtExitHandler )
+	{
+		s_bInstalledAtExitHandler = true;
+		atexit( []{
+			SteamDatagramTransportLock scopeLock( "atexit" );
+
+			// Static destruction is about to happen.  If we have a thread,
+			// we need to nuke it
+			s_pfnDebugOutput = nullptr;
+			while ( s_nLowLevelSupportRefCount.load(std::memory_order_acquire) > 0 )
+				SteamNetworkingSocketsLowLevelDecRef();
+		} );
+	}
+
 	return true;
 }
 
