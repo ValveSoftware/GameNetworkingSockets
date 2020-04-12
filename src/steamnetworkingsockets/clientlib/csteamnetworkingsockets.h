@@ -118,8 +118,6 @@ protected:
 
 	void KillConnections();
 
-	static int s_nSteamNetworkingSocketsInitted;
-
 	SteamNetworkingIdentity m_identity;
 
 #ifdef STEAMNETWORKINGSOCKETS_STANDALONELIB

@@ -266,8 +266,6 @@ static CSteamNetworkPollGroup *GetPollGroupByHandle( HSteamNetPollGroup hPollGro
 //
 /////////////////////////////////////////////////////////////////////////////
 
-int CSteamNetworkingSockets::s_nSteamNetworkingSocketsInitted = 0;
-
 CSteamNetworkingSockets::CSteamNetworkingSockets( CSteamNetworkingUtils *pSteamNetworkingUtils )
 : m_bHaveLowLevelRef( false )
 , m_pSteamNetworkingUtils( pSteamNetworkingUtils )
@@ -291,8 +289,6 @@ bool CSteamNetworkingSockets::BInitGameNetworkingSockets( const SteamNetworkingI
 	if ( !BSteamNetworkingSocketsLowLevelAddRef( errMsg ) )
 		return false;
 	m_bHaveLowLevelRef = true;
-
-	++s_nSteamNetworkingSocketsInitted;
 
 	if ( pIdentity )
 		m_identity = *pIdentity;
