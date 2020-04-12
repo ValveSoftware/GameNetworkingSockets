@@ -1608,6 +1608,19 @@ void CConnectionTransport::ConnectionStateChanged( ESteamNetworkingConnectionSta
 {
 }
 
+bool CConnectionTransport::BCanSendEndToEndConnectRequest() const
+{
+	// You should override this, or your connection should not call it!
+	Assert( false );
+	return false;
+}
+
+void CConnectionTransport::SendEndToEndConnectRequest( SteamNetworkingMicroseconds usecNow )
+{
+	// You should override this, or your connection should not call it!
+	Assert( false );
+}
+
 void CConnectionTransport::TransportPopulateConnectionInfo( SteamNetConnectionInfo_t &info ) const
 {
 }
@@ -2583,12 +2596,12 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 					// Time to try to send an end-to-end connection?  If we cannot send packets now, then we
 					// really ought to be called again if something changes, but just in case we don't, set a
 					// reasonable polling interval.
-					if ( m_pTransport && m_pTransport->BCanSendEndToEndConnectRequest() )
+					if ( BConnectionCanSendEndToEndConnectRequest() )
 					{
 						usecRetry = m_usecWhenSentConnectRequest + k_usecConnectRetryInterval;
 						if ( usecNow >= usecRetry )
 						{
-							m_pTransport->SendEndToEndConnectRequest( usecNow ); // don't return true from within BCanSendEndToEndPackets if you can't do this!
+							ConnectionSendEndToEndConnectRequest( usecNow ); // don't return true from within BConnectionCanSendEndToEndConnectRequest if you can't do this!
 							m_usecWhenSentConnectRequest = usecNow;
 							usecRetry = m_usecWhenSentConnectRequest + k_usecConnectRetryInterval;
 						}
@@ -2773,6 +2786,24 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 	EnsureMinThinkTime( usecMinNextThinkTime );
 
 	#undef UpdateMinThinkTime
+}
+
+bool CSteamNetworkConnectionBase::BConnectionCanSendEndToEndConnectRequest() const
+{
+	// Default vehaviour just forwards to the transport
+	return m_pTransport && m_pTransport->BCanSendEndToEndConnectRequest();
+}
+
+void CSteamNetworkConnectionBase::ConnectionSendEndToEndConnectRequest( SteamNetworkingMicroseconds usecNow )
+{
+	// Default behaviour just forwards to the transport.
+	// Should only be called if BConnectionCanSendEndToEndConnectRequest has returned true
+	if ( !m_pTransport )
+	{
+		Assert( false );
+		return;
+	}
+	m_pTransport->SendEndToEndConnectRequest( usecNow );
 }
 
 void CSteamNetworkConnectionBase::ThinkConnection( SteamNetworkingMicroseconds usecNow )

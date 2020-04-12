@@ -605,6 +605,12 @@ protected:
 	/// Called to decide if we want to try to proceed without a signed cert for ourselves
 	virtual EUnsignedCert AllowLocalUnsignedCert();
 
+	/// Return true if the connection has some mechanism to send an end-to-end connect request
+	virtual bool BConnectionCanSendEndToEndConnectRequest() const;
+
+	/// Send an end-to-end connect request
+	virtual void ConnectionSendEndToEndConnectRequest( SteamNetworkingMicroseconds usecNow );
+
 	//
 	// "SNP" - Steam Networking Protocol.  (Sort of audacious to stake out this acronym, don't you think...?)
 	//         The layer that does end-to-end reliability and bandwidth estimation
@@ -720,9 +726,9 @@ public:
 	virtual int SendEncryptedDataChunk( const void *pChunk, int cbChunk, SendPacketContext_t &ctx ) = 0;
 
 	/// Return true if we are currently able to send end-to-end messages.
-	virtual bool BCanSendEndToEndConnectRequest() const = 0;
+	virtual bool BCanSendEndToEndConnectRequest() const;
 	virtual bool BCanSendEndToEndData() const = 0;
-	virtual void SendEndToEndConnectRequest( SteamNetworkingMicroseconds usecNow ) = 0;
+	virtual void SendEndToEndConnectRequest( SteamNetworkingMicroseconds usecNow );
 	virtual void SendEndToEndStatsMsg( EStatsReplyRequest eRequest, SteamNetworkingMicroseconds usecNow, const char *pszReason ) = 0;
 	virtual void TransportPopulateConnectionInfo( SteamNetConnectionInfo_t &info ) const;
 	virtual void GetDetailedConnectionStatus( SteamNetworkingDetailedConnectionStatus &stats, SteamNetworkingMicroseconds usecNow );

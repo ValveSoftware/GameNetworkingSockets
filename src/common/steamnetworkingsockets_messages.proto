@@ -7,6 +7,8 @@
 syntax = "proto2";
 option optimize_for = SPEED;
 
+import "steamnetworkingsockets_messages_certs.proto";
+
 // We don't use the service generation functionality
 option cc_generic_services = false;
 
@@ -187,6 +189,55 @@ message CMsgSteamDatagramConnectionQuality
 	optional CMsgSteamDatagramLinkInstantaneousStats instantaneous = 1;
 	optional CMsgSteamDatagramLinkLifetimeStats lifetime = 2;
 	//optional uint32 seqnum_ack_lifetime = 3;
+};
+
+/// Introducer message sent through trusted 3rd party (Steam, or some other custom signaling)
+message CMsgSteamNetworkingP2PRendezvous
+{
+	// Identity of who this is from
+	optional string from_identity = 8;
+
+	// Connection this is from
+	optional fixed32 from_connection_id = 9;
+
+	// Destination identity, if I know it
+	optional string to_identity = 10;
+
+	// Destination connection ID, if I know it.
+	optional fixed32 to_connection_id = 1;
+
+	// SDR routing information.  (Serialized CMsgSteamDatagramP2PRoutes)
+	optional bytes sdr_routes = 2;
+
+	// This is the latest route revision I have for you
+	optional uint32 ack_peer_routes_revision = 3;
+
+	// Connect request
+	message ConnectRequest
+	{
+		optional CMsgSteamDatagramSessionCryptInfoSigned crypt = 6;
+		optional CMsgSteamDatagramCertificateSigned cert = 7;
+		optional uint32 virtual_port = 9;
+	};
+	optional ConnectRequest connect_request = 4;
+
+	message ConnectOK
+	{
+		optional CMsgSteamDatagramSessionCryptInfoSigned crypt = 5;
+		optional CMsgSteamDatagramCertificateSigned cert = 6;
+	};
+	optional ConnectOK connect_ok = 5;
+
+	// Graceful close
+	message ConnectionClosed
+	{
+		optional string debug = 5;
+		optional uint32 reason_code = 6;
+
+		// End-to-End connection data
+		//optional CMsgSteamDatagramConnectionQuality quality_e2e = 18;
+	};
+	optional ConnectionClosed connection_closed = 6;
 };
 
 // Do not remove this comment due to a bug on the Mac OS X protobuf compiler

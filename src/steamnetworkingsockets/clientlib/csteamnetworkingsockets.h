@@ -23,6 +23,7 @@
 namespace SteamNetworkingSocketsLib {
 
 class CSteamNetworkingUtils;
+class CSteamNetworkListenSocketP2P;
 
 /////////////////////////////////////////////////////////////////////////////
 //
@@ -118,6 +119,8 @@ public:
 	/// if we want to initiate a P2P connection to a local identity, we can instead
 	/// use a loopback connection.
 	static std::vector<CSteamNetworkingSockets *> s_vecSteamNetworkingSocketsInstances;
+
+	CUtlHashMap<int,CSteamNetworkListenSocketP2P *,std::equal_to<int>,std::hash<int>> m_mapListenSocketsByVirtualPort;
 
 protected:
 
