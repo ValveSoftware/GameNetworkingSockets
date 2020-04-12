@@ -753,13 +753,25 @@ class CSteamNetworkConnectionPipe final : public CSteamNetworkConnectionBase, pu
 public:
 
 	/// Create a pair of loopback connections that are immediately connected to each other
+	/// No callbacks are posted.
 	static bool APICreateSocketPair( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface, CSteamNetworkConnectionPipe **pOutConnections, const SteamNetworkingIdentity pIdentity[2] );
+
+	/// Create a pair of loopback connections that act like normal connections, but use internal transport.
+	/// The two connections will be placed in the "connecting" state, and will go through the ordinary
+	/// state machine.
+	///
+	/// The client connection is returned.
+	static CSteamNetworkConnectionPipe *CreateLoopbackConnection(
+		CSteamNetworkingSockets *pClientInstance, int nOptions, const SteamNetworkingConfigValue_t *pOptions,
+		CSteamNetworkListenSocketBase *pListenSocket,
+		SteamNetworkingErrMsg &errMsg );
 
 	/// The guy who is on the other end.
 	CSteamNetworkConnectionPipe *m_pPartner;
 
 	// CSteamNetworkConnectionBase overrides
 	virtual int64 _APISendMessageToConnection( CSteamNetworkingMessage *pMsg, SteamNetworkingMicroseconds usecNow, bool *pbThinkImmediately ) override;
+	virtual EResult AcceptConnection( SteamNetworkingMicroseconds usecNow ) override;
 	virtual void InitConnectionCrypto( SteamNetworkingMicroseconds usecNow ) override;
 	virtual EUnsignedCert AllowRemoteUnsignedCert() override;
 	virtual EUnsignedCert AllowLocalUnsignedCert() override;
@@ -780,6 +792,9 @@ private:
 	// Use CreateSocketPair!
 	CSteamNetworkConnectionPipe( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface, const SteamNetworkingIdentity &identity );
 	virtual ~CSteamNetworkConnectionPipe();
+
+	/// Setup the server side of a loopback connection
+	bool BBeginAccept( CSteamNetworkListenSocketBase *pListenSocket, SteamNetworkingMicroseconds usecNow, SteamDatagramErrMsg &errMsg );
 
 	/// Act like we sent a sequenced packet
 	void FakeSendStats( SteamNetworkingMicroseconds usecNow, int cbPktSize );

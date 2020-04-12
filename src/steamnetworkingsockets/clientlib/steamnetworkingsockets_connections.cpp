@@ -2925,6 +2925,46 @@ failed:
 	return true;
 }
 
+CSteamNetworkConnectionPipe *CSteamNetworkConnectionPipe::CreateLoopbackConnection(
+	CSteamNetworkingSockets *pClientInstance, int nOptions, const SteamNetworkingConfigValue_t *pOptions,
+	CSteamNetworkListenSocketBase *pListenSocket,
+	SteamNetworkingErrMsg &errMsg
+) {
+	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
+
+	CSteamNetworkingSockets *pServerInstance = pListenSocket->m_pSteamNetworkingSocketsInterface;
+
+	CSteamNetworkConnectionPipe *pClient = new CSteamNetworkConnectionPipe( pClientInstance, pClientInstance->InternalGetIdentity() );
+	CSteamNetworkConnectionPipe *pServer = new CSteamNetworkConnectionPipe( pServerInstance, pServerInstance->InternalGetIdentity() );
+	if ( !pClient || !pServer )
+	{
+		V_strcpy_safe( errMsg, "new CSteamNetworkConnectionPipe failed" );
+failed:
+		pClient->ConnectionDestroySelfNow();
+		pServer->ConnectionDestroySelfNow();
+		return nullptr;
+	}
+
+	// Link em up
+	pClient->m_pPartner = pServer;
+	pServer->m_pPartner = pClient;
+
+	// Initialize client connection.  This triggers a state transition callback
+	// to the "connecting" state
+	if ( !pClient->BInitConnection( usecNow, nOptions, pOptions, errMsg ) )
+		goto failed;
+
+	// Client sends a "connect" packet
+	pClient->FakeSendStats( usecNow, 0 );
+
+	// Server receives the connection and starts "accepting" it
+	if ( !pServer->BBeginAccept( pListenSocket, usecNow, errMsg ) )
+		goto failed;
+
+	// Now we wait for the app to accept the connection
+	return pClient;
+}
+
 CSteamNetworkConnectionPipe::CSteamNetworkConnectionPipe( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface, const SteamNetworkingIdentity &identity )
 : CSteamNetworkConnectionBase( pSteamNetworkingSocketsInterface )
 , CConnectionTransport( *static_cast<CSteamNetworkConnectionBase*>( this ) ) // connection and transport object are the same
@@ -2933,7 +2973,10 @@ CSteamNetworkConnectionPipe::CSteamNetworkConnectionPipe( CSteamNetworkingSocket
 	m_identityLocal = identity;
 	m_pTransport = this;
 
-	// This is not strictly necessary, but it's nice to make it official
+	// Encryption is not used for pipe connections.
+	// This is not strictly necessary, since we never even send packets or
+	// touch payload bytes at all, we just shift some pointers around.
+	// But it's nice to make it official
 	m_connectionConfig.m_Unencrypted.Set( 3 );
 
 	// Slam in a really large SNP rate so that we are never rate limited
@@ -3001,6 +3044,56 @@ int64 CSteamNetworkConnectionPipe::_APISendMessageToConnection( CSteamNetworking
 	return nMsgNum;
 }
 
+bool CSteamNetworkConnectionPipe::BBeginAccept( CSteamNetworkListenSocketBase *pListenSocket, SteamNetworkingMicroseconds usecNow, SteamDatagramErrMsg &errMsg )
+{
+
+	// Ordinary connections usually learn the client identity and connection ID at this point
+	m_identityRemote = m_pPartner->m_identityLocal;
+	m_unConnectionIDRemote = m_pPartner->m_unConnectionIDLocal;
+
+	// Act like we came in on this listen socket
+	if ( !pListenSocket->BAddChildConnection( this, errMsg ) )
+		return false;
+
+	// Assign connection ID, init crypto, transition to "connecting" state.
+	if ( !BInitConnection( usecNow, 0, nullptr, errMsg ) )
+		return false;
+
+	// Receive the crypto info that is in the client's
+	if ( !BRecvCryptoHandshake( m_pPartner->m_msgSignedCertLocal, m_pPartner->m_msgSignedCryptLocal, true ) )
+	{
+		Assert( GetState() == k_ESteamNetworkingConnectionState_ProblemDetectedLocally );
+		V_sprintf_safe( errMsg, "Failed crypto init.  %s", m_szEndDebug );
+		return false;
+	}
+
+	return true;
+}
+
+EResult CSteamNetworkConnectionPipe::AcceptConnection( SteamNetworkingMicroseconds usecNow )
+{
+	if ( !m_pPartner )
+	{
+		Assert( false );
+		return k_EResultFail;
+	}
+
+	// Mark server side connection as connected
+	ConnectionState_Connected( usecNow );
+
+	// "Send connect OK" to partner, and he is connected
+	FakeSendStats( usecNow, 0 );
+
+	// Partner "receives" ConnectOK
+	m_pPartner->m_identityRemote = m_identityLocal;
+	m_pPartner->m_unConnectionIDRemote = m_unConnectionIDLocal;
+	if ( !m_pPartner->BRecvCryptoHandshake( m_msgSignedCertLocal, m_msgSignedCryptLocal, false ) )
+		return k_EResultHandshakeFailed;
+	m_pPartner->ConnectionState_Connected( usecNow );
+
+	return k_EResultOK;
+}
+
 void CSteamNetworkConnectionPipe::FakeSendStats( SteamNetworkingMicroseconds usecNow, int cbPktSize )
 {
 	if ( !m_pPartner )
@@ -3050,20 +3143,26 @@ void CSteamNetworkConnectionPipe::SendEndToEndStatsMsg( EStatsReplyRequest eRequ
 
 bool CSteamNetworkConnectionPipe::BCanSendEndToEndConnectRequest() const
 {
-	// We're never not connected, so nobody should ever need to ask this question
-	AssertMsg( false, "Shouldn't need to ask this question" );
-	return false;
+	// We should only ask this question if we still have a chance of connecting.
+	// Once we detach from partner, we should switch the connection state, and
+	// the base class state machine should never ask this question of us
+	Assert( m_pPartner );
+	return m_pPartner != nullptr;
 }
 
 bool CSteamNetworkConnectionPipe::BCanSendEndToEndData() const
 {
+	// We should only ask this question if we still have a chance of connecting.
+	// Once we detach from partner, we should switch the connection state, and
+	// the base class state machine should never ask this question of us
 	Assert( m_pPartner );
 	return m_pPartner != nullptr;
 }
 
 void CSteamNetworkConnectionPipe::SendEndToEndConnectRequest( SteamNetworkingMicroseconds usecNow )
 {
-	AssertMsg( false, "Inconceivable!" );
+	// Send a "packet"
+	FakeSendStats( usecNow, 0 );
 }
 
 bool CSteamNetworkConnectionPipe::SendDataPacket( SteamNetworkingMicroseconds usecNow )
