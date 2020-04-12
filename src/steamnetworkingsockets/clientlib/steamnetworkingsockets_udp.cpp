@@ -993,10 +993,8 @@ bool CSteamNetworkConnectionUDP::BBeginAccept(
 	return true;
 }
 
-EResult CSteamNetworkConnectionUDP::AcceptConnection()
+EResult CSteamNetworkConnectionUDP::AcceptConnection( SteamNetworkingMicroseconds usecNow )
 {
-	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
-
 	if ( !Transport() )
 	{
 		AssertMsg( false, "Cannot acception UDP connection.  No transport?" );

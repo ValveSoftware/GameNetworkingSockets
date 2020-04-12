@@ -257,7 +257,7 @@ public:
 	/// to the client, and calling ConnectionState_Connected on the connection
 	/// to transition it to the connected state.
 	EResult APIAcceptConnection();
-	virtual EResult AcceptConnection();
+	virtual EResult AcceptConnection( SteamNetworkingMicroseconds usecNow );
 
 	/// Fill in quick connection stats
 	void APIGetQuickConnectionStatus( SteamNetworkingQuickConnectionStatus &stats );

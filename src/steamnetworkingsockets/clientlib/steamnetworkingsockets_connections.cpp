@@ -1966,8 +1966,10 @@ EResult CSteamNetworkConnectionBase::APIAcceptConnection()
 	if ( !BFinishCryptoHandshake( true ) )
 		return k_EResultHandshakeFailed;
 
+	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
+
 	// Derived class knows what to do next
-	EResult eResult = AcceptConnection();
+	EResult eResult = AcceptConnection( usecNow );
 	if ( eResult == k_EResultOK )
 	{
 		// Make sure they properly transitioned the connection state
@@ -1985,8 +1987,9 @@ EResult CSteamNetworkConnectionBase::APIAcceptConnection()
 	return eResult;
 }
 
-EResult CSteamNetworkConnectionBase::AcceptConnection()
+EResult CSteamNetworkConnectionBase::AcceptConnection( SteamNetworkingMicroseconds usecNow )
 {
+	NOTE_UNUSED( usecNow );
 
 	// You need to override this if your connection type can be accepted
 	Assert( false );
