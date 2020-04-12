@@ -2872,27 +2872,31 @@ bool CSteamNetworkConnectionPipe::APICreateSocketPair( CSteamNetworkingSockets *
 	if ( !pConn[0] || !pConn[1] )
 	{
 failed:
-		delete pConn[0]; pConn[0] = nullptr;
-		delete pConn[1]; pConn[1] = nullptr;
+		pConn[0]->ConnectionDestroySelfNow(); pConn[0] = nullptr;
+		pConn[1]->ConnectionDestroySelfNow(); pConn[1] = nullptr;
 		return false;
 	}
 
 	pConn[0]->m_pPartner = pConn[1];
 	pConn[1]->m_pPartner = pConn[0];
 
+	// Don't post any state changes for these transitions.  We just want to immediately start in the
+	// connected state
+	pConn[0]->m_bSupressStateChangeCallbacks = true;
+	pConn[1]->m_bSupressStateChangeCallbacks = true;
+
 	// Do generic base class initialization
 	for ( int i = 0 ; i < 2 ; ++i )
 	{
-		if ( !pConn[i]->BInitConnection( usecNow, 0, nullptr, errMsg ) )
+		CSteamNetworkConnectionPipe *p = pConn[i];
+		CSteamNetworkConnectionPipe *q = pConn[1-i];
+		if ( !p->BInitConnection( usecNow, 0, nullptr, errMsg ) )
 		{
 			AssertMsg1( false, "CSteamNetworkConnectionPipe::BInitConnection failed.  %s", errMsg );
 			goto failed;
 		}
-
-		// Slam in a really large SNP rate
-		int nRate = 0x10000000;
-		pConn[i]->m_connectionConfig.m_SendRateMin.Set( nRate );
-		pConn[i]->m_connectionConfig.m_SendRateMax.Set( nRate );
+		p->m_identityRemote = q->m_identityLocal;
+		p->m_unConnectionIDRemote = q->m_unConnectionIDLocal;
 	}
 
 	// Exchange some dummy "connect" packets so that all of our internal variables
@@ -2915,6 +2919,9 @@ failed:
 		p->ConnectionState_Connected( usecNow );
 	}
 
+	// Any further state changes are legit
+	pConn[0]->m_bSupressStateChangeCallbacks = false;
+	pConn[1]->m_bSupressStateChangeCallbacks = false;
 	return true;
 }
 
@@ -2928,6 +2935,11 @@ CSteamNetworkConnectionPipe::CSteamNetworkConnectionPipe( CSteamNetworkingSocket
 
 	// This is not strictly necessary, but it's nice to make it official
 	m_connectionConfig.m_Unencrypted.Set( 3 );
+
+	// Slam in a really large SNP rate so that we are never rate limited
+	int nRate = 0x10000000;
+	m_connectionConfig.m_SendRateMin.Set( nRate );
+	m_connectionConfig.m_SendRateMax.Set( nRate );
 }
 
 CSteamNetworkConnectionPipe::~CSteamNetworkConnectionPipe()
@@ -3032,8 +3044,8 @@ void CSteamNetworkConnectionPipe::SendEndToEndStatsMsg( EStatsReplyRequest eRequ
 	m_pPartner->FakeSendStats( usecNow, 0 );
 
 	// ... and us receiving it immediately
-	m_pPartner->m_statsEndToEnd.PeerAckedLifetime( usecNow );
-	m_pPartner->m_statsEndToEnd.PeerAckedInstantaneous( usecNow );
+	m_statsEndToEnd.PeerAckedLifetime( usecNow );
+	m_statsEndToEnd.PeerAckedInstantaneous( usecNow );
 }
 
 bool CSteamNetworkConnectionPipe::BCanSendEndToEndConnectRequest() const
@@ -3106,16 +3118,6 @@ void CSteamNetworkConnectionPipe::ConnectionStateChanged( ESteamNetworkingConnec
 			}
 			break;
 	}
-}
-
-void CSteamNetworkConnectionPipe::PostConnectionStateChangedCallback( ESteamNetworkingConnectionState eOldAPIState, ESteamNetworkingConnectionState eNewAPIState )
-{
-	// Don't post any callbacks for the initial transitions.
-	if ( eNewAPIState == k_ESteamNetworkingConnectionState_Connecting || eNewAPIState == k_ESteamNetworkingConnectionState_Connected )
-		return;
-
-	// But post callbacks for these guys
-	CSteamNetworkConnectionBase::PostConnectionStateChangedCallback( eOldAPIState, eNewAPIState );
 }
 
 void CSteamNetworkConnectionPipe::DestroyTransport()

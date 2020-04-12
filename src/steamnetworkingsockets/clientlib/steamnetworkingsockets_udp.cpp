@@ -1823,16 +1823,6 @@ EUnsignedCert CSteamNetworkConnectionlocalhostLoopback::AllowLocalUnsignedCert()
 	return k_EUnsignedCert_Allow;
 }
 
-void CSteamNetworkConnectionlocalhostLoopback::PostConnectionStateChangedCallback( ESteamNetworkingConnectionState eOldAPIState, ESteamNetworkingConnectionState eNewAPIState )
-{
-	// Don't post any callbacks for the initial transitions.
-	if ( eNewAPIState == k_ESteamNetworkingConnectionState_Connecting || eNewAPIState == k_ESteamNetworkingConnectionState_Connected )
-		return;
-
-	// But post callbacks for these guys
-	CSteamNetworkConnectionUDP::PostConnectionStateChangedCallback( eOldAPIState, eNewAPIState );
-}
-
 bool CSteamNetworkConnectionlocalhostLoopback::APICreateSocketPair( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface, CSteamNetworkConnectionlocalhostLoopback *pConn[2], const SteamNetworkingIdentity pIdentity[2] )
 {
 	SteamDatagramTransportLock::AssertHeldByCurrentThread();
@@ -1844,10 +1834,15 @@ bool CSteamNetworkConnectionlocalhostLoopback::APICreateSocketPair( CSteamNetwor
 	if ( !pConn[0] || !pConn[1] )
 	{
 failed:
-		delete pConn[0]; pConn[0] = nullptr;
-		delete pConn[1]; pConn[1] = nullptr;
+		pConn[0]->ConnectionDestroySelfNow(); pConn[0] = nullptr;
+		pConn[1]->ConnectionDestroySelfNow(); pConn[1] = nullptr;
 		return false;
 	}
+
+	// Don't post any state changes for these transitions.  We just want to immediately start in the
+	// connected state
+	pConn[0]->m_bSupressStateChangeCallbacks = true;
+	pConn[1]->m_bSupressStateChangeCallbacks = true;
 
 	CConnectionTransportUDP *pTransport[2] = {
 		new CConnectionTransportUDP( *pConn[0] ),
@@ -1886,6 +1881,10 @@ failed:
 		}
 		p->ConnectionState_Connected( usecNow );
 	}
+
+	// Any further state changes are legit
+	pConn[0]->m_bSupressStateChangeCallbacks = false;
+	pConn[1]->m_bSupressStateChangeCallbacks = false;
 
 	return true;
 }

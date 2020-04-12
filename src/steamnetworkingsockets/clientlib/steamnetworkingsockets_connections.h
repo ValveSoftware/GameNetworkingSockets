@@ -747,11 +747,12 @@ protected:
 
 /// Dummy loopback/pipe connection that doesn't actually do any network work.
 /// For these types of connections, the distinction between connection and transport
-/// is not realyl useful
+/// is not really useful
 class CSteamNetworkConnectionPipe final : public CSteamNetworkConnectionBase, public CConnectionTransport
 {
 public:
 
+	/// Create a pair of loopback connections that are immediately connected to each other
 	static bool APICreateSocketPair( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface, CSteamNetworkConnectionPipe **pOutConnections, const SteamNetworkingIdentity pIdentity[2] );
 
 	/// The guy who is on the other end.
@@ -759,7 +760,6 @@ public:
 
 	// CSteamNetworkConnectionBase overrides
 	virtual int64 _APISendMessageToConnection( CSteamNetworkingMessage *pMsg, SteamNetworkingMicroseconds usecNow, bool *pbThinkImmediately ) override;
-	virtual void PostConnectionStateChangedCallback( ESteamNetworkingConnectionState eOldAPIState, ESteamNetworkingConnectionState eNewAPIState ) override;
 	virtual void InitConnectionCrypto( SteamNetworkingMicroseconds usecNow ) override;
 	virtual EUnsignedCert AllowRemoteUnsignedCert() override;
 	virtual EUnsignedCert AllowLocalUnsignedCert() override;
