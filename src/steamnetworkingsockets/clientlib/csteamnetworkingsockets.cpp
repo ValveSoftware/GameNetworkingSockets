@@ -266,6 +266,8 @@ static CSteamNetworkPollGroup *GetPollGroupByHandle( HSteamNetPollGroup hPollGro
 //
 /////////////////////////////////////////////////////////////////////////////
 
+std::vector<CSteamNetworkingSockets *> CSteamNetworkingSockets::s_vecSteamNetworkingSocketsInstances;
+
 CSteamNetworkingSockets::CSteamNetworkingSockets( CSteamNetworkingUtils *pSteamNetworkingUtils )
 : m_bHaveLowLevelRef( false )
 , m_pSteamNetworkingUtils( pSteamNetworkingUtils )
@@ -286,9 +288,8 @@ bool CSteamNetworkingSockets::BInitGameNetworkingSockets( const SteamNetworkingI
 	AssertMsg( !m_bHaveLowLevelRef, "Initted interface twice?" );
 
 	// Make sure low level socket support is ready
-	if ( !BSteamNetworkingSocketsLowLevelAddRef( errMsg ) )
+	if ( !BInitLowLevel( errMsg ) )
 		return false;
-	m_bHaveLowLevelRef = true;
 
 	if ( pIdentity )
 		m_identity = *pIdentity;
@@ -298,6 +299,21 @@ bool CSteamNetworkingSockets::BInitGameNetworkingSockets( const SteamNetworkingI
 	return true;
 }
 #endif
+
+bool CSteamNetworkingSockets::BInitLowLevel( SteamNetworkingErrMsg &errMsg )
+{
+	if ( m_bHaveLowLevelRef )
+		return true;
+	if ( !BSteamNetworkingSocketsLowLevelAddRef( errMsg) )
+		return false;
+
+	// Add us to list of extant instances only after we have done some initialization
+	if ( !has_element( s_vecSteamNetworkingSocketsInstances, this ) )
+		s_vecSteamNetworkingSocketsInstances.push_back( this );
+
+	m_bHaveLowLevelRef = true;
+	return true;
+}
 
 void CSteamNetworkingSockets::KillConnections()
 {
@@ -357,6 +373,9 @@ void CSteamNetworkingSockets::Destroy()
 		m_bHaveLowLevelRef = false;
 		SteamNetworkingSocketsLowLevelDecRef();
 	}
+
+	// Remove from list of extant instances, if we are there
+	find_and_remove_element( s_vecSteamNetworkingSocketsInstances, this );
 
 	// Self destruct
 	delete this;

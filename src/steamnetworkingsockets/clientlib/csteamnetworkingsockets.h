@@ -114,6 +114,11 @@ public:
 	/// Configuration options that will apply to all connections on this interface
 	ConnectionConfig m_connectionConfig;
 
+	/// List of existing CSteamNetworkingSockets instances.  This is used, for example,
+	/// if we want to initiate a P2P connection to a local identity, we can instead
+	/// use a loopback connection.
+	static std::vector<CSteamNetworkingSockets *> s_vecSteamNetworkingSocketsInstances;
+
 protected:
 
 	void KillConnections();
@@ -133,16 +138,7 @@ protected:
 #endif
 
 	bool m_bHaveLowLevelRef;
-	bool BInitLowLevel( SteamNetworkingErrMsg &errMsg )
-	{
-		if ( !m_bHaveLowLevelRef )
-		{
-			if ( !BSteamNetworkingSocketsLowLevelAddRef( errMsg) )
-				return false;
-			m_bHaveLowLevelRef = true;
-		}
-		return true;
-	}
+	bool BInitLowLevel( SteamNetworkingErrMsg &errMsg );
 
 	// Protected - use Destroy()
 	virtual ~CSteamNetworkingSockets();
