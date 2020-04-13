@@ -20,6 +20,7 @@ set(GNS_SRCS
 	"steamnetworkingsockets/clientlib/steamnetworkingsockets_flat.cpp"
 	"steamnetworkingsockets/clientlib/steamnetworkingsockets_connections.cpp"
 	"steamnetworkingsockets/clientlib/steamnetworkingsockets_lowlevel.cpp"
+	"steamnetworkingsockets/clientlib/steamnetworkingsockets_p2p.cpp"
 	"steamnetworkingsockets/clientlib/steamnetworkingsockets_snp.cpp"
 	"steamnetworkingsockets/clientlib/steamnetworkingsockets_udp.cpp"
 	"steamnetworkingsockets/steamnetworkingsockets_certs.cpp"

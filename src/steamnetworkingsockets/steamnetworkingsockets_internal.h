@@ -716,8 +716,9 @@ struct ConnectionConfig
 	ConfigValue<int32> m_LogLevel_Message;
 	ConfigValue<int32> m_LogLevel_PacketGaps;
 
+	ConfigValue<int32> m_LogLevel_P2PRendezvous;
+
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
-		ConfigValue<int32> m_LogLevel_P2PRendezvous;
 		ConfigValue<std::string> m_SDRClient_DebugTicketAddress;
 	#endif
 

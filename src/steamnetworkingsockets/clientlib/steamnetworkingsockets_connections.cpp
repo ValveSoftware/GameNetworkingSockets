@@ -2887,6 +2887,11 @@ void CSteamNetworkConnectionBase::UpdateMTUFromConfig()
 	m_cbMaxReliableMessageSegment = m_cbMaxMessageNoFragment + 5;
 }
 
+CSteamNetworkConnectionP2P *CSteamNetworkConnectionBase::AsSteamNetworkConnectionP2P()
+{
+	return nullptr;
+}
+
 /////////////////////////////////////////////////////////////////////////////
 //
 // CSteamNetworkConnectionPipe

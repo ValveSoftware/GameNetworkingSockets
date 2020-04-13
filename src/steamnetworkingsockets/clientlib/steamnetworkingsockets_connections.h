@@ -36,6 +36,7 @@ typedef char ConnectionEndDebugMsg[ k_cchSteamNetworkingMaxConnectionCloseReason
 class CSteamNetworkingSockets;
 class CSteamNetworkingMessages;
 class CSteamNetworkConnectionBase;
+class CSteamNetworkConnectionP2P;
 class CSharedSocket;
 class CConnectionTransport;
 struct SNPAckSerializerHelper;
@@ -499,6 +500,9 @@ public:
 	/// Check state of connection.  Check for timeouts, and schedule time when we
 	/// should think next
 	void CheckConnectionStateAndSetNextThinkTime( SteamNetworkingMicroseconds usecNow );
+
+	// Upcasts.  So we don't have to compile with RTTI
+	virtual CSteamNetworkConnectionP2P *AsSteamNetworkConnectionP2P();
 
 protected:
 	CSteamNetworkConnectionBase( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface );

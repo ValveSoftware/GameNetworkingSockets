@@ -11,18 +11,19 @@ class CMsgSteamDatagramConnectRequest;
 
 namespace SteamNetworkingSocketsLib {
 
+/// Special disconnection reason code that is used in signals
+/// to indicate "no connection"
+const uint32 k_ESteamNetConnectionEnd_Internal_P2PNoConnection = 9999;
+
 struct SteamNetworkingMessagesSession;
 class CSteamNetworkingMessages;
-class CSteamNetworkConnectionP2P;
-
-class CConnectionTransportP2PSDR; // FIXME!
+class CConnectionTransportP2PSDR;
 
 //-----------------------------------------------------------------------------
 /// Listen socket for peer-to-peer connections relayed through through SDR network
 /// We can only do this on platforms where this is some sort of "default" signaling
 /// mechanism
 
-#ifdef STEAMNETWORKINGSOCKETS_HAS_DEFAULT_P2P_SIGNALING
 class CSteamNetworkListenSocketP2P : public CSteamNetworkListenSocketBase
 {
 public:
@@ -37,7 +38,6 @@ private:
 	/// The "virtual port" of the server for relay connections.
 	int m_nVirtualPort;
 };
-#endif
 
 /// A peer-to-peer connection that can use different types of underlying transport
 class CSteamNetworkConnectionP2P final : public CSteamNetworkConnectionBase
@@ -58,12 +58,12 @@ public:
 	// CSteamNetworkConnectionBase overrides
 	virtual void FreeResources() override;
 	virtual EResult AcceptConnection( SteamNetworkingMicroseconds usecNow ) override;
-	virtual void GuessTimeoutReason( ESteamNetConnectionEnd &nReasonCode, ConnectionEndDebugMsg &msg, SteamNetworkingMicroseconds usecNow ) override;
 	virtual void GetConnectionTypeDescription( ConnectionTypeDescription_t &szDescription ) const override;
 	virtual void ThinkConnection( SteamNetworkingMicroseconds usecNow );
 	virtual void DestroyTransport() override;
 	virtual bool BConnectionCanSendEndToEndConnectRequest() const override;
 	virtual void ConnectionSendEndToEndConnectRequest( SteamNetworkingMicroseconds usecNow ) override;
+	virtual CSteamNetworkConnectionP2P *AsSteamNetworkConnectionP2P() override;
 
 	void SendConnectOKSignal( SteamNetworkingMicroseconds usecNow );
 	void SendConnectionClosedSignal( SteamNetworkingMicroseconds usecNow );
@@ -87,7 +87,11 @@ public:
 	//
 	// Different transports
 	//
-	CConnectionTransportP2PSDR *m_pTransportP2PSDR;
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
+		CConnectionTransportP2PSDR *m_pTransportP2PSDR;
+	#endif
+	// FIXME - WebRTC transport for STUN / TURN
+	// FIXME - UDP transport for LAN discovery, so P2P works without any signaling
 
 	inline int LogLevel_P2PRendezvous() const { return m_connectionConfig.m_LogLevel_P2PRendezvous.Get(); }
 

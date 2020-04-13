@@ -88,7 +88,7 @@ public:
 	virtual HSteamNetConnection ConnectByIPAddress( const SteamNetworkingIPAddr &address, int nOptions, const SteamNetworkingConfigValue_t *pOptions ) = 0;
 
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
-	/// P2P stfuf
+	/// P2P stfuf through default signaling mechanism.
 #endif
 
 	/// Accept an incoming connection that has been received on a listen socket.
@@ -424,6 +424,79 @@ public:
 	// Relayed connections using custom signaling protocol
 #endif // #ifndef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 
+	//
+	// Relayed connections using custom signaling protocol
+	//
+	// This is used if you have your own method of sending out-of-band
+	// signaling / rendezvous messages through a mutually trusted channel.
+	//
+
+	/// Create a P2P "client" connection that does signaling over a custom
+	/// rendezvous/signaling channel.
+	///
+	/// pSignaling points to a new object that you create just for this connection.
+	/// It must stay valid until Release() is called.  Once you pass the
+	/// object to this function, it assumes ownership.  Release() will be called
+	/// from within the function call if the call fails.  Furthermore, until Release()
+	/// is called, you should be prepared for methods to be invoked on your
+	/// object from any thread!  You need to make sure your object is threadsafe!
+	/// Furthermore, you should make sure that dispatching the methods is done
+	/// as quickly as possible.
+	///
+	/// This function will immediately construct a connection in the "connecting"
+	/// state.  Soon after (perhaps before this function returns, perhaps in another thread),
+	/// the connection will begin sending signaling messages by calling
+	/// ISteamNetworkingConnectionCustomSignaling::SendSignal.
+	///
+	/// When the remote peer accepts the connection (See
+	/// ISteamNetworkingCustomSignalingRecvContext::OnConnectRequest),
+	/// it will begin sending signaling messages.  When these messages are received,
+	/// you can pass them to the connection using ReceivedP2PCustomSignal.
+	///
+	/// If you know the identity of the peer that you expect to be on the other end,
+	/// you can pass their identity to improve debug output or just detect bugs.
+	/// If you don't know their identity yet, you can pass NULL, and their
+	/// identity will be established in the connection handshake.  
+	///
+	/// If you use this, you probably want to call ISteamNetworkingUtils::InitRelayNetworkAccess()
+	/// when your app initializes
+	///
+	/// If you need to set any initial config options, pass them here.  See
+	/// SteamNetworkingConfigValue_t for more about why this is preferable to
+	/// setting the options "immediately" after creation.
+	virtual HSteamNetConnection ConnectP2PCustomSignaling( ISteamNetworkingConnectionCustomSignaling *pSignaling, const SteamNetworkingIdentity *pPeerIdentity, int nOptions, const SteamNetworkingConfigValue_t *pOptions ) = 0;
+
+	/// Called when custom signaling has received a message.  When your
+	/// signaling channel receives a message, it should save off whatever
+	/// routing information was in the envelope into the context object,
+	/// and then pass the payload to this function.
+	///
+	/// A few different things can happen next, depending on the message:
+	///
+	/// - If the signal is associated with existing connection, it is dealt
+	///   with immediately.  If any replies need to be sent, they will be
+	///   dispatched using the ISteamNetworkingConnectionCustomSignaling
+	///   associated with the connection.
+	/// - If the message represents a connection request (and the request
+	///   is not redundant for an existing connection), a new connection
+	///   will be created, and ReceivedConnectRequest will be called on your
+	///   context object to determine how to proceed.
+	/// - Otherwise, the message is for a connection that does not
+	///   exist (anymore).  In this case, we *may* call SendRejectionReply
+	///   on your context object.
+	///
+	/// In any case, we will not save off pContext or access it after this
+	/// function returns.
+	///
+	/// Returns true if the message was parsed and dispatched without anything
+	/// unusual or suspicious happening.  Returns false if there was some problem
+	/// with the message that prevented ordinary handling.  (Debug output will
+	/// usually have more information.)
+	///
+	/// If you expect to be using relayed connections, then you probably want
+	/// to call ISteamNetworkingUtils::InitRelayNetworkAccess() when your app initializes
+	virtual bool ReceivedP2PCustomSignal( const void *pMsg, int cbMsg, ISteamNetworkingCustomSignalingRecvContext *pContext ) = 0;
+
 //
 // Certificate provision by the application.  On Steam, we normally handle all this automatically
 // and you will not need to use these advanced functions.
@@ -453,6 +526,81 @@ protected:
 };
 #define STEAMNETWORKINGSOCKETS_INTERFACE_VERSION "SteamNetworkingSockets008"
 
+/// Interface used to send signaling messages for a particular connection.
+/// You will need to construct one of these per connection.
+///
+/// - For connections initiated locally, you will construct it and pass
+///   it to ISteamNetworkingSockets::ConnectP2PCustomSignaling.
+/// - For connections initiated remotely and "accepted" locally, you
+///   will return it from ISteamNetworkingCustomSignalingRecvContext::OnConnectRequest
+class ISteamNetworkingConnectionCustomSignaling
+{
+public:
+	/// Called to send a rendezvous message to the remote peer.  This may be called
+	/// from any thread, at any time, so you need to be thread-safe!  Don't take
+	/// any locks that might hold while calling into SteamNetworkingSockets functions,
+	/// because this could lead to deadlocks.
+	///
+	/// Note that when initiating a connection, we may not know the identity
+	/// of the peer, if you did not specify it in ConnectP2PCustomSignaling.
+	///
+	/// Return true if a best-effort attempt was made to deliver the message.
+	/// If you return false, it is assumed that the situation is fatal;
+	/// the connection will be closed, and Release() will be called
+	/// eventually.
+	///
+	/// Signaling objects will not be shared between connections.
+	/// You can assume that the same value of hConn will be used
+	/// every time.
+	virtual bool SendSignal( HSteamNetConnection hConn, const SteamNetConnectionInfo_t &info, const void *pMsg, int cbMsg ) = 0;
+
+	/// Called when the connection no longer needs to send signals.
+	/// Note that this happens eventually (but not immediately) after
+	/// the connection is closed.  Signals may need to be sent for a brief
+	/// time after the connection is closed, to clean up the connection.
+	virtual void Release() = 0;
+};
+
+/// Interface used when a custom signal is received.
+/// See ISteamNetworkingSockets::ReceivedP2PCustomSignal
+class ISteamNetworkingCustomSignalingRecvContext
+{
+public:
+
+	/// Called when the signal represents a request for a new connection.
+	///
+	/// If you want to ignore the request, just return NULL.  In this case,
+	/// the peer will NOT receive any reply.  You should consider ignoring
+	/// requests rather than actively rejecting them, as a security measure.
+	/// If you actively reject requests, then this makes it possible to detect
+	/// if a user is online or not, just by sending them a request.
+	///
+	/// If you wish to send back a rejection, then use
+	/// ISteamNetworkingSockets::CloseConnection() and then return NULL.
+	/// We will marshal a properly formatted rejection signal and
+	/// call SendRejectionSignal() so you can send it to them.
+	///
+	/// If you return a signaling object, the connection is NOT immediately
+	/// accepted by default.  Instead, it stays in the "connecting" state,
+	/// and the usual callback is posted, and your app can accept the
+	/// connection using ISteamNetworkingSockets::AcceptConnection.  This
+	/// may be useful so that these sorts of connections can be more similar
+	/// to your application code as other types of connections accepted on
+	/// a listen socket.  If this is not useful and you want to skip this
+	/// callback process and immediately accept the connection, call
+	/// ISteamNetworkingSockets::AcceptConnection before returning the
+	/// signaling object.
+	///
+	/// After accepting a connection (through either means), the connection
+	/// will transition into the "finding route" state.
+	virtual ISteamNetworkingConnectionCustomSignaling *OnConnectRequest( HSteamNetConnection hConn, const SteamNetworkingIdentity &identityPeer ) = 0;
+
+	/// This is called actively communication rejection or failure
+	/// to the incoming message.  If you intend to ignore all incoming requests
+	/// that you do not wish to accept, then it's not strictly necessary to
+	/// implement this.
+	virtual void SendRejectionSignal( const SteamNetworkingIdentity &identityPeer, const void *pMsg, int cbMsg ) = 0;
+};
 // Global accessor.
 #if defined( STEAMNETWORKINGSOCKETS_PARTNER )
 

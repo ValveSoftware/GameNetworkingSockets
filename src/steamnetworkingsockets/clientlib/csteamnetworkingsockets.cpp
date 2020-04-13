@@ -11,6 +11,10 @@
 #include <steam/steamnetworkingsockets.h>
 #endif
 
+#ifdef STEAMNETWORKINGSOCKETS_HAS_DEFAULT_P2P_SIGNALING
+#include "csteamnetworkingmessages.h"
+#endif
+
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
 
@@ -271,6 +275,7 @@ std::vector<CSteamNetworkingSockets *> CSteamNetworkingSockets::s_vecSteamNetwor
 CSteamNetworkingSockets::CSteamNetworkingSockets( CSteamNetworkingUtils *pSteamNetworkingUtils )
 : m_bHaveLowLevelRef( false )
 , m_pSteamNetworkingUtils( pSteamNetworkingUtils )
+, m_pSteamNetworkingMessages( nullptr )
 {
 	m_connectionConfig.Init( nullptr );
 	m_identity.Clear();
@@ -357,6 +362,20 @@ void CSteamNetworkingSockets::KillConnections()
 void CSteamNetworkingSockets::Destroy()
 {
 	SteamDatagramTransportLock::AssertHeldByCurrentThread( "CSteamNetworkingSockets::Destroy" );
+
+	// Nuke messages interface, if we had one
+	#ifdef STEAMNETWORKINGSOCKETS_HAS_DEFAULT_P2P_SIGNALING
+		if ( m_pSteamNetworkingMessages )
+		{
+			delete m_pSteamNetworkingMessages;
+
+			// That destructor should clear our pointer (so we can be destroyed in either order)
+			Assert( m_pSteamNetworkingMessages == nullptr );
+
+			// But clear it just to be safe
+			m_pSteamNetworkingMessages = nullptr;
+		}
+	#endif
 
 	KillConnections();
 
