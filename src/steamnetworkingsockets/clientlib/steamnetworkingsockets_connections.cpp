@@ -825,6 +825,13 @@ void CSteamNetworkConnectionBase::SetPollGroup( CSteamNetworkPollGroup *pPollGro
 		}
 	}
 
+	// Tell previous poll group, if any, that we are no longer with them
+	if ( m_pPollGroup )
+	{
+		DbgVerify( m_pPollGroup->m_vecConnections.FindAndFastRemove( this ) );
+	}
+
+	// Link to new poll group
 	m_pPollGroup = pPollGroup;
 	Assert( !m_pPollGroup->m_vecConnections.HasElement( this ) );
 	m_pPollGroup->m_vecConnections.AddToTail( this );
