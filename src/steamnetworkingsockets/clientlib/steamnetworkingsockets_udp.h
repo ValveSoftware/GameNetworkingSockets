@@ -9,7 +9,25 @@
 
 namespace SteamNetworkingSocketsLib {
 
-struct UDPSendPacketContext_t;
+template<>
+inline uint32 StatsMsgImpliedFlags<CMsgSteamSockets_UDP_Stats>( const CMsgSteamSockets_UDP_Stats &msg )
+{
+	return msg.has_stats() ? msg.ACK_REQUEST_E2E : 0;
+}
+
+struct UDPSendPacketContext_t : SendPacketContext<CMsgSteamSockets_UDP_Stats>
+{
+	inline explicit UDPSendPacketContext_t( SteamNetworkingMicroseconds usecNow, const char *pszReason ) : SendPacketContext<CMsgSteamSockets_UDP_Stats>( usecNow, pszReason ) {}
+	int m_nStatsNeed;
+
+	void Populate( size_t cbHdrtReserve, EStatsReplyRequest eReplyRequested, CSteamNetworkConnectionBase &connection );
+
+	void Trim( int cbHdrOutSpaceRemaining );
+};
+
+
+extern std::string DescribeStatsContents( const CMsgSteamSockets_UDP_Stats &msg );
+extern bool BCheckRateLimitReportBadPacket( SteamNetworkingMicroseconds usecNow );
 
 /////////////////////////////////////////////////////////////////////////////
 //
@@ -109,8 +127,6 @@ protected:
 	void RecvStats( const CMsgSteamSockets_UDP_Stats &msgStatsIn, bool bInline, SteamNetworkingMicroseconds usecNow );
 	void SendStatsMsg( EStatsReplyRequest eReplyRequested, SteamNetworkingMicroseconds usecNow, const char *pszReason );
 	void TrackSentStats( const CMsgSteamSockets_UDP_Stats &msgStatsOut, bool bInline, SteamNetworkingMicroseconds usecNow );
-
-	void PopulateSendPacketContext( UDPSendPacketContext_t &ctx, EStatsReplyRequest eReplyRequested );
 };
 
 /// A connection over ordinary UDP
