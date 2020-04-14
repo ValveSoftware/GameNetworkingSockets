@@ -60,7 +60,7 @@ public:
 	virtual void FreeResources() override;
 	virtual EResult AcceptConnection( SteamNetworkingMicroseconds usecNow ) override;
 	virtual void GetConnectionTypeDescription( ConnectionTypeDescription_t &szDescription ) const override;
-	virtual void ThinkConnection( SteamNetworkingMicroseconds usecNow );
+	virtual void ThinkConnection( SteamNetworkingMicroseconds usecNow ) override;
 	virtual SteamNetworkingMicroseconds ThinkConnection_ClientConnecting( SteamNetworkingMicroseconds usecNow ) override;
 	virtual void DestroyTransport() override;
 	virtual CSteamNetworkConnectionP2P *AsSteamNetworkConnectionP2P() override;
