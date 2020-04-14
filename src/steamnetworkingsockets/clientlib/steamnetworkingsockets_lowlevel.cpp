@@ -1610,7 +1610,7 @@ SteamNetworkingMicroseconds g_usecLastRateLimitSpew;
 ESteamNetworkingSocketsDebugOutputType g_eSteamDatagramDebugOutputDetailLevel;
 static FSteamNetworkingSocketsDebugOutput s_pfnDebugOutput = nullptr;
 
-void ReallySpewType( ESteamNetworkingSocketsDebugOutputType eType, const char *pMsg, ... )
+void VReallySpewType( ESteamNetworkingSocketsDebugOutputType eType, const char *pMsg, va_list ap )
 {
 	// Save callback.  Paranoia for unlikely but possible race condition,
 	// if we spew from more than one place in our code and stuff changes
@@ -1623,16 +1623,21 @@ void ReallySpewType( ESteamNetworkingSocketsDebugOutputType eType, const char *p
 	
 	// Do the formatting
 	char buf[ 2048 ];
-	va_list ap;
-	va_start( ap, pMsg );
 	V_vsprintf_safe( buf, pMsg, ap );
-	va_end( ap );
 
 	// Gah, some, but not all, of our code has newlines on the end
 	V_StripTrailingWhitespaceASCII( buf );
 
 	// Invoke callback
 	pfnDebugOutput( eType, buf );
+}
+
+void ReallySpewType( ESteamNetworkingSocketsDebugOutputType eType, const char *pMsg, ... )
+{
+	va_list ap;
+	va_start( ap, pMsg );
+	VReallySpewType( eType, pMsg, ap );
+	va_end( ap );
 }
 
 #if defined( STEAMNETWORKINGSOCKETS_STANDALONELIB ) && !defined( STEAMNETWORKINGSOCKETS_STREAMINGCLIENT )
