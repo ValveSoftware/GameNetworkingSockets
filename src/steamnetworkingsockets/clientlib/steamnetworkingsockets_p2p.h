@@ -18,6 +18,7 @@ const uint32 k_ESteamNetConnectionEnd_Internal_P2PNoConnection = 9999;
 struct SteamNetworkingMessagesSession;
 class CSteamNetworkingMessages;
 class CConnectionTransportP2PSDR;
+class CConnectionTransportP2PWebRTC;
 
 //-----------------------------------------------------------------------------
 /// Listen socket for peer-to-peer connections relayed through through SDR network
@@ -90,7 +91,9 @@ public:
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 		CConnectionTransportP2PSDR *m_pTransportP2PSDR;
 	#endif
-	// FIXME - WebRTC transport for STUN / TURN
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
+		CConnectionTransportP2PWebRTC *m_pTransportP2PWebRTC;
+	#endif
 	// FIXME - UDP transport for LAN discovery, so P2P works without any signaling
 
 	inline int LogLevel_P2PRendezvous() const { return m_connectionConfig.m_LogLevel_P2PRendezvous.Get(); }

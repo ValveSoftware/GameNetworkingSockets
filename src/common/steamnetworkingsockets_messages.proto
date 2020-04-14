@@ -212,6 +212,15 @@ message CMsgSteamNetworkingP2PRendezvous
 	// This is the latest route revision I have for you
 	optional uint32 ack_peer_routes_revision = 3;
 
+	// ICE candidate
+	message ICECandidate
+	{
+		optional string sdpm_id = 1;
+		optional uint32 sdpm_line_index = 2;
+		optional string candidate = 3;
+	}
+	repeated ICECandidate ice_candidates = 7;
+
 	// Connect request
 	message ConnectRequest
 	{

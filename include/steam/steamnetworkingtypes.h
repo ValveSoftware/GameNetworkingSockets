@@ -1076,6 +1076,31 @@ enum ESteamNetworkingConfigValue
 	k_ESteamNetworkingConfig_EnumerateDevVars = 35,
 
 	//
+	// P2P settings
+	//
+
+//	/// [listen socket int32] When you create a P2P listen socket, we will automatically
+//	/// open up a UDP port to listen for LAN connections.  LAN connections can be made
+//	/// without any signaling: both sides can be disconnected from the Internet.
+//	///
+//	/// This value can be set to zero to disable the feature.
+//	k_ESteamNetworkingConfig_P2P_Discovery_Server_LocalPort = 101,
+//
+//	/// [connection int32] P2P connections can perform broadcasts looking for the peer
+//	/// on the LAN.
+//	k_ESteamNetworkingConfig_P2P_Discovery_Client_RemotePort = 102,
+
+	/// [connection string] Comma-separated list of STUN servers that can be used
+	/// for NAT piercing.  If you set this to an empty string, NAT piercing will
+	/// not be attempted
+	k_ESteamNetworkingConfig_P2P_STUN_ServerList = 103,
+
+//	/// [connection string] Comma-separated list of TURN servers that can be used
+//	/// for relay.  If you set this to an empty string, relaying over TURN will
+//	/// not be attempted
+//	k_ESteamNetworkingConfig_P2P_TURN_ServerList = 104,
+
+	//
 	// Settings for SDR relayed connections
 	//
 

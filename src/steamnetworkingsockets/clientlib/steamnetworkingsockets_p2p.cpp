@@ -8,6 +8,10 @@
 	#include "steamnetworkingsockets_sdr_p2p.h"
 #endif
 
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
+	#include "steamnetworkingsockets_p2p_webrtc.h"
+#endif
+
 #ifdef STEAMNETWORKINGSOCKETS_HAS_DEFAULT_P2P_SIGNALING
 #include "csteamnetworkingmessages.h"
 #endif
@@ -91,6 +95,9 @@ CSteamNetworkConnectionP2P::CSteamNetworkConnectionP2P( CSteamNetworkingSockets 
 	m_pSignaling = nullptr;
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 		m_pTransportP2PSDR = nullptr;
+	#endif
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
+		m_pTransportP2PWebRTC = nullptr;
 	#endif
 }
 
@@ -276,6 +283,13 @@ void CSteamNetworkConnectionP2P::DestroyTransport()
 			m_pTransportP2PSDR = nullptr;
 		}
 	#endif
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
+		if ( m_pTransportP2PWebRTC )
+		{
+			m_pTransportP2PWebRTC->TransportDestroySelfNow();
+			m_pTransportP2PWebRTC = nullptr;
+		}
+	#endif
 }
 
 EResult CSteamNetworkConnectionP2P::AcceptConnection( SteamNetworkingMicroseconds usecNow )
@@ -440,24 +454,19 @@ bool CSteamNetworkConnectionP2P::BConnectionCanSendEndToEndConnectRequest() cons
 	if ( !m_pSignaling )
 		return false;
 
-	if ( !m_pTransport)
-		return false;
-
 	//// The first messages go through Steam, and we need to be logged on to do that
 	//// FIXME - Should ask the signaling interface, not SteamNetworkingSocketsInterface
 	//if ( !SteamNetworkingSocketsInterface()->BCanSendP2PRendezvous() )
 	//	return false;
 
+	// If we are using SDR, then wait until we have finished the initial ping probes, before
+	// attempting to make a connection request.
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
-		if ( m_pTransport == m_pTransportP2PSDR )
+		if ( m_pTransportP2PSDR )
 		{
 			if ( !m_pTransportP2PSDR->BReady() )
 				return false;
 		}
-
-		// Check if we are doing initial ping collection, then wait.
-		if ( !g_bClusterPingDataGoodEnoughForRouting )
-			return false;
 	#endif
 
 	return true;

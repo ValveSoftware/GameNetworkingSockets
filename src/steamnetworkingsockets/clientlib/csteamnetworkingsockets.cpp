@@ -61,8 +61,14 @@ DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, LogLevel_AckRTT, k_ESteamNetworkingSo
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, LogLevel_PacketDecode, k_ESteamNetworkingSocketsDebugOutputType_Everything, k_ESteamNetworkingSocketsDebugOutputType_Error, k_ESteamNetworkingSocketsDebugOutputType_Everything );
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, LogLevel_Message, k_ESteamNetworkingSocketsDebugOutputType_Everything, k_ESteamNetworkingSocketsDebugOutputType_Error, k_ESteamNetworkingSocketsDebugOutputType_Everything );
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, LogLevel_PacketGaps, k_ESteamNetworkingSocketsDebugOutputType_Debug, k_ESteamNetworkingSocketsDebugOutputType_Error, k_ESteamNetworkingSocketsDebugOutputType_Everything );
-#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
+
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, LogLevel_P2PRendezvous, k_ESteamNetworkingSocketsDebugOutputType_Verbose, k_ESteamNetworkingSocketsDebugOutputType_Error, k_ESteamNetworkingSocketsDebugOutputType_Everything );
+
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
+DEFINE_CONNECTON_DEFAULT_CONFIGVAL( std::string, P2P_STUN_ServerList, "" );
+#endif
+
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( std::string, SDRClient_DebugTicketAddress, "" );
 #endif
 

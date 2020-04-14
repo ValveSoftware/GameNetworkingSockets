@@ -716,6 +716,10 @@ struct ConnectionConfig
 	ConfigValue<int32> m_LogLevel_Message;
 	ConfigValue<int32> m_LogLevel_PacketGaps;
 
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
+		ConfigValue<std::string> m_P2P_STUN_ServerList;
+	#endif
+
 	ConfigValue<int32> m_LogLevel_P2PRendezvous;
 
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
