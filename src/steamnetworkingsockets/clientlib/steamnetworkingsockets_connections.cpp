@@ -2587,35 +2587,35 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 				return;
 			}
 
-			if ( m_bConnectionInitiatedRemotely || m_eConnectionState == k_ESteamNetworkingConnectionState_FindingRoute )
+			// Make sure we wake up when timeout happens
+			UpdateMinThinkTime( usecTimeout );
+
+			// FInding route?
+			if ( m_eConnectionState == k_ESteamNetworkingConnectionState_FindingRoute )
 			{
-				UpdateMinThinkTime( usecTimeout );
+				UpdateMinThinkTime( ThinkConnection_FindingRoute( usecNow ) );
+			}
+			else if ( m_bConnectionInitiatedRemotely )
+			{
+				// We're waiting on the app to accept the connection.  Nothing to do here.
 			}
 			else
 			{
 
-				SteamNetworkingMicroseconds usecRetry = usecNow + k_nMillion/20;
-
 				// Do we have all of our crypt stuff ready?
 				if ( BThinkCryptoReady( usecNow ) )
 				{
-
-					// Time to try to send an end-to-end connection?  If we cannot send packets now, then we
-					// really ought to be called again if something changes, but just in case we don't, set a
-					// reasonable polling interval.
-					if ( BConnectionCanSendEndToEndConnectRequest() )
-					{
-						usecRetry = m_usecWhenSentConnectRequest + k_usecConnectRetryInterval;
-						if ( usecNow >= usecRetry )
-						{
-							ConnectionSendEndToEndConnectRequest( usecNow ); // don't return true from within BConnectionCanSendEndToEndConnectRequest if you can't do this!
-							m_usecWhenSentConnectRequest = usecNow;
-							usecRetry = m_usecWhenSentConnectRequest + k_usecConnectRetryInterval;
-						}
-					}
+					// Send connect requests
+					UpdateMinThinkTime( ThinkConnection_ClientConnecting( usecNow ) );
 				}
-
-				UpdateMinThinkTime( usecRetry );
+				else
+				{
+					// Waiting on certs, etc.  Make sure and check
+					// back in periodically. Note that we we should be awoken
+					// immediately when we get our cert.  Is this necessary?
+					// Might just be hiding a bug.
+					UpdateMinThinkTime( usecNow + k_nMillion/20 );
+				}
 			}
 		} break;
 
@@ -2795,26 +2795,36 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 	#undef UpdateMinThinkTime
 }
 
-bool CSteamNetworkConnectionBase::BConnectionCanSendEndToEndConnectRequest() const
-{
-	// Default vehaviour just forwards to the transport
-	return m_pTransport && m_pTransport->BCanSendEndToEndConnectRequest();
-}
-
-void CSteamNetworkConnectionBase::ConnectionSendEndToEndConnectRequest( SteamNetworkingMicroseconds usecNow )
-{
-	// Default behaviour just forwards to the transport.
-	// Should only be called if BConnectionCanSendEndToEndConnectRequest has returned true
-	if ( !m_pTransport )
-	{
-		Assert( false );
-		return;
-	}
-	m_pTransport->SendEndToEndConnectRequest( usecNow );
-}
-
 void CSteamNetworkConnectionBase::ThinkConnection( SteamNetworkingMicroseconds usecNow )
 {
+}
+
+SteamNetworkingMicroseconds CSteamNetworkConnectionBase::ThinkConnection_FindingRoute( SteamNetworkingMicroseconds usecNow )
+{
+	return k_nThinkTime_Never;
+}
+
+SteamNetworkingMicroseconds CSteamNetworkConnectionBase::ThinkConnection_ClientConnecting( SteamNetworkingMicroseconds usecNow )
+{
+	Assert( !m_bConnectionInitiatedRemotely );
+
+	// Default behaviour for client periodically sending connect requests
+	
+	// Ask transport if it's ready
+	if ( !m_pTransport || !m_pTransport->BCanSendEndToEndConnectRequest() )
+		return usecNow + k_nMillion/20; // Nope, check back in just a bit.
+
+	// When to send next retry.
+	SteamNetworkingMicroseconds usecRetry = m_usecWhenSentConnectRequest + k_usecConnectRetryInterval;
+	if ( usecNow < usecRetry )
+		return usecRetry; // attempt already in flight.  Wait until it's time to retry
+
+	// Send a request
+	m_pTransport->SendEndToEndConnectRequest( usecNow );
+	m_usecWhenSentConnectRequest = usecNow;
+
+	// And wakeup when it will be time to retry
+	return m_usecWhenSentConnectRequest + k_usecConnectRetryInterval;
 }
 
 void CSteamNetworkConnectionBase::ConnectionTimedOut( SteamNetworkingMicroseconds usecNow )

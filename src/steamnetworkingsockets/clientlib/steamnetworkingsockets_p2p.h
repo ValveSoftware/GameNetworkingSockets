@@ -61,9 +61,8 @@ public:
 	virtual EResult AcceptConnection( SteamNetworkingMicroseconds usecNow ) override;
 	virtual void GetConnectionTypeDescription( ConnectionTypeDescription_t &szDescription ) const override;
 	virtual void ThinkConnection( SteamNetworkingMicroseconds usecNow );
+	virtual SteamNetworkingMicroseconds ThinkConnection_ClientConnecting( SteamNetworkingMicroseconds usecNow ) override;
 	virtual void DestroyTransport() override;
-	virtual bool BConnectionCanSendEndToEndConnectRequest() const override;
-	virtual void ConnectionSendEndToEndConnectRequest( SteamNetworkingMicroseconds usecNow ) override;
 	virtual CSteamNetworkConnectionP2P *AsSteamNetworkConnectionP2P() override;
 
 	void SendConnectOKSignal( SteamNetworkingMicroseconds usecNow );

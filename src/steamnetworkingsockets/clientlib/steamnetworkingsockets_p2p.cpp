@@ -115,16 +115,6 @@ bool CSteamNetworkConnectionP2P::BInitConnect( ISteamNetworkingConnectionCustomS
 {
 	Assert( !m_pTransport );
 
-	// FIXME - for now only one transport supported, relay over SDR
-	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
-		Assert( !m_pTransportP2PSDR );
-		m_pTransportP2PSDR = new CConnectionTransportP2PSDR( *this );
-		m_pTransport = m_pTransportP2PSDR;
-	#else
-		V_strcpy_safe( errMsg, "Only P2P transport implemented right now is SDR!" );
-		return false;
-	#endif
-
 	// Remember who we're talking to
 	Assert( m_pSignaling == nullptr );
 	m_pSignaling = pSignaling;
@@ -149,15 +139,6 @@ bool CSteamNetworkConnectionP2P::BInitConnect( ISteamNetworkingConnectionCustomS
 
 bool CSteamNetworkConnectionP2P::BInitP2PConnectionCommon( SteamNetworkingMicroseconds usecNow, int nOptions, const SteamNetworkingConfigValue_t *pOptions, SteamDatagramErrMsg &errMsg )
 {
-	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
-		CSteamNetworkingSocketsSDR *pSteamNetworkingSocketsSDR = assert_cast< CSteamNetworkingSocketsSDR *>( m_pSteamNetworkingSocketsInterface );
-		Assert( m_pTransportP2PSDR );
-
-		// Make sure SDR client functionality is ready
-		if ( !pSteamNetworkingSocketsSDR->BSDRClientInit( errMsg ) )
-			return false;
-	#endif
-
 	// Let base class do some common initialization
 	if ( !CSteamNetworkConnectionBase::BInitConnection( usecNow, nOptions, pOptions, errMsg ) )
 		return false;
@@ -180,13 +161,29 @@ bool CSteamNetworkConnectionP2P::BInitP2PConnectionCommon( SteamNetworkingMicros
 		//     another local CSteamNetworkingSockets interface, we should use a pipe.
 		//     But we'd probably have to make a special flag to force it to relay,
 		//     for tests.
-		SpewWarning( "Connecting P2P socket to self (%s).  Traffic will be relayed over the Internet", SteamNetworkingIdentityRender( m_identityRemote ).c_str() );
+		SpewWarning( "Connecting P2P socket to self (%s).  Traffic will be relayed over the network", SteamNetworkingIdentityRender( m_identityRemote ).c_str() );
 	}
 
-	// Add to list of SDR clients
+	// Create SDR transport, if SDR is enabled
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
+
+		// Make sure SDR client functionality is ready
+		CSteamNetworkingSocketsSDR *pSteamNetworkingSocketsSDR = assert_cast< CSteamNetworkingSocketsSDR *>( m_pSteamNetworkingSocketsInterface );
+		if ( !pSteamNetworkingSocketsSDR->BSDRClientInit( errMsg ) )
+			return false;
+
+		// Create SDR transport
+		Assert( !m_pTransportP2PSDR );
+		m_pTransportP2PSDR = new CConnectionTransportP2PSDR( *this );
 		Assert( !has_element( g_vecSDRClients, m_pTransportP2PSDR ) );
 		g_vecSDRClients.push_back( m_pTransportP2PSDR );
+
+		// Select SDR as the transport
+		m_pTransport = m_pTransportP2PSDR;
+	#endif
+
+	// FIXME Create WebRTC transport, if we have any STUN or TURN servers
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
 	#endif
 	return true;
 }
@@ -320,29 +317,61 @@ void CSteamNetworkConnectionP2P::ThinkConnection( SteamNetworkingMicroseconds us
 	#endif
 }
 
-void CSteamNetworkConnectionP2P::ConnectionSendEndToEndConnectRequest( SteamNetworkingMicroseconds usecNow )
+SteamNetworkingMicroseconds CSteamNetworkConnectionP2P::ThinkConnection_ClientConnecting( SteamNetworkingMicroseconds usecNow )
 {
+	Assert( !m_bConnectionInitiatedRemotely );
 	Assert( m_pParentListenSocket == nullptr );
-	if ( m_bConnectionInitiatedRemotely )
+
+	// FIXME if we have LAN broadcast enabled, we should send those here.
+	// (Do we even need crypto ready for that, if we are gonna allow them to
+	// be unauthenticated anyway?)  If so, we will need to refactor the base
+	// class to call this even if crypt is not ready.
+
+	// No signaling?  This should only be possible if we are attempting P2P though LAN
+	// broadcast only.
+	if ( !m_pSignaling )
 	{
-		AssertMsg( false, "Shouldn't be sending end-to-end connect request!  Connection was initiated remotely!" );
-		return;
+		// LAN broadcasts not implemented, so this should currently not be possible.
+		AssertMsg( false, "No signaling?" );
+		return k_nThinkTime_Never;
 	}
 
-	// We always do this through steam using a rendezvous message
+	// If we are using SDR, then we want to wait until we have finished the initial ping probes.
+	// This makes sure out initial connect message doesn't contain potentially inaccurate
+	// routing information.  This delay should only happen very soon after initializing the
+	// relay network.
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
+		if ( m_pTransportP2PSDR )
+		{
+			if ( !m_pTransportP2PSDR->BReady() )
+				return usecNow + k_nMillion/20;
+		}
+	#endif
 
+	// Time to send another connect request?
+	// We always do this through signaling service rendezvous message.  We don't need to have
+	// selected the transport (yet)
+	SteamNetworkingMicroseconds usecRetry = m_usecWhenSentConnectRequest + k_usecConnectRetryInterval;
+	if ( usecNow < usecRetry )
+		return usecRetry;
+
+	// Fill out the rendezvous message
 	CMsgSteamNetworkingP2PRendezvous msgRendezvous;
 	CMsgSteamNetworkingP2PRendezvous_ConnectRequest &msgConnectRequest = *msgRendezvous.mutable_connect_request();
-	//msgConnectRequest.set_connection_id( m_unConnectionIDLocal ); // No, these fields are in the rendezvous envelope
-	//msgConnectRequest.set_client_steam_id( .... );
 	*msgConnectRequest.mutable_cert() = m_msgSignedCertLocal;
 	*msgConnectRequest.mutable_crypt() = m_msgSignedCryptLocal;
 	if ( m_nRemoteVirtualPort >= 0 )
 		msgConnectRequest.set_virtual_port( m_nRemoteVirtualPort );
-	// NOTE: Intentionally not setting the timestamp, since ping time via signaling mechanism is not relevant for data
 
+	// Send through signaling service
 	SpewType( LogLevel_P2PRendezvous(), "[%s] Sending P2P ConnectRequest\n", GetDescription() );
 	SetRendezvousCommonFieldsAndSendSignal( msgRendezvous, usecNow, "ConnectRequest" );
+
+	// Remember when we send it
+	m_usecWhenSentConnectRequest = usecNow;
+
+	// And set timeout for retry
+	return m_usecWhenSentConnectRequest + k_usecConnectRetryInterval;
 }
 
 void CSteamNetworkConnectionP2P::SendConnectOKSignal( SteamNetworkingMicroseconds usecNow )
@@ -351,15 +380,8 @@ void CSteamNetworkConnectionP2P::SendConnectOKSignal( SteamNetworkingMicrosecond
 
 	CMsgSteamNetworkingP2PRendezvous msgRendezvous;
 	CMsgSteamNetworkingP2PRendezvous_ConnectOK &msgConnectOK = *msgRendezvous.mutable_connect_ok();
-	//msgConnectOK.set_server_connection_id( m_unConnectionIDLocal ); // No, these fields are in the rendezvous envelope
-	//msgConnectOK.set_client_connection_id( m_unConnectionIDRemote );
 	*msgConnectOK.mutable_cert() = m_msgSignedCertLocal;
 	*msgConnectOK.mutable_crypt() = m_msgSignedCryptLocal;
-
-	// NOTE: Intentionally not setting the timestamp field or doing ping time calculations.
-	//       These messages are being sent through a totally separate channel than the actual
-	//       data packets will go, so this ping time is not useful for that purpose.
-
 	SpewType( LogLevel_P2PRendezvous(), "[%s] Sending P2P ConnectOK via Steam, remote cxn %u\n", GetDescription(), m_unConnectionIDRemote );
 	SetRendezvousCommonFieldsAndSendSignal( msgRendezvous, usecNow, "ConnectOK" );
 }
@@ -374,7 +396,7 @@ void CSteamNetworkConnectionP2P::SendConnectionClosedSignal( SteamNetworkingMicr
 	msgConnectionClosed.set_debug( m_szEndDebug );
 
 	// NOTE: Not sending connection stats here.  Usually when a connection is closed through this mechanism,
-	// it is because we have not need able to rendezvous, and haven't sent any packets end-to-end anyway
+	// it is because we have not been able to rendezvous, and haven't sent any packets end-to-end anyway
 
 	SetRendezvousCommonFieldsAndSendSignal( msgRendezvous, usecNow, "ConnectionClosed" );
 }
@@ -385,10 +407,10 @@ void CSteamNetworkConnectionP2P::SendNoConnectionSignal( SteamNetworkingMicrosec
 
 	CMsgSteamNetworkingP2PRendezvous msgRendezvous;
 	CMsgSteamNetworkingP2PRendezvous_ConnectionClosed &msgConnectionClosed = *msgRendezvous.mutable_connection_closed();
-	msgConnectionClosed.set_reason_code( k_ESteamNetConnectionEnd_Internal_P2PNoConnection );
+	msgConnectionClosed.set_reason_code( k_ESteamNetConnectionEnd_Internal_P2PNoConnection ); // Special reason code that means "do not reply"
 
 	// NOTE: Not sending connection stats here.  Usually when a connection is closed through this mechanism,
-	// it is because we have not need able to rendezvous, and haven't sent any packets end-to-end anyway
+	// it is because we have not been able to rendezvous, and haven't sent any packets end-to-end anyway
 
 	SetRendezvousCommonFieldsAndSendSignal( msgRendezvous, usecNow, "NoConnection" );
 }
@@ -419,6 +441,10 @@ void CSteamNetworkConnectionP2P::SetRendezvousCommonFieldsAndSendSignal( CMsgSte
 		if ( m_pTransportP2PSDR )
 			m_pTransportP2PSDR->PopulateRendezvousMsg( msg, usecNow );
 	#endif
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
+		if ( m_pTransportP2PWebRTC )
+			m_pTransportP2PWebRTC->PopulateRendezvousMsg( msg, usecNow );
+	#endif
 
 	// Spew
 	int nLogLevel = LogLevel_P2PRendezvous();
@@ -440,36 +466,6 @@ void CSteamNetworkConnectionP2P::SetRendezvousCommonFieldsAndSendSignal( CMsgSte
 		//       or the caller might have closed us!
 		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_InternalError, "Failed to send P2P signal" );
 	}
-}
-
-bool CSteamNetworkConnectionP2P::BConnectionCanSendEndToEndConnectRequest() const
-{
-	if ( m_bConnectionInitiatedRemotely )
-	{
-		AssertMsg( false, "Why are we asking this?" );
-		return false;
-	}
-	Assert( m_pParentListenSocket == nullptr );
-
-	if ( !m_pSignaling )
-		return false;
-
-	//// The first messages go through Steam, and we need to be logged on to do that
-	//// FIXME - Should ask the signaling interface, not SteamNetworkingSocketsInterface
-	//if ( !SteamNetworkingSocketsInterface()->BCanSendP2PRendezvous() )
-	//	return false;
-
-	// If we are using SDR, then wait until we have finished the initial ping probes, before
-	// attempting to make a connection request.
-	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
-		if ( m_pTransportP2PSDR )
-		{
-			if ( !m_pTransportP2PSDR->BReady() )
-				return false;
-		}
-	#endif
-
-	return true;
 }
 
 void CSteamNetworkConnectionP2P::ProcessSignal_ConnectOK( const CMsgSteamNetworkingP2PRendezvous_ConnectOK &msgConnectOK, SteamNetworkingMicroseconds usecNow )

@@ -538,7 +538,25 @@ protected:
 
 	/// Misc periodic processing.
 	/// Called from within CheckConnectionStateAndSetNextThinkTime.
+	/// Will be called in any connection state.
 	virtual void ThinkConnection( SteamNetworkingMicroseconds usecNow );
+
+	/// Called from the connection Think() state machine, for connections that have been
+	/// initiated locally and that are in the connecting state.
+	///
+	/// Should return the next time when it needs to be woken up.  Or it can set the next
+	/// think time directly, if it is awkward to return.  That is slightly
+	/// less efficient.
+	///
+	/// Base class sends connect requests (including periodic retry) through the current
+	/// transport.
+	virtual SteamNetworkingMicroseconds ThinkConnection_ClientConnecting( SteamNetworkingMicroseconds usecNow );
+
+	/// Called from the connection Think() state machine, when the connection is in the finding
+	/// route state.  The connection should return the next time when it needs to be woken up.
+	/// Or it can set the next think time directly, if it is awkward to return.  That is slightly
+	/// less efficient.
+	virtual SteamNetworkingMicroseconds ThinkConnection_FindingRoute( SteamNetworkingMicroseconds usecNow );
 
 	/// Called when a timeout is detected
 	void ConnectionTimedOut( SteamNetworkingMicroseconds usecNow );
@@ -608,12 +626,6 @@ protected:
 
 	/// Called to decide if we want to try to proceed without a signed cert for ourselves
 	virtual EUnsignedCert AllowLocalUnsignedCert();
-
-	/// Return true if the connection has some mechanism to send an end-to-end connect request
-	virtual bool BConnectionCanSendEndToEndConnectRequest() const;
-
-	/// Send an end-to-end connect request
-	virtual void ConnectionSendEndToEndConnectRequest( SteamNetworkingMicroseconds usecNow );
 
 	//
 	// "SNP" - Steam Networking Protocol.  (Sort of audacious to stake out this acronym, don't you think...?)
