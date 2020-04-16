@@ -1311,7 +1311,6 @@ void CConnectionTransportUDP::Received_Data( const uint8 *pPkt, int cbPkt, Steam
 		}
 
 		// Shove sequence number so we know what acks to pend, etc
-		msgStats.set_seq_num( nWirePktNumber );
 		pMsgStatsIn = &msgStats;
 
 		// Advance pointer
