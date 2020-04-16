@@ -676,7 +676,7 @@ void CConnectionTransportUDP::SendStatsMsg( EStatsReplyRequest eReplyRequested, 
 	ctx.Populate( sizeof(UDPDataMsgHdr), eReplyRequested, m_connection );
 
 	// Send a data packet (maybe containing ordinary data), with this piggy backed on top of it
-	m_connection.SNP_SendPacket( ctx );
+	m_connection.SNP_SendPacket( this, ctx );
 }
 
 bool CConnectionTransportUDP::SendDataPacket( SteamNetworkingMicroseconds usecNow )
@@ -686,7 +686,7 @@ bool CConnectionTransportUDP::SendDataPacket( SteamNetworkingMicroseconds usecNo
 	ctx.Populate( sizeof(UDPDataMsgHdr), k_EStatsReplyRequest_NothingToSend, m_connection );
 
 	// Send a packet
-	return m_connection.SNP_SendPacket( ctx );
+	return m_connection.SNP_SendPacket( this, ctx );
 }
 
 int CConnectionTransportUDP::SendEncryptedDataChunk( const void *pChunk, int cbChunk, SendPacketContext_t &ctxBase )

@@ -447,7 +447,7 @@ public:
 
 	/// Send a data packet now, even if we don't have the bandwidth available.  Returns true if a packet was
 	/// sent successfully, false if there was a problem.  This will call SendEncryptedDataChunk to do the work
-	bool SNP_SendPacket( SendPacketContext_t &ctx );
+	bool SNP_SendPacket( CConnectionTransport *pTransport, SendPacketContext_t &ctx );
 
 	/// Called to (maybe) post a callback
 	bool m_bSupressStateChangeCallbacks;

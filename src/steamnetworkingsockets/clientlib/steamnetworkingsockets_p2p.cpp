@@ -98,6 +98,9 @@ CSteamNetworkConnectionP2P::CSteamNetworkConnectionP2P( CSteamNetworkingSockets 
 	#endif
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
 		m_pTransportP2PWebRTC = nullptr;
+		m_pTransportP2PWebRTCPendingDelete = nullptr;
+		m_nWebRTCCloseCode = 0;
+		m_szWebRTCCloseMsg[ 0 ] = '\0';
 	#endif
 }
 
@@ -129,6 +132,9 @@ bool CSteamNetworkConnectionP2P::BInitConnect( ISteamNetworkingConnectionCustomS
 	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 	if ( !BInitP2PConnectionCommon( usecNow, nOptions, pOptions, errMsg ) )
 		return false;
+
+	// Check if we should try WebRTC
+	CheckInitWebRTC();
 
 	// Start the connection state machine, and send the first request packet.
 	CheckConnectionStateAndSetNextThinkTime( usecNow );
@@ -182,9 +188,6 @@ bool CSteamNetworkConnectionP2P::BInitP2PConnectionCommon( SteamNetworkingMicros
 		m_pTransport = m_pTransportP2PSDR;
 	#endif
 
-	// FIXME Create WebRTC transport, if we have any STUN or TURN servers
-	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
-	#endif
 	return true;
 }
 
@@ -194,19 +197,6 @@ bool CSteamNetworkConnectionP2P::BBeginAccept(
 	SteamNetworkingMicroseconds usecNow
 ) {
 	m_bConnectionInitiatedRemotely = true;
-
-	// Create transport
-	Assert( !m_pTransport );
-
-	// FIXME - for now only one transport supported, relay over SDR
-	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
-		Assert( !m_pTransportP2PSDR );
-		m_pTransportP2PSDR = new CConnectionTransportP2PSDR( *this );
-		m_pTransport = m_pTransportP2PSDR;
-	#else
-		V_strcpy_safe( errMsg, "Only P2P transport implemented right now is SDR!" );
-		return false;
-	#endif
 
 	// Let base class do some common initialization
 	if ( !BInitP2PConnectionCommon( usecNow, 0, nullptr, errMsg ) )
@@ -237,6 +227,51 @@ bool CSteamNetworkConnectionP2P::BBeginAccept(
 CSteamNetworkConnectionP2P *CSteamNetworkConnectionP2P::AsSteamNetworkConnectionP2P()
 {
 	return this;
+}
+
+void CSteamNetworkConnectionP2P::CheckInitWebRTC()
+{
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
+	Assert( !m_pTransportP2PWebRTC );
+	Assert( !m_pTransportP2PWebRTCPendingDelete );
+
+	// !FIXME! Check permissions based on remote host!
+
+	// For now, if we have no STUN servers, then no WebRTC,
+	// because NAT-punching is the main reason to use WebRTC.
+	//
+	// But we might want to enable WebRTC even without STUN.
+	// In some environments, maybe they want to only use TURN.
+	// Or maybe they don't need STUN, and don't need to pierce NAT,
+	// either because both IPs are public, or because they are on
+	// the same LAN.  The LAN case is usually better handled by
+	// broadcast, since that works without signaling.
+	if ( m_connectionConfig.m_P2P_STUN_ServerList.Get().empty() )
+		return;
+
+	m_pTransportP2PWebRTC = new CConnectionTransportP2PWebRTC( *this );
+	m_pTransportP2PWebRTC->Init();
+
+	// If we failed, go ahead and cleanup now
+	CheckCleanupWebRTC();
+#endif
+}
+
+void CSteamNetworkConnectionP2P::CheckCleanupWebRTC()
+{
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
+
+	if ( !m_pTransportP2PWebRTCPendingDelete )
+		return;
+	if ( m_pTransport == m_pTransportP2PWebRTCPendingDelete || m_pTransport == m_pTransportP2PWebRTC )
+		m_pTransport = nullptr;
+
+	Assert( !m_pTransportP2PWebRTC );
+	m_pTransportP2PWebRTC = nullptr;
+	m_pTransportP2PWebRTCPendingDelete->TransportDestroySelfNow();
+	m_pTransportP2PWebRTCPendingDelete = nullptr;
+
+#endif
 }
 
 void CSteamNetworkConnectionP2P::FreeResources()
@@ -283,8 +318,14 @@ void CSteamNetworkConnectionP2P::DestroyTransport()
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
 		if ( m_pTransportP2PWebRTC )
 		{
+			Assert( m_pTransportP2PWebRTC != m_pTransportP2PWebRTCPendingDelete );
 			m_pTransportP2PWebRTC->TransportDestroySelfNow();
 			m_pTransportP2PWebRTC = nullptr;
+		}
+		if ( m_pTransportP2PWebRTCPendingDelete )
+		{
+			m_pTransportP2PWebRTCPendingDelete->TransportDestroySelfNow();
+			m_pTransportP2PWebRTCPendingDelete = nullptr;
 		}
 	#endif
 }
@@ -314,6 +355,19 @@ void CSteamNetworkConnectionP2P::ThinkConnection( SteamNetworkingMicroseconds us
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 		if ( m_pTransportP2PSDR )
 			m_pTransportP2PSDR->ThinkSessions( usecNow );
+	#endif
+
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
+		CheckCleanupWebRTC();
+
+		// Check for flushing signal
+		if ( m_pTransportP2PWebRTC )
+		{
+			if ( GetState() == k_ESteamNetworkingConnectionState_FindingRoute || GetState() == k_ESteamNetworkingConnectionState_Connected )
+			{
+				m_pTransportP2PWebRTC->CheckSendSignal( usecNow );
+			}
+		}
 	#endif
 }
 
@@ -442,7 +496,7 @@ void CSteamNetworkConnectionP2P::SetRendezvousCommonFieldsAndSendSignal( CMsgSte
 			m_pTransportP2PSDR->PopulateRendezvousMsg( msg, usecNow );
 	#endif
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
-		if ( m_pTransportP2PWebRTC )
+		if ( m_pTransportP2PWebRTC && m_nWebRTCCloseCode == 0 )
 			m_pTransportP2PWebRTC->PopulateRendezvousMsg( msg, usecNow );
 	#endif
 
@@ -470,6 +524,7 @@ void CSteamNetworkConnectionP2P::SetRendezvousCommonFieldsAndSendSignal( CMsgSte
 
 void CSteamNetworkConnectionP2P::ProcessSignal_ConnectOK( const CMsgSteamNetworkingP2PRendezvous_ConnectOK &msgConnectOK, SteamNetworkingMicroseconds usecNow )
 {
+	Assert( !m_bConnectionInitiatedRemotely );
 
 	// Check the certs, save keys, etc
 	if ( !BRecvCryptoHandshake( msgConnectOK.cert(), msgConnectOK.crypt(), false ) )
@@ -832,6 +887,11 @@ bool CSteamNetworkingSockets::ReceivedP2PCustomSignal( const void *pMsg, int cbM
 					// They accepted the request already.
 					break;
 			}
+
+			// Fire up WebRTC
+			// FIXME Really we should wait until the app accepts the connection, if it hasn't already
+			if ( msg.has_webrtc() )
+				pConn->CheckInitWebRTC();
 		}
 
 		// Stop suppressing state change notifications
@@ -845,6 +905,13 @@ bool CSteamNetworkingSockets::ReceivedP2PCustomSignal( const void *pMsg, int cbM
 			if ( msg.has_sdr_routes() )
 				pConn->m_pTransportP2PSDR->RecvRoutes( msg.sdr_routes() );
 			pConn->m_pTransportP2PSDR->CheckRecvRoutesAck( msg );
+		}
+	#endif
+
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
+		if ( pConn->m_pTransportP2PWebRTC && msg.has_webrtc() )
+		{
+			pConn->m_pTransportP2PWebRTC->RecvRendezvous( msg.webrtc(), usecNow );
 		}
 	#endif
 

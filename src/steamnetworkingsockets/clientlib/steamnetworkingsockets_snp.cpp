@@ -1351,14 +1351,14 @@ inline bool HasOverlappingRange( const SNPRange_t &range, const std::map<SNPRang
 	return false;
 }
 
-bool CSteamNetworkConnectionBase::SNP_SendPacket( SendPacketContext_t &ctx )
+bool CSteamNetworkConnectionBase::SNP_SendPacket( CConnectionTransport *pTransport, SendPacketContext_t &ctx )
 {
 	// Make sure we have initialized the connection
 	Assert( BStateIsConnectedForWirePurposes() );
 	Assert( !m_senderState.m_mapInFlightPacketsByPktNum.empty() );
 
 	// We must have transport!
-	if ( !m_pTransport )
+	if ( !pTransport )
 	{
 		Assert( false );
 		return false;
@@ -1824,7 +1824,7 @@ bool CSteamNetworkConnectionBase::SNP_SendPacket( SendPacketContext_t &ctx )
 
 			// No encryption!
 			// Ask current transport to deliver it
-			nBytesSent = m_pTransport->SendEncryptedDataChunk( payload, cbPlainText, ctx );
+			nBytesSent = pTransport->SendEncryptedDataChunk( payload, cbPlainText, ctx );
 		}
 		break;
 
@@ -1860,7 +1860,7 @@ bool CSteamNetworkConnectionBase::SNP_SendPacket( SendPacketContext_t &ctx )
 			Assert( (int)cbEncrypted <= k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend ); // confirm that pad above was not necessary and we never exceed k_nMaxSteamDatagramTransportPayload, even after encrypting
 
 			// Ask current transport to deliver it
-			nBytesSent = m_pTransport->SendEncryptedDataChunk( arEncryptedChunk, cbEncrypted, ctx );
+			nBytesSent = pTransport->SendEncryptedDataChunk( arEncryptedChunk, cbEncrypted, ctx );
 		}
 	}
 	if ( nBytesSent <= 0 )

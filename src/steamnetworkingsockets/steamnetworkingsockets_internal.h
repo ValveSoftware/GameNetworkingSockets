@@ -685,7 +685,7 @@ struct GlobalConfigValueBase : GlobalConfigValueEntry
 	struct Value : public ConfigValue<T>
 	{
 		inline Value( const T &defaultValue ) : ConfigValue<T>(defaultValue), m_defaultValue(defaultValue) {}
-		const T m_defaultValue;
+		T m_defaultValue;
 	};
 	Value m_value;
 };
@@ -759,6 +759,10 @@ extern GlobalConfigValue<int32> g_Config_LogLevel_SDRRelayPings;
 extern GlobalConfigValue<std::string> g_Config_SDRClient_ForceRelayCluster;
 extern GlobalConfigValue<std::string> g_Config_SDRClient_ForceProxyAddr;
 extern GlobalConfigValue<std::string> g_Config_SDRClient_FakeClusterPing;
+#endif
+
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
+extern ConnectionConfigDefaultValue< std::string > g_ConfigDefault_P2P_STUN_ServerList;
 #endif
 
 // This awkwardness (adding and subtracting sizeof(intptr_t)) silences an UBSan

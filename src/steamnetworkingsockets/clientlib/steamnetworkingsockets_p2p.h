@@ -91,8 +91,28 @@ public:
 		CConnectionTransportP2PSDR *m_pTransportP2PSDR;
 	#endif
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
+
+		// WebRTC that we are using
 		CConnectionTransportP2PWebRTC *m_pTransportP2PWebRTC;
+
+		// If WebRTC needs to self-destruct, we move it here, and clear m_pTransportP2PWebRTC.
+		// Then it will be deleted at a safe time.
+		CConnectionTransportP2PWebRTC *m_pTransportP2PWebRTCPendingDelete;
+
+		// Failure reason for WebRTC, if any.  (0 if no failure yet.)
+		int m_nWebRTCCloseCode;
+		char m_szWebRTCCloseMsg[ k_cchSteamNetworkingMaxConnectionCloseReason ];
+
 	#endif
+
+	// Check if user permissions for the remote host are allowed,
+	// then create WebRTC.  Also, if the connection was initiated remotely,
+	// we will create an offer
+	void CheckInitWebRTC();
+
+	// Check if we pended WebRTC deletion, then do so now
+	void CheckCleanupWebRTC();
+
 	// FIXME - UDP transport for LAN discovery, so P2P works without any signaling
 
 	inline int LogLevel_P2PRendezvous() const { return m_connectionConfig.m_LogLevel_P2PRendezvous.Get(); }
