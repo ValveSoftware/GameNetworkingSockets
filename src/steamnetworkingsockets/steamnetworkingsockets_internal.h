@@ -278,7 +278,7 @@ const SteamNetworkingMicroseconds k_usecTimeSinceLastPacketMinReasonable = 2 << 
 /// Protocol version of this code.  This is a blunt instrument, which is incremented when we
 /// wish to change the wire protocol in a way that doesn't have some other easy
 /// mechanism for dealing with compatibility (e.g. using protobuf's robust mechanisms).
-const uint32 k_nCurrentProtocolVersion = 8;
+const uint32 k_nCurrentProtocolVersion = 9;
 
 /// Minimum required version we will accept from a peer.  We increment this
 /// when we introduce wire breaking protocol changes and do not wish to be
