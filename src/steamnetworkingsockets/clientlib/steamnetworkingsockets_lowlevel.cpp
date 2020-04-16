@@ -272,6 +272,91 @@ static volatile bool s_bManualPollMode;
 //
 /////////////////////////////////////////////////////////////////////////////
 
+// We don't need recursion or timeout.  Just the fastest thing that works.
+// Note that we could use a lock-free queue for this.  But I suspect that this
+// won't get enough work or have enough contention for that to be an important
+// optimization
+static std::mutex s_mutexRunWithLockQueue;
+static std::vector< ISteamNetworkingSocketsRunWithLock * > s_vecRunWithLockQueue;
+
+ISteamNetworkingSocketsRunWithLock::~ISteamNetworkingSocketsRunWithLock() {}
+
+bool ISteamNetworkingSocketsRunWithLock::RunOrQueue( const char *pszTag )
+{
+	// Check if lock is available immediately
+	if ( !SteamDatagramTransportLock::TryLock( pszTag, 0 ) )
+	{
+		Queue( pszTag );
+		return false;
+	}
+
+	// Let derived class do work
+	Run();
+
+	// Go ahead and unlock now
+	SteamDatagramTransportLock::Unlock();
+
+	// Self destruct
+	delete this;
+
+	// We have run
+	return true;
+}
+
+void ISteamNetworkingSocketsRunWithLock::Queue( const char *pszTag )
+{
+	// Remember our tag, for accounting purposes
+	m_pszTag = pszTag;
+
+	// Put us into the queue
+	s_mutexRunWithLockQueue.lock();
+	s_vecRunWithLockQueue.push_back( this );
+	s_mutexRunWithLockQueue.unlock();
+
+	// NOTE: At this point we are subject to being run or deleted at any time!
+
+	// Make sure service thread will wake up to do something with this
+	WakeSteamDatagramThread();
+
+}
+
+void ISteamNetworkingSocketsRunWithLock::ServiceQueue()
+{
+	// Quick check if we're empty, which will be common and can be done safely
+	// even if we don't hold the lock and the vector is being modified.  It's
+	// OK if we have an occasional false positive or negative here.  Work
+	// put into this queue does not have any guarantees about when it will get done
+	// beyond "run them in order they are queued" and "best effort".
+	if ( s_vecRunWithLockQueue.empty() )
+		return;
+
+	std::vector<ISteamNetworkingSocketsRunWithLock *> vecTempQueue;
+
+	// Quickly move the queue into the temp while holding the lock.
+	// Once it is in our temp, we can release the lock.
+	s_mutexRunWithLockQueue.lock();
+	vecTempQueue = std::move( s_vecRunWithLockQueue );
+	s_vecRunWithLockQueue.clear(); // Just in case assigning from std::move didn't clear it.
+	s_mutexRunWithLockQueue.unlock();
+
+	// Run them
+	for ( ISteamNetworkingSocketsRunWithLock *pItem: vecTempQueue )
+	{
+		// Make sure we hold the lock, and also set the tag for debugging purposes
+		SteamDatagramTransportLock::AssertHeldByCurrentThread( pItem->m_pszTag );
+
+		// Do the work and nuke
+		pItem->Run();
+		delete pItem;
+	}
+}
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Raw sockets
+//
+/////////////////////////////////////////////////////////////////////////////
+
 inline IRawUDPSocket::IRawUDPSocket() {}
 inline IRawUDPSocket::~IRawUDPSocket() {}
 
@@ -1285,6 +1370,9 @@ static bool SteamNetworkingSockets_InternalPoll( int msWait, bool bManualPoll )
 	// Check for periodic processing
 	Thinker_ProcessThinkers();
 
+	// Tasks that were queued to be run while we hold the lock
+	ISteamNetworkingSocketsRunWithLock::ServiceQueue();
+
 	// Close any sockets pending delete, if we discarded a server
 	// We can close the sockets safely now, because we know we're
 	// not polling on them and we know we hold the lock
@@ -1872,6 +1960,9 @@ void SteamNetworkingSocketsLowLevelDecRef()
 			s_hSockWakeThreadWrite = INVALID_SOCKET;
 		}
 	#endif
+
+	// Check for any leftover tasks that were queued to be run while we hold the lock
+	ISteamNetworkingSocketsRunWithLock::ServiceQueue();
 
 	// Make sure we actually destroy socket objects.  It's safe to do so now.
 	ProcessPendingDestroyClosedRawUDPSockets();
