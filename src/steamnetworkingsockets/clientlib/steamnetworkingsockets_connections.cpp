@@ -1611,7 +1611,7 @@ void CSteamNetworkConnectionBase::SetUserData( int64 nUserData )
 	}
 }
 
-void CConnectionTransport::ConnectionStateChanged( ESteamNetworkingConnectionState eOldState )
+void CConnectionTransport::TransportConnectionStateChanged( ESteamNetworkingConnectionState eOldState )
 {
 }
 
@@ -2189,9 +2189,16 @@ void CSteamNetworkConnectionBase::SetState( ESteamNetworkingConnectionState eNew
 			break;
 	}
 
+	// Fonally, hook for derived class to take action
+	ConnectionStateChanged( eOldState );
+}
+
+void CSteamNetworkConnectionBase::ConnectionStateChanged( ESteamNetworkingConnectionState eOldState )
+{
+
 	// If we have a transport, give it a chance to react to the state change
 	if ( m_pTransport )
-		m_pTransport->ConnectionStateChanged( eOldState );
+		m_pTransport->TransportConnectionStateChanged( eOldState );
 }
 
 bool CSteamNetworkConnectionBase::ReceivedMessage( const void *pData, int cbData, int64 nMsgNum, int nFlags, SteamNetworkingMicroseconds usecNow )
@@ -3232,7 +3239,7 @@ int CSteamNetworkConnectionPipe::SendEncryptedDataChunk( const void *pChunk, int
 
 void CSteamNetworkConnectionPipe::ConnectionStateChanged( ESteamNetworkingConnectionState eOldState )
 {
-	CConnectionTransport::ConnectionStateChanged( eOldState );
+	CSteamNetworkConnectionBase::ConnectionStateChanged( eOldState );
 
 	switch ( GetState() )
 	{

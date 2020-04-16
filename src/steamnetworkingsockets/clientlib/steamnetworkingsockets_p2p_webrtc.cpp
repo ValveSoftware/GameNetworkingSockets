@@ -724,12 +724,9 @@ void CConnectionTransportP2PWebRTC::SendNoConnection()
 	SendMsg( k_ESteamNetworkingUDPMsg_NoConnection, msg );
 }
 
-void CConnectionTransportP2PWebRTC::ConnectionStateChanged( ESteamNetworkingConnectionState eOldState )
+void CConnectionTransportP2PWebRTC::TransportConnectionStateChanged( ESteamNetworkingConnectionState eOldState )
 {
-
-	// FIXME We should delete this.
-
-	CConnectionTransport::ConnectionStateChanged( eOldState );
+	CConnectionTransport::TransportConnectionStateChanged( eOldState );
 
 	switch ( ConnectionState() )
 	{

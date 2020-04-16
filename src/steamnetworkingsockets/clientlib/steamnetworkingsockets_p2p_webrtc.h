@@ -37,7 +37,7 @@ public:
 	virtual void TransportPopulateConnectionInfo( SteamNetConnectionInfo_t &info ) const override;
 	virtual void GetDetailedConnectionStatus( SteamNetworkingDetailedConnectionStatus &stats, SteamNetworkingMicroseconds usecNow ) override;
 	virtual void TransportFreeResources() override;
-	virtual void ConnectionStateChanged( ESteamNetworkingConnectionState eOldState ) override;
+	virtual void TransportConnectionStateChanged( ESteamNetworkingConnectionState eOldState ) override;
 	virtual bool BCanSendEndToEndData() const override;
 	virtual bool SendDataPacket( SteamNetworkingMicroseconds usecNow ) override;
 	virtual void SendEndToEndStatsMsg( EStatsReplyRequest eRequest, SteamNetworkingMicroseconds usecNow, const char *pszReason ) override;

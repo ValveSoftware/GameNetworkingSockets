@@ -1065,9 +1065,9 @@ void CConnectionTransportUDP::SendPacketGather( int nChunks, const iovec *pChunk
 	m_pSocket->BSendRawPacketGather( nChunks, pChunks );
 }
 
-void CConnectionTransportUDP::ConnectionStateChanged( ESteamNetworkingConnectionState eOldState )
+void CConnectionTransportUDP::TransportConnectionStateChanged( ESteamNetworkingConnectionState eOldState )
 {
-	CConnectionTransport::ConnectionStateChanged( eOldState );
+	CConnectionTransport::TransportConnectionStateChanged( eOldState );
 
 	switch ( ConnectionState() )
 	{

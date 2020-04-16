@@ -449,9 +449,13 @@ public:
 	/// sent successfully, false if there was a problem.  This will call SendEncryptedDataChunk to do the work
 	bool SNP_SendPacket( CConnectionTransport *pTransport, SendPacketContext_t &ctx );
 
-	/// Called to (maybe) post a callback
+	/// Called after the connection state changes.  Default behavior is to notify
+	/// the active transport, if any
+	virtual void ConnectionStateChanged( ESteamNetworkingConnectionState eOldState );
+
+	/// Called to post a callback
 	bool m_bSupressStateChangeCallbacks;
-	virtual void PostConnectionStateChangedCallback( ESteamNetworkingConnectionState eOldAPIState, ESteamNetworkingConnectionState eNewAPIState );
+	void PostConnectionStateChangedCallback( ESteamNetworkingConnectionState eOldAPIState, ESteamNetworkingConnectionState eNewAPIState );
 
 	void QueueEndToEndAck( bool bImmediate, SteamNetworkingMicroseconds usecNow )
 	{
@@ -750,7 +754,7 @@ public:
 	virtual void GetDetailedConnectionStatus( SteamNetworkingDetailedConnectionStatus &stats, SteamNetworkingMicroseconds usecNow );
 
 	/// Called when the connection state changes.  Some transports need to do stuff
-	virtual void ConnectionStateChanged( ESteamNetworkingConnectionState eOldState );
+	virtual void TransportConnectionStateChanged( ESteamNetworkingConnectionState eOldState );
 
 	// Some accessors for commonly needed info
 	inline ESteamNetworkingConnectionState ConnectionState() const { return m_connection.GetState(); }
@@ -799,9 +803,9 @@ public:
 	virtual EUnsignedCert AllowLocalUnsignedCert() override;
 	virtual void GetConnectionTypeDescription( ConnectionTypeDescription_t &szDescription ) const override;
 	virtual void DestroyTransport() override;
+	virtual void ConnectionStateChanged( ESteamNetworkingConnectionState eOldState ) override;
 
 	// CSteamNetworkConnectionTransport
-	virtual void ConnectionStateChanged( ESteamNetworkingConnectionState eOldState ) override;
 	virtual bool SendDataPacket( SteamNetworkingMicroseconds usecNow ) override;
 	virtual bool BCanSendEndToEndConnectRequest() const override;
 	virtual bool BCanSendEndToEndData() const override;

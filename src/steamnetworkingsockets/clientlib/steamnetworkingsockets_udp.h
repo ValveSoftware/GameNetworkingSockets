@@ -91,7 +91,7 @@ public:
 	virtual bool BCanSendEndToEndData() const override;
 	virtual void SendEndToEndConnectRequest( SteamNetworkingMicroseconds usecNow ) override;
 	virtual void SendEndToEndStatsMsg( EStatsReplyRequest eRequest, SteamNetworkingMicroseconds usecNow, const char *pszReason ) override;
-	virtual void ConnectionStateChanged( ESteamNetworkingConnectionState eOldState ) override;
+	virtual void TransportConnectionStateChanged( ESteamNetworkingConnectionState eOldState ) override;
 
 	/// Interface used to talk to the remote host
 	IBoundUDPSocket *m_pSocket;
