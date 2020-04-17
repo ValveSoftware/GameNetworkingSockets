@@ -250,14 +250,22 @@ STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIPAddr_ParseString
 {
 	// IPv4?
 	{
-		int n1, n2, n3, n4, n5 = 0;
+		int n1, n2, n3, n4, n5;
 		int nRes = sscanf( pszStr, "%d.%d.%d.%d:%d", &n1, &n2, &n3, &n4, &n5 );
 		if ( nRes >= 4 )
 		{
 			pAddr->Clear();
 
-			// Make sure octets are in range 0...255 and port number is legit
-			if ( ( ( n1 | n2 | n3 | n4 ) & ~0xff ) || (uint16)n5 != n5 )
+			// Assume 0 for port, if we weren't able to parse one.
+			// Note that we could be accepting some bad IP addresses
+			// here that we probably should reject.  E.g. "1.2.3.4:garbage"
+			if ( nRes < 5 )
+				n5 = 0;
+			else if ( (uint16)n5 != n5 )
+				return false; // port number not 16-bit value
+
+			// Make sure octets are in range 0...255
+			if ( ( n1 | n2 | n3 | n4 ) & ~0xff )
 				return false;
 
 			pAddr->m_ipv4.m_ffff = 0xffff;

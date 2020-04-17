@@ -518,12 +518,20 @@ bool netadr_t::SetFromString( const char *pch )
 
 	if ( pch[0] >= '0' && pch[0] <= '9' && strchr( pch, '.' ) )
 	{
-		int n1, n2, n3, n4, n5 = 0;
+		int n1, n2, n3, n4, n5;
 		int nRes = sscanf( pch, "%d.%d.%d.%d:%d", &n1, &n2, &n3, &n4, &n5 );
 		if ( nRes >= 4 )
 		{
-			// Make sure octets are in range 0...255 and port number is legit
-			if ( ( ( n1 | n2 | n3 | n4 ) & ~0xff ) || (uint16)n5 != n5 )
+			// Assume 0 for port, if we weren't able to parse one.
+			// Note that we could be accepting some bad IP addresses
+			// here that we probably should reject.  E.g. "1.2.3.4:garbage"
+			if ( nRes < 5 )
+				n5 = 0;
+			else if ( (uint16)n5 != n5 )
+				return false; // port number not 16-bit value
+
+			// Make sure octets are in range 0...255
+			if ( ( n1 | n2 | n3 | n4 ) & ~0xff )
 				return false;
 
 			SetIPv4( n1, n2, n3, n4 );
