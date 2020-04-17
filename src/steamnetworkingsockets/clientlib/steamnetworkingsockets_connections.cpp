@@ -2189,8 +2189,16 @@ void CSteamNetworkConnectionBase::SetState( ESteamNetworkingConnectionState eNew
 			break;
 	}
 
-	// Fonally, hook for derived class to take action
-	ConnectionStateChanged( eOldState );
+	// Finally, hook for derived class to take action.  But not if we're dead
+	switch ( GetState() )
+	{
+		case k_ESteamNetworkingConnectionState_Dead:
+		case k_ESteamNetworkingConnectionState_None:
+			break;
+		default:
+			ConnectionStateChanged( eOldState );
+			break;
+	}
 }
 
 void CSteamNetworkConnectionBase::ConnectionStateChanged( ESteamNetworkingConnectionState eOldState )
