@@ -36,7 +36,7 @@ typedef unsigned char uint8;
 typedef unsigned char uint8;
 typedef signed char int8;
 
-#if defined( _WIN32 ) && !defined( GNU_COMPILER )
+#if defined( _WIN32 ) && !defined( __GNUC__ )
 
 typedef __int16 int16;
 typedef unsigned __int16 uint16;
