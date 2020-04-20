@@ -1668,6 +1668,8 @@ STEAMNETWORKINGSOCKETS_INTERFACE void GameNetworkingSockets_Kill()
 		s_pSteamNetworkingSockets->Destroy();
 		s_pSteamNetworkingSockets = nullptr;
 	}
+
+	SteamNetworkingSockets_SetDebugOutputFunction( k_ESteamNetworkingSocketsDebugOutputType_None, nullptr );
 }
 
 STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets *SteamNetworkingSockets()
