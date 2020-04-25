@@ -192,6 +192,24 @@ struct PingTrackerDetailed : PingTracker
 	}
 };
 
+/// Track minimal ping information
+struct PingTrackerBasic : PingTracker
+{
+	int m_nTotalPingsReceived;
+
+	inline void Reset()
+	{
+		PingTracker::Reset();
+		m_nTotalPingsReceived = 0;
+	}
+
+	inline void ReceivedPing( int nPingMS, SteamNetworkingMicroseconds usecNow )
+	{
+		PingTracker::ReceivedPing( nPingMS, usecNow );
+		++m_nTotalPingsReceived;
+	}
+};
+
 /// Token bucket rate limiter
 /// https://en.wikipedia.org/wiki/Token_bucket
 struct TokenBucketRateLimiter

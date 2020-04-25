@@ -5,14 +5,15 @@
 #pragma once
 
 #include "steamnetworkingsockets_p2p.h"
+#include <mutex>
 
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
 
 #include <steamwebrtc.h>
 
 class CMsgSteamSockets_UDP_Stats;
-class CMsgSteamSockets_UDP_ConnectionClosed;
-class CMsgSteamSockets_UDP_NoConnection;
+class CMsgSteamSockets_WebRTC_ConnectionClosed;
+class CMsgSteamSockets_WebRTC_PingCheck;
 
 namespace SteamNetworkingSocketsLib {
 
@@ -22,6 +23,7 @@ struct UDPSendPacketContext_t;
 /// Transport for peer-to-peer connection using WebRTC
 class CConnectionTransportP2PWebRTC
 : public CConnectionTransport
+, public IThinker
 , private IWebRTCSessionDelegate
 {
 public:
@@ -43,6 +45,9 @@ public:
 	virtual void SendEndToEndStatsMsg( EStatsReplyRequest eRequest, SteamNetworkingMicroseconds usecNow, const char *pszReason ) override;
 	virtual int SendEncryptedDataChunk( const void *pChunk, int cbChunk, SendPacketContext_t &ctx ) override;
 
+	// IThinker
+	virtual void Think( SteamNetworkingMicroseconds usecNow ) override;
+
 	/// Fill in SDR-specific fields to signal
 	void PopulateRendezvousMsg( CMsgSteamNetworkingP2PRendezvous &msg, SteamNetworkingMicroseconds usecNow );
 	void RecvRendezvous( const CMsgWebRTCRendezvous &msg, SteamNetworkingMicroseconds usecNow );
@@ -58,12 +63,32 @@ public:
 	uint32 m_nRemoteCandidatesRevision;
 
 	void NotifyConnectionFailed( int nReasonCode, const char *pszReason );
+	void QueueSelfDestruct();
 	void ScheduleSendSignal( const char *pszReason );
-	void CheckSendSignal( SteamNetworkingMicroseconds usecNow );
+
+	// In certain circumstances we may need to buffer packets
+	std::mutex m_mutexPacketQueue;
+	CUtlBuffer m_bufPacketQueue;
+
+	// Some basic stats tracking about ping times.  Currently these only track the pings
+	// explicitly sent at this layer.  Ideally we would hook into the SNP code, because
+	// almost every data packet we send contains ping-related information.
+	PingTrackerBasic m_ping;
+	SteamNetworkingMicroseconds m_usecTimeLastRecv;
+	SteamNetworkingMicroseconds m_usecInFlightReplyTimeout;
+	int m_nReplyTimeoutsSinceLastRecv;
+	int m_nTotalPingsSent;
+
+	/// True if we need to take aggressive action to confirm
+	/// end-to-end connectivity.  This will be the case when
+	/// doing initial route finding, or if we aren't sure about
+	/// end-to-end connectivity because we lost all of our
+	/// sessions, etc.  Once we get some data packets, we set
+	/// this flag to false.
+	bool m_bNeedToConfirmEndToEndConnectivity;
 
 private:
 	IWebRTCSession *m_pWebRTCSession;
-	EWebRTCSessionState m_eWebRTCSessionState;
 
 	bool m_bWaitingOnOffer;
 	bool m_bWaitingOnAnswer;
@@ -95,19 +120,21 @@ private:
 	//virtual const char *GetTurnServerUsername() { return nullptr; }
 	//virtual const char *GetTurnServerPassword() { return nullptr; }
 
+	void DrainPacketQueue( SteamNetworkingMicroseconds usecNow );
+	void ProcessPacket( const uint8_t *pData, int cbPkt, SteamNetworkingMicroseconds usecNow );
 	void Received_Data( const uint8 *pPkt, int cbPkt, SteamNetworkingMicroseconds usecNow );
-	void Received_ConnectionClosed( const CMsgSteamSockets_UDP_ConnectionClosed &msg, SteamNetworkingMicroseconds usecNow );
-	void Received_NoConnection( const CMsgSteamSockets_UDP_NoConnection &msg, SteamNetworkingMicroseconds usecNow );
+	void Received_ConnectionClosed( const CMsgSteamSockets_WebRTC_ConnectionClosed &msg, SteamNetworkingMicroseconds usecNow );
+	void Received_PingCheck( const CMsgSteamSockets_WebRTC_PingCheck &msg, SteamNetworkingMicroseconds usecNow );
 
 	void SendMsg( uint8 nMsgID, const google::protobuf::MessageLite &msg );
 
-	void SendConnectionClosedOrNoConnection();
-	void SendNoConnection();
+	void SendConnectionClosed();
 
 	/// Process stats message, either inline or standalone
 	void RecvStats( const CMsgSteamSockets_UDP_Stats &msgStatsIn, bool bInline, SteamNetworkingMicroseconds usecNow );
 	void SendStatsMsg( EStatsReplyRequest eReplyRequested, SteamNetworkingMicroseconds usecNow, const char *pszReason );
 	void TrackSentStats( const CMsgSteamSockets_UDP_Stats &msgStatsOut, bool bInline, SteamNetworkingMicroseconds usecNow );
+	void TrackSentPingRequest( SteamNetworkingMicroseconds usecNow, bool bAllowDelayedReply );
 };
 
 } // namespace SteamNetworkingSocketsLib

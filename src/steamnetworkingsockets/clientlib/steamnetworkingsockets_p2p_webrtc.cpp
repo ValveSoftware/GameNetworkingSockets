@@ -37,7 +37,6 @@ struct WebRTCDataMsgHdr
 CConnectionTransportP2PWebRTC::CConnectionTransportP2PWebRTC( CSteamNetworkConnectionP2P &connection )
 : CConnectionTransport( connection )
 , m_pWebRTCSession( nullptr )
-, m_eWebRTCSessionState( k_EWebRTCSessionStateNew )
 , m_bWaitingOnOffer( false )
 , m_bWaitingOnAnswer( false )
 , m_bNeedToSendAnswer( false )
@@ -46,6 +45,12 @@ CConnectionTransportP2PWebRTC::CConnectionTransportP2PWebRTC( CSteamNetworkConne
 , m_nRemoteCandidatesRevision( 0 )
 , m_nLocalCandidatesRevision( 0 )
 {
+	m_ping.Reset();
+	m_usecTimeLastRecv = 0;
+	m_usecInFlightReplyTimeout = 0;
+	m_nReplyTimeoutsSinceLastRecv = 0;
+	m_nTotalPingsSent = 0;
+	m_bNeedToConfirmEndToEndConnectivity = true;
 }
 
 CConnectionTransportP2PWebRTC::~CConnectionTransportP2PWebRTC()
@@ -70,9 +75,7 @@ void CConnectionTransportP2PWebRTC::TransportFreeResources()
 		m_pWebRTCSession->Release();
 		m_pWebRTCSession = nullptr;
 	}
-
-	if ( m_eWebRTCSessionState == k_EWebRTCSessionStateConnecting || m_eWebRTCSessionState == k_EWebRTCSessionStateConnected )
-		m_eWebRTCSessionState = k_EWebRTCSessionStateClosed;
+	ClearNextThinkTime();
 
 	CConnectionTransport::TransportFreeResources();
 }
@@ -105,16 +108,6 @@ void CConnectionTransportP2PWebRTC::Init()
 	if ( !m_pWebRTCSession->BAddDataChannel( false ) )
 	{
 		NotifyConnectionFailed( k_ESteamNetConnectionEnd_Misc_InternalError, "BAddDataChannel failed" );
-		return;
-	}
-
-	// Fetch the state, make sure we're OK
-	m_eWebRTCSessionState = m_pWebRTCSession->GetState();
-	if ( m_eWebRTCSessionState != k_EWebRTCSessionStateConnecting && m_eWebRTCSessionState != k_EWebRTCSessionStateNew )
-	{
-		char errMsg[ 256 ];
-		V_sprintf_safe( errMsg, "WebRTC session state is %d", m_eWebRTCSessionState );
-		NotifyConnectionFailed( k_ESteamNetConnectionEnd_Misc_InternalError, errMsg );
 		return;
 	}
 
@@ -286,10 +279,6 @@ void CConnectionTransportP2PWebRTC::NotifyConnectionFailed( int nReasonCode, con
 {
 	SteamDatagramTransportLock::AssertHeldByCurrentThread();
 
-	// Mark state as failed, if we didn't already set a more specific state
-	if ( m_eWebRTCSessionState == k_EWebRTCSessionStateNew || m_eWebRTCSessionState == k_EWebRTCSessionStateConnecting || m_eWebRTCSessionState == k_EWebRTCSessionStateConnected )
-		m_eWebRTCSessionState = k_EWebRTCSessionStateFailed;
-
 	// Remember reason code, if we didn't already set one
 	if ( Connection().m_nWebRTCCloseCode == 0 )
 	{
@@ -297,6 +286,12 @@ void CConnectionTransportP2PWebRTC::NotifyConnectionFailed( int nReasonCode, con
 		Connection().m_nWebRTCCloseCode = nReasonCode;
 		V_strcpy_safe( Connection().m_szWebRTCCloseMsg, pszReason );
 	}
+
+	QueueSelfDestruct();
+}
+
+void CConnectionTransportP2PWebRTC::QueueSelfDestruct()
+{
 
 	// Go ahead and free up our WebRTC session now, it is reference counted.
 	if ( m_pWebRTCSession )
@@ -317,7 +312,9 @@ void CConnectionTransportP2PWebRTC::NotifyConnectionFailed( int nReasonCode, con
 		Assert( Connection().m_pTransportP2PWebRTC == this );
 		Connection().m_pTransportP2PWebRTC = nullptr;
 	}
-	Connection().SetNextThinkTimeASAP();
+
+	// Make sure we clean ourselves up as soon as it is safe to do so
+	SetNextThinkTimeASAP();
 }
 
 void CConnectionTransportP2PWebRTC::ScheduleSendSignal( const char *pszReason )
@@ -328,36 +325,120 @@ void CConnectionTransportP2PWebRTC::ScheduleSendSignal( const char *pszReason )
 		m_pszNeedToSendSignalReason = pszReason;
 		m_usecSendSignalDeadline = usecDeadline;
 	}
-	Connection().EnsureMinThinkTime( m_usecSendSignalDeadline );
+	EnsureMinThinkTime( m_usecSendSignalDeadline );
 }
 
-void CConnectionTransportP2PWebRTC::CheckSendSignal( SteamNetworkingMicroseconds usecNow )
+void CConnectionTransportP2PWebRTC::Think( SteamNetworkingMicroseconds usecNow )
 {
-	if ( m_pWebRTCSession )
+	// Are we dead?
+	if ( !m_pWebRTCSession )
 	{
-		char hello[] = "hello";
-		m_pWebRTCSession->BSendData( (const uint8_t *)hello, sizeof(hello) );
-		m_connection.EnsureMinThinkTime( usecNow + k_nMillion/10 );
+		Connection().CheckCleanupWebRTC();
+		// We could be deleted here!
+		return;
 	}
 
-	if ( usecNow < m_usecSendSignalDeadline )
+	// We only need to take action while connecting, or trying to connect
+	if ( ConnectionState() != k_ESteamNetworkingConnectionState_FindingRoute && ConnectionState() != k_ESteamNetworkingConnectionState_Connected )
 	{
-		if ( m_vecLocalUnAckedCandidates.empty() || m_vecLocalUnAckedCandidates[0].m_usecRTO > usecNow )
-			return;
-		m_pszNeedToSendSignalReason = "CandidateRTO";
+		// Will we get a state transition wakeup call?
+		return;
 	}
 
-	// Send a signal
-	CMsgSteamNetworkingP2PRendezvous msgRendezvous;
-	Connection().SetRendezvousCommonFieldsAndSendSignal( msgRendezvous, usecNow, m_pszNeedToSendSignalReason );
+	SteamNetworkingMicroseconds usecNextThink = k_nThinkTime_Never;
 
-	Assert( m_usecSendSignalDeadline > usecNow );
+	// Check for reply timeout
+	if ( m_usecInFlightReplyTimeout )
+	{
+		if ( m_usecInFlightReplyTimeout < usecNow )
+		{
+			m_usecInFlightReplyTimeout = 0;
+			++m_nReplyTimeoutsSinceLastRecv;
+			if ( m_nReplyTimeoutsSinceLastRecv > 2 && !m_bNeedToConfirmEndToEndConnectivity )
+			{
+				m_bNeedToConfirmEndToEndConnectivity = true;
+				SpewWarning( "[%s] WebRTC end-to-end connectivity needs to be re-confirmed, %d consecutive timeouts\n", ConnectionDescription(), m_nReplyTimeoutsSinceLastRecv );
+				Connection().TransportEndToEndConnectivityChanged( this );
+			}
+		}
+		else
+		{
+			usecNextThink = std::min( usecNextThink, m_usecInFlightReplyTimeout );
+		}
+	}
 
-	SteamNetworkingMicroseconds usecNextSignal = m_usecSendSignalDeadline;
-	if ( !m_vecLocalUnAckedCandidates.empty() && m_vecLocalUnAckedCandidates[0].m_usecRTO > 0 )
-		usecNextSignal = std::min( usecNextSignal, m_vecLocalUnAckedCandidates[0].m_usecRTO );
+	// Check for sending ping requests
+	if ( m_usecInFlightReplyTimeout == 0 )
+	{
+		// Check for pinging as fast as possible until we get an initial ping sample.
+		if (
+			m_nTotalPingsSent < 10 // Minimum number of tries, period
+			|| (
+				(
+					m_nReplyTimeoutsSinceLastRecv < 3 // we don't look like we're failing
+					|| Connection().m_pTransport == this // they have selected us
+					|| Connection().m_pTransport == nullptr // They haven't selected anybody
+				)
+				&& (
+					// Some reason to establish connectivity or collect more data
+					m_bNeedToConfirmEndToEndConnectivity
+					|| m_ping.m_nSmoothedPing < 0
+					|| m_ping.m_nValidPings < V_ARRAYSIZE(m_ping.m_arPing)
+					|| m_ping.m_nTotalPingsReceived < 10
+				)
+			)
+		) {
+			CMsgSteamSockets_WebRTC_PingCheck msgPing;
+			msgPing.set_send_timestamp( usecNow );
+			SendMsg( k_ESteamNetworkingWebRTCMsg_PingCheck, msgPing );
+			TrackSentPingRequest( usecNow, false );
 
-	m_connection.EnsureMinThinkTime( usecNextSignal );
+			Assert( m_usecInFlightReplyTimeout > usecNow );
+			usecNextThink = std::min( usecNextThink, m_usecInFlightReplyTimeout );
+		}
+	}
+
+	// Check for sending a signal
+	{
+
+		bool bSendSignal = true;
+		if ( usecNow < m_usecSendSignalDeadline )
+		{
+			if ( m_vecLocalUnAckedCandidates.empty() || m_vecLocalUnAckedCandidates[0].m_usecRTO > usecNow )
+				bSendSignal = false;
+			else
+				m_pszNeedToSendSignalReason = "CandidateRTO";
+		}
+
+		if ( bSendSignal )
+		{
+			Assert( m_pszNeedToSendSignalReason );
+
+			// Send a signal
+			CMsgSteamNetworkingP2PRendezvous msgRendezvous;
+			Connection().SetRendezvousCommonFieldsAndSendSignal( msgRendezvous, usecNow, m_pszNeedToSendSignalReason );
+		}
+
+		Assert( m_usecSendSignalDeadline > usecNow );
+
+		usecNextThink = std::min( usecNextThink, m_usecSendSignalDeadline );
+		if ( !m_vecLocalUnAckedCandidates.empty() && m_vecLocalUnAckedCandidates[0].m_usecRTO > 0 )
+			usecNextThink = std::min( usecNextThink, m_vecLocalUnAckedCandidates[0].m_usecRTO );
+	}
+
+	EnsureMinThinkTime( usecNextThink );
+}
+
+void CConnectionTransportP2PWebRTC::TrackSentPingRequest( SteamNetworkingMicroseconds usecNow, bool bAllowDelayedReply )
+{
+	if ( m_usecInFlightReplyTimeout == 0 )
+	{
+		m_usecInFlightReplyTimeout = usecNow + m_ping.CalcConservativeTimeout();
+		if ( bAllowDelayedReply )
+			m_usecInFlightReplyTimeout += k_usecSteamDatagramRouterPendClientPing;
+		EnsureMinThinkTime( m_usecInFlightReplyTimeout );
+	}
+	m_ping.m_usecTimeLastSentPingRequest = usecNow;
 }
 
 void CConnectionTransportP2PWebRTC::SendStatsMsg( EStatsReplyRequest eReplyRequested, SteamNetworkingMicroseconds usecNow, const char *pszReason )
@@ -495,6 +576,13 @@ void CConnectionTransportP2PWebRTC::TrackSentStats( const CMsgSteamSockets_UDP_S
 		m_connection.m_statsEndToEnd.TrackSentMessageExpectingSeqNumAck( usecNow, bAllowDelayedReply );
 	}
 
+	// Check if we should expect an immediate reply
+	if ( m_usecInFlightReplyTimeout == 0 && m_connection.m_pTransport == this )
+	{
+		m_usecInFlightReplyTimeout = m_connection.m_statsEndToEnd.m_usecInFlightReplyTimeout;
+		EnsureMinThinkTime( m_usecInFlightReplyTimeout );
+	}
+
 	// Spew appropriately
 	SpewVerbose( "[%s] Sent %s stats:%s\n",
 		ConnectionDescription(),
@@ -530,19 +618,13 @@ static void ReallyReportBadWebRTCPacket( CConnectionTransportP2PWebRTC *pTranspo
 		return; \
 	}
 
-void CConnectionTransportP2PWebRTC::OnData( const uint8_t *pPkt, size_t nSize )
+void CConnectionTransportP2PWebRTC::ProcessPacket( const uint8_t *pPkt, int cbPkt, SteamNetworkingMicroseconds usecNow )
 {
-	// FIXME This is terrible for perf, and doesn't work if we are being destroyed in another thread!
-	SteamDatagramTransportLock scopeLock( "OnData" );
+	Assert( cbPkt >= 1 ); // Caller should have checked this
 
-	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
-	int cbPkt = int( nSize );
-
-	if ( cbPkt < 1 )
-	{
-		ReportBadPacket( "packet", "%d byte packet is too small", cbPkt );
-		return;
-	}
+	m_usecTimeLastRecv = usecNow;
+	m_usecInFlightReplyTimeout = 0;
+	m_nReplyTimeoutsSinceLastRecv = 0;
 
 	// Data packet is the most common, check for it first.  Also, does stat tracking.
 	if ( *pPkt & 0x80 )
@@ -554,15 +636,15 @@ void CConnectionTransportP2PWebRTC::OnData( const uint8_t *pPkt, size_t nSize )
 	// Track stats for other packet types.
 	m_connection.m_statsEndToEnd.TrackRecvPacket( cbPkt, usecNow );
 
-	if ( *pPkt == k_ESteamNetworkingUDPMsg_ConnectionClosed )
+	if ( *pPkt == k_ESteamNetworkingWebRTCMsg_ConnectionClosed )
 	{
-		ParseProtobufBody( pPkt, cbPkt, CMsgSteamSockets_UDP_ConnectionClosed, msg )
+		ParseProtobufBody( pPkt+1, cbPkt-1, CMsgSteamSockets_WebRTC_ConnectionClosed, msg )
 		Received_ConnectionClosed( msg, usecNow );
 	}
-	else if ( *pPkt == k_ESteamNetworkingUDPMsg_NoConnection )
+	else if ( *pPkt == k_ESteamNetworkingWebRTCMsg_PingCheck )
 	{
-		ParseProtobufBody( pPkt+1, cbPkt-1, CMsgSteamSockets_UDP_NoConnection, msg )
-		Received_NoConnection( msg, usecNow );
+		ParseProtobufBody( pPkt+1, cbPkt-1, CMsgSteamSockets_WebRTC_PingCheck, msg )
+		Received_PingCheck( msg, usecNow );
 	}
 	else
 	{
@@ -584,23 +666,26 @@ void CConnectionTransportP2PWebRTC::Received_Data( const uint8 *pPkt, int cbPkt,
 	{
 		case k_ESteamNetworkingConnectionState_Dead:
 		case k_ESteamNetworkingConnectionState_None:
-		case k_ESteamNetworkingConnectionState_FindingRoute: // not used for raw UDP
+		case k_ESteamNetworkingConnectionState_Connecting: // Shouldn't be possible!
 		default:
 			Assert( false );
 			return;
 
 		case k_ESteamNetworkingConnectionState_ClosedByPeer:
-		case k_ESteamNetworkingConnectionState_FinWait:
-		case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
-			SendConnectionClosedOrNoConnection();
+			// Ignore.  When the connection is closed, we should close the WebRTC connection.
+			// but we might have had some last packets queued
 			return;
 
-		case k_ESteamNetworkingConnectionState_Connecting:
-			// Ignore it.  We don't have the SteamID of whoever is on the other end yet,
-			// their encryption keys, etc.  The most likely cause is that a server sent
-			// a ConnectOK, which dropped.  So they think we're connected but we don't
-			// have everything yet.
+		case k_ESteamNetworkingConnectionState_FinWait:
+		case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
+			SendConnectionClosed();
 			return;
+
+		case k_ESteamNetworkingConnectionState_FindingRoute:
+
+			// Hm, the peer has obviously decided that route
+			// is ready to use.  But that doesn't mean we're
+			// satisfied yet
 
 		case k_ESteamNetworkingConnectionState_Linger:
 		case k_ESteamNetworkingConnectionState_Connected:
@@ -669,59 +754,66 @@ void CConnectionTransportP2PWebRTC::Received_Data( const uint8 *pPkt, int cbPkt,
 		RecvStats( *pMsgStatsIn, true, usecNow );
 }
 
-void CConnectionTransportP2PWebRTC::Received_ConnectionClosed( const CMsgSteamSockets_UDP_ConnectionClosed &msg, SteamNetworkingMicroseconds usecNow )
+void CConnectionTransportP2PWebRTC::Received_ConnectionClosed( const CMsgSteamSockets_WebRTC_ConnectionClosed &msg, SteamNetworkingMicroseconds usecNow )
 {
-
-	// We don't check the connection IDs, because we assume that WebRTC
-	// has already done that sort of thing
-
 	// Generic connection code will take it from here.
 	m_connection.ConnectionState_ClosedByPeer( msg.reason_code(), msg.debug().c_str() );
 }
 
-void CConnectionTransportP2PWebRTC::Received_NoConnection( const CMsgSteamSockets_UDP_NoConnection &msg, SteamNetworkingMicroseconds usecNow )
+void CConnectionTransportP2PWebRTC::Received_PingCheck( const CMsgSteamSockets_WebRTC_PingCheck &msg, SteamNetworkingMicroseconds usecNow )
 {
-	// We don't check the connection IDs, because we assume that WebRTC
-	// has already done that sort of thing
+	if ( msg.has_recv_timestamp() )
+	{
+		SteamNetworkingMicroseconds usecElapsed = usecNow - msg.recv_timestamp();
+		if ( usecElapsed < 0 || usecElapsed > 2*k_nMillion )
+		{
+			ReportBadPacket( "WeirdPingTimestamp", "Ignoring ping timestamp of %lld (%lld -> %lld)",
+				(long long)usecElapsed, (long long)msg.recv_timestamp(), (long long)usecNow );
+		}
+		else
+		{
+			m_ping.ReceivedPing( ( usecElapsed + 500 ) / 1000, usecNow );
 
-	// Generic connection code will take it from here.
-	m_connection.ConnectionState_ClosedByPeer( 0, nullptr );
+			// Check if this is the first time connectivity has changed
+			if ( m_bNeedToConfirmEndToEndConnectivity )
+			{
+				m_bNeedToConfirmEndToEndConnectivity = false;
+				SpewMsg( "[%s] WebRTC end-to-end connectivity confirmed, ping = %.1fms\n", ConnectionDescription(), usecElapsed*1e-3 );
+				Connection().TransportEndToEndConnectivityChanged( this );
+			}
+		}
+	}
+
+	// Are they asking for a reply?
+	if ( msg.has_send_timestamp() )
+	{
+		CMsgSteamSockets_WebRTC_PingCheck pong;
+		pong.set_recv_timestamp( msg.send_timestamp() );
+
+		// We're sending a ping message.  Ask for them to ping us back again?
+		// FIXME - should we match the logic in Think()?
+		if ( m_ping.m_nValidPings < 3 )
+		{
+			pong.set_send_timestamp( usecNow );
+			TrackSentPingRequest( usecNow, false );
+		}
+
+		SendMsg( k_ESteamNetworkingWebRTCMsg_PingCheck, pong );
+	}
 }
 
-void CConnectionTransportP2PWebRTC::SendConnectionClosedOrNoConnection()
+void CConnectionTransportP2PWebRTC::SendConnectionClosed()
 {
-	if ( ConnectionState() == k_ESteamNetworkingConnectionState_ClosedByPeer )
-	{
-		SendNoConnection();
-	}
-	else
-	{
-		CMsgSteamSockets_UDP_ConnectionClosed msg;
-		msg.set_from_connection_id( ConnectionIDLocal() );
+	CMsgSteamSockets_UDP_ConnectionClosed msg;
+	msg.set_from_connection_id( ConnectionIDLocal() );
 
-		if ( ConnectionIDRemote() )
-			msg.set_to_connection_id( ConnectionIDRemote() );
+	if ( ConnectionIDRemote() )
+		msg.set_to_connection_id( ConnectionIDRemote() );
 
-		msg.set_reason_code( m_connection.m_eEndReason );
-		if ( m_connection.m_szEndDebug[0] )
-			msg.set_debug( m_connection.m_szEndDebug );
-		SendMsg( k_ESteamNetworkingUDPMsg_ConnectionClosed, msg );
-	}
-}
-
-void CConnectionTransportP2PWebRTC::SendNoConnection()
-{
-	CMsgSteamSockets_UDP_NoConnection msg;
-//	if ( unFromConnectionID == 0 && unToConnectionID == 0 )
-//	{
-//		AssertMsg( false, "Can't send NoConnection, we need at least one of from/to connection ID!" );
-//		return;
-//	}
-//	if ( unFromConnectionID )
-//		msg.set_from_connection_id( unFromConnectionID );
-//	if ( unToConnectionID )
-//		msg.set_to_connection_id( unToConnectionID );
-	SendMsg( k_ESteamNetworkingUDPMsg_NoConnection, msg );
+	msg.set_reason_code( m_connection.m_eEndReason );
+	if ( m_connection.m_szEndDebug[0] )
+		msg.set_debug( m_connection.m_szEndDebug );
+	SendMsg( k_ESteamNetworkingUDPMsg_ConnectionClosed, msg );
 }
 
 void CConnectionTransportP2PWebRTC::TransportConnectionStateChanged( ESteamNetworkingConnectionState eOldState )
@@ -743,11 +835,11 @@ void CConnectionTransportP2PWebRTC::TransportConnectionStateChanged( ESteamNetwo
 
 		case k_ESteamNetworkingConnectionState_FinWait:
 		case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
-			SendConnectionClosedOrNoConnection();
+			SendConnectionClosed();
 			break;
 
 		case k_ESteamNetworkingConnectionState_ClosedByPeer:
-			SendNoConnection();
+			QueueSelfDestruct();
 			break;
 	}
 }
@@ -774,8 +866,6 @@ void CConnectionTransportP2PWebRTC::SendMsg( uint8 nMsgID, const google::protobu
 bool CConnectionTransportP2PWebRTC::BCanSendEndToEndData() const
 {
 	if ( !m_pWebRTCSession )
-		return false;
-	if ( m_eWebRTCSessionState != k_EWebRTCSessionStateConnected )
 		return false;
 	return true;
 }
@@ -858,14 +948,18 @@ const char *CConnectionTransportP2PWebRTC::GetStunServer( int iIndex )
 
 void CConnectionTransportP2PWebRTC::OnSessionStateChanged( EWebRTCSessionState eState )
 {
+	if ( eState == k_EWebRTCSessionStateNew )
+		return; // Why do we get these?  Seems like a bug?
+
 	struct RunOnSessionStateChanged : IConnectionTransportP2PWebRTCRunWithLock
 	{
+		EWebRTCSessionState eState;
 		virtual void RunWebRTC( CConnectionTransportP2PWebRTC *pTransport )
 		{
 			if ( !pTransport->m_pWebRTCSession )
 				return;
-			pTransport->m_eWebRTCSessionState = pTransport->m_pWebRTCSession->GetState();
-			switch ( pTransport->m_eWebRTCSessionState )
+			// pTransport->m_pWebRTCSession->GetState() // FIXME - cannot check the current state, there is some bug in here
+			switch ( eState )
 			{
 				case k_EWebRTCSessionStateConnecting:
 				case k_EWebRTCSessionStateConnected:
@@ -875,6 +969,8 @@ void CConnectionTransportP2PWebRTC::OnSessionStateChanged( EWebRTCSessionState e
 					pTransport->NotifyConnectionFailed( k_ESteamNetConnectionEnd_Misc_Timeout, "WebRTC disconnected" );
 					break;
 
+				default:
+					Assert( false );
 				case k_EWebRTCSessionStateFailed:
 					pTransport->NotifyConnectionFailed( k_ESteamNetConnectionEnd_Misc_Generic, "WebRTC failed" );
 					break;
@@ -887,6 +983,7 @@ void CConnectionTransportP2PWebRTC::OnSessionStateChanged( EWebRTCSessionState e
 	};
 	RunOnSessionStateChanged *pRun = new RunOnSessionStateChanged;
 	pRun->m_nConnectionIDLocal = m_connection.m_unConnectionIDLocal;
+	pRun->eState = eState;
 	pRun->RunOrQueue( "WebRTC OnSessionStateChanged" );
 }
 
@@ -992,6 +1089,104 @@ void CConnectionTransportP2PWebRTC::OnSendPossible()
 
 	char hello[] = "hello";
 	m_pWebRTCSession->BSendData( (const uint8_t *)hello, sizeof(hello) );
+}
+
+void CConnectionTransportP2PWebRTC::DrainPacketQueue( SteamNetworkingMicroseconds usecNow )
+{
+	// Quickly swap into temp
+	CUtlBuffer buf;
+	m_mutexPacketQueue.lock();
+	buf.Swap( m_bufPacketQueue );
+	m_mutexPacketQueue.unlock();
+
+	// Process all the queued packets
+	uint8 *p = (uint8*)buf.Base();
+	uint8 *end = p + buf.TellPut();
+	while ( p < end )
+	{
+		if ( p+sizeof(int) > end )
+		{
+			Assert(false);
+			break;
+		}
+		int cbPkt = *(int*)p;
+		p += sizeof(int);
+		if ( p + cbPkt > end )
+		{
+			// BUG!
+			Assert(false);
+			break;
+		}
+		ProcessPacket( p, cbPkt, usecNow );
+		p += cbPkt;
+	}
+}
+
+// FIXME - I'll bet WebRTC actually passes us a copy-on-write buffer.
+// Is there a way we can directly take this, to avoid copying the payload?
+void CConnectionTransportP2PWebRTC::OnData( const uint8_t *pPkt, size_t nSize )
+{
+	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
+	const int cbPkt = int(nSize);
+
+	if ( nSize < 1 )
+	{
+		ReportBadPacket( "packet", "Bad packet size: %d", cbPkt );
+		return;
+	}
+
+	// See if we can process this packet (and anything queued before us)
+	// immediately
+	if ( SteamDatagramTransportLock::TryLock( "WebRTC Data", 0 ) )
+	{
+		// We can process the data now!
+
+		// Check if queue is empty.  Note that no race conditions here.  We hold the lock,
+		// which means we aren't messing with it in some other thread.  And we are in WebRTC's
+		// callback, and we assume WebRTC will not call us from two threads at the same time.
+		if ( m_bufPacketQueue.TellPut() > 0 )
+		{
+			DrainPacketQueue( usecNow );
+			Assert( m_bufPacketQueue.TellPut() == 0 );
+		}
+
+		// And now process this packet
+		ProcessPacket( pPkt, cbPkt, usecNow );
+		SteamDatagramTransportLock::Unlock();
+		return;
+	}
+
+	// We're busy in the other thread.  We'll have to queue the data.
+	// Grab the buffer lock
+	m_mutexPacketQueue.lock();
+	bool bQueueWasEmpty = ( m_bufPacketQueue.TellPut() == 0 );
+	m_bufPacketQueue.PutInt( cbPkt );
+	m_bufPacketQueue.Put( pPkt, cbPkt );
+	m_mutexPacketQueue.unlock();
+
+	// If the queue was empty,then we need to add a task to flush it
+	// when we acquire the queue.  If it wasn't empty then a task is
+	// already in the queue.  Or perhaps it was progress right now
+	// in some other thread.  But if that were the case, we know that
+	// it had not yet actually swapped the buffer out.  Because we had
+	// the buffer lock when we checked if the queue was empty.
+	if ( !bQueueWasEmpty )
+	{
+		struct RunDrainQueue : IConnectionTransportP2PWebRTCRunWithLock
+		{
+			virtual void RunWebRTC( CConnectionTransportP2PWebRTC *pTransport )
+			{
+				pTransport->DrainPacketQueue( SteamNetworkingSockets_GetLocalTimestamp() );
+			}
+		};
+
+		RunDrainQueue *pRun = new RunDrainQueue;
+		pRun->m_nConnectionIDLocal = m_connection.m_unConnectionIDLocal;
+
+		// Queue it.  Don't use RunOrQueue.  We know we need to queue it,
+		// since we already tried to grab the lock and failed.
+		pRun->Queue( "WebRTC DrainQueue" );
+	}
 }
 
 } // namespace SteamNetworkingSocketsLib

@@ -93,6 +93,8 @@ CSteamNetworkConnectionP2P::CSteamNetworkConnectionP2P( CSteamNetworkingSockets 
 	m_nRemoteVirtualPort = -1;
 	m_idxMapIncomingP2PConnections = -1;
 	m_pSignaling = nullptr;
+	m_usecNextEvaluateTransport = 0;
+	m_bTransportSticky = false;
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 		m_pTransportP2PSDR = nullptr;
 	#endif
@@ -260,18 +262,37 @@ void CSteamNetworkConnectionP2P::CheckInitWebRTC()
 void CSteamNetworkConnectionP2P::CheckCleanupWebRTC()
 {
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
-
-	if ( !m_pTransportP2PWebRTCPendingDelete )
-		return;
-	if ( m_pTransport == m_pTransportP2PWebRTCPendingDelete || m_pTransport == m_pTransportP2PWebRTC )
-		m_pTransport = nullptr;
-
-	Assert( !m_pTransportP2PWebRTC );
-	m_pTransportP2PWebRTC = nullptr;
-	m_pTransportP2PWebRTCPendingDelete->TransportDestroySelfNow();
-	m_pTransportP2PWebRTCPendingDelete = nullptr;
-
+	if ( m_pTransportP2PWebRTCPendingDelete )
+		DestroyWebRTCNow();
 #endif
+}
+
+void CSteamNetworkConnectionP2P::DestroyWebRTCNow()
+{
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
+
+	// If transport was selected, then make sure and deselect, and force a re-evaluation ASAP
+	if ( m_pTransport && ( m_pTransport == m_pTransportP2PWebRTCPendingDelete || m_pTransport == m_pTransportP2PWebRTC ) )
+	{
+		SelectTransport( nullptr );
+		m_usecNextEvaluateTransport = 0;
+		SetNextThinkTimeASAP();
+	}
+
+	// Destroy
+	if ( m_pTransportP2PWebRTC )
+	{
+		Assert( m_pTransportP2PWebRTC != m_pTransportP2PWebRTCPendingDelete );
+		m_pTransportP2PWebRTC->TransportDestroySelfNow();
+		m_pTransportP2PWebRTC = nullptr;
+	}
+	if ( m_pTransportP2PWebRTCPendingDelete )
+	{
+		m_pTransportP2PWebRTCPendingDelete->TransportDestroySelfNow();
+		m_pTransportP2PWebRTCPendingDelete = nullptr;
+	}
+#endif
+
 }
 
 void CSteamNetworkConnectionP2P::FreeResources()
@@ -316,17 +337,7 @@ void CSteamNetworkConnectionP2P::DestroyTransport()
 		}
 	#endif
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
-		if ( m_pTransportP2PWebRTC )
-		{
-			Assert( m_pTransportP2PWebRTC != m_pTransportP2PWebRTCPendingDelete );
-			m_pTransportP2PWebRTC->TransportDestroySelfNow();
-			m_pTransportP2PWebRTC = nullptr;
-		}
-		if ( m_pTransportP2PWebRTCPendingDelete )
-		{
-			m_pTransportP2PWebRTCPendingDelete->TransportDestroySelfNow();
-			m_pTransportP2PWebRTCPendingDelete = nullptr;
-		}
+		DestroyWebRTCNow();
 	#endif
 }
 
@@ -348,27 +359,195 @@ EResult CSteamNetworkConnectionP2P::AcceptConnection( SteamNetworkingMicrosecond
 	return k_EResultOK;
 }
 
+void CSteamNetworkConnectionP2P::TransportEndToEndConnectivityChanged( CConnectionTransport *pTransport )
+{
+	// A major event has happened.  Don't be sticky to current transport.
+	m_bTransportSticky = false;
+
+	// Schedule us to wake up immediately and deal with it.
+	m_usecNextEvaluateTransport = 0;
+	SetNextThinkTimeASAP();
+}
+
+void CSteamNetworkConnectionP2P::ConnectionStateChanged( ESteamNetworkingConnectionState eOldState )
+{
+	// NOTE: Do not call base class, because it it going to
+	// call TransportConnectionStateChanged on whatever transport is active.
+	// We don't want that here.
+
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
+		if ( m_pTransportP2PSDR )
+			m_pTransportP2PSDR->TransportConnectionStateChanged( eOldState );
+	#endif
+
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
+		if ( m_pTransportP2PWebRTC )
+			m_pTransportP2PWebRTC->TransportConnectionStateChanged( eOldState );
+	#endif
+
+	// Reset timer to evaluate transport at certain times
+	switch ( GetState() )
+	{
+		case k_ESteamNetworkingConnectionState_Dead:
+		case k_ESteamNetworkingConnectionState_None:
+		default:
+			Assert( false );
+			break;
+
+		case k_ESteamNetworkingConnectionState_Connecting:
+		case k_ESteamNetworkingConnectionState_ClosedByPeer:
+		case k_ESteamNetworkingConnectionState_FinWait:
+		case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
+		case k_ESteamNetworkingConnectionState_Linger:
+		case k_ESteamNetworkingConnectionState_Connected:
+			break;
+
+		case k_ESteamNetworkingConnectionState_FindingRoute:
+			m_usecNextEvaluateTransport = 0;
+			m_bTransportSticky = false; // Not sure how we could have set this flag, but make sure and clear it
+			SetNextThinkTimeASAP();
+			break;
+	}
+}
+
 void CSteamNetworkConnectionP2P::ThinkConnection( SteamNetworkingMicroseconds usecNow )
 {
 	CSteamNetworkConnectionBase::ThinkConnection( usecNow );
 
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
+		CheckCleanupWebRTC();
+	#endif
+
+	ThinkSelectTransport( usecNow );
+}
+
+void CSteamNetworkConnectionP2P::ThinkSelectTransport( SteamNetworkingMicroseconds usecNow )
+{
+
+	// Time to evaluate which transport to use?
+	if ( usecNow < m_usecNextEvaluateTransport )
+	{
+		EnsureMinThinkTime( m_usecNextEvaluateTransport );
+		return;
+	}
+
+	struct TransportChoice
+	{
+		CConnectionTransport *m_pTransport;
+		int m_nScore;
+	};
+	vstd::small_vector<TransportChoice, 3 > vecTransports;
+
+	const int k_nPenaltyNotLAN = 20; // LAN should be fast, so always use it if available.  If LAN ping is more than 20....we got problems
+	const int k_nPenaltyNeedToConfirmEndToEndConnectivity = 10000;
+
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
-		if ( m_pTransportP2PSDR )
-			m_pTransportP2PSDR->ThinkSessions( usecNow );
+		if ( m_pTransportP2PSDR && m_pTransportP2PSDR->BCanSendEndToEndData() )
+		{
+			TransportChoice t;
+			t.m_pTransport = m_pTransportP2PSDR;
+			t.m_nScore = m_pTransportP2PSDR->GetScoreForActiveSession() + k_nPenaltyNotLAN;
+			if ( m_pTransportP2PSDR->m_bNeedToConfirmEndToEndConnectivity )
+				t.m_nScore += k_nPenaltyNeedToConfirmEndToEndConnectivity;
+			vecTransports.push_back( t );
+		}
 	#endif
 
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
-		CheckCleanupWebRTC();
-
-		// Check for flushing signal
-		if ( m_pTransportP2PWebRTC )
+		if ( m_pTransportP2PWebRTC && m_pTransportP2PWebRTC->BCanSendEndToEndData() && m_pTransportP2PWebRTC->m_ping.m_nSmoothedPing >= 0 )
 		{
-			if ( GetState() == k_ESteamNetworkingConnectionState_FindingRoute || GetState() == k_ESteamNetworkingConnectionState_Connected )
-			{
-				m_pTransportP2PWebRTC->CheckSendSignal( usecNow );
-			}
+			TransportChoice t;
+			t.m_pTransport = m_pTransportP2PWebRTC;
+			t.m_nScore = m_pTransportP2PWebRTC->m_ping.m_nSmoothedPing + k_nPenaltyNotLAN;
+			if ( m_pTransportP2PWebRTC->m_bNeedToConfirmEndToEndConnectivity )
+				t.m_nScore += k_nPenaltyNeedToConfirmEndToEndConnectivity;
+			vecTransports.push_back( t );
 		}
 	#endif
+
+	// !FIXME! need to implementy LAN beacon connectivity.  Until then,
+	// need this to silence a warning
+	(void)k_nPenaltyNotLAN;
+
+	// Locate best and current scores
+	int nCurrentTransportScore = INT_MAX;
+	int nBestTransportScore = INT_MAX;
+	CConnectionTransport *pBestTransport = nullptr;
+	for ( const TransportChoice &t: vecTransports )
+	{
+		if ( t.m_pTransport == m_pTransport )
+			nCurrentTransportScore = t.m_nScore;
+		if ( t.m_nScore < nBestTransportScore )
+		{
+			nBestTransportScore = t.m_nScore;
+			pBestTransport = t.m_pTransport;
+		}
+	}
+
+	// Finding route?
+	if ( GetState() == k_ESteamNetworkingConnectionState_FindingRoute )
+	{
+
+		// As soon as the first transport says it's ready, let's go
+		if ( nBestTransportScore < k_nPenaltyNeedToConfirmEndToEndConnectivity )
+		{
+			SelectTransport( pBestTransport );
+			ConnectionState_Connected( usecNow );
+		}
+	}
+	else if ( m_pTransport == nullptr )
+	{
+		SelectTransport( pBestTransport );
+	}
+	else if ( m_pTransport != pBestTransport )
+	{
+
+		// Check for applying a sticky penalty, that the new guy has to
+		// overcome to switch
+		int nBestScoreWithStickyPenalty = nBestTransportScore;
+		if ( m_bTransportSticky )
+			nBestScoreWithStickyPenalty = nBestTransportScore * 11 / 10 + 5;
+
+		// Switch?
+		if ( nBestScoreWithStickyPenalty < nCurrentTransportScore )
+			SelectTransport( pBestTransport );
+	}
+
+	// Reset timer to evaluate transport at certain times
+	switch ( GetState() )
+	{
+		case k_ESteamNetworkingConnectionState_Dead:
+		case k_ESteamNetworkingConnectionState_None:
+		default:
+			Assert( false );
+		case k_ESteamNetworkingConnectionState_ClosedByPeer:
+		case k_ESteamNetworkingConnectionState_FinWait:
+		case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
+		case k_ESteamNetworkingConnectionState_Connecting: // wait for signaling to complete
+			m_usecNextEvaluateTransport = k_nThinkTime_Never;
+			return;
+
+		case k_ESteamNetworkingConnectionState_Linger:
+		case k_ESteamNetworkingConnectionState_Connected:
+			m_usecNextEvaluateTransport = usecNow + k_nMillion; // Check back periodically
+			break;
+
+		case k_ESteamNetworkingConnectionState_FindingRoute:
+			m_usecNextEvaluateTransport = usecNow + k_nMillion/20; // Run the code below frequently
+			break;
+	}
+	EnsureMinThinkTime( m_usecNextEvaluateTransport );
+}
+
+void CSteamNetworkConnectionP2P::SelectTransport( CConnectionTransport *pTransport )
+{
+	// No change?
+	if ( pTransport == m_pTransport )
+		return;
+	m_pTransport = pTransport;
+	m_bTransportSticky = ( m_pTransport != nullptr );
+	SetDescription();
+	SetNextThinkTimeASAP(); // we might want to send packets ASAP
 }
 
 SteamNetworkingMicroseconds CSteamNetworkConnectionP2P::ThinkConnection_ClientConnecting( SteamNetworkingMicroseconds usecNow )
@@ -909,9 +1088,20 @@ bool CSteamNetworkingSockets::ReceivedP2PCustomSignal( const void *pMsg, int cbM
 	#endif
 
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
-		if ( pConn->m_pTransportP2PWebRTC && msg.has_webrtc() )
+		if ( pConn->m_pTransportP2PWebRTC )
 		{
-			pConn->m_pTransportP2PWebRTC->RecvRendezvous( msg.webrtc(), usecNow );
+			// If they send rendezvous, then process it
+			if ( msg.has_webrtc() )
+			{
+				pConn->m_pTransportP2PWebRTC->RecvRendezvous( msg.webrtc(), usecNow );
+			}
+			else
+			{
+				// The lack of any message at all (even an empty one) means that they
+				// will not support WebRTC, so we can destroy our transport
+				SpewType( nLogLevel, "[%s] Destroying WebRTC transport, peer rendezvous indicates they will not use it\n", pConn->GetDescription() );
+				pConn->DestroyWebRTCNow();
+			}
 		}
 	#endif
 

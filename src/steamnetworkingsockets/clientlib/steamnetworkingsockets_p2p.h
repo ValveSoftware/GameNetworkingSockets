@@ -64,6 +64,7 @@ public:
 	virtual SteamNetworkingMicroseconds ThinkConnection_ClientConnecting( SteamNetworkingMicroseconds usecNow ) override;
 	virtual void DestroyTransport() override;
 	virtual CSteamNetworkConnectionP2P *AsSteamNetworkConnectionP2P() override;
+	virtual void ConnectionStateChanged( ESteamNetworkingConnectionState eOldState ) override;
 
 	void SendConnectOKSignal( SteamNetworkingMicroseconds usecNow );
 	void SendConnectionClosedSignal( SteamNetworkingMicroseconds usecNow );
@@ -102,8 +103,18 @@ public:
 		// Failure reason for WebRTC, if any.  (0 if no failure yet.)
 		int m_nWebRTCCloseCode;
 		char m_szWebRTCCloseMsg[ k_cchSteamNetworkingMaxConnectionCloseReason ];
-
 	#endif
+
+	SteamNetworkingMicroseconds m_usecNextEvaluateTransport;
+
+	/// True if we should be "sticky" to the current transport.
+	/// When major state changes happen, we clear this flag
+	/// and evaluate from scratch with no stickiness
+	bool m_bTransportSticky;
+
+	void ThinkSelectTransport( SteamNetworkingMicroseconds usecNow );
+	void TransportEndToEndConnectivityChanged( CConnectionTransport *pTransport );
+	void SelectTransport( CConnectionTransport *pTransport );
 
 	// Check if user permissions for the remote host are allowed,
 	// then create WebRTC.  Also, if the connection was initiated remotely,
@@ -112,6 +123,8 @@ public:
 
 	// Check if we pended WebRTC deletion, then do so now
 	void CheckCleanupWebRTC();
+
+	void DestroyWebRTCNow();
 
 	// FIXME - UDP transport for LAN discovery, so P2P works without any signaling
 
