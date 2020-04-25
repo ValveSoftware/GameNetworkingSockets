@@ -876,6 +876,7 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 						if ( msPing < 0 )
 							msPing = 0;
 						m_statsEndToEnd.m_ping.ReceivedPing( msPing, usecNow );
+						// FIXME - should let transport know
 
 						// Spew
 						SpewType( m_connectionConfig.m_LogLevel_AckRTT.Get(), "[%s] decode pkt %lld latest recv %lld delay %.1fms elapsed %.1fms ping %dms\n",
@@ -1431,6 +1432,10 @@ bool CSteamNetworkConnectionBase::SNP_SendPacket( CConnectionTransport *pTranspo
 	}
 
 	// Check if we don't actually have bandwidth to send data, then don't.
+	//
+	// FIXME: Should we ever send data in a transport that is not the currently
+	// selected one.  Seems OK to send acks and stuff.
+	// Also, should we use a different token bucket per transport?
 	if ( m_senderState.m_flTokenBucket < 0.0 )
 	{
 
@@ -1872,7 +1877,10 @@ bool CSteamNetworkConnectionBase::SNP_SendPacket( CConnectionTransport *pTranspo
 
 	// If we sent any reliable data, we should expect a reply
 	if ( !inFlightPkt.m_vecReliableSegments.empty() )
+	{
 		m_statsEndToEnd.TrackSentMessageExpectingSeqNumAck( usecNow, true );
+		// FIXME - should let transport know
+	}
 
 	// If we aren't already tracking anything to timeout, then this is the next one.
 	if ( m_senderState.m_itNextInFlightPacketToTimeout == m_senderState.m_mapInFlightPacketsByPktNum.end() )
