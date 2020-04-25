@@ -352,6 +352,15 @@ STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIPAddr_IsEqualTo( 
 	return self->operator==( x );
 }
 
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIPAddr_ToString( const SteamNetworkingIPAddr* self, char *buf, size_t cbBuf, bool bWithPort )
+{
+	SteamNetworkingIPAddr_ToString( self, buf, cbBuf, bWithPort );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIPAddr_ParseString( SteamNetworkingIPAddr* self, const char *pszStr )
+{
+	return SteamNetworkingIPAddr_ParseString( self, pszStr );
+}
+
 //--- SteamNetworkingIdentity-------------------------
 
 STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIdentity_Clear( SteamNetworkingIdentity* self )
@@ -413,6 +422,14 @@ STEAMNETWORKINGSOCKETS_INTERFACE const uint8 * SteamAPI_SteamNetworkingIdentity_
 STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIdentity_IsEqualTo( SteamNetworkingIdentity* self, const SteamNetworkingIdentity & x )
 {
 	return self->operator==( x );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIdentity_ToString( const SteamNetworkingIdentity* self, char *buf, size_t cbBuf )
+{
+	SteamNetworkingIdentity_ToString( self, buf, cbBuf );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIdentity_ParseString( SteamNetworkingIdentity* self, size_t sizeofIdentity, const char *pszStr )
+{
+	return SteamNetworkingIdentity_ParseString( self, sizeofIdentity, pszStr );
 }
 
 //--- SteamNetworkingMessage_t-------------------------

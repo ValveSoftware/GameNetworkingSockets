@@ -1595,22 +1595,22 @@ ESteamNetworkingConfigValue CSteamNetworkingUtils::GetFirstConfigValue()
 
 void CSteamNetworkingUtils::SteamNetworkingIPAddr_ToString( const SteamNetworkingIPAddr &addr, char *buf, size_t cbBuf, bool bWithPort )
 {
-	SteamAPI_SteamNetworkingIPAddr_ToString( &addr, buf, cbBuf, bWithPort );
+	::SteamNetworkingIPAddr_ToString( &addr, buf, cbBuf, bWithPort );
 }
 
 bool CSteamNetworkingUtils::SteamNetworkingIPAddr_ParseString( SteamNetworkingIPAddr *pAddr, const char *pszStr )
 {
-	return SteamAPI_SteamNetworkingIPAddr_ParseString( pAddr, pszStr );
+	return ::SteamNetworkingIPAddr_ParseString( pAddr, pszStr );
 }
 
 void CSteamNetworkingUtils::SteamNetworkingIdentity_ToString( const SteamNetworkingIdentity &identity, char *buf, size_t cbBuf )
 {
-	return SteamAPI_SteamNetworkingIdentity_ToString( &identity, buf, cbBuf );
+	return ::SteamNetworkingIdentity_ToString( &identity, buf, cbBuf );
 }
 
 bool CSteamNetworkingUtils::SteamNetworkingIdentity_ParseString( SteamNetworkingIdentity *pIdentity, const char *pszStr )
 {
-	return SteamAPI_SteamNetworkingIdentity_ParseString( pIdentity, sizeof(SteamNetworkingIdentity), pszStr );
+	return ::SteamNetworkingIdentity_ParseString( pIdentity, sizeof(SteamNetworkingIdentity), pszStr );
 }
 
 AppId_t CSteamNetworkingUtils::GetAppID()
@@ -1668,8 +1668,6 @@ STEAMNETWORKINGSOCKETS_INTERFACE void GameNetworkingSockets_Kill()
 		s_pSteamNetworkingSockets->Destroy();
 		s_pSteamNetworkingSockets = nullptr;
 	}
-
-	SteamNetworkingSockets_SetDebugOutputFunction( k_ESteamNetworkingSocketsDebugOutputType_None, nullptr );
 }
 
 STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets *SteamNetworkingSockets()
