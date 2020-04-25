@@ -8,8 +8,8 @@
 	#include "steamnetworkingsockets_sdr_p2p.h"
 #endif
 
-#ifdef STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
-	#include "steamnetworkingsockets_p2p_webrtc.h"
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+	#include "steamnetworkingsockets_p2p_ice.h"
 #endif
 
 #ifdef STEAMNETWORKINGSOCKETS_HAS_DEFAULT_P2P_SIGNALING
@@ -98,11 +98,11 @@ CSteamNetworkConnectionP2P::CSteamNetworkConnectionP2P( CSteamNetworkingSockets 
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 		m_pTransportP2PSDR = nullptr;
 	#endif
-	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
-		m_pTransportP2PWebRTC = nullptr;
-		m_pTransportP2PWebRTCPendingDelete = nullptr;
-		m_nWebRTCCloseCode = 0;
-		m_szWebRTCCloseMsg[ 0 ] = '\0';
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+		m_pTransportICE = nullptr;
+		m_pTransportICEPendingDelete = nullptr;
+		m_nICECloseCode = 0;
+		m_szICECloseMsg[ 0 ] = '\0';
 	#endif
 }
 
@@ -135,8 +135,8 @@ bool CSteamNetworkConnectionP2P::BInitConnect( ISteamNetworkingConnectionCustomS
 	if ( !BInitP2PConnectionCommon( usecNow, nOptions, pOptions, errMsg ) )
 		return false;
 
-	// Check if we should try WebRTC
-	CheckInitWebRTC();
+	// Check if we should try ICE
+	CheckInitICE();
 
 	// Start the connection state machine, and send the first request packet.
 	CheckConnectionStateAndSetNextThinkTime( usecNow );
@@ -231,11 +231,11 @@ CSteamNetworkConnectionP2P *CSteamNetworkConnectionP2P::AsSteamNetworkConnection
 	return this;
 }
 
-void CSteamNetworkConnectionP2P::CheckInitWebRTC()
+void CSteamNetworkConnectionP2P::CheckInitICE()
 {
-#ifdef STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
-	Assert( !m_pTransportP2PWebRTC );
-	Assert( !m_pTransportP2PWebRTCPendingDelete );
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+	Assert( !m_pTransportICE );
+	Assert( !m_pTransportICEPendingDelete );
 
 	// Now ICE factory?
 	if ( !g_SteamNetworkingSockets_CreateICESessionFunc )
@@ -243,10 +243,10 @@ void CSteamNetworkConnectionP2P::CheckInitWebRTC()
 
 	// !FIXME! Check permissions based on remote host!
 
-	// For now, if we have no STUN servers, then no WebRTC,
-	// because NAT-punching is the main reason to use WebRTC.
+	// For now, if we have no STUN servers, then no ICE,
+	// because NAT-punching is the main reason to use ICE.
 	//
-	// But we might want to enable WebRTC even without STUN.
+	// But we might want to enable ICE even without STUN.
 	// In some environments, maybe they want to only use TURN.
 	// Or maybe they don't need STUN, and don't need to pierce NAT,
 	// either because both IPs are public, or because they are on
@@ -255,28 +255,28 @@ void CSteamNetworkConnectionP2P::CheckInitWebRTC()
 	if ( m_connectionConfig.m_P2P_STUN_ServerList.Get().empty() )
 		return;
 
-	m_pTransportP2PWebRTC = new CConnectionTransportP2PWebRTC( *this );
-	m_pTransportP2PWebRTC->Init();
+	m_pTransportICE = new CConnectionTransportP2PICE( *this );
+	m_pTransportICE->Init();
 
 	// If we failed, go ahead and cleanup now
-	CheckCleanupWebRTC();
+	CheckCleanupICE();
 #endif
 }
 
-void CSteamNetworkConnectionP2P::CheckCleanupWebRTC()
+void CSteamNetworkConnectionP2P::CheckCleanupICE()
 {
-#ifdef STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
-	if ( m_pTransportP2PWebRTCPendingDelete )
-		DestroyWebRTCNow();
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+	if ( m_pTransportICEPendingDelete )
+		DestroyICENow();
 #endif
 }
 
-void CSteamNetworkConnectionP2P::DestroyWebRTCNow()
+void CSteamNetworkConnectionP2P::DestroyICENow()
 {
-#ifdef STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
 
 	// If transport was selected, then make sure and deselect, and force a re-evaluation ASAP
-	if ( m_pTransport && ( m_pTransport == m_pTransportP2PWebRTCPendingDelete || m_pTransport == m_pTransportP2PWebRTC ) )
+	if ( m_pTransport && ( m_pTransport == m_pTransportICEPendingDelete || m_pTransport == m_pTransportICE ) )
 	{
 		SelectTransport( nullptr );
 		m_usecNextEvaluateTransport = 0;
@@ -284,16 +284,16 @@ void CSteamNetworkConnectionP2P::DestroyWebRTCNow()
 	}
 
 	// Destroy
-	if ( m_pTransportP2PWebRTC )
+	if ( m_pTransportICE )
 	{
-		Assert( m_pTransportP2PWebRTC != m_pTransportP2PWebRTCPendingDelete );
-		m_pTransportP2PWebRTC->TransportDestroySelfNow();
-		m_pTransportP2PWebRTC = nullptr;
+		Assert( m_pTransportICE != m_pTransportICEPendingDelete );
+		m_pTransportICE->TransportDestroySelfNow();
+		m_pTransportICE = nullptr;
 	}
-	if ( m_pTransportP2PWebRTCPendingDelete )
+	if ( m_pTransportICEPendingDelete )
 	{
-		m_pTransportP2PWebRTCPendingDelete->TransportDestroySelfNow();
-		m_pTransportP2PWebRTCPendingDelete = nullptr;
+		m_pTransportICEPendingDelete->TransportDestroySelfNow();
+		m_pTransportICEPendingDelete = nullptr;
 	}
 #endif
 
@@ -340,8 +340,8 @@ void CSteamNetworkConnectionP2P::DestroyTransport()
 			m_pTransportP2PSDR = nullptr;
 		}
 	#endif
-	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
-		DestroyWebRTCNow();
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+		DestroyICENow();
 	#endif
 }
 
@@ -384,9 +384,9 @@ void CSteamNetworkConnectionP2P::ConnectionStateChanged( ESteamNetworkingConnect
 			m_pTransportP2PSDR->TransportConnectionStateChanged( eOldState );
 	#endif
 
-	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
-		if ( m_pTransportP2PWebRTC )
-			m_pTransportP2PWebRTC->TransportConnectionStateChanged( eOldState );
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+		if ( m_pTransportICE )
+			m_pTransportICE->TransportConnectionStateChanged( eOldState );
 	#endif
 
 	// Reset timer to evaluate transport at certain times
@@ -418,8 +418,8 @@ void CSteamNetworkConnectionP2P::ThinkConnection( SteamNetworkingMicroseconds us
 {
 	CSteamNetworkConnectionBase::ThinkConnection( usecNow );
 
-	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
-		CheckCleanupWebRTC();
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+		CheckCleanupICE();
 	#endif
 
 	ThinkSelectTransport( usecNow );
@@ -457,13 +457,13 @@ void CSteamNetworkConnectionP2P::ThinkSelectTransport( SteamNetworkingMicrosecon
 		}
 	#endif
 
-	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
-		if ( m_pTransportP2PWebRTC && m_pTransportP2PWebRTC->BCanSendEndToEndData() && m_pTransportP2PWebRTC->m_ping.m_nSmoothedPing >= 0 )
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+		if ( m_pTransportICE && m_pTransportICE->BCanSendEndToEndData() && m_pTransportICE->m_ping.m_nSmoothedPing >= 0 )
 		{
 			TransportChoice t;
-			t.m_pTransport = m_pTransportP2PWebRTC;
-			t.m_nScore = m_pTransportP2PWebRTC->m_ping.m_nSmoothedPing + k_nPenaltyNotLAN;
-			if ( m_pTransportP2PWebRTC->m_bNeedToConfirmEndToEndConnectivity )
+			t.m_pTransport = m_pTransportICE;
+			t.m_nScore = m_pTransportICE->m_ping.m_nSmoothedPing + k_nPenaltyNotLAN;
+			if ( m_pTransportICE->m_bNeedToConfirmEndToEndConnectivity )
 				t.m_nScore += k_nPenaltyNeedToConfirmEndToEndConnectivity;
 			vecTransports.push_back( t );
 		}
@@ -680,9 +680,9 @@ void CSteamNetworkConnectionP2P::SetRendezvousCommonFieldsAndSendSignal( CMsgSte
 		if ( m_pTransportP2PSDR )
 			m_pTransportP2PSDR->PopulateRendezvousMsg( msg, usecNow );
 	#endif
-	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
-		if ( m_pTransportP2PWebRTC && m_nWebRTCCloseCode == 0 )
-			m_pTransportP2PWebRTC->PopulateRendezvousMsg( msg, usecNow );
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+		if ( m_pTransportICE && m_nICECloseCode == 0 )
+			m_pTransportICE->PopulateRendezvousMsg( msg, usecNow );
 	#endif
 
 	// Spew
@@ -1073,10 +1073,10 @@ bool CSteamNetworkingSockets::ReceivedP2PCustomSignal( const void *pMsg, int cbM
 					break;
 			}
 
-			// Fire up WebRTC
+			// Fire up ICE
 			// FIXME Really we should wait until the app accepts the connection, if it hasn't already
 			if ( msg.has_webrtc() )
-				pConn->CheckInitWebRTC();
+				pConn->CheckInitICE();
 		}
 
 		// Stop suppressing state change notifications
@@ -1093,20 +1093,20 @@ bool CSteamNetworkingSockets::ReceivedP2PCustomSignal( const void *pMsg, int cbM
 		}
 	#endif
 
-	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
-		if ( pConn->m_pTransportP2PWebRTC )
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+		if ( pConn->m_pTransportICE )
 		{
 			// If they send rendezvous, then process it
 			if ( msg.has_webrtc() )
 			{
-				pConn->m_pTransportP2PWebRTC->RecvRendezvous( msg.webrtc(), usecNow );
+				pConn->m_pTransportICE->RecvRendezvous( msg.webrtc(), usecNow );
 			}
 			else
 			{
 				// The lack of any message at all (even an empty one) means that they
-				// will not support WebRTC, so we can destroy our transport
-				SpewType( nLogLevel, "[%s] Destroying WebRTC transport, peer rendezvous indicates they will not use it\n", pConn->GetDescription() );
-				pConn->DestroyWebRTCNow();
+				// will not support ICE, so we can destroy our transport
+				SpewType( nLogLevel, "[%s] Destroying ICE transport, peer rendezvous indicates they will not use it\n", pConn->GetDescription() );
+				pConn->DestroyICENow();
 			}
 		}
 	#endif

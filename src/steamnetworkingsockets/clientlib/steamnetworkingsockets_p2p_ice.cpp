@@ -1,12 +1,12 @@
 //====== Copyright Valve Corporation, All rights reserved. ====================
 
-#include "steamnetworkingsockets_p2p_webrtc.h"
+#include "steamnetworkingsockets_p2p_ice.h"
 #include "steamnetworkingsockets_udp.h"
 
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
 
-#ifdef STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
 
 extern "C" {
 CreateICESession_t g_SteamNetworkingSockets_CreateICESessionFunc = nullptr;
@@ -38,7 +38,7 @@ struct WebRTCDataMsgHdr
 //
 /////////////////////////////////////////////////////////////////////////////
 
-CConnectionTransportP2PWebRTC::CConnectionTransportP2PWebRTC( CSteamNetworkConnectionP2P &connection )
+CConnectionTransportP2PICE::CConnectionTransportP2PICE( CSteamNetworkConnectionP2P &connection )
 : CConnectionTransport( connection )
 , m_pICESession( nullptr )
 , m_pszNeedToSendSignalReason( nullptr )
@@ -54,22 +54,22 @@ CConnectionTransportP2PWebRTC::CConnectionTransportP2PWebRTC( CSteamNetworkConne
 	m_bNeedToConfirmEndToEndConnectivity = true;
 }
 
-CConnectionTransportP2PWebRTC::~CConnectionTransportP2PWebRTC()
+CConnectionTransportP2PICE::~CConnectionTransportP2PICE()
 {
 	Assert( !m_pICESession );
 }
 
-void CConnectionTransportP2PWebRTC::TransportPopulateConnectionInfo( SteamNetConnectionInfo_t &info ) const
+void CConnectionTransportP2PICE::TransportPopulateConnectionInfo( SteamNetConnectionInfo_t &info ) const
 {
 }
 
-void CConnectionTransportP2PWebRTC::GetDetailedConnectionStatus( SteamNetworkingDetailedConnectionStatus &stats, SteamNetworkingMicroseconds usecNow )
+void CConnectionTransportP2PICE::GetDetailedConnectionStatus( SteamNetworkingDetailedConnectionStatus &stats, SteamNetworkingMicroseconds usecNow )
 {
 	// FIXME Need to indicate whether we are relayed or were able to pierce NAT
 	CConnectionTransport::GetDetailedConnectionStatus( stats, usecNow );
 }
 
-void CConnectionTransportP2PWebRTC::TransportFreeResources()
+void CConnectionTransportP2PICE::TransportFreeResources()
 {
 	if ( m_pICESession )
 	{
@@ -81,7 +81,7 @@ void CConnectionTransportP2PWebRTC::TransportFreeResources()
 	CConnectionTransport::TransportFreeResources();
 }
 
-void CConnectionTransportP2PWebRTC::Init()
+void CConnectionTransportP2PICE::Init()
 {
 	if ( !g_SteamNetworkingSockets_CreateICESessionFunc )
 	{
@@ -105,7 +105,7 @@ void CConnectionTransportP2PWebRTC::Init()
 		}
 	}
 
-	m_pICESession = (*g_SteamNetworkingSockets_CreateICESessionFunc)( this, STEAMWEBRTC_INTERFACE_VERSION );
+	m_pICESession = (*g_SteamNetworkingSockets_CreateICESessionFunc)( this, ICESESSION_INTERFACE_VERSION );
 	if ( !m_pICESession )
 	{
 		NotifyConnectionFailed( k_ESteamNetConnectionEnd_Misc_InternalError, "CreateICESession failed" );
@@ -113,7 +113,7 @@ void CConnectionTransportP2PWebRTC::Init()
 	}
 }
 
-void CConnectionTransportP2PWebRTC::PopulateRendezvousMsg( CMsgSteamNetworkingP2PRendezvous &msg, SteamNetworkingMicroseconds usecNow )
+void CConnectionTransportP2PICE::PopulateRendezvousMsg( CMsgSteamNetworkingP2PRendezvous &msg, SteamNetworkingMicroseconds usecNow )
 {
 	m_pszNeedToSendSignalReason = nullptr;
 	m_usecSendSignalDeadline = INT64_MAX;
@@ -150,7 +150,7 @@ void CConnectionTransportP2PWebRTC::PopulateRendezvousMsg( CMsgSteamNetworkingP2
 
 }
 
-void CConnectionTransportP2PWebRTC::RecvRendezvous( const CMsgWebRTCRendezvous &msg, SteamNetworkingMicroseconds usecNow )
+void CConnectionTransportP2PICE::RecvRendezvous( const CMsgWebRTCRendezvous &msg, SteamNetworkingMicroseconds usecNow )
 {
 	// Safety
 	if ( !m_pICESession )
@@ -206,22 +206,22 @@ void CConnectionTransportP2PWebRTC::RecvRendezvous( const CMsgWebRTCRendezvous &
 	}
 }
 
-void CConnectionTransportP2PWebRTC::NotifyConnectionFailed( int nReasonCode, const char *pszReason )
+void CConnectionTransportP2PICE::NotifyConnectionFailed( int nReasonCode, const char *pszReason )
 {
 	SteamDatagramTransportLock::AssertHeldByCurrentThread();
 
 	// Remember reason code, if we didn't already set one
-	if ( Connection().m_nWebRTCCloseCode == 0 )
+	if ( Connection().m_nICECloseCode == 0 )
 	{
 		SpewType( LogLevel_P2PRendezvous(), "[%s] WebRTC failed %d %s\n", ConnectionDescription(), nReasonCode, pszReason );
-		Connection().m_nWebRTCCloseCode = nReasonCode;
-		V_strcpy_safe( Connection().m_szWebRTCCloseMsg, pszReason );
+		Connection().m_nICECloseCode = nReasonCode;
+		V_strcpy_safe( Connection().m_szICECloseMsg, pszReason );
 	}
 
 	QueueSelfDestruct();
 }
 
-void CConnectionTransportP2PWebRTC::QueueSelfDestruct()
+void CConnectionTransportP2PICE::QueueSelfDestruct()
 {
 
 	// Go ahead and free up our WebRTC session now, it is reference counted.
@@ -232,23 +232,23 @@ void CConnectionTransportP2PWebRTC::QueueSelfDestruct()
 	}
 
 	// Queue us for deletion
-	if ( Connection().m_pTransportP2PWebRTCPendingDelete )
+	if ( Connection().m_pTransportICEPendingDelete )
 	{
 		// Already queued for delete
-		Assert( Connection().m_pTransportP2PWebRTCPendingDelete == this );
+		Assert( Connection().m_pTransportICEPendingDelete == this );
 	}
 	else
 	{
-		Connection().m_pTransportP2PWebRTCPendingDelete = this;
-		Assert( Connection().m_pTransportP2PWebRTC == this );
-		Connection().m_pTransportP2PWebRTC = nullptr;
+		Connection().m_pTransportICEPendingDelete = this;
+		Assert( Connection().m_pTransportICE == this );
+		Connection().m_pTransportICE = nullptr;
 	}
 
 	// Make sure we clean ourselves up as soon as it is safe to do so
 	SetNextThinkTimeASAP();
 }
 
-void CConnectionTransportP2PWebRTC::ScheduleSendSignal( const char *pszReason )
+void CConnectionTransportP2PICE::ScheduleSendSignal( const char *pszReason )
 {
 	SteamNetworkingMicroseconds usecDeadline = SteamNetworkingSockets_GetLocalTimestamp() + 10*1000;
 	if ( !m_pszNeedToSendSignalReason || m_usecSendSignalDeadline > usecDeadline )
@@ -259,12 +259,12 @@ void CConnectionTransportP2PWebRTC::ScheduleSendSignal( const char *pszReason )
 	EnsureMinThinkTime( m_usecSendSignalDeadline );
 }
 
-void CConnectionTransportP2PWebRTC::Think( SteamNetworkingMicroseconds usecNow )
+void CConnectionTransportP2PICE::Think( SteamNetworkingMicroseconds usecNow )
 {
 	// Are we dead?
 	if ( !m_pICESession )
 	{
-		Connection().CheckCleanupWebRTC();
+		Connection().CheckCleanupICE();
 		// We could be deleted here!
 		return;
 	}
@@ -360,7 +360,7 @@ void CConnectionTransportP2PWebRTC::Think( SteamNetworkingMicroseconds usecNow )
 	EnsureMinThinkTime( usecNextThink );
 }
 
-void CConnectionTransportP2PWebRTC::TrackSentPingRequest( SteamNetworkingMicroseconds usecNow, bool bAllowDelayedReply )
+void CConnectionTransportP2PICE::TrackSentPingRequest( SteamNetworkingMicroseconds usecNow, bool bAllowDelayedReply )
 {
 	if ( m_usecInFlightReplyTimeout == 0 )
 	{
@@ -372,7 +372,7 @@ void CConnectionTransportP2PWebRTC::TrackSentPingRequest( SteamNetworkingMicrose
 	m_ping.m_usecTimeLastSentPingRequest = usecNow;
 }
 
-void CConnectionTransportP2PWebRTC::SendStatsMsg( EStatsReplyRequest eReplyRequested, SteamNetworkingMicroseconds usecNow, const char *pszReason )
+void CConnectionTransportP2PICE::SendStatsMsg( EStatsReplyRequest eReplyRequested, SteamNetworkingMicroseconds usecNow, const char *pszReason )
 {
 	UDPSendPacketContext_t ctx( usecNow, pszReason );
 	ctx.Populate( sizeof(WebRTCDataMsgHdr), eReplyRequested, m_connection );
@@ -381,12 +381,12 @@ void CConnectionTransportP2PWebRTC::SendStatsMsg( EStatsReplyRequest eReplyReque
 	m_connection.SNP_SendPacket( this, ctx );
 }
 
-void CConnectionTransportP2PWebRTC::SendEndToEndStatsMsg( EStatsReplyRequest eRequest, SteamNetworkingMicroseconds usecNow, const char *pszReason )
+void CConnectionTransportP2PICE::SendEndToEndStatsMsg( EStatsReplyRequest eRequest, SteamNetworkingMicroseconds usecNow, const char *pszReason )
 {
 	SendStatsMsg( eRequest, usecNow, pszReason );
 }
 
-bool CConnectionTransportP2PWebRTC::SendDataPacket( SteamNetworkingMicroseconds usecNow )
+bool CConnectionTransportP2PICE::SendDataPacket( SteamNetworkingMicroseconds usecNow )
 {
 	if ( !m_pICESession )
 	{
@@ -403,7 +403,7 @@ bool CConnectionTransportP2PWebRTC::SendDataPacket( SteamNetworkingMicroseconds 
 	return m_connection.SNP_SendPacket( this, ctx );
 }
 
-int CConnectionTransportP2PWebRTC::SendEncryptedDataChunk( const void *pChunk, int cbChunk, SendPacketContext_t &ctxBase )
+int CConnectionTransportP2PICE::SendEncryptedDataChunk( const void *pChunk, int cbChunk, SendPacketContext_t &ctxBase )
 {
 	if ( !m_pICESession )
 	{
@@ -456,7 +456,7 @@ int CConnectionTransportP2PWebRTC::SendEncryptedDataChunk( const void *pChunk, i
 	return cbSend;
 }
 
-void CConnectionTransportP2PWebRTC::RecvStats( const CMsgSteamSockets_UDP_Stats &msgStatsIn, bool bInline, SteamNetworkingMicroseconds usecNow )
+void CConnectionTransportP2PICE::RecvStats( const CMsgSteamSockets_UDP_Stats &msgStatsIn, bool bInline, SteamNetworkingMicroseconds usecNow )
 {
 
 	// Connection quality stats?
@@ -491,7 +491,7 @@ void CConnectionTransportP2PWebRTC::RecvStats( const CMsgSteamSockets_UDP_Stats 
 	}
 }
 
-void CConnectionTransportP2PWebRTC::TrackSentStats( const CMsgSteamSockets_UDP_Stats &msgStatsOut, bool bInline, SteamNetworkingMicroseconds usecNow )
+void CConnectionTransportP2PICE::TrackSentStats( const CMsgSteamSockets_UDP_Stats &msgStatsOut, bool bInline, SteamNetworkingMicroseconds usecNow )
 {
 
 	// What effective flags will be received?
@@ -522,7 +522,7 @@ void CConnectionTransportP2PWebRTC::TrackSentStats( const CMsgSteamSockets_UDP_S
 	);
 }
 
-static void ReallyReportBadWebRTCPacket( CConnectionTransportP2PWebRTC *pTransport, const char *pszMsgType, const char *pszFmt, ... )
+static void ReallyReportBadWebRTCPacket( CConnectionTransportP2PICE *pTransport, const char *pszMsgType, const char *pszFmt, ... )
 {
 	char buf[ 2048 ];
 	va_list ap;
@@ -549,7 +549,7 @@ static void ReallyReportBadWebRTCPacket( CConnectionTransportP2PWebRTC *pTranspo
 		return; \
 	}
 
-void CConnectionTransportP2PWebRTC::ProcessPacket( const uint8_t *pPkt, int cbPkt, SteamNetworkingMicroseconds usecNow )
+void CConnectionTransportP2PICE::ProcessPacket( const uint8_t *pPkt, int cbPkt, SteamNetworkingMicroseconds usecNow )
 {
 	Assert( cbPkt >= 1 ); // Caller should have checked this
 
@@ -583,7 +583,7 @@ void CConnectionTransportP2PWebRTC::ProcessPacket( const uint8_t *pPkt, int cbPk
 	}
 }
 
-void CConnectionTransportP2PWebRTC::Received_Data( const uint8 *pPkt, int cbPkt, SteamNetworkingMicroseconds usecNow )
+void CConnectionTransportP2PICE::Received_Data( const uint8 *pPkt, int cbPkt, SteamNetworkingMicroseconds usecNow )
 {
 
 	if ( cbPkt < sizeof(WebRTCDataMsgHdr) )
@@ -685,13 +685,13 @@ void CConnectionTransportP2PWebRTC::Received_Data( const uint8 *pPkt, int cbPkt,
 		RecvStats( *pMsgStatsIn, true, usecNow );
 }
 
-void CConnectionTransportP2PWebRTC::Received_ConnectionClosed( const CMsgSteamSockets_WebRTC_ConnectionClosed &msg, SteamNetworkingMicroseconds usecNow )
+void CConnectionTransportP2PICE::Received_ConnectionClosed( const CMsgSteamSockets_WebRTC_ConnectionClosed &msg, SteamNetworkingMicroseconds usecNow )
 {
 	// Generic connection code will take it from here.
 	m_connection.ConnectionState_ClosedByPeer( msg.reason_code(), msg.debug().c_str() );
 }
 
-void CConnectionTransportP2PWebRTC::Received_PingCheck( const CMsgSteamSockets_WebRTC_PingCheck &msg, SteamNetworkingMicroseconds usecNow )
+void CConnectionTransportP2PICE::Received_PingCheck( const CMsgSteamSockets_WebRTC_PingCheck &msg, SteamNetworkingMicroseconds usecNow )
 {
 	if ( msg.has_recv_timestamp() )
 	{
@@ -733,7 +733,7 @@ void CConnectionTransportP2PWebRTC::Received_PingCheck( const CMsgSteamSockets_W
 	}
 }
 
-void CConnectionTransportP2PWebRTC::SendConnectionClosed()
+void CConnectionTransportP2PICE::SendConnectionClosed()
 {
 	CMsgSteamSockets_UDP_ConnectionClosed msg;
 	msg.set_from_connection_id( ConnectionIDLocal() );
@@ -747,7 +747,7 @@ void CConnectionTransportP2PWebRTC::SendConnectionClosed()
 	SendMsg( k_ESteamNetworkingUDPMsg_ConnectionClosed, msg );
 }
 
-void CConnectionTransportP2PWebRTC::TransportConnectionStateChanged( ESteamNetworkingConnectionState eOldState )
+void CConnectionTransportP2PICE::TransportConnectionStateChanged( ESteamNetworkingConnectionState eOldState )
 {
 	CConnectionTransport::TransportConnectionStateChanged( eOldState );
 
@@ -775,7 +775,7 @@ void CConnectionTransportP2PWebRTC::TransportConnectionStateChanged( ESteamNetwo
 	}
 }
 
-void CConnectionTransportP2PWebRTC::SendMsg( uint8 nMsgID, const google::protobuf::MessageLite &msg )
+void CConnectionTransportP2PICE::SendMsg( uint8 nMsgID, const google::protobuf::MessageLite &msg )
 {
 	if ( !m_pICESession )
 		return;
@@ -794,7 +794,7 @@ void CConnectionTransportP2PWebRTC::SendMsg( uint8 nMsgID, const google::protobu
 	m_pICESession->BSendData( pkt, cbPkt );
 }
 
-bool CConnectionTransportP2PWebRTC::BCanSendEndToEndData() const
+bool CConnectionTransportP2PICE::BCanSendEndToEndData() const
 {
 	if ( !m_pICESession )
 		return false;
@@ -817,7 +817,7 @@ class IConnectionTransportP2PWebRTCRunWithLock : public ISteamNetworkingSocketsR
 public:
 	uint32 m_nConnectionIDLocal;
 
-	virtual void RunWebRTC( CConnectionTransportP2PWebRTC *pTransport ) = 0;
+	virtual void RunWebRTC( CConnectionTransportP2PICE *pTransport ) = 0;
 private:
 	virtual void Run()
 	{
@@ -830,15 +830,15 @@ private:
 		if ( !pConn )
 			return;
 
-		if ( !pConn->m_pTransportP2PWebRTC )
+		if ( !pConn->m_pTransportICE )
 			return;
 
-		RunWebRTC( pConn->m_pTransportP2PWebRTC );
+		RunWebRTC( pConn->m_pTransportICE );
 	}
 };
 
 
-void CConnectionTransportP2PWebRTC::Log( IICESessionDelegate::ELogPriority ePriority, const char *pszMessageFormat, ... )
+void CConnectionTransportP2PICE::Log( IICESessionDelegate::ELogPriority ePriority, const char *pszMessageFormat, ... )
 {
 	ESteamNetworkingSocketsDebugOutputType eType;
 	switch ( ePriority )
@@ -847,11 +847,11 @@ void CConnectionTransportP2PWebRTC::Log( IICESessionDelegate::ELogPriority ePrio
 			AssertMsg1( false, "Unknown priority %d", ePriority );
 			// FALLTHROUGH
 
-		case IWebRTCSessionDelegate::k_ELogPriorityDebug: eType = k_ESteamNetworkingSocketsDebugOutputType_Debug; break;
-		case IWebRTCSessionDelegate::k_ELogPriorityVerbose: eType = k_ESteamNetworkingSocketsDebugOutputType_Verbose; break;
-		case IWebRTCSessionDelegate::k_ELogPriorityInfo: eType = k_ESteamNetworkingSocketsDebugOutputType_Msg; break;
-		case IWebRTCSessionDelegate::k_ELogPriorityWarning: eType = k_ESteamNetworkingSocketsDebugOutputType_Warning; break;
-		case IWebRTCSessionDelegate::k_ELogPriorityError: eType = k_ESteamNetworkingSocketsDebugOutputType_Error; break;
+		case IICESessionDelegate::k_ELogPriorityDebug: eType = k_ESteamNetworkingSocketsDebugOutputType_Debug; break;
+		case IICESessionDelegate::k_ELogPriorityVerbose: eType = k_ESteamNetworkingSocketsDebugOutputType_Verbose; break;
+		case IICESessionDelegate::k_ELogPriorityInfo: eType = k_ESteamNetworkingSocketsDebugOutputType_Msg; break;
+		case IICESessionDelegate::k_ELogPriorityWarning: eType = k_ESteamNetworkingSocketsDebugOutputType_Warning; break;
+		case IICESessionDelegate::k_ELogPriorityError: eType = k_ESteamNetworkingSocketsDebugOutputType_Error; break;
 	}
 
 	if ( eType > g_eSteamDatagramDebugOutputDetailLevel )
@@ -869,36 +869,36 @@ void CConnectionTransportP2PWebRTC::Log( IICESessionDelegate::ELogPriority ePrio
 	ReallySpewType( eType, "WebRTC: %s", buf ); // FIXME would like to get the connection description
 }
 
-EICERole CConnectionTransportP2PWebRTC::GetRole()
+EICERole CConnectionTransportP2PICE::GetRole()
 {
 	return m_connection.m_bConnectionInitiatedRemotely ? k_EICERole_Controlled : k_EICERole_Controlling;
 }
 
-int CConnectionTransportP2PWebRTC::GetNumStunServers()
+int CConnectionTransportP2PICE::GetNumStunServers()
 {
 	return len( m_vecStunServers );
 }
 
-const char *CConnectionTransportP2PWebRTC::GetStunServer( int iIndex )
+const char *CConnectionTransportP2PICE::GetStunServer( int iIndex )
 {
 	if ( iIndex < 0 || iIndex >= len( m_vecStunServers ) )
 		return nullptr;
 	return m_vecStunServers[ iIndex ].c_str();
 }
 
-void CConnectionTransportP2PWebRTC::OnIceCandidateAdded( const char *pszSDPMid, int nSDPMLineIndex, const char *pszCandidate )
+void CConnectionTransportP2PICE::OnIceCandidateAdded( const char *pszSDPMid, int nSDPMLineIndex, const char *pszCandidate )
 {
 	struct RunIceCandidateAdded : IConnectionTransportP2PWebRTCRunWithLock
 	{
 		CMsgWebRTCRendezvous_Candidate candidate;
-		virtual void RunWebRTC( CConnectionTransportP2PWebRTC *pTransport )
+		virtual void RunWebRTC( CConnectionTransportP2PICE *pTransport )
 		{
 			SpewType( pTransport->LogLevel_P2PRendezvous(), "[%s] WebRTC OnIceCandidateAdded %s\n", pTransport->ConnectionDescription(), candidate.ShortDebugString().c_str() );
 
 			pTransport->ScheduleSendSignal( "WebRTCCandidateAdded" );
 
 			// Add to list of candidates that peer doesn't know about, and bump revision
-			CConnectionTransportP2PWebRTC::LocalCandidate *c = push_back_get_ptr( pTransport->m_vecLocalUnAckedCandidates );
+			CConnectionTransportP2PICE::LocalCandidate *c = push_back_get_ptr( pTransport->m_vecLocalUnAckedCandidates );
 			c->m_nRevision = ++pTransport->m_nLocalCandidatesRevision;
 			c->candidate = std::move( candidate );
 			c->m_usecRTO = 0;
@@ -913,7 +913,7 @@ void CConnectionTransportP2PWebRTC::OnIceCandidateAdded( const char *pszSDPMid, 
 	pRun->RunOrQueue( "WebRTC OnIceCandidateAdded" );
 }
 
-void CConnectionTransportP2PWebRTC::DrainPacketQueue( SteamNetworkingMicroseconds usecNow )
+void CConnectionTransportP2PICE::DrainPacketQueue( SteamNetworkingMicroseconds usecNow )
 {
 	// Quickly swap into temp
 	CUtlBuffer buf;
@@ -944,13 +944,13 @@ void CConnectionTransportP2PWebRTC::DrainPacketQueue( SteamNetworkingMicrosecond
 	}
 }
 
-void CConnectionTransportP2PWebRTC::OnWritableStateChanged()
+void CConnectionTransportP2PICE::OnWritableStateChanged()
 {
 	// FIXME - should signal to connection to trigger thinking or
 	// re-evaluate transport
 }
 
-void CConnectionTransportP2PWebRTC::OnData( const void *pPkt, size_t nSize )
+void CConnectionTransportP2PICE::OnData( const void *pPkt, size_t nSize )
 {
 	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 	const int cbPkt = int(nSize);
@@ -1000,7 +1000,7 @@ void CConnectionTransportP2PWebRTC::OnData( const void *pPkt, size_t nSize )
 	{
 		struct RunDrainQueue : IConnectionTransportP2PWebRTCRunWithLock
 		{
-			virtual void RunWebRTC( CConnectionTransportP2PWebRTC *pTransport )
+			virtual void RunWebRTC( CConnectionTransportP2PICE *pTransport )
 			{
 				pTransport->DrainPacketQueue( SteamNetworkingSockets_GetLocalTimestamp() );
 			}
@@ -1017,4 +1017,4 @@ void CConnectionTransportP2PWebRTC::OnData( const void *pPkt, size_t nSize )
 
 } // namespace SteamNetworkingSocketsLib
 
-#endif // #ifdef STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
+#endif // #ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE

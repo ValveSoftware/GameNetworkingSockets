@@ -716,7 +716,7 @@ struct ConnectionConfig
 	ConfigValue<int32> m_LogLevel_Message;
 	ConfigValue<int32> m_LogLevel_PacketGaps;
 
-	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
 		ConfigValue<std::string> m_P2P_STUN_ServerList;
 	#endif
 
@@ -761,7 +761,7 @@ extern GlobalConfigValue<std::string> g_Config_SDRClient_ForceProxyAddr;
 extern GlobalConfigValue<std::string> g_Config_SDRClient_FakeClusterPing;
 #endif
 
-#ifdef STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
 extern ConnectionConfigDefaultValue< std::string > g_ConfigDefault_P2P_STUN_ServerList;
 #endif
 

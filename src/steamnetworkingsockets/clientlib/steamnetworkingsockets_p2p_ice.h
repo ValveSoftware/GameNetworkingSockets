@@ -7,9 +7,9 @@
 #include "steamnetworkingsockets_p2p.h"
 #include <mutex>
 
-#ifdef STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
 
-#include "../../external/steamwebrtc/steamwebrtc.h"
+#include "../../external/steamwebrtc/ice_session.h"
 
 extern "C" CreateICESession_t g_SteamNetworkingSockets_CreateICESessionFunc;
 
@@ -23,14 +23,14 @@ class CSteamNetworkConnectionP2P;
 struct UDPSendPacketContext_t;
 
 /// Transport for peer-to-peer connection using WebRTC
-class CConnectionTransportP2PWebRTC
+class CConnectionTransportP2PICE
 : public CConnectionTransport
 , public IThinker
 , private IICESessionDelegate
 {
 public:
-	CConnectionTransportP2PWebRTC( CSteamNetworkConnectionP2P &connection );
-	virtual ~CConnectionTransportP2PWebRTC();
+	CConnectionTransportP2PICE( CSteamNetworkConnectionP2P &connection );
+	virtual ~CConnectionTransportP2PICE();
 
 	inline CSteamNetworkConnectionP2P &Connection() const { return *assert_cast< CSteamNetworkConnectionP2P *>( &m_connection ); }
 	inline ISteamNetworkingConnectionCustomSignaling *Signaling() const { return Connection().m_pSignaling; }
@@ -134,6 +134,6 @@ private:
 
 } // namespace SteamNetworkingSocketsLib
 
-#endif // #ifdef STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
+#endif // #ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
 
 #endif // STEAMNETWORKINGSOCKETS_P2P_WEBRTC_H

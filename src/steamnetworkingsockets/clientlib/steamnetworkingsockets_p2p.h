@@ -18,7 +18,7 @@ const uint32 k_ESteamNetConnectionEnd_Internal_P2PNoConnection = 9999;
 struct SteamNetworkingMessagesSession;
 class CSteamNetworkingMessages;
 class CConnectionTransportP2PSDR;
-class CConnectionTransportP2PWebRTC;
+class CConnectionTransportP2PICE;
 
 //-----------------------------------------------------------------------------
 /// Listen socket for peer-to-peer connections relayed through through SDR network
@@ -91,18 +91,18 @@ public:
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 		CConnectionTransportP2PSDR *m_pTransportP2PSDR;
 	#endif
-	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
 
-		// WebRTC that we are using
-		CConnectionTransportP2PWebRTC *m_pTransportP2PWebRTC;
+		// ICE transport that we are using, if any
+		CConnectionTransportP2PICE *m_pTransportICE;
 
-		// If WebRTC needs to self-destruct, we move it here, and clear m_pTransportP2PWebRTC.
-		// Then it will be deleted at a safe time.
-		CConnectionTransportP2PWebRTC *m_pTransportP2PWebRTCPendingDelete;
+		// If ICE transport needs to self-destruct, we move it here, and clear
+		// m_pTransportICE.  Then it will be deleted at a safe time.
+		CConnectionTransportP2PICE *m_pTransportICEPendingDelete;
 
-		// Failure reason for WebRTC, if any.  (0 if no failure yet.)
-		int m_nWebRTCCloseCode;
-		char m_szWebRTCCloseMsg[ k_cchSteamNetworkingMaxConnectionCloseReason ];
+		// Failure reason for ICE, if any.  (0 if no failure yet.)
+		int m_nICECloseCode;
+		char m_szICECloseMsg[ k_cchSteamNetworkingMaxConnectionCloseReason ];
 	#endif
 
 	SteamNetworkingMicroseconds m_usecNextEvaluateTransport;
@@ -116,15 +116,15 @@ public:
 	void TransportEndToEndConnectivityChanged( CConnectionTransport *pTransport );
 	void SelectTransport( CConnectionTransport *pTransport );
 
-	// Check if user permissions for the remote host are allowed,
-	// then create WebRTC.  Also, if the connection was initiated remotely,
+	// Check if user permissions for the remote host are allowed, then
+	// create ICE.  Also, if the connection was initiated remotely,
 	// we will create an offer
-	void CheckInitWebRTC();
+	void CheckInitICE();
 
-	// Check if we pended WebRTC deletion, then do so now
-	void CheckCleanupWebRTC();
+	// Check if we pended ICE deletion, then do so now
+	void CheckCleanupICE();
 
-	void DestroyWebRTCNow();
+	void DestroyICENow();
 
 	// FIXME - UDP transport for LAN discovery, so P2P works without any signaling
 
