@@ -164,6 +164,74 @@ public:
 	virtual bool BSendData( const uint8_t *pData, size_t nSize ) = 0;
 };
 
+//-----------------------------------------------------------------------------
+// Class to represent an ICE session with a peer
+//-----------------------------------------------------------------------------
+enum EICERole
+{
+	k_EICERole_Controlling, // usually the "client" who initiated the connection
+	k_EICERole_Controlled, // usually the "server" who accepted the connection
+	k_EICERole_Unknown,
+};
+
+class IICESessionDelegate
+{
+public:
+	enum ELogPriority
+	{
+		k_ELogPriorityDebug,
+		k_ELogPriorityVerbose,
+		k_ELogPriorityInfo,
+		k_ELogPriorityWarning,
+		k_ELogPriorityError
+	};
+
+public:
+	virtual void Log( ELogPriority ePriority, const char *pszMessageFormat, ... ) = 0;
+
+	//
+	// Called during initialization to get configuration
+	//
+	virtual EICERole GetRole() { return k_EICERole_Unknown; }
+
+	// Return any STUN servers that should be used (default is stun:stun.l.google.com:19302)
+	virtual int GetNumStunServers() { return 0; }
+	virtual const char *GetStunServer( int iIndex ) { return nullptr; }
+
+	// Return any TURN servers that should be used
+	virtual int GetNumTurnServers() { return 0; }
+	virtual const char *GetTurnServer( int iIndex ) { return nullptr; }
+	virtual const char *GetTurnServerUsername() { return nullptr; }
+	virtual const char *GetTurnServerPassword() { return nullptr; }
+
+	//
+	// Callbacks that happen during operation
+	//
+
+	// Called when an ICE candidate becomes available
+	virtual void OnIceCandidateAdded( const char *pszSDPMid, int nSDPMLineIndex, const char *pszCandidate ) { }
+
+	// Called when the writable state changes.
+	// Use IICESession::IsWritable to get current state
+	virtual void OnWritableStateChanged() { }
+
+	// Called when data is received on the data channel
+	virtual void OnData( const void *pData, size_t nSize ) { }
+};
+
+//-----------------------------------------------------------------------------
+// Class to represent an ICE session with a peer
+//-----------------------------------------------------------------------------
+class IICESession
+{
+public:
+	virtual void Destroy() = 0;
+	virtual bool GetWritableState() = 0;
+	virtual bool BAddRemoteIceCandidate( const char *pszSDPMid, int nSDPMLineIndex, const char *pszCandidate ) = 0;
+	virtual bool BSendData( const void *pData, size_t nSize ) = 0;
+};
+
+
 
 //-----------------------------------------------------------------------------
 // The default port used by the STUN protocol
@@ -239,6 +307,12 @@ public:
 
 extern "C"
 {
+
+// FIXME - should probably delete these from public header, since they imply existance of DLL import lib, which we don't want to use
 DECLSPEC IWebRTCSession *CreateWebRTCSession( IWebRTCSessionDelegate *pDelegate, int nInterfaceVersion = STEAMWEBRTC_INTERFACE_VERSION );
+DECLSPEC IICESession *CreateWebRTCICESession( IICESessionDelegate *pDelegate, int nInterfaceVersion = STEAMWEBRTC_INTERFACE_VERSION );
 DECLSPEC IWebRTCTURNServer *CreateWebRTCTURNServer( IWebRTCTURNServerDelegate *pDelegate, int nInterfaceVersion = STEAMWEBRTC_INTERFACE_VERSION );
 }
+
+typedef IWebRTCSession *( *CreateWebRTCSession_t )( IWebRTCSessionDelegate *pDelegate, int nInterfaceVersion );
+typedef IICESession *( *CreateICESession_t )( IICESessionDelegate *pDelegate, int nInterfaceVersion );

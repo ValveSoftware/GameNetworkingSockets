@@ -8,6 +8,10 @@
 
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
 
+extern "C" {
+CreateICESession_t g_SteamNetworkingSockets_CreateICESessionFunc = nullptr;
+}
+
 // Put everything in a namespace, so we don't violate the one definition rule
 namespace SteamNetworkingSocketsLib {
 
@@ -36,10 +40,7 @@ struct WebRTCDataMsgHdr
 
 CConnectionTransportP2PWebRTC::CConnectionTransportP2PWebRTC( CSteamNetworkConnectionP2P &connection )
 : CConnectionTransport( connection )
-, m_pWebRTCSession( nullptr )
-, m_bWaitingOnOffer( false )
-, m_bWaitingOnAnswer( false )
-, m_bNeedToSendAnswer( false )
+, m_pICESession( nullptr )
 , m_pszNeedToSendSignalReason( nullptr )
 , m_usecSendSignalDeadline( INT64_MAX )
 , m_nRemoteCandidatesRevision( 0 )
@@ -55,7 +56,7 @@ CConnectionTransportP2PWebRTC::CConnectionTransportP2PWebRTC( CSteamNetworkConne
 
 CConnectionTransportP2PWebRTC::~CConnectionTransportP2PWebRTC()
 {
-	Assert( !m_pWebRTCSession );
+	Assert( !m_pICESession );
 }
 
 void CConnectionTransportP2PWebRTC::TransportPopulateConnectionInfo( SteamNetConnectionInfo_t &info ) const
@@ -70,10 +71,10 @@ void CConnectionTransportP2PWebRTC::GetDetailedConnectionStatus( SteamNetworking
 
 void CConnectionTransportP2PWebRTC::TransportFreeResources()
 {
-	if ( m_pWebRTCSession )
+	if ( m_pICESession )
 	{
-		m_pWebRTCSession->Release();
-		m_pWebRTCSession = nullptr;
+		m_pICESession->Destroy();
+		m_pICESession = nullptr;
 	}
 	ClearNextThinkTime();
 
@@ -82,6 +83,12 @@ void CConnectionTransportP2PWebRTC::TransportFreeResources()
 
 void CConnectionTransportP2PWebRTC::Init()
 {
+	if ( !g_SteamNetworkingSockets_CreateICESessionFunc )
+	{
+		NotifyConnectionFailed( k_ESteamNetConnectionEnd_Misc_InternalError, "CreateICESession factory not set" );
+		return;
+	}
+
 	{
 		CUtlVectorAutoPurge<char *> tempStunServers;
 		V_AllocAndSplitString( m_connection.m_connectionConfig.m_P2P_STUN_ServerList.Get().c_str(), ",", tempStunServers );
@@ -98,34 +105,12 @@ void CConnectionTransportP2PWebRTC::Init()
 		}
 	}
 
-	m_pWebRTCSession = ::CreateWebRTCSession( this );
-	if ( !m_pWebRTCSession )
+	m_pICESession = (*g_SteamNetworkingSockets_CreateICESessionFunc)( this, STEAMWEBRTC_INTERFACE_VERSION );
+	if ( !m_pICESession )
 	{
-		NotifyConnectionFailed( k_ESteamNetConnectionEnd_Misc_InternalError, "CreateWebRTCSession failed" );
+		NotifyConnectionFailed( k_ESteamNetConnectionEnd_Misc_InternalError, "CreateICESession failed" );
 		return;
 	}
-
-	if ( !m_pWebRTCSession->BAddDataChannel( false ) )
-	{
-		NotifyConnectionFailed( k_ESteamNetConnectionEnd_Misc_InternalError, "BAddDataChannel failed" );
-		return;
-	}
-
-	// If we are accepting a connection, then create the offer
-	if ( m_connection.m_bConnectionInitiatedRemotely )
-	{
-		if ( !m_pWebRTCSession->BCreateOffer() )
-		{
-			NotifyConnectionFailed( k_ESteamNetConnectionEnd_Misc_InternalError, "BCreateOffer failed" );
-			return;
-		}
-		SpewType( LogLevel_P2PRendezvous(), "[%s] Creating offer\n", ConnectionDescription() );
-	}
-	else
-	{
-		m_bWaitingOnOffer = true;
-	}
-
 }
 
 void CConnectionTransportP2PWebRTC::PopulateRendezvousMsg( CMsgSteamNetworkingP2PRendezvous &msg, SteamNetworkingMicroseconds usecNow )
@@ -134,14 +119,6 @@ void CConnectionTransportP2PWebRTC::PopulateRendezvousMsg( CMsgSteamNetworkingP2
 	m_usecSendSignalDeadline = INT64_MAX;
 
 	CMsgWebRTCRendezvous *pMsgWebRTC = msg.mutable_webrtc();
-
-	if ( !m_local_offer.empty() )
-		pMsgWebRTC->set_offer( m_local_offer );
-	if ( !m_local_answer.empty() && m_bNeedToSendAnswer )
-	{
-		m_bNeedToSendAnswer = false;
-		pMsgWebRTC->set_answer( m_local_answer );
-	}
 
 	// Any un-acked candidates that we are ready to (re)try
 	for ( LocalCandidate &s: m_vecLocalUnAckedCandidates )
@@ -176,56 +153,10 @@ void CConnectionTransportP2PWebRTC::PopulateRendezvousMsg( CMsgSteamNetworkingP2
 void CConnectionTransportP2PWebRTC::RecvRendezvous( const CMsgWebRTCRendezvous &msg, SteamNetworkingMicroseconds usecNow )
 {
 	// Safety
-	if ( !m_pWebRTCSession )
+	if ( !m_pICESession )
 	{
 		NotifyConnectionFailed( k_ESteamNetConnectionEnd_Misc_InternalError, "No IWebRTCSession?" );
 		return;
-	}
-
-	// Check for receiving the offer
-	if ( msg.has_offer() )
-	{
-		// Make sure we send back an answer as soon as we have one
-		m_bNeedToSendAnswer = true;
-
-		// Did we already get our answer?
-		if ( !m_local_answer.empty() )
-		{
-			// Retry send answer
-			ScheduleSendSignal( "ReplyAnswer" );
-		}
-		else if ( m_bWaitingOnOffer )
-		{
-			m_bWaitingOnOffer = false;
-			if ( !m_pWebRTCSession->BCreateAnswer( msg.offer().c_str() ) )
-			{
-				NotifyConnectionFailed( k_ESteamNetConnectionEnd_Misc_InternalError, "BCreateAnswer failed" );
-				return;
-			}
-		}
-		else
-		{
-			// We're waiting on answer from local WebRTC system.  Keep waiting
-		}
-	}
-
-	// Check for receiving the answer
-	if ( msg.has_answer() )
-	{
-
-		// We've got our answer.  Make sure we stop sending the offer
-		m_local_offer.clear();
-
-		// Only process the answer once
-		if ( m_bWaitingOnAnswer )
-		{
-			m_bWaitingOnAnswer = false;
-			if ( !m_pWebRTCSession->BSetAnswer( msg.answer().c_str() ) )
-			{
-				NotifyConnectionFailed( k_ESteamNetConnectionEnd_Misc_InternalError, "BSetAnswer failed" );
-				return;
-			}
-		}
 	}
 
 	// Check if they are acking that they have received candidates
@@ -261,7 +192,7 @@ void CConnectionTransportP2PWebRTC::RecvRendezvous( const CMsgWebRTCRendezvous &
 			// Take the update
 			for ( const CMsgWebRTCRendezvous_Candidate &c: msg.candidates() )
 			{
-				if ( m_pWebRTCSession->BAddRemoteIceCandidate( c.sdpm_id().c_str(), c.sdpm_line_index(), c.candidate().c_str() ) )
+				if ( m_pICESession->BAddRemoteIceCandidate( c.sdpm_id().c_str(), c.sdpm_line_index(), c.candidate().c_str() ) )
 				{
 					SpewType( LogLevel_P2PRendezvous(), "[%s] Processed remote Ice Candidate %s\n", ConnectionDescription(), c.ShortDebugString().c_str() );
 				}
@@ -294,10 +225,10 @@ void CConnectionTransportP2PWebRTC::QueueSelfDestruct()
 {
 
 	// Go ahead and free up our WebRTC session now, it is reference counted.
-	if ( m_pWebRTCSession )
+	if ( m_pICESession )
 	{
-		m_pWebRTCSession->Release();
-		m_pWebRTCSession = nullptr;
+		m_pICESession->Destroy();
+		m_pICESession = nullptr;
 	}
 
 	// Queue us for deletion
@@ -331,7 +262,7 @@ void CConnectionTransportP2PWebRTC::ScheduleSendSignal( const char *pszReason )
 void CConnectionTransportP2PWebRTC::Think( SteamNetworkingMicroseconds usecNow )
 {
 	// Are we dead?
-	if ( !m_pWebRTCSession )
+	if ( !m_pICESession )
 	{
 		Connection().CheckCleanupWebRTC();
 		// We could be deleted here!
@@ -457,7 +388,7 @@ void CConnectionTransportP2PWebRTC::SendEndToEndStatsMsg( EStatsReplyRequest eRe
 
 bool CConnectionTransportP2PWebRTC::SendDataPacket( SteamNetworkingMicroseconds usecNow )
 {
-	if ( !m_pWebRTCSession )
+	if ( !m_pICESession )
 	{
 		Assert( false );
 		return false;
@@ -474,7 +405,7 @@ bool CConnectionTransportP2PWebRTC::SendDataPacket( SteamNetworkingMicroseconds 
 
 int CConnectionTransportP2PWebRTC::SendEncryptedDataChunk( const void *pChunk, int cbChunk, SendPacketContext_t &ctxBase )
 {
-	if ( !m_pWebRTCSession )
+	if ( !m_pICESession )
 	{
 		Assert( false );
 		return 0;
@@ -520,7 +451,7 @@ int CConnectionTransportP2PWebRTC::SendEncryptedDataChunk( const void *pChunk, i
 	// *messages* instead of packets.
 
 	// Send it
-	if ( !m_pWebRTCSession->BSendData( pkt, cbSend ) )
+	if ( !m_pICESession->BSendData( pkt, cbSend ) )
 		return -1;
 	return cbSend;
 }
@@ -846,7 +777,7 @@ void CConnectionTransportP2PWebRTC::TransportConnectionStateChanged( ESteamNetwo
 
 void CConnectionTransportP2PWebRTC::SendMsg( uint8 nMsgID, const google::protobuf::MessageLite &msg )
 {
-	if ( !m_pWebRTCSession )
+	if ( !m_pICESession )
 		return;
 
 	uint8 pkt[ k_cbSteamNetworkingSocketsMaxUDPMsgLen ];
@@ -860,12 +791,14 @@ void CConnectionTransportP2PWebRTC::SendMsg( uint8 nMsgID, const google::protobu
 	uint8 *pEnd = msg.SerializeWithCachedSizesToArray( pkt+1 );
 	Assert( cbPkt == pEnd - pkt );
 
-	m_pWebRTCSession->BSendData( pkt, cbPkt );
+	m_pICESession->BSendData( pkt, cbPkt );
 }
 
 bool CConnectionTransportP2PWebRTC::BCanSendEndToEndData() const
 {
-	if ( !m_pWebRTCSession )
+	if ( !m_pICESession )
+		return false;
+	if ( !m_pICESession->GetWritableState() )
 		return false;
 	return true;
 }
@@ -905,13 +838,15 @@ private:
 };
 
 
-void CConnectionTransportP2PWebRTC::Log( IWebRTCSessionDelegate::ELogPriority ePriority, const char *pszMessageFormat, ... )
+void CConnectionTransportP2PWebRTC::Log( IICESessionDelegate::ELogPriority ePriority, const char *pszMessageFormat, ... )
 {
 	ESteamNetworkingSocketsDebugOutputType eType;
 	switch ( ePriority )
 	{
 		default:	
 			AssertMsg1( false, "Unknown priority %d", ePriority );
+			// FALLTHROUGH
+
 		case IWebRTCSessionDelegate::k_ELogPriorityDebug: eType = k_ESteamNetworkingSocketsDebugOutputType_Debug; break;
 		case IWebRTCSessionDelegate::k_ELogPriorityVerbose: eType = k_ESteamNetworkingSocketsDebugOutputType_Verbose; break;
 		case IWebRTCSessionDelegate::k_ELogPriorityInfo: eType = k_ESteamNetworkingSocketsDebugOutputType_Msg; break;
@@ -934,6 +869,11 @@ void CConnectionTransportP2PWebRTC::Log( IWebRTCSessionDelegate::ELogPriority eP
 	ReallySpewType( eType, "WebRTC: %s", buf ); // FIXME would like to get the connection description
 }
 
+EICERole CConnectionTransportP2PWebRTC::GetRole()
+{
+	return m_connection.m_bConnectionInitiatedRemotely ? k_EICERole_Controlled : k_EICERole_Controlling;
+}
+
 int CConnectionTransportP2PWebRTC::GetNumStunServers()
 {
 	return len( m_vecStunServers );
@@ -944,106 +884,6 @@ const char *CConnectionTransportP2PWebRTC::GetStunServer( int iIndex )
 	if ( iIndex < 0 || iIndex >= len( m_vecStunServers ) )
 		return nullptr;
 	return m_vecStunServers[ iIndex ].c_str();
-}
-
-void CConnectionTransportP2PWebRTC::OnSessionStateChanged( EWebRTCSessionState eState )
-{
-	if ( eState == k_EWebRTCSessionStateNew )
-		return; // Why do we get these?  Seems like a bug?
-
-	struct RunOnSessionStateChanged : IConnectionTransportP2PWebRTCRunWithLock
-	{
-		EWebRTCSessionState eState;
-		virtual void RunWebRTC( CConnectionTransportP2PWebRTC *pTransport )
-		{
-			if ( !pTransport->m_pWebRTCSession )
-				return;
-			// pTransport->m_pWebRTCSession->GetState() // FIXME - cannot check the current state, there is some bug in here
-			switch ( eState )
-			{
-				case k_EWebRTCSessionStateConnecting:
-				case k_EWebRTCSessionStateConnected:
-					break;
-
-				case k_EWebRTCSessionStateDisconnected:
-					pTransport->NotifyConnectionFailed( k_ESteamNetConnectionEnd_Misc_Timeout, "WebRTC disconnected" );
-					break;
-
-				default:
-					Assert( false );
-				case k_EWebRTCSessionStateFailed:
-					pTransport->NotifyConnectionFailed( k_ESteamNetConnectionEnd_Misc_Generic, "WebRTC failed" );
-					break;
-
-				case k_EWebRTCSessionStateClosed:
-					pTransport->NotifyConnectionFailed( k_ESteamNetConnectionEnd_Misc_Generic, "WebRTC closed" );
-					break;
-			}
-		}
-	};
-	RunOnSessionStateChanged *pRun = new RunOnSessionStateChanged;
-	pRun->m_nConnectionIDLocal = m_connection.m_unConnectionIDLocal;
-	pRun->eState = eState;
-	pRun->RunOrQueue( "WebRTC OnSessionStateChanged" );
-}
-
-void CConnectionTransportP2PWebRTC::OnOfferReady( bool bSuccess, const char *pszOffer )
-{
-	struct RunOnOfferReady : IConnectionTransportP2PWebRTCRunWithLock
-	{
-		bool bSuccess;
-		std::string offer;
-		virtual void RunWebRTC( CConnectionTransportP2PWebRTC *pTransport )
-		{
-			if ( !bSuccess )
-			{
-				pTransport->NotifyConnectionFailed( k_ESteamNetConnectionEnd_Misc_InternalError, "OnOfferReady failed" );
-				return;
-			}
-
-			SpewType( pTransport->LogLevel_P2PRendezvous(), "[%s] WebRTC OnOfferReady %s\n", pTransport->ConnectionDescription(), offer.c_str() );
-
-			pTransport->m_local_offer = std::move( offer );
-			pTransport->m_bWaitingOnAnswer = true;
-			pTransport->ScheduleSendSignal( "WebRTCOfferReady" );
-		}
-	};
-
-	RunOnOfferReady *pRun = new RunOnOfferReady;
-	pRun->m_nConnectionIDLocal = m_connection.m_unConnectionIDLocal;
-	pRun->bSuccess = bSuccess;
-	if ( bSuccess )
-		pRun->offer = pszOffer;
-	pRun->RunOrQueue( "WebRTC OnOfferReady" );
-}
-
-void CConnectionTransportP2PWebRTC::OnAnswerReady( bool bSuccess, const char *pszAnswer )
-{
-	struct RunOnAnswerReady : IConnectionTransportP2PWebRTCRunWithLock
-	{
-		bool bSuccess;
-		std::string answer;
-		virtual void RunWebRTC( CConnectionTransportP2PWebRTC *pTransport )
-		{
-			if ( !bSuccess )
-			{
-				pTransport->NotifyConnectionFailed( k_ESteamNetConnectionEnd_Misc_InternalError, "OnAnswerReady failed" );
-				return;
-			}
-
-			SpewType( pTransport->LogLevel_P2PRendezvous(), "[%s] WebRTC OnAnswerReady %s\n", pTransport->ConnectionDescription(), answer.c_str() );
-
-			pTransport->m_local_answer = std::move( answer );
-			pTransport->ScheduleSendSignal( "WebRTCAnswerReady" );
-		}
-	};
-
-	RunOnAnswerReady *pRun = new RunOnAnswerReady;
-	pRun->m_nConnectionIDLocal = m_connection.m_unConnectionIDLocal;
-	pRun->bSuccess = bSuccess;
-	if ( bSuccess )
-		pRun->answer = pszAnswer;
-	pRun->RunOrQueue( "WebRTC OnAnswerReady" );
 }
 
 void CConnectionTransportP2PWebRTC::OnIceCandidateAdded( const char *pszSDPMid, int nSDPMLineIndex, const char *pszCandidate )
@@ -1071,24 +911,6 @@ void CConnectionTransportP2PWebRTC::OnIceCandidateAdded( const char *pszSDPMid, 
 	pRun->candidate.set_sdpm_line_index( nSDPMLineIndex );
 	pRun->candidate.set_candidate( pszCandidate );
 	pRun->RunOrQueue( "WebRTC OnIceCandidateAdded" );
-}
-
-void CConnectionTransportP2PWebRTC::OnIceCandidatesComplete( const char *pszCandidates )
-{
-	// FIXME not thread safe
-	SpewType( LogLevel_P2PRendezvous(), "[%s] OnIceCandidatesComplete\n", ConnectionDescription() );
-
-	char hello[] = "hello";
-	m_pWebRTCSession->BSendData( (const uint8_t *)hello, sizeof(hello) );
-}
-
-void CConnectionTransportP2PWebRTC::OnSendPossible()
-{
-	// FIXME not thread safe
-	SpewType( LogLevel_P2PRendezvous(), "[%s] OnSendPossible\n", ConnectionDescription() );
-
-	char hello[] = "hello";
-	m_pWebRTCSession->BSendData( (const uint8_t *)hello, sizeof(hello) );
 }
 
 void CConnectionTransportP2PWebRTC::DrainPacketQueue( SteamNetworkingMicroseconds usecNow )
@@ -1122,9 +944,13 @@ void CConnectionTransportP2PWebRTC::DrainPacketQueue( SteamNetworkingMicrosecond
 	}
 }
 
-// FIXME - I'll bet WebRTC actually passes us a copy-on-write buffer.
-// Is there a way we can directly take this, to avoid copying the payload?
-void CConnectionTransportP2PWebRTC::OnData( const uint8_t *pPkt, size_t nSize )
+void CConnectionTransportP2PWebRTC::OnWritableStateChanged()
+{
+	// FIXME - should signal to connection to trigger thinking or
+	// re-evaluate transport
+}
+
+void CConnectionTransportP2PWebRTC::OnData( const void *pPkt, size_t nSize )
 {
 	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 	const int cbPkt = int(nSize);
@@ -1151,7 +977,7 @@ void CConnectionTransportP2PWebRTC::OnData( const uint8_t *pPkt, size_t nSize )
 		}
 
 		// And now process this packet
-		ProcessPacket( pPkt, cbPkt, usecNow );
+		ProcessPacket( (const uint8_t*)pPkt, cbPkt, usecNow );
 		SteamDatagramTransportLock::Unlock();
 		return;
 	}

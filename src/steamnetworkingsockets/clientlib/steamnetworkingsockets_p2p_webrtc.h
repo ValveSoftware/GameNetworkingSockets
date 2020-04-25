@@ -9,7 +9,9 @@
 
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
 
-#include <steamwebrtc.h>
+#include "../../external/steamwebrtc/steamwebrtc.h"
+
+extern "C" CreateICESession_t g_SteamNetworkingSockets_CreateICESessionFunc;
 
 class CMsgSteamSockets_UDP_Stats;
 class CMsgSteamSockets_WebRTC_ConnectionClosed;
@@ -24,7 +26,7 @@ struct UDPSendPacketContext_t;
 class CConnectionTransportP2PWebRTC
 : public CConnectionTransport
 , public IThinker
-, private IWebRTCSessionDelegate
+, private IICESessionDelegate
 {
 public:
 	CConnectionTransportP2PWebRTC( CSteamNetworkConnectionP2P &connection );
@@ -88,13 +90,8 @@ public:
 	bool m_bNeedToConfirmEndToEndConnectivity;
 
 private:
-	IWebRTCSession *m_pWebRTCSession;
+	IICESession *m_pICESession;
 
-	bool m_bWaitingOnOffer;
-	bool m_bWaitingOnAnswer;
-	bool m_bNeedToSendAnswer;
-	std::string m_local_offer;
-	std::string m_local_answer;
 	struct LocalCandidate
 	{
 		uint32 m_nRevision;
@@ -103,18 +100,16 @@ private:
 	};
 	std::vector< LocalCandidate > m_vecLocalUnAckedCandidates;
 
-	// Implements IWebRTCSessionDelegate
-	virtual void Log( IWebRTCSessionDelegate::ELogPriority ePriority, const char *pszMessageFormat, ... );
+	// Implements IICESessionDelegate
+	virtual void Log( IICESessionDelegate::ELogPriority ePriority, const char *pszMessageFormat, ... );
+	virtual EICERole GetRole() override;
 	virtual int GetNumStunServers() override;
 	virtual const char *GetStunServer( int iIndex ) override;
-	virtual void OnSessionStateChanged( EWebRTCSessionState eState ) override;
-	virtual void OnOfferReady( bool bSuccess, const char *pszOffer ) override;
-	virtual void OnAnswerReady( bool bSuccess, const char *pszAnswer ) override;
-	virtual void OnData( const uint8_t *pData, size_t nSize ) override;
+	virtual void OnData( const void *pData, size_t nSize ) override;
 	virtual void OnIceCandidateAdded( const char *pszSDPMid, int nSDPMLineIndex, const char *pszCandidate ) override;
-	virtual void OnIceCandidatesComplete( const char *pszCandidates ) override;
-	virtual void OnSendPossible() override;
+	virtual void OnWritableStateChanged() override;
 
+	// FIXME
 	//virtual int GetNumTurnServers() override;
 	//virtual const char *GetTurnServer( int iIndex ) { return nullptr; }
 	//virtual const char *GetTurnServerUsername() { return nullptr; }

@@ -237,6 +237,10 @@ void CSteamNetworkConnectionP2P::CheckInitWebRTC()
 	Assert( !m_pTransportP2PWebRTC );
 	Assert( !m_pTransportP2PWebRTCPendingDelete );
 
+	// Now ICE factory?
+	if ( !g_SteamNetworkingSockets_CreateICESessionFunc )
+		return;
+
 	// !FIXME! Check permissions based on remote host!
 
 	// For now, if we have no STUN servers, then no WebRTC,
@@ -520,6 +524,8 @@ void CSteamNetworkConnectionP2P::ThinkSelectTransport( SteamNetworkingMicrosecon
 		case k_ESteamNetworkingConnectionState_None:
 		default:
 			Assert( false );
+			// FALLTHROUGH
+
 		case k_ESteamNetworkingConnectionState_ClosedByPeer:
 		case k_ESteamNetworkingConnectionState_FinWait:
 		case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
