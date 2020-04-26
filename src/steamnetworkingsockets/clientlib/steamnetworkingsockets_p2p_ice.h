@@ -1,7 +1,7 @@
 //====== Copyright Valve Corporation, All rights reserved. ====================
 
-#ifndef STEAMNETWORKINGSOCKETS_P2P_WEBRTC_H
-#define STEAMNETWORKINGSOCKETS_P2P_WEBRTC_H
+#ifndef STEAMNETWORKINGSOCKETS_P2P_ICE_H
+#define STEAMNETWORKINGSOCKETS_P2P_ICE_H
 #pragma once
 
 #include "steamnetworkingsockets_p2p.h"
@@ -14,8 +14,8 @@
 extern "C" CreateICESession_t g_SteamNetworkingSockets_CreateICESessionFunc;
 
 class CMsgSteamSockets_UDP_Stats;
-class CMsgSteamSockets_WebRTC_ConnectionClosed;
-class CMsgSteamSockets_WebRTC_PingCheck;
+class CMsgSteamSockets_ICE_ConnectionClosed;
+class CMsgSteamSockets_ICE_PingCheck;
 
 namespace SteamNetworkingSocketsLib {
 
@@ -118,8 +118,8 @@ private:
 	void DrainPacketQueue( SteamNetworkingMicroseconds usecNow );
 	void ProcessPacket( const uint8_t *pData, int cbPkt, SteamNetworkingMicroseconds usecNow );
 	void Received_Data( const uint8 *pPkt, int cbPkt, SteamNetworkingMicroseconds usecNow );
-	void Received_ConnectionClosed( const CMsgSteamSockets_WebRTC_ConnectionClosed &msg, SteamNetworkingMicroseconds usecNow );
-	void Received_PingCheck( const CMsgSteamSockets_WebRTC_PingCheck &msg, SteamNetworkingMicroseconds usecNow );
+	void Received_ConnectionClosed( const CMsgSteamSockets_ICE_ConnectionClosed &msg, SteamNetworkingMicroseconds usecNow );
+	void Received_PingCheck( const CMsgSteamSockets_ICE_PingCheck &msg, SteamNetworkingMicroseconds usecNow );
 
 	void SendMsg( uint8 nMsgID, const google::protobuf::MessageLite &msg );
 
@@ -136,4 +136,4 @@ private:
 
 #endif // #ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
 
-#endif // STEAMNETWORKINGSOCKETS_P2P_WEBRTC_H
+#endif // STEAMNETWORKINGSOCKETS_P2P_ICE_H

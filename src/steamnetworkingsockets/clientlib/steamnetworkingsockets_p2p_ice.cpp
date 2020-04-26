@@ -16,12 +16,18 @@ CreateICESession_t g_SteamNetworkingSockets_CreateICESessionFunc = nullptr;
 namespace SteamNetworkingSocketsLib {
 
 #pragma pack( push, 1 )
-struct WebRTCDataMsgHdr
+struct ICEDataMsgHdr
 {
 	enum
 	{
 		kFlag_ProtobufBlob  = 0x01, // Protobuf-encoded message is inline (CMsgSteamSockets_UDP_Stats)
 	};
+
+	// NOTE: No connection ID in header.  It is assumed that ICE is appending these.
+	// FIXME - is that true anymore?  I need to confirm exactly what is going on the wire.
+	// It would be great if all of these messages could be the exact same as the ordinary
+	// UDP ones, so that the ICE-negotiated connections looked the same as plain UDP on the wire,
+	// once NAT is punched.
 
 	uint8 m_unMsgFlags;
 	uint16 m_unSeqNum;
@@ -155,7 +161,7 @@ void CConnectionTransportP2PICE::RecvRendezvous( const CMsgWebRTCRendezvous &msg
 	// Safety
 	if ( !m_pICESession )
 	{
-		NotifyConnectionFailed( k_ESteamNetConnectionEnd_Misc_InternalError, "No IWebRTCSession?" );
+		NotifyConnectionFailed( k_ESteamNetConnectionEnd_Misc_InternalError, "No IICESession?" );
 		return;
 	}
 
@@ -213,7 +219,7 @@ void CConnectionTransportP2PICE::NotifyConnectionFailed( int nReasonCode, const 
 	// Remember reason code, if we didn't already set one
 	if ( Connection().m_nICECloseCode == 0 )
 	{
-		SpewType( LogLevel_P2PRendezvous(), "[%s] WebRTC failed %d %s\n", ConnectionDescription(), nReasonCode, pszReason );
+		SpewType( LogLevel_P2PRendezvous(), "[%s] ICE failed %d %s\n", ConnectionDescription(), nReasonCode, pszReason );
 		Connection().m_nICECloseCode = nReasonCode;
 		V_strcpy_safe( Connection().m_szICECloseMsg, pszReason );
 	}
@@ -224,7 +230,7 @@ void CConnectionTransportP2PICE::NotifyConnectionFailed( int nReasonCode, const 
 void CConnectionTransportP2PICE::QueueSelfDestruct()
 {
 
-	// Go ahead and free up our WebRTC session now, it is reference counted.
+	// Go ahead and free up our ICE session now, it is reference counted.
 	if ( m_pICESession )
 	{
 		m_pICESession->Destroy();
@@ -288,7 +294,7 @@ void CConnectionTransportP2PICE::Think( SteamNetworkingMicroseconds usecNow )
 			if ( m_nReplyTimeoutsSinceLastRecv > 2 && !m_bNeedToConfirmEndToEndConnectivity )
 			{
 				m_bNeedToConfirmEndToEndConnectivity = true;
-				SpewWarning( "[%s] WebRTC end-to-end connectivity needs to be re-confirmed, %d consecutive timeouts\n", ConnectionDescription(), m_nReplyTimeoutsSinceLastRecv );
+				SpewWarning( "[%s] ICE end-to-end connectivity needs to be re-confirmed, %d consecutive timeouts\n", ConnectionDescription(), m_nReplyTimeoutsSinceLastRecv );
 				Connection().TransportEndToEndConnectivityChanged( this );
 			}
 		}
@@ -319,9 +325,9 @@ void CConnectionTransportP2PICE::Think( SteamNetworkingMicroseconds usecNow )
 				)
 			)
 		) {
-			CMsgSteamSockets_WebRTC_PingCheck msgPing;
+			CMsgSteamSockets_ICE_PingCheck msgPing;
 			msgPing.set_send_timestamp( usecNow );
-			SendMsg( k_ESteamNetworkingWebRTCMsg_PingCheck, msgPing );
+			SendMsg( k_ESteamNetworkingICEMsg_PingCheck, msgPing );
 			TrackSentPingRequest( usecNow, false );
 
 			Assert( m_usecInFlightReplyTimeout > usecNow );
@@ -375,7 +381,7 @@ void CConnectionTransportP2PICE::TrackSentPingRequest( SteamNetworkingMicrosecon
 void CConnectionTransportP2PICE::SendStatsMsg( EStatsReplyRequest eReplyRequested, SteamNetworkingMicroseconds usecNow, const char *pszReason )
 {
 	UDPSendPacketContext_t ctx( usecNow, pszReason );
-	ctx.Populate( sizeof(WebRTCDataMsgHdr), eReplyRequested, m_connection );
+	ctx.Populate( sizeof(ICEDataMsgHdr), eReplyRequested, m_connection );
 
 	// Send a data packet (maybe containing ordinary data), with this piggy backed on top of it
 	m_connection.SNP_SendPacket( this, ctx );
@@ -397,7 +403,7 @@ bool CConnectionTransportP2PICE::SendDataPacket( SteamNetworkingMicroseconds use
 
 	// Populate context struct with any stats we want/need to send, and how much space we need to reserve for it
 	UDPSendPacketContext_t ctx( usecNow, "data" );
-	ctx.Populate( sizeof(WebRTCDataMsgHdr), k_EStatsReplyRequest_NothingToSend, m_connection );
+	ctx.Populate( sizeof(ICEDataMsgHdr), k_EStatsReplyRequest_NothingToSend, m_connection );
 
 	// Send a packet
 	return m_connection.SNP_SendPacket( this, ctx );
@@ -414,7 +420,7 @@ int CConnectionTransportP2PICE::SendEncryptedDataChunk( const void *pChunk, int 
 	UDPSendPacketContext_t &ctx = static_cast<UDPSendPacketContext_t &>( ctxBase );
 
 	uint8 pkt[ k_cbSteamNetworkingSocketsMaxUDPMsgLen ];
-	WebRTCDataMsgHdr *hdr = (WebRTCDataMsgHdr *)pkt;
+	ICEDataMsgHdr *hdr = (ICEDataMsgHdr *)pkt;
 	hdr->m_unMsgFlags = 0x80;
 	hdr->m_unSeqNum = LittleWord( m_connection.m_statsEndToEnd.ConsumeSendPacketNumberAndGetWireFmt( ctx.m_usecNow ) );
 
@@ -522,7 +528,7 @@ void CConnectionTransportP2PICE::TrackSentStats( const CMsgSteamSockets_UDP_Stat
 	);
 }
 
-static void ReallyReportBadWebRTCPacket( CConnectionTransportP2PICE *pTransport, const char *pszMsgType, const char *pszFmt, ... )
+static void ReallyReportBadICEPacket( CConnectionTransportP2PICE *pTransport, const char *pszMsgType, const char *pszFmt, ... )
 {
 	char buf[ 2048 ];
 	va_list ap;
@@ -539,7 +545,7 @@ static void ReallyReportBadWebRTCPacket( CConnectionTransportP2PICE *pTransport,
 
 
 #define ReportBadPacket( pszMsgType, /* fmt */ ... ) \
-	( BCheckRateLimitReportBadPacket( usecNow ) ? ReallyReportBadWebRTCPacket( this, pszMsgType, __VA_ARGS__ ) : (void)0 )
+	( BCheckRateLimitReportBadPacket( usecNow ) ? ReallyReportBadICEPacket( this, pszMsgType, __VA_ARGS__ ) : (void)0 )
 
 #define ParseProtobufBody( pvMsg, cbMsg, CMsgCls, msgVar ) \
 	CMsgCls msgVar; \
@@ -567,14 +573,14 @@ void CConnectionTransportP2PICE::ProcessPacket( const uint8_t *pPkt, int cbPkt, 
 	// Track stats for other packet types.
 	m_connection.m_statsEndToEnd.TrackRecvPacket( cbPkt, usecNow );
 
-	if ( *pPkt == k_ESteamNetworkingWebRTCMsg_ConnectionClosed )
+	if ( *pPkt == k_ESteamNetworkingICEMsg_ConnectionClosed )
 	{
-		ParseProtobufBody( pPkt+1, cbPkt-1, CMsgSteamSockets_WebRTC_ConnectionClosed, msg )
+		ParseProtobufBody( pPkt+1, cbPkt-1, CMsgSteamSockets_ICE_ConnectionClosed, msg )
 		Received_ConnectionClosed( msg, usecNow );
 	}
-	else if ( *pPkt == k_ESteamNetworkingWebRTCMsg_PingCheck )
+	else if ( *pPkt == k_ESteamNetworkingICEMsg_PingCheck )
 	{
-		ParseProtobufBody( pPkt+1, cbPkt-1, CMsgSteamSockets_WebRTC_PingCheck, msg )
+		ParseProtobufBody( pPkt+1, cbPkt-1, CMsgSteamSockets_ICE_PingCheck, msg )
 		Received_PingCheck( msg, usecNow );
 	}
 	else
@@ -586,7 +592,7 @@ void CConnectionTransportP2PICE::ProcessPacket( const uint8_t *pPkt, int cbPkt, 
 void CConnectionTransportP2PICE::Received_Data( const uint8 *pPkt, int cbPkt, SteamNetworkingMicroseconds usecNow )
 {
 
-	if ( cbPkt < sizeof(WebRTCDataMsgHdr) )
+	if ( cbPkt < sizeof(ICEDataMsgHdr) )
 	{
 		ReportBadPacket( "data", "Packet of size %d is too small.", cbPkt );
 		return;
@@ -603,7 +609,7 @@ void CConnectionTransportP2PICE::Received_Data( const uint8 *pPkt, int cbPkt, St
 			return;
 
 		case k_ESteamNetworkingConnectionState_ClosedByPeer:
-			// Ignore.  When the connection is closed, we should close the WebRTC connection.
+			// Ignore.  When the connection is closed, we should close the ICE connection.
 			// but we might have had some last packets queued
 			return;
 
@@ -626,7 +632,7 @@ void CConnectionTransportP2PICE::Received_Data( const uint8 *pPkt, int cbPkt, St
 	}
 
 	// Check header
-	const WebRTCDataMsgHdr *hdr = (const WebRTCDataMsgHdr *)pPkt;
+	const ICEDataMsgHdr *hdr = (const ICEDataMsgHdr *)pPkt;
 	uint16 nWirePktNumber = LittleWord( hdr->m_unSeqNum );
 
 	const uint8 *pIn = pPkt + sizeof(*hdr);
@@ -685,13 +691,13 @@ void CConnectionTransportP2PICE::Received_Data( const uint8 *pPkt, int cbPkt, St
 		RecvStats( *pMsgStatsIn, true, usecNow );
 }
 
-void CConnectionTransportP2PICE::Received_ConnectionClosed( const CMsgSteamSockets_WebRTC_ConnectionClosed &msg, SteamNetworkingMicroseconds usecNow )
+void CConnectionTransportP2PICE::Received_ConnectionClosed( const CMsgSteamSockets_ICE_ConnectionClosed &msg, SteamNetworkingMicroseconds usecNow )
 {
 	// Generic connection code will take it from here.
 	m_connection.ConnectionState_ClosedByPeer( msg.reason_code(), msg.debug().c_str() );
 }
 
-void CConnectionTransportP2PICE::Received_PingCheck( const CMsgSteamSockets_WebRTC_PingCheck &msg, SteamNetworkingMicroseconds usecNow )
+void CConnectionTransportP2PICE::Received_PingCheck( const CMsgSteamSockets_ICE_PingCheck &msg, SteamNetworkingMicroseconds usecNow )
 {
 	if ( msg.has_recv_timestamp() )
 	{
@@ -709,7 +715,7 @@ void CConnectionTransportP2PICE::Received_PingCheck( const CMsgSteamSockets_WebR
 			if ( m_bNeedToConfirmEndToEndConnectivity )
 			{
 				m_bNeedToConfirmEndToEndConnectivity = false;
-				SpewMsg( "[%s] WebRTC end-to-end connectivity confirmed, ping = %.1fms\n", ConnectionDescription(), usecElapsed*1e-3 );
+				SpewMsg( "[%s] ICE end-to-end connectivity confirmed, ping = %.1fms\n", ConnectionDescription(), usecElapsed*1e-3 );
 				Connection().TransportEndToEndConnectivityChanged( this );
 			}
 		}
@@ -718,7 +724,7 @@ void CConnectionTransportP2PICE::Received_PingCheck( const CMsgSteamSockets_WebR
 	// Are they asking for a reply?
 	if ( msg.has_send_timestamp() )
 	{
-		CMsgSteamSockets_WebRTC_PingCheck pong;
+		CMsgSteamSockets_ICE_PingCheck pong;
 		pong.set_recv_timestamp( msg.send_timestamp() );
 
 		// We're sending a ping message.  Ask for them to ping us back again?
@@ -729,7 +735,7 @@ void CConnectionTransportP2PICE::Received_PingCheck( const CMsgSteamSockets_WebR
 			TrackSentPingRequest( usecNow, false );
 		}
 
-		SendMsg( k_ESteamNetworkingWebRTCMsg_PingCheck, pong );
+		SendMsg( k_ESteamNetworkingICEMsg_PingCheck, pong );
 	}
 }
 
@@ -805,19 +811,19 @@ bool CConnectionTransportP2PICE::BCanSendEndToEndData() const
 
 /////////////////////////////////////////////////////////////////////////////
 //
-// IWebRTCSessionDelegate handlers
+// IICESessionDelegate handlers
 //
 // NOTE: These can be invoked from any thread,
 // and we won't hold the lock
 //
 /////////////////////////////////////////////////////////////////////////////
 
-class IConnectionTransportP2PWebRTCRunWithLock : public ISteamNetworkingSocketsRunWithLock
+class IConnectionTransportP2PICERunWithLock : public ISteamNetworkingSocketsRunWithLock
 {
 public:
 	uint32 m_nConnectionIDLocal;
 
-	virtual void RunWebRTC( CConnectionTransportP2PICE *pTransport ) = 0;
+	virtual void RunTransportP2PICE( CConnectionTransportP2PICE *pTransport ) = 0;
 private:
 	virtual void Run()
 	{
@@ -833,7 +839,7 @@ private:
 		if ( !pConn->m_pTransportICE )
 			return;
 
-		RunWebRTC( pConn->m_pTransportICE );
+		RunTransportP2PICE( pConn->m_pTransportICE );
 	}
 };
 
@@ -888,10 +894,10 @@ const char *CConnectionTransportP2PICE::GetStunServer( int iIndex )
 
 void CConnectionTransportP2PICE::OnIceCandidateAdded( const char *pszSDPMid, int nSDPMLineIndex, const char *pszCandidate )
 {
-	struct RunIceCandidateAdded : IConnectionTransportP2PWebRTCRunWithLock
+	struct RunIceCandidateAdded : IConnectionTransportP2PICERunWithLock
 	{
 		CMsgWebRTCRendezvous_Candidate candidate;
-		virtual void RunWebRTC( CConnectionTransportP2PICE *pTransport )
+		virtual void RunTransportP2PICE( CConnectionTransportP2PICE *pTransport )
 		{
 			SpewType( pTransport->LogLevel_P2PRendezvous(), "[%s] WebRTC OnIceCandidateAdded %s\n", pTransport->ConnectionDescription(), candidate.ShortDebugString().c_str() );
 
@@ -998,9 +1004,9 @@ void CConnectionTransportP2PICE::OnData( const void *pPkt, size_t nSize )
 	// the buffer lock when we checked if the queue was empty.
 	if ( !bQueueWasEmpty )
 	{
-		struct RunDrainQueue : IConnectionTransportP2PWebRTCRunWithLock
+		struct RunDrainQueue : IConnectionTransportP2PICERunWithLock
 		{
-			virtual void RunWebRTC( CConnectionTransportP2PICE *pTransport )
+			virtual void RunTransportP2PICE( CConnectionTransportP2PICE *pTransport )
 			{
 				pTransport->DrainPacketQueue( SteamNetworkingSockets_GetLocalTimestamp() );
 			}

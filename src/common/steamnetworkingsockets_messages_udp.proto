@@ -151,26 +151,26 @@ message CMsgSteamSockets_UDP_Stats
 
 //=============================================================================
 //
-// WebRTC messages.  WebRT connections are established thorugh signaling,
+// ICE-mediated messages.  ICE connections are established through signaling,
 // and have their own handshake and Connection ID in the header, so the
 // messages have slightly different contents
 //
 //=============================================================================
 
-/// Control message IDs used by WebRTC connections
-enum ESteamNetworkingWebRTCMsgID
+/// Control message IDs used by ICE connections
+enum ESteamNetworkingICEMsgID
 {
 	// NOTE: Connect request/ok always go through signaling
 
-	k_ESteamNetworkingWebRTCMsg_ConnectionClosed = 36; // Used to initiate graceful connection closure.  Peer is expected to close WebRTC connection in reply
-	//k_ESteamNetworkingWebRTCMsg_NoConnection = 37; // We just close the WebRTC connection and let WebRTC deal with it
-	k_ESteamNetworkingWebRTCMsg_PingCheck = 39;
+	k_ESteamNetworkingICEMsg_ConnectionClosed = 36; // Used to initiate graceful connection closure.  Peer is expected to close ICE connection in reply
+	//k_ESteamNetworkingICEMsg_NoConnection = 37; // We just close the ICE connection and let ICE deal with it
+	k_ESteamNetworkingICEMsg_PingCheck = 39;
 };
 
-// k_ESteamNetworkingWebRTCMsg_ConnectionClosed
-message CMsgSteamSockets_WebRTC_ConnectionClosed
+// k_ESteamNetworkingICEMsg_ConnectionClosed
+message CMsgSteamSockets_ICE_ConnectionClosed
 {
-	// No connection IDs.  We assume WebRTC is doing that
+	// No connection IDs.  We assume ICE is doing that
 	//optional fixed32 to_connection_id = 4;
 	//optional fixed32 from_connection_id = 5;
 
@@ -178,8 +178,8 @@ message CMsgSteamSockets_WebRTC_ConnectionClosed
 	optional uint32 reason_code = 3;
 };
 
-// k_ESteamNetworkingWebRTCMsg_PingCheck
-message CMsgSteamSockets_WebRTC_PingCheck
+// k_ESteamNetworkingICEMsg_PingCheck
+message CMsgSteamSockets_ICE_PingCheck
 {
 	optional fixed64 send_timestamp = 1; // If present, receiver should immediately reply with this in recv_timestamp
 	optional fixed64 recv_timestamp = 2;
