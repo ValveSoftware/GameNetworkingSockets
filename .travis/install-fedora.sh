@@ -9,6 +9,7 @@ PACKAGES=(
 	gcc-c++
 	libasan
 	libubsan
+	ccache
 	clang
 	cmake
 	meson
@@ -17,6 +18,7 @@ PACKAGES=(
 
 PACKAGES+=(protobuf-compiler protobuf-devel)
 PACKAGES+=(openssl-devel)
+PACKAGES+=(libsodium-devel)
 
 dnf install -y "${PACKAGES[@]}"
 

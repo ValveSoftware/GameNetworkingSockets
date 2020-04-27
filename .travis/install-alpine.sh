@@ -9,8 +9,10 @@ apk update
 # Base build packages
 PACKAGES=(
 	clang
+	clang-dev
 	gcc
 	g++
+	ccache
 	cmake
 	meson
 	pkgconf
@@ -18,6 +20,7 @@ PACKAGES=(
 
 PACKAGES+=(protobuf-dev)
 PACKAGES+=(openssl-dev)
+PACKAGES+=(libsodium-dev)
 
 apk add "${PACKAGES[@]}"
 

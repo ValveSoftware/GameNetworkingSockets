@@ -3,7 +3,7 @@
 
 #include <tier1/utlbuffer.h>
 #include <crypto.h>
-#include <crypto_constants.h>
+#include <crypto_25519.h>
 
 #ifdef LINUX
 #include <unistd.h>
@@ -307,8 +307,6 @@ void TestSymmetricAuthCryptoVectors()
 	#endif
 
 	// Check against known test vectors
-	TestSymmetricAuthCrypto_EncryptTestVectorFile( TEST_VECTOR_DIR "gcmEncryptExtIV128.rsp" );
-	TestSymmetricAuthCrypto_EncryptTestVectorFile( TEST_VECTOR_DIR "gcmEncryptExtIV192.rsp" );
 	TestSymmetricAuthCrypto_EncryptTestVectorFile( TEST_VECTOR_DIR "gcmEncryptExtIV256.rsp" );
 }
 

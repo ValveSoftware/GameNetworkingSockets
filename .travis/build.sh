@@ -58,17 +58,22 @@ has cmake || has meson || die "No build system available"
 # We also need at least one compiler
 has_clang || has_gcc || die "No compiler available"
 
+export CCACHE_DIR=$PWD/build-travis-ccache
+ccache -M4G
+
 if has_clang; then
 	msg "Beginning build tests with Clang"
-	export CC=clang CXX=clang++
+	export CC="ccache clang" CXX="ccache clang++"
 	has meson && bash .travis/build-meson.sh
+	export CC=clang CXX=clang++
 	has cmake && bash .travis/build-cmake.sh
 fi
 
 if has_gcc; then
 	msg "Beginning build tests with GCC"
-	export CC=gcc CXX=g++
+	export CC="ccache gcc" CXX="ccache g++"
 	has meson && bash .travis/build-meson.sh
+	export CC=gcc CXX=g++
 	has cmake && bash .travis/build-cmake.sh
 fi
 

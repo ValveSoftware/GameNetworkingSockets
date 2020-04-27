@@ -21,6 +21,7 @@
 namespace SteamNetworkingSocketsLib {
 
 class CSteamNetworkingUtils;
+class CSteamNetworkListenSocketP2P;
 
 /////////////////////////////////////////////////////////////////////////////
 //
@@ -96,6 +97,8 @@ public:
 	virtual bool DestroyPollGroup( HSteamNetPollGroup hPollGroup ) override;
 	virtual bool SetConnectionPollGroup( HSteamNetConnection hConn, HSteamNetPollGroup hPollGroup ) override;
 	virtual int ReceiveMessagesOnPollGroup( HSteamNetPollGroup hPollGroup, SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages ) override; 
+	virtual HSteamNetConnection ConnectP2PCustomSignaling( ISteamNetworkingConnectionCustomSignaling *pSignaling, const SteamNetworkingIdentity *pPeerIdentity, int nOptions, const SteamNetworkingConfigValue_t *pOptions ) override;
+	virtual bool ReceivedP2PCustomSignal( const void *pMsg, int cbMsg, ISteamNetworkingCustomSignalingRecvContext *pContext ) override;
 
 	virtual bool GetCertificateRequest( int *pcbBlob, void *pBlob, SteamNetworkingErrMsg &errMsg ) override;
 	virtual bool SetCertificate( const void *pCertificate, int cbCertificate, SteamNetworkingErrMsg &errMsg ) override;
@@ -111,11 +114,27 @@ public:
 	/// Configuration options that will apply to all connections on this interface
 	ConnectionConfig m_connectionConfig;
 
+	/// List of existing CSteamNetworkingSockets instances.  This is used, for example,
+	/// if we want to initiate a P2P connection to a local identity, we can instead
+	/// use a loopback connection.
+	static std::vector<CSteamNetworkingSockets *> s_vecSteamNetworkingSocketsInstances;
+
+	CUtlHashMap<int,CSteamNetworkListenSocketP2P *,std::equal_to<int>,std::hash<int>> m_mapListenSocketsByVirtualPort;
+
+#ifdef STEAMNETWORKINGSOCKETS_HAS_DEFAULT_P2P_SIGNALING
+	inline CSteamNetworkingMessages *GetSteamNetworkingMessages()
+	{
+		if ( !m_pSteamNetworkingMessages )
+			m_pSteamNetworkingMessages = CreateSteamNetworkingMessages();
+		return m_pSteamNetworkingMessages;
+	}
+	virtual CSteamNetworkingMessages *CreateSteamNetworkingMessages() = 0;
+#endif // #ifdef STEAMNETWORKINGSOCKETS_HAS_DEFAULT_P2P_SIGNALING
+	CSteamNetworkingMessages *m_pSteamNetworkingMessages;
+
 protected:
 
 	void KillConnections();
-
-	static int s_nSteamNetworkingSocketsInitted;
 
 	SteamNetworkingIdentity m_identity;
 
@@ -132,16 +151,9 @@ protected:
 #endif
 
 	bool m_bHaveLowLevelRef;
-	bool BInitLowLevel( SteamNetworkingErrMsg &errMsg )
-	{
-		if ( !m_bHaveLowLevelRef )
-		{
-			if ( !BSteamNetworkingSocketsLowLevelAddRef( errMsg) )
-				return false;
-			m_bHaveLowLevelRef = true;
-		}
-		return true;
-	}
+	bool BInitLowLevel( SteamNetworkingErrMsg &errMsg );
+
+	HSteamNetConnection InternalConnectP2P( ISteamNetworkingConnectionCustomSignaling *pSignaling, const SteamNetworkingIdentity *pPeerIdentity, int nVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions );
 
 	// Protected - use Destroy()
 	virtual ~CSteamNetworkingSockets();

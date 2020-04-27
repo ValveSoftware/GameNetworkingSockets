@@ -174,7 +174,9 @@ protected:
 		gameserver one.  Yes, this is a completely terrible hack */
 		SteamInternal_FindOrCreateUserInterface( 0, STEAMNETWORKINGUTILS_INTERFACE_VERSION ) ?
 		SteamInternal_FindOrCreateUserInterface( 0, STEAMNETWORKINGUTILS_INTERFACE_VERSION ) :
-		SteamInternal_FindOrCreateGameServerInterface( 0, STEAMNETWORKINGUTILS_INTERFACE_VERSION )
+		SteamInternal_FindOrCreateGameServerInterface( 0, STEAMNETWORKINGUTILS_INTERFACE_VERSION ),
+		"global",
+		STEAMNETWORKINGUTILS_INTERFACE_VERSION
 	)
 #endif
 

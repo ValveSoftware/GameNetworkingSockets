@@ -7,9 +7,10 @@ protoc = generator(protoc_bin,
   output    : ['@BASENAME@.pb.cc', '@BASENAME@.pb.h'],
   arguments : ['-I@CURRENT_SOURCE_DIR@/common', '--proto_path=@CURRENT_SOURCE_DIR@', '--cpp_out=@BUILD_DIR@', '@INPUT@'])
 
-use_bcrypt = get_option('use_bcrypt')
+use_crypto = get_option('use_crypto')
+use_crypto25519 = get_option('use_crypto25519')
 
-if not use_bcrypt
+if use_crypto == 'OpenSSL' or use_crypto25519 == 'OpenSSL'
   min_libcrypto = dependency('libcrypto', version: '>=1.1.0')
   good_libcrypto = dependency('libcrypto', version: '>=1.1.1', required: false)
 
@@ -17,6 +18,10 @@ if not use_bcrypt
     dependencies += [ good_libcrypto ]
   else
     dependencies += [ min_libcrypto ]
+  endif
+
+  if use_crypto25519 == 'OpenSSL' and not good_libcrypto.found()
+    error('This version of OpenSSL does not support ed25519/curve25519. Please use -Duse_crypto25519=Reference or upgrade OpenSSL to 1.1.1 or later.')
   endif
 
   code = '''#include <openssl/evp.h>
@@ -31,6 +36,10 @@ if not use_bcrypt
   endif
 endif
 
+if use_crypto == 'libsodium' or use_crypto25519 == 'libsodium'
+  dependencies += [ dependency('libsodium') ]
+endif
+
 dependencies += [
   dep_threads,
   dependency('protobuf', version: '>=3.0.0'),
@@ -40,7 +49,7 @@ incdirs = include_directories('.', '../include', 'common', 'public')
 
 cpp_flags = [
   '-DSTEAMNETWORKINGSOCKETS_FOREXPORT',
-  '-DENABLE_OPENSSLCONNECTION',
+  '-DVALVE_CRYPTO_ENABLE_25519',
   '-DCRYPTO_DISABLE_ENCRYPT_WITH_PASSWORD',
   '-DGOOGLE_PROTOBUF_NO_RTTI',
 ]
@@ -67,12 +76,14 @@ sources = [
   'steamnetworkingsockets/clientlib/steamnetworkingsockets_flat.cpp',
   'steamnetworkingsockets/clientlib/steamnetworkingsockets_connections.cpp',
   'steamnetworkingsockets/clientlib/steamnetworkingsockets_lowlevel.cpp',
+  'steamnetworkingsockets/clientlib/steamnetworkingsockets_p2p.cpp',
   'steamnetworkingsockets/clientlib/steamnetworkingsockets_snp.cpp',
   'steamnetworkingsockets/clientlib/steamnetworkingsockets_udp.cpp',
   'steamnetworkingsockets/steamnetworkingsockets_certs.cpp',
   'steamnetworkingsockets/steamnetworkingsockets_certstore.cpp',
   'steamnetworkingsockets/steamnetworkingsockets_shared.cpp',
   'steamnetworkingsockets/steamnetworkingsockets_stats.cpp',
+  'steamnetworkingsockets/steamnetworkingsockets_thinker.cpp',
   'tier0/dbg.cpp',
   'tier0/platformtime.cpp',
   'tier1/bitstring.cpp',
@@ -83,26 +94,39 @@ sources = [
   'vstdlib/strtools.cpp',
 ]
 
-if use_bcrypt
-  dependencies += [ c_compiler.find_library('bcrypt') ]
-  sources += [ 'common/crypto_bcrypt.cpp' ]
-  cpp_flags += [ '-DED25519_HASH_BCRYPT', '-DSTEAMNETWORKINGSOCKETS_CRYPTO_BCRYPT' ]
-else
+if use_crypto == 'OpenSSL'
   cpp_flags += [ '-DSTEAMNETWORKINGSOCKETS_CRYPTO_VALVEOPENSSL' ]
   sources += [
     'common/opensslwrapper.cpp',
     'common/crypto_openssl.cpp',
   ]
-
-  # Use OpenSSL for 25519 if possible
-  if good_libcrypto.found()
-    cpp_flags += [ '-DSTEAMNETWORKINGSOCKETS_CRYPTO_25519_OPENSSL' ]
-    sources += [ 'common/crypto_25519_openssl.cpp' ]
-  endif
 endif
 
-# Use reference 25519 crypto implementation?
-if use_bcrypt or not good_libcrypto.found()
+if use_crypto == 'BCrypt'
+  dependencies += [ c_compiler.find_library('bcrypt') ]
+  cpp_flags += [ '-DED25519_HASH_BCRYPT', '-DSTEAMNETWORKINGSOCKETS_CRYPTO_BCRYPT' ]
+  sources += [ 'common/crypto_bcrypt.cpp' ]
+endif
+
+if use_crypto == 'libsodium'
+  if target_machine.cpu_family() != 'x86' and target_machine.cpu_family() != 'x86_64'
+    error('-Duse_crypto=libsodium invalid, libsodium AES implementation only works on x86/x86_64 CPUs')
+  endif
+  cpp_flags += [ '-DSTEAMNETWORKINGSOCKETS_CRYPTO_LIBSODIUM' ]
+  sources += [ 'common/crypto_libsodium.cpp' ]
+endif
+
+if use_crypto25519 == 'OpenSSL'
+  cpp_flags += [ '-DSTEAMNETWORKINGSOCKETS_CRYPTO_25519_OPENSSL' ]
+  sources += [ 'common/crypto_25519_openssl.cpp' ]
+endif
+
+if use_crypto25519 == 'libsodium'
+  cpp_flags += [ '-DSTEAMNETWORKINGSOCKETS_CRYPTO_25519_LIBSODIUM' ]
+  sources += [ 'common/crypto_25519_libsodium.cpp' ]
+endif
+
+if use_crypto25519 == 'Reference'
   cpp_flags += [ '-DVALVE_CRYPTO_25519_DONNA' ]
   sources += [
     'common/crypto_25519_donna.cpp',

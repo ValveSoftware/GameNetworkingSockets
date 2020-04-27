@@ -60,33 +60,29 @@ struct Rate_t
 {
 	void Reset() { memset( this, 0, sizeof(*this) ); }
 
-	int64	m_nTotal;
 	int64	m_nCurrentInterval;
-	//int64	m_nCurrentLongInterval;
+	int64	m_nAccumulator; // does not include the currentinterval
 	float	m_flRate;
-	float	m_flPeakRate;
+
+	int64 Total() const { return m_nAccumulator + m_nCurrentInterval; }
 
 	inline void Process( int64 nIncrement )
 	{
-		m_nTotal += nIncrement;
 		m_nCurrentInterval += nIncrement;
-		//m_nCurrentLongInterval += nIncrement;
 	}
 
 	inline void UpdateInterval( float flIntervalDuration )
 	{
 		m_flRate = float(m_nCurrentInterval) / flIntervalDuration;
-		m_flPeakRate = Max( m_flPeakRate, m_flRate );
+		m_nAccumulator += m_nCurrentInterval;
 		m_nCurrentInterval = 0;
 	}
 
 	inline void operator+=( const Rate_t &x )
 	{
-		m_nTotal += x.m_nTotal;
 		m_nCurrentInterval += x.m_nCurrentInterval;
-		//m_nCurrentLongInterval += x.m_nCurrentLongInterval;
+		m_nAccumulator += x.m_nAccumulator;
 		m_flRate += x.m_flRate;
-		// !NOTE: Don't aggregate peak.  It's ambiguous whether we should take the sum or max.
 	}
 };
 
@@ -139,6 +135,12 @@ struct PingTracker
 	/// Return the worst of the pings in the small sample of recent pings
 	int WorstPingInRecentSample() const;
 
+	/// Estimate a conservative (i.e. err on the large side) timeout for the connection
+	SteamNetworkingMicroseconds CalcConservativeTimeout() const
+	{
+		return ( m_nSmoothedPing >= 0 ) ? ( WorstPingInRecentSample()*2000 + 250000 ) : k_nMillion;
+	}
+
 	/// Smoothed ping value
 	int m_nSmoothedPing;
 
@@ -170,11 +172,6 @@ struct PingTrackerDetailed : PingTracker
 		m_histogram.AddSample( nPingMS );
 	}
 
-	/// Estimate a conservative (i.e. err on the large side) timeout for the connection
-	SteamNetworkingMicroseconds CalcConservativeTimeout() const
-	{
-		return ( m_nSmoothedPing >= 0 ) ? ( WorstPingInRecentSample()*2000 + 250000 ) : k_nMillion;
-	}
 	/// Track sample of pings received so we can generate percentiles.
 	/// Also tracks how many pings we have received total
 	PercentileGenerator<uint16> m_sample;
@@ -192,6 +189,24 @@ struct PingTrackerDetailed : PingTracker
 		s.m_nPingNtile75th = m_sample.NumSamples() <  4 ? -1 : m_sample.GetPercentile( .75f );
 		s.m_nPingNtile95th = m_sample.NumSamples() < 20 ? -1 : m_sample.GetPercentile( .95f );
 		s.m_nPingNtile98th = m_sample.NumSamples() < 50 ? -1 : m_sample.GetPercentile( .98f );
+	}
+};
+
+/// Track minimal ping information
+struct PingTrackerBasic : PingTracker
+{
+	int m_nTotalPingsReceived;
+
+	inline void Reset()
+	{
+		PingTracker::Reset();
+		m_nTotalPingsReceived = 0;
+	}
+
+	inline void ReceivedPing( int nPingMS, SteamNetworkingMicroseconds usecNow )
+	{
+		PingTracker::ReceivedPing( nPingMS, usecNow );
+		++m_nTotalPingsReceived;
 	}
 };
 
@@ -243,7 +258,27 @@ private:
 };
 
 
-/// Class used to handle link quality calculations.
+/// Base class used to handle link quality calculations.
+///
+/// All extant instantiations will actually be LinkStatsTracker<T>, where T is the specific,
+/// derived type.  There are several functions that, if we cared more about simplicity and less
+/// about perf, would be defined as virtual functions here.  But many of these functions are tiny
+/// and called in inner loops, and we want to ensure that the compiler is able to expand everything
+/// inline and does not use virtual function dispatch.
+///
+/// So, if a function needs to be "virtual", meaning it can be overridden by a derived class, then
+/// we name it with "Internal" here, and place a small wrapper in LinkStatsTracker<T> that will call
+/// the correct version.  We never call the "Internal" one directly, except when invoking the base
+/// class.  In this way, we make sure that we always call the most derived class version.
+///
+/// If a base class needs to *call* a virtual function, then we have a problem.  With a traditional
+/// member function, we have type erasure.  The type of this is always the type of the method, not the
+/// actual derived type.  To work around this, all methods that need to call virtual functions
+/// are declared as static, accepting "this" (named "pThis") as a template argument, thus the type
+/// is not erased.
+///
+/// All of this is weird, no doubt, but it achieves the goal of ensuring that the compiler can inline
+/// all of these small functions if appropriate, and no virtual function dispatch is used.
 struct LinkStatsTrackerBase
 {
 
@@ -265,8 +300,6 @@ struct LinkStatsTrackerBase
 	inline void TrackSentPacket( int cbPktSize )
 	{
 		m_sent.ProcessPacket( cbPktSize );
-		++m_nPktsSentSinceSentInstantaneous;
-		++m_nPktsSentSinceSentLifetime;
 	}
 
 	/// Consume the next sequence number, and record the time at which
@@ -395,7 +428,7 @@ struct LinkStatsTrackerBase
 	/// 2 - Yes, send one if possible
 	inline int ReadyToSendTracerPing( SteamNetworkingMicroseconds usecNow ) const
 	{
-		if ( m_bDisconnected )
+		if ( m_bPassive )
 			return 0;
 		SteamNetworkingMicroseconds usecTimeSince = usecNow - std::max( m_ping.m_usecTimeLastSentPingRequest, m_ping.TimeRecvMostRecentPing() );
 		if ( usecTimeSince > k_usecLinkStatsMaxPingRequestInterval )
@@ -411,7 +444,7 @@ struct LinkStatsTrackerBase
 	inline bool BNeedToSendPingImmediate( SteamNetworkingMicroseconds usecNow ) const
 	{
 		return
-			!m_bDisconnected
+			!m_bPassive
 			&& m_nReplyTimeoutsSinceLastRecv > 0 // We're timing out
 			&& m_usecLastSendPacketExpectingImmediateReply+k_usecAggressivePingInterval < usecNow; // we haven't just recently sent an aggressive ping.
 	}
@@ -421,7 +454,7 @@ struct LinkStatsTrackerBase
 	inline bool BNeedToSendKeepalive( SteamNetworkingMicroseconds usecNow ) const
 	{
 		return
-			!m_bDisconnected
+			!m_bPassive
 			&& m_usecInFlightReplyTimeout == 0 // not already tracking some other message for which we expect a reply (and which would confirm that the connection is alive)
 			&& m_usecTimeLastRecv + k_usecKeepAliveInterval < usecNow; // haven't heard from the peer recently
 	}
@@ -431,7 +464,7 @@ struct LinkStatsTrackerBase
 	inline bool BReadyToSendStats( SteamNetworkingMicroseconds usecNow )
 	{
 		bool bResult = false;
-		if ( m_pktNumInFlight == 0 && !m_bDisconnected )
+		if ( m_pktNumInFlight == 0 && !m_bPassive )
 		{
 			if ( m_usecPeerAckedInstaneous + k_usecLinkStatsInstantaneousReportInterval < usecNow && BCheckHaveDataToSendInstantaneous( usecNow ) )
 				bResult = true ;
@@ -446,16 +479,7 @@ struct LinkStatsTrackerBase
 	/// actually send it.  (We might be looking for a good opportunity, and the data we want
 	/// to send doesn't fit.)
 	void PopulateMessage( CMsgSteamDatagramConnectionQuality &msg, SteamNetworkingMicroseconds usecNow );
-
-	/// Called when we send a packet for which we expect a reply and
-	/// for which we expect to get latency info.
-	/// This implies TrackSentMessageExpectingReply.
-	void TrackSentPingRequest( SteamNetworkingMicroseconds usecNow, bool bAllowDelayedReply )
-	{
-		TrackSentMessageExpectingReply( usecNow, bAllowDelayedReply );
-		m_ping.m_usecTimeLastSentPingRequest = usecNow;
-	}
-
+	void PopulateLifetimeMessage( CMsgSteamDatagramLinkLifetimeStats &msg );
 	/// Called when we send any message for which we expect some sort of reply.  (But maybe not an ack.)
 	void TrackSentMessageExpectingReply( SteamNetworkingMicroseconds usecNow, bool bAllowDelayedReply );
 
@@ -468,30 +492,9 @@ struct LinkStatsTrackerBase
 	SteamDatagramLinkLifetimeStats m_lifetimeRemote;
 	SteamNetworkingMicroseconds m_usecTimeRecvLifetimeRemote;
 
-	/// Local time when peer last acknowledged instantaneous stats.
-	SteamNetworkingMicroseconds m_usecPeerAckedInstaneous;
 	int64 m_pktNumInFlight;
 	bool m_bInFlightInstantaneous;
 	bool m_bInFlightLifetime;
-
-	/// Number of sequenced packets received since we last sent instantaneous stats
-	int m_nPktsRecvSeqSinceSentInstantaneous;
-
-	/// Number of packets we have sent, since we last sent instantaneous stats
-	int m_nPktsSentSinceSentInstantaneous;
-
-	/// Local time when we last sent lifetime stats.
-	SteamNetworkingMicroseconds m_usecPeerAckedLifetime;
-
-	/// Number of sequenced packets received since we last sent lifetime stats
-	int m_nPktsRecvSeqSinceSentLifetime;
-	int m_nPktsSentSinceSentLifetime;
-
-	/// We sent lifetime stats on this seq number, has not been acknowledged.  <0 if none
-	//int m_seqnumUnackedSentLifetime;
-
-	/// We received lifetime stats at this sequence number, and should ack it soon.  <0 if none
-	//int m_seqnumPendingAckRecvTimelife;
 
 	/// Time when the current interval started
 	SteamNetworkingMicroseconds m_usecIntervalStart;
@@ -537,14 +540,14 @@ struct LinkStatsTrackerBase
 	inline void PeerAckedInstantaneous( SteamNetworkingMicroseconds usecNow )
 	{
 		m_usecPeerAckedInstaneous = usecNow;
-		m_nPktsRecvSeqSinceSentInstantaneous = 0;
-		m_nPktsSentSinceSentInstantaneous = 0;
+		m_nPktsRecvSeqWhenPeerAckInstantaneous = m_nPktsRecvSequenced;
+		m_nPktsSentWhenPeerAckInstantaneous = m_sent.m_packets.Total();
 	}
 	inline void PeerAckedLifetime( SteamNetworkingMicroseconds usecNow )
 	{
 		m_usecPeerAckedLifetime = usecNow;
-		m_nPktsRecvSeqSinceSentLifetime = 0;
-		m_nPktsSentSinceSentLifetime = 0;
+		m_nPktsRecvSeqWhenPeerAckLifetime = m_nPktsRecvSequenced;
+		m_nPktsSentWhenPeerAckLifetime = m_sent.m_packets.Total();
 	}
 
 	void InFlightPktAck( SteamNetworkingMicroseconds usecNow )
@@ -566,11 +569,8 @@ struct LinkStatsTrackerBase
 	/// Check if we really need to flush out stats now.
 	bool BNeedToSendStats( SteamNetworkingMicroseconds usecNow );
 
-	/// This is implemented by the template clas LinkStatsTracker,
-	/// which is declared final.  Thus, ideally we will not actually
-	/// use virtual function dispatch, unless we are actually invoked
-	/// through and base class pointer and do not know the exact type.
-	virtual void SetDisconnected( bool bFlag, SteamNetworkingMicroseconds usecNow ) = 0;
+	/// Describe this stats tracker, for debugging, asserts, etc
+	virtual std::string Describe() const = 0;
 
 protected:
 	// Make sure it's used as abstract base.  Note that we require you to call Init()
@@ -578,39 +578,101 @@ protected:
 	inline LinkStatsTrackerBase() {}
 
 	/// Initialize the stats tracking object
-	/// We don't do this as a virtual function, since it's easy to factor the code
-	/// where outside code will just call the derived class Init() version directly,
-	/// and also give it a really specific name so we don't forget that this isn't doing any
-	/// derived class work and call it internally.
 	void InitInternal( SteamNetworkingMicroseconds usecNow );
 
 	/// Check if it's time to update, and if so, do it.
-	/// This is another one we don't implement as a virtual function,
-	/// and this is called frequently so giving the optimizer a bit more
-	/// visibility can'thurt.
-	void ThinkInternal( SteamNetworkingMicroseconds usecNow );
+	template <typename TLinkStatsTracker>
+	inline static void ThinkInternal( TLinkStatsTracker *pThis, SteamNetworkingMicroseconds usecNow )
+	{
+		// Check for ending the current QoS interval
+		if ( !pThis->m_bPassive && pThis->m_usecIntervalStart + k_usecSteamDatagramLinkStatsDefaultInterval < usecNow )
+		{
+			pThis->UpdateInterval( usecNow );
+		}
+	
+		// Check for reply timeout.
+		if ( pThis->m_usecInFlightReplyTimeout > 0 && pThis->m_usecInFlightReplyTimeout < usecNow )
+		{
+			pThis->InFlightReplyTimeout( usecNow );
+		}
+	}
 
-	void SetDisconnectedInternal( bool bFlag, SteamNetworkingMicroseconds usecNow );
+	/// Called when m_usecInFlightReplyTimeout is reached.  We intentionally only allow
+	/// one of this type of timeout to be in flight at a time, so that the max
+	/// rate that we accumulate them is based on the ping time, instead of the packet
+	/// rate.
+	template <typename TLinkStatsTracker>
+	inline static void InFlightReplyTimeoutInternal( TLinkStatsTracker *pThis, SteamNetworkingMicroseconds usecNow )
+	{
+		pThis->m_usecInFlightReplyTimeout = 0;
+		if ( pThis->m_usecWhenTimeoutStarted == 0 )
+		{
+			Assert( pThis->m_nReplyTimeoutsSinceLastRecv == 0 );
+			pThis->m_usecWhenTimeoutStarted = usecNow;
+		}
+		++pThis->m_nReplyTimeoutsSinceLastRecv;
+	}
 
 	void GetInstantaneousStats( SteamDatagramLinkInstantaneousStats &s ) const;
 
-	void TrackSentMessageExpectingSeqNumAckInternal( SteamNetworkingMicroseconds usecNow, bool bAllowDelayedReply )
+	/// Called after we send a packet for which we expect an ack.  Note that we must have consumed the outgoing sequence
+	/// for that packet (using GetNextSendSequenceNumber), but must *NOT* have consumed any more!
+	/// This call implies TrackSentPingRequest, since we will be able to match up the ack'd sequence
+	/// number with the time sent to get a latency estimate.
+	template <typename TLinkStatsTracker>
+	inline static void TrackSentMessageExpectingSeqNumAckInternal( TLinkStatsTracker *pThis, SteamNetworkingMicroseconds usecNow, bool bAllowDelayedReply )
 	{
-		TrackSentPingRequest( usecNow, bAllowDelayedReply );
+		pThis->TrackSentPingRequest( usecNow, bAllowDelayedReply );
 	}
 
-	/// When the connection is terminated, we set this flag.  At that point we will no
-	/// longer expect the peer to ack, or request to flush stats, etc.  (Although we
-	/// might indicate that we need to send an ack.)
-	bool m_bDisconnected;
+	/// Are we in "passive" state?  When we are "active", we expect that our peer is awake
+	/// and will reply to our messages, and that we should be actively sending our peer
+	/// connection quality statistics and keepalives.  When we are passive, we still measure
+	/// statistics and can receive messages from the peer, and send acknowledgements as necessary.
+	/// but we will indicate that keepalives or stats need to be sent to the peer.
+	bool m_bPassive;
+
+	/// Called to switch the pasive state.  (Should only be called on an actual state change.)
+	void SetPassiveInternal( bool bFlag, SteamNetworkingMicroseconds usecNow );
 
 	/// Check if we really need to flush out stats now.  Derived class should provide the reason strings.
 	/// (See the code.)
 	const char *NeedToSendStats( SteamNetworkingMicroseconds usecNow, const char *const arpszReasonStrings[4] );
 
+	/// Get time when we need to take action or think
 	SteamNetworkingMicroseconds GetNextThinkTimeInternal( SteamNetworkingMicroseconds usecNow ) const;
 
+	/// Called when we send a packet for which we expect a reply and
+	/// for which we expect to get latency info.
+	/// This implies TrackSentMessageExpectingReply.
+	template <typename TLinkStatsTracker>
+	inline static void TrackSentPingRequestInternal( TLinkStatsTracker *pThis, SteamNetworkingMicroseconds usecNow, bool bAllowDelayedReply )
+	{
+		pThis->TrackSentMessageExpectingReply( usecNow, bAllowDelayedReply );
+		pThis->m_ping.m_usecTimeLastSentPingRequest = usecNow;
+	}
+
+	/// Called when we receive a reply from which we are able to calculate latency information
+	template <typename TLinkStatsTracker>
+	inline static void ReceivedPingInternal( TLinkStatsTracker *pThis, int nPingMS, SteamNetworkingMicroseconds usecNow )
+	{
+		pThis->m_ping.ReceivedPing( nPingMS, usecNow );
+	}
+
 private:
+
+	// Number of lifetime sequenced packets received, and overall packets sent,
+	// the last time the peer acked stats
+	int64 m_nPktsRecvSeqWhenPeerAckInstantaneous;
+	int64 m_nPktsSentWhenPeerAckInstantaneous;
+	int64 m_nPktsRecvSeqWhenPeerAckLifetime;
+	int64 m_nPktsSentWhenPeerAckLifetime;
+
+	/// Local time when peer last acknowledged lifetime stats.
+	SteamNetworkingMicroseconds m_usecPeerAckedLifetime;
+
+	/// Local time when peer last acknowledged instantaneous stats.
+	SteamNetworkingMicroseconds m_usecPeerAckedInstaneous;
 
 	bool BCheckHaveDataToSendInstantaneous( SteamNetworkingMicroseconds usecNow );
 	bool BCheckHaveDataToSendLifetime( SteamNetworkingMicroseconds usecNow );
@@ -697,15 +759,27 @@ struct LinkStatsTrackerEndToEnd : public LinkStatsTrackerBase
 		return LinkStatsTrackerBase::NeedToSendStats( usecNow, arpszReasons );
 	}
 
+	/// Describe this stats tracker, for debugging, asserts, etc
+	virtual std::string Describe() const override { return "EndToEnd"; }
+
 protected:
 	void InitInternal( SteamNetworkingMicroseconds usecNow );
-	void ThinkInternal( SteamNetworkingMicroseconds usecNow );
 
-	/// Get time when we need to take action or think
+	template <typename TLinkStatsTracker>
+	inline static void ThinkInternal( TLinkStatsTracker *pThis, SteamNetworkingMicroseconds usecNow )
+	{
+		LinkStatsTrackerBase::ThinkInternal( pThis, usecNow );
+
+		if ( pThis->m_usecSpeedIntervalStart + k_usecSteamDatagramSpeedStatsDefaultInterval < usecNow )
+		{
+			pThis->UpdateSpeedInterval( usecNow );
+		}
+	}
+
 	inline SteamNetworkingMicroseconds GetNextThinkTimeInternal( SteamNetworkingMicroseconds usecNow ) const
 	{
 		SteamNetworkingMicroseconds usecResult = LinkStatsTrackerBase::GetNextThinkTimeInternal( usecNow );
-		if ( !m_bDisconnected )
+		if ( !m_bPassive )
 		{
 			if ( !m_usecInFlightReplyTimeout )
 			{
@@ -723,11 +797,8 @@ private:
 	void StartNextSpeedInterval( SteamNetworkingMicroseconds usecNow );
 };
 
-// LinkStatsTracker is conceptually a "base class".  However, since we want to avoid
-// runtime dispatch through virtual function tables, we've inverted this, so that the
-// type-specific class is used as a template parameter and a base class.  Any "virtual
-// functions" then can be overridden, and the compiler has full visibility and optimization
-// opportunities
+/// The conceptual "abstract base class" for all link stats trackers.  See the comments
+/// on LinkSTatsTrackerBase for why this wackiness
 template <typename TLinkStatsTracker>
 struct LinkStatsTracker final : public TLinkStatsTracker
 {
@@ -737,11 +808,16 @@ struct LinkStatsTracker final : public TLinkStatsTracker
 	inline void Init( SteamNetworkingMicroseconds usecNow, bool bStartDisconnected = false )
 	{
 		TLinkStatsTracker::InitInternal( usecNow );
-		TLinkStatsTracker::SetDisconnectedInternal( bStartDisconnected, usecNow );
+		TLinkStatsTracker::SetPassiveInternal( bStartDisconnected, usecNow );
 	}
-	inline void Think( SteamNetworkingMicroseconds usecNow ) { TLinkStatsTracker::ThinkInternal( usecNow ); }
-	virtual void SetDisconnected( bool bFlag, SteamNetworkingMicroseconds usecNow ) override { if ( TLinkStatsTracker::m_bDisconnected != bFlag ) TLinkStatsTracker::SetDisconnectedInternal( bFlag, usecNow ); }
-	inline bool IsDisconnected() const { return TLinkStatsTracker::m_bDisconnected; }
+	inline void Think( SteamNetworkingMicroseconds usecNow ) { TLinkStatsTracker::ThinkInternal( this, usecNow ); }
+	inline void SetPassive( bool bFlag, SteamNetworkingMicroseconds usecNow ) { if ( TLinkStatsTracker::m_bPassive != bFlag ) TLinkStatsTracker::SetPassiveInternal( bFlag, usecNow ); }
+	inline bool IsPassive() const { return TLinkStatsTracker::m_bPassive; }
+	inline void TrackSentMessageExpectingSeqNumAck( SteamNetworkingMicroseconds usecNow, bool bAllowDelayedReply ) { TLinkStatsTracker::TrackSentMessageExpectingSeqNumAckInternal( this, usecNow, bAllowDelayedReply ); }
+	inline void TrackSentPingRequest( SteamNetworkingMicroseconds usecNow, bool bAllowDelayedReply ) { TLinkStatsTracker::TrackSentPingRequestInternal( this, usecNow, bAllowDelayedReply ); }
+	inline SteamNetworkingMicroseconds GetNextThinkTime( SteamNetworkingMicroseconds usecNow ) const { return TLinkStatsTracker::GetNextThinkTimeInternal( usecNow ); }
+	inline void ReceivedPing( int nPingMS, SteamNetworkingMicroseconds usecNow ) { TLinkStatsTracker::ReceivedPingInternal( this, nPingMS, usecNow ); }
+	inline void InFlightReplyTimeout( SteamNetworkingMicroseconds usecNow ) { TLinkStatsTracker::InFlightReplyTimeoutInternal( this, usecNow ); }
 
 	/// Called after we actually send connection data.  Note that we must have consumed the outgoing sequence
 	/// for that packet (using GetNextSendSequenceNumber), but must *NOT* have consumed any more!
@@ -749,7 +825,7 @@ struct LinkStatsTracker final : public TLinkStatsTracker
 	{
 
 		// Check if we expect our peer to know how to acknowledge this
-		if ( !TLinkStatsTracker::m_bDisconnected )
+		if ( !TLinkStatsTracker::m_bPassive )
 		{
 			TLinkStatsTracker::m_pktNumInFlight = TLinkStatsTracker::m_nNextSendSequenceNumber-1;
 			TLinkStatsTracker::m_bInFlightInstantaneous = msg.has_instantaneous();
@@ -773,20 +849,17 @@ struct LinkStatsTracker final : public TLinkStatsTracker
 		}
 	}
 
-	/// Called after we send a packet for which we expect an ack.  Note that we must have consumed the outgoing sequence
-	/// for that packet (using GetNextSendSequenceNumber), but must *NOT* have consumed any more!
-	/// This call implies TrackSentPingRequest, since we will be able to match up the ack'd sequence
-	/// number with the time sent to get a latency estimate.
-	inline void TrackSentMessageExpectingSeqNumAck( SteamNetworkingMicroseconds usecNow, bool bAllowDelayedReply )
+	inline bool RecvPackedAcks( const google::protobuf::RepeatedField<google::protobuf::uint32> &msgField, SteamNetworkingMicroseconds usecNow )
 	{
-		TLinkStatsTracker::TrackSentMessageExpectingSeqNumAckInternal( usecNow, bAllowDelayedReply );
+		bool bResult = true;
+		for ( uint32 nPackedAck: msgField )
+		{
+			if ( !TLinkStatsTracker::RecvPackedAckInternal( this, nPackedAck, usecNow ) )
+				bResult = false;
+		}
+		return bResult;
 	}
 
-	/// Get time when we need to take action or think
-	inline SteamNetworkingMicroseconds GetNextThinkTime( SteamNetworkingMicroseconds usecNow ) const
-	{
-		return TLinkStatsTracker::GetNextThinkTimeInternal( usecNow );
-	}
 };
 
 

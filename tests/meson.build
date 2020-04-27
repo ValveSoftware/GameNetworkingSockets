@@ -1,5 +1,7 @@
 common_deps = [ dep_threads ]
-cppflags = []
+cppflags = [
+	'-DVALVE_CRYPTO_ENABLE_25519'
+]
 
 light_tests= get_option('light_tests')
 if light_tests

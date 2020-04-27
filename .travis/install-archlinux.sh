@@ -7,6 +7,7 @@ set -ex
 # Base build packages
 PACKAGES=(
 	base-devel
+	ccache
 	clang
 	cmake
 	meson
@@ -14,6 +15,7 @@ PACKAGES=(
 
 PACKAGES+=(protobuf)
 PACKAGES+=(openssl)
+PACKAGES+=(libsodium)
 
 pacman --noconfirm -Sy "${PACKAGES[@]}"
 

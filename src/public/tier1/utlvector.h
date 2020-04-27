@@ -1354,26 +1354,6 @@ public:
 
 };
 
-// easy string list class with dynamically allocated strings. For use with V_SplitString, etc.
-// Frees the dynamic strings in destructor.
-class CUtlStringList : public CUtlVectorAutoPurge< char *>
-{
-public:
-	void CopyAndAddToTail( char const *pString )			// clone the string and add to the end
-	{
-		int len = 1 + static_cast<int>( strlen( pString ) );
-		char *pNewStr = new char[len];
-		V_strncpy( pNewStr, pString, len );
-		int idx = AddToTail( pNewStr );
-		REFERENCE( idx );
-	}
-
-	static int __cdecl SortFunc( char * const * sz1, char * const * sz2 )
-	{
-		return strcmp( *sz1, *sz2 );
-	}
-};
-
 //-----------------------------------------------------------------------------
 // Data and memory validation
 //-----------------------------------------------------------------------------

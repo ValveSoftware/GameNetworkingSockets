@@ -107,6 +107,24 @@ struct iovec
 struct iovec;
 #endif
 
+// likely() and unlikely().  Branch hints
+// This is an idiom from the linux kernel
+#ifdef __GNUC__
+	#ifndef likely
+		#define likely(x) __builtin_expect (!!(x), 1)
+	#endif
+	#ifndef unlikely
+		#define unlikely(x) __builtin_expect (!!(x), 0)
+	#endif
+#else
+	#ifndef likely
+		#define likely(x) (x)
+	#endif
+	#ifndef unlikely
+		#define unlikely(x) (x)
+	#endif
+#endif
+
 // Internal stuff goes in a private namespace
 namespace SteamNetworkingSocketsLib {
 
@@ -260,7 +278,7 @@ const SteamNetworkingMicroseconds k_usecTimeSinceLastPacketMinReasonable = 2 << 
 /// Protocol version of this code.  This is a blunt instrument, which is incremented when we
 /// wish to change the wire protocol in a way that doesn't have some other easy
 /// mechanism for dealing with compatibility (e.g. using protobuf's robust mechanisms).
-const uint32 k_nCurrentProtocolVersion = 8;
+const uint32 k_nCurrentProtocolVersion = 9;
 
 /// Minimum required version we will accept from a peer.  We increment this
 /// when we introduce wire breaking protocol changes and do not wish to be
@@ -417,6 +435,8 @@ extern uint64_t siphash( const uint8_t *in, uint64_t inlen, const uint8_t *k );
 extern std::string Indent( const char *s );
 inline std::string Indent( const std::string &s ) { return Indent( s.c_str() ); }
 
+/// Generic hash
+extern uint32 Murmorhash32( const void *data, size_t len );
 
 /// Generate a fingerprint for a public that is reasonably collision resistant,
 /// although not really cryptographically secure.  (We are in charge of the
@@ -543,7 +563,7 @@ inline void SetStatsMsgFlagsIfNotImplied( TStatsMsg &msg, uint32 nFlags )
 // >0 OK
 #define SteamNetworkingIdentityFromProtobuf( identity, msg, field_identity_string, field_identity_legacy_binary, field_legacy_steam_id, errMsg ) \
 	( \
-		(msg).has_ ##field_identity_string() ? ( SteamAPI_SteamNetworkingIdentity_ParseString( &(identity), sizeof(identity), (msg).field_identity_string().c_str() ) ? +1 : ( V_strcpy_safe( errMsg, "Failed to parse string" ), -1 ) ) \
+		(msg).has_ ##field_identity_string() ? ( SteamNetworkingIdentity_ParseString( &(identity), sizeof(identity), (msg).field_identity_string().c_str() ) ? +1 : ( V_strcpy_safe( errMsg, "Failed to parse string" ), -1 ) ) \
 		: (msg).has_ ##field_identity_legacy_binary() ? ( BSteamNetworkingIdentityFromLegacyBinaryProtobuf( identity, (msg).field_identity_legacy_binary(), errMsg ) ? +1 : -1 ) \
 		: (msg).has_ ##field_legacy_steam_id() ? ( BSteamNetworkingIdentityFromLegacySteamID( identity, (msg).field_legacy_steam_id(), errMsg ) ? +1 : -1 ) \
 		: ( V_strcpy_safe( errMsg, "No identity data" ), 0 ) \
@@ -665,7 +685,7 @@ struct GlobalConfigValueBase : GlobalConfigValueEntry
 	struct Value : public ConfigValue<T>
 	{
 		inline Value( const T &defaultValue ) : ConfigValue<T>(defaultValue), m_defaultValue(defaultValue) {}
-		const T m_defaultValue;
+		T m_defaultValue;
 	};
 	Value m_value;
 };
@@ -696,8 +716,13 @@ struct ConnectionConfig
 	ConfigValue<int32> m_LogLevel_Message;
 	ConfigValue<int32> m_LogLevel_PacketGaps;
 
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+		ConfigValue<std::string> m_P2P_STUN_ServerList;
+	#endif
+
+	ConfigValue<int32> m_LogLevel_P2PRendezvous;
+
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
-		ConfigValue<int32> m_LogLevel_P2PRendezvous;
 		ConfigValue<std::string> m_SDRClient_DebugTicketAddress;
 	#endif
 
@@ -734,6 +759,10 @@ extern GlobalConfigValue<int32> g_Config_LogLevel_SDRRelayPings;
 extern GlobalConfigValue<std::string> g_Config_SDRClient_ForceRelayCluster;
 extern GlobalConfigValue<std::string> g_Config_SDRClient_ForceProxyAddr;
 extern GlobalConfigValue<std::string> g_Config_SDRClient_FakeClusterPing;
+#endif
+
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+extern ConnectionConfigDefaultValue< std::string > g_ConfigDefault_P2P_STUN_ServerList;
 #endif
 
 // This awkwardness (adding and subtracting sizeof(intptr_t)) silences an UBSan

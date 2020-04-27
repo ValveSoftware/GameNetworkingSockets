@@ -3,20 +3,12 @@
 #ifndef CRYPTO_H
 #define CRYPTO_H
 
-#include <tier0/dbg.h>		// for Assert & AssertMsg
-//#include "tier1/passwordhash.h"
-#include "keypair.h"
-#include "steam/steamtypes.h" // Salt_t
+#include <tier0/platform.h>
 #include "crypto_constants.h"
+//#include <tier1/passwordhash.h>
+#include "keypair.h"
 
-const unsigned int k_cubMD5Hash = 16;
-typedef	unsigned char MD5Digest_t[k_cubMD5Hash];
-
-const unsigned int k_cubSHA256Hash = 32;
-typedef	unsigned char SHA256Digest_t[ k_cubSHA256Hash ];
-
-const unsigned int k_cubSHA1Hash = 20;
-typedef	uint8 SHADigest_t[ k_cubSHA1Hash ];
+class CUtlBuffer;
 
 // Base class for symmetric encryption and decryption context.
 // A context is used when you want to use the same encryption
@@ -108,25 +100,6 @@ namespace CCrypto
 		const void *pAdditionalAuthenticationData, size_t cbAuthenticationData, // Optional additional authentication data.  Not encrypted, but will be included in the tag, so it can be authenticated.
 		size_t cbTag // Last N bytes in your buffer are assumed to be a tag, and will be checked
 	);
-	
-	//
-	// Secure key exchange (curve25519 elliptic-curve Diffie-Hellman key exchange)
-	//
-
-	// Generate a curve25519 key pair for Diffie-Hellman secure key exchange
-	void GenerateKeyExchangeKeyPair( CECKeyExchangePublicKey *pPublicKey, CECKeyExchangePrivateKey *pPrivateKey );
-	bool PerformKeyExchange( const CECKeyExchangePrivateKey &localPrivateKey, const CECKeyExchangePublicKey &remotePublicKey, SHA256Digest_t *pSharedSecretOut );
-
-	//
-	// Signing and verification (ed25519 elliptic-curve signature scheme)
-	//
-
-	// Generate an ed25519 key pair for public-key signature generation
-	void GenerateSigningKeyPair( CECSigningPublicKey *pPublicKey, CECSigningPrivateKey *pPrivateKey );
-
-	// Legacy compatibility - use the key methods
-	inline void GenerateSignature( const void *pData, size_t cbData, const CECSigningPrivateKey &privateKey, CryptoSignature_t *pSignatureOut ) { privateKey.GenerateSignature( pData, cbData, pSignatureOut ); }
-	inline bool VerifySignature( const void *pData, size_t cbData, const CECSigningPublicKey &publicKey, const CryptoSignature_t &signature ) { return publicKey.VerifySignature( pData, cbData, signature ); }
 
 	bool HexEncode( const void *pubData, const uint32 cubData, char *pchEncodedData, uint32 cchEncodedData );
 	bool HexDecode( const char *pchData, void *pubDecodedData, uint32 *pcubDecodedData );

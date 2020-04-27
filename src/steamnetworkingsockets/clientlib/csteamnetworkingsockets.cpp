@@ -11,6 +11,10 @@
 #include <steam/steamnetworkingsockets.h>
 #endif
 
+#ifdef STEAMNETWORKINGSOCKETS_HAS_DEFAULT_P2P_SIGNALING
+#include "csteamnetworkingmessages.h"
+#endif
+
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
 
@@ -57,8 +61,14 @@ DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, LogLevel_AckRTT, k_ESteamNetworkingSo
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, LogLevel_PacketDecode, k_ESteamNetworkingSocketsDebugOutputType_Everything, k_ESteamNetworkingSocketsDebugOutputType_Error, k_ESteamNetworkingSocketsDebugOutputType_Everything );
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, LogLevel_Message, k_ESteamNetworkingSocketsDebugOutputType_Everything, k_ESteamNetworkingSocketsDebugOutputType_Error, k_ESteamNetworkingSocketsDebugOutputType_Everything );
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, LogLevel_PacketGaps, k_ESteamNetworkingSocketsDebugOutputType_Debug, k_ESteamNetworkingSocketsDebugOutputType_Error, k_ESteamNetworkingSocketsDebugOutputType_Everything );
-#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
+
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, LogLevel_P2PRendezvous, k_ESteamNetworkingSocketsDebugOutputType_Verbose, k_ESteamNetworkingSocketsDebugOutputType_Error, k_ESteamNetworkingSocketsDebugOutputType_Everything );
+
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+DEFINE_CONNECTON_DEFAULT_CONFIGVAL( std::string, P2P_STUN_ServerList, "" );
+#endif
+
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( std::string, SDRClient_DebugTicketAddress, "" );
 #endif
 
@@ -181,6 +191,7 @@ static bool BConnectionStateExistsToAPI( ESteamNetworkingConnectionState eState 
 	{
 		default:
 			Assert( false );
+			return false;
 		case k_ESteamNetworkingConnectionState_None:
 		case k_ESteamNetworkingConnectionState_Dead:
 		case k_ESteamNetworkingConnectionState_FinWait:
@@ -265,11 +276,12 @@ static CSteamNetworkPollGroup *GetPollGroupByHandle( HSteamNetPollGroup hPollGro
 //
 /////////////////////////////////////////////////////////////////////////////
 
-int CSteamNetworkingSockets::s_nSteamNetworkingSocketsInitted = 0;
+std::vector<CSteamNetworkingSockets *> CSteamNetworkingSockets::s_vecSteamNetworkingSocketsInstances;
 
 CSteamNetworkingSockets::CSteamNetworkingSockets( CSteamNetworkingUtils *pSteamNetworkingUtils )
 : m_bHaveLowLevelRef( false )
 , m_pSteamNetworkingUtils( pSteamNetworkingUtils )
+, m_pSteamNetworkingMessages( nullptr )
 {
 	m_connectionConfig.Init( nullptr );
 	m_identity.Clear();
@@ -287,11 +299,8 @@ bool CSteamNetworkingSockets::BInitGameNetworkingSockets( const SteamNetworkingI
 	AssertMsg( !m_bHaveLowLevelRef, "Initted interface twice?" );
 
 	// Make sure low level socket support is ready
-	if ( !BSteamNetworkingSocketsLowLevelAddRef( errMsg ) )
+	if ( !BInitLowLevel( errMsg ) )
 		return false;
-	m_bHaveLowLevelRef = true;
-
-	++s_nSteamNetworkingSocketsInitted;
 
 	if ( pIdentity )
 		m_identity = *pIdentity;
@@ -301,6 +310,21 @@ bool CSteamNetworkingSockets::BInitGameNetworkingSockets( const SteamNetworkingI
 	return true;
 }
 #endif
+
+bool CSteamNetworkingSockets::BInitLowLevel( SteamNetworkingErrMsg &errMsg )
+{
+	if ( m_bHaveLowLevelRef )
+		return true;
+	if ( !BSteamNetworkingSocketsLowLevelAddRef( errMsg) )
+		return false;
+
+	// Add us to list of extant instances only after we have done some initialization
+	if ( !has_element( s_vecSteamNetworkingSocketsInstances, this ) )
+		s_vecSteamNetworkingSocketsInstances.push_back( this );
+
+	m_bHaveLowLevelRef = true;
+	return true;
+}
 
 void CSteamNetworkingSockets::KillConnections()
 {
@@ -345,6 +369,20 @@ void CSteamNetworkingSockets::Destroy()
 {
 	SteamDatagramTransportLock::AssertHeldByCurrentThread( "CSteamNetworkingSockets::Destroy" );
 
+	// Nuke messages interface, if we had one
+	#ifdef STEAMNETWORKINGSOCKETS_HAS_DEFAULT_P2P_SIGNALING
+		if ( m_pSteamNetworkingMessages )
+		{
+			delete m_pSteamNetworkingMessages;
+
+			// That destructor should clear our pointer (so we can be destroyed in either order)
+			Assert( m_pSteamNetworkingMessages == nullptr );
+
+			// But clear it just to be safe
+			m_pSteamNetworkingMessages = nullptr;
+		}
+	#endif
+
 	KillConnections();
 
 	// Clear identity and crypto stuff.
@@ -360,6 +398,9 @@ void CSteamNetworkingSockets::Destroy()
 		m_bHaveLowLevelRef = false;
 		SteamNetworkingSocketsLowLevelDecRef();
 	}
+
+	// Remove from list of extant instances, if we are there
+	find_and_remove_element( s_vecSteamNetworkingSocketsInstances, this );
 
 	// Self destruct
 	delete this;
@@ -590,7 +631,7 @@ HSteamListenSocket CSteamNetworkingSockets::CreateListenSocketIP( const SteamNet
 	if ( !pSock->BInit( localAddr, nOptions, pOptions, errMsg ) )
 	{
 		SpewError( "Cannot create listen socket.  %s", errMsg );
-		delete pSock;
+		pSock->Destroy();
 		return k_HSteamListenSocket_Invalid;
 	}
 
@@ -1554,22 +1595,22 @@ ESteamNetworkingConfigValue CSteamNetworkingUtils::GetFirstConfigValue()
 
 void CSteamNetworkingUtils::SteamNetworkingIPAddr_ToString( const SteamNetworkingIPAddr &addr, char *buf, size_t cbBuf, bool bWithPort )
 {
-	SteamAPI_SteamNetworkingIPAddr_ToString( &addr, buf, cbBuf, bWithPort );
+	::SteamNetworkingIPAddr_ToString( &addr, buf, cbBuf, bWithPort );
 }
 
 bool CSteamNetworkingUtils::SteamNetworkingIPAddr_ParseString( SteamNetworkingIPAddr *pAddr, const char *pszStr )
 {
-	return SteamAPI_SteamNetworkingIPAddr_ParseString( pAddr, pszStr );
+	return ::SteamNetworkingIPAddr_ParseString( pAddr, pszStr );
 }
 
 void CSteamNetworkingUtils::SteamNetworkingIdentity_ToString( const SteamNetworkingIdentity &identity, char *buf, size_t cbBuf )
 {
-	return SteamAPI_SteamNetworkingIdentity_ToString( identity, buf, cbBuf );
+	return ::SteamNetworkingIdentity_ToString( &identity, buf, cbBuf );
 }
 
 bool CSteamNetworkingUtils::SteamNetworkingIdentity_ParseString( SteamNetworkingIdentity *pIdentity, const char *pszStr )
 {
-	return SteamAPI_SteamNetworkingIdentity_ParseString( pIdentity, sizeof(SteamNetworkingIdentity), pszStr );
+	return ::SteamNetworkingIdentity_ParseString( pIdentity, sizeof(SteamNetworkingIdentity), pszStr );
 }
 
 AppId_t CSteamNetworkingUtils::GetAppID()

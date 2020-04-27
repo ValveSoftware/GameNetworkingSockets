@@ -22,6 +22,7 @@
 
 #include "steamnetworkingsockets_lowlevel.h"
 #include "../steamnetworkingsockets_internal.h"
+#include "../steamnetworkingsockets_thinker.h"
 #include <vstdlib/random.h>
 #include <tier1/utlpriorityqueue.h>
 #include <tier1/utllinkedlist.h>
@@ -39,6 +40,9 @@
 #ifdef _XBOX_ONE
 	#include <combaseapi.h>
 #endif
+
+// Time low level send/recv calls and packet processing
+//#define STEAMNETWORKINGSOCKETS_LOWLEVEL_TIME_SOCKET_CALLS
 
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
@@ -268,6 +272,91 @@ static volatile bool s_bManualPollMode;
 //
 /////////////////////////////////////////////////////////////////////////////
 
+// We don't need recursion or timeout.  Just the fastest thing that works.
+// Note that we could use a lock-free queue for this.  But I suspect that this
+// won't get enough work or have enough contention for that to be an important
+// optimization
+static std::mutex s_mutexRunWithLockQueue;
+static std::vector< ISteamNetworkingSocketsRunWithLock * > s_vecRunWithLockQueue;
+
+ISteamNetworkingSocketsRunWithLock::~ISteamNetworkingSocketsRunWithLock() {}
+
+bool ISteamNetworkingSocketsRunWithLock::RunOrQueue( const char *pszTag )
+{
+	// Check if lock is available immediately
+	if ( !SteamDatagramTransportLock::TryLock( pszTag, 0 ) )
+	{
+		Queue( pszTag );
+		return false;
+	}
+
+	// Let derived class do work
+	Run();
+
+	// Go ahead and unlock now
+	SteamDatagramTransportLock::Unlock();
+
+	// Self destruct
+	delete this;
+
+	// We have run
+	return true;
+}
+
+void ISteamNetworkingSocketsRunWithLock::Queue( const char *pszTag )
+{
+	// Remember our tag, for accounting purposes
+	m_pszTag = pszTag;
+
+	// Put us into the queue
+	s_mutexRunWithLockQueue.lock();
+	s_vecRunWithLockQueue.push_back( this );
+	s_mutexRunWithLockQueue.unlock();
+
+	// NOTE: At this point we are subject to being run or deleted at any time!
+
+	// Make sure service thread will wake up to do something with this
+	WakeSteamDatagramThread();
+
+}
+
+void ISteamNetworkingSocketsRunWithLock::ServiceQueue()
+{
+	// Quick check if we're empty, which will be common and can be done safely
+	// even if we don't hold the lock and the vector is being modified.  It's
+	// OK if we have an occasional false positive or negative here.  Work
+	// put into this queue does not have any guarantees about when it will get done
+	// beyond "run them in order they are queued" and "best effort".
+	if ( s_vecRunWithLockQueue.empty() )
+		return;
+
+	std::vector<ISteamNetworkingSocketsRunWithLock *> vecTempQueue;
+
+	// Quickly move the queue into the temp while holding the lock.
+	// Once it is in our temp, we can release the lock.
+	s_mutexRunWithLockQueue.lock();
+	vecTempQueue = std::move( s_vecRunWithLockQueue );
+	s_vecRunWithLockQueue.clear(); // Just in case assigning from std::move didn't clear it.
+	s_mutexRunWithLockQueue.unlock();
+
+	// Run them
+	for ( ISteamNetworkingSocketsRunWithLock *pItem: vecTempQueue )
+	{
+		// Make sure we hold the lock, and also set the tag for debugging purposes
+		SteamDatagramTransportLock::AssertHeldByCurrentThread( pItem->m_pszTag );
+
+		// Do the work and nuke
+		pItem->Run();
+		delete pItem;
+	}
+}
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Raw sockets
+//
+/////////////////////////////////////////////////////////////////////////////
+
 inline IRawUDPSocket::IRawUDPSocket() {}
 inline IRawUDPSocket::~IRawUDPSocket() {}
 
@@ -323,6 +412,10 @@ public:
 		//Log_Detailed( LOG_STEAMDATAGRAM_CLIENT, "%4db -> %s %02x %02x %02x %02x %02x ...\n",
 		//	cbPkt, CUtlNetAdrRender( adrTo ).String(), pbPkt[0], pbPkt[1], pbPkt[2], pbPkt[3], pbPkt[4] );
 
+		#ifdef STEAMNETWORKINGSOCKETS_LOWLEVEL_TIME_SOCKET_CALLS
+			SteamNetworkingMicroseconds usecSendStart = SteamNetworkingSockets_GetLocalTimestamp();
+		#endif
+
 		#ifdef WIN32
 			// Confirm that iovec and WSABUF are indeed bitwise equivalent
 			COMPILE_TIME_ASSERT( sizeof( iovec ) == sizeof( WSABUF ) );
@@ -341,7 +434,7 @@ public:
 				nullptr, // lpOverlapped
 				nullptr // lpCompletionRoutine
 			);
-			return ( r == 0 );
+			bool bResult = ( r == 0 );
 		#else
 			msghdr msg;
 			msg.msg_name = (sockaddr *)&destAddress;
@@ -353,8 +446,22 @@ public:
 			msg.msg_flags = 0;
 
 			int r = ::sendmsg( m_socket, &msg, 0 );
-			return ( r >= 0 ); // just check for -1 for error, since we don't want to take the time here to scan the iovec and sum up the expected total number of bytes sent
+			bool bResult = ( r >= 0 ); // just check for -1 for error, since we don't want to take the time here to scan the iovec and sum up the expected total number of bytes sent
 		#endif
+
+		#ifdef STEAMNETWORKINGSOCKETS_LOWLEVEL_TIME_SOCKET_CALLS
+			SteamNetworkingMicroseconds usecSendEnd = SteamNetworkingSockets_GetLocalTimestamp();
+			if ( usecSendEnd > s_usecIgnoreLongLockWaitTimeUntil )
+			{
+				SteamNetworkingMicroseconds usecSendElapsed = usecSendEnd - usecSendStart;
+				if ( usecSendElapsed > 1000 )
+				{
+					SpewWarning( "UDP send took %.1fms\n", usecSendElapsed*1e-3 );
+				}
+			}
+		#endif
+
+		return bResult;
 	}
 };
 
@@ -544,7 +651,7 @@ static CPacketLagger s_packetLagQueue;
 
 static std::thread *s_pThreadSteamDatagram = nullptr;
 
-static void WakeSteamDatagramThread()
+void WakeSteamDatagramThread()
 {
 	#if defined( _WIN32 )
 		if ( s_hEventWakeThread != INVALID_HANDLE_VALUE )
@@ -1062,9 +1169,25 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 			if ( s_nLowLevelSupportRefCount.load(std::memory_order_acquire) <= 0 )
 				return true; // current thread owns the lock
 
+			#ifdef STEAMNETWORKINGSOCKETS_LOWLEVEL_TIME_SOCKET_CALLS
+				SteamNetworkingMicroseconds usecRecvFromStart = SteamNetworkingSockets_GetLocalTimestamp();
+			#endif
+
 			sockaddr_storage from;
 			socklen_t fromlen = sizeof(from);
 			int ret = ::recvfrom( pSock->m_socket, buf, sizeof( buf ), 0, (sockaddr *)&from, &fromlen );
+
+			#ifdef STEAMNETWORKINGSOCKETS_LOWLEVEL_TIME_SOCKET_CALLS
+				SteamNetworkingMicroseconds usecRecvFromEnd = SteamNetworkingSockets_GetLocalTimestamp();
+				if ( usecRecvFromEnd > s_usecIgnoreLongLockWaitTimeUntil )
+				{
+					SteamNetworkingMicroseconds usecRecvFromElapsed = usecRecvFromEnd - usecRecvFromStart;
+					if ( usecRecvFromElapsed > 1000 )
+					{
+						SpewWarning( "recvfrom took %.1fms\n", usecRecvFromElapsed*1e-3 );
+					}
+				}
+			#endif
 
 			// Negative value means nothing more to read.
 			//
@@ -1133,6 +1256,18 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 
 				pSock->m_callback( buf, ret, adr );
 			}
+
+			#ifdef STEAMNETWORKINGSOCKETS_LOWLEVEL_TIME_SOCKET_CALLS
+				SteamNetworkingMicroseconds usecProcessPacketEnd = SteamNetworkingSockets_GetLocalTimestamp();
+				if ( usecProcessPacketEnd > s_usecIgnoreLongLockWaitTimeUntil )
+				{
+					SteamNetworkingMicroseconds usecProcessPacketElapsed = usecProcessPacketEnd - usecRecvFromEnd;
+					if ( usecProcessPacketElapsed > 1000 )
+					{
+						SpewWarning( "process packet took %.1fms\n", usecProcessPacketElapsed*1e-3 );
+					}
+				}
+			#endif
 		}
 	}
 
@@ -1155,156 +1290,6 @@ void ProcessPendingDestroyClosedRawUDPSockets()
 
 /////////////////////////////////////////////////////////////////////////////
 //
-// Periodic processing
-//
-/////////////////////////////////////////////////////////////////////////////
-
-struct ThinkerLess
-{
-	bool operator()( const IThinker *a, const IThinker *b ) const
-	{
-		return a->GetNextThinkTime() > b->GetNextThinkTime();
-	}
-};
-class ThinkerSetIndex
-{
-public:
-	static void SetIndex( IThinker *p, int idx ) { p->m_queueIndex = idx; }
-};
-
-static CUtlPriorityQueue<IThinker*,ThinkerLess,ThinkerSetIndex> s_queueThinkers;
-
-IThinker::IThinker()
-: m_usecNextThinkTime( k_nThinkTime_Never )
-, m_queueIndex( -1 )
-{
-}
-
-IThinker::~IThinker()
-{
-	ClearNextThinkTime();
-}
-
-#ifdef __GNUC__
-	// older steamrt:scout gcc requires this also, probably getting confused by unbalanced push/pop
-	#pragma GCC diagnostic ignored "-Wstrict-overflow"
-#endif
-
-void IThinker::SetNextThinkTime( SteamNetworkingMicroseconds usecTargetThinkTime )
-{
-	// Protect against us blowing up because of an invalid think time
-	if ( usecTargetThinkTime <= 0 )
-	{
-		AssertMsg1( false, "Attempt to set target think time to %lld", (long long)usecTargetThinkTime );
-		usecTargetThinkTime = Plat_USTime() + 5000;
-	}
-
-	// Clearing it?
-	if ( usecTargetThinkTime == k_nThinkTime_Never )
-	{
-		if ( m_queueIndex >= 0 )
-		{
-			Assert( s_queueThinkers.Element( m_queueIndex ) == this );
-			s_queueThinkers.RemoveAt( m_queueIndex );
-			Assert( m_queueIndex == -1 );
-		}
-
-		m_usecNextThinkTime = k_nThinkTime_Never;
-		return;
-	}
-
-	// Save current time when the next thinker wants service
-	SteamNetworkingMicroseconds usecNextWake = ( s_queueThinkers.Count() > 0 ) ? s_queueThinkers.ElementAtHead()->GetNextThinkTime() : k_nThinkTime_Never;
-
-	// Not currently scheduled?
-	if ( m_queueIndex < 0 )
-	{
-		Assert( m_usecNextThinkTime == k_nThinkTime_Never );
-		m_usecNextThinkTime = usecTargetThinkTime;
-		s_queueThinkers.Insert( this );
-	}
-	else
-	{
-
-		// We're already scheduled.
-		Assert( s_queueThinkers.Element( m_queueIndex ) == this );
-		Assert( m_usecNextThinkTime != k_nThinkTime_Never );
-
-		// Set the new schedule time
-		m_usecNextThinkTime = usecTargetThinkTime;
-
-		// And update our position in the queue
-		s_queueThinkers.RevaluateElement( m_queueIndex );
-	}
-
-	// Check that we know our place
-	Assert( m_queueIndex >= 0 );
-	Assert( s_queueThinkers.Element( m_queueIndex ) == this );
-
-	// Do we need service before we were previously schedule to wake up?
-	// If so, wake the thread now so that it can redo its schedule work
-	// NOTE: On Windows we could use a waitable timer.  This would avoid
-	// waking up the service thread just to re-schedule when it should
-	// wake up for real.
-	if ( m_usecNextThinkTime < usecNextWake )
-		WakeSteamDatagramThread();
-}
-
-void ProcessThinkers()
-{
-
-	// Until the queue is empty
-	int nIterations = 0;
-	while ( s_queueThinkers.Count() > 0 )
-	{
-
-		// Grab the head element
-		IThinker *pNextThinker = s_queueThinkers.ElementAtHead();
-
-		// Refetch timestamp each time.  The reason is that certain thinkers
-		// may pass through to other systems (e.g. fake lag) that fetch the time.
-		// If we don't update the time here, that code may have used the newer
-		// timestamp (e.g. to mark when a packet was received) and then
-		// in our next iteration, we will use an older timestamp to process
-		// a thinker.
-		SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
-
-		// Scheduled too far in the future?
-		if ( pNextThinker->GetNextThinkTime() >= usecNow )
-		{
-			// Keep waiting
-			break;
-		}
-
-		++nIterations;
-		if ( nIterations > 10000 )
-		{
-			AssertMsg1( false, "Processed thinkers %d times -- probably one thinker keeps requesting an immediate wakeup call.", nIterations );
-			break;
-		}
-
-		// Go ahead and clear his think time now and remove him
-		// from the heap.  He needs to schedule a new think time
-		// if heeds service again.  For thinkers that need frequent
-		// service, removing them and then re-inserting them when
-		// they reschedule is a bit of extra work that could be
-		// optimized by trying to not remove them now, but adjusting
-		// them once we know when they want to think.  But this
-		// is probably just a bit too complicated for the expected
-		// benefit.  If the number of total Thinkers is relatively
-		// small (which it probably will be), the heap operations
-		// are probably negligible.
-		pNextThinker->ClearNextThinkTime();
-
-		// Execute callback.  (Note: this could result
-		// in self-destruction or essentially any change
-		// to the rest of the queue.)
-		pNextThinker->Think( usecNow );
-	}
-}
-
-/////////////////////////////////////////////////////////////////////////////
-//
 // Service thread
 //
 /////////////////////////////////////////////////////////////////////////////
@@ -1321,9 +1306,9 @@ static bool SteamNetworkingSockets_InternalPoll( int msWait, bool bManualPoll )
 	Assert( SteamDatagramTransportLock::s_nLocked == 1 ); // exactly once
 
 	// Figure out how long to sleep
-	if ( s_queueThinkers.Count() > 0 )
+	IThinker *pNextThinker = Thinker_GetNextScheduled();
+	if ( pNextThinker )
 	{
-		IThinker *pNextThinker = s_queueThinkers.ElementAtHead();
 
 		// Calc wait time to wake up as late as possible,
 		// rounded up to the nearest millisecond.
@@ -1383,7 +1368,10 @@ static bool SteamNetworkingSockets_InternalPoll( int msWait, bool bManualPoll )
 	}
 
 	// Check for periodic processing
-	ProcessThinkers();
+	Thinker_ProcessThinkers();
+
+	// Tasks that were queued to be run while we hold the lock
+	ISteamNetworkingSocketsRunWithLock::ServiceQueue();
 
 	// Close any sockets pending delete, if we discarded a server
 	// We can close the sockets safely now, because we know we're
@@ -1710,7 +1698,7 @@ SteamNetworkingMicroseconds g_usecLastRateLimitSpew;
 ESteamNetworkingSocketsDebugOutputType g_eSteamDatagramDebugOutputDetailLevel;
 static FSteamNetworkingSocketsDebugOutput s_pfnDebugOutput = nullptr;
 
-void ReallySpewType( ESteamNetworkingSocketsDebugOutputType eType, const char *pMsg, ... )
+void VReallySpewType( ESteamNetworkingSocketsDebugOutputType eType, const char *pMsg, va_list ap )
 {
 	// Save callback.  Paranoia for unlikely but possible race condition,
 	// if we spew from more than one place in our code and stuff changes
@@ -1723,16 +1711,21 @@ void ReallySpewType( ESteamNetworkingSocketsDebugOutputType eType, const char *p
 	
 	// Do the formatting
 	char buf[ 2048 ];
-	va_list ap;
-	va_start( ap, pMsg );
 	V_vsprintf_safe( buf, pMsg, ap );
-	va_end( ap );
 
 	// Gah, some, but not all, of our code has newlines on the end
 	V_StripTrailingWhitespaceASCII( buf );
 
 	// Invoke callback
 	pfnDebugOutput( eType, buf );
+}
+
+void ReallySpewType( ESteamNetworkingSocketsDebugOutputType eType, const char *pMsg, ... )
+{
+	va_list ap;
+	va_start( ap, pMsg );
+	VReallySpewType( eType, pMsg, ap );
+	va_end( ap );
 }
 
 #if defined( STEAMNETWORKINGSOCKETS_STANDALONELIB ) && !defined( STEAMNETWORKINGSOCKETS_STREAMINGCLIENT )
@@ -1894,6 +1887,23 @@ bool BSteamNetworkingSocketsLowLevelAddRef( SteamDatagramErrMsg &errMsg )
 	if ( !s_bManualPollMode && !s_pThreadSteamDatagram )
 		s_pThreadSteamDatagram = new std::thread( SteamNetworkingThreadProc );
 
+	// Install an axexit handler, so that if static destruction is triggered without
+	// cleaning up the library properly, we won't crash.
+	static bool s_bInstalledAtExitHandler = false;
+	if ( !s_bInstalledAtExitHandler )
+	{
+		s_bInstalledAtExitHandler = true;
+		atexit( []{
+			SteamDatagramTransportLock scopeLock( "atexit" );
+
+			// Static destruction is about to happen.  If we have a thread,
+			// we need to nuke it
+			s_pfnDebugOutput = nullptr;
+			while ( s_nLowLevelSupportRefCount.load(std::memory_order_acquire) > 0 )
+				SteamNetworkingSocketsLowLevelDecRef();
+		} );
+	}
+
 	return true;
 }
 
@@ -1951,6 +1961,9 @@ void SteamNetworkingSocketsLowLevelDecRef()
 		}
 	#endif
 
+	// Check for any leftover tasks that were queued to be run while we hold the lock
+	ISteamNetworkingSocketsRunWithLock::ServiceQueue();
+
 	// Make sure we actually destroy socket objects.  It's safe to do so now.
 	ProcessPendingDestroyClosedRawUDPSockets();
 
@@ -1970,7 +1983,6 @@ void SteamNetworkingSocketsLowLevelDecRef()
 void SteamNetworkingSocketsLowLevelValidate( CValidator &validator )
 {
 	ValidateRecursive( s_vecRawSockets );
-	ValidateObj( s_queueThinkers );
 }
 #endif
 

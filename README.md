@@ -58,7 +58,7 @@ connection types or some part of the Steamworks SDK.
 
 ## Building
 
-See [BULDING](BUILDING.md) for more information.
+See [BUILDING](BUILDING.md) for more information.
 
 ## Language bindings
 
@@ -68,6 +68,7 @@ to facilitate binding to other languages.
 Third party language bindings:
 
 * C#: <https://github.com/nxrighthere/ValveSockets-CSharp>
+* Go: <https://github.com/nielsAD/gns/>
 
 ## Roadmap
 

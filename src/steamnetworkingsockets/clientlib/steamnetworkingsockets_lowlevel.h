@@ -12,6 +12,7 @@
 #include <steam/steamnetworkingtypes.h>
 #include <tier1/netadr.h>
 #include <tier1/utlhashmap.h>
+#include "../steamnetworkingsockets_internal.h"
 
 struct iovec;
 
@@ -63,9 +64,21 @@ public:
 	/// lag (steamdatagram_fakepacketlag_send and steamdatagram_fakepacketreorder_send), and
 	/// duplication (steamdatagram_fakepacketdup_send)
 	bool BSendRawPacket( const void *pPkt, int cbPkt, const netadr_t &adrTo ) const;
+	inline bool BSendRawPacket( const void *pPkt, int cbPkt, const SteamNetworkingIPAddr &adrTo ) const
+	{
+		netadr_t netadrTo;
+		SteamNetworkingIPAddrToNetAdr( netadrTo, adrTo );
+		return BSendRawPacket( pPkt, cbPkt, netadrTo );
+	}
 
 	/// Gather-based send.  Simulated lag, loss, etc are applied
 	bool BSendRawPacketGather( int nChunks, const iovec *pChunks, const netadr_t &adrTo ) const;
+	inline bool BSendRawPacketGather( int nChunks, const iovec *pChunks, const SteamNetworkingIPAddr &adrTo ) const
+	{
+		netadr_t netadrTo;
+		SteamNetworkingIPAddrToNetAdr( netadrTo, adrTo );
+		return BSendRawPacketGather( nChunks, pChunks, netadrTo );
+	}
 
 	/// Logically close the socket.  This might not actually close the socket IMMEDIATELY,
 	/// there may be a slight delay.  (On the order of a few milliseconds.)  But you will not
@@ -226,66 +239,6 @@ private:
 
 /////////////////////////////////////////////////////////////////////////////
 //
-// Periodic processing
-//
-/////////////////////////////////////////////////////////////////////////////
-
-const SteamNetworkingMicroseconds k_nThinkTime_Never = INT64_MAX;
-class ThinkerSetIndex;
-
-class IThinker
-{
-public:
-	virtual ~IThinker();
-
-	/// Callback to do whatever periodic processing you need.  If you don't
-	/// explicitly call SetNextThinkTime inside this function, then thinking
-	/// will be disabled.
-	///
-	/// Think callbacks will always happen from the service thread,
-	/// with the lock held.
-	///
-	/// Note that we assume a limited precision of the thread scheduler,
-	/// and you won't get your callback exactly when you request.
-	virtual void Think( SteamNetworkingMicroseconds usecNow ) = 0;
-
-	/// Called to set when you next want to get your Think() callback.
-	/// You should assume that, due to scheduler inaccuracy, you could
-	/// get your callback 1 or 2 ms late.
-	void SetNextThinkTime( SteamNetworkingMicroseconds usecTargetThinkTime );
-
-	/// Adjust schedule time to the earlier of the current schedule time,
-	/// or the given time.
-	inline void EnsureMinThinkTime( SteamNetworkingMicroseconds usecTargetThinkTime )
-	{
-		if ( usecTargetThinkTime < m_usecNextThinkTime )
-			SetNextThinkTime( usecTargetThinkTime );
-	}
-
-	/// Clear the next think time.  You won't get a callback.
-	void ClearNextThinkTime() { SetNextThinkTime( k_nThinkTime_Never ); }
-
-	/// Request an immediate wakeup.
-	void SetNextThinkTimeASAP() { EnsureMinThinkTime( 1 ); }
-
-	/// Fetch time when the next Think() call is currently scheduled to
-	/// happen.
-	inline SteamNetworkingMicroseconds GetNextThinkTime() const { return m_usecNextThinkTime; }
-
-	/// Return true if we are scheduled to get our callback
-	inline bool IsScheduled() const { return m_usecNextThinkTime != k_nThinkTime_Never; }
-
-protected:
-	IThinker();
-
-private:
-	SteamNetworkingMicroseconds m_usecNextThinkTime;
-	int m_queueIndex;
-	friend class ThinkerSetIndex;
-};
-
-/////////////////////////////////////////////////////////////////////////////
-//
 // Misc low level service thread stuff
 //
 /////////////////////////////////////////////////////////////////////////////
@@ -308,6 +261,7 @@ inline bool BRateLimitSpew( SteamNetworkingMicroseconds usecNow )
 
 extern ESteamNetworkingSocketsDebugOutputType g_eSteamDatagramDebugOutputDetailLevel;
 extern void ReallySpewType( ESteamNetworkingSocketsDebugOutputType eType, PRINTF_FORMAT_STRING const char *pMsg, ... ) FMTFUNCTION( 2, 3 );
+extern void VReallySpewType( ESteamNetworkingSocketsDebugOutputType eType, const char *pMsg, va_list ap );
 #define SpewType( eType, ... ) ( ( (eType) <= g_eSteamDatagramDebugOutputDetailLevel ) ? ReallySpewType( ESteamNetworkingSocketsDebugOutputType(eType), __VA_ARGS__ ) : (void)0 )
 #define SpewMsg( ... ) SpewType( k_ESteamNetworkingSocketsDebugOutputType_Msg, __VA_ARGS__ )
 #define SpewVerbose( ... ) SpewType( k_ESteamNetworkingSocketsDebugOutputType_Verbose, __VA_ARGS__ )
@@ -353,10 +307,46 @@ extern void SteamNetworkingSocketsLowLevelValidate( CValidator &validator );
 #endif
 
 /// Fetch current time
-SteamNetworkingMicroseconds SteamNetworkingSockets_GetLocalTimestamp();
+extern SteamNetworkingMicroseconds SteamNetworkingSockets_GetLocalTimestamp();
 
 /// Set debug output hook
-void SteamNetworkingSockets_SetDebugOutputFunction( ESteamNetworkingSocketsDebugOutputType eDetailLevel, FSteamNetworkingSocketsDebugOutput pfnFunc );
+extern void SteamNetworkingSockets_SetDebugOutputFunction( ESteamNetworkingSocketsDebugOutputType eDetailLevel, FSteamNetworkingSocketsDebugOutput pfnFunc );
+
+/// Wake up the service thread ASAP.  Intended to be called from other threads,
+/// but is safe to call from the service thread as well.
+extern void WakeSteamDatagramThread();
+
+/// Class used to take some action while we have the global thread locked,
+/// perhaps later and in another thread if necessary.  Intended to be used
+/// from callbacks and other contexts where we don't know what thread we are
+/// in and cannot risk trying to waiton the lock, without risking creating
+/// a deadlock.
+///
+/// Note: This code could have been a lot simpler with std::function, but
+/// it was intentionally notused, to avoid adding that runtime dependency.
+class ISteamNetworkingSocketsRunWithLock
+{
+public:
+	virtual ~ISteamNetworkingSocketsRunWithLock();
+
+	/// If we can run immediately, then do so, delete self, and return true.
+	/// Otherwise, we are placed into a queue and false is returned.
+	bool RunOrQueue( const char *pszTag );
+
+	/// Don't check the global lock, just queue the item to be run.
+	void Queue( const char *pszTag );
+
+	/// Called from service thread while we hold the lock
+	static void ServiceQueue();
+
+private:
+	const char *m_pszTag = nullptr;
+
+protected:
+	virtual void Run() = 0;
+
+	inline ISteamNetworkingSocketsRunWithLock() {};
+};
 
 } // namespace SteamNetworkingSocketsLib
 

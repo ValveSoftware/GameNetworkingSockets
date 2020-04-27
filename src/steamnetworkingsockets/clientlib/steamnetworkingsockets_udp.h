@@ -9,7 +9,25 @@
 
 namespace SteamNetworkingSocketsLib {
 
-struct UDPSendPacketContext_t;
+template<>
+inline uint32 StatsMsgImpliedFlags<CMsgSteamSockets_UDP_Stats>( const CMsgSteamSockets_UDP_Stats &msg )
+{
+	return msg.has_stats() ? msg.ACK_REQUEST_E2E : 0;
+}
+
+struct UDPSendPacketContext_t : SendPacketContext<CMsgSteamSockets_UDP_Stats>
+{
+	inline explicit UDPSendPacketContext_t( SteamNetworkingMicroseconds usecNow, const char *pszReason ) : SendPacketContext<CMsgSteamSockets_UDP_Stats>( usecNow, pszReason ) {}
+	int m_nStatsNeed;
+
+	void Populate( size_t cbHdrtReserve, EStatsReplyRequest eReplyRequested, CSteamNetworkConnectionBase &connection );
+
+	void Trim( int cbHdrOutSpaceRemaining );
+};
+
+
+extern std::string DescribeStatsContents( const CMsgSteamSockets_UDP_Stats &msg );
+extern bool BCheckRateLimitReportBadPacket( SteamNetworkingMicroseconds usecNow );
 
 /////////////////////////////////////////////////////////////////////////////
 //
@@ -21,13 +39,13 @@ class CSteamNetworkListenSocketDirectUDP : public CSteamNetworkListenSocketBase
 {
 public:
 	CSteamNetworkListenSocketDirectUDP( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface );
-	virtual ~CSteamNetworkListenSocketDirectUDP();
 	virtual bool APIGetAddress( SteamNetworkingIPAddr *pAddress ) override;
 
 	/// Setup
 	bool BInit( const SteamNetworkingIPAddr &localAddr, int nOptions, const SteamNetworkingConfigValue_t *pOptions, SteamDatagramErrMsg &errMsg );
 
 private:
+	virtual ~CSteamNetworkListenSocketDirectUDP(); // hidden destructor, don't call directly.  Use Destroy()
 
 	/// The socket we are bound to.  We own this socket.
 	/// Any connections accepted through us become clients of this shared socket.
@@ -73,7 +91,7 @@ public:
 	virtual bool BCanSendEndToEndData() const override;
 	virtual void SendEndToEndConnectRequest( SteamNetworkingMicroseconds usecNow ) override;
 	virtual void SendEndToEndStatsMsg( EStatsReplyRequest eRequest, SteamNetworkingMicroseconds usecNow, const char *pszReason ) override;
-	virtual void ConnectionStateChanged( ESteamNetworkingConnectionState eOldState ) override;
+	virtual void TransportConnectionStateChanged( ESteamNetworkingConnectionState eOldState ) override;
 
 	/// Interface used to talk to the remote host
 	IBoundUDPSocket *m_pSocket;
@@ -109,8 +127,6 @@ protected:
 	void RecvStats( const CMsgSteamSockets_UDP_Stats &msgStatsIn, bool bInline, SteamNetworkingMicroseconds usecNow );
 	void SendStatsMsg( EStatsReplyRequest eReplyRequested, SteamNetworkingMicroseconds usecNow, const char *pszReason );
 	void TrackSentStats( const CMsgSteamSockets_UDP_Stats &msgStatsOut, bool bInline, SteamNetworkingMicroseconds usecNow );
-
-	void PopulateSendPacketContext( UDPSendPacketContext_t &ctx, EStatsReplyRequest eReplyRequested );
 };
 
 /// A connection over ordinary UDP
@@ -125,7 +141,7 @@ public:
 	inline CConnectionTransportUDP *Transport() const { return assert_cast<CConnectionTransportUDP *>( m_pTransport ); }
 
 	/// Implements CSteamNetworkConnectionBase
-	virtual EResult AcceptConnection() override;
+	virtual EResult AcceptConnection( SteamNetworkingMicroseconds usecNow ) override;
 	virtual void ThinkConnection( SteamNetworkingMicroseconds usecNow ) override;
 	virtual void GetConnectionTypeDescription( ConnectionTypeDescription_t &szDescription ) const override;
 	virtual EUnsignedCert AllowRemoteUnsignedCert() override;
@@ -159,7 +175,6 @@ public:
 	static bool APICreateSocketPair( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface, CSteamNetworkConnectionlocalhostLoopback *pConn[2], const SteamNetworkingIdentity pIdentity[2] );
 
 	/// Base class overrides
-	virtual void PostConnectionStateChangedCallback( ESteamNetworkingConnectionState eOldAPIState, ESteamNetworkingConnectionState eNewAPIState ) override;
 	virtual EUnsignedCert AllowRemoteUnsignedCert() override;
 	virtual EUnsignedCert AllowLocalUnsignedCert() override;
 };

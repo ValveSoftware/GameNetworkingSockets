@@ -20,7 +20,7 @@ cmake_build() {
 
 cleanup() {
 	echo "Cleaning up CMake build directories" >&2
-	rm -rf build-{a,ub,t}san build-cmake
+	rm -rf build-{a,ub,t}san build-cmake{,-ref,-sodium{,25519}}
 }
 
 trap cleanup EXIT
@@ -28,11 +28,14 @@ cleanup
 
 CMAKE_ARGS=(
 	-G Ninja
+	-DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+	-DCMAKE_C_COMPILER_LAUNCHER=ccache
 	-DLIGHT_TESTS:BOOL=ON
 	-DWERROR=ON
 )
 
 BUILD_SANITIZERS=${BUILD_SANITIZERS:-0}
+
 [[ $(uname -s) == MINGW* ]] && BUILD_SANITIZERS=0
 
 # Noticed that Clang's tsan and asan don't behave well on non-x86_64 Travis
@@ -46,6 +49,11 @@ BUILD_SANITIZERS=${BUILD_SANITIZERS:-0}
 # Foreign architecture docker containers don't support sanitizers.
 [[ $(uname -m) != x86_64 ]] && grep -q -e AuthenticAMD -e GenuineIntel /proc/cpuinfo && BUILD_SANITIZERS=0
 
+BUILD_LIBSODIUM=1
+
+# libsodium's AES implementation only works on x86_64
+[[ $(uname -m) != x86_64 ]] && BUILD_LIBSODIUM=0
+
 set -x
 
 # Build some tests with sanitizers
@@ -57,10 +65,23 @@ if [[ $BUILD_SANITIZERS -ne 0 ]]; then
 	fi
 fi
 
-cmake_configure build-cmake ${CMAKE_ARGS[@]} -DCMAKE_BUILD_TYPE=RelWithDebInfo ..
-
 # Build normal unsanitized binaries
+cmake_configure build-cmake ${CMAKE_ARGS[@]} -DCMAKE_BUILD_TYPE=RelWithDebInfo ..
 cmake_build build-cmake
+
+# Build binaries with reference ed25519/curve25519
+cmake_configure build-cmake-ref ${CMAKE_ARGS[@]} -DCMAKE_BUILD_TYPE=RelWithDebInfo -DUSE_CRYPTO25519=Reference ..
+cmake_build build-cmake-ref
+
+# Build binaries with libsodium for ed25519/curve25519 only
+cmake_configure build-cmake-sodium25519 ${CMAKE_ARGS[@]} -DCMAKE_BUILD_TYPE=RelWithDebInfo -DUSE_CRYPTO25519=libsodium ..
+cmake_build build-cmake-sodium25519
+
+# Build binaries with libsodium
+if [[ $BUILD_LIBSODIUM -ne 0 ]]; then
+	cmake_configure build-cmake-sodium ${CMAKE_ARGS[@]} -DCMAKE_BUILD_TYPE=RelWithDebInfo -DUSE_CRYPTO=libsodium -DUSE_CRYPTO25519=libsodium ..
+	cmake_build build-cmake-sodium
+fi
 
 # Build specific extended tests for code correctness validation
 if [[ $BUILD_SANITIZERS -ne 0 ]]; then
@@ -72,6 +93,9 @@ if [[ $BUILD_SANITIZERS -ne 0 ]]; then
 fi
 
 # Run basic tests
+build-cmake-ref/tests/test_crypto
+[[ $BUILD_LIBSODIUM -ne 0 ]] && build-cmake-sodium/tests/test_crypto
+build-cmake-sodium25519/tests/test_crypto
 build-cmake/tests/test_crypto
 build-cmake/tests/test_connection
 

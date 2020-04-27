@@ -56,7 +56,7 @@ bool BCheckRateLimitReportBadPacket( SteamNetworkingMicroseconds usecNow )
 	return true;
 }
 
-void ReallyReportBadPacket( const netadr_t &adrFrom, const char *pszMsgType, const char *pszFmt, ... )
+static void ReallyReportBadUDPPacket( const netadr_t &adrFrom, const char *pszMsgType, const char *pszFmt, ... )
 {
 	char buf[ 2048 ];
 	va_list ap;
@@ -72,7 +72,7 @@ void ReallyReportBadPacket( const netadr_t &adrFrom, const char *pszMsgType, con
 }
 
 #define ReportBadPacketFrom( adrFrom, pszMsgType, /* fmt */ ... ) \
-	( BCheckRateLimitReportBadPacket( usecNow ) ? ReallyReportBadPacket( adrFrom, pszMsgType, __VA_ARGS__ ) : (void)0 )
+	( BCheckRateLimitReportBadPacket( usecNow ) ? ReallyReportBadUDPPacket( adrFrom, pszMsgType, __VA_ARGS__ ) : (void)0 )
 
 #define ReportBadPacket( pszMsgType, /* fmt */ ... ) \
 	ReportBadPacketFrom( adrFrom, pszMsgType, __VA_ARGS__ )
@@ -585,92 +585,108 @@ void CSteamNetworkConnectionUDP::GetConnectionTypeDescription( ConnectionTypeDes
 	V_sprintf_safe( szDescription, "UDP %s@%s", sIdentity.c_str(), szAddr );
 }
 
-template<>
-inline uint32 StatsMsgImpliedFlags<CMsgSteamSockets_UDP_Stats>( const CMsgSteamSockets_UDP_Stats &msg )
+void UDPSendPacketContext_t::Populate( size_t cbHdrtReserve, EStatsReplyRequest eReplyRequested, CSteamNetworkConnectionBase &connection )
 {
-	return msg.has_stats() ? msg.ACK_REQUEST_E2E : 0;
-}
-
-struct UDPSendPacketContext_t : SendPacketContext<CMsgSteamSockets_UDP_Stats>
-{
-	inline explicit UDPSendPacketContext_t( SteamNetworkingMicroseconds usecNow, const char *pszReason ) : SendPacketContext<CMsgSteamSockets_UDP_Stats>( usecNow, pszReason ) {}
-	int m_nStatsNeed;
-};
-
-
-void CConnectionTransportUDP::PopulateSendPacketContext( UDPSendPacketContext_t &ctx, EStatsReplyRequest eReplyRequested )
-{
-	SteamNetworkingMicroseconds usecNow = ctx.m_usecNow;
-	LinkStatsTracker<LinkStatsTrackerEndToEnd> &statsEndToEnd = m_connection.m_statsEndToEnd;
+	LinkStatsTracker<LinkStatsTrackerEndToEnd> &statsEndToEnd = connection.m_statsEndToEnd;
 
 	// What effective flags should we send
 	uint32 nFlags = 0;
 	int nReadyToSendTracer = 0;
-	if ( eReplyRequested == k_EStatsReplyRequest_Immediate || statsEndToEnd.BNeedToSendPingImmediate( usecNow ) )
-		nFlags |= ctx.msg.ACK_REQUEST_E2E | ctx.msg.ACK_REQUEST_IMMEDIATE;
-	else if ( eReplyRequested == k_EStatsReplyRequest_DelayedOK || statsEndToEnd.BNeedToSendKeepalive( usecNow ) )
-		nFlags |= ctx.msg.ACK_REQUEST_E2E;
+	if ( eReplyRequested == k_EStatsReplyRequest_Immediate || statsEndToEnd.BNeedToSendPingImmediate( m_usecNow ) )
+		nFlags |= msg.ACK_REQUEST_E2E | msg.ACK_REQUEST_IMMEDIATE;
+	else if ( eReplyRequested == k_EStatsReplyRequest_DelayedOK || statsEndToEnd.BNeedToSendKeepalive( m_usecNow ) )
+		nFlags |= msg.ACK_REQUEST_E2E;
 	else
 	{
-		nReadyToSendTracer = statsEndToEnd.ReadyToSendTracerPing( usecNow );
+		nReadyToSendTracer = statsEndToEnd.ReadyToSendTracerPing( m_usecNow );
 		if ( nReadyToSendTracer > 1 )
-			nFlags |= ctx.msg.ACK_REQUEST_E2E;
+			nFlags |= msg.ACK_REQUEST_E2E;
 	}
 
-	ctx.m_nFlags = nFlags;
+	m_nFlags = nFlags;
 
 	// Need to send any connection stats stats?
-	if ( statsEndToEnd.BNeedToSendStats( usecNow ) )
+	if ( statsEndToEnd.BNeedToSendStats( m_usecNow ) )
 	{
-		ctx.m_nStatsNeed = 2;
-		statsEndToEnd.PopulateMessage( *ctx.msg.mutable_stats(), usecNow );
+		m_nStatsNeed = 2;
+		statsEndToEnd.PopulateMessage( *msg.mutable_stats(), m_usecNow );
 
 		if ( nReadyToSendTracer > 0 )
-			nFlags |= ctx.msg.ACK_REQUEST_E2E;
+			nFlags |= msg.ACK_REQUEST_E2E;
 
-		ctx.SlamFlagsAndCalcSize();
-		ctx.CalcMaxEncryptedPayloadSize( sizeof(UDPDataMsgHdr), &m_connection );
+		SlamFlagsAndCalcSize();
+		CalcMaxEncryptedPayloadSize( cbHdrtReserve, &connection );
 	}
 	else
 	{
 		// Populate flags now, based on what is implied from what we HAVE to send
-		ctx.SlamFlagsAndCalcSize();
-		ctx.CalcMaxEncryptedPayloadSize( sizeof(UDPDataMsgHdr), &m_connection );
+		SlamFlagsAndCalcSize();
+		CalcMaxEncryptedPayloadSize( cbHdrtReserve, &connection );
 
 		// Would we like to try to send some additional stats, if there is room?
-		if ( statsEndToEnd.BReadyToSendStats( usecNow ) )
+		if ( statsEndToEnd.BReadyToSendStats( m_usecNow ) )
 		{
 			if ( nReadyToSendTracer > 0 )
-				nFlags |= ctx.msg.ACK_REQUEST_E2E;
-			statsEndToEnd.PopulateMessage( *ctx.msg.mutable_stats(), usecNow );
-			ctx.SlamFlagsAndCalcSize();
-			ctx.m_nStatsNeed = 1;
+				nFlags |= msg.ACK_REQUEST_E2E;
+			statsEndToEnd.PopulateMessage( *msg.mutable_stats(), m_usecNow );
+			SlamFlagsAndCalcSize();
+			m_nStatsNeed = 1;
 		}
 		else
 		{
 			// No need to send any stats right now
-			ctx.m_nStatsNeed = 0;
+			m_nStatsNeed = 0;
 		}
+	}
+}
+
+void UDPSendPacketContext_t::Trim( int cbHdrOutSpaceRemaining )
+{
+	while ( m_cbTotalSize > cbHdrOutSpaceRemaining )
+	{
+
+		if ( msg.has_stats() )
+		{
+			AssertMsg( m_nStatsNeed == 1, "We didn't reserve enough space for stats!" );
+			if ( msg.stats().has_instantaneous() && msg.stats().has_lifetime() )
+			{
+				// Trying to send both - clear instantaneous
+				msg.mutable_stats()->clear_instantaneous();
+			}
+			else
+			{
+				// Trying to send just one or the other.  Clear the whole container.
+				msg.clear_stats();
+			}
+
+			SlamFlagsAndCalcSize();
+			continue;
+		}
+
+		// Nothing left to clear!?  We shouldn't get here!
+		AssertMsg( false, "Serialized stats message still won't fit, ever after clearing everything?" );
+		m_cbTotalSize = 0;
+		break;
 	}
 }
 
 void CConnectionTransportUDP::SendStatsMsg( EStatsReplyRequest eReplyRequested, SteamNetworkingMicroseconds usecNow, const char *pszReason )
 {
 	UDPSendPacketContext_t ctx( usecNow, pszReason );
-	PopulateSendPacketContext( ctx, eReplyRequested );
+	ctx.Populate( sizeof(UDPDataMsgHdr), eReplyRequested, m_connection );
 
 	// Send a data packet (maybe containing ordinary data), with this piggy backed on top of it
-	m_connection.SNP_SendPacket( ctx );
+	m_connection.SNP_SendPacket( this, ctx );
 }
 
 bool CConnectionTransportUDP::SendDataPacket( SteamNetworkingMicroseconds usecNow )
 {
 	// Populate context struct with any stats we want/need to send, and how much space we need to reserve for it
 	UDPSendPacketContext_t ctx( usecNow, "data" );
-	PopulateSendPacketContext( ctx, k_EStatsReplyRequest_NothingToSend );
+	ctx.Populate( sizeof(UDPDataMsgHdr), k_EStatsReplyRequest_NothingToSend, m_connection );
 
 	// Send a packet
-	return m_connection.SNP_SendPacket( ctx );
+	return m_connection.SNP_SendPacket( this, ctx );
 }
 
 int CConnectionTransportUDP::SendEncryptedDataChunk( const void *pChunk, int cbChunk, SendPacketContext_t &ctxBase )
@@ -702,32 +718,7 @@ int CConnectionTransportUDP::SendEncryptedDataChunk( const void *pChunk, int cbC
 	}
 
 	// Try to trim stuff from blob, if it won't fit
-	while ( ctx.m_cbTotalSize > cbHdrOutSpaceRemaining )
-	{
-
-		if ( ctx.msg.has_stats() )
-		{
-			AssertMsg( ctx.m_nStatsNeed == 1, "We didn't reserve enough space for stats!" );
-			if ( ctx.msg.stats().has_instantaneous() && ctx.msg.stats().has_lifetime() )
-			{
-				// Trying to send both - clear instantaneous
-				ctx.msg.mutable_stats()->clear_instantaneous();
-			}
-			else
-			{
-				// Trying to send just one or the other.  Clear the whole container.
-				ctx.msg.clear_stats();
-			}
-
-			ctx.SlamFlagsAndCalcSize();
-			continue;
-		}
-
-		// Nothing left to clear!?  We shouldn't get here!
-		AssertMsg( false, "Serialized stats message still won't fit, ever after clearing everything?" );
-		ctx.m_cbTotalSize = 0;
-		break;
-	}
+	ctx.Trim( cbHdrOutSpaceRemaining );
 
 	if ( ctx.Serialize( p ) )
 	{
@@ -913,7 +904,7 @@ void CSteamNetworkConnectionUDP::ThinkConnection( SteamNetworkingMicroseconds us
 	//         There's really nothing specific to plain UDP transport here.
 
 	// Check if we have stats we need to flush out
-	if ( !m_statsEndToEnd.IsDisconnected() && m_pTransport )
+	if ( !m_statsEndToEnd.IsPassive() && m_pTransport )
 	{
 
 		// Do we need to send something immediately, for any reason?
@@ -969,7 +960,8 @@ bool CSteamNetworkConnectionUDP::BBeginAccept(
 
 	m_unConnectionIDRemote = unConnectionIDRemote;
 	m_netAdrRemote = adrFrom;
-	pParent->AddChildConnection( this );
+	if ( !pParent->BAddChildConnection( this, errMsg ) )
+		return false;
 
 	// Let base class do some common initialization
 	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
@@ -992,10 +984,8 @@ bool CSteamNetworkConnectionUDP::BBeginAccept(
 	return true;
 }
 
-EResult CSteamNetworkConnectionUDP::AcceptConnection()
+EResult CSteamNetworkConnectionUDP::AcceptConnection( SteamNetworkingMicroseconds usecNow )
 {
-	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
-
 	if ( !Transport() )
 	{
 		AssertMsg( false, "Cannot acception UDP connection.  No transport?" );
@@ -1075,9 +1065,9 @@ void CConnectionTransportUDP::SendPacketGather( int nChunks, const iovec *pChunk
 	m_pSocket->BSendRawPacketGather( nChunks, pChunks );
 }
 
-void CConnectionTransportUDP::ConnectionStateChanged( ESteamNetworkingConnectionState eOldState )
+void CConnectionTransportUDP::TransportConnectionStateChanged( ESteamNetworkingConnectionState eOldState )
 {
-	CConnectionTransport::ConnectionStateChanged( eOldState );
+	CConnectionTransport::TransportConnectionStateChanged( eOldState );
 
 	switch ( ConnectionState() )
 	{
@@ -1277,12 +1267,6 @@ void CConnectionTransportUDP::Received_Data( const uint8 *pPkt, int cbPkt, Steam
 			SendConnectionClosedOrNoConnection();
 			return;
 
-		case k_ESteamNetworkingConnectionState_Linger:
-			// FIXME: What should we do here?  We are half-closed here, so this
-			// data is definitely going to be ignored.  Do we need to communicate
-			// that state to the remote host somehow?
-			return;
-
 		case k_ESteamNetworkingConnectionState_Connecting:
 			// Ignore it.  We don't have the SteamID of whoever is on the other end yet,
 			// their encryption keys, etc.  The most likely cause is that a server sent
@@ -1290,6 +1274,7 @@ void CConnectionTransportUDP::Received_Data( const uint8 *pPkt, int cbPkt, Steam
 			// have everything yet.
 			return;
 
+		case k_ESteamNetworkingConnectionState_Linger:
 		case k_ESteamNetworkingConnectionState_Connected:
 
 			// We'll process the chunk
@@ -1326,7 +1311,6 @@ void CConnectionTransportUDP::Received_Data( const uint8 *pPkt, int cbPkt, Steam
 		}
 
 		// Shove sequence number so we know what acks to pend, etc
-		msgStats.set_seq_num( nWirePktNumber );
 		pMsgStatsIn = &msgStats;
 
 		// Advance pointer
@@ -1829,16 +1813,6 @@ EUnsignedCert CSteamNetworkConnectionlocalhostLoopback::AllowLocalUnsignedCert()
 	return k_EUnsignedCert_Allow;
 }
 
-void CSteamNetworkConnectionlocalhostLoopback::PostConnectionStateChangedCallback( ESteamNetworkingConnectionState eOldAPIState, ESteamNetworkingConnectionState eNewAPIState )
-{
-	// Don't post any callbacks for the initial transitions.
-	if ( eNewAPIState == k_ESteamNetworkingConnectionState_Connecting || eNewAPIState == k_ESteamNetworkingConnectionState_Connected )
-		return;
-
-	// But post callbacks for these guys
-	CSteamNetworkConnectionUDP::PostConnectionStateChangedCallback( eOldAPIState, eNewAPIState );
-}
-
 bool CSteamNetworkConnectionlocalhostLoopback::APICreateSocketPair( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface, CSteamNetworkConnectionlocalhostLoopback *pConn[2], const SteamNetworkingIdentity pIdentity[2] )
 {
 	SteamDatagramTransportLock::AssertHeldByCurrentThread();
@@ -1850,10 +1824,15 @@ bool CSteamNetworkConnectionlocalhostLoopback::APICreateSocketPair( CSteamNetwor
 	if ( !pConn[0] || !pConn[1] )
 	{
 failed:
-		delete pConn[0]; pConn[0] = nullptr;
-		delete pConn[1]; pConn[1] = nullptr;
+		pConn[0]->ConnectionDestroySelfNow(); pConn[0] = nullptr;
+		pConn[1]->ConnectionDestroySelfNow(); pConn[1] = nullptr;
 		return false;
 	}
+
+	// Don't post any state changes for these transitions.  We just want to immediately start in the
+	// connected state
+	pConn[0]->m_bSupressStateChangeCallbacks = true;
+	pConn[1]->m_bSupressStateChangeCallbacks = true;
 
 	CConnectionTransportUDP *pTransport[2] = {
 		new CConnectionTransportUDP( *pConn[0] ),
@@ -1892,6 +1871,10 @@ failed:
 		}
 		p->ConnectionState_Connected( usecNow );
 	}
+
+	// Any further state changes are legit
+	pConn[0]->m_bSupressStateChangeCallbacks = false;
+	pConn[1]->m_bSupressStateChangeCallbacks = false;
 
 	return true;
 }

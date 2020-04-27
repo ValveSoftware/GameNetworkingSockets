@@ -1,6 +1,7 @@
 //====== Copyright Valve Corporation, All rights reserved. ====================
 
 #include <crypto.h>
+#include <crypto_25519.h>
 #include "steamnetworkingsockets_internal.h"
 
 // Must be the last include
@@ -224,7 +225,7 @@ bool BSteamNetworkingIdentityToProtobufInternal( const SteamNetworkingIdentity &
 
 	// And return string format
 	char buf[ SteamNetworkingIdentity::k_cchMaxString ];
-	SteamAPI_SteamNetworkingIdentity_ToString( identity, buf, sizeof(buf) );
+	SteamNetworkingIdentity_ToString( &identity, buf, sizeof(buf) );
 	*strIdentity = buf;
 
 	return true;

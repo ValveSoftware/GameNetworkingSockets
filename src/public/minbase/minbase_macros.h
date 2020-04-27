@@ -96,8 +96,6 @@
 // Used to step into the debugger
 #ifdef _WIN64
 	#define DebuggerBreak()  do { __debugbreak(); } while(0)
-#elif defined(_WIN32)
-	#define DebuggerBreak()  do { __asm { int 3 }; } while(0)
 #elif defined( COMPILER_GCC )
 	#if defined( _PS3 )
 		#if defined( _CERT )
@@ -110,6 +108,8 @@
 	#else
 		#define DebuggerBreak() do { } while(0)
 	#endif
+#elif defined(_WIN32)
+	#define DebuggerBreak()  do { __asm { int 3 }; } while(0)
 #elif defined( COMPILER_SNC ) && defined( COMPILER_PS3 )
 	static volatile bool sPS3_SuppressAssertsInThisFile = false; // you can throw this in the debugger to temporarily disable asserts inside any particular .cpp module.
 	#define DebuggerBreak() if (!sPS3_SuppressAssertsInThisFile) __builtin_snpause(); // <sergiy> from SNC Migration Guide, tw 31,1,1
@@ -126,13 +126,6 @@ extern "C"
 #pragma intrinsic(__rdtsc)
 #define PLAT_CPU_TIME() __rdtsc()
 
-#elif defined(_WIN32)
-
-FORCEINLINE unsigned __int64 PLAT_CPU_TIME()
-{
-    __asm rdtsc
-}
-
 #elif defined(COMPILER_GCC) && ( defined(__i386__) || defined(__x86_64__) )
 
 inline __attribute__ ((always_inline)) unsigned long long PLAT_CPU_TIME()
@@ -147,6 +140,14 @@ inline __attribute__ ((always_inline)) unsigned long long PLAT_CPU_TIME()
     return Val;
 #endif
 }
+
+#elif defined(_WIN32)
+
+FORCEINLINE unsigned __int64 PLAT_CPU_TIME()
+{
+    __asm rdtsc
+}
+
 
 #elif defined(POSIX)
 

@@ -137,18 +137,6 @@ message CMsgSteamSockets_UDP_Stats
 	// End to end stats
 	optional CMsgSteamDatagramConnectionQuality stats = 1;
 
-	/// If acks are reasonably rare compared to outgoing data packets,
-	/// we will usually be able to fit an ack in the header of a data packet.
-	/// If we need to send multiple acks, or a standalong stats message,
-	/// we can put them here.
-	///
-	/// Intentionally not array packed, since having more than one is actually
-	/// rare and sending a single value "packed" takes more bytes.
-	/// Upper 16 bits is the sequence number, lower is the delay
-	///
-	/// Note that we really need to integrate this better with the SNP acks/nacks.
-	//repeated fixed32 ack_e2e = 2;
-
 	enum Flags
 	{
 		//ACK_REQUEST_RELAY = 1; // Reserved
@@ -159,15 +147,42 @@ message CMsgSteamSockets_UDP_Stats
 	/// Additional flags.  Should we try to put these in the
 	/// message header and save a few bytes?
 	optional uint32 flags = 3;
+};
 
-	//
-	// Envelope data.  Not present if the message is
-	// inline in a data message
-	//
-	//optional fixed32 legacy_client_connection_id = 8;
-	optional fixed32 to_connection_id = 9;
-	optional fixed32 from_connection_id = 10;
-	optional uint32 seq_num = 4;
+//=============================================================================
+//
+// WebRTC messages.  WebRT connections are established thorugh signaling,
+// and have their own handshake and Connection ID in the header, so the
+// messages have slightly different contents
+//
+//=============================================================================
+
+/// Control message IDs used by WebRTC connections
+enum ESteamNetworkingWebRTCMsgID
+{
+	// NOTE: Connect request/ok always go through signaling
+
+	k_ESteamNetworkingWebRTCMsg_ConnectionClosed = 36; // Used to initiate graceful connection closure.  Peer is expected to close WebRTC connection in reply
+	//k_ESteamNetworkingWebRTCMsg_NoConnection = 37; // We just close the WebRTC connection and let WebRTC deal with it
+	k_ESteamNetworkingWebRTCMsg_PingCheck = 39;
+};
+
+// k_ESteamNetworkingWebRTCMsg_ConnectionClosed
+message CMsgSteamSockets_WebRTC_ConnectionClosed
+{
+	// No connection IDs.  We assume WebRTC is doing that
+	//optional fixed32 to_connection_id = 4;
+	//optional fixed32 from_connection_id = 5;
+
+	optional string debug = 2;
+	optional uint32 reason_code = 3;
+};
+
+// k_ESteamNetworkingWebRTCMsg_PingCheck
+message CMsgSteamSockets_WebRTC_PingCheck
+{
+	optional fixed64 send_timestamp = 1; // If present, receiver should immediately reply with this in recv_timestamp
+	optional fixed64 recv_timestamp = 2;
 };
 
 // Do not remove this comment due to a bug on the Mac OS X protobuf compiler

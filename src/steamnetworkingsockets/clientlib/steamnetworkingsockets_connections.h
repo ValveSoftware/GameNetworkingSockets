@@ -13,8 +13,10 @@
 #include <tier1/utlhashmap.h>
 #include <tier1/netadr.h>
 #include "steamnetworkingsockets_lowlevel.h"
+#include "../steamnetworkingsockets_thinker.h"
 #include "keypair.h"
 #include "crypto.h"
+#include "crypto_25519.h"
 #include <tier0/memdbgoff.h>
 #include <steamnetworkingsockets_messages.pb.h>
 #include <tier0/memdbgon.h>
@@ -34,6 +36,7 @@ typedef char ConnectionEndDebugMsg[ k_cchSteamNetworkingMaxConnectionCloseReason
 class CSteamNetworkingSockets;
 class CSteamNetworkingMessages;
 class CSteamNetworkConnectionBase;
+class CSteamNetworkConnectionP2P;
 class CSharedSocket;
 class CConnectionTransport;
 struct SNPAckSerializerHelper;
@@ -187,7 +190,7 @@ public:
 	virtual void Destroy();
 
 	/// Called when we receive a connection attempt, to setup the linkage.
-	void AddChildConnection( CSteamNetworkConnectionBase *pConn );
+	bool BAddChildConnection( CSteamNetworkConnectionBase *pConn, SteamNetworkingErrMsg &errMsg );
 
 	/// This gets called on an accepted connection before it gets destroyed
 	virtual void AboutToDestroyChildConnection( CSteamNetworkConnectionBase *pConn );
@@ -255,7 +258,7 @@ public:
 	/// to the client, and calling ConnectionState_Connected on the connection
 	/// to transition it to the connected state.
 	EResult APIAcceptConnection();
-	virtual EResult AcceptConnection();
+	virtual EResult AcceptConnection( SteamNetworkingMicroseconds usecNow );
 
 	/// Fill in quick connection stats
 	void APIGetQuickConnectionStatus( SteamNetworkingQuickConnectionStatus &stats );
@@ -444,11 +447,15 @@ public:
 
 	/// Send a data packet now, even if we don't have the bandwidth available.  Returns true if a packet was
 	/// sent successfully, false if there was a problem.  This will call SendEncryptedDataChunk to do the work
-	bool SNP_SendPacket( SendPacketContext_t &ctx );
+	bool SNP_SendPacket( CConnectionTransport *pTransport, SendPacketContext_t &ctx );
 
-	/// Called to (maybe) post a callback
+	/// Called after the connection state changes.  Default behavior is to notify
+	/// the active transport, if any
+	virtual void ConnectionStateChanged( ESteamNetworkingConnectionState eOldState );
+
+	/// Called to post a callback
 	bool m_bSupressStateChangeCallbacks;
-	virtual void PostConnectionStateChangedCallback( ESteamNetworkingConnectionState eOldAPIState, ESteamNetworkingConnectionState eNewAPIState );
+	void PostConnectionStateChangedCallback( ESteamNetworkingConnectionState eOldAPIState, ESteamNetworkingConnectionState eNewAPIState );
 
 	void QueueEndToEndAck( bool bImmediate, SteamNetworkingMicroseconds usecNow )
 	{
@@ -498,6 +505,9 @@ public:
 	/// should think next
 	void CheckConnectionStateAndSetNextThinkTime( SteamNetworkingMicroseconds usecNow );
 
+	// Upcasts.  So we don't have to compile with RTTI
+	virtual CSteamNetworkConnectionP2P *AsSteamNetworkConnectionP2P();
+
 protected:
 	CSteamNetworkConnectionBase( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface );
 	virtual ~CSteamNetworkConnectionBase(); // hidden destructor, don't call directly.  Use ConnectionDestroySelfNow()
@@ -532,7 +542,25 @@ protected:
 
 	/// Misc periodic processing.
 	/// Called from within CheckConnectionStateAndSetNextThinkTime.
+	/// Will be called in any connection state.
 	virtual void ThinkConnection( SteamNetworkingMicroseconds usecNow );
+
+	/// Called from the connection Think() state machine, for connections that have been
+	/// initiated locally and that are in the connecting state.
+	///
+	/// Should return the next time when it needs to be woken up.  Or it can set the next
+	/// think time directly, if it is awkward to return.  That is slightly
+	/// less efficient.
+	///
+	/// Base class sends connect requests (including periodic retry) through the current
+	/// transport.
+	virtual SteamNetworkingMicroseconds ThinkConnection_ClientConnecting( SteamNetworkingMicroseconds usecNow );
+
+	/// Called from the connection Think() state machine, when the connection is in the finding
+	/// route state.  The connection should return the next time when it needs to be woken up.
+	/// Or it can set the next think time directly, if it is awkward to return.  That is slightly
+	/// less efficient.
+	virtual SteamNetworkingMicroseconds ThinkConnection_FindingRoute( SteamNetworkingMicroseconds usecNow );
 
 	/// Called when a timeout is detected
 	void ConnectionTimedOut( SteamNetworkingMicroseconds usecNow );
@@ -718,15 +746,15 @@ public:
 	virtual int SendEncryptedDataChunk( const void *pChunk, int cbChunk, SendPacketContext_t &ctx ) = 0;
 
 	/// Return true if we are currently able to send end-to-end messages.
-	virtual bool BCanSendEndToEndConnectRequest() const = 0;
+	virtual bool BCanSendEndToEndConnectRequest() const;
 	virtual bool BCanSendEndToEndData() const = 0;
-	virtual void SendEndToEndConnectRequest( SteamNetworkingMicroseconds usecNow ) = 0;
+	virtual void SendEndToEndConnectRequest( SteamNetworkingMicroseconds usecNow );
 	virtual void SendEndToEndStatsMsg( EStatsReplyRequest eRequest, SteamNetworkingMicroseconds usecNow, const char *pszReason ) = 0;
 	virtual void TransportPopulateConnectionInfo( SteamNetConnectionInfo_t &info ) const;
 	virtual void GetDetailedConnectionStatus( SteamNetworkingDetailedConnectionStatus &stats, SteamNetworkingMicroseconds usecNow );
 
 	/// Called when the connection state changes.  Some transports need to do stuff
-	virtual void ConnectionStateChanged( ESteamNetworkingConnectionState eOldState );
+	virtual void TransportConnectionStateChanged( ESteamNetworkingConnectionState eOldState );
 
 	// Some accessors for commonly needed info
 	inline ESteamNetworkingConnectionState ConnectionState() const { return m_connection.GetState(); }
@@ -745,27 +773,39 @@ protected:
 
 /// Dummy loopback/pipe connection that doesn't actually do any network work.
 /// For these types of connections, the distinction between connection and transport
-/// is not realyl useful
+/// is not really useful
 class CSteamNetworkConnectionPipe final : public CSteamNetworkConnectionBase, public CConnectionTransport
 {
 public:
 
+	/// Create a pair of loopback connections that are immediately connected to each other
+	/// No callbacks are posted.
 	static bool APICreateSocketPair( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface, CSteamNetworkConnectionPipe **pOutConnections, const SteamNetworkingIdentity pIdentity[2] );
+
+	/// Create a pair of loopback connections that act like normal connections, but use internal transport.
+	/// The two connections will be placed in the "connecting" state, and will go through the ordinary
+	/// state machine.
+	///
+	/// The client connection is returned.
+	static CSteamNetworkConnectionPipe *CreateLoopbackConnection(
+		CSteamNetworkingSockets *pClientInstance, int nOptions, const SteamNetworkingConfigValue_t *pOptions,
+		CSteamNetworkListenSocketBase *pListenSocket,
+		SteamNetworkingErrMsg &errMsg );
 
 	/// The guy who is on the other end.
 	CSteamNetworkConnectionPipe *m_pPartner;
 
 	// CSteamNetworkConnectionBase overrides
 	virtual int64 _APISendMessageToConnection( CSteamNetworkingMessage *pMsg, SteamNetworkingMicroseconds usecNow, bool *pbThinkImmediately ) override;
-	virtual void PostConnectionStateChangedCallback( ESteamNetworkingConnectionState eOldAPIState, ESteamNetworkingConnectionState eNewAPIState ) override;
+	virtual EResult AcceptConnection( SteamNetworkingMicroseconds usecNow ) override;
 	virtual void InitConnectionCrypto( SteamNetworkingMicroseconds usecNow ) override;
 	virtual EUnsignedCert AllowRemoteUnsignedCert() override;
 	virtual EUnsignedCert AllowLocalUnsignedCert() override;
 	virtual void GetConnectionTypeDescription( ConnectionTypeDescription_t &szDescription ) const override;
 	virtual void DestroyTransport() override;
+	virtual void ConnectionStateChanged( ESteamNetworkingConnectionState eOldState ) override;
 
 	// CSteamNetworkConnectionTransport
-	virtual void ConnectionStateChanged( ESteamNetworkingConnectionState eOldState ) override;
 	virtual bool SendDataPacket( SteamNetworkingMicroseconds usecNow ) override;
 	virtual bool BCanSendEndToEndConnectRequest() const override;
 	virtual bool BCanSendEndToEndData() const override;
@@ -778,6 +818,9 @@ private:
 	// Use CreateSocketPair!
 	CSteamNetworkConnectionPipe( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface, const SteamNetworkingIdentity &identity );
 	virtual ~CSteamNetworkConnectionPipe();
+
+	/// Setup the server side of a loopback connection
+	bool BBeginAccept( CSteamNetworkListenSocketBase *pListenSocket, SteamNetworkingMicroseconds usecNow, SteamDatagramErrMsg &errMsg );
 
 	/// Act like we sent a sequenced packet
 	void FakeSendStats( SteamNetworkingMicroseconds usecNow, int cbPktSize );

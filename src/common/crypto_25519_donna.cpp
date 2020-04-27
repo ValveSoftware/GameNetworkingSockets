@@ -1,5 +1,8 @@
 //========= Copyright Valve LLC, All rights reserved. ========================
+
 #include "crypto.h"
+#include "crypto_25519.h"
+#include <tier0/dbg.h>
 
 #ifdef VALVE_CRYPTO_25519_DONNA
 
@@ -102,7 +105,7 @@ static bool CheckSSE2Technology()
 	return false;
 #elif defined( _M_X64 ) || defined (__x86_64__)
 	return true;
-#else
+#elif defined( _M_IX86 ) || defined( __i386__ )
 	static int result = -1;
 	if ( result < 0 )
 	{
@@ -110,6 +113,8 @@ static bool CheckSSE2Technology()
 		result = cpuid(1,eax,ebx,unused,edx) && ( ( edx & 0x04000000 ) != 0 ) ? 1 : 0;
 	}
 	return result > 0;
+#else
+	return false;
 #endif
 }
 
@@ -229,5 +234,5 @@ bool CEC25519PrivateKeyBase::CachePublicKey()
 	return true;
 }
 
-#endif // #ifdef GNS_CRYPTO_25519_REF
+#endif // #ifdef VALVE_CRYPTO_25519_DONNA
 

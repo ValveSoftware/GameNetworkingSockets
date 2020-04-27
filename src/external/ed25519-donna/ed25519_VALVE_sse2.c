@@ -1,6 +1,6 @@
 /*========= Copyright © Valve Corporation, All rights reserved =======================*/
 
-
+#if defined( _M_IX86 ) || defined( _M_X64 ) || defined(__SSE2__)
 #define ED25519_SSE2
 #define ED25519_SUFFIX _sse2
 
@@ -12,3 +12,4 @@
 #define batch_point_buffer test_batch_point_buffer_sse2
 
 #include "ed25519_VALVE.c"
+#endif

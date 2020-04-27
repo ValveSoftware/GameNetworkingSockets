@@ -6,6 +6,7 @@
 
 #include "keypair.h"
 #include "crypto.h"
+#include "crypto_25519.h"
 #include <tier1/utlbuffer.h>
 
 static const char k_szOpenSSHPrivatKeyPEMHeader[] = "-----BEGIN OPENSSH PRIVATE KEY-----";

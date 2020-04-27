@@ -5,6 +5,7 @@
 #include <steamnetworkingsockets/steamnetworkingsockets_certstore.h>
 #include <google/protobuf/text_format.h>
 #include <common/crypto.h>
+#include <common/crypto_25519.h>
 
 using namespace SteamNetworkingSocketsLib;
 

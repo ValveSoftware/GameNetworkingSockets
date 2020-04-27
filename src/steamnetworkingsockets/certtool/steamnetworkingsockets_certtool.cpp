@@ -11,6 +11,7 @@
 
 #include "../steamnetworkingsockets_internal.h"
 #include "crypto.h"
+#include "crypto_25519.h"
 #include "keypair.h"
 #include <vstdlib/random.h>
 //#include "curl/curl.h"
@@ -490,7 +491,7 @@ int main( int argc, char **argv )
 			GET_ARG();
 
 			CUtlVectorAutoPurge<char *> vecCodes;
-			V_SplitString( pszArg, ",", vecCodes );
+			V_AllocAndSplitString( pszArg, ",", vecCodes );
 			if ( vecCodes.IsEmpty() )
 				Plat_FatalError( "'%s' isn't a valid comma-separated list of POPs\n", pszArg );
 
@@ -509,7 +510,7 @@ int main( int argc, char **argv )
 			GET_ARG();
 
 			CUtlVectorAutoPurge<char *> vecCodes;
-			V_SplitString( pszArg, ",", vecCodes );
+			V_AllocAndSplitString( pszArg, ",", vecCodes );
 			if ( vecCodes.IsEmpty() )
 				Plat_FatalError( "'%s' isn't a valid comma-separated list of AppIDs\n", pszArg );
 
