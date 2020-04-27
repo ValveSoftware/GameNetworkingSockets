@@ -7,15 +7,13 @@
 #include <time.h>
 #include <steam/isteamnetworkingsockets.h>
 #include <steam/isteamnetworkingutils.h>
-
+#define ICLIENTNETWORKING_OVERRIDE override
 #if defined( STEAMNETWORKINGSOCKETS_STEAMCLIENT ) || defined( STEAMNETWORKINGSOCKETS_STREAMINGCLIENT )
 	#include "../../common/steam/iclientnetworkingsockets.h"
 	#include "../../common/steam/iclientnetworkingutils.h"
-	#define ICLIENTNETWORKING_OVERRIDE override
 #else
 	typedef ISteamNetworkingSockets IClientNetworkingSockets;
 	typedef ISteamNetworkingUtils IClientNetworkingUtils;
-	#define ICLIENTNETWORKING_OVERRIDE
 #endif
 
 #include "steamnetworkingsockets_connections.h"
@@ -56,12 +54,11 @@ public:
 	virtual void AsyncCertRequest() = 0;
 	virtual void CacheIdentity() = 0;
 #endif
-
 	/// Perform cleanup and self-destruct.  Use this instead of
 	/// calling operator delete.  This solves some complications
 	/// due to calling virtual functions from within destructor.
 	virtual void Destroy() ICLIENTNETWORKING_OVERRIDE;
-
+	
 	const SteamNetworkingIdentity &InternalGetIdentity()
 	{
 		if ( m_identity.IsInvalid() )
