@@ -101,7 +101,7 @@ private:
 	std::vector< LocalCandidate > m_vecLocalUnAckedCandidates;
 
 	// Implements IICESessionDelegate
-	virtual void Log( IICESessionDelegate::ELogPriority ePriority, const char *pszMessageFormat, ... );
+	virtual void Log( IICESessionDelegate::ELogPriority ePriority, const char *pszMessageFormat, ... ) override;
 	virtual EICERole GetRole() override;
 	virtual int GetNumStunServers() override;
 	virtual const char *GetStunServer( int iIndex ) override;
