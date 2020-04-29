@@ -304,7 +304,7 @@ public:
 	inline SteamNetworkingMicroseconds GetTimeEnteredConnectionState() const { return m_usecWhenEnteredConnectionState; }
 
 	/// Fill in connection details
-	virtual void ConnectionPopulateInfo( SteamNetConnectionInfo_t &info ) const;
+	void ConnectionPopulateInfo( SteamNetConnectionInfo_t &info ) const;
 
 //
 // Lifetime management
