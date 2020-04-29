@@ -497,30 +497,6 @@ struct SteamNetworkingIdentityHash
 	uint32 operator()( const SteamNetworkingIdentity &x ) const;
 };
 
-struct SteamNetworkingIdentityRender
-{
-	SteamNetworkingIdentityRender( const SteamNetworkingIdentity &x ) { x.ToString( buf, sizeof(buf) ); }
-	inline const char *c_str() const { return buf; }
-private:
-	char buf[ SteamNetworkingIdentity::k_cchMaxString ];
-};
-
-struct SteamNetworkingIPAddrRender
-{
-	SteamNetworkingIPAddrRender( const SteamNetworkingIPAddr &x, bool bWithPort = true ) { x.ToString( buf, sizeof(buf), true ); }
-	inline const char *c_str() const { return buf; }
-private:
-	char buf[ SteamNetworkingIPAddr::k_cchMaxString ];
-};
-
-struct SteamNetworkingPOPIDRender
-{
-	SteamNetworkingPOPIDRender( SteamNetworkingPOPID x ) { GetSteamNetworkingLocationPOPStringFromID( x, buf ); }
-	inline const char *c_str() const { return buf; }
-private:
-	char buf[ 8 ];
-};
-
 inline bool IsValidSteamIDForIdentity( CSteamID steamID )
 {
 	return steamID.GetAccountID() != 0 && ( steamID.BIndividualAccount() || steamID.BGameServerAccount() );

@@ -200,6 +200,8 @@ struct SteamNetworkingIPAddr
 	/// form according to RFC5952.  If you include the port, IPv6 will be surrounded by
 	/// brackets, e.g. [::1:2]:80.  Your buffer should be at least k_cchMaxString bytes
 	/// to avoid truncation
+	///
+	/// See also SteamNetworkingIdentityRender
 	inline void ToString( char *buf, size_t cbBuf, bool bWithPort ) const;
 
 	/// Parse an IP address and optional port.  If a port is not present, it is set to 0.
@@ -268,6 +270,8 @@ struct SteamNetworkingIdentity
 	/// or any other time you need to encode the identity as a string.  It has a
 	/// URL-like format (type:<type-data>).  Your buffer should be at least
 	/// k_cchMaxString bytes big to avoid truncation.
+	///
+	/// See also SteamNetworkingIPAddrRender
 	void ToString( char *buf, size_t cbBuf ) const;
 
 	/// Parse back a string that was generated using ToString.  If we don't understand the
@@ -1280,6 +1284,8 @@ inline SteamNetworkingPOPID CalculateSteamNetworkingPOPIDFromString( const char 
 }
 
 /// Unpack integer to string representation, including terminating '\0'
+///
+/// See also SteamNetworkingPOPIDRender
 template <int N>
 inline void GetSteamNetworkingLocationPOPStringFromID( SteamNetworkingPOPID id, char (&szCode)[N] )
 {
@@ -1293,6 +1299,35 @@ inline void GetSteamNetworkingLocationPOPStringFromID( SteamNetworkingPOPID id, 
 
 /// The POPID "dev" is used in non-production environments for testing.
 const SteamNetworkingPOPID k_SteamDatagramPOPID_dev = ( (uint32)'d' << 16U ) | ( (uint32)'e' << 8U ) | (uint32)'v';
+
+/// Utility class for printing a SteamNetworkingIdentity.
+/// E.g. printf( "Identity is '%s'\n", SteamNetworkingIdentityRender( identity ).c_str() );
+struct SteamNetworkingIdentityRender
+{
+	SteamNetworkingIdentityRender( const SteamNetworkingIdentity &x ) { x.ToString( buf, sizeof(buf) ); }
+	inline const char *c_str() const { return buf; }
+private:
+	char buf[ SteamNetworkingIdentity::k_cchMaxString ];
+};
+
+/// Utility class for printing a SteamNetworkingIPAddrRender.
+struct SteamNetworkingIPAddrRender
+{
+	SteamNetworkingIPAddrRender( const SteamNetworkingIPAddr &x, bool bWithPort = true ) { x.ToString( buf, sizeof(buf), bWithPort ); }
+	inline const char *c_str() const { return buf; }
+private:
+	char buf[ SteamNetworkingIPAddr::k_cchMaxString ];
+};
+
+/// Utility class for printing a SteamNetworkingPOPID.
+struct SteamNetworkingPOPIDRender
+{
+	SteamNetworkingPOPIDRender( SteamNetworkingPOPID x ) { GetSteamNetworkingLocationPOPStringFromID( x, buf ); }
+	inline const char *c_str() const { return buf; }
+private:
+	char buf[ 8 ];
+};
+
 
 ///////////////////////////////////////////////////////////////////////////////
 //
