@@ -229,13 +229,8 @@ void CConnectionTransportP2PICE::NotifyConnectionFailed( int nReasonCode, const 
 
 void CConnectionTransportP2PICE::QueueSelfDestruct()
 {
-
-	// Go ahead and free up our ICE session now, it is reference counted.
-	if ( m_pICESession )
-	{
-		m_pICESession->Destroy();
-		m_pICESession = nullptr;
-	}
+	// NOTE: Do *not* attempt to delete the ICE session here.  We don't have enough
+	//       context if that is safe to do.
 
 	// Queue us for deletion
 	if ( Connection().m_pTransportICEPendingDelete )
