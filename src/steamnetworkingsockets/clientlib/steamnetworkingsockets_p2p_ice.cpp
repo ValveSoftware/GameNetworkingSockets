@@ -267,7 +267,7 @@ void CConnectionTransportP2PICE::ScheduleSendSignal( const char *pszReason )
 void CConnectionTransportP2PICE::Think( SteamNetworkingMicroseconds usecNow )
 {
 	// Are we dead?
-	if ( !m_pICESession )
+	if ( !m_pICESession || Connection().m_pTransportICEPendingDelete )
 	{
 		Connection().CheckCleanupICE();
 		// We could be deleted here!
