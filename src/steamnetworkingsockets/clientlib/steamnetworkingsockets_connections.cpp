@@ -1638,6 +1638,8 @@ void CConnectionTransport::GetDetailedConnectionStatus( SteamNetworkingDetailedC
 
 void CSteamNetworkConnectionBase::ConnectionPopulateInfo( SteamNetConnectionInfo_t &info ) const
 {
+	memset( &info, 0, sizeof(info) );
+
 	info.m_eState = CollapseConnectionStateToAPIState( m_eConnectionState );
 	info.m_hListenSocket = m_pParentListenSocket ? m_pParentListenSocket->m_hListenSocketSelf : k_HSteamListenSocket_Invalid;
 	NetAdrToSteamNetworkingIPAddr( info.m_addrRemote, m_netAdrRemote ); // FIXME this is in a weird place
@@ -3243,6 +3245,12 @@ int CSteamNetworkConnectionPipe::SendEncryptedDataChunk( const void *pChunk, int
 {
 	AssertMsg( false, "CSteamNetworkConnectionPipe connections shouldn't try to send 'packets'!" );
 	return -1;
+}
+
+void CSteamNetworkConnectionPipe::TransportPopulateConnectionInfo( SteamNetConnectionInfo_t &info ) const
+{
+	CConnectionTransport::TransportPopulateConnectionInfo( info );
+	info.m_eTransportKind = k_ESteamNetTransport_LoopbackBuffers;
 }
 
 void CSteamNetworkConnectionPipe::ConnectionStateChanged( ESteamNetworkingConnectionState eOldState )

@@ -67,6 +67,10 @@ CConnectionTransportP2PICE::~CConnectionTransportP2PICE()
 
 void CConnectionTransportP2PICE::TransportPopulateConnectionInfo( SteamNetConnectionInfo_t &info ) const
 {
+	CConnectionTransport::TransportPopulateConnectionInfo( info );
+
+	// FIXME Need to rev the ice session interface version so that I get back this info!
+	info.m_eTransportKind = k_ESteamNetTransport_UDP;
 }
 
 void CConnectionTransportP2PICE::GetDetailedConnectionStatus( SteamNetworkingDetailedConnectionStatus &stats, SteamNetworkingMicroseconds usecNow )

@@ -1093,7 +1093,23 @@ void CConnectionTransportUDP::TransportConnectionStateChanged( ESteamNetworkingC
 	}
 }
 
-#define ReportBadPacketIPv4( pszMsgType, /* fmt */ ... ) \
+void CConnectionTransportUDP::TransportPopulateConnectionInfo( SteamNetConnectionInfo_t &info ) const
+{
+	CConnectionTransport::TransportPopulateConnectionInfo( info );
+
+	if ( m_pSocket )
+	{
+		const netadr_t &addr = m_pSocket->GetRemoteHostAddr();
+		if ( addr.IsLoopback() )
+			info.m_eTransportKind = k_ESteamNetTransport_LocalHost;
+		else if ( addr.IsReservedAdr() )
+			info.m_eTransportKind = k_ESteamNetTransport_UDPLan;
+		else
+			info.m_eTransportKind = k_ESteamNetTransport_UDP;
+	}
+}
+
+#define ReportBadPacketFromSocketPeer( pszMsgType, /* fmt */ ... ) \
 	ReportBadPacketFrom( m_pSocket->GetRemoteHostAddr(), pszMsgType, __VA_ARGS__ )
 
 void CConnectionTransportUDP::PacketReceived( const void *pvPkt, int cbPkt, const netadr_t &adrFrom, CConnectionTransportUDP *pSelf )
@@ -1232,7 +1248,7 @@ void CConnectionTransportUDP::Received_Data( const uint8 *pPkt, int cbPkt, Steam
 
 	if ( cbPkt < sizeof(UDPDataMsgHdr) )
 	{
-		ReportBadPacketIPv4( "DataPacket", "Packet of size %d is too small.", cbPkt );
+		ReportBadPacketFromSocketPeer( "DataPacket", "Packet of size %d is too small.", cbPkt );
 		return;
 	}
 
@@ -1242,7 +1258,7 @@ void CConnectionTransportUDP::Received_Data( const uint8 *pPkt, int cbPkt, Steam
 	{
 
 		// Wrong session.  It could be an old session, or it could be spoofed.
-		ReportBadPacketIPv4( "DataPacket", "Incorrect connection ID" );
+		ReportBadPacketFromSocketPeer( "DataPacket", "Incorrect connection ID" );
 		if ( BCheckGlobalSpamReplyRateLimit( usecNow ) )
 		{
 			SendNoConnection( LittleDWord( hdr->m_unToConnectionID ), 0 );
@@ -1295,18 +1311,18 @@ void CConnectionTransportUDP::Received_Data( const uint8 *pPkt, int cbPkt, Steam
 		pIn = DeserializeVarInt( pIn, pPktEnd, cbStatsMsgIn );
 		if ( pIn == NULL )
 		{
-			ReportBadPacketIPv4( "DataPacket", "Failed to varint decode size of stats blob" );
+			ReportBadPacketFromSocketPeer( "DataPacket", "Failed to varint decode size of stats blob" );
 			return;
 		}
 		if ( pIn + cbStatsMsgIn > pPktEnd )
 		{
-			ReportBadPacketIPv4( "DataPacket", "stats message size doesn't make sense.  Stats message size %d, packet size %d", cbStatsMsgIn, cbPkt );
+			ReportBadPacketFromSocketPeer( "DataPacket", "stats message size doesn't make sense.  Stats message size %d, packet size %d", cbStatsMsgIn, cbPkt );
 			return;
 		}
 
 		if ( !msgStats.ParseFromArray( pIn, cbStatsMsgIn ) )
 		{
-			ReportBadPacketIPv4( "DataPacket", "protobuf failed to parse inline stats message" );
+			ReportBadPacketFromSocketPeer( "DataPacket", "protobuf failed to parse inline stats message" );
 			return;
 		}
 
@@ -1342,7 +1358,7 @@ void CConnectionTransportUDP::Received_ChallengeReply( const CMsgSteamSockets_UD
 	// We should only be getting this if we are the "client"
 	if ( ListenSocket() )
 	{
-		ReportBadPacketIPv4( "ChallengeReply", "Shouldn't be receiving this unless on accepted connections, only connections initiated locally." );
+		ReportBadPacketFromSocketPeer( "ChallengeReply", "Shouldn't be receiving this unless on accepted connections, only connections initiated locally." );
 		return;
 	}
 
@@ -1353,7 +1369,7 @@ void CConnectionTransportUDP::Received_ChallengeReply( const CMsgSteamSockets_UD
 	// Check session ID to make sure they aren't spoofing.
 	if ( msg.connection_id() != ConnectionIDLocal() )
 	{
-		ReportBadPacketIPv4( "ChallengeReply", "Incorrect connection ID.  Message is stale or could be spoofed, ignoring." );
+		ReportBadPacketFromSocketPeer( "ChallengeReply", "Incorrect connection ID.  Message is stale or could be spoofed, ignoring." );
 		return;
 	}
 	if ( msg.protocol_version() < k_nMinRequiredProtocolVersion )
@@ -1428,14 +1444,14 @@ void CConnectionTransportUDP::Received_ConnectOK( const CMsgSteamSockets_UDP_Con
 	// We should only be getting this if we are the "client"
 	if ( ListenSocket() )
 	{
-		ReportBadPacketIPv4( "ConnectOK", "Shouldn't be receiving this unless on accepted connections, only connections initiated locally." );
+		ReportBadPacketFromSocketPeer( "ConnectOK", "Shouldn't be receiving this unless on accepted connections, only connections initiated locally." );
 		return;
 	}
 
 	// Check connection ID to make sure they aren't spoofing and it's the same connection we think it is
 	if ( msg.client_connection_id() != ConnectionIDLocal() )
 	{
-		ReportBadPacketIPv4( "ConnectOK", "Incorrect connection ID.  Message is stale or could be spoofed, ignoring." );
+		ReportBadPacketFromSocketPeer( "ConnectOK", "Incorrect connection ID.  Message is stale or could be spoofed, ignoring." );
 		return;
 	}
 
@@ -1449,7 +1465,7 @@ void CConnectionTransportUDP::Received_ConnectOK( const CMsgSteamSockets_UDP_Con
 		int r = SteamNetworkingIdentityFromSignedCert( identityRemote, msg.cert(), errMsg );
 		if ( r < 0 )
 		{
-			ReportBadPacketIPv4( "ConnectRequest", "Bad identity in cert.  %s", errMsg );
+			ReportBadPacketFromSocketPeer( "ConnectRequest", "Bad identity in cert.  %s", errMsg );
 			return;
 		}
 		if ( r == 0 )
@@ -1459,7 +1475,7 @@ void CConnectionTransportUDP::Received_ConnectOK( const CMsgSteamSockets_UDP_Con
 			r = SteamNetworkingIdentityFromProtobuf( identityRemote, msg, identity_string, legacy_identity_binary, legacy_server_steam_id, errMsg );
 			if ( r < 0 )
 			{
-				ReportBadPacketIPv4( "ConnectRequest", "Bad identity.  %s", errMsg );
+				ReportBadPacketFromSocketPeer( "ConnectRequest", "Bad identity.  %s", errMsg );
 				return;
 			}
 			if ( r == 0 )
@@ -1484,7 +1500,7 @@ void CConnectionTransportUDP::Received_ConnectOK( const CMsgSteamSockets_UDP_Con
 			if ( m_connection.m_connectionConfig.m_IP_AllowWithoutAuth.Get() == 0 )
 			{
 				// Should we send an explicit rejection here?
-				ReportBadPacketIPv4( "ConnectOK", "Unauthenticated connections not allowed." );
+				ReportBadPacketFromSocketPeer( "ConnectOK", "Unauthenticated connections not allowed." );
 				return;
 			}
 
@@ -1520,7 +1536,7 @@ void CConnectionTransportUDP::Received_ConnectOK( const CMsgSteamSockets_UDP_Con
 	// Make sure they are still who we think they are
 	if ( !m_connection.m_identityRemote.IsInvalid() && !( m_connection.m_identityRemote == identityRemote ) )
 	{
-		ReportBadPacketIPv4( "ConnectOK", "server_steam_id doesn't match who we expect to be connecting to!" );
+		ReportBadPacketFromSocketPeer( "ConnectOK", "server_steam_id doesn't match who we expect to be connecting to!" );
 		return;
 	}
 
@@ -1579,7 +1595,7 @@ void CConnectionTransportUDP::Received_ConnectOK( const CMsgSteamSockets_UDP_Con
 	if ( !m_connection.BRecvCryptoHandshake( msg.cert(), msg.crypt(), false ) )
 	{
 		Assert( ConnectionState() == k_ESteamNetworkingConnectionState_ProblemDetectedLocally );
-		ReportBadPacketIPv4( "ConnectOK", "Failed crypto init.  %s", m_connection.m_szEndDebug );
+		ReportBadPacketFromSocketPeer( "ConnectOK", "Failed crypto init.  %s", m_connection.m_szEndDebug );
 		return;
 	}
 
@@ -1624,7 +1640,7 @@ void CConnectionTransportUDP::Received_NoConnection( const CMsgSteamSockets_UDP_
 	// Make sure it's an ack of something we would have sent
 	if ( msg.to_connection_id() != ConnectionIDLocal() || msg.from_connection_id() != m_connection.m_unConnectionIDRemote )
 	{
-		ReportBadPacketIPv4( "NoConnection", "Old/incorrect connection ID.  Message is for a stale connection, or is spoofed.  Ignoring." );
+		ReportBadPacketFromSocketPeer( "NoConnection", "Old/incorrect connection ID.  Message is for a stale connection, or is spoofed.  Ignoring." );
 		return;
 	}
 
@@ -1637,7 +1653,7 @@ void CConnectionTransportUDP::Received_ChallengeOrConnectRequest( const char *ps
 	// If wrong connection ID, then check for sending a generic reply and bail
 	if ( unPacketConnectionID != m_connection.m_unConnectionIDRemote )
 	{
-		ReportBadPacketIPv4( pszDebugPacketType, "Incorrect connection ID, when we do have a connection for this address.  Could be spoofed, ignoring." );
+		ReportBadPacketFromSocketPeer( pszDebugPacketType, "Incorrect connection ID, when we do have a connection for this address.  Could be spoofed, ignoring." );
 		// Let's not send a reply in this case
 		//if ( BCheckGlobalSpamReplyRateLimit( usecNow ) )
 		//	SendNoConnection( unPacketConnectionID );
@@ -1669,7 +1685,7 @@ void CConnectionTransportUDP::Received_ChallengeOrConnectRequest( const char *ps
 			if ( !ListenSocket() )
 			{
 				// WAT?  We initiated this connection, so why are they requesting to connect?
-				ReportBadPacketIPv4( pszDebugPacketType, "We are the 'client' who initiated the connection, so 'server' shouldn't be sending us this!" );
+				ReportBadPacketFromSocketPeer( pszDebugPacketType, "We are the 'client' who initiated the connection, so 'server' shouldn't be sending us this!" );
 				return;
 			}
 

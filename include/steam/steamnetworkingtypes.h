@@ -571,6 +571,21 @@ enum ESteamNetConnectionEnd
 	k_ESteamNetConnectionEnd__Force32Bit = 0x7fffffff
 };
 
+/// Enumerate different kinds of transport that can be used
+enum ESteamNetTransportKind
+{
+	k_ESteamNetTransport_Unknown = 0,
+	k_ESteamNetTransport_LoopbackBuffers = 1, // Internal buffers, not using OS network stack
+	k_ESteamNetTransport_LocalHost = 2, // Using OS network stack to talk to localhost address
+	k_ESteamNetTransport_UDP = 3, // Ordinary UDP connection, remote address is not a LAN address
+	k_ESteamNetTransport_UDPLan = 4, // Ordinary UDP connection, remote address is a LAN address
+	k_ESteamNetTransport_TURN = 5, // Relayed over TURN server
+	k_ESteamNetTransport_SDRP2P = 6, // P2P connection relayed over Steam Datagram Relay
+	k_ESteamNetTransport_SDRHostedServer = 7, // Connection to a server hosted in a known data center via Steam Datagram Relay
+
+	k_ESteamNetTransport_Force32Bit = 0x7fffffff
+};
+
 /// Max length, in bytes (including null terminator) of the reason string
 /// when a connection is closed.
 const int k_cchSteamNetworkingMaxConnectionCloseReason = 128;
@@ -622,8 +637,14 @@ struct SteamNetConnectionInfo_t
 	/// This string is used in various internal logging messages
 	char m_szConnectionDescription[ k_cchSteamNetworkingMaxConnectionDescription ];
 
+	/// What kind of transport is currently being used?
+	/// Note that this is potentially a dynamic property!  Also, it may not
+	/// always be available, especially right as the connection starts, or
+	/// after the connection ends.
+	ESteamNetTransportKind m_eTransportKind;
+
 	/// Internal stuff, room to change API easily
-	uint32 reserved[64];
+	uint32 reserved[63];
 };
 
 /// Quick connection state, pared down to something you could call

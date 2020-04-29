@@ -812,6 +812,7 @@ public:
 	virtual void SendEndToEndConnectRequest( SteamNetworkingMicroseconds usecNow ) override;
 	virtual void SendEndToEndStatsMsg( EStatsReplyRequest eRequest, SteamNetworkingMicroseconds usecNow, const char *pszReason ) override;
 	virtual int SendEncryptedDataChunk( const void *pChunk, int cbChunk, SendPacketContext_t &ctx ) override;
+	virtual void TransportPopulateConnectionInfo( SteamNetConnectionInfo_t &info ) const override;
 
 private:
 
