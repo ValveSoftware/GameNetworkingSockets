@@ -104,7 +104,12 @@ void SteamDatagramTransportLock::OnLocked( const char *pszTag, SteamNetworkingMi
 		s_nCurrentLockTags = 0;
 
 		if ( usecTimeSpentWaitingOnLock > s_usecLockWaitWarningThreshold && usecNow > s_usecIgnoreLongLockWaitTimeUntil )
-			SpewWarning( "Waited %.1fms for SteamNetworkingSockets lock", usecTimeSpentWaitingOnLock*1e-3 );
+		{
+			if ( pszTag )
+				SpewWarning( "Waited %.1fms for SteamNetworkingSockets lock [%s]", usecTimeSpentWaitingOnLock*1e-3, pszTag );
+			else
+				SpewWarning( "Waited %.1fms for SteamNetworkingSockets lock", usecTimeSpentWaitingOnLock*1e-3 );
+		}
 
 		auto callback = s_fLockAcquiredCallback; // save to temp, to prevent very narrow race condition where variable is cleared after we null check it, and we call null
 		if ( callback )
