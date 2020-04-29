@@ -418,13 +418,12 @@ void CSteamNetworkListenSocketDirectUDP::Received_ConnectRequest( const CMsgStea
 	{
 		CSteamNetworkConnectionBase *pOldConn = m_mapChildConnections[ h ];
 		Assert( pOldConn->m_identityRemote == identityRemote );
-		Assert( pOldConn->GetRemoteAddr() != adrFrom ); // or else why didn't we already map it directly to them!
 
 		// NOTE: We cannot just destroy the object.  The API semantics
 		// are that all connections, once accepted and made visible
 		// to the API, must be closed by the application.
-		ReportBadPacket( "ConnectRequest", "Rejecting connection request from %s at %s, connection ID %u.  That steamID/ConnectionID pair already has a connection from %s\n",
-			SteamNetworkingIdentityRender( identityRemote ).c_str(), CUtlNetAdrRender( adrFrom ).String(), unClientConnectionID, CUtlNetAdrRender( pOldConn->GetRemoteAddr() ).String()
+		ReportBadPacket( "ConnectRequest", "Rejecting connection request from %s at %s, connection ID %u.  That steamID/ConnectionID pair already has a connection [%s]\n",
+			SteamNetworkingIdentityRender( identityRemote ).c_str(), CUtlNetAdrRender( adrFrom ).String(), unClientConnectionID, pOldConn->GetDescription()
 		);
 
 		CMsgSteamSockets_UDP_ConnectionClosed msgReply;
@@ -815,9 +814,6 @@ bool CSteamNetworkConnectionUDP::BInitConnect( const SteamNetworkingIPAddr &addr
 	Assert( m_identityRemote.IsInvalid() );
 	m_identityRemote.Clear();
 
-	// We know what the remote addr will be.
-	m_netAdrRemote = netadrRemote;
-
 	// We should know our own identity, unless the app has said it's OK to go without this.
 	if ( m_identityLocal.IsInvalid() ) // Specific identity hasn't already been set (by derived class, etc)
 	{
@@ -959,7 +955,6 @@ bool CSteamNetworkConnectionUDP::BBeginAccept(
 	Assert( !m_identityRemote.IsInvalid() );
 
 	m_unConnectionIDRemote = unConnectionIDRemote;
-	m_netAdrRemote = adrFrom;
 	if ( !pParent->BAddChildConnection( this, errMsg ) )
 		return false;
 

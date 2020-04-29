@@ -11,7 +11,6 @@
 #endif
 #include "../steamnetworking_statsutils.h"
 #include <tier1/utlhashmap.h>
-#include <tier1/netadr.h>
 #include "steamnetworkingsockets_lowlevel.h"
 #include "../steamnetworkingsockets_thinker.h"
 #include "keypair.h"
@@ -291,11 +290,6 @@ public:
 	/// (The wire protocol doesn't care about local states such as linger)
 	bool BStateIsConnectedForWirePurposes() const { return m_eConnectionState == k_ESteamNetworkingConnectionState_Connected || m_eConnectionState == k_ESteamNetworkingConnectionState_Linger; }
 
-	/// Accessor for remote address (if we know it)
-	/// FIXME - Should we delete this and move to derived classes?
-	/// It's not always meaningful
-	const netadr_t &GetRemoteAddr() const { return m_netAdrRemote; }
-
 	/// Reason connection ended
 	ESteamNetConnectionEnd GetConnectionEndReason() const { return m_eEndReason; }
 	const char *GetConnectionEndDebugString() const { return m_szEndDebug; }
@@ -517,11 +511,6 @@ protected:
 
 	/// Called from BInitConnection, to start obtaining certs, etc
 	virtual void InitConnectionCrypto( SteamNetworkingMicroseconds usecNow );
-
-	/// If this is a direct UDP connection, what is the address of the remote host?
-	/// FIXME - Should we delete this and move to derived classes?
-	/// It's not always meaningful
-	netadr_t m_netAdrRemote;
 
 	/// User data
 	int64 m_nUserData;

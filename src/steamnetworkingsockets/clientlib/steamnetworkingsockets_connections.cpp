@@ -1642,9 +1642,6 @@ void CSteamNetworkConnectionBase::ConnectionPopulateInfo( SteamNetConnectionInfo
 
 	info.m_eState = CollapseConnectionStateToAPIState( m_eConnectionState );
 	info.m_hListenSocket = m_pParentListenSocket ? m_pParentListenSocket->m_hListenSocketSelf : k_HSteamListenSocket_Invalid;
-	NetAdrToSteamNetworkingIPAddr( info.m_addrRemote, m_netAdrRemote ); // FIXME this is in a weird place
-	info.m_idPOPRemote = 0;
-	info.m_idPOPRelay = 0;
 	info.m_identityRemote = m_identityRemote;
 	info.m_nUserData = m_nUserData;
 	info.m_eEndReason = m_eEndReason;
