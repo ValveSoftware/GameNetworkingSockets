@@ -1300,25 +1300,6 @@ inline void GetSteamNetworkingLocationPOPStringFromID( SteamNetworkingPOPID id, 
 /// The POPID "dev" is used in non-production environments for testing.
 const SteamNetworkingPOPID k_SteamDatagramPOPID_dev = ( (uint32)'d' << 16U ) | ( (uint32)'e' << 8U ) | (uint32)'v';
 
-/// Utility class for printing a SteamNetworkingIdentity.
-/// E.g. printf( "Identity is '%s'\n", SteamNetworkingIdentityRender( identity ).c_str() );
-struct SteamNetworkingIdentityRender
-{
-	SteamNetworkingIdentityRender( const SteamNetworkingIdentity &x ) { x.ToString( buf, sizeof(buf) ); }
-	inline const char *c_str() const { return buf; }
-private:
-	char buf[ SteamNetworkingIdentity::k_cchMaxString ];
-};
-
-/// Utility class for printing a SteamNetworkingIPAddrRender.
-struct SteamNetworkingIPAddrRender
-{
-	SteamNetworkingIPAddrRender( const SteamNetworkingIPAddr &x, bool bWithPort = true ) { x.ToString( buf, sizeof(buf), bWithPort ); }
-	inline const char *c_str() const { return buf; }
-private:
-	char buf[ SteamNetworkingIPAddr::k_cchMaxString ];
-};
-
 /// Utility class for printing a SteamNetworkingPOPID.
 struct SteamNetworkingPOPIDRender
 {

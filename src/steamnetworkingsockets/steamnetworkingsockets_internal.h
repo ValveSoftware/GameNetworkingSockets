@@ -57,6 +57,7 @@
 #include "keypair.h"
 #include <tier0/memdbgoff.h>
 #include <steamnetworkingsockets_messages_certs.pb.h>
+#include <steam/isteamnetworkingutils.h> // for the rendering helpers
 
 // Running against Steam?  Then we have some default signaling.
 // Otherwise, we don't

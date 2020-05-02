@@ -180,6 +180,25 @@ protected:
 	)
 #endif
 
+/// Utility class for printing a SteamNetworkingIdentity.
+/// E.g. printf( "Identity is '%s'\n", SteamNetworkingIdentityRender( identity ).c_str() );
+struct SteamNetworkingIdentityRender
+{
+	SteamNetworkingIdentityRender( const SteamNetworkingIdentity &x ) { x.ToString( buf, sizeof(buf) ); }
+	inline const char *c_str() const { return buf; }
+private:
+	char buf[ SteamNetworkingIdentity::k_cchMaxString ];
+};
+
+/// Utility class for printing a SteamNetworkingIPAddrRender.
+struct SteamNetworkingIPAddrRender
+{
+	SteamNetworkingIPAddrRender( const SteamNetworkingIPAddr &x, bool bWithPort = true ) { x.ToString( buf, sizeof(buf), bWithPort ); }
+	inline const char *c_str() const { return buf; }
+private:
+	char buf[ SteamNetworkingIPAddr::k_cchMaxString ];
+};
+
 ///////////////////////////////////////////////////////////////////////////////
 //
 // Internal stuff
