@@ -1,0 +1,90 @@
+﻿<?xml version='1.0' encoding='utf-8' standalone='yes'?>
+<instrumentationManifest xmlns="http://schemas.microsoft.com/win/2004/08/events">
+  <instrumentation
+      xmlns:win="http://manifests.microsoft.com/win/2004/08/windows/events"
+      xmlns:xs="http://www.w3.org/2001/XMLSchema"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+    <events xmlns="http://schemas.microsoft.com/win/2004/08/events">
+      <!--
+      http://msdn.microsoft.com/en-us/magazine/cc163437.aspx
+      http://blogs.msdn.com/b/ryanmy/archive/2005/05/27/422772.aspx
+      http://msdn.microsoft.com/en-us/library/aa363668(VS.85).aspx
+
+      Documentation of the data types available for event payload templates is here:
+      http://msdn.microsoft.com/en-us/library/aa382774(v=VS.85).aspx
+      
+      See also the Windows Platform SDK SimpleProvider sample and the Scenario
+      libary at http://archive.msdn.microsoft.com/Scenario
+
+      Before recording traces you need to execute these commands to register the provider:
+      copy steamnetworkingsockets.dll %temp%
+      wevtutil um <src>\steamnetworkingsockets\clientlib\etw\steamnetworkingsockets_etw_events.man
+      wevtutil im <src>\steamnetworkingsockets\clientlib\etw\steamnetworkingsockets_etw_events.man
+      -->
+
+			<!-- Steamnetworkingsockets events -->
+      <provider
+          guid="{B77D8A36-EF0C-4976-8D22-08F986F56CFB}"
+          name="Valve-SteamNetworkingSockets"
+          symbol="VALVE_STEAMNETWORKINGSOCKETS"
+          messageFileName="%temp%\steamclient.dll"
+          resourceFileName="%temp%\steamclient.dll" >
+        <templates>
+          <template tid="T_LongOp">
+            <data inType="win:AnsiString" name="OpName" />
+            <data inType="win:Int64" name="usec" />
+            <data inType="win:AnsiString" name="Info" />
+          </template>
+          <template tid="T_UDPPacket">
+            <data inType="win:AnsiString" name="RemoteAddr" />
+            <data inType="win:Int32" name="Size" />
+          </template>
+          <template tid="T_ICEPacket">
+            <data inType="win:Int32" name="ConnectionID" />
+            <data inType="win:Int32" name="Size" />
+          </template>
+					<template tid="T_webrtc_send">
+						<data inType="win:Int32" name="Size" />
+					</template>
+					<template tid="T_webrtc_sendto">
+						<data inType="win:AnsiString" name="RemoteAddr" />
+						<data inType="win:Int32" name="Size" />
+					</template>
+					<template tid="T_webrtc_setsockopt">
+						<data inType="win:Int32" name="level" />
+						<data inType="win:Int32" name="opt" />
+						<data inType="win:Int32" name="value" />
+					</template>
+				</templates>
+        <events>
+          <event symbol="LongOp" template="T_LongOp" value="100" task="LongOp" opcode="LongOp" />
+          
+					<event symbol="UDPSendPacket" template="T_UDPPacket" value="200" task="UDP" opcode="SendTo" />
+          <event symbol="UDPRecvPacket" template="T_UDPPacket" value="201" task="UDP" opcode="Recv" />
+
+					<event symbol="ICESendPacket" template="T_ICEPacket" value="300" task="ICE" opcode="Send" />
+          <event symbol="ICEProcessPacket" template="T_ICEPacket" value="301" task="ICE" opcode="Recv" />
+          <event symbol="ICERecvPacket" template="T_ICEPacket" value="302" task="ICE" opcode="Recv" />
+
+					<event symbol="webrtc_send" template="T_webrtc_send" value="401" task="webrtc" opcode="Send" />
+					<event symbol="webrtc_sendto" template="T_webrtc_sendto" value="402" task="webrtc" opcode="SendTo" />
+					<event symbol="webrtc_setsockopt" template="T_webrtc_setsockopt" value="403" task="webrtc" opcode="SetSockOpt" />
+				</events>
+        <opcodes>
+          <opcode name="LongOp" symbol="_LongOpOpcode" value="10" />
+          <opcode name="Send" symbol="_SendOpcode" value="11" />
+					<opcode name="SendTo" symbol="_SendToOpcode" value="12" />
+					<opcode name="Recv" symbol="_RecvOpcode" value="13" />
+					<opcode name="Process" symbol="_ProcessOpcode" value="14" />
+					<opcode name="SetSockOpt" symbol="_SetSockOptOpcode" value="15" />
+        </opcodes>
+        <tasks>
+          <task name="LongOp" symbol="LongOp_Task" value="1" eventGUID="{255F5C19-E0D4-48BC-A880-6806918A2D01}"/>
+          <task name="UDP" symbol="UDP_Task" value="2" eventGUID="{255F5C19-E0D4-48BC-A880-6806918A2D02}"/>
+          <task name="ICE" symbol="ICE_Task" value="3" eventGUID="{255F5C19-E0D4-48BC-A880-6806918A2D03}"/>
+					<task name="webrtc" symbol="webrtc_Task" value="4" eventGUID="{255F5C19-E0D4-48BC-A880-6806918A2D04}"/>
+				</tasks>
+      </provider>
+    </events>
+  </instrumentation>
+</instrumentationManifest>

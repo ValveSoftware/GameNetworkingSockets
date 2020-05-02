@@ -79,6 +79,9 @@ public:
 	virtual bool GetWritableState() = 0;
 	virtual bool BAddRemoteIceCandidate( const char *pszSDPMid, int nSDPMLineIndex, const char *pszCandidate ) = 0;
 	virtual bool BSendData( const void *pData, size_t nSize ) = 0;
+	virtual void SetWriteEvent_setsockopt( void (*fn)( int slevel, int sopt, int value ) ) = 0;
+	virtual void SetWriteEvent_send( void (*fn)( int length ) ) = 0;
+	virtual void SetWriteEvent_sendto( void (*fn)( void *addr, int length ) ) = 0;
 };
 
 /// Factory function prototype.  How you get this factory will depend on how you are linking with

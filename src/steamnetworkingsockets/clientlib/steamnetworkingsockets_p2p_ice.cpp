@@ -121,6 +121,12 @@ void CConnectionTransportP2PICE::Init()
 		NotifyConnectionFailed( k_ESteamNetConnectionEnd_Misc_InternalError, "CreateICESession failed" );
 		return;
 	}
+
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ETW
+		m_pICESession->SetWriteEvent_setsockopt( ETW_webrtc_setsockopt );
+		m_pICESession->SetWriteEvent_send( ETW_webrtc_send );
+		m_pICESession->SetWriteEvent_sendto( ETW_webrtc_sendto );
+	#endif
 }
 
 void CConnectionTransportP2PICE::PopulateRendezvousMsg( CMsgSteamNetworkingP2PRendezvous &msg, SteamNetworkingMicroseconds usecNow )
@@ -456,8 +462,13 @@ int CConnectionTransportP2PICE::SendEncryptedDataChunk( const void *pChunk, int 
 	// *messages* instead of packets.
 
 	// Send it
+	ETW_ICESendPacket( m_connection.m_hConnectionSelf, cbSend );
 	if ( !m_pICESession->BSendData( pkt, cbSend ) )
+	{
+		SpewMsg( "IICESession::BSendData FAILED\n" );
 		return -1;
+	}
+	//SpewMsg( "IICESession::BSendData OK\n" );
 	return cbSend;
 }
 
@@ -557,6 +568,7 @@ static void ReallyReportBadICEPacket( CConnectionTransportP2PICE *pTransport, co
 void CConnectionTransportP2PICE::ProcessPacket( const uint8_t *pPkt, int cbPkt, SteamNetworkingMicroseconds usecNow )
 {
 	Assert( cbPkt >= 1 ); // Caller should have checked this
+	ETW_ICEProcessPacket( m_connection.m_hConnectionSelf, cbPkt );
 
 	m_usecTimeLastRecv = usecNow;
 	m_usecInFlightReplyTimeout = 0;
@@ -590,6 +602,7 @@ void CConnectionTransportP2PICE::ProcessPacket( const uint8_t *pPkt, int cbPkt, 
 
 void CConnectionTransportP2PICE::Received_Data( const uint8 *pPkt, int cbPkt, SteamNetworkingMicroseconds usecNow )
 {
+	ETW_ICERecvPacket( m_connection.m_hConnectionSelf, cbPkt );
 
 	if ( cbPkt < sizeof(ICEDataMsgHdr) )
 	{
@@ -796,7 +809,9 @@ void CConnectionTransportP2PICE::SendMsg( uint8 nMsgID, const google::protobuf::
 	uint8 *pEnd = msg.SerializeWithCachedSizesToArray( pkt+1 );
 	Assert( cbPkt == pEnd - pkt );
 
+	ETW_ICESendPacket( m_connection.m_hConnectionSelf, cbPkt );
 	m_pICESession->BSendData( pkt, cbPkt );
+	//SpewMsg( "IICESession::BSendData, msg %d, %d bytes\n", nMsgID, cbPkt );
 }
 
 bool CConnectionTransportP2PICE::BCanSendEndToEndData() const
@@ -926,6 +941,8 @@ void CConnectionTransportP2PICE::DrainPacketQueue( SteamNetworkingMicroseconds u
 	buf.Swap( m_bufPacketQueue );
 	m_mutexPacketQueue.unlock();
 
+	//SpewMsg( "CConnectionTransportP2PICE::DrainPacketQueue: %d bytes queued\n", buf.TellPut() );
+
 	// Process all the queued packets
 	uint8 *p = (uint8*)buf.Base();
 	uint8 *end = p + buf.TellPut();
@@ -971,6 +988,7 @@ void CConnectionTransportP2PICE::OnData( const void *pPkt, size_t nSize )
 	if ( SteamDatagramTransportLock::TryLock( "WebRTC Data", 0 ) )
 	{
 		// We can process the data now!
+		//SpewMsg( "CConnectionTransportP2PICE::OnData %d bytes, process immediate\n", (int)nSize );
 
 		// Check if queue is empty.  Note that no race conditions here.  We hold the lock,
 		// which means we aren't messing with it in some other thread.  And we are in WebRTC's
@@ -990,7 +1008,7 @@ void CConnectionTransportP2PICE::OnData( const void *pPkt, size_t nSize )
 	// We're busy in the other thread.  We'll have to queue the data.
 	// Grab the buffer lock
 	m_mutexPacketQueue.lock();
-	bool bQueueWasEmpty = ( m_bufPacketQueue.TellPut() == 0 );
+	int nSaveTellPut = m_bufPacketQueue.TellPut();
 	m_bufPacketQueue.PutInt( cbPkt );
 	m_bufPacketQueue.Put( pPkt, cbPkt );
 	m_mutexPacketQueue.unlock();
@@ -1001,8 +1019,9 @@ void CConnectionTransportP2PICE::OnData( const void *pPkt, size_t nSize )
 	// in some other thread.  But if that were the case, we know that
 	// it had not yet actually swapped the buffer out.  Because we had
 	// the buffer lock when we checked if the queue was empty.
-	if ( !bQueueWasEmpty )
+	if ( nSaveTellPut == 0 )
 	{
+		//SpewMsg( "CConnectionTransportP2PICE::OnData %d bytes, queued, added drain queue task\n", (int)nSize );
 		struct RunDrainQueue : IConnectionTransportP2PICERunWithLock
 		{
 			virtual void RunTransportP2PICE( CConnectionTransportP2PICE *pTransport )
@@ -1017,6 +1036,17 @@ void CConnectionTransportP2PICE::OnData( const void *pPkt, size_t nSize )
 		// Queue it.  Don't use RunOrQueue.  We know we need to queue it,
 		// since we already tried to grab the lock and failed.
 		pRun->Queue( "WebRTC DrainQueue" );
+	}
+	else
+	{
+		if ( nSaveTellPut > 30000 )
+		{
+			SpewMsg( "CConnectionTransportP2PICE::OnData %d bytes, queued, %d previously queued LOCK PROBLEM!\n", (int)nSize, nSaveTellPut );
+		}
+		else
+		{
+			//SpewMsg( "CConnectionTransportP2PICE::OnData %d bytes, queued, %d previously queued\n", (int)nSize, nSaveTellPut );
+		}
 	}
 }
 

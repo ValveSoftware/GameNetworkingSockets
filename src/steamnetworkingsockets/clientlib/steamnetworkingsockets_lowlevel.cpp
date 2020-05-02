@@ -109,6 +109,7 @@ void SteamDatagramTransportLock::OnLocked( const char *pszTag, SteamNetworkingMi
 				SpewWarning( "Waited %.1fms for SteamNetworkingSockets lock [%s]", usecTimeSpentWaitingOnLock*1e-3, pszTag );
 			else
 				SpewWarning( "Waited %.1fms for SteamNetworkingSockets lock", usecTimeSpentWaitingOnLock*1e-3 );
+			ETW_LongOp( "lock wait", usecTimeSpentWaitingOnLock, pszTag );
 		}
 
 		auto callback = s_fLockAcquiredCallback; // save to temp, to prevent very narrow race condition where variable is cleared after we null check it, and we call null
@@ -215,6 +216,7 @@ void SteamDatagramTransportLock::Unlock()
 	if ( usecElapsedTooLong != 0 )
 	{
 		SpewWarning( "SteamNetworkingSockets lock held for %.1fms.  (Performance warning).  %s", usecElapsedTooLong*1e-3, tags );
+		ETW_LongOp( "lock held", usecElapsedTooLong, tags );
 	}
 }
 
@@ -413,6 +415,15 @@ public:
 			addrSize = (socklen_t)adrTo.ToSockadr( &destAddress );
 		}
 
+		#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ETW
+		{
+			int cbTotal = 0;
+			for ( int i = 0 ; i < nChunks ; ++i )
+				cbTotal += (int)pChunks->iov_len;
+			ETW_UDPSendPacket( adrTo, cbTotal );
+		}
+		#endif
+
 		//const uint8 *pbPkt = (const uint8 *)pPkt;
 		//Log_Detailed( LOG_STEAMDATAGRAM_CLIENT, "%4db -> %s %02x %02x %02x %02x %02x ...\n",
 		//	cbPkt, CUtlNetAdrRender( adrTo ).String(), pbPkt[0], pbPkt[1], pbPkt[2], pbPkt[3], pbPkt[4] );
@@ -462,6 +473,7 @@ public:
 				if ( usecSendElapsed > 1000 )
 				{
 					SpewWarning( "UDP send took %.1fms\n", usecSendElapsed*1e-3 );
+					ETW_LongOp( "UDP send", usecSendElapsed );
 				}
 			}
 		#endif
@@ -1190,6 +1202,7 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 					if ( usecRecvFromElapsed > 1000 )
 					{
 						SpewWarning( "recvfrom took %.1fms\n", usecRecvFromElapsed*1e-3 );
+						ETW_LongOp( "UDP recvfrom", usecRecvFromElapsed );
 					}
 				}
 			#endif
@@ -1254,6 +1267,7 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 			}
 			else
 			{
+				ETW_UDPRecvPacket( adr, ret );
 
 				//const uint8 *pbPkt = (const uint8 *)buf;
 				//Log_Detailed( LOG_STEAMDATAGRAM_CLIENT, "%s -> %4db %02x %02x %02x %02x %02x ...\n",
@@ -1270,6 +1284,7 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 					if ( usecProcessPacketElapsed > 1000 )
 					{
 						SpewWarning( "process packet took %.1fms\n", usecProcessPacketElapsed*1e-3 );
+						ETW_LongOp( "process packet", usecProcessPacketElapsed );
 					}
 				}
 			#endif
@@ -1794,6 +1809,9 @@ bool BSteamNetworkingSocketsLowLevelAddRef( SteamDatagramErrMsg &errMsg )
 	{
 		CCrypto::Init();
 
+		// Initialize event tracing
+		ETW_Init();
+
 		// Give us a extra time here.  This is a one-time init function and the OS might
 		// need to load up libraries and stuff.
 		SteamDatagramTransportLock::SetLongLockWarningThresholdMS( "BSteamNetworkingSocketsLowLevelAddRef", 500 );
@@ -1974,6 +1992,9 @@ void SteamNetworkingSocketsLowLevelDecRef()
 
 	Assert( s_vecRawSocketsPendingDeletion.IsEmpty() );
 	s_vecRawSocketsPendingDeletion.Purge();
+
+	// Shutdown event tracing
+	ETW_Kill();
 
 	// Nuke sockets and COM
 	#ifdef _WIN32

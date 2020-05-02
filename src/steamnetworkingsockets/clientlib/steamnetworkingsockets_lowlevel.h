@@ -14,6 +14,11 @@
 #include <tier1/utlhashmap.h>
 #include "../steamnetworkingsockets_internal.h"
 
+// Comment this in to enable Windows event tracing
+//#ifdef _WINDOWS
+//	#define STEAMNETWORKINGSOCKETS_ENABLE_ETW
+//#endif
+
 struct iovec;
 
 namespace SteamNetworkingSocketsLib {
@@ -347,6 +352,29 @@ protected:
 
 	inline ISteamNetworkingSocketsRunWithLock() {};
 };
+
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ETW
+	extern void ETW_Init();
+	extern void ETW_Kill();
+	extern void ETW_LongOp( const char *opName, SteamNetworkingMicroseconds usec, const char *pszInfo = nullptr );
+	extern void ETW_UDPSendPacket( const netadr_t &adrTo, int cbPkt );
+	extern void ETW_UDPRecvPacket( const netadr_t &adrFrom, int cbPkt );
+	extern void ETW_ICESendPacket( HSteamNetConnection hConn, int cbPkt );
+	extern void ETW_ICERecvPacket( HSteamNetConnection hConn, int cbPkt );
+	extern void ETW_ICEProcessPacket( HSteamNetConnection hConn, int cbPkt );
+	extern void ETW_webrtc_setsockopt( int slevel, int sopt, int value );
+	extern void ETW_webrtc_send( int length );
+	extern void ETW_webrtc_sendto( void *addr, int length );
+#else
+	inline void ETW_Init() {}
+	inline void ETW_Kill() {}
+	inline void ETW_LongOp( const char *opName, SteamNetworkingMicroseconds usec, const char *pszInfo = nullptr ) {}
+	inline void ETW_UDPSendPacket( const netadr_t &adrTo, int cbPkt ) {}
+	inline void ETW_UDPRecvPacket( const netadr_t &adrFrom, int cbPkt ) {}
+	inline void ETW_ICESendPacket( HSteamNetConnection hConn, int cbPkt ) {}
+	inline void ETW_ICERecvPacket( HSteamNetConnection hConn, int cbPkt ) {}
+	inline void ETW_ICEProcessPacket( HSteamNetConnection hConn, int cbPkt ) {}
+#endif
 
 } // namespace SteamNetworkingSocketsLib
 
