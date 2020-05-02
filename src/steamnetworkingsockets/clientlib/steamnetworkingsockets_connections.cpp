@@ -2514,6 +2514,12 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 	{ \
 		/* assign into temporary in case x is an expression with side effects */ \
 		SteamNetworkingMicroseconds usecNextThink = (x);  \
+		/* Scheduled think time must be in the future.  If some code is setting a think */ \
+		/* time for right now, then it should have just done it. */ \
+		if ( usecNextThink <= usecNow ) { \
+			AssertMsg1( false, "Trying to set next think time %lldusec in the past", (long long)( usecNow - usecMinNextThinkTime ) ); \
+			usecNextThink = usecNow + 10*1000; \
+		} \
 		if ( usecNextThink < usecMinNextThinkTime ) { \
 			Assert( usecNextThink > 0 ); \
 			usecMinNextThinkTime = usecNextThink; \
@@ -2652,11 +2658,9 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 			if ( m_pTransport && m_pTransport->BCanSendEndToEndData() )
 			{
 				SteamNetworkingMicroseconds usecNextThinkSNP = SNP_ThinkSendState( usecNow );
-				AssertMsg1( usecNextThinkSNP > usecNow, "SNP next think time must be in in the future.  It's %lldusec in the past", (long long)( usecNow - usecNextThinkSNP ) );
 
 				// Set a pretty tight tolerance if SNP wants to wake up at a certain time.
-				if ( usecNextThinkSNP < k_nThinkTime_Never )
-					UpdateMinThinkTime( usecNextThinkSNP );
+				UpdateMinThinkTime( usecNextThinkSNP );
 			}
 			else
 			{
@@ -2789,14 +2793,6 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 		{
 			UpdateMinThinkTime( m_statsEndToEnd.m_usecInFlightReplyTimeout );
 		}
-	}
-
-	// Scheduled think time must be in the future.  If some code is setting a think time for right now,
-	// then it should have just done it.
-	if ( usecMinNextThinkTime <= usecNow )
-	{
-		AssertMsg1( false, "Scheduled next think time must be in in the future.  It's %lldusec in the past", (long long)( usecNow - usecMinNextThinkTime ) );
-		usecMinNextThinkTime = usecNow + 1000;
 	}
 
 	// Hook for derived class to do its connection-type-specific stuff
