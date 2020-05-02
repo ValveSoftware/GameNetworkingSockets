@@ -2520,10 +2520,8 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 			AssertMsg1( false, "Trying to set next think time %lldusec in the past", (long long)( usecNow - usecMinNextThinkTime ) ); \
 			usecNextThink = usecNow + 10*1000; \
 		} \
-		if ( usecNextThink < usecMinNextThinkTime ) { \
-			Assert( usecNextThink > 0 ); \
+		if ( usecNextThink < usecMinNextThinkTime ) \
 			usecMinNextThinkTime = usecNextThink; \
-		} \
 	}
 
 	// Check our state
