@@ -121,8 +121,8 @@ the settings you will use for compiling GameNetworkingSockets:
   and must match.
 * ```protobuf_BUILD_SHARED_LIBS=ON``` in the example indicates that
   GameNetworkingSockets will link dynamically with protobuf .dlls, which is the
-  default for GameNetworkingSockets.  FOr static linkage, remove this and set
-  ``Protobuf_USE_STATIC_LIBS=ON``` when building GameNetworkingSockets.
+  default for GameNetworkingSockets.  For static linkage, remove this and set
+  ``Protobuf_USE_STATIC_LIBS=ON`` when building GameNetworkingSockets.
 * If you link statically with protobuf, then you will also need to make sure that
   the linkage with the MSVC CRT is the same.  The default for both protobuf and
   GameNetworkingSockets is multithreaded dll.
