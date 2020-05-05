@@ -1,7 +1,7 @@
 Building
 ---
 
-### Dependencies
+## Dependencies
 
 * CMake or Meson, and build tool like Ninja, GNU Make or Visual Studio
 * A C++11-compliant compiler, such as:
@@ -15,86 +15,27 @@ Building
   * [bcrypt](https://docs.microsoft.com/en-us/windows/desktop/api/bcrypt/) (windows only)
 * Google protobuf 2.6.1+
 
+## Linux
 
-#### OpenSSL
-If you're building on Linux or Mac, just install the appropriate packages from
-your package manager.
+### OpenSSL and protobuf
 
-Ubuntu/Debian:
+Just use the appropriate package manager.
+
+Ubuntu/debian:
+
 ```
 # apt install libssl-dev
-```
-
-Arch Linux:
-```
-# pacman -S openssl
-```
-
-Mac OS X, using [Homebrew](https://brew.sh):
-```
-$ brew install openssl
-$ export PKG_CONFIG_PATH=$PKG_CONFIG_PATH:/usr/local/opt/openssl/lib/pkgconfig
-```
-GameNetworkingSockets requries openssl version 1.1+, so if you install and link openssl but at compile you see the error ```Dependency libcrypto found: NO (tried cmake and framework)``` you'll need to force Brew to install openssl 1.1. You can do that like this:
-```
-$ brew install openssl@1.1
-$ export PKG_CONFIG_PATH=$PKG_CONFIG_PATH:/usr/local/opt/openssl@1.1/lib/pkgconfig
-```
-
-For MSYS2, see the [MSYS2](#msys2) section. There are packages available in
-the MinGW repositories for i686 and x86_64.
-
-For Visual Studio, you can install the [OpenSSL
-binaries](https://slproweb.com/products/Win32OpenSSL.html) provided by Shining
-Light Productions. The Windows CMake distribution understands how to find the
-OpenSSL binaries from these installers, which makes building a lot easier. Be
-sure to pick the installers **without** the "Light"suffix. In this instance,
-"Light" means no development libraries or headers.
-
-
-#### protobuf
-
-If you're building on Linux or Mac, just install the appropriate packages from
-your package manager.
-
-Ubuntu/Debian:
-```
 # apt install libprotobuf-dev protobuf-compiler
 ```
 
 Arch Linux:
+
 ```
+# pacman -S openssl
 # pacman -S protobuf
 ```
 
-Mac OS X, using [Homebrew](https://brew.sh):
-```
-$ brew install protobuf
-```
-
-For MSYS2, see the [MSYS2](#msys2) section. There are packages available in
-the MinGW repositories for i686 and x86_64.
-
-For Visual Studio, the process is a bit more involved, as you need to compile
-protobuf yourself. The process we used is something like this:
-
-```
-C:\dev> git clone https://github.com/google/protobuf
-C:\dev> cd protobuf
-C:\dev\protobuf> git checkout -t origin/3.5.x
-C:\dev\protobuf> mkdir cmake_build
-C:\dev\protobuf> cd cmake_build
-C:\dev\protobuf\cmake_build> vcvarsall amd64
-C:\dev\protobuf\cmake_build> cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -Dprotobuf_BUILD_TESTS=OFF -Dprotobuf_BUILD_SHARED_LIBS=ON -DCMAKE_INSTALL_PREFIX=c:\sdk\protobuf-amd64 ..\cmake
-C:\dev\protobuf\cmake_build> ninja
-C:\dev\protobuf\cmake_build> ninja install
-```
-
-
-### Linux
-
-If you already have the dependencies installed (see above sections), then you
-should be able to build fairly trivially.
+### Building
 
 Using Meson:
 
@@ -112,8 +53,143 @@ $ cmake -G Ninja ..
 $ ninja
 ```
 
+## Windows / Visual Studio
 
-### MSYS2
+Unfortuanetly, because Windows lacks a robust package ecosystem, getting setup
+is a bit of an arduous gauntlet.
+
+### OpenSSL
+
+You can install the [OpenSSL binaries](https://slproweb.com/products/Win32OpenSSL.html)
+provided by Shining Light Productions. The Windows CMake distribution understands
+how to find the OpenSSL binaries from these installers, which makes building a lot
+easier. Be sure to pick the installers **without** the "Light"suffix. In this instance,
+"Light" means no development libraries or headers.
+
+For CMake to find the libraries, you may need to set the environment variable
+`OPENSSL_ROOT_DIR`.
+
+### Checking prerequisites
+
+Start a Visual Studio Command Prompt (2017+), and double-check
+that you have everything you need.  Note that Visual Studio comes with these tools,
+but you might not have selected to install them.  Or just install them from somewhere
+else and put them in your `PATH`.
+
+*IMPORTANT*: Make sure you start the command prompt for the desired target
+architecture (x64 or x64)!  In the examples here we are building 64-bit.
+
+```
+**********************************************************************
+** Visual Studio 2019 Developer Command Prompt v16.5.4
+** Copyright (c) 2019 Microsoft Corporation
+**********************************************************************
+[vcvarsall.bat] Environment initialized for: 'x64'
+
+C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise> cd \dev
+
+C:\dev> git --version
+git version 2.17.1.windows.2
+
+C:\dev> cmake --version       # 3.5 or higher is required
+cmake version 3.16.19112601-MSVC_2
+
+C:\dev> ninja --version
+1.8.2
+```
+
+
+### Protobuf
+
+Instructions for getting a working installation of google protobuf on Windows can
+be found [here](https://github.com/protocolbuffers/protobuf/blob/master/cmake/README.md).
+
+Here is an example.  First, start a Visual Studio Command Prompt as above.  Then download
+a particular release of the source.  Here we are using `git`, but
+you can also just download a [release .zip](https://github.com/protocolbuffers/protobuf/releases).
+
+```
+C:\dev> git clone -b 3.5.x https://github.com/google/protobuf
+C:\dev> cd protobuf
+```
+
+Compile the protobuf source.  You need to make sure that all of the following match
+the settings you will use for compiling GameNetworkingSockets:
+
+* The target architecture must match (controlled by the MSVC environment variables).
+* ```CMAKE_BUILD_TYPE```, which controls debug or release for both projects,
+  and must match.
+* ```protobuf_BUILD_SHARED_LIBS=ON``` in the example indicates that
+  GameNetworkingSockets will link dynamically with protobuf .dlls, which is the
+  default for GameNetworkingSockets.  FOr static linkage, remove this and set
+  ``Protobuf_USE_STATIC_LIBS=ON``` when building GameNetworkingSockets.
+* If you link statically with protobuf, then you will also need to make sure that
+  the linkage with the MSVC CRT is the same.  The default for both protobuf and
+  GameNetworkingSockets is multithreaded dll.
+
+Also, note the value for ```CMAKE_INSTALL_PREFIX```.  This specifies where to
+"install" the library (headers, link libraries, and the protoc compiler tool).
+
+```
+C:\dev\protobuf> mkdir cmake_build
+C:\dev\protobuf> cd cmake_build
+C:\dev\protobuf\cmake_build> cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -Dprotobuf_BUILD_TESTS=OFF -Dprotobuf_BUILD_SHARED_LIBS=ON -DCMAKE_INSTALL_PREFIX=c:\sdk\protobuf-amd64 ..\cmake
+C:\dev\protobuf\cmake_build> ninja
+C:\dev\protobuf\cmake_build> ninja install
+```
+
+### Building
+
+Start a Visual Studio Command Prompt, and create a directory to hold the build output.
+
+```
+C:\dev\GameNetworkingSockets> mkdir build
+C:\dev\GameNetworkingSockets> cd build
+```
+
+You'll need to add the path to the protobuf `bin` folder to your path, so
+CMake can find the protobuf compiler.  If you followed the example above, that would
+be something like this:
+
+```
+C:\dev\GameNetworkingSockets\build> set PATH=%PATH%;C:\sdk\protobuf-amd64\bin
+```
+
+Now invoke cmake to generate the type or project you want to build.  Here we are creating
+ninja files, for a 100% command line build.  It's also possible to get cmake to output
+Visual studio project (`.vcxproj`) and solution (`.sln`) files.
+```
+C:\dev\GameNetworkingSockets\build> cmake -G Ninja -DCMAKE_BUILD_TYPE=Release ..
+```
+
+Finally, perform the build
+```
+C:\dev\GameNetworkingSockets\build> ninja
+```
+
+## Mac OS X
+
+Using [Homebrew](https://brew.sh)
+
+### OpenSSL
+
+```
+$ brew install openssl
+$ export PKG_CONFIG_PATH=$PKG_CONFIG_PATH:/usr/local/opt/openssl/lib/pkgconfig
+```
+GameNetworkingSockets requries openssl version 1.1+, so if you install and link openssl but at compile you see the error ```Dependency libcrypto found: NO (tried cmake and framework)``` you'll need to force Brew to install openssl 1.1. You can do that like this:
+```
+$ brew install openssl@1.1
+$ export PKG_CONFIG_PATH=$PKG_CONFIG_PATH:/usr/local/opt/openssl@1.1/lib/pkgconfig
+```
+
+### protobuf
+
+```
+$ brew install protobuf
+```
+
+## MSYS2
 
 You can also build this project on [MSYS2](https://www.msys2.org). First,
 follow the [instructions](https://github.com/msys2/msys2/wiki/MSYS2-installation) on the
@@ -152,37 +228,23 @@ on the packages you've installed and what architecture you want to build
 GameNetworkingSockets for.
 
 
-### Visual Studio
-
-When configuring GameNetworkingSockets using CMake, you need to add the
-protobuf `bin` directory to your path in order to help CMake figure out the
-protobuf installation prefix:
-```
-C:\dev\GameNetworkingSockets> mkdir build
-C:\dev\GameNetworkingSockets> cd build
-C:\dev\GameNetworkingSockets\build> set PATH=%PATH%;C:\sdk\protobuf-amd64\bin
-C:\dev\GameNetworkingSockets\build> vcvarsall amd64
-C:\dev\GameNetworkingSockets\build> cmake -G Ninja -DCMAKE_BUILD_TYPE=Release ..
-C:\dev\GameNetworkingSockets\build> ninja
-```
-
-### Visual Studio Code
+## Visual Studio Code
 If you're using Visual Studio Code, we have a few extensions to recommend
 installing, which will help build the project. Once you have these extensions
 installed, open up the .code-workspace file in Visual Studio Code.
 
-#### C/C++ by Microsoft
+### C/C++ by Microsoft
 This extension provides IntelliSense support for C/C++.
 
 VS Marketplace Link: https://marketplace.visualstudio.com/items?itemName=ms-vscode.cpptools
 
-#### CMake Tools by vector-of-bool
+### CMake Tools by vector-of-bool
 This extension allows for configuring the CMake project and building it from
 within the Visual Studio Code IDE.
 
 VS Marketplace Link: https://marketplace.visualstudio.com/items?itemName=vector-of-bool.cmake-tools
 
-#### Meson by Ali Sabil
+### Meson by Ali Sabil
 This extension comes in handy if you're editing the Meson build files.
 
 VS Marketplace Link: https://marketplace.visualstudio.com/items?itemName=asabil.meson
