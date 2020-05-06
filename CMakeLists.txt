@@ -30,6 +30,8 @@ endif()
 
 option(Protobuf_USE_STATIC_LIBS "Build with a static Protobuf library" OFF)
 option(LIGHT_TESTS "Use smaller/shorter tests for simple integration testing (e.g. Travis)" OFF)
+option(GAMENETWORKINGSOCKETS_BUILD_EXAMPLES "Build the included example chat program" ON)
+option(GAMENETWORKINGSOCKETS_BUILD_TESTS "Build crypto, pki and network connection tests" ON)
 
 #
 # Primary crypto library (for AES, SHA256, etc)
@@ -120,9 +122,15 @@ if(USE_CRYPTO STREQUAL "libsodium")
 	endif()
 endif()
 
-add_subdirectory(examples)
+if(GAMENETWORKINGSOCKETS_BUILD_EXAMPLES)
+	add_subdirectory(examples)
+endif()
+
+if(GAMENETWORKINGSOCKETS_BUILD_TESTS)
+	add_subdirectory(tests)
+endif()
+
 add_subdirectory(src)
-add_subdirectory(tests)
 
 message(STATUS "---------------------------------------------------------")
 message(STATUS "Crypto library for AES/SHA256: ${USE_CRYPTO}")
