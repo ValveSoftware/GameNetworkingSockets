@@ -38,9 +38,6 @@ struct UDPDataMsgHdr
 };
 #pragma pack( pop )
 
-const int k_nMaxRecentLocalConnectionIDs = 256;
-static CUtlVectorFixed<uint16,k_nMaxRecentLocalConnectionIDs> s_vecRecentLocalConnectionIDs;
-
 /////////////////////////////////////////////////////////////////////////////
 //
 // Packet parsing / handling utils
