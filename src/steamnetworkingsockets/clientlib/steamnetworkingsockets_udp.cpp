@@ -1092,6 +1092,7 @@ void CConnectionTransportUDP::TransportPopulateConnectionInfo( SteamNetConnectio
 	if ( m_pSocket )
 	{
 		const netadr_t &addr = m_pSocket->GetRemoteHostAddr();
+		NetAdrToSteamNetworkingIPAddr( info.m_addrRemote, addr );
 		if ( addr.IsLoopback() )
 			info.m_eTransportKind = k_ESteamNetTransport_LocalHost;
 		else if ( addr.IsReservedAdr() )
