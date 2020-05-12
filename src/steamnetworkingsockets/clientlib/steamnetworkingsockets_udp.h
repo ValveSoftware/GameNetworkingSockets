@@ -9,6 +9,34 @@
 
 namespace SteamNetworkingSocketsLib {
 
+#pragma pack( push, 1 )
+
+const int k_cbSteamNetworkingMinPaddedPacketSize = 512;
+
+/// A protobuf-encoded message that is padded to ensure a minimum length
+struct UDPPaddedMessageHdr
+{
+	uint8 m_nMsgID;
+	uint16 m_nMsgLength;
+};
+
+struct UDPDataMsgHdr
+{
+	enum
+	{
+		kFlag_ProtobufBlob  = 0x01, // Protobuf-encoded message is inline (CMsgSteamSockets_UDP_Stats)
+	};
+
+	uint8 m_unMsgFlags;
+	uint32 m_unToConnectionID; // Recipient's portion of the connection ID
+	uint16 m_unSeqNum;
+
+	// [optional, if flags&kFlag_ProtobufBlob]  varint-encoded protobuf blob size, followed by blob
+	// Data frame(s)
+	// End of packet
+};
+#pragma pack( pop )
+
 template<>
 inline uint32 StatsMsgImpliedFlags<CMsgSteamSockets_UDP_Stats>( const CMsgSteamSockets_UDP_Stats &msg )
 {
@@ -28,6 +56,13 @@ struct UDPSendPacketContext_t : SendPacketContext<CMsgSteamSockets_UDP_Stats>
 
 extern std::string DescribeStatsContents( const CMsgSteamSockets_UDP_Stats &msg );
 extern bool BCheckRateLimitReportBadPacket( SteamNetworkingMicroseconds usecNow );
+extern void ReallyReportBadUDPPacket( const char *pszFrom, const char *pszMsgType, const char *pszFmt, ... );
+
+#define ReportBadUDPPacketFrom( pszFrom, pszMsgType, /* fmt */ ... ) \
+	( BCheckRateLimitReportBadPacket( usecNow ) ? ReallyReportBadUDPPacket( pszFrom, pszMsgType, __VA_ARGS__ ) : (void)0 )
+
+#define ReportBadUDPPacketFromConnectionPeer( pszMsgType, /* fmt */ ... ) \
+	ReportBadUDPPacketFrom( ConnectionDescription(), pszMsgType, __VA_ARGS__ )
 
 /////////////////////////////////////////////////////////////////////////////
 //
@@ -77,20 +112,49 @@ private:
 
 class CSteamNetworkConnectionUDP;
 
-/// Ordinary UDP transport
-class CConnectionTransportUDP final : public CConnectionTransport
+/// Base class for transports that (might) end up sending packets
+/// directly on the wire.
+class CConnectionTransportUDPBase : public CConnectionTransport
+{
+public:
+	CConnectionTransportUDPBase( CSteamNetworkConnectionBase &connection );
+
+	// Implements CSteamNetworkConnectionTransport
+	virtual bool SendDataPacket( SteamNetworkingMicroseconds usecNow ) override;
+	virtual int SendEncryptedDataChunk( const void *pChunk, int cbChunk, SendPacketContext_t &ctx ) override;
+	virtual void SendEndToEndStatsMsg( EStatsReplyRequest eRequest, SteamNetworkingMicroseconds usecNow, const char *pszReason ) override;
+
+protected:
+	void Received_Data( const uint8 *pPkt, int cbPkt, SteamNetworkingMicroseconds usecNow );
+	void Received_ConnectionClosed( const CMsgSteamSockets_UDP_ConnectionClosed &msg, SteamNetworkingMicroseconds usecNow );
+	void Received_NoConnection( const CMsgSteamSockets_UDP_NoConnection &msg, SteamNetworkingMicroseconds usecNow );
+
+	void SendPaddedMsg( uint8 nMsgID, const google::protobuf::MessageLite &msg );
+	void SendMsg( uint8 nMsgID, const google::protobuf::MessageLite &msg );
+	void SendConnectionClosedOrNoConnection();
+	void SendNoConnection( uint32 unFromConnectionID, uint32 unToConnectionID );
+
+	virtual bool SendPacket( const void *pkt, int cbPkt ) = 0;
+	virtual bool SendPacketGather( int nChunks, const iovec *pChunks, int cbSendTotal ) = 0;
+
+	/// Process stats message, either inline or standalone
+	void RecvStats( const CMsgSteamSockets_UDP_Stats &msgStatsIn, bool bInline, SteamNetworkingMicroseconds usecNow );
+	void SendStatsMsg( EStatsReplyRequest eReplyRequested, SteamNetworkingMicroseconds usecNow, const char *pszReason );
+	void TrackSentStats( const CMsgSteamSockets_UDP_Stats &msgStatsOut, bool bInline, SteamNetworkingMicroseconds usecNow );
+};
+
+
+/// Actual, ordinary UDP transport
+class CConnectionTransportUDP final : public CConnectionTransportUDPBase
 {
 public:
 	CConnectionTransportUDP( CSteamNetworkConnectionUDP &connection );
 
 	// Implements CSteamNetworkConnectionTransport
 	virtual void TransportFreeResources() override;
-	virtual bool SendDataPacket( SteamNetworkingMicroseconds usecNow ) override;
-	virtual int SendEncryptedDataChunk( const void *pChunk, int cbChunk, SendPacketContext_t &ctx ) override;
 	virtual bool BCanSendEndToEndConnectRequest() const override;
 	virtual bool BCanSendEndToEndData() const override;
 	virtual void SendEndToEndConnectRequest( SteamNetworkingMicroseconds usecNow ) override;
-	virtual void SendEndToEndStatsMsg( EStatsReplyRequest eRequest, SteamNetworkingMicroseconds usecNow, const char *pszReason ) override;
 	virtual void TransportConnectionStateChanged( ESteamNetworkingConnectionState eOldState ) override;
 	virtual void TransportPopulateConnectionInfo( SteamNetConnectionInfo_t &info ) const override;
 
@@ -109,25 +173,13 @@ protected:
 
 	static void PacketReceived( const void *pPkt, int cbPkt, const netadr_t &adrFrom, CConnectionTransportUDP *pSelf );
 
-	void Received_Data( const uint8 *pPkt, int cbPkt, SteamNetworkingMicroseconds usecNow );
 	void Received_ChallengeReply( const CMsgSteamSockets_UDP_ChallengeReply &msg, SteamNetworkingMicroseconds usecNow );
 	void Received_ConnectOK( const CMsgSteamSockets_UDP_ConnectOK &msg, SteamNetworkingMicroseconds usecNow );
-	void Received_ConnectionClosed( const CMsgSteamSockets_UDP_ConnectionClosed &msg, SteamNetworkingMicroseconds usecNow );
-	void Received_NoConnection( const CMsgSteamSockets_UDP_NoConnection &msg, SteamNetworkingMicroseconds usecNow );
 	void Received_ChallengeOrConnectRequest( const char *pszDebugPacketType, uint32 unPacketConnectionID, SteamNetworkingMicroseconds usecNow );
 
-	void SendPaddedMsg( uint8 nMsgID, const google::protobuf::MessageLite &msg );
-	void SendMsg( uint8 nMsgID, const google::protobuf::MessageLite &msg );
-	void SendPacket( const void *pkt, int cbPkt );
-	void SendPacketGather( int nChunks, const iovec *pChunks, int cbSendTotal );
-
-	void SendConnectionClosedOrNoConnection();
-	void SendNoConnection( uint32 unFromConnectionID, uint32 unToConnectionID );
-
-	/// Process stats message, either inline or standalone
-	void RecvStats( const CMsgSteamSockets_UDP_Stats &msgStatsIn, bool bInline, SteamNetworkingMicroseconds usecNow );
-	void SendStatsMsg( EStatsReplyRequest eReplyRequested, SteamNetworkingMicroseconds usecNow, const char *pszReason );
-	void TrackSentStats( const CMsgSteamSockets_UDP_Stats &msgStatsOut, bool bInline, SteamNetworkingMicroseconds usecNow );
+	// Implements CConnectionTransportUDPBase
+	virtual bool SendPacket( const void *pkt, int cbPkt ) override;
+	virtual bool SendPacketGather( int nChunks, const iovec *pChunks, int cbSendTotal ) override;
 };
 
 /// A connection over ordinary UDP

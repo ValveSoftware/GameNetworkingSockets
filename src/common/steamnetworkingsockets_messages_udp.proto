@@ -24,6 +24,7 @@ enum ESteamNetworkingUDPMsgID
 	k_ESteamNetworkingUDPMsg_ConnectionClosed = 36;			// Client<->server.  A reply is requested to this packet
 	k_ESteamNetworkingUDPMsg_NoConnection = 37;				// Client<->server.  A reply should never be sent to this packet
 	//k_ESteamNetworkingUDPMsg_Stats = 38;					// Client<->server.  Standalone stats message.  DEPRECATED.  Always sent as empty "data" packet now.
+	k_ESteamNetworkingUDPMsg_ICEPingCheck = 39;				// Peer-to-peer, confirm end-to-end ICE connectivity
 };
 
 // k_ESteamNetworkingUDPMsg_ChallengeRequest
@@ -149,40 +150,13 @@ message CMsgSteamSockets_UDP_Stats
 	optional uint32 flags = 3;
 };
 
-//=============================================================================
-//
-// ICE-mediated messages.  ICE connections are established through signaling,
-// and have their own handshake and Connection ID in the header, so the
-// messages have slightly different contents
-//
-//=============================================================================
-
-/// Control message IDs used by ICE connections
-enum ESteamNetworkingICEMsgID
-{
-	// NOTE: Connect request/ok always go through signaling
-
-	k_ESteamNetworkingICEMsg_ConnectionClosed = 36; // Used to initiate graceful connection closure.  Peer is expected to close ICE connection in reply
-	//k_ESteamNetworkingICEMsg_NoConnection = 37; // We just close the ICE connection and let ICE deal with it
-	k_ESteamNetworkingICEMsg_PingCheck = 39;
-};
-
-// k_ESteamNetworkingICEMsg_ConnectionClosed
-message CMsgSteamSockets_ICE_ConnectionClosed
-{
-	// No connection IDs.  We assume ICE is doing that
-	//optional fixed32 to_connection_id = 4;
-	//optional fixed32 from_connection_id = 5;
-
-	optional string debug = 2;
-	optional uint32 reason_code = 3;
-};
-
-// k_ESteamNetworkingICEMsg_PingCheck
-message CMsgSteamSockets_ICE_PingCheck
+// k_ESteamNetworkingUDPMsg_ICEPingCheck
+message CMsgSteamSockets_UDP_ICEPingCheck
 {
 	optional fixed64 send_timestamp = 1; // If present, receiver should immediately reply with this in recv_timestamp
 	optional fixed64 recv_timestamp = 2;
+	optional fixed32 to_connection_id = 3;
+	optional fixed32 from_connection_id = 4;
 };
 
 // Do not remove this comment due to a bug on the Mac OS X protobuf compiler

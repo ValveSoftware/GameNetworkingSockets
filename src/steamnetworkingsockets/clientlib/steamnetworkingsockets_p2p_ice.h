@@ -5,6 +5,7 @@
 #pragma once
 
 #include "steamnetworkingsockets_p2p.h"
+#include "steamnetworkingsockets_udp.h"
 #include <mutex>
 
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
@@ -13,9 +14,7 @@
 
 extern "C" CreateICESession_t g_SteamNetworkingSockets_CreateICESessionFunc;
 
-class CMsgSteamSockets_UDP_Stats;
-class CMsgSteamSockets_ICE_ConnectionClosed;
-class CMsgSteamSockets_ICE_PingCheck;
+class CMsgSteamSockets_UDP_ICEPingCheck;
 
 namespace SteamNetworkingSocketsLib {
 
@@ -23,8 +22,8 @@ class CSteamNetworkConnectionP2P;
 struct UDPSendPacketContext_t;
 
 /// Transport for peer-to-peer connection using WebRTC
-class CConnectionTransportP2PICE
-: public CConnectionTransport
+class CConnectionTransportP2PICE final
+: public CConnectionTransportUDPBase
 , public IThinker
 , private IICESessionDelegate
 {
@@ -43,9 +42,6 @@ public:
 	virtual void TransportFreeResources() override;
 	virtual void TransportConnectionStateChanged( ESteamNetworkingConnectionState eOldState ) override;
 	virtual bool BCanSendEndToEndData() const override;
-	virtual bool SendDataPacket( SteamNetworkingMicroseconds usecNow ) override;
-	virtual void SendEndToEndStatsMsg( EStatsReplyRequest eRequest, SteamNetworkingMicroseconds usecNow, const char *pszReason ) override;
-	virtual int SendEncryptedDataChunk( const void *pChunk, int cbChunk, SendPacketContext_t &ctx ) override;
 
 	// IThinker
 	virtual void Think( SteamNetworkingMicroseconds usecNow ) override;
@@ -63,6 +59,9 @@ public:
 	bool m_bNeedToAckRemoteCandidates;
 	uint32 m_nLocalCandidatesRevision;
 	uint32 m_nRemoteCandidatesRevision;
+
+	std::string m_sPwdFragLocal;
+	std::string m_sPwdFragRemote;
 
 	void NotifyConnectionFailed( int nReasonCode, const char *pszReason );
 	void QueueSelfDestruct();
@@ -117,18 +116,13 @@ private:
 
 	void DrainPacketQueue( SteamNetworkingMicroseconds usecNow );
 	void ProcessPacket( const uint8_t *pData, int cbPkt, SteamNetworkingMicroseconds usecNow );
-	void Received_Data( const uint8 *pPkt, int cbPkt, SteamNetworkingMicroseconds usecNow );
-	void Received_ConnectionClosed( const CMsgSteamSockets_ICE_ConnectionClosed &msg, SteamNetworkingMicroseconds usecNow );
-	void Received_PingCheck( const CMsgSteamSockets_ICE_PingCheck &msg, SteamNetworkingMicroseconds usecNow );
+	void Received_PingCheck( const CMsgSteamSockets_UDP_ICEPingCheck &msg, SteamNetworkingMicroseconds usecNow );
 
-	void SendMsg( uint8 nMsgID, const google::protobuf::MessageLite &msg );
+	// Implements CConnectionTransportUDPBase
+	virtual bool SendPacket( const void *pkt, int cbPkt ) override;
+	virtual bool SendPacketGather( int nChunks, const iovec *pChunks, int cbSendTotal ) override;
 
-	void SendConnectionClosed();
-
-	/// Process stats message, either inline or standalone
-	void RecvStats( const CMsgSteamSockets_UDP_Stats &msgStatsIn, bool bInline, SteamNetworkingMicroseconds usecNow );
-	void SendStatsMsg( EStatsReplyRequest eReplyRequested, SteamNetworkingMicroseconds usecNow, const char *pszReason );
-	void TrackSentStats( const CMsgSteamSockets_UDP_Stats &msgStatsOut, bool bInline, SteamNetworkingMicroseconds usecNow );
+	// FIXME - Need to figure out when this will be called
 	void TrackSentPingRequest( SteamNetworkingMicroseconds usecNow, bool bAllowDelayedReply );
 };
 

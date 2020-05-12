@@ -15,29 +15,6 @@ CreateICESession_t g_SteamNetworkingSockets_CreateICESessionFunc = nullptr;
 // Put everything in a namespace, so we don't violate the one definition rule
 namespace SteamNetworkingSocketsLib {
 
-#pragma pack( push, 1 )
-struct ICEDataMsgHdr
-{
-	enum
-	{
-		kFlag_ProtobufBlob  = 0x01, // Protobuf-encoded message is inline (CMsgSteamSockets_UDP_Stats)
-	};
-
-	// NOTE: No connection ID in header.  It is assumed that ICE is appending these.
-	// FIXME - is that true anymore?  I need to confirm exactly what is going on the wire.
-	// It would be great if all of these messages could be the exact same as the ordinary
-	// UDP ones, so that the ICE-negotiated connections looked the same as plain UDP on the wire,
-	// once NAT is punched.
-
-	uint8 m_unMsgFlags;
-	uint16 m_unSeqNum;
-
-	// [optional, if flags&kFlag_ProtobufBlob]  varint-encoded protobuf blob size, followed by blob
-	// Data frame(s)
-	// End of packet
-};
-#pragma pack( pop )
-
 /////////////////////////////////////////////////////////////////////////////
 //
 // CConnectionTransportP2PSDR
@@ -45,7 +22,7 @@ struct ICEDataMsgHdr
 /////////////////////////////////////////////////////////////////////////////
 
 CConnectionTransportP2PICE::CConnectionTransportP2PICE( CSteamNetworkConnectionP2P &connection )
-: CConnectionTransport( connection )
+: CConnectionTransportUDPBase( connection )
 , m_pICESession( nullptr )
 , m_pszNeedToSendSignalReason( nullptr )
 , m_usecSendSignalDeadline( INT64_MAX )
@@ -331,9 +308,11 @@ void CConnectionTransportP2PICE::Think( SteamNetworkingMicroseconds usecNow )
 				)
 			)
 		) {
-			CMsgSteamSockets_ICE_PingCheck msgPing;
+			CMsgSteamSockets_UDP_ICEPingCheck msgPing;
 			msgPing.set_send_timestamp( usecNow );
-			SendMsg( k_ESteamNetworkingICEMsg_PingCheck, msgPing );
+			msgPing.set_from_connection_id( ConnectionIDLocal() );
+			msgPing.set_to_connection_id( ConnectionIDRemote() );
+			SendMsg( k_ESteamNetworkingUDPMsg_ICEPingCheck, msgPing );
 			TrackSentPingRequest( usecNow, false );
 
 			Assert( m_usecInFlightReplyTimeout > usecNow );
@@ -384,186 +363,34 @@ void CConnectionTransportP2PICE::TrackSentPingRequest( SteamNetworkingMicrosecon
 	m_ping.m_usecTimeLastSentPingRequest = usecNow;
 }
 
-void CConnectionTransportP2PICE::SendStatsMsg( EStatsReplyRequest eReplyRequested, SteamNetworkingMicroseconds usecNow, const char *pszReason )
-{
-	UDPSendPacketContext_t ctx( usecNow, pszReason );
-	ctx.Populate( sizeof(ICEDataMsgHdr), eReplyRequested, m_connection );
-
-	// Send a data packet (maybe containing ordinary data), with this piggy backed on top of it
-	m_connection.SNP_SendPacket( this, ctx );
-}
-
-void CConnectionTransportP2PICE::SendEndToEndStatsMsg( EStatsReplyRequest eRequest, SteamNetworkingMicroseconds usecNow, const char *pszReason )
-{
-	SendStatsMsg( eRequest, usecNow, pszReason );
-}
-
-bool CConnectionTransportP2PICE::SendDataPacket( SteamNetworkingMicroseconds usecNow )
-{
-	if ( !m_pICESession )
-	{
-		Assert( false );
-		return false;
-	}
-
-
-	// Populate context struct with any stats we want/need to send, and how much space we need to reserve for it
-	UDPSendPacketContext_t ctx( usecNow, "data" );
-	ctx.Populate( sizeof(ICEDataMsgHdr), k_EStatsReplyRequest_NothingToSend, m_connection );
-
-	// Send a packet
-	return m_connection.SNP_SendPacket( this, ctx );
-}
-
-int CConnectionTransportP2PICE::SendEncryptedDataChunk( const void *pChunk, int cbChunk, SendPacketContext_t &ctxBase )
-{
-	if ( !m_pICESession )
-	{
-		Assert( false );
-		return 0;
-	}
-
-	UDPSendPacketContext_t &ctx = static_cast<UDPSendPacketContext_t &>( ctxBase );
-
-	uint8 pkt[ k_cbSteamNetworkingSocketsMaxUDPMsgLen ];
-	ICEDataMsgHdr *hdr = (ICEDataMsgHdr *)pkt;
-	hdr->m_unMsgFlags = 0x80;
-	hdr->m_unSeqNum = LittleWord( m_connection.m_statsEndToEnd.ConsumeSendPacketNumberAndGetWireFmt( ctx.m_usecNow ) );
-
-	byte *p = (byte*)( hdr + 1 );
-
-	// Check how much bigger we could grow the header
-	// and still fit in a packet
-	int cbHdrOutSpaceRemaining = pkt + sizeof(pkt) - p - cbChunk;
-	if ( cbHdrOutSpaceRemaining < 0 )
-	{
-		AssertMsg( false, "MTU / header size problem!" );
-		return 0;
-	}
-
-	ctx.Trim( cbHdrOutSpaceRemaining);
-	if ( ctx.Serialize( p ) )
-	{
-		// Update bookkeeping with the stuff we are actually sending
-		TrackSentStats( ctx.msg, true, ctx.m_usecNow );
-
-		// Mark header with the flag
-		hdr->m_unMsgFlags |= hdr->kFlag_ProtobufBlob;
-	}
-
-	// !FIXME! Time since previous, for jitter measurement?
-
-	// And now append the payload
-	memcpy( p, pChunk, cbChunk );
-	p += cbChunk;
-	int cbSend = p - pkt;
-	Assert( cbSend <= sizeof(pkt) ); // Bug in the code above.  We should never "overflow" the packet.  (Ignoring the fact that we using a gather-based send.  The data could be tiny with a large header for piggy-backed stats.)
-
-	// !FIXME! Should we track data payload separately?  Maybe we ought to track
-	// *messages* instead of packets.
-
-	// Send it
-	ETW_ICESendPacket( m_connection.m_hConnectionSelf, cbSend );
-	if ( !m_pICESession->BSendData( pkt, cbSend ) )
-	{
-		SpewMsg( "IICESession::BSendData FAILED\n" );
-		return -1;
-	}
-	//SpewMsg( "IICESession::BSendData OK\n" );
-	return cbSend;
-}
-
-void CConnectionTransportP2PICE::RecvStats( const CMsgSteamSockets_UDP_Stats &msgStatsIn, bool bInline, SteamNetworkingMicroseconds usecNow )
-{
-
-	// Connection quality stats?
-	if ( msgStatsIn.has_stats() )
-		m_connection.m_statsEndToEnd.ProcessMessage( msgStatsIn.stats(), usecNow );
-
-	// Spew appropriately
-	SpewVerbose( "[%s] Recv %s stats:%s\n",
-		ConnectionDescription(),
-		bInline ? "inline" : "standalone",
-		DescribeStatsContents( msgStatsIn ).c_str()
-	);
-
-	// Check if we need to reply, either now or later
-	if ( m_connection.BStateIsConnectedForWirePurposes() )
-	{
-
-		// Check for queuing outgoing acks
-		bool bImmediate = ( msgStatsIn.flags() & msgStatsIn.ACK_REQUEST_IMMEDIATE ) != 0;
-		if ( ( msgStatsIn.flags() & msgStatsIn.ACK_REQUEST_E2E ) || msgStatsIn.has_stats() )
-		{
-			m_connection.QueueEndToEndAck( bImmediate, usecNow );
-		}
-
-		// Do we need to send an immediate reply?
-		const char *pszReason = m_connection.NeedToSendEndToEndStatsOrAcks( usecNow );
-		if ( pszReason )
-		{
-			// Send a stats message
-			SendStatsMsg( k_EStatsReplyRequest_NothingToSend, usecNow, pszReason );
-		}
-	}
-}
-
-void CConnectionTransportP2PICE::TrackSentStats( const CMsgSteamSockets_UDP_Stats &msgStatsOut, bool bInline, SteamNetworkingMicroseconds usecNow )
-{
-
-	// What effective flags will be received?
-	bool bAllowDelayedReply = ( msgStatsOut.flags() & msgStatsOut.ACK_REQUEST_IMMEDIATE ) == 0;
-
-	// Record that we sent stats and are waiting for peer to ack
-	if ( msgStatsOut.has_stats() )
-	{
-		m_connection.m_statsEndToEnd.TrackSentStats( msgStatsOut.stats(), usecNow, bAllowDelayedReply );
-	}
-	else if ( msgStatsOut.flags() & msgStatsOut.ACK_REQUEST_E2E )
-	{
-		m_connection.m_statsEndToEnd.TrackSentMessageExpectingSeqNumAck( usecNow, bAllowDelayedReply );
-	}
-
-	// Check if we should expect an immediate reply
-	if ( m_usecInFlightReplyTimeout == 0 && m_connection.m_pTransport == this )
-	{
-		m_usecInFlightReplyTimeout = m_connection.m_statsEndToEnd.m_usecInFlightReplyTimeout;
-		EnsureMinThinkTime( m_usecInFlightReplyTimeout );
-	}
-
-	// Spew appropriately
-	SpewVerbose( "[%s] Sent %s stats:%s\n",
-		ConnectionDescription(),
-		bInline ? "inline" : "standalone",
-		DescribeStatsContents( msgStatsOut ).c_str()
-	);
-}
-
-static void ReallyReportBadICEPacket( CConnectionTransportP2PICE *pTransport, const char *pszMsgType, const char *pszFmt, ... )
-{
-	char buf[ 2048 ];
-	va_list ap;
-	va_start( ap, pszFmt );
-	V_vsprintf_safe( buf, pszFmt, ap );
-	va_end( ap );
-	V_StripTrailingWhitespaceASCII( buf );
-
-	if ( !pszMsgType || !pszMsgType[0] )
-		pszMsgType = "message";
-
-	SpewMsg( "[%s] Ignored bad %s.  %s\n", pTransport->ConnectionDescription(), pszMsgType, buf );
-}
-
-
-#define ReportBadPacket( pszMsgType, /* fmt */ ... ) \
-	( BCheckRateLimitReportBadPacket( usecNow ) ? ReallyReportBadICEPacket( this, pszMsgType, __VA_ARGS__ ) : (void)0 )
-
 #define ParseProtobufBody( pvMsg, cbMsg, CMsgCls, msgVar ) \
 	CMsgCls msgVar; \
 	if ( !msgVar.ParseFromArray( pvMsg, cbMsg ) ) \
 	{ \
-		ReportBadPacket( # CMsgCls, "Protobuf parse failed." ); \
+		ReportBadUDPPacketFromConnectionPeer( # CMsgCls, "Protobuf parse failed." ); \
 		return; \
+	}
+
+#define ParsePaddedPacket( pvPkt, cbPkt, CMsgCls, msgVar ) \
+	CMsgCls msgVar; \
+	{ \
+		if ( cbPkt < k_cbSteamNetworkingMinPaddedPacketSize ) \
+		{ \
+			ReportBadUDPPacketFromConnectionPeer( # CMsgCls, "Packet is %d bytes, must be padded to at least %d bytes.", cbPkt, k_cbSteamNetworkingMinPaddedPacketSize ); \
+			return; \
+		} \
+		const UDPPaddedMessageHdr *hdr =  (const UDPPaddedMessageHdr *)( pvPkt ); \
+		int nMsgLength = LittleWord( hdr->m_nMsgLength ); \
+		if ( nMsgLength <= 0 || int(nMsgLength+sizeof(UDPPaddedMessageHdr)) > cbPkt ) \
+		{ \
+			ReportBadUDPPacketFromConnectionPeer( # CMsgCls, "Invalid encoded message length %d.  Packet is %d bytes.", nMsgLength, cbPkt ); \
+			return; \
+		} \
+		if ( !msgVar.ParseFromArray( hdr+1, nMsgLength ) ) \
+		{ \
+			ReportBadUDPPacketFromConnectionPeer( # CMsgCls, "Protobuf parse failed." ); \
+			return; \
+		} \
 	}
 
 void CConnectionTransportP2PICE::ProcessPacket( const uint8_t *pPkt, int cbPkt, SteamNetworkingMicroseconds usecNow )
@@ -585,139 +412,37 @@ void CConnectionTransportP2PICE::ProcessPacket( const uint8_t *pPkt, int cbPkt, 
 	// Track stats for other packet types.
 	m_connection.m_statsEndToEnd.TrackRecvPacket( cbPkt, usecNow );
 
-	if ( *pPkt == k_ESteamNetworkingICEMsg_ConnectionClosed )
+	if ( *pPkt == k_ESteamNetworkingUDPMsg_ConnectionClosed )
 	{
-		ParseProtobufBody( pPkt+1, cbPkt-1, CMsgSteamSockets_ICE_ConnectionClosed, msg )
+		ParsePaddedPacket( pPkt, cbPkt, CMsgSteamSockets_UDP_ConnectionClosed, msg )
 		Received_ConnectionClosed( msg, usecNow );
 	}
-	else if ( *pPkt == k_ESteamNetworkingICEMsg_PingCheck )
+	else if ( *pPkt == k_ESteamNetworkingUDPMsg_NoConnection )
 	{
-		ParseProtobufBody( pPkt+1, cbPkt-1, CMsgSteamSockets_ICE_PingCheck, msg )
+		ParseProtobufBody( pPkt+1, cbPkt-1, CMsgSteamSockets_UDP_NoConnection, msg )
+		Received_NoConnection( msg, usecNow );
+	}
+	else if ( *pPkt == k_ESteamNetworkingUDPMsg_ICEPingCheck )
+	{
+		ParseProtobufBody( pPkt+1, cbPkt-1, CMsgSteamSockets_UDP_ICEPingCheck, msg )
 		Received_PingCheck( msg, usecNow );
 	}
 	else
 	{
-		ReportBadPacket( "packet", "Lead byte 0x%02x not a known message ID", *pPkt );
+		ReportBadUDPPacketFromConnectionPeer( "packet", "Lead byte 0x%02x not a known message ID", *pPkt );
 	}
 }
 
-void CConnectionTransportP2PICE::Received_Data( const uint8 *pPkt, int cbPkt, SteamNetworkingMicroseconds usecNow )
+void CConnectionTransportP2PICE::Received_PingCheck( const CMsgSteamSockets_UDP_ICEPingCheck &msg, SteamNetworkingMicroseconds usecNow )
 {
-	ETW_ICERecvPacket( m_connection.m_hConnectionSelf, cbPkt );
+	// FIXME check to/from connection ID
 
-	if ( cbPkt < sizeof(ICEDataMsgHdr) )
-	{
-		ReportBadPacket( "data", "Packet of size %d is too small.", cbPkt );
-		return;
-	}
-
-	// Check state
-	switch ( ConnectionState() )
-	{
-		case k_ESteamNetworkingConnectionState_Dead:
-		case k_ESteamNetworkingConnectionState_None:
-		case k_ESteamNetworkingConnectionState_Connecting: // Shouldn't be possible!
-		default:
-			Assert( false );
-			return;
-
-		case k_ESteamNetworkingConnectionState_ClosedByPeer:
-			// Ignore.  When the connection is closed, we should close the ICE connection.
-			// but we might have had some last packets queued
-			return;
-
-		case k_ESteamNetworkingConnectionState_FinWait:
-		case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
-			SendConnectionClosed();
-			return;
-
-		case k_ESteamNetworkingConnectionState_FindingRoute:
-
-			// Hm, the peer has obviously decided that route
-			// is ready to use.  But that doesn't mean we're
-			// satisfied yet
-
-		case k_ESteamNetworkingConnectionState_Linger:
-		case k_ESteamNetworkingConnectionState_Connected:
-
-			// We'll process the chunk
-			break;
-	}
-
-	// Check header
-	const ICEDataMsgHdr *hdr = (const ICEDataMsgHdr *)pPkt;
-	uint16 nWirePktNumber = LittleWord( hdr->m_unSeqNum );
-
-	const uint8 *pIn = pPkt + sizeof(*hdr);
-	const uint8 *pPktEnd = pPkt + cbPkt;
-
-	// Inline stats?
-	static CMsgSteamSockets_UDP_Stats msgStats;
-	CMsgSteamSockets_UDP_Stats *pMsgStatsIn = nullptr;
-	uint32 cbStatsMsgIn = 0;
-	if ( hdr->m_unMsgFlags & hdr->kFlag_ProtobufBlob )
-	{
-		//Msg_Verbose( "Received inline stats from %s", server.m_szName );
-
-		pIn = DeserializeVarInt( pIn, pPktEnd, cbStatsMsgIn );
-		if ( pIn == NULL )
-		{
-			ReportBadPacket( "DataPacket", "Failed to varint decode size of stats blob" );
-			return;
-		}
-		if ( pIn + cbStatsMsgIn > pPktEnd )
-		{
-			ReportBadPacket( "DataPacket", "stats message size doesn't make sense.  Stats message size %d, packet size %d", cbStatsMsgIn, cbPkt );
-			return;
-		}
-
-		if ( !msgStats.ParseFromArray( pIn, cbStatsMsgIn ) )
-		{
-			ReportBadPacket( "DataPacket", "protobuf failed to parse inline stats message" );
-			return;
-		}
-
-		// Shove sequence number so we know what acks to pend, etc
-		pMsgStatsIn = &msgStats;
-
-		// Advance pointer
-		pIn += cbStatsMsgIn;
-	}
-
-	const void *pChunk = pIn;
-	int cbChunk = pPktEnd - pIn;
-
-	// Decrypt it, and check packet number
-	uint8 tempDecrypted[ k_cbSteamNetworkingSocketsMaxPlaintextPayloadRecv ];
-	void *pDecrypted = tempDecrypted;
-	uint32 cbDecrypted = sizeof(tempDecrypted);
-	int64 nFullSequenceNumber = m_connection.DecryptDataChunk( nWirePktNumber, cbPkt, pChunk, cbChunk, pDecrypted, cbDecrypted, usecNow );
-	if ( nFullSequenceNumber <= 0 )
-		return;
-
-	// Process plaintext
-	if ( !m_connection.ProcessPlainTextDataChunk( nFullSequenceNumber, pDecrypted, cbDecrypted, 0, usecNow ) )
-		return;
-
-	// Process the stats, if any
-	if ( pMsgStatsIn )
-		RecvStats( *pMsgStatsIn, true, usecNow );
-}
-
-void CConnectionTransportP2PICE::Received_ConnectionClosed( const CMsgSteamSockets_ICE_ConnectionClosed &msg, SteamNetworkingMicroseconds usecNow )
-{
-	// Generic connection code will take it from here.
-	m_connection.ConnectionState_ClosedByPeer( msg.reason_code(), msg.debug().c_str() );
-}
-
-void CConnectionTransportP2PICE::Received_PingCheck( const CMsgSteamSockets_ICE_PingCheck &msg, SteamNetworkingMicroseconds usecNow )
-{
 	if ( msg.has_recv_timestamp() )
 	{
 		SteamNetworkingMicroseconds usecElapsed = usecNow - msg.recv_timestamp();
 		if ( usecElapsed < 0 || usecElapsed > 2*k_nMillion )
 		{
-			ReportBadPacket( "WeirdPingTimestamp", "Ignoring ping timestamp of %lld (%lld -> %lld)",
+			ReportBadUDPPacketFromConnectionPeer( "WeirdPingTimestamp", "Ignoring ping timestamp of %lld (%lld -> %lld)",
 				(long long)usecElapsed, (long long)msg.recv_timestamp(), (long long)usecNow );
 		}
 		else
@@ -737,7 +462,9 @@ void CConnectionTransportP2PICE::Received_PingCheck( const CMsgSteamSockets_ICE_
 	// Are they asking for a reply?
 	if ( msg.has_send_timestamp() )
 	{
-		CMsgSteamSockets_ICE_PingCheck pong;
+		CMsgSteamSockets_UDP_ICEPingCheck pong;
+		pong.set_from_connection_id( ConnectionIDLocal() );
+		pong.set_to_connection_id( ConnectionIDRemote() );
 		pong.set_recv_timestamp( msg.send_timestamp() );
 
 		// We're sending a ping message.  Ask for them to ping us back again?
@@ -748,22 +475,8 @@ void CConnectionTransportP2PICE::Received_PingCheck( const CMsgSteamSockets_ICE_
 			TrackSentPingRequest( usecNow, false );
 		}
 
-		SendMsg( k_ESteamNetworkingICEMsg_PingCheck, pong );
+		SendMsg( k_ESteamNetworkingUDPMsg_ICEPingCheck, pong );
 	}
-}
-
-void CConnectionTransportP2PICE::SendConnectionClosed()
-{
-	CMsgSteamSockets_UDP_ConnectionClosed msg;
-	msg.set_from_connection_id( ConnectionIDLocal() );
-
-	if ( ConnectionIDRemote() )
-		msg.set_to_connection_id( ConnectionIDRemote() );
-
-	msg.set_reason_code( m_connection.m_eEndReason );
-	if ( m_connection.m_szEndDebug[0] )
-		msg.set_debug( m_connection.m_szEndDebug );
-	SendMsg( k_ESteamNetworkingUDPMsg_ConnectionClosed, msg );
 }
 
 void CConnectionTransportP2PICE::TransportConnectionStateChanged( ESteamNetworkingConnectionState eOldState )
@@ -785,7 +498,7 @@ void CConnectionTransportP2PICE::TransportConnectionStateChanged( ESteamNetworki
 
 		case k_ESteamNetworkingConnectionState_FinWait:
 		case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
-			SendConnectionClosed();
+			SendConnectionClosedOrNoConnection();
 			break;
 
 		case k_ESteamNetworkingConnectionState_ClosedByPeer:
@@ -794,25 +507,49 @@ void CConnectionTransportP2PICE::TransportConnectionStateChanged( ESteamNetworki
 	}
 }
 
-void CConnectionTransportP2PICE::SendMsg( uint8 nMsgID, const google::protobuf::MessageLite &msg )
+bool CConnectionTransportP2PICE::SendPacket( const void *pkt, int cbPkt )
 {
 	if ( !m_pICESession )
-		return;
-
-	uint8 pkt[ k_cbSteamNetworkingSocketsMaxUDPMsgLen ];
-	pkt[0] = nMsgID;
-	int cbPkt = ProtoMsgByteSize( msg )+1;
-	if ( cbPkt > sizeof(pkt) )
-	{
-		AssertMsg3( false, "Msg type %d is %d bytes, larger than MTU of %d bytes", int( nMsgID ), int( cbPkt ), (int)sizeof(pkt) );
-		return;
-	}
-	uint8 *pEnd = msg.SerializeWithCachedSizesToArray( pkt+1 );
-	Assert( cbPkt == pEnd - pkt );
+		return false;
 
 	ETW_ICESendPacket( m_connection.m_hConnectionSelf, cbPkt );
-	m_pICESession->BSendData( pkt, cbPkt );
-	//SpewMsg( "IICESession::BSendData, msg %d, %d bytes\n", nMsgID, cbPkt );
+	if ( !m_pICESession->BSendData( pkt, cbPkt ) )
+		return false;
+
+	// Update stats
+	m_connection.m_statsEndToEnd.TrackSentPacket( cbPkt );
+	return true;
+}
+
+bool CConnectionTransportP2PICE::SendPacketGather( int nChunks, const iovec *pChunks, int cbSendTotal )
+{
+	if ( nChunks == 1 )
+	{
+		Assert( (int)pChunks->iov_len == cbSendTotal );
+		SendPacket( pChunks->iov_base, pChunks->iov_len );
+		return false;
+	}
+	if ( cbSendTotal > k_cbSteamNetworkingSocketsMaxUDPMsgLen )
+	{
+		Assert( false );
+		return false;
+	}
+	uint8 pkt[ k_cbSteamNetworkingSocketsMaxUDPMsgLen ];
+	uint8 *p = pkt;
+	while ( nChunks > 0 )
+	{
+		if ( p + pChunks->iov_len > pkt+cbSendTotal )
+		{
+			Assert( false );
+			return false;
+		}
+		memcpy( p, pChunks->iov_base, pChunks->iov_len );
+		p += pChunks->iov_len;
+		--nChunks;
+		++pChunks;
+	}
+	Assert( p == pkt+cbSendTotal );
+	return SendPacket( pkt, p-pkt );
 }
 
 bool CConnectionTransportP2PICE::BCanSendEndToEndData() const
@@ -909,9 +646,9 @@ const char *CConnectionTransportP2PICE::GetStunServer( int iIndex )
 
 void CConnectionTransportP2PICE::OnIceCandidateAdded( const char *pszSDPMid, int nSDPMLineIndex, const char *pszCandidate )
 {
-	// !KLUDGE! Disable local candidates, force use of STUN
-	//if ( V_stristr( pszCandidate, " host " ) )
-	//	return;
+//	// !KLUDGE! Disable local candidates, force use of STUN
+//	if ( V_stristr( pszCandidate, " host " ) )
+//		return;
 
 	struct RunIceCandidateAdded : IConnectionTransportP2PICERunWithLock
 	{
@@ -984,7 +721,7 @@ void CConnectionTransportP2PICE::OnData( const void *pPkt, size_t nSize )
 
 	if ( nSize < 1 )
 	{
-		ReportBadPacket( "packet", "Bad packet size: %d", cbPkt );
+		ReportBadUDPPacketFromConnectionPeer( "packet", "Bad packet size: %d", cbPkt );
 		return;
 	}
 
