@@ -83,6 +83,10 @@ public:
 	/// value means more important, and the value you pass is the lowest priority (highest
 	/// numeric value) you wish to receive callbacks for.
 	///
+	/// The value here controls the detail level for most messages.  You can control the
+	/// detail level for various subsystems (perhaps only for certain connections) by
+	/// adjusting the configuration values k_ESteamNetworkingConfig_LogLevel_Xxxxx.
+	///
 	/// Except when debugging, you should only use k_ESteamNetworkingSocketsDebugOutputType_Msg
 	/// or k_ESteamNetworkingSocketsDebugOutputType_Warning.  For best performance, do NOT
 	/// request a high detail level and then filter out messages in your callback.  This incurs

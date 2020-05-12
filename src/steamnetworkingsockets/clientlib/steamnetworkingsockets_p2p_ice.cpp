@@ -103,7 +103,7 @@ void CConnectionTransportP2PICE::Init()
 	// Get the stun server list
 	std::vector<std::string> vecStunServers;
 	std::vector<const char *> vecStunServersPsz;
-	SpewType( LogLevel_P2PRendezvous(), "[%s] Using STUN server list: %s\n", ConnectionDescription(), m_connection.m_connectionConfig.m_P2P_STUN_ServerList.Get().c_str() );
+	SpewVerboseGroup( LogLevel_P2PRendezvous(), "[%s] Using STUN server list: %s\n", ConnectionDescription(), m_connection.m_connectionConfig.m_P2P_STUN_ServerList.Get().c_str() );
 	{
 		CUtlVectorAutoPurge<char *> tempStunServers;
 		V_AllocAndSplitString( m_connection.m_connectionConfig.m_P2P_STUN_ServerList.Get().c_str(), ",", tempStunServers );
@@ -243,7 +243,7 @@ void CConnectionTransportP2PICE::RecvRendezvous( const CMsgICERendezvous &msgICE
 					const CMsgICERendezvous_Message_Candidate &c = msg.candidate();
 					if ( m_pICESession->BAddRemoteIceCandidate( c.sdpm_id().c_str(), c.sdpm_line_index(), c.candidate().c_str() ) )
 					{
-						SpewType( LogLevel_P2PRendezvous(), "[%s] Processed remote Ice Candidate %s\n", ConnectionDescription(), c.ShortDebugString().c_str() );
+						SpewVerboseGroup( LogLevel_P2PRendezvous(), "[%s] Processed remote Ice Candidate %s\n", ConnectionDescription(), c.ShortDebugString().c_str() );
 					}
 					else
 					{
@@ -254,7 +254,7 @@ void CConnectionTransportP2PICE::RecvRendezvous( const CMsgICERendezvous &msgICE
 				if ( msg.has_my_pwd_frag() )
 				{
 					std::string sUfragRemote = Base64Encode( ConnectionIDRemote() );
-					SpewType( LogLevel_P2PRendezvous(), "[%s] Set remote auth to %s / %s\n", ConnectionDescription(), sUfragRemote.c_str(), msg.my_pwd_frag().c_str() );
+					SpewVerboseGroup( LogLevel_P2PRendezvous(), "[%s] Set remote auth to %s / %s\n", ConnectionDescription(), sUfragRemote.c_str(), msg.my_pwd_frag().c_str() );
 					m_pICESession->SetRemoteAuth( sUfragRemote.c_str(), msg.my_pwd_frag().c_str() );
 				}
 			}
@@ -269,7 +269,7 @@ void CConnectionTransportP2PICE::NotifyConnectionFailed( int nReasonCode, const 
 	// Remember reason code, if we didn't already set one
 	if ( Connection().m_nICECloseCode == 0 )
 	{
-		SpewType( LogLevel_P2PRendezvous(), "[%s] ICE failed %d %s\n", ConnectionDescription(), nReasonCode, pszReason );
+		SpewMsgGroup( LogLevel_P2PRendezvous(), "[%s] ICE failed %d %s\n", ConnectionDescription(), nReasonCode, pszReason );
 		Connection().m_nICECloseCode = nReasonCode;
 		V_strcpy_safe( Connection().m_szICECloseMsg, pszReason );
 	}
@@ -301,7 +301,7 @@ void CConnectionTransportP2PICE::QueueSelfDestruct()
 
 void CConnectionTransportP2PICE::QueueSignalMessage( CMsgICERendezvous_Message &&msg, const char *pszDebug )
 {
-	SpewType( LogLevel_P2PRendezvous(), "[%s] %s { %s }\n", ConnectionDescription(), pszDebug, msg.ShortDebugString().c_str() );
+	SpewVerboseGroup( LogLevel_P2PRendezvous(), "[%s] %s { %s }\n", ConnectionDescription(), pszDebug, msg.ShortDebugString().c_str() );
 	OutboundMessage *p = push_back_get_ptr( m_vecUnackedOutboundMessages );
 	p->m_nID = ++m_nLastSendRendesvousMessageID;
 	p->m_msg = std::move( msg );
@@ -690,10 +690,8 @@ void CConnectionTransportP2PICE::Log( IICESessionDelegate::ELogPriority ePriorit
 		case IICESessionDelegate::k_ELogPriorityError: eType = k_ESteamNetworkingSocketsDebugOutputType_Error; break;
 	}
 
-	if ( eType > g_eSteamDatagramDebugOutputDetailLevel )
+	if ( eType > Connection().LogLevel_P2PRendezvous() )
 		return;
-
-	// FIXME Warning!  This can be called from any thread
 
 	char buf[ 1024 ];
 	va_list ap;

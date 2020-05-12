@@ -2224,7 +2224,7 @@ bool CSteamNetworkConnectionBase::ReceivedMessage( const void *pData, int cbData
 void CSteamNetworkConnectionBase::ReceivedMessage( CSteamNetworkingMessage *pMsg )
 {
 
-	SpewType( m_connectionConfig.m_LogLevel_Message.Get(), "[%s] RecvMessage MsgNum=%lld sz=%d\n",
+	SpewVerboseGroup( m_connectionConfig.m_LogLevel_Message.Get(), "[%s] RecvMessage MsgNum=%lld sz=%d\n",
 		GetDescription(),
 		(long long)pMsg->m_nMessageNumber,
 		pMsg->m_cbSize );

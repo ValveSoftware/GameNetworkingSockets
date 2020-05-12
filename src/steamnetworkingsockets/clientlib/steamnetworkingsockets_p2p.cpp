@@ -603,7 +603,7 @@ SteamNetworkingMicroseconds CSteamNetworkConnectionP2P::ThinkConnection_ClientCo
 		msgConnectRequest.set_virtual_port( m_nRemoteVirtualPort );
 
 	// Send through signaling service
-	SpewType( LogLevel_P2PRendezvous(), "[%s] Sending P2P ConnectRequest\n", GetDescription() );
+	SpewMsgGroup( LogLevel_P2PRendezvous(), "[%s] Sending P2P ConnectRequest\n", GetDescription() );
 	SetRendezvousCommonFieldsAndSendSignal( msgRendezvous, usecNow, "ConnectRequest" );
 
 	// Remember when we send it
@@ -621,13 +621,13 @@ void CSteamNetworkConnectionP2P::SendConnectOKSignal( SteamNetworkingMicrosecond
 	CMsgSteamNetworkingP2PRendezvous_ConnectOK &msgConnectOK = *msgRendezvous.mutable_connect_ok();
 	*msgConnectOK.mutable_cert() = m_msgSignedCertLocal;
 	*msgConnectOK.mutable_crypt() = m_msgSignedCryptLocal;
-	SpewType( LogLevel_P2PRendezvous(), "[%s] Sending P2P ConnectOK via Steam, remote cxn %u\n", GetDescription(), m_unConnectionIDRemote );
+	SpewMsgGroup( LogLevel_P2PRendezvous(), "[%s] Sending P2P ConnectOK via Steam, remote cxn %u\n", GetDescription(), m_unConnectionIDRemote );
 	SetRendezvousCommonFieldsAndSendSignal( msgRendezvous, usecNow, "ConnectOK" );
 }
 
 void CSteamNetworkConnectionP2P::SendConnectionClosedSignal( SteamNetworkingMicroseconds usecNow )
 {
-	SpewType( LogLevel_P2PRendezvous(), "[%s] Sending graceful P2P ConnectionClosed, remote cxn %u\n", GetDescription(), m_unConnectionIDRemote );
+	SpewVerboseGroup( LogLevel_P2PRendezvous(), "[%s] Sending graceful P2P ConnectionClosed, remote cxn %u\n", GetDescription(), m_unConnectionIDRemote );
 
 	CMsgSteamNetworkingP2PRendezvous msgRendezvous;
 	CMsgSteamNetworkingP2PRendezvous_ConnectionClosed &msgConnectionClosed = *msgRendezvous.mutable_connection_closed();
@@ -642,7 +642,7 @@ void CSteamNetworkConnectionP2P::SendConnectionClosedSignal( SteamNetworkingMicr
 
 void CSteamNetworkConnectionP2P::SendNoConnectionSignal( SteamNetworkingMicroseconds usecNow )
 {
-	SpewType( LogLevel_P2PRendezvous(), "[%s] Sending graceful P2P ConnectionClosed, remote cxn %u\n", GetDescription(), m_unConnectionIDRemote );
+	SpewVerboseGroup( LogLevel_P2PRendezvous(), "[%s] Sending P2P NoConnection signal, remote cxn %u\n", GetDescription(), m_unConnectionIDRemote );
 
 	CMsgSteamNetworkingP2PRendezvous msgRendezvous;
 	CMsgSteamNetworkingP2PRendezvous_ConnectionClosed &msgConnectionClosed = *msgRendezvous.mutable_connection_closed();
@@ -687,8 +687,8 @@ void CSteamNetworkConnectionP2P::SetRendezvousCommonFieldsAndSendSignal( CMsgSte
 
 	// Spew
 	int nLogLevel = LogLevel_P2PRendezvous();
-	SpewType( nLogLevel, "[%s] Sending P2PRendezvous (%s)\n", GetDescription(), pszDebugReason );
-	SpewType( nLogLevel+1, "%s\n\n", Indent( msg.DebugString() ).c_str() );
+	SpewVerboseGroup( nLogLevel, "[%s] Sending P2PRendezvous (%s)\n", GetDescription(), pszDebugReason );
+	SpewDebugGroup( nLogLevel, "%s\n\n", Indent( msg.DebugString() ).c_str() );
 
 	int cbMsg = ProtoMsgByteSize( msg );
 	uint8 *pMsg = (uint8 *)alloca( cbMsg );
@@ -830,12 +830,12 @@ bool CSteamNetworkingSockets::ReceivedP2PCustomSignal( const void *pMsg, int cbM
 		// any time we receive random message.
 		if ( pConnBase == nullptr )
 		{
-			SpewType( nLogLevel, "Ignoring P2PRendezvous from %s to unknown connection #%u\n", SteamNetworkingIdentityRender( identityRemote ).c_str(), msg.to_connection_id() );
+			SpewMsgGroup( nLogLevel, "Ignoring P2PRendezvous from %s to unknown connection #%u\n", SteamNetworkingIdentityRender( identityRemote ).c_str(), msg.to_connection_id() );
 			return true;
 		}
 
-		SpewType( nLogLevel, "[%s] Recv P2PRendezvous\n", pConnBase->GetDescription() );
-		SpewType( nLogLevel+1, "%s\n\n", Indent( msg.DebugString() ).c_str() );
+		SpewVerboseGroup( nLogLevel, "[%s] Recv P2PRendezvous\n", pConnBase->GetDescription() );
+		SpewDebugGroup( nLogLevel, "%s\n\n", Indent( msg.DebugString() ).c_str() );
 
 		pConn = pConnBase->AsSteamNetworkConnectionP2P();
 		if ( !pConn )
@@ -1105,7 +1105,7 @@ bool CSteamNetworkingSockets::ReceivedP2PCustomSignal( const void *pMsg, int cbM
 			{
 				// The lack of any message at all (even an empty one) means that they
 				// will not support ICE, so we can destroy our transport
-				SpewType( nLogLevel, "[%s] Destroying ICE transport, peer rendezvous indicates they will not use it\n", pConn->GetDescription() );
+				SpewMsgGroup( nLogLevel, "[%s] Destroying ICE transport, peer rendezvous indicates they will not use it\n", pConn->GetDescription() );
 				pConn->DestroyICENow();
 			}
 		}
@@ -1140,7 +1140,7 @@ bool CSteamNetworkingSockets::ReceivedP2PCustomSignal( const void *pMsg, int cbM
 					return false;
 				}
 
-				SpewType( nLogLevel, "[%s] Received ConnectOK in P2P Rendezvous from %s.\n", pConn->GetDescription(), SteamNetworkingIdentityRender( identityRemote ).c_str() );
+				SpewMsgGroup( nLogLevel, "[%s] Received ConnectOK in P2P Rendezvous from %s.\n", pConn->GetDescription(), SteamNetworkingIdentityRender( identityRemote ).c_str() );
 				pConn->ProcessSignal_ConnectOK( msg.connect_ok(), usecNow );
 			}
 			break;

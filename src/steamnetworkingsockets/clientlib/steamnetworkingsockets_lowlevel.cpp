@@ -1716,7 +1716,7 @@ void CSharedSocket::RemoteHost::Close()
 /////////////////////////////////////////////////////////////////////////////
 
 SteamNetworkingMicroseconds g_usecLastRateLimitSpew;
-ESteamNetworkingSocketsDebugOutputType g_eSteamDatagramDebugOutputDetailLevel;
+ESteamNetworkingSocketsDebugOutputType g_eDefaultGroupSpewLevel;
 static FSteamNetworkingSocketsDebugOutput s_pfnDebugOutput = nullptr;
 
 void VReallySpewType( ESteamNetworkingSocketsDebugOutputType eType, const char *pMsg, va_list ap )
@@ -1726,10 +1726,10 @@ void VReallySpewType( ESteamNetworkingSocketsDebugOutputType eType, const char *
 	// while we are formatting.
 	FSteamNetworkingSocketsDebugOutput pfnDebugOutput = s_pfnDebugOutput;
 
-	// Filter, just in case.  (We really shouldn't get here, though.)
-	if ( !pfnDebugOutput || eType > g_eSteamDatagramDebugOutputDetailLevel )
+	// Make sure we don't crash.
+	if ( !pfnDebugOutput )
 		return;
-	
+
 	// Do the formatting
 	char buf[ 2048 ];
 	V_vsprintf_safe( buf, pMsg, ap );
@@ -1762,17 +1762,17 @@ static SpewRetval_t SDRSpewFunc( SpewType_t type, char const *pMsg )
 			// |
 			// V
 		case SPEW_MESSAGE:
-			if ( s_pfnDebugOutput && g_eSteamDatagramDebugOutputDetailLevel >= k_ESteamNetworkingSocketsDebugOutputType_Msg )
+			if ( s_pfnDebugOutput && g_eDefaultGroupSpewLevel >= k_ESteamNetworkingSocketsDebugOutputType_Msg )
 				s_pfnDebugOutput( k_ESteamNetworkingSocketsDebugOutputType_Msg, pMsg );
 			break;
 
 		case SPEW_WARNING:
-			if ( s_pfnDebugOutput && g_eSteamDatagramDebugOutputDetailLevel >= k_ESteamNetworkingSocketsDebugOutputType_Warning )
+			if ( s_pfnDebugOutput && g_eDefaultGroupSpewLevel >= k_ESteamNetworkingSocketsDebugOutputType_Warning )
 				s_pfnDebugOutput( k_ESteamNetworkingSocketsDebugOutputType_Warning, pMsg );
 			break;
 
 		case SPEW_ASSERT:
-			if ( s_pfnDebugOutput && g_eSteamDatagramDebugOutputDetailLevel >= k_ESteamNetworkingSocketsDebugOutputType_Error )
+			if ( s_pfnDebugOutput && g_eDefaultGroupSpewLevel >= k_ESteamNetworkingSocketsDebugOutputType_Error )
 				s_pfnDebugOutput( k_ESteamNetworkingSocketsDebugOutputType_Bug, pMsg );
 
 			// Ug, for some reason this is crashing, because it's trying to generate a breakpoint
@@ -1782,12 +1782,12 @@ static SpewRetval_t SDRSpewFunc( SpewType_t type, char const *pMsg )
 			break;
 
 		case SPEW_ERROR:
-			if ( s_pfnDebugOutput && g_eSteamDatagramDebugOutputDetailLevel >= k_ESteamNetworkingSocketsDebugOutputType_Error )
+			if ( s_pfnDebugOutput && g_eDefaultGroupSpewLevel >= k_ESteamNetworkingSocketsDebugOutputType_Error )
 				s_pfnDebugOutput( k_ESteamNetworkingSocketsDebugOutputType_Error, pMsg );
 			return SPEW_ABORT;
 
 		case SPEW_BOLD_MESSAGE:
-			if ( s_pfnDebugOutput && g_eSteamDatagramDebugOutputDetailLevel >= k_ESteamNetworkingSocketsDebugOutputType_Important )
+			if ( s_pfnDebugOutput && g_eDefaultGroupSpewLevel >= k_ESteamNetworkingSocketsDebugOutputType_Important )
 				s_pfnDebugOutput( k_ESteamNetworkingSocketsDebugOutputType_Important, pMsg );
 	}
 	
@@ -2018,12 +2018,12 @@ void SteamNetworkingSockets_SetDebugOutputFunction( ESteamNetworkingSocketsDebug
 	if ( pfnFunc && eDetailLevel > k_ESteamNetworkingSocketsDebugOutputType_None )
 	{
 		SteamNetworkingSocketsLib::s_pfnDebugOutput = pfnFunc;
-		SteamNetworkingSocketsLib::g_eSteamDatagramDebugOutputDetailLevel = ESteamNetworkingSocketsDebugOutputType( eDetailLevel );
+		SteamNetworkingSocketsLib::g_eDefaultGroupSpewLevel = ESteamNetworkingSocketsDebugOutputType( eDetailLevel );
 	}
 	else
 	{
 		SteamNetworkingSocketsLib::s_pfnDebugOutput = nullptr;
-		SteamNetworkingSocketsLib::g_eSteamDatagramDebugOutputDetailLevel = k_ESteamNetworkingSocketsDebugOutputType_None;
+		SteamNetworkingSocketsLib::g_eDefaultGroupSpewLevel = k_ESteamNetworkingSocketsDebugOutputType_None;
 	}
 }
 
