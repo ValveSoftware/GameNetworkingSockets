@@ -99,6 +99,7 @@ void CConnectionTransportP2PICE::Init()
 		return;
 	}
 
+	SpewType( LogLevel_P2PRendezvous(), "[%s] Using STUN server list: %s\n", ConnectionDescription(), m_connection.m_connectionConfig.m_P2P_STUN_ServerList.Get().c_str() );
 	{
 		CUtlVectorAutoPurge<char *> tempStunServers;
 		V_AllocAndSplitString( m_connection.m_connectionConfig.m_P2P_STUN_ServerList.Get().c_str(), ",", tempStunServers );
@@ -908,6 +909,10 @@ const char *CConnectionTransportP2PICE::GetStunServer( int iIndex )
 
 void CConnectionTransportP2PICE::OnIceCandidateAdded( const char *pszSDPMid, int nSDPMLineIndex, const char *pszCandidate )
 {
+	// !KLUDGE! Disable local candidates, force use of STUN
+	//if ( V_stristr( pszCandidate, " host " ) )
+	//	return;
+
 	struct RunIceCandidateAdded : IConnectionTransportP2PICERunWithLock
 	{
 		CMsgWebRTCRendezvous_Candidate candidate;
