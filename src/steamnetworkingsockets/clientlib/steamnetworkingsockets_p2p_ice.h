@@ -69,7 +69,7 @@ public:
 	// Some basic stats tracking about ping times.  Currently these only track the pings
 	// explicitly sent at this layer.  Ideally we would hook into the SNP code, because
 	// almost every data packet we send contains ping-related information.
-	PingTrackerBasic m_ping;
+	PingTrackerForRouteSelection m_ping;
 	SteamNetworkingMicroseconds m_usecTimeLastRecv;
 	SteamNetworkingMicroseconds m_usecInFlightReplyTimeout;
 	int m_nReplyTimeoutsSinceLastRecv;

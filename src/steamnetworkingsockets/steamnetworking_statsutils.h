@@ -192,22 +192,118 @@ struct PingTrackerDetailed : PingTracker
 	}
 };
 
-/// Track minimal ping information
-struct PingTrackerBasic : PingTracker
-{
-	int m_nTotalPingsReceived;
+/// Before switching to a different route, we need to make sure that we have a ping
+/// sample in at least N recent time buckets.  (See PingTrackerForRouteSelection)
+const int k_nRecentValidTimeBucketsToSwitchRoute = 7;
 
-	inline void Reset()
+/// Ping tracker that tracks samples over several intervals.  This is used
+/// to make routing decisions in such a way to avoid route flapping when ping
+/// times on different routes are fluctuating.
+///
+/// This class also has the concept of a user override, which is used to fake
+/// a particular ping time for debugging.
+struct PingTrackerForRouteSelection : PingTracker
+{
+	COMPILE_TIME_ASSERT( k_nRecentValidTimeBucketsToSwitchRoute == 7 );
+	static constexpr int k_nTimeBucketCount = 10;
+	static constexpr SteamNetworkingMicroseconds k_usecTimeBucketWidth = k_nMillion; // Desired width of each time bucket
+	static constexpr int k_nPingOverride_None = -2; // Ordinary operation.  (-1 is a legit ping time, which means "ping failed")
+
+	struct TimeBucket
+	{
+		SteamNetworkingMicroseconds m_usecEnd; // End of this bucket.  The start of the bucket is m_usecEnd-k_usecTimeBucketWidth
+		int m_nPingCount;
+		int m_nMinPing; // INT_NAX if we have not received one
+		int m_nMaxPing; // INT_MIN
+	};
+	TimeBucket m_arTimeBuckets[ k_nTimeBucketCount ];
+	int m_idxCurrentBucket;
+	int m_nTotalPingsReceived;
+	int m_nPingOverride = k_nPingOverride_None;
+
+	void Reset()
 	{
 		PingTracker::Reset();
 		m_nTotalPingsReceived = 0;
+		m_idxCurrentBucket = 0;
+		for ( TimeBucket &b: m_arTimeBuckets )
+		{
+			b.m_usecEnd = 0;
+			b.m_nPingCount = 0;
+			b.m_nMinPing = INT_MAX;
+			b.m_nMaxPing = INT_MIN;
+		}
 	}
-
-	inline void ReceivedPing( int nPingMS, SteamNetworkingMicroseconds usecNow )
+	void ReceivedPing( int nPingMS, SteamNetworkingMicroseconds usecNow )
 	{
+		// Ping time override in effect?
+		if ( m_nPingOverride > k_nPingOverride_None )
+		{
+			if ( m_nPingOverride == -1 )
+				return;
+			nPingMS = m_nPingOverride;
+		}
 		PingTracker::ReceivedPing( nPingMS, usecNow );
 		++m_nTotalPingsReceived;
+
+		SteamNetworkingMicroseconds usecCurrentBucketEnd = m_arTimeBuckets[ m_idxCurrentBucket ].m_usecEnd;
+		if ( usecCurrentBucketEnd > usecNow )
+		{
+			TimeBucket &curBucket = m_arTimeBuckets[ m_idxCurrentBucket ];
+			++curBucket.m_nPingCount;
+			curBucket.m_nMinPing = std::min( curBucket.m_nMinPing, nPingMS );
+			curBucket.m_nMaxPing = std::max( curBucket.m_nMaxPing, nPingMS );
+		}
+		else
+		{
+			++m_idxCurrentBucket;
+			if ( m_idxCurrentBucket >= k_nTimeBucketCount )
+				m_idxCurrentBucket = 0;
+			TimeBucket &newBucket = m_arTimeBuckets[ m_idxCurrentBucket ];
+
+			// If we are less than halfway into the new window, then start it immediately after
+			// the previous one.
+			if ( usecCurrentBucketEnd + (k_usecTimeBucketWidth/2) >= usecNow )
+			{
+				newBucket.m_usecEnd = usecCurrentBucketEnd + k_usecTimeBucketWidth;
+			}
+			else
+			{
+				// It's been more than half a window.  Start this window at the current time.
+				newBucket.m_usecEnd = usecNow + k_usecTimeBucketWidth;
+			}
+
+			newBucket.m_nPingCount = 1;
+			newBucket.m_nMinPing = nPingMS;
+			newBucket.m_nMaxPing = nPingMS;
+		}
 	}
+
+	void SetPingOverride( int nPing )
+	{
+		m_nPingOverride = nPing;
+		if ( m_nPingOverride <= k_nPingOverride_None )
+			return;
+		if ( m_nPingOverride < 0 )
+		{
+			m_nValidPings = 0;
+			m_nSmoothedPing = -1;
+			return;
+		}
+		m_nSmoothedPing = nPing;
+		for ( int i = 0 ; i < m_nValidPings ; ++i )
+			m_arPing[i].m_nPingMS = nPing;
+		TimeBucket &curBucket = m_arTimeBuckets[ m_idxCurrentBucket ];
+		curBucket.m_nMinPing = nPing;
+		curBucket.m_nMaxPing = nPing;
+	}
+
+	/// Return true if the next ping received will start a new bucket
+	bool BReadyToStartNewBucket( SteamNetworkingMicroseconds usecNow ) const
+	{
+		return m_arTimeBuckets[ m_idxCurrentBucket ].m_usecEnd < usecNow;
+	}
+
 };
 
 /// Token bucket rate limiter
