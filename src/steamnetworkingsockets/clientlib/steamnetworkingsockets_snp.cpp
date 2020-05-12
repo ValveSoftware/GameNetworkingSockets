@@ -469,7 +469,7 @@ EResult CSteamNetworkConnectionBase::SNP_FlushMessage( SteamNetworkingMicrosecon
 	return k_EResultOK;
 }
 
-bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *pChunk, int cbChunk, SteamNetworkingMicroseconds usecNow )
+bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int64 nPktNum, const void *pPlainText, int cbPlainText, int usecTimeSinceLast, CConnectionTransport *pTransport, SteamNetworkingMicroseconds usecNow )
 {
 	#define DECODE_ERROR( ... ) do { \
 		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_InternalError, __VA_ARGS__ ); \
@@ -541,8 +541,8 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 	SpewType( nLogLevelPacketDecode, "[%s] decode pkt %lld\n", GetDescription(), (long long)nPktNum );
 
 	// Decode frames until we get to the end of the payload
-	const byte *pDecode = (const byte *)pChunk;
-	const byte *pEnd = pDecode + cbChunk;
+	const byte *pDecode = (const byte *)pPlainText;
+	const byte *pEnd = pDecode + cbPlainText;
 	int64 nCurMsgNum = 0;
 	int64 nDecodeReliablePos = 0;
 	while ( pDecode < pEnd )
@@ -875,8 +875,7 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 						// Clamp, if we have slop
 						if ( msPing < 0 )
 							msPing = 0;
-						m_statsEndToEnd.m_ping.ReceivedPing( msPing, usecNow );
-						// FIXME - should let transport know
+						ProcessSNPPing( nPktNum, pTransport, msPing, usecNow );
 
 						// Spew
 						SpewType( m_connectionConfig.m_LogLevel_AckRTT.Get(), "[%s] decode pkt %lld latest recv %lld delay %.1fms elapsed %.1fms ping %dms\n",
@@ -903,7 +902,7 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 				// Decrease flush delay the more blocks they send us.
 				// FIXME - This is not an optimal way to do this.  Forcing us to
 				// ack everything is not what we want to do.  Instead, we should
-				// use a seperate timer for when we need to flush out a stop_waiting
+				// use a separate timer for when we need to flush out a stop_waiting
 				// packet!
 				SteamNetworkingMicroseconds usecDelay = 250*1000 / nBlocks;
 				m_receiverState.QueueFlushAllAcks( usecNow + usecDelay );
@@ -1076,7 +1075,15 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 
 	// Update structures needed to populate our ACKs
 	bool bScheduleAck = nDecodeReliablePos > 0;
-	return SNP_RecordReceivedPktNum( nPktNum, usecNow, bScheduleAck );
+	if ( !SNP_RecordReceivedPktNum( nPktNum, usecNow, bScheduleAck ) )
+	{
+		// Do NOT mark that we received this packet
+		return false;
+	}
+
+	// Packet is OK.  Track end-to-end flow.
+	m_statsEndToEnd.TrackProcessSequencedPacket( nPktNum, usecNow, usecTimeSinceLast );
+	return true;
 
 	// Make sure these don't get used beyond where we intended them toget used
 	#undef DECODE_ERROR

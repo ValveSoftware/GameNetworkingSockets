@@ -408,7 +408,7 @@ public:
 	int64 DecryptDataChunk( uint16 nWireSeqNum, int cbPacketSize, const void *pChunk, int cbChunk, void *&pDecrypted, uint32 &cbDecrypted, SteamNetworkingMicroseconds usecNow );
 
 	/// Process a decrypted data chunk
-	bool ProcessPlainTextDataChunk( int64 nFullSequenceNumber, const void *pDecrypted, uint32 cbDecrypted, int usecTimeSinceLast, SteamNetworkingMicroseconds usecNow );
+	bool ProcessPlainTextDataChunk( int64 nPktNum, const void *pPlainText, int cbPlainText, int usecTimeSinceLast, CConnectionTransport *pTransport, SteamNetworkingMicroseconds usecNow );
 
 	/// Called when we receive an (end-to-end) packet with a sequence number
 	bool RecvNonDataSequencedPacket( int64 nPktNum, SteamNetworkingMicroseconds usecNow );
@@ -632,7 +632,6 @@ protected:
 	SteamNetworkingMicroseconds SNP_GetNextThinkTime( SteamNetworkingMicroseconds usecNow );
 	SteamNetworkingMicroseconds SNP_TimeWhenWantToSendNextPacket() const;
 	void SNP_PrepareFeedback( SteamNetworkingMicroseconds usecNow );
-	bool SNP_RecvDataChunk( int64 nPktNum, const void *pChunk, int cbChunk, SteamNetworkingMicroseconds usecNow );
 	void SNP_ReceiveUnreliableSegment( int64 nMsgNum, int nOffset, const void *pSegmentData, int cbSegmentSize, bool bLastSegmentInMessage, SteamNetworkingMicroseconds usecNow );
 	bool SNP_ReceiveReliableSegment( int64 nPktNum, int64 nSegBegin, const uint8 *pSegmentData, int cbSegmentSize, SteamNetworkingMicroseconds usecNow );
 	int SNP_ClampSendRate();
@@ -653,6 +652,9 @@ protected:
 
 	SSNPSenderState m_senderState;
 	SSNPReceiverState m_receiverState;
+
+	/// Called from SNP layer when it decodes a packet that serves as a ping measurement
+	virtual void ProcessSNPPing( int64 nPktNum, CConnectionTransport *pTransport, int msPing, SteamNetworkingMicroseconds usecNow );
 
 private:
 

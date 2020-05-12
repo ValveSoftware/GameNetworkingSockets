@@ -1940,22 +1940,6 @@ int64 CSteamNetworkConnectionBase::DecryptDataChunk( uint16 nWireSeqNum, int cbP
 	return nFullSequenceNumber;
 }
 
-bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int64 nFullSequenceNumber, const void *pDecrypted, uint32 cbDecrypted, int usecTimeSinceLast, SteamNetworkingMicroseconds usecNow )
-{
-
-	// Pass on to reassembly/reliability layer.  It may instruct us to act like we never received this
-	// packet
-	if ( !SNP_RecvDataChunk( nFullSequenceNumber, pDecrypted, cbDecrypted, usecNow ) )
-	{
-		SpewDebug( "[%s] discarding pkt %lld\n", GetDescription(), (long long)nFullSequenceNumber );
-		return false;
-	}
-
-	// Packet is OK.  Track end-to-end flow.
-	m_statsEndToEnd.TrackProcessSequencedPacket( nFullSequenceNumber, usecNow, usecTimeSinceLast );
-	return true;
-}
-
 EResult CSteamNetworkConnectionBase::APIAcceptConnection()
 {
 	// Must be in in state ready to be accepted
@@ -2805,6 +2789,11 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 
 void CSteamNetworkConnectionBase::ThinkConnection( SteamNetworkingMicroseconds usecNow )
 {
+}
+
+void CSteamNetworkConnectionBase::ProcessSNPPing( int64 nPktNum, CConnectionTransport *pTransport, int msPing, SteamNetworkingMicroseconds usecNow )
+{
+	m_statsEndToEnd.m_ping.ReceivedPing( msPing, usecNow );
 }
 
 SteamNetworkingMicroseconds CSteamNetworkConnectionBase::ThinkConnection_FindingRoute( SteamNetworkingMicroseconds usecNow )

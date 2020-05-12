@@ -747,7 +747,7 @@ void CConnectionTransportUDPBase::Received_Data( const uint8 *pPkt, int cbPkt, S
 		return;
 
 	// Process plaintext
-	if ( !m_connection.ProcessPlainTextDataChunk( nFullSequenceNumber, pDecrypted, cbDecrypted, 0, usecNow ) )
+	if ( !m_connection.ProcessPlainTextDataChunk( nFullSequenceNumber, pDecrypted, cbDecrypted, 0, this, usecNow ) )
 		return;
 
 	// Process the stats, if any
