@@ -191,21 +191,31 @@ message CMsgSteamDatagramConnectionQuality
 	//optional uint32 seqnum_ack_lifetime = 3;
 };
 
-message CMsgWebRTCRendezvous
+message CMsgICERendezvous
 {
-	optional string offer = 1;
-	optional string answer = 2;
+	// Last message that we have received
+	optional uint32 ack_msg = 5;
 
-	// ICE candidate
-	message Candidate
+	// ID of first message we are sending (if any)
+	optional uint32 first_msg = 4;
+
+	// A reliable message.
+	// FIXME - should use oneof when it is available in all branches we care about
+	message Message
 	{
-		optional string sdpm_id = 1;
-		optional uint32 sdpm_line_index = 2;
-		optional string candidate = 3;
+
+		// ICE candidate
+		message Candidate
+		{
+			optional string sdpm_id = 1;
+			optional uint32 sdpm_line_index = 2;
+			optional string candidate = 3;
+			//optional bool remove = 4; // True to remove the candidate.  (By default we assume the candidate is being added)
+		}
+		optional Candidate candidate = 1;
+		optional string my_pwd_frag = 2; // This is sent very early in the exchange.
 	}
-	repeated Candidate candidates = 3;
-	optional uint32 first_candidate_revision = 4;
-	optional uint32 ack_candidates_revision = 5;
+	repeated Message messages = 3;
 };
 
 /// Introducer message sent through trusted 3rd party (Steam, or some other custom signaling)
@@ -229,8 +239,8 @@ message CMsgSteamNetworkingP2PRendezvous
 	// This is the latest route revision I have for you
 	optional uint32 ack_peer_routes_revision = 3;
 
-	// WebRTC
-	optional CMsgWebRTCRendezvous webrtc = 7;
+	// ICE
+	optional CMsgICERendezvous ice = 7;
 
 	// Connect request
 	message ConnectRequest

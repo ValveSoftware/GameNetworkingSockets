@@ -1075,7 +1075,7 @@ bool CSteamNetworkingSockets::ReceivedP2PCustomSignal( const void *pMsg, int cbM
 
 			// Fire up ICE
 			// FIXME Really we should wait until the app accepts the connection, if it hasn't already
-			if ( msg.has_webrtc() )
+			if ( msg.has_ice() )
 				pConn->CheckInitICE();
 		}
 
@@ -1097,9 +1097,9 @@ bool CSteamNetworkingSockets::ReceivedP2PCustomSignal( const void *pMsg, int cbM
 		if ( pConn->m_pTransportICE )
 		{
 			// If they send rendezvous, then process it
-			if ( msg.has_webrtc() )
+			if ( msg.has_ice() )
 			{
-				pConn->m_pTransportICE->RecvRendezvous( msg.webrtc(), usecNow );
+				pConn->m_pTransportICE->RecvRendezvous( msg.ice(), usecNow );
 			}
 			else
 			{

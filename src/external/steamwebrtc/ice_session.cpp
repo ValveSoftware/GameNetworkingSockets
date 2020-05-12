@@ -17,13 +17,43 @@
 
 #include <api/jsep.h>
 #include <logging/rtc_event_log/rtc_event_log_factory.h>
+#ifdef WEBRTC_ANDROID
+#include <p2p/base/p2p_transport_channel.h>
+#include <p2p/base/basic_packet_socket_factory.h>
+#include <p2p/client/basic_port_allocator.h>
+#else
 #include <p2p/base/p2ptransportchannel.h>
 #include <p2p/base/basicpacketsocketfactory.h>
 #include <p2p/client/basicportallocator.h>
+#endif
+
+#ifdef _WIN32
+	#define WIN32_LEAN_AND_MEAN
+	#include <windows.h>
+#endif
+
+#ifdef _MSC_VER
+#define strcasecmp _stricmp
+#define strncasecmp _strnicmp
+#endif
+
+#ifdef WEBRTC_ANDROID
+namespace rtc
+{
+	typedef int64_t PacketTime;
+}
+#endif
 
 extern "C"
 {
-STEAMWEBRTC_DECLSPEC IICESession *CreateWebRTCICESession( IICESessionDelegate *pDelegate, int nInterfaceVersion );
+	extern void (*g_fnWriteEvent_setsockopt)( int slevel, int sopt, int value );
+	extern void (*g_fnWriteEvent_send)( int length );
+	extern void (*g_fnWriteEvent_sendto)( void *addr, int length );
+}
+
+extern "C"
+{
+STEAMWEBRTC_DECLSPEC IICESession *CreateWebRTCICESession( const ICESessionConfig &cfg, IICESessionDelegate *pDelegate, int nInterfaceVersion );
 }
 
 //-----------------------------------------------------------------------------
@@ -35,8 +65,8 @@ public:
 	CICESession( IICESessionDelegate *pDelegate );
 	virtual ~CICESession();
 
-	bool BInitialize();
-	bool BInitializeOnSocketThread();
+	bool BInitialize( const ICESessionConfig &cfg );
+	bool BInitializeOnSocketThread( const ICESessionConfig &cfg );
 	void DestroyOnSocketThread();
 	bool BShuttingDown() const { return m_bShuttingDown; }
 
@@ -45,10 +75,15 @@ public:
 	//
 	virtual void Destroy() override;
 	virtual bool BSendData( const void *pData, size_t nSize ) override;
+	virtual void SetRemoteAuth( const char *pszUserFrag, const char *pszPwdFrag ) override;
 	virtual bool BAddRemoteIceCandidate( const char *pszSDPMid, int nSDPMLineIndex, const char *pszCandidate ) override;
 	virtual bool GetWritableState() override;
 
 	virtual void OnMessage( rtc::Message* msg ) override;
+
+	virtual void SetWriteEvent_setsockopt( void (*fn)( int slevel, int sopt, int value ) ) override { g_fnWriteEvent_setsockopt = fn; }
+	virtual void SetWriteEvent_send( void (*fn)( int length ) ) override { g_fnWriteEvent_send = fn; }
+	virtual void SetWriteEvent_sendto( void (*fn)( void *addr, int length ) ) override { g_fnWriteEvent_sendto = fn; }
 
 private:
 	static std::mutex s_mutex;
@@ -58,7 +93,7 @@ private:
 
 	bool m_bShuttingDown = false;
 	IICESessionDelegate *m_pDelegate = nullptr;
-    std::unique_ptr<cricket::P2PTransportChannel> ice_transport_;
+	std::unique_ptr<cricket::P2PTransportChannel> ice_transport_;
 	std::unique_ptr<webrtc::RtcEventLogFactoryInterface> event_log_factory_;
 	std::unique_ptr<webrtc::RtcEventLog> event_log_;
 	std::unique_ptr<rtc::BasicNetworkManager> default_network_manager_;
@@ -88,7 +123,7 @@ private:
 //-----------------------------------------------------------------------------
 //
 //-----------------------------------------------------------------------------
-IICESession *CreateWebRTCICESession( IICESessionDelegate *pDelegate, int nInterfaceVersion )
+IICESession *CreateWebRTCICESession( const ICESessionConfig &cfg, IICESessionDelegate *pDelegate, int nInterfaceVersion )
 {
 	if ( nInterfaceVersion != ICESESSION_INTERFACE_VERSION )
 	{
@@ -96,7 +131,7 @@ IICESession *CreateWebRTCICESession( IICESessionDelegate *pDelegate, int nInterf
 	}
 
 	CICESession *pSession = new CICESession( pDelegate );
-	if ( !pSession->BInitialize() )
+	if ( !pSession->BInitialize( cfg ) )
 	{
 		pSession->Destroy();
 		return nullptr;
@@ -156,17 +191,21 @@ CICESession::~CICESession()
 //-----------------------------------------------------------------------------
 // 
 //-----------------------------------------------------------------------------
-bool CICESession::BInitialize()
+bool CICESession::BInitialize( const ICESessionConfig &cfg )
 {
-	return s_pSocketThread->Invoke<bool>( RTC_FROM_HERE, rtc::Bind( &CICESession::BInitializeOnSocketThread, this ) );
+	return s_pSocketThread->Invoke<bool>( RTC_FROM_HERE, rtc::Bind( &CICESession::BInitializeOnSocketThread, this, cfg ) );
 }
 
 
 //-----------------------------------------------------------------------------
 // 
 //-----------------------------------------------------------------------------
-bool CICESession::BInitializeOnSocketThread()
+bool CICESession::BInitializeOnSocketThread( const ICESessionConfig &cfg )
 {
+	#ifdef _WIN32
+		::SetThreadPriority( GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL );
+	#endif
+
 	event_log_factory_ = webrtc::CreateRtcEventLogFactory();
 
 	// Uhhhhhhh
@@ -181,19 +220,19 @@ bool CICESession::BInitializeOnSocketThread()
 	default_socket_factory_.reset(
 		new rtc::BasicPacketSocketFactory( s_pSocketThread ));
 
-	webrtc::TurnCustomizer *turn_cusomizer = nullptr;
+	webrtc::TurnCustomizer *turn_customizer = nullptr;
 
 	port_allocator_ = absl::make_unique<cricket::BasicPortAllocator>(
 		default_network_manager_.get(), default_socket_factory_.get(),
-		turn_cusomizer );
+		turn_customizer );
 
 	cricket::ServerAddresses stun_servers;
-	for ( int i = 0 ; i < m_pDelegate->GetNumStunServers() ; ++i )
+	for ( int i = 0 ; i < cfg.m_nStunServers ; ++i )
 	{
-		const char *pszStun = m_pDelegate->GetStunServer( i );
+		const char *pszStun = cfg.m_pStunServers[i];
 
 		// Skip "stun:" prefix, if present
-		if ( _strnicmp( pszStun, "stun:", 5 ) == 0 )
+		if ( strncasecmp( pszStun, "stun:", 5 ) == 0 )
 			pszStun += 5;
 
 		rtc::SocketAddress address;
@@ -246,7 +285,6 @@ bool CICESession::BInitializeOnSocketThread()
 
 	int ice_candidate_pool_size = 0; // ???
 	bool prune_turn_ports = false;
-    webrtc::TurnCustomizer* turn_customizer = nullptr;
 	absl::optional<int> stun_candidate_keepalive_interval = absl::nullopt;
 
 	if ( !port_allocator_->SetConfiguration(
@@ -264,9 +302,9 @@ bool CICESession::BInitializeOnSocketThread()
 	int component = 0;
 	std::unique_ptr<webrtc::AsyncResolverFactory> async_resolver_factory_; // This is apparently allowed to be null
 
-    ice_transport_ = absl::make_unique<cricket::P2PTransportChannel>(
-        transport_name, component, port_allocator_.get(), async_resolver_factory_.get(),
-        event_log_.get() );
+	ice_transport_ = absl::make_unique<cricket::P2PTransportChannel>(
+		transport_name, component, port_allocator_.get(), async_resolver_factory_.get(),
+		event_log_.get() );
 
 	if ( !ice_transport_ )
 	{
@@ -274,11 +312,15 @@ bool CICESession::BInitializeOnSocketThread()
 		return false;
 	}
 
+	const int kBufferSize = 512*1024;
+	ice_transport_->SetOption( rtc::Socket::OPT_SNDBUF, kBufferSize );
+	ice_transport_->SetOption( rtc::Socket::OPT_RCVBUF, kBufferSize );
+
 	static_assert(
 		(int)k_EICERole_Unknown == (int)cricket::ICEROLE_UNKNOWN
 		&& (int)k_EICERole_Controlling == (int)cricket::ICEROLE_CONTROLLING
 		&& (int)k_EICERole_Controlled == (int)cricket::ICEROLE_CONTROLLED, "We assume our ICE role enum matches WebRTC's" );
-	ice_transport_->SetIceRole( cricket::IceRole( m_pDelegate->GetRole() ) );
+	ice_transport_->SetIceRole( cricket::IceRole( cfg.m_eRole ) );
 
 	//m_transport->SetIceTiebreaker(ice_tiebreaker_);
 	//cricket::IceConfig ice_config;
@@ -299,38 +341,11 @@ bool CICESession::BInitializeOnSocketThread()
 	//ice_config.network_preference = config.network_preference;
 	//ice_transport_->SetIceConfig(ice_config);
 
-	// !TEST! Set ufrag and password.  Do we need to be signaling these?
-	//cricket::IceParameters ice_params;
-	//webrtc::Random random( rtc::SystemTimeNanos() );
-	//char buf[32];
-	//sprintf_s( buf, sizeof(buf), "%8x", random.Rand(0,INT_MAX) );
-	//ice_params.ufrag = buf;
-	//sprintf_s( buf, sizeof(buf), "%8x", random.Rand(0,INT_MAX) );
-	//ice_params.pwd = buf;
-	//ice_transport_->SetIceParameters( ice_params );
-
-	// !TEST! Hardcode some params just so we can move on.
-	// We probably need to signal these
-	{
-		cricket::IceParameters server_ice_params;
-		server_ice_params.ufrag = "s123";
-		server_ice_params.pwd = "sxyz";
-
-		cricket::IceParameters client_ice_params;
-		client_ice_params.ufrag = "c123";
-		client_ice_params.pwd = "cxyz";
-
-		if ( m_pDelegate->GetRole() == k_EICERole_Controlled )
-		{
-			ice_transport_->SetIceParameters( server_ice_params );
-			ice_transport_->SetRemoteIceParameters( client_ice_params );
-		}
-		else
-		{
-			ice_transport_->SetIceParameters( client_ice_params );
-			ice_transport_->SetRemoteIceParameters( server_ice_params );
-		}
-	}
+	// Set our local parameters.  We don't know the other guy's params yet
+	cricket::IceParameters ice_params;
+	ice_params.ufrag = cfg.m_pszLocalUserFrag;
+	ice_params.pwd = cfg.m_pszLocalPwd;
+	ice_transport_->SetIceParameters( ice_params );
 
 	ice_transport_->SignalGatheringState.connect( this, &CICESession::OnTransportGatheringState_n);
 	ice_transport_->SignalCandidateGathered.connect( this, &CICESession::OnTransportCandidateGathered_n);
@@ -437,6 +452,16 @@ bool CICESession::BSendData( const void *pData, size_t nSize )
 	return true;
 }
 
+void CICESession::SetRemoteAuth( const char *pszUserFrag, const char *pszPwd )
+{
+	if ( !ice_transport_ )
+		return;
+	cricket::IceParameters ice_params;
+	ice_params.ufrag = pszUserFrag;
+	ice_params.pwd = pszPwd;
+	s_pSocketThread->Invoke<void>( RTC_FROM_HERE, rtc::Bind( &cricket::P2PTransportChannel::SetRemoteIceParameters, ice_transport_.get(), ice_params ) );
+}
+
 bool CICESession::GetWritableState()
 {
 	return ice_transport_ && ice_transport_->writable();
@@ -449,9 +474,9 @@ void CICESession::OnTransportGatheringState_n(cricket::IceTransportInternal* tra
 
 void CICESession::OnTransportCandidateGathered_n(cricket::IceTransportInternal* transport, const cricket::Candidate& candidate)
 {
-	// !KLUDGE! This is putting SDP stuff on here.  I this the only string format we have?
-    const std::string sdp_mid( "" );
-    int sdp_mline_index = 0;
+	// !KLUDGE! This is putting SIP stuff on here.  Is this the only string format we have?
+	const std::string sdp_mid( "" );
+	int sdp_mline_index = 0;
 	std::unique_ptr<webrtc::IceCandidateInterface> candidate_ptr = webrtc::CreateIceCandidate(
 		sdp_mid,
 		sdp_mline_index,

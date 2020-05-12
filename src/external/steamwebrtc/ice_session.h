@@ -15,7 +15,7 @@
 //-----------------------------------------------------------------------------
 // Increment this if the delegate classes below change interfaces
 //-----------------------------------------------------------------------------
-#define ICESESSION_INTERFACE_VERSION	1
+#define ICESESSION_INTERFACE_VERSION	2
 
 
 enum EICERole
@@ -42,21 +42,6 @@ public:
 	virtual void Log( ELogPriority ePriority, const char *pszMessageFormat, ... ) = 0;
 
 	//
-	// Called during initialization to get configuration
-	//
-	virtual EICERole GetRole() { return k_EICERole_Unknown; }
-
-	// Return any STUN servers that should be used (default is stun:stun.l.google.com:19302)
-	virtual int GetNumStunServers() { return 0; }
-	virtual const char *GetStunServer( int iIndex ) { return nullptr; }
-
-	// Return any TURN servers that should be used
-	virtual int GetNumTurnServers() { return 0; }
-	virtual const char *GetTurnServer( int iIndex ) { return nullptr; }
-	virtual const char *GetTurnServerUsername() { return nullptr; }
-	virtual const char *GetTurnServerPassword() { return nullptr; }
-
-	//
 	// Callbacks that happen during operation
 	//
 
@@ -77,6 +62,7 @@ class IICESession
 public:
 	virtual void Destroy() = 0;
 	virtual bool GetWritableState() = 0;
+	virtual void SetRemoteAuth( const char *pszUserFrag, const char *pszPwd ) = 0;
 	virtual bool BAddRemoteIceCandidate( const char *pszSDPMid, int nSDPMLineIndex, const char *pszCandidate ) = 0;
 	virtual bool BSendData( const void *pData, size_t nSize ) = 0;
 	virtual void SetWriteEvent_setsockopt( void (*fn)( int slevel, int sopt, int value ) ) = 0;
@@ -84,6 +70,25 @@ public:
 	virtual void SetWriteEvent_sendto( void (*fn)( void *addr, int length ) ) = 0;
 };
 
+struct ICESessionConfig
+{
+	typedef const char *StunServer;
+	struct TurnServer
+	{
+		const char *m_pszHost = nullptr;
+		const char *m_pszUsername = nullptr;
+		const char *m_pszPwd = nullptr;
+	};
+
+	EICERole m_eRole = k_EICERole_Unknown;
+	int m_nStunServers = 0;
+	const StunServer *m_pStunServers = nullptr;
+	int m_nTurnServers = 0;
+	const TurnServer *m_pTurnServers = nullptr;
+	const char *m_pszLocalUserFrag;
+	const char *m_pszLocalPwd;
+};
+
 /// Factory function prototype.  How you get this factory will depend on how you are linking with
 /// this code.
-typedef IICESession *( *CreateICESession_t )( IICESessionDelegate *pDelegate, int nInterfaceVersion );
+typedef IICESession *( *CreateICESession_t )( const ICESessionConfig &cfg, IICESessionDelegate *pDelegate, int nInterfaceVersion );

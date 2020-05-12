@@ -48,24 +48,19 @@ public:
 
 	/// Fill in SDR-specific fields to signal
 	void PopulateRendezvousMsg( CMsgSteamNetworkingP2PRendezvous &msg, SteamNetworkingMicroseconds usecNow );
-	void RecvRendezvous( const CMsgWebRTCRendezvous &msg, SteamNetworkingMicroseconds usecNow );
+	void RecvRendezvous( const CMsgICERendezvous &msg, SteamNetworkingMicroseconds usecNow );
 
 	inline int LogLevel_P2PRendezvous() const { return m_connection.m_connectionConfig.m_LogLevel_P2PRendezvous.Get(); }
 
-	std::vector<std::string> m_vecStunServers;
-
 	const char *m_pszNeedToSendSignalReason;
 	SteamNetworkingMicroseconds m_usecSendSignalDeadline;
-	bool m_bNeedToAckRemoteCandidates;
-	uint32 m_nLocalCandidatesRevision;
-	uint32 m_nRemoteCandidatesRevision;
-
-	std::string m_sPwdFragLocal;
-	std::string m_sPwdFragRemote;
+	uint32 m_nLastSendRendesvousMessageID;
+	uint32 m_nLastRecvRendesvousMessageID;
 
 	void NotifyConnectionFailed( int nReasonCode, const char *pszReason );
 	void QueueSelfDestruct();
 	void ScheduleSendSignal( const char *pszReason );
+	void QueueSignalMessage( CMsgICERendezvous_Message &&msg, const char *pszDebug );
 
 	// In certain circumstances we may need to buffer packets
 	std::mutex m_mutexPacketQueue;
@@ -91,28 +86,19 @@ public:
 private:
 	IICESession *m_pICESession;
 
-	struct LocalCandidate
+	struct OutboundMessage
 	{
-		uint32 m_nRevision;
-		CMsgWebRTCRendezvous_Candidate candidate;
+		uint32 m_nID;
 		SteamNetworkingMicroseconds m_usecRTO; // Retry timeout
+		CMsgICERendezvous_Message m_msg;
 	};
-	std::vector< LocalCandidate > m_vecLocalUnAckedCandidates;
+	std::vector< OutboundMessage > m_vecUnackedOutboundMessages; // outbound messages that have not been acked
 
 	// Implements IICESessionDelegate
 	virtual void Log( IICESessionDelegate::ELogPriority ePriority, const char *pszMessageFormat, ... ) override;
-	virtual EICERole GetRole() override;
-	virtual int GetNumStunServers() override;
-	virtual const char *GetStunServer( int iIndex ) override;
 	virtual void OnData( const void *pData, size_t nSize ) override;
 	virtual void OnIceCandidateAdded( const char *pszSDPMid, int nSDPMLineIndex, const char *pszCandidate ) override;
 	virtual void OnWritableStateChanged() override;
-
-	// FIXME
-	//virtual int GetNumTurnServers() override;
-	//virtual const char *GetTurnServer( int iIndex ) { return nullptr; }
-	//virtual const char *GetTurnServerUsername() { return nullptr; }
-	//virtual const char *GetTurnServerPassword() { return nullptr; }
 
 	void DrainPacketQueue( SteamNetworkingMicroseconds usecNow );
 	void ProcessPacket( const uint8_t *pData, int cbPkt, SteamNetworkingMicroseconds usecNow );
