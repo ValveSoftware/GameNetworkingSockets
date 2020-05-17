@@ -95,6 +95,12 @@ CSteamNetworkConnectionP2P::CSteamNetworkConnectionP2P( CSteamNetworkingSockets 
 	m_pSignaling = nullptr;
 	m_usecNextEvaluateTransport = k_nThinkTime_ASAP;
 	m_bTransportSticky = false;
+
+	m_pszNeedToSendSignalReason = nullptr;
+	m_usecSendSignalDeadline = k_nThinkTime_Never;
+	m_nLastSendRendesvousMessageID = 0;
+	m_nLastRecvRendesvousMessageID = 0;
+
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 		m_pTransportP2PSDR = nullptr;
 	#endif
@@ -237,12 +243,6 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 	Assert( !m_pTransportICE );
 	Assert( !m_pTransportICEPendingDelete );
 
-	// Now ICE factory?
-	if ( !g_SteamNetworkingSockets_CreateICESessionFunc )
-		return;
-
-	// !FIXME! Check permissions based on remote host!
-
 	// For now, if we have no STUN servers, then no ICE,
 	// because NAT-punching is the main reason to use ICE.
 	//
@@ -254,6 +254,36 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 	// broadcast, since that works without signaling.
 	if ( m_connectionConfig.m_P2P_STUN_ServerList.Get().empty() )
 		return;
+
+	// !FIXME! Check permissions based on remote host!
+
+	// No ICE factory?
+	if ( !g_SteamNetworkingSockets_CreateICESessionFunc )
+	{
+		// !HACK! Just try to load up the dll directly
+		#ifdef STEAMNETWORKINGSOCKETS_PARTNER
+			static bool tried;
+			if ( !tried )
+			{
+				tried = true;
+				#if defined( _WIN32 )
+					HMODULE h = ::LoadLibraryA( "steamwebrtc.dll" );
+					if ( h != NULL )
+					{
+						g_SteamNetworkingSockets_CreateICESessionFunc = (CreateICESession_t)::GetProcAddress( h, "CreateWebRTCICESession" );
+					}
+				//#elif defined( OSX ) || defined( IOS ) || defined( TVOS )
+				//	pszModule = "libsteamwebrtc.dylib";
+				//#elif defined( LINUX ) || defined( ANDROID )
+				//	pszModule = "libsteamwebrtc.so";
+				//#else
+				//	#error Need steamwebrtc for this platform
+				#endif
+			}
+		#endif
+		if ( !g_SteamNetworkingSockets_CreateICESessionFunc )
+			return;
+	}
 
 	m_pTransportICE = new CConnectionTransportP2PICE( *this );
 	m_pTransportICE->Init();
@@ -423,6 +453,44 @@ void CSteamNetworkConnectionP2P::ThinkConnection( SteamNetworkingMicroseconds us
 	#endif
 
 	ThinkSelectTransport( usecNow );
+
+	// Check for sending signals pending for RTO or Nagle.
+	// (If we have gotten far enough along where we know where
+	// to send them.  Some messages can be queued very early, and
+	// do not depend on who the peer it.)
+	if ( m_unConnectionIDRemote )
+	{
+
+		// If nothing scheduled, check RTOs.  If we have something scheduled,
+		// wait for the timer. The timer is short and designed to avoid
+		// a blast, so let it do its job.
+		if ( m_usecSendSignalDeadline == k_nThinkTime_Never )
+		{
+			for ( const OutboundMessage &s: m_vecUnackedOutboundMessages )
+			{
+				if ( s.m_usecRTO < m_usecSendSignalDeadline )
+				{
+					m_usecSendSignalDeadline = s.m_usecRTO;
+					m_pszNeedToSendSignalReason = "MessageRTO";
+					// Keep scanning the list.  we want to collect
+					// the minimum RTO.
+				}
+			}
+		}
+
+		if ( usecNow >= m_usecSendSignalDeadline )
+		{
+			Assert( m_pszNeedToSendSignalReason );
+
+			// Send a signal
+			CMsgSteamNetworkingP2PRendezvous msgRendezvous;
+			SetRendezvousCommonFieldsAndSendSignal( msgRendezvous, usecNow, m_pszNeedToSendSignalReason );
+		}
+
+		Assert( m_usecSendSignalDeadline > usecNow );
+
+		EnsureMinThinkTime( m_usecSendSignalDeadline );
+	}
 }
 
 void CSteamNetworkConnectionP2P::ThinkSelectTransport( SteamNetworkingMicroseconds usecNow )
@@ -685,6 +753,60 @@ void CSteamNetworkConnectionP2P::SetRendezvousCommonFieldsAndSendSignal( CMsgSte
 			m_pTransportICE->PopulateRendezvousMsg( msg, usecNow );
 	#endif
 
+	m_pszNeedToSendSignalReason = nullptr;
+	m_usecSendSignalDeadline = INT64_MAX;
+
+	// Reliable messages?
+	if ( msg.has_connection_closed() )
+	{
+		// Once connection is closed, discard these, never send again
+		m_vecUnackedOutboundMessages.clear();
+	}
+	else
+	{
+		bool bInitialHandshake = msg.has_connect_request() || msg.has_connect_ok();
+
+		int nTotalMsgSize = 0;
+		for ( OutboundMessage &s: m_vecUnackedOutboundMessages )
+		{
+
+			// Not yet ready to retry sending?
+			if ( !msg.has_first_reliable_msg() )
+			{
+
+				// If we have sent recently, assume it's in flight,
+				// and don't give up yet.  Just go ahead and move onto
+				// the next once, speculatively sending them before
+				// we get our ack for the previously sent ones.
+				if ( s.m_usecRTO > usecNow )
+				{
+					if ( !bInitialHandshake ) // However, always start from the beginning in initial handshake packets
+						continue;
+				}
+
+				// Try to keep individual signals relatively small.  If we have a lot
+				// to say, break it up into multiple messages
+				if ( nTotalMsgSize > 800 )
+				{
+					if ( !msg.has_connect_request() )
+						ScheduleSendSignal( "ContinueLargeSignal" );
+					break;
+				}
+
+				// Start sending from this guy forward
+				msg.set_first_reliable_msg( s.m_nID );
+			}
+
+			*msg.add_reliable_messages() = s.m_msg;
+			nTotalMsgSize += s.m_cbSerialized;
+
+			s.m_usecRTO = usecNow + k_nMillion/2; // Reset RTO
+		}
+
+		// Go ahead and always ack, even if we don't need to, because this is small
+		msg.set_ack_reliable_msg( m_nLastRecvRendesvousMessageID );
+	}
+
 	// Spew
 	int nLogLevel = LogLevel_P2PRendezvous();
 	SpewVerboseGroup( nLogLevel, "[%s] Sending P2PRendezvous (%s)\n", GetDescription(), pszDebugReason );
@@ -707,6 +829,142 @@ void CSteamNetworkConnectionP2P::SetRendezvousCommonFieldsAndSendSignal( CMsgSte
 	}
 }
 
+bool CSteamNetworkConnectionP2P::ProcessSignal( const CMsgSteamNetworkingP2PRendezvous &msg, SteamNetworkingMicroseconds usecNow )
+{
+
+	// Go ahead and process the SDR routes, if they are sending them
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
+		if ( m_pTransportP2PSDR )
+		{
+			if ( msg.has_sdr_routes() )
+				m_pTransportP2PSDR->RecvRoutes( msg.sdr_routes() );
+			m_pTransportP2PSDR->CheckRecvRoutesAck( msg );
+		}
+	#endif
+
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+		if ( m_pTransportICE && !msg.ice_enabled() )
+		{
+			// The lack of any message at all (even an empty one) means that they
+			// will not support ICE, so we can destroy our transport
+			SpewMsgGroup( LogLevel_P2PRendezvous(), "[%s] Destroying ICE transport, peer rendezvous indicates they will not use it\n", GetDescription() );
+			DestroyICENow();
+		}
+	#endif
+
+	// Check for acking reliable messages
+	if ( msg.ack_reliable_msg() > 0 )
+	{
+
+		// Remove messages that are being acked
+		while ( !m_vecUnackedOutboundMessages.empty() && m_vecUnackedOutboundMessages[0].m_nID <= msg.ack_reliable_msg() )
+			erase_at( m_vecUnackedOutboundMessages, 0 );
+
+		// If anything ready to retry now, schedule wakeup
+		if ( m_usecSendSignalDeadline == k_nThinkTime_Never )
+		{
+			SteamNetworkingMicroseconds usecNextRTO = k_nThinkTime_Never;
+			for ( const OutboundMessage &s: m_vecUnackedOutboundMessages )
+				usecNextRTO = std::min( usecNextRTO, s.m_usecRTO );
+			EnsureMinThinkTime( usecNextRTO );
+		}
+	}
+
+	// Check if they sent reliable messages
+	if ( msg.has_first_reliable_msg() )
+	{
+
+		// Send an ack, no matter what
+		ScheduleSendSignal( "AckMessages" );
+
+		// Do we have a gap?
+		if ( msg.first_reliable_msg() > m_nLastRecvRendesvousMessageID+1 )
+		{
+			// Something got dropped.  They will need to re-transmit.
+			// FIXME We could save these, though, so that if they
+			// retransmit, but not everything here, we won't have to ask them
+			// for these messages again.  Just discard for now
+		}
+		else
+		{
+
+			// Take the update
+			for ( int i = m_nLastRecvRendesvousMessageID+1-msg.first_reliable_msg() ; i < msg.reliable_messages_size() ; ++i )
+			{
+				++m_nLastRecvRendesvousMessageID;
+				const CMsgSteamNetworkingP2PRendezvous_ReliableMessage &reliable_msg = msg.reliable_messages(i);
+
+				#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+					if ( reliable_msg.has_ice() && m_pTransportICE )
+					{
+						m_pTransportICE->RecvRendezvous( reliable_msg.ice(), usecNow );
+					}
+				#endif
+
+				(void)reliable_msg; // Avoid compiler warning, depending on what transports are available
+			}
+		}
+	}
+
+	// Already closed?
+	switch ( GetState() )
+	{
+		default:
+		case k_ESteamNetworkingConnectionState_None:
+		case k_ESteamNetworkingConnectionState_Dead: // shouldn't be in the map!
+			Assert( false );
+			// FALLTHROUGH
+		case k_ESteamNetworkingConnectionState_FinWait:
+		case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
+			SendConnectionClosedSignal( usecNow );
+			return true;
+
+		case k_ESteamNetworkingConnectionState_ClosedByPeer:
+			// Must be stray / out of order message, since we think they already closed
+			// the connection.
+			SendNoConnectionSignal( usecNow );
+			return true;
+
+		case k_ESteamNetworkingConnectionState_Connecting:
+
+			if ( msg.has_connect_ok() )
+			{
+				if ( m_bConnectionInitiatedRemotely )
+				{
+					SpewWarningGroup( LogLevel_P2PRendezvous(), "[%s] Ignoring P2P connect_ok, since they initiated the connection\n", GetDescription() );
+					return false;
+				}
+
+				SpewMsgGroup( LogLevel_P2PRendezvous(), "[%s] Received ConnectOK in P2P Rendezvous.\n", GetDescription() );
+				ProcessSignal_ConnectOK( msg.connect_ok(), usecNow );
+			}
+			break;
+
+		case k_ESteamNetworkingConnectionState_Linger:
+		case k_ESteamNetworkingConnectionState_FindingRoute:
+		case k_ESteamNetworkingConnectionState_Connected:
+
+			// Now that we know we still might want to talk to them,
+			// check for redundant connection request.  (Our reply dropped.)
+			if ( msg.has_connect_request() )
+			{
+				if ( m_bConnectionInitiatedRemotely )
+				{
+					// NOTE: We're assuming here that it actually is a redundant retry,
+					//       meaning they specified all the same parameters as before!
+					SendConnectOKSignal( usecNow );
+				}
+				else
+				{
+					AssertMsg( false, "Received ConnectRequest in P2P rendezvous message, but we are the 'client'!" );
+				}
+			}
+			break;
+	}
+
+	return true;
+}
+
 void CSteamNetworkConnectionP2P::ProcessSignal_ConnectOK( const CMsgSteamNetworkingP2PRendezvous_ConnectOK &msgConnectOK, SteamNetworkingMicroseconds usecNow )
 {
 	Assert( !m_bConnectionInitiatedRemotely );
@@ -726,6 +984,28 @@ void CSteamNetworkConnectionP2P::ProcessSignal_ConnectOK( const CMsgSteamNetwork
 
 	// We're not fully connected.  Now we're doing rendezvous
 	ConnectionState_FindingRoute( usecNow );
+}
+
+void CSteamNetworkConnectionP2P::QueueSignalReliableMessage( CMsgSteamNetworkingP2PRendezvous_ReliableMessage &&msg, const char *pszDebug )
+{
+	SpewVerboseGroup( LogLevel_P2PRendezvous(), "[%s] %s { %s }\n", GetDescription(), pszDebug, msg.ShortDebugString().c_str() );
+	OutboundMessage *p = push_back_get_ptr( m_vecUnackedOutboundMessages );
+	p->m_nID = ++m_nLastSendRendesvousMessageID;
+	p->m_usecRTO = 1;
+	p->m_msg = std::move( msg );
+	p->m_cbSerialized = p->m_msg.ByteSize();
+	ScheduleSendSignal( pszDebug );
+}
+
+void CSteamNetworkConnectionP2P::ScheduleSendSignal( const char *pszReason )
+{
+	SteamNetworkingMicroseconds usecDeadline = SteamNetworkingSockets_GetLocalTimestamp() + 10*1000;
+	if ( !m_pszNeedToSendSignalReason || m_usecSendSignalDeadline > usecDeadline )
+	{
+		m_pszNeedToSendSignalReason = pszReason;
+		m_usecSendSignalDeadline = usecDeadline;
+	}
+	EnsureMinThinkTime( m_usecSendSignalDeadline );
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -1073,9 +1353,10 @@ bool CSteamNetworkingSockets::ReceivedP2PCustomSignal( const void *pMsg, int cbM
 					break;
 			}
 
-			// Fire up ICE
-			// FIXME Really we should wait until the app accepts the connection, if it hasn't already
-			if ( msg.has_ice() )
+			// Fire up ICE.  NOTE that we are speculatively gathering candidates,
+			// even though the connection may not be accepted by the application
+			// layer
+			if ( msg.ice_enabled() )
 				pConn->CheckInitICE();
 		}
 
@@ -1083,91 +1364,8 @@ bool CSteamNetworkingSockets::ReceivedP2PCustomSignal( const void *pMsg, int cbM
 		pConn->m_bSupressStateChangeCallbacks = false;
 	}
 
-	// Go ahead and process the SDR routes, if they are sending them
-	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
-		if ( pConn->m_pTransportP2PSDR )
-		{
-			if ( msg.has_sdr_routes() )
-				pConn->m_pTransportP2PSDR->RecvRoutes( msg.sdr_routes() );
-			pConn->m_pTransportP2PSDR->CheckRecvRoutesAck( msg );
-		}
-	#endif
-
-	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
-		if ( pConn->m_pTransportICE )
-		{
-			// If they send rendezvous, then process it
-			if ( msg.has_ice() )
-			{
-				pConn->m_pTransportICE->RecvRendezvous( msg.ice(), usecNow );
-			}
-			else
-			{
-				// The lack of any message at all (even an empty one) means that they
-				// will not support ICE, so we can destroy our transport
-				SpewMsgGroup( nLogLevel, "[%s] Destroying ICE transport, peer rendezvous indicates they will not use it\n", pConn->GetDescription() );
-				pConn->DestroyICENow();
-			}
-		}
-	#endif
-
-	// Already closed?
-	switch ( pConn->GetState() )
-	{
-		default:
-		case k_ESteamNetworkingConnectionState_None:
-		case k_ESteamNetworkingConnectionState_Dead: // shouldn't be in the map!
-			Assert( false );
-			// FALLTHROUGH
-		case k_ESteamNetworkingConnectionState_FinWait:
-		case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
-			pConn->SendConnectionClosedSignal( usecNow );
-			return true;
-
-		case k_ESteamNetworkingConnectionState_ClosedByPeer:
-			// Must be stray / out of order message, since we think they already closed
-			// the connection.
-			pConn->SendNoConnectionSignal( usecNow );
-			return true;
-
-		case k_ESteamNetworkingConnectionState_Connecting:
-
-			if ( msg.has_connect_ok() )
-			{
-				if ( pConn->m_bConnectionInitiatedRemotely )
-				{
-					SpewWarning( "Ignoring P2P connect_ok from %s, since they initiated the connection\n", SteamNetworkingIdentityRender( identityRemote ).c_str() );
-					return false;
-				}
-
-				SpewMsgGroup( nLogLevel, "[%s] Received ConnectOK in P2P Rendezvous from %s.\n", pConn->GetDescription(), SteamNetworkingIdentityRender( identityRemote ).c_str() );
-				pConn->ProcessSignal_ConnectOK( msg.connect_ok(), usecNow );
-			}
-			break;
-
-		case k_ESteamNetworkingConnectionState_Linger:
-		case k_ESteamNetworkingConnectionState_FindingRoute:
-		case k_ESteamNetworkingConnectionState_Connected:
-
-			// Now that we know we still might want to talk to them,
-			// check for redundant connection request.  (Our reply dropped.)
-			if ( msg.has_connect_request() )
-			{
-				if ( pConn->m_bConnectionInitiatedRemotely )
-				{
-					// NOTE: We're assuming here that it actually is a redundant retry,
-					//       meaning they specified all the same parameters as before!
-					pConn->SendConnectOKSignal( usecNow );
-				}
-				else
-				{
-					AssertMsg( false, "Received ConnectRequest in P2P rendezvous message, but we are the 'client'!" );
-				}
-			}
-			break;
-	}
-
-	return true;
+	// Process the message
+	return pConn->ProcessSignal( msg, usecNow );
 }
 
 } // namespace SteamNetworkingSocketsLib

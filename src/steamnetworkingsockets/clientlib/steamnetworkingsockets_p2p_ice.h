@@ -52,15 +52,8 @@ public:
 
 	inline int LogLevel_P2PRendezvous() const { return m_connection.m_connectionConfig.m_LogLevel_P2PRendezvous.Get(); }
 
-	const char *m_pszNeedToSendSignalReason;
-	SteamNetworkingMicroseconds m_usecSendSignalDeadline;
-	uint32 m_nLastSendRendesvousMessageID;
-	uint32 m_nLastRecvRendesvousMessageID;
-
 	void NotifyConnectionFailed( int nReasonCode, const char *pszReason );
 	void QueueSelfDestruct();
-	void ScheduleSendSignal( const char *pszReason );
-	void QueueSignalMessage( CMsgICERendezvous_Message &&msg, const char *pszDebug );
 
 	// In certain circumstances we may need to buffer packets
 	std::mutex m_mutexPacketQueue;
@@ -85,14 +78,6 @@ public:
 
 private:
 	IICESession *m_pICESession;
-
-	struct OutboundMessage
-	{
-		uint32 m_nID;
-		SteamNetworkingMicroseconds m_usecRTO; // Retry timeout
-		CMsgICERendezvous_Message m_msg;
-	};
-	std::vector< OutboundMessage > m_vecUnackedOutboundMessages; // outbound messages that have not been acked
 
 	// Implements IICESessionDelegate
 	virtual void Log( IICESessionDelegate::ELogPriority ePriority, const char *pszMessageFormat, ... ) override;

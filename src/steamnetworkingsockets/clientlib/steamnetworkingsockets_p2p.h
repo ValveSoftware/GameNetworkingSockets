@@ -70,11 +70,27 @@ public:
 	void SendConnectionClosedSignal( SteamNetworkingMicroseconds usecNow );
 	void SendNoConnectionSignal( SteamNetworkingMicroseconds usecNow );
 
+	void ScheduleSendSignal( const char *pszReason );
+	void QueueSignalReliableMessage( CMsgSteamNetworkingP2PRendezvous_ReliableMessage &&msg, const char *pszDebug );
+
 	/// Given a partially-completed CMsgSteamNetworkingP2PRendezvous, finish filling out
 	/// the required fields, and send it to the peer via the signaling mechanism
 	void SetRendezvousCommonFieldsAndSendSignal( CMsgSteamNetworkingP2PRendezvous &msg, SteamNetworkingMicroseconds usecNow, const char *pszDebugReason );
 
+	bool ProcessSignal( const CMsgSteamNetworkingP2PRendezvous &msg, SteamNetworkingMicroseconds usecNow );
 	void ProcessSignal_ConnectOK( const CMsgSteamNetworkingP2PRendezvous_ConnectOK &msgConnectOK, SteamNetworkingMicroseconds usecNow );
+
+	// Return true if we are the "controlling" peer, in the ICE sense of the term.
+	// That is, the agent who will primarily make the route decisions, with the
+	// controlled agent accepting whatever routing decisions are made, when possible.
+	inline bool IsControllingAgent() const
+	{
+		// For now, the "server" will always be the controlling agent.
+		// This is the opposite of the ICE convention, but we had some
+		// reasons for the initial use case to do it this way.  We can
+		// plumb through role negotiation if we need to change this.
+		return m_bConnectionInitiatedRemotely;
+	}
 
 	/// What virtual port are we requesting?
 	int m_nRemoteVirtualPort;
@@ -135,6 +151,20 @@ private:
 
 	/// Shared init
 	bool BInitP2PConnectionCommon( SteamNetworkingMicroseconds usecNow, int nOptions, const SteamNetworkingConfigValue_t *pOptions, SteamDatagramErrMsg &errMsg );
+
+	struct OutboundMessage
+	{
+		uint32 m_nID;
+		int m_cbSerialized;
+		SteamNetworkingMicroseconds m_usecRTO; // Retry timeout
+		CMsgSteamNetworkingP2PRendezvous_ReliableMessage m_msg;
+	};
+	std::vector< OutboundMessage > m_vecUnackedOutboundMessages; // outbound messages that have not been acked
+
+	const char *m_pszNeedToSendSignalReason;
+	SteamNetworkingMicroseconds m_usecSendSignalDeadline;
+	uint32 m_nLastSendRendesvousMessageID;
+	uint32 m_nLastRecvRendesvousMessageID;
 };
 
 } // namespace SteamNetworkingSocketsLib

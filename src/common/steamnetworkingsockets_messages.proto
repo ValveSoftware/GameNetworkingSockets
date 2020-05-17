@@ -191,31 +191,27 @@ message CMsgSteamDatagramConnectionQuality
 	//optional uint32 seqnum_ack_lifetime = 3;
 };
 
+// ICE rendezvous message, sent reliably
+// FIXME - should use oneof when it is available in all branches we care about
 message CMsgICERendezvous
 {
-	// Last message that we have received
-	optional uint32 ack_msg = 5;
-
-	// ID of first message we are sending (if any)
-	optional uint32 first_msg = 4;
-
-	// A reliable message.
-	// FIXME - should use oneof when it is available in all branches we care about
-	message Message
+	// Auth info used for STUN to avoid crossing the streams.
+	// This is sent very early in the handshake (in the ConnectRequest / ConnectOKC)
+	message Auth
 	{
-
-		// ICE candidate
-		message Candidate
-		{
-			optional string sdpm_id = 1;
-			optional uint32 sdpm_line_index = 2;
-			optional string candidate = 3;
-			//optional bool remove = 4; // True to remove the candidate.  (By default we assume the candidate is being added)
-		}
-		optional Candidate candidate = 1;
-		optional string my_pwd_frag = 2; // This is sent very early in the exchange.
+		optional string pwd_frag = 1;
 	}
-	repeated Message messages = 3;
+	optional Auth auth = 2;
+
+	// ICE candidate
+	message Candidate
+	{
+		optional string sdpm_id = 1;
+		optional uint32 sdpm_line_index = 2;
+		optional string candidate = 3;
+	}
+	optional Candidate add_candidate = 1;
+	//optional Candidate remove_candidate = 2;
 };
 
 /// Introducer message sent through trusted 3rd party (Steam, or some other custom signaling)
@@ -236,11 +232,11 @@ message CMsgSteamNetworkingP2PRendezvous
 	// SDR routing information.  (Serialized CMsgSteamDatagramP2PRoutes)
 	optional bytes sdr_routes = 2;
 
-	// This is the latest route revision I have for you
+	// This is the latest SDR route revision I have for you.
 	optional uint32 ack_peer_routes_revision = 3;
 
-	// ICE
-	optional CMsgICERendezvous ice = 7;
+	// Is ICE enabled?
+	optional bool ice_enabled = 7;
 
 	// Connect request
 	message ConnectRequest
@@ -268,6 +264,24 @@ message CMsgSteamNetworkingP2PRendezvous
 		//optional CMsgSteamDatagramConnectionQuality quality_e2e = 18;
 	};
 	optional ConnectionClosed connection_closed = 6;
+
+	//
+	// Generic reliable message stream
+	//
+
+	// Last message that we have received
+	optional uint32 ack_reliable_msg = 11;
+
+	// ID of first message we are sending (if any)
+	optional uint32 first_reliable_msg = 12;
+
+	// A reliable message.
+	// FIXME - should use oneof when it is available in all branches we care about
+	message ReliableMessage
+	{
+		optional CMsgICERendezvous ice = 1; // Currently only ICE uses the reliable message stream, but this may change
+	}
+	repeated ReliableMessage reliable_messages = 13;
 };
 
 // Do not remove this comment due to a bug on the Mac OS X protobuf compiler

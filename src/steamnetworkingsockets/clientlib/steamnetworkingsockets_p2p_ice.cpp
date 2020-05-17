@@ -24,10 +24,6 @@ namespace SteamNetworkingSocketsLib {
 CConnectionTransportP2PICE::CConnectionTransportP2PICE( CSteamNetworkConnectionP2P &connection )
 : CConnectionTransportUDPBase( connection )
 , m_pICESession( nullptr )
-, m_pszNeedToSendSignalReason( nullptr )
-, m_usecSendSignalDeadline( INT64_MAX )
-, m_nLastSendRendesvousMessageID( 0 )
-, m_nLastRecvRendesvousMessageID( 0 )
 {
 	m_ping.Reset();
 	m_usecTimeLastRecv = 0;
@@ -56,13 +52,21 @@ void CConnectionTransportP2PICE::GetDetailedConnectionStatus( SteamNetworkingDet
 	CConnectionTransport::GetDetailedConnectionStatus( stats, usecNow );
 }
 
-static std::string Base64Encode( uint32 nNum )
+// Base-64 encode the least significant 30 bits.
+// Returns a 5-character base-64 string
+static std::string Base64EncodeLower30Bits( uint32 nNum )
 {
-	nNum = BigDWord( nNum );
-	char szBase64[16];
-	uint32 cchEncodedData = sizeof(szBase64);
-	CCrypto::Base64Encode( &nNum, sizeof(nNum), szBase64, &cchEncodedData, nullptr );
-	return std::string( szBase64 );
+	static const char szBase64Chars[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+	char result[6] = {
+		szBase64Chars[ ( nNum >> 24 ) & 63 ],
+		szBase64Chars[ ( nNum >> 18 ) & 63 ],
+		szBase64Chars[ ( nNum >> 12 ) & 63 ],
+		szBase64Chars[ ( nNum >>  6 ) & 63 ],
+		szBase64Chars[ ( nNum       ) & 63 ],
+		'\0'
+	};
+	return std::string( result );
 }
 
 void CConnectionTransportP2PICE::TransportFreeResources()
@@ -88,17 +92,15 @@ void CConnectionTransportP2PICE::Init()
 	ICESessionConfig cfg;
 
 	// Generate local ufrag and password
-	std::string sUfragLocal = Base64Encode( ConnectionIDLocal() );
+	std::string sUfragLocal = Base64EncodeLower30Bits( ConnectionIDLocal() );
 	uint32 nPwdFrag;
 	CCrypto::GenerateRandomBlock( &nPwdFrag, sizeof(nPwdFrag) );
-	std::string sPwdFragLocal = Base64Encode( nPwdFrag );
+	std::string sPwdFragLocal = Base64EncodeLower30Bits( nPwdFrag );
 	cfg.m_pszLocalUserFrag = sUfragLocal.c_str();
 	cfg.m_pszLocalPwd = sPwdFragLocal.c_str();
 
 	// Set role
-	// NOTE: We are doing the opposite the ICE default here.  The typical thing
-	// is for the client to be the controlling agent.
-	cfg.m_eRole = m_connection.m_bConnectionInitiatedRemotely ? k_EICERole_Controlling : k_EICERole_Controlled;
+	cfg.m_eRole = Connection().IsControllingAgent() ? k_EICERole_Controlling : k_EICERole_Controlled;
 
 	// Get the stun server list
 	std::vector<std::string> vecStunServers;
@@ -140,54 +142,18 @@ void CConnectionTransportP2PICE::Init()
 	// Queue a message to inform peer about our auth credentials.  It should
 	// go out in the first signal.
 	{
-		CMsgICERendezvous_Message msg;
-		*msg.mutable_my_pwd_frag() = std::move( sPwdFragLocal );
-		QueueSignalMessage( std::move( msg ), "Initial auth credentials" );
+		CMsgSteamNetworkingP2PRendezvous_ReliableMessage msg;
+		*msg.mutable_ice()->mutable_auth()->mutable_pwd_frag() = std::move( sPwdFragLocal );
+		Connection().QueueSignalReliableMessage( std::move( msg ), "Initial ICE auth" );
 	}
 }
 
 void CConnectionTransportP2PICE::PopulateRendezvousMsg( CMsgSteamNetworkingP2PRendezvous &msg, SteamNetworkingMicroseconds usecNow )
 {
-	m_pszNeedToSendSignalReason = nullptr;
-	m_usecSendSignalDeadline = INT64_MAX;
-
-	CMsgICERendezvous *pMsgICE = msg.mutable_ice();
-
-	// Any un-acked candidates that we are ready to (re)try
-	uint32 nTotalMsgSize = 0;
-	for ( OutboundMessage &s: m_vecUnackedOutboundMessages )
-	{
-
-		// Not yet ready to retry sending?
-		if ( !pMsgICE->has_first_msg() )
-		{
-			if ( s.m_usecRTO > usecNow )
-				continue; // We've sent.  Don't give up yet.
-
-			// Try to keep individual signals relatively small.  If we have a lot
-			// to say, break it up into multiple messages
-			if ( nTotalMsgSize > 800 )
-			{
-				ScheduleSendSignal( "ContinueLargeSignal" );
-				break;
-			}
-
-			// Start sending from this guy forward
-			pMsgICE->set_first_msg( s.m_nID );
-		}
-
-		*pMsgICE->add_messages() = s.m_msg;
-		nTotalMsgSize += s.m_msg.ByteSize();
-
-		s.m_usecRTO = usecNow + k_nMillion/2; // Reset RTO
-	}
-
-	// Go ahead and always ack, even if we don't need to, because this is small
-	if ( m_nLastRecvRendesvousMessageID > 0 )
-		pMsgICE->set_ack_msg( m_nLastRecvRendesvousMessageID );
+	msg.set_ice_enabled( true );
 }
 
-void CConnectionTransportP2PICE::RecvRendezvous( const CMsgICERendezvous &msgICERendezvous, SteamNetworkingMicroseconds usecNow )
+void CConnectionTransportP2PICE::RecvRendezvous( const CMsgICERendezvous &msg, SteamNetworkingMicroseconds usecNow )
 {
 	// Safety
 	if ( !m_pICESession )
@@ -196,69 +162,25 @@ void CConnectionTransportP2PICE::RecvRendezvous( const CMsgICERendezvous &msgICE
 		return;
 	}
 
-	// Check if they are acking that they have received candidates
-	if ( msgICERendezvous.has_ack_msg() )
+	if ( msg.has_add_candidate() )
 	{
-
-		// Remove any candidates from our list that are being acked
-		while ( !m_vecUnackedOutboundMessages.empty() && m_vecUnackedOutboundMessages[0].m_nID <= msgICERendezvous.ack_msg() )
-			erase_at( m_vecUnackedOutboundMessages, 0 );
-
-		// Check anything ready to retry now
-		for ( const OutboundMessage &s: m_vecUnackedOutboundMessages )
+		const CMsgICERendezvous_Candidate &c = msg.add_candidate();
+		if ( m_pICESession->BAddRemoteIceCandidate( c.sdpm_id().c_str(), c.sdpm_line_index(), c.candidate().c_str() ) )
 		{
-			if ( s.m_usecRTO < usecNow )
-			{
-				ScheduleSendSignal( "MessageRTO" );
-				break;
-			}
-		}
-	}
-
-	// Check if they sent candidate update.
-	if ( msgICERendezvous.has_first_msg() )
-	{
-
-		// Send an ack, no matter what
-		ScheduleSendSignal( "AckMessages" );
-
-		// Do we have a gap?
-		if ( msgICERendezvous.first_msg() > m_nLastRecvRendesvousMessageID+1 )
-		{
-			// Something got dropped.  They will need to re-transmit.
-			// FIXME We could save these, though, so that if they
-			// retransmit, but not everything here, we won't have to ask them
-			// for these messages again.  Just discard fornow
+			SpewVerboseGroup( LogLevel_P2PRendezvous(), "[%s] Processed remote Ice Candidate %s\n", ConnectionDescription(), c.ShortDebugString().c_str() );
 		}
 		else
 		{
-
-			// Take the update
-			for ( int i = m_nLastRecvRendesvousMessageID+1-msgICERendezvous.first_msg() ; i < msgICERendezvous.messages_size() ; ++i )
-			{
-				++m_nLastRecvRendesvousMessageID;
-				const CMsgICERendezvous_Message &msg = msgICERendezvous.messages(i);
-				if ( msg.has_candidate() )
-				{
-					const CMsgICERendezvous_Message_Candidate &c = msg.candidate();
-					if ( m_pICESession->BAddRemoteIceCandidate( c.sdpm_id().c_str(), c.sdpm_line_index(), c.candidate().c_str() ) )
-					{
-						SpewVerboseGroup( LogLevel_P2PRendezvous(), "[%s] Processed remote Ice Candidate %s\n", ConnectionDescription(), c.ShortDebugString().c_str() );
-					}
-					else
-					{
-						SpewWarning( "[%s] Ignoring candidate %s\n", ConnectionDescription(), c.ShortDebugString().c_str() );
-					}
-				}
-
-				if ( msg.has_my_pwd_frag() )
-				{
-					std::string sUfragRemote = Base64Encode( ConnectionIDRemote() );
-					SpewVerboseGroup( LogLevel_P2PRendezvous(), "[%s] Set remote auth to %s / %s\n", ConnectionDescription(), sUfragRemote.c_str(), msg.my_pwd_frag().c_str() );
-					m_pICESession->SetRemoteAuth( sUfragRemote.c_str(), msg.my_pwd_frag().c_str() );
-				}
-			}
+			SpewWarning( "[%s] Ignoring candidate %s\n", ConnectionDescription(), c.ShortDebugString().c_str() );
 		}
+	}
+
+	if ( msg.has_auth() )
+	{
+		std::string sUfragRemote = Base64EncodeLower30Bits( ConnectionIDRemote() );
+		const char *pszPwdFrag = msg.auth().pwd_frag().c_str();
+		SpewVerboseGroup( LogLevel_P2PRendezvous(), "[%s] Set remote auth to %s / %s\n", ConnectionDescription(), sUfragRemote.c_str(), pszPwdFrag );
+		m_pICESession->SetRemoteAuth( sUfragRemote.c_str(), pszPwdFrag );
 	}
 }
 
@@ -297,27 +219,6 @@ void CConnectionTransportP2PICE::QueueSelfDestruct()
 
 	// Make sure we clean ourselves up as soon as it is safe to do so
 	SetNextThinkTimeASAP();
-}
-
-void CConnectionTransportP2PICE::QueueSignalMessage( CMsgICERendezvous_Message &&msg, const char *pszDebug )
-{
-	SpewVerboseGroup( LogLevel_P2PRendezvous(), "[%s] %s { %s }\n", ConnectionDescription(), pszDebug, msg.ShortDebugString().c_str() );
-	OutboundMessage *p = push_back_get_ptr( m_vecUnackedOutboundMessages );
-	p->m_nID = ++m_nLastSendRendesvousMessageID;
-	p->m_msg = std::move( msg );
-	p->m_usecRTO = 0;
-	ScheduleSendSignal( pszDebug );
-}
-
-void CConnectionTransportP2PICE::ScheduleSendSignal( const char *pszReason )
-{
-	SteamNetworkingMicroseconds usecDeadline = SteamNetworkingSockets_GetLocalTimestamp() + 10*1000;
-	if ( !m_pszNeedToSendSignalReason || m_usecSendSignalDeadline > usecDeadline )
-	{
-		m_pszNeedToSendSignalReason = pszReason;
-		m_usecSendSignalDeadline = usecDeadline;
-	}
-	EnsureMinThinkTime( m_usecSendSignalDeadline );
 }
 
 void CConnectionTransportP2PICE::Think( SteamNetworkingMicroseconds usecNow )
@@ -390,40 +291,6 @@ void CConnectionTransportP2PICE::Think( SteamNetworkingMicroseconds usecNow )
 			Assert( m_usecInFlightReplyTimeout > usecNow );
 			usecNextThink = std::min( usecNextThink, m_usecInFlightReplyTimeout );
 		}
-	}
-
-	// Check for sending a signal
-	{
-
-		// If nothing scheduled, check RTOs.  If we have something scheduled,
-		// wait for the timer. The timer is short and designed to avoid
-		// a blast, so let it do its job.
-		if ( m_usecSendSignalDeadline == INT64_MAX )
-		{
-			for ( const OutboundMessage &s: m_vecUnackedOutboundMessages )
-			{
-				if ( s.m_usecRTO < m_usecSendSignalDeadline )
-				{
-					m_usecSendSignalDeadline = s.m_usecRTO;
-					m_pszNeedToSendSignalReason = "MessageRTO";
-					// Keep scanning the list.  we want to collect
-					// the minimum RTO.
-				}
-			}
-		}
-
-		if ( usecNow >= m_usecSendSignalDeadline )
-		{
-			Assert( m_pszNeedToSendSignalReason );
-
-			// Send a signal
-			CMsgSteamNetworkingP2PRendezvous msgRendezvous;
-			Connection().SetRendezvousCommonFieldsAndSendSignal( msgRendezvous, usecNow, m_pszNeedToSendSignalReason );
-		}
-
-		Assert( m_usecSendSignalDeadline > usecNow );
-
-		usecNextThink = std::min( usecNextThink, m_usecSendSignalDeadline );
 	}
 
 	EnsureMinThinkTime( usecNextThink );
@@ -699,8 +566,8 @@ void CConnectionTransportP2PICE::Log( IICESessionDelegate::ELogPriority ePriorit
 	V_vsprintf_safe( buf, pszMessageFormat, ap );
 	va_end( ap );
 
-	//ReallySpewType( eType, "[%s] WebRTC: %s", ConnectionDescription(), buf );
-	ReallySpewType( eType, "WebRTC: %s", buf ); // FIXME would like to get the connection description
+	//ReallySpewType( eType, "[%s] ICE: %s", ConnectionDescription(), buf );
+	ReallySpewType( eType, "ICE: %s", buf ); // FIXME would like to get the connection description, but that's not threadsafe
 }
 
 void CConnectionTransportP2PICE::OnIceCandidateAdded( const char *pszSDPMid, int nSDPMLineIndex, const char *pszCandidate )
@@ -711,20 +578,20 @@ void CConnectionTransportP2PICE::OnIceCandidateAdded( const char *pszSDPMid, int
 
 	struct RunIceCandidateAdded : IConnectionTransportP2PICERunWithLock
 	{
-		CMsgICERendezvous_Message msg;
+		CMsgSteamNetworkingP2PRendezvous_ReliableMessage msg;
 		virtual void RunTransportP2PICE( CConnectionTransportP2PICE *pTransport )
 		{
-			pTransport->QueueSignalMessage( std::move(msg), "CandidateAdded" );
+			pTransport->Connection().QueueSignalReliableMessage( std::move(msg), "LocalCandidateAdded" );
 		}
 	};
 
 	RunIceCandidateAdded *pRun = new RunIceCandidateAdded;
 	pRun->m_nConnectionIDLocal = m_connection.m_unConnectionIDLocal;
-	CMsgICERendezvous_Message_Candidate &c = *pRun->msg.mutable_candidate();
+	CMsgICERendezvous_Candidate &c = *pRun->msg.mutable_ice()->mutable_add_candidate();
 	c.set_sdpm_id( pszSDPMid );
 	c.set_sdpm_line_index( nSDPMLineIndex );
 	c.set_candidate( pszCandidate );
-	pRun->RunOrQueue( "WebRTC OnIceCandidateAdded" );
+	pRun->RunOrQueue( "ICE OnIceCandidateAdded" );
 }
 
 void CConnectionTransportP2PICE::DrainPacketQueue( SteamNetworkingMicroseconds usecNow )
@@ -762,8 +629,41 @@ void CConnectionTransportP2PICE::DrainPacketQueue( SteamNetworkingMicroseconds u
 
 void CConnectionTransportP2PICE::OnWritableStateChanged()
 {
-	// FIXME - should signal to connection to trigger thinking or
-	// re-evaluate transport
+	struct RunWritableStateChanged : IConnectionTransportP2PICERunWithLock
+	{
+		virtual void RunTransportP2PICE( CConnectionTransportP2PICE *pTransport )
+		{
+			// No matter what, trigger a wakeup call
+			pTransport->SetNextThinkTimeASAP();
+
+			// Are we writable right now?
+			if ( pTransport->BCanSendEndToEndData() )
+			{
+
+				// Just spew
+				SpewVerboseGroup( pTransport->LogLevel_P2PRendezvous(), "[%s] ICE reports we writable\n", pTransport->ConnectionDescription() );
+			}
+			else
+			{
+
+				// We're not writable.  Is this news to us?
+				if ( !pTransport->m_bNeedToConfirmEndToEndConnectivity )
+				{
+
+					// We thought we were good.  Clear flag, we are in doubt
+					SpewMsgGroup( pTransport->LogLevel_P2PRendezvous(), "[%s] ICE reports we are no longer writable; triggering re-confirmation of end-to-end connectivity\n", pTransport->ConnectionDescription() );
+					pTransport->m_bNeedToConfirmEndToEndConnectivity = true;
+
+					// Connection may want to switch to another transport, if it is available
+					pTransport->Connection().TransportEndToEndConnectivityChanged( pTransport );
+				}
+			}
+		}
+	};
+
+	RunWritableStateChanged *pRun = new RunWritableStateChanged;
+	pRun->m_nConnectionIDLocal = m_connection.m_unConnectionIDLocal;
+	pRun->RunOrQueue( "ICE OnWritableStateChanged" );
 }
 
 void CConnectionTransportP2PICE::OnData( const void *pPkt, size_t nSize )
@@ -779,7 +679,7 @@ void CConnectionTransportP2PICE::OnData( const void *pPkt, size_t nSize )
 
 	// See if we can process this packet (and anything queued before us)
 	// immediately
-	if ( SteamDatagramTransportLock::TryLock( "WebRTC Data", 0 ) )
+	if ( SteamDatagramTransportLock::TryLock( "ICE Data", 0 ) )
 	{
 		// We can process the data now!
 		//SpewMsg( "CConnectionTransportP2PICE::OnData %d bytes, process immediate\n", (int)nSize );
@@ -829,7 +729,7 @@ void CConnectionTransportP2PICE::OnData( const void *pPkt, size_t nSize )
 
 		// Queue it.  Don't use RunOrQueue.  We know we need to queue it,
 		// since we already tried to grab the lock and failed.
-		pRun->Queue( "WebRTC DrainQueue" );
+		pRun->Queue( "ICE DrainQueue" );
 	}
 	else
 	{
