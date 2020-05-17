@@ -265,10 +265,10 @@ inline bool BRateLimitSpew( SteamNetworkingMicroseconds usecNow )
 }
 
 extern ESteamNetworkingSocketsDebugOutputType g_eDefaultGroupSpewLevel;
-extern void ReallySpewType( ESteamNetworkingSocketsDebugOutputType eType, PRINTF_FORMAT_STRING const char *pMsg, ... ) FMTFUNCTION( 2, 3 );
-extern void VReallySpewType( ESteamNetworkingSocketsDebugOutputType eType, const char *pMsg, va_list ap );
+extern void ReallySpewType( int eType, PRINTF_FORMAT_STRING const char *pMsg, ... ) FMTFUNCTION( 2, 3 );
+extern void VReallySpewType( int eType, const char *pMsg, va_list ap );
 
-#define SpewTypeGroup( eType, nGroup, ... ) ( ( (eType) <= (nGroup) ) ? ReallySpewType( ESteamNetworkingSocketsDebugOutputType(eType), __VA_ARGS__ ) : (void)0 )
+#define SpewTypeGroup( eType, nGroup, ... ) ( ( (eType) <= (nGroup) ) ? ReallySpewType( (eType), __VA_ARGS__ ) : (void)0 )
 #define SpewMsgGroup( nGroup, ... ) SpewTypeGroup( k_ESteamNetworkingSocketsDebugOutputType_Msg, (nGroup), __VA_ARGS__ )
 #define SpewVerboseGroup( nGroup, ... ) SpewTypeGroup( k_ESteamNetworkingSocketsDebugOutputType_Verbose, (nGroup), __VA_ARGS__ )
 #define SpewDebugGroup( nGroup, ... ) SpewTypeGroup( k_ESteamNetworkingSocketsDebugOutputType_Debug, (nGroup), __VA_ARGS__ )

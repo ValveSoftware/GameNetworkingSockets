@@ -1719,7 +1719,7 @@ SteamNetworkingMicroseconds g_usecLastRateLimitSpew;
 ESteamNetworkingSocketsDebugOutputType g_eDefaultGroupSpewLevel;
 static FSteamNetworkingSocketsDebugOutput s_pfnDebugOutput = nullptr;
 
-void VReallySpewType( ESteamNetworkingSocketsDebugOutputType eType, const char *pMsg, va_list ap )
+void VReallySpewType( int eType, const char *pMsg, va_list ap )
 {
 	// Save callback.  Paranoia for unlikely but possible race condition,
 	// if we spew from more than one place in our code and stuff changes
@@ -1738,10 +1738,10 @@ void VReallySpewType( ESteamNetworkingSocketsDebugOutputType eType, const char *
 	V_StripTrailingWhitespaceASCII( buf );
 
 	// Invoke callback
-	pfnDebugOutput( eType, buf );
+	pfnDebugOutput( ESteamNetworkingSocketsDebugOutputType(eType), buf );
 }
 
-void ReallySpewType( ESteamNetworkingSocketsDebugOutputType eType, const char *pMsg, ... )
+void ReallySpewType( int eType, const char *pMsg, ... )
 {
 	va_list ap;
 	va_start( ap, pMsg );
