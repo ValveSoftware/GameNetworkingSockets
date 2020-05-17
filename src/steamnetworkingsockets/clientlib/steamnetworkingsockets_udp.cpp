@@ -601,22 +601,14 @@ void CConnectionTransportUDPBase::RecvStats( const CMsgSteamSockets_UDP_Stats &m
 	);
 
 	// Check if we need to reply, either now or later
-	if ( m_connection.BStateIsConnectedForWirePurposes() )
+	if ( m_connection.BStateIsActive() )
 	{
 
 		// Check for queuing outgoing acks
-		bool bImmediate = ( msgStatsIn.flags() & msgStatsIn.ACK_REQUEST_IMMEDIATE ) != 0;
 		if ( ( msgStatsIn.flags() & msgStatsIn.ACK_REQUEST_E2E ) || msgStatsIn.has_stats() )
 		{
+			bool bImmediate = ( msgStatsIn.flags() & msgStatsIn.ACK_REQUEST_IMMEDIATE ) != 0;
 			m_connection.QueueEndToEndAck( bImmediate, usecNow );
-		}
-
-		// Do we need to send an immediate reply?
-		const char *pszReason = m_connection.NeedToSendEndToEndStatsOrAcks( usecNow );
-		if ( pszReason )
-		{
-			// Send a stats message
-			SendStatsMsg( k_EStatsReplyRequest_NothingToSend, usecNow, pszReason );
 		}
 	}
 }
@@ -674,7 +666,6 @@ void CConnectionTransportUDPBase::Received_Data( const uint8 *pPkt, int cbPkt, S
 	{
 		case k_ESteamNetworkingConnectionState_Dead:
 		case k_ESteamNetworkingConnectionState_None:
-		case k_ESteamNetworkingConnectionState_FindingRoute: // not used for raw UDP
 		default:
 			Assert( false );
 			return;
@@ -694,6 +685,7 @@ void CConnectionTransportUDPBase::Received_Data( const uint8 *pPkt, int cbPkt, S
 
 		case k_ESteamNetworkingConnectionState_Linger:
 		case k_ESteamNetworkingConnectionState_Connected:
+		case k_ESteamNetworkingConnectionState_FindingRoute: // not used for raw UDP, but might be used for derived class
 
 			// We'll process the chunk
 			break;
@@ -972,37 +964,26 @@ void UDPSendPacketContext_t::Populate( size_t cbHdrtReserve, EStatsReplyRequest 
 	m_nFlags = nFlags;
 
 	// Need to send any connection stats stats?
-	if ( statsEndToEnd.BNeedToSendStats( m_usecNow ) )
+	m_nStatsNeed = statsEndToEnd.GetStatsSendNeed( m_usecNow );
+	if ( m_nStatsNeed & k_nSendStats_Due )
 	{
-		m_nStatsNeed = 2;
-		statsEndToEnd.PopulateMessage( *msg.mutable_stats(), m_usecNow );
+		statsEndToEnd.PopulateMessage( m_nStatsNeed, *msg.mutable_stats(), m_usecNow );
 
 		if ( nReadyToSendTracer > 0 )
-			nFlags |= msg.ACK_REQUEST_E2E;
-
-		SlamFlagsAndCalcSize();
-		CalcMaxEncryptedPayloadSize( cbHdrtReserve, &connection );
+			m_nFlags |= msg.ACK_REQUEST_E2E;
 	}
-	else
-	{
-		// Populate flags now, based on what is implied from what we HAVE to send
-		SlamFlagsAndCalcSize();
-		CalcMaxEncryptedPayloadSize( cbHdrtReserve, &connection );
 
-		// Would we like to try to send some additional stats, if there is room?
-		if ( statsEndToEnd.BReadyToSendStats( m_usecNow ) )
-		{
-			if ( nReadyToSendTracer > 0 )
-				nFlags |= msg.ACK_REQUEST_E2E;
-			statsEndToEnd.PopulateMessage( *msg.mutable_stats(), m_usecNow );
-			SlamFlagsAndCalcSize();
-			m_nStatsNeed = 1;
-		}
-		else
-		{
-			// No need to send any stats right now
-			m_nStatsNeed = 0;
-		}
+	// Populate flags now, based on what is implied from what we HAVE to send
+	SlamFlagsAndCalcSize();
+	CalcMaxEncryptedPayloadSize( cbHdrtReserve, &connection );
+
+	// Would we like to try to send some additional stats, if there is room?
+	if ( m_nStatsNeed & k_nSendStats_Ready )
+	{
+		if ( nReadyToSendTracer > 0 )
+			m_nFlags |= msg.ACK_REQUEST_E2E;
+		statsEndToEnd.PopulateMessage( m_nStatsNeed & k_nSendStats_Ready, *msg.mutable_stats(), m_usecNow );
+		SlamFlagsAndCalcSize();
 	}
 }
 
@@ -1010,29 +991,42 @@ void UDPSendPacketContext_t::Trim( int cbHdrOutSpaceRemaining )
 {
 	while ( m_cbTotalSize > cbHdrOutSpaceRemaining )
 	{
-
-		if ( msg.has_stats() )
+		if ( !msg.has_stats() )
 		{
-			AssertMsg( m_nStatsNeed == 1, "We didn't reserve enough space for stats!" );
-			if ( msg.stats().has_instantaneous() && msg.stats().has_lifetime() )
+			// Nothing left to clear!?  We shouldn't get here!
+			AssertMsg( false, "Serialized stats message still won't fit, ever after clearing everything?" );
+			m_cbTotalSize = 0;
+			break;
+		}
+
+		if ( m_nStatsNeed & k_nSendStats_Instantanous_Ready )
+		{
+			msg.mutable_stats()->clear_instantaneous();
+			m_nStatsNeed &= ~k_nSendStats_Instantanous_Ready;
+		}
+		else if ( m_nStatsNeed & k_nSendStats_Lifetime_Ready )
+		{
+			msg.mutable_stats()->clear_lifetime();
+			m_nStatsNeed &= ~k_nSendStats_Lifetime_Ready;
+		}
+		else
+		{
+			AssertMsg( false, "We didn't reserve enough space for stats!" );
+			if ( m_nStatsNeed & k_nSendStats_Instantanous_Due )
 			{
-				// Trying to send both - clear instantaneous
 				msg.mutable_stats()->clear_instantaneous();
+				m_nStatsNeed &= ~k_nSendStats_Instantanous_Due;
 			}
 			else
 			{
-				// Trying to send just one or the other.  Clear the whole container.
-				msg.clear_stats();
+				m_nStatsNeed = 0;
 			}
-
-			SlamFlagsAndCalcSize();
-			continue;
 		}
 
-		// Nothing left to clear!?  We shouldn't get here!
-		AssertMsg( false, "Serialized stats message still won't fit, ever after clearing everything?" );
-		m_cbTotalSize = 0;
-		break;
+		if ( m_nStatsNeed == 0 )
+			msg.clear_stats();
+
+		SlamFlagsAndCalcSize();
 	}
 }
 
@@ -1174,40 +1168,6 @@ void CConnectionTransportUDP::SendEndToEndConnectRequest( SteamNetworkingMicrose
 	// They are supposed to reply with a timestamps, from which we can estimate the ping.
 	// So this counts as a ping request
 	m_connection.m_statsEndToEnd.TrackSentPingRequest( usecNow, false );
-}
-
-void CSteamNetworkConnectionUDP::ThinkConnection( SteamNetworkingMicroseconds usecNow )
-{
-
-	// FIXME - We should refactor this, maybe promote this to the base class.
-	//         There's really nothing specific to plain UDP transport here.
-
-	// Check if we have stats we need to flush out
-	if ( !m_statsEndToEnd.IsPassive() && m_pTransport )
-	{
-
-		// Do we need to send something immediately, for any reason?
-		const char *pszReason = NeedToSendEndToEndStatsOrAcks( usecNow );
-		if ( pszReason )
-		{
-			m_pTransport->SendEndToEndStatsMsg( k_EStatsReplyRequest_NothingToSend, usecNow, pszReason );
-
-			// Make sure that took care of what we needed!
-
-			Assert( !NeedToSendEndToEndStatsOrAcks( usecNow ) );
-		}
-
-		// Make sure we are scheduled to think the next time we need to
-		SteamNetworkingMicroseconds usecNextStatsThink = m_statsEndToEnd.GetNextThinkTime( usecNow );
-		if ( usecNextStatsThink <= usecNow )
-		{
-			AssertMsg( false, "We didn't send all the stats we needed to!" );
-		}
-		else
-		{
-			EnsureMinThinkTime( usecNextStatsThink );
-		}
-	}
 }
 
 bool CSteamNetworkConnectionUDP::BBeginAccept(

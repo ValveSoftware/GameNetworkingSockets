@@ -197,7 +197,6 @@ public:
 
 	/// Implements CSteamNetworkConnectionBase
 	virtual EResult AcceptConnection( SteamNetworkingMicroseconds usecNow ) override;
-	virtual void ThinkConnection( SteamNetworkingMicroseconds usecNow ) override;
 	virtual void GetConnectionTypeDescription( ConnectionTypeDescription_t &szDescription ) const override;
 	virtual EUnsignedCert AllowRemoteUnsignedCert() override;
 	virtual EUnsignedCert AllowLocalUnsignedCert() override;

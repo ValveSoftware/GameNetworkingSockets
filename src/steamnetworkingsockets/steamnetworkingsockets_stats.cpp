@@ -467,7 +467,7 @@ bool LinkStatsTrackerBase::BCheckHaveDataToSendInstantaneous( SteamNetworkingMic
 
 	// Calculate threshold based on how much time has elapsed and a very low packet rate
 	int64 usecElapsed = usecNow - m_usecPeerAckedInstaneous;
-	Assert( usecElapsed >= k_usecLinkStatsInstantaneousReportMinInterval ); // don't call this unless you know it's been long enough!
+	Assert( usecElapsed >= k_usecLinkStatsInstantaneousReportInterval ); // don't call this unless you know it's been long enough!
 	int nThreshold = usecElapsed / k_usecActiveConnectionSendInterval;
 
 	// Has there been any traffic worth reporting on in this interval?
@@ -500,75 +500,85 @@ bool LinkStatsTrackerBase::BCheckHaveDataToSendLifetime( SteamNetworkingMicrosec
 	return false;
 }
 
-bool LinkStatsTrackerBase::BNeedToSendStats( SteamNetworkingMicroseconds usecNow )
+int LinkStatsTrackerBase::GetStatsSendNeed( SteamNetworkingMicroseconds usecNow )
 {
-	// Message already in flight?
-	if ( m_pktNumInFlight != 0 || m_bPassive )
-		return false;
-	bool bNeedToSendInstantaneous = ( m_usecPeerAckedInstaneous + k_usecLinkStatsInstantaneousReportMaxInterval < usecNow ) && BCheckHaveDataToSendInstantaneous( usecNow );
-	bool bNeedToSendLifetime = ( m_usecPeerAckedLifetime + k_usecLinkStatsLifetimeReportMaxInterval < usecNow ) && BCheckHaveDataToSendLifetime( usecNow );
-	return bNeedToSendInstantaneous || bNeedToSendLifetime;
-}
+	int nResult = 0;
 
-const char *LinkStatsTrackerBase::NeedToSendStats( SteamNetworkingMicroseconds usecNow, const char *const arpszReasonStrings[4] )
-{
 	// Message already in flight?
-	if ( m_pktNumInFlight != 0 || m_bPassive )
-		return nullptr;
-	int n = 0;
-	if ( m_usecPeerAckedInstaneous + k_usecLinkStatsInstantaneousReportMaxInterval < usecNow && BCheckHaveDataToSendInstantaneous( usecNow ) )
-		n |= 1;
-	if ( m_usecPeerAckedLifetime + k_usecLinkStatsLifetimeReportMaxInterval < usecNow && BCheckHaveDataToSendLifetime( usecNow ) )
-		n |= 2;
-	return arpszReasonStrings[n];
-}
-
-SteamNetworkingMicroseconds LinkStatsTrackerBase::GetNextThinkTimeInternal( SteamNetworkingMicroseconds usecNow ) const
-{
-	SteamNetworkingMicroseconds usecResult = INT64_MAX;
-	if ( !m_bPassive )
+	if ( m_pktNumInFlight == 0 && !m_bPassive )
 	{
-
-		// Expecting a reply?
-		if ( m_usecInFlightReplyTimeout )
+		if ( m_usecPeerAckedInstaneous + k_usecLinkStatsInstantaneousReportInterval < usecNow && BCheckHaveDataToSendInstantaneous( usecNow ) )
 		{
-			usecResult = std::min( usecResult, m_usecInFlightReplyTimeout );
+			if ( m_usecPeerAckedInstaneous + k_usecLinkStatsInstantaneousReportMaxInterval < usecNow )
+				nResult |= k_nSendStats_Instantanous_Due;
+			else
+				nResult |= k_nSendStats_Instantanous_Ready;
 		}
 
-		// Time when BNeedToSendPingImmediate will return true
-		if ( m_nReplyTimeoutsSinceLastRecv > 0 )
-			usecResult = std::min( usecResult, m_usecLastSendPacketExpectingImmediateReply+k_usecAggressivePingInterval );
-
-		// Time when we need to flush stats
-		if ( m_pktNumInFlight == 0 )
+		if ( m_usecPeerAckedLifetime + k_usecLinkStatsLifetimeReportInterval < usecNow && BCheckHaveDataToSendLifetime( usecNow ) )
 		{
-			usecResult = std::min( usecResult, m_usecPeerAckedInstaneous + k_usecLinkStatsInstantaneousReportMaxInterval );
-			usecResult = std::min( usecResult, m_usecPeerAckedLifetime + k_usecLinkStatsLifetimeReportMaxInterval );
+			if ( m_usecPeerAckedInstaneous + k_usecLinkStatsLifetimeReportMaxInterval < usecNow )
+				nResult |= k_nSendStats_Lifetime_Due;
+			else
+				nResult |= k_nSendStats_Lifetime_Ready;
 		}
 	}
 
-	return usecResult;
+	return nResult;
 }
 
-void LinkStatsTrackerBase::PopulateMessage( CMsgSteamDatagramConnectionQuality &msg, SteamNetworkingMicroseconds usecNow )
+const char *LinkStatsTrackerBase::InternalGetSendStatsReasonOrUpdateNextThinkTime( SteamNetworkingMicroseconds usecNow, const char *const arpszReasonStrings[4], SteamNetworkingMicroseconds &inOutNextThinkTime )
 {
-	if ( m_pktNumInFlight == 0 && !m_bPassive )
+	if ( m_bPassive )
+		return nullptr;
+	if ( m_usecInFlightReplyTimeout > 0 && m_usecInFlightReplyTimeout < inOutNextThinkTime )
+		inOutNextThinkTime = m_usecInFlightReplyTimeout;
+
+	// Message already in flight?
+	if ( m_pktNumInFlight )
+		return nullptr;
+
+	int n = 0;
+	if ( m_usecPeerAckedInstaneous + k_usecLinkStatsInstantaneousReportMaxInterval < usecNow && BCheckHaveDataToSendInstantaneous( usecNow ) )
 	{
+		n |= 1;
+	}
+	else
+	{
+		SteamNetworkingMicroseconds usecNextCheck = m_usecPeerAckedInstaneous + k_usecLinkStatsInstantaneousReportMaxInterval;
+		if ( usecNextCheck < inOutNextThinkTime )
+			inOutNextThinkTime = usecNextCheck;
+	}
+	if ( m_usecPeerAckedLifetime + k_usecLinkStatsLifetimeReportMaxInterval < usecNow && BCheckHaveDataToSendLifetime( usecNow ) )
+	{
+		n |= 2;
+	}
+	else
+	{
+		SteamNetworkingMicroseconds usecNextCheck = m_usecPeerAckedLifetime + k_usecLinkStatsLifetimeReportMaxInterval;
+		if ( usecNextCheck < inOutNextThinkTime )
+			inOutNextThinkTime = usecNextCheck;
+	}
+	return arpszReasonStrings[n];
+}
 
-		// Ready to send instantaneous stats?
-		if ( m_usecPeerAckedInstaneous + k_usecLinkStatsInstantaneousReportMinInterval < usecNow && BCheckHaveDataToSendInstantaneous( usecNow ) )
-		{
-			// !KLUDGE! Go through public struct as intermediary to keep code simple.
-			SteamDatagramLinkInstantaneousStats sInstant;
-			GetInstantaneousStats( sInstant );
-			LinkStatsInstantaneousStructToMsg( sInstant, *msg.mutable_instantaneous() );
-		}
+void LinkStatsTrackerBase::PopulateMessage( int nNeedFlags, CMsgSteamDatagramConnectionQuality &msg, SteamNetworkingMicroseconds usecNow )
+{
+	Assert( m_pktNumInFlight == 0 && !m_bPassive );
 
-		// Ready to send lifetime stats?
-		if ( m_usecPeerAckedLifetime + k_usecLinkStatsLifetimeReportMinInterval < usecNow && BCheckHaveDataToSendLifetime( usecNow ) )
-		{
-			PopulateLifetimeMessage( *msg.mutable_lifetime() );
-		}
+	// Ready to send instantaneous stats?
+	if ( nNeedFlags & k_nSendStats_Instantanous )
+	{
+		// !KLUDGE! Go through public struct as intermediary to keep code simple.
+		SteamDatagramLinkInstantaneousStats sInstant;
+		GetInstantaneousStats( sInstant );
+		LinkStatsInstantaneousStructToMsg( sInstant, *msg.mutable_instantaneous() );
+	}
+
+	// Ready to send lifetime stats?
+	if ( nNeedFlags & k_nSendStats_Lifetime )
+	{
+		PopulateLifetimeMessage( *msg.mutable_lifetime() );
 	}
 }
 

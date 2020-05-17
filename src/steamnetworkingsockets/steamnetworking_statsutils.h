@@ -13,6 +13,7 @@
 #include "percentile_generator.h"
 #include "steamnetworking_stats.h"
 #include "steamnetworkingsockets_internal.h"
+#include "steamnetworkingsockets_thinker.h"
 
 //#include <google/protobuf/repeated_field.h> // FIXME - should only need this!
 #include <tier0/memdbgoff.h>
@@ -40,12 +41,10 @@ const SteamNetworkingMicroseconds k_usecLinkStatsMaxPingRequestInterval = 7 * k_
 
 /// Client should send instantaneous connection quality stats
 /// at approximately this interval
-const SteamNetworkingMicroseconds k_usecLinkStatsInstantaneousReportMinInterval = 17 * k_nMillion;
 const SteamNetworkingMicroseconds k_usecLinkStatsInstantaneousReportInterval = 20 * k_nMillion;
 const SteamNetworkingMicroseconds k_usecLinkStatsInstantaneousReportMaxInterval = 30 * k_nMillion;
 
 /// Client will report lifetime connection stats at approximately this interval
-const SteamNetworkingMicroseconds k_usecLinkStatsLifetimeReportMinInterval = 102 * k_nMillion;
 const SteamNetworkingMicroseconds k_usecLinkStatsLifetimeReportInterval = 120 * k_nMillion;
 const SteamNetworkingMicroseconds k_usecLinkStatsLifetimeReportMaxInterval = 140 * k_nMillion;
 
@@ -384,6 +383,16 @@ private:
 	float m_flTokenDeficitFromFull;
 };
 
+// Bitmask returned by GetStatsSendNeed
+constexpr int k_nSendStats_Instantanous_Due = 1;
+constexpr int k_nSendStats_Instantanous_Ready = 2;
+constexpr int k_nSendStats_Lifetime_Due = 4;
+constexpr int k_nSendStats_Lifetime_Ready = 8;
+constexpr int k_nSendStats_Instantanous = k_nSendStats_Instantanous_Due|k_nSendStats_Instantanous_Ready;
+constexpr int k_nSendStats_Lifetime = k_nSendStats_Lifetime_Due|k_nSendStats_Lifetime_Ready;
+constexpr int k_nSendStats_Due = k_nSendStats_Instantanous_Due|k_nSendStats_Lifetime_Due;
+constexpr int k_nSendStats_Ready = k_nSendStats_Instantanous_Ready|k_nSendStats_Lifetime_Ready;
+
 
 /// Base class used to handle link quality calculations.
 ///
@@ -570,10 +579,9 @@ struct LinkStatsTrackerBase
 	/// connectivity as well.
 	inline bool BNeedToSendPingImmediate( SteamNetworkingMicroseconds usecNow ) const
 	{
-		return
-			!m_bPassive
-			&& m_nReplyTimeoutsSinceLastRecv > 0 // We're timing out
-			&& m_usecLastSendPacketExpectingImmediateReply+k_usecAggressivePingInterval < usecNow; // we haven't just recently sent an aggressive ping.
+		if ( m_bPassive || m_nReplyTimeoutsSinceLastRecv == 0 )
+			return false;
+		return usecNow < m_usecLastSendPacketExpectingImmediateReply+k_usecAggressivePingInterval;
 	}
 
 	/// Check if we should send a keepalive ping.  In this case we haven't heard from the peer in a while,
@@ -586,26 +594,10 @@ struct LinkStatsTrackerBase
 			&& m_usecTimeLastRecv + k_usecKeepAliveInterval < usecNow; // haven't heard from the peer recently
 	}
 
-	/// Check if we have data worth sending, if we have a good
-	/// opportunity (inline in a data packet) to do it.
-	inline bool BReadyToSendStats( SteamNetworkingMicroseconds usecNow )
-	{
-		bool bResult = false;
-		if ( m_pktNumInFlight == 0 && !m_bPassive )
-		{
-			if ( m_usecPeerAckedInstaneous + k_usecLinkStatsInstantaneousReportInterval < usecNow && BCheckHaveDataToSendInstantaneous( usecNow ) )
-				bResult = true ;
-			if ( m_usecPeerAckedLifetime + k_usecLinkStatsLifetimeReportInterval < usecNow && BCheckHaveDataToSendLifetime( usecNow ) )
-				bResult = true;
-		}
-
-		return bResult;
-	}
-
 	/// Fill out message with everything we'd like to send.  We don't assume that we will
 	/// actually send it.  (We might be looking for a good opportunity, and the data we want
 	/// to send doesn't fit.)
-	void PopulateMessage( CMsgSteamDatagramConnectionQuality &msg, SteamNetworkingMicroseconds usecNow );
+	void PopulateMessage( int nNeedFlags, CMsgSteamDatagramConnectionQuality &msg, SteamNetworkingMicroseconds usecNow );
 	void PopulateLifetimeMessage( CMsgSteamDatagramLinkLifetimeStats &msg );
 	/// Called when we send any message for which we expect some sort of reply.  (But maybe not an ack.)
 	void TrackSentMessageExpectingReply( SteamNetworkingMicroseconds usecNow, bool bAllowDelayedReply );
@@ -693,8 +685,8 @@ struct LinkStatsTrackerBase
 		m_bInFlightInstantaneous = m_bInFlightLifetime = false;
 	}
 
-	/// Check if we really need to flush out stats now.
-	bool BNeedToSendStats( SteamNetworkingMicroseconds usecNow );
+	/// Get urgency level to send instantaneous/lifetime stats.
+	int GetStatsSendNeed( SteamNetworkingMicroseconds usecNow );
 
 	/// Describe this stats tracker, for debugging, asserts, etc
 	virtual std::string Describe() const = 0;
@@ -755,19 +747,16 @@ protected:
 	/// Are we in "passive" state?  When we are "active", we expect that our peer is awake
 	/// and will reply to our messages, and that we should be actively sending our peer
 	/// connection quality statistics and keepalives.  When we are passive, we still measure
-	/// statistics and can receive messages from the peer, and send acknowledgements as necessary.
+	/// statistics and can receive messages from the peer, and send acknowledgments as necessary.
 	/// but we will indicate that keepalives or stats need to be sent to the peer.
 	bool m_bPassive;
 
-	/// Called to switch the pasive state.  (Should only be called on an actual state change.)
+	/// Called to switch the passive state.  (Should only be called on an actual state change.)
 	void SetPassiveInternal( bool bFlag, SteamNetworkingMicroseconds usecNow );
 
 	/// Check if we really need to flush out stats now.  Derived class should provide the reason strings.
 	/// (See the code.)
-	const char *NeedToSendStats( SteamNetworkingMicroseconds usecNow, const char *const arpszReasonStrings[4] );
-
-	/// Get time when we need to take action or think
-	SteamNetworkingMicroseconds GetNextThinkTimeInternal( SteamNetworkingMicroseconds usecNow ) const;
+	const char *InternalGetSendStatsReasonOrUpdateNextThinkTime( SteamNetworkingMicroseconds usecNow, const char *const arpszReasonStrings[4], SteamNetworkingMicroseconds &inOutNextThinkTime );
 
 	/// Called when we send a packet for which we expect a reply and
 	/// for which we expect to get latency info.
@@ -784,6 +773,36 @@ protected:
 	inline static void ReceivedPingInternal( TLinkStatsTracker *pThis, int nPingMS, SteamNetworkingMicroseconds usecNow )
 	{
 		pThis->m_ping.ReceivedPing( nPingMS, usecNow );
+	}
+
+	inline bool BInternalNeedToSendPingImmediate( SteamNetworkingMicroseconds usecNow, SteamNetworkingMicroseconds &inOutNextThinkTime )
+	{
+		if ( m_nReplyTimeoutsSinceLastRecv == 0 )
+			return false;
+		SteamNetworkingMicroseconds usecUrgentPing = m_usecLastSendPacketExpectingImmediateReply+k_usecAggressivePingInterval;
+		if ( usecUrgentPing <= usecNow )
+			return true;
+		if ( usecUrgentPing < inOutNextThinkTime )
+			inOutNextThinkTime = usecUrgentPing;
+		return false;
+	}
+
+	inline bool BInternalNeedToSendKeepAlive( SteamNetworkingMicroseconds usecNow, SteamNetworkingMicroseconds &inOutNextThinkTime )
+	{
+		if ( m_usecInFlightReplyTimeout == 0 )
+		{
+			SteamNetworkingMicroseconds usecKeepAlive = m_usecTimeLastRecv + k_usecKeepAliveInterval;
+			if ( usecKeepAlive <= usecNow )
+				return true;
+			if ( usecKeepAlive < inOutNextThinkTime )
+				inOutNextThinkTime = usecKeepAlive;
+		}
+		else
+		{
+			if ( m_usecInFlightReplyTimeout < inOutNextThinkTime )
+				inOutNextThinkTime = m_usecInFlightReplyTimeout;
+		}
+		return false;
 	}
 
 private:
@@ -862,20 +881,32 @@ struct LinkStatsTrackerEndToEnd : public LinkStatsTrackerBase
 	/// Called when we get a speed sample
 	void UpdateSpeeds( int nTXSpeed, int nRXSpeed );
 
-	/// Do we need to send anything?  Return the reason code, or NULL if
-	/// we don't need to send anything right now
-	inline const char *NeedToSend( SteamNetworkingMicroseconds usecNow )
+	/// Do we need to send any stats?
+	inline const char *GetSendReasonOrUpdateNextThinkTime( SteamNetworkingMicroseconds usecNow, EStatsReplyRequest &eReplyRequested, SteamNetworkingMicroseconds &inOutNextThinkTime )
 	{
+		if ( m_bPassive )
+		{
+			if ( m_usecInFlightReplyTimeout > 0 && m_usecInFlightReplyTimeout < inOutNextThinkTime )
+				inOutNextThinkTime = m_usecInFlightReplyTimeout;
+			eReplyRequested = k_EStatsReplyRequest_NothingToSend;
+			return nullptr;
+		}
 
-		// Connectivity check because we appear to be timing out?
-		if ( BNeedToSendPingImmediate( usecNow ) )
+		// Urgent ping?
+		if ( BInternalNeedToSendPingImmediate( usecNow, inOutNextThinkTime ) )
+		{
+			eReplyRequested = k_EStatsReplyRequest_Immediate;
 			return "E2EUrgentPing";
+		}
 
-		// Ordinary keepalive?
-		if ( BNeedToSendKeepalive( usecNow ) )
-			return "E2EKeepalive";
+		// Keepalive?
+		if ( BInternalNeedToSendKeepAlive( usecNow, inOutNextThinkTime ) )
+		{
+			eReplyRequested = k_EStatsReplyRequest_DelayedOK;
+			return "E2EKeepAlive";
+		}
 
-		// Stats?
+		// Connection stats?
 		static const char *arpszReasons[4] =
 		{
 			nullptr,
@@ -883,7 +914,15 @@ struct LinkStatsTrackerEndToEnd : public LinkStatsTrackerBase
 			"E2ELifetimeStats",
 			"E2EAllStats"
 		};
-		return LinkStatsTrackerBase::NeedToSendStats( usecNow, arpszReasons );
+		const char *pszReason = LinkStatsTrackerBase::InternalGetSendStatsReasonOrUpdateNextThinkTime( usecNow, arpszReasons, inOutNextThinkTime );
+		if ( pszReason )
+		{
+			eReplyRequested = k_EStatsReplyRequest_DelayedOK;
+			return pszReason;
+		}
+
+		eReplyRequested = k_EStatsReplyRequest_NothingToSend;
+		return nullptr;
 	}
 
 	/// Describe this stats tracker, for debugging, asserts, etc
@@ -901,21 +940,6 @@ protected:
 		{
 			pThis->UpdateSpeedInterval( usecNow );
 		}
-	}
-
-	inline SteamNetworkingMicroseconds GetNextThinkTimeInternal( SteamNetworkingMicroseconds usecNow ) const
-	{
-		SteamNetworkingMicroseconds usecResult = LinkStatsTrackerBase::GetNextThinkTimeInternal( usecNow );
-		if ( !m_bPassive )
-		{
-			if ( !m_usecInFlightReplyTimeout )
-			{
-				// Time when BNeedToSendKeepalive will return true
-				usecResult = std::min( usecResult, m_usecTimeLastRecv + k_usecKeepAliveInterval );
-			}
-		}
-
-		return usecResult;
 	}
 
 private:
@@ -942,7 +966,6 @@ struct LinkStatsTracker final : public TLinkStatsTracker
 	inline bool IsPassive() const { return TLinkStatsTracker::m_bPassive; }
 	inline void TrackSentMessageExpectingSeqNumAck( SteamNetworkingMicroseconds usecNow, bool bAllowDelayedReply ) { TLinkStatsTracker::TrackSentMessageExpectingSeqNumAckInternal( this, usecNow, bAllowDelayedReply ); }
 	inline void TrackSentPingRequest( SteamNetworkingMicroseconds usecNow, bool bAllowDelayedReply ) { TLinkStatsTracker::TrackSentPingRequestInternal( this, usecNow, bAllowDelayedReply ); }
-	inline SteamNetworkingMicroseconds GetNextThinkTime( SteamNetworkingMicroseconds usecNow ) const { return TLinkStatsTracker::GetNextThinkTimeInternal( usecNow ); }
 	inline void ReceivedPing( int nPingMS, SteamNetworkingMicroseconds usecNow ) { TLinkStatsTracker::ReceivedPingInternal( this, nPingMS, usecNow ); }
 	inline void InFlightReplyTimeout( SteamNetworkingMicroseconds usecNow ) { TLinkStatsTracker::InFlightReplyTimeoutInternal( this, usecNow ); }
 
@@ -987,6 +1010,15 @@ struct LinkStatsTracker final : public TLinkStatsTracker
 		return bResult;
 	}
 
+	// Shortcut when we know that we aren't going to send now, but we want to know when to wakeup and do so
+	inline SteamNetworkingMicroseconds GetNextThinkTime( SteamNetworkingMicroseconds usecNow )
+	{
+		SteamNetworkingMicroseconds usecNextThink = k_nThinkTime_Never;
+		EStatsReplyRequest eReplyRequested;
+		if ( TLinkStatsTracker::GetSendReasonOrUpdateNextThinkTime( usecNow, eReplyRequested, usecNextThink ) )
+			return k_nThinkTime_ASAP;
+		return usecNextThink;
+	}
 };
 
 

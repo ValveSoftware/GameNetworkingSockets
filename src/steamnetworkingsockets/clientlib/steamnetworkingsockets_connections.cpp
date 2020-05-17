@@ -2713,67 +2713,34 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 			UpdateMinThinkTime( usecNow + 50*1000 );
 		}
 
-		// Check for keepalives of varying urgency.
-		// Ping aggressively because connection appears to be timing out?
-		if ( m_statsEndToEnd.m_nReplyTimeoutsSinceLastRecv > 0 || m_statsEndToEnd.m_usecWhenTimeoutStarted > 0 )
+		// Check for sending keepalives and stats
+		if ( bCanSendEndToEnd )
 		{
-			SteamNetworkingMicroseconds usecSendAggressivePing = Max( m_statsEndToEnd.m_usecTimeLastRecv, m_statsEndToEnd.m_usecLastSendPacketExpectingImmediateReply ) + k_usecAggressivePingInterval;
-			if ( usecNow >= usecSendAggressivePing )
-			{
-				if ( bCanSendEndToEnd )
-				{
-					if ( m_statsEndToEnd.m_nReplyTimeoutsSinceLastRecv == 1 )
-						SpewVerbose( "[%s] Reply timeout, last recv %.1fms ago.  Sending keepalive.\n", GetDescription(), ( usecNow - m_statsEndToEnd.m_usecTimeLastRecv ) * 1e-3 );
-					else
-						SpewMsg( "[%s] %d reply timeouts, last recv %.1fms ago.  Sending keepalive.\n", GetDescription(), m_statsEndToEnd.m_nReplyTimeoutsSinceLastRecv, ( usecNow - m_statsEndToEnd.m_usecTimeLastRecv ) * 1e-3 );
-					Assert( m_statsEndToEnd.BNeedToSendPingImmediate( usecNow ) ); // Make sure logic matches
-					m_pTransport->SendEndToEndStatsMsg( k_EStatsReplyRequest_Immediate, usecNow, "E2ETimingOutKeepalive" );
-					AssertMsg( !m_statsEndToEnd.BNeedToSendPingImmediate( usecNow ), "SendEndToEndStatsMsg didn't do its job!" );
-					Assert( m_statsEndToEnd.m_usecInFlightReplyTimeout > 0 );
-				}
-				else
-				{
-					// Nothing we can do right now.  Just check back in a little bit.
-					UpdateMinThinkTime( usecNow+20*1000 );
-				}
-			}
-			else
-			{
-				UpdateMinThinkTime( usecSendAggressivePing );
-			}
-		}
 
-		// Ordinary keepalive?
-		if ( m_statsEndToEnd.m_usecInFlightReplyTimeout == 0 )
-		{
-			// FIXME We really should be a lot better here with an adaptive keepalive time.  If they have been
-			// sending us a steady stream of packets, we could expect it to continue at a high rate, so that we
-			// can begin to detect a dropped connection much more quickly.  But if the connection is mostly idle, we want
-			// to make sure we use a relatively long keepalive.
-			SteamNetworkingMicroseconds usecSendKeepalive = m_statsEndToEnd.m_usecTimeLastRecv+k_usecKeepAliveInterval;
-			if ( usecNow >= usecSendKeepalive )
+			// Urgent keepalive because we are timing out?
+			SteamNetworkingMicroseconds usecStatsNextThinkTime = k_nThinkTime_Never;
+			EStatsReplyRequest eReplyRequested;
+			const char *pszStatsReason = m_statsEndToEnd.GetSendReasonOrUpdateNextThinkTime( usecNow, eReplyRequested, usecStatsNextThinkTime );
+			if ( pszStatsReason )
 			{
-				if ( bCanSendEndToEnd )
-				{
-					Assert( m_statsEndToEnd.BNeedToSendKeepalive( usecNow ) ); // Make sure logic matches
-					m_pTransport->SendEndToEndStatsMsg( k_EStatsReplyRequest_DelayedOK, usecNow, "E2EKeepalive" );
-					AssertMsg( !m_statsEndToEnd.BNeedToSendKeepalive( usecNow ), "SendEndToEndStatsMsg didn't do its job!" );
-				}
-				else
-				{
-					// Nothing we can do right now.  Just check back in a little bit.
-					UpdateMinThinkTime( usecNow+20*1000 );
-				}
+
+				// Spew if we're dropping replies
+				if ( m_statsEndToEnd.m_nReplyTimeoutsSinceLastRecv == 1 )
+					SpewVerbose( "[%s] Reply timeout, last recv %.1fms ago.  Sending keepalive.\n", GetDescription(), ( usecNow - m_statsEndToEnd.m_usecTimeLastRecv ) * 1e-3 );
+				else if ( m_statsEndToEnd.m_nReplyTimeoutsSinceLastRecv > 0 )
+					SpewMsg( "[%s] %d reply timeouts, last recv %.1fms ago.  Sending keepalive.\n", GetDescription(), m_statsEndToEnd.m_nReplyTimeoutsSinceLastRecv, ( usecNow - m_statsEndToEnd.m_usecTimeLastRecv ) * 1e-3 );
+
+				// Send it
+				m_pTransport->SendEndToEndStatsMsg( eReplyRequested, usecNow, pszStatsReason );
+
+				// Re-calculate next think time
+				usecStatsNextThinkTime = k_nThinkTime_Never;
+				const char *pszStatsReason2 = m_statsEndToEnd.GetSendReasonOrUpdateNextThinkTime( usecNow, eReplyRequested, usecStatsNextThinkTime );
+				AssertMsg1( pszStatsReason2 == nullptr && usecStatsNextThinkTime > usecNow, "Stats sending didn't clear stats need to send reason %s!", pszStatsReason2 ? pszStatsReason2 : "??" );
 			}
-			else
-			{
-				// Not right now, but schedule a wakeup call to do it
-				UpdateMinThinkTime( usecSendKeepalive );
-			}
-		}
-		else
-		{
-			UpdateMinThinkTime( m_statsEndToEnd.m_usecInFlightReplyTimeout );
+
+			// Make sure we are scheduled to wake up the next time we need to take action
+			UpdateMinThinkTime( usecStatsNextThinkTime );
 		}
 	}
 

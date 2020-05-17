@@ -290,6 +290,16 @@ public:
 	/// (The wire protocol doesn't care about local states such as linger)
 	bool BStateIsConnectedForWirePurposes() const { return m_eConnectionState == k_ESteamNetworkingConnectionState_Connected || m_eConnectionState == k_ESteamNetworkingConnectionState_Linger; }
 
+	/// Return true if the connection is still "active" in some way.
+	bool BStateIsActive() const
+	{
+		return
+			m_eConnectionState == k_ESteamNetworkingConnectionState_Connecting
+			|| m_eConnectionState == k_ESteamNetworkingConnectionState_FindingRoute
+			|| m_eConnectionState == k_ESteamNetworkingConnectionState_Connected
+			|| m_eConnectionState == k_ESteamNetworkingConnectionState_Linger;
+	}
+
 	/// Reason connection ended
 	ESteamNetConnectionEnd GetConnectionEndReason() const { return m_eEndReason; }
 	const char *GetConnectionEndDebugString() const { return m_szEndDebug; }
@@ -463,16 +473,6 @@ public:
 			m_receiverState.QueueFlushAllAcks( usecNow + k_usecMaxDataAckDelay );
 			EnsureMinThinkTime( m_receiverState.TimeWhenFlushAcks() );
 		}
-	}
-
-	/// Check if we need to send stats or acks.  If so, return a reason string
-	// FIXME - This needs to be refactored.  There is some redundancy in the different
-	// transport code that uses it
-	const char *NeedToSendEndToEndStatsOrAcks( SteamNetworkingMicroseconds usecNow )
-	{
-		if ( m_receiverState.TimeWhenFlushAcks() <= usecNow )
-			return "SNPFlushAcks";
-		return m_statsEndToEnd.NeedToSend( usecNow );
 	}
 
 	inline const CMsgSteamDatagramSessionCryptInfoSigned &GetSignedCryptLocal() { return m_msgSignedCryptLocal; }
