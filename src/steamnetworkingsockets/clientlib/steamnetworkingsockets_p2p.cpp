@@ -93,7 +93,7 @@ CSteamNetworkConnectionP2P::CSteamNetworkConnectionP2P( CSteamNetworkingSockets 
 	m_nRemoteVirtualPort = -1;
 	m_idxMapIncomingP2PConnections = -1;
 	m_pSignaling = nullptr;
-	m_usecNextEvaluateTransport = 0;
+	m_usecNextEvaluateTransport = k_nThinkTime_ASAP;
 	m_bTransportSticky = false;
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 		m_pTransportP2PSDR = nullptr;
@@ -279,7 +279,7 @@ void CSteamNetworkConnectionP2P::DestroyICENow()
 	if ( m_pTransport && ( m_pTransport == m_pTransportICEPendingDelete || m_pTransport == m_pTransportICE ) )
 	{
 		SelectTransport( nullptr );
-		m_usecNextEvaluateTransport = 0;
+		m_usecNextEvaluateTransport = k_nThinkTime_ASAP;
 		SetNextThinkTimeASAP();
 	}
 
@@ -369,7 +369,7 @@ void CSteamNetworkConnectionP2P::TransportEndToEndConnectivityChanged( CConnecti
 	m_bTransportSticky = false;
 
 	// Schedule us to wake up immediately and deal with it.
-	m_usecNextEvaluateTransport = 0;
+	m_usecNextEvaluateTransport = k_nThinkTime_ASAP;
 	SetNextThinkTimeASAP();
 }
 
@@ -407,7 +407,7 @@ void CSteamNetworkConnectionP2P::ConnectionStateChanged( ESteamNetworkingConnect
 			break;
 
 		case k_ESteamNetworkingConnectionState_FindingRoute:
-			m_usecNextEvaluateTransport = 0;
+			m_usecNextEvaluateTransport = k_nThinkTime_ASAP;
 			m_bTransportSticky = false; // Not sure how we could have set this flag, but make sure and clear it
 			SetNextThinkTimeASAP();
 			break;
