@@ -746,6 +746,9 @@ void CConnectionTransportUDPBase::Received_Data( const uint8 *pPkt, int cbPkt, S
 	if ( nFullSequenceNumber <= 0 )
 		return;
 
+	// This is a valid packet.  P2P connections might want to make a note of this
+	RecvValidUDPDataPacket( usecNow );
+
 	// Process plaintext
 	if ( !m_connection.ProcessPlainTextDataChunk( nFullSequenceNumber, pDecrypted, cbDecrypted, 0, this, usecNow ) )
 		return;
@@ -753,6 +756,11 @@ void CConnectionTransportUDPBase::Received_Data( const uint8 *pPkt, int cbPkt, S
 	// Process the stats, if any
 	if ( pMsgStatsIn )
 		RecvStats( *pMsgStatsIn, true, usecNow );
+}
+
+void CConnectionTransportUDPBase::RecvValidUDPDataPacket( SteamNetworkingMicroseconds usecNow )
+{
+	// Base class doesn't care
 }
 
 void CConnectionTransportUDPBase::SendEndToEndStatsMsg( EStatsReplyRequest eRequest, SteamNetworkingMicroseconds usecNow, const char *pszReason )
