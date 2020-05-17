@@ -208,6 +208,7 @@ struct PingTrackerForRouteSelection : PingTracker
 	static constexpr int k_nTimeBucketCount = 10;
 	static constexpr SteamNetworkingMicroseconds k_usecTimeBucketWidth = k_nMillion; // Desired width of each time bucket
 	static constexpr int k_nPingOverride_None = -2; // Ordinary operation.  (-1 is a legit ping time, which means "ping failed")
+	static constexpr SteamNetworkingMicroseconds k_usecAntiFlapRouteCheckPingInterval = 200*1000;
 
 	struct TimeBucket
 	{
@@ -299,11 +300,41 @@ struct PingTrackerForRouteSelection : PingTracker
 	}
 
 	/// Return true if the next ping received will start a new bucket
-	bool BReadyToStartNewBucket( SteamNetworkingMicroseconds usecNow ) const
+	SteamNetworkingMicroseconds TimeToSendNextAntiFlapRouteCheckPingRequest() const
 	{
-		return m_arTimeBuckets[ m_idxCurrentBucket ].m_usecEnd < usecNow;
+		return std::min(
+			m_arTimeBuckets[ m_idxCurrentBucket ].m_usecEnd, // time to start next bucket
+			m_usecTimeLastSentPingRequest + k_usecAntiFlapRouteCheckPingInterval // and then send them at a given rate
+		);
 	}
 
+	// Get the min/max ping value among recent buckets.
+	// Returns the number of valid buckets used to collect the data.
+	int GetPingRangeFromRecentBuckets( int &nOutMin, int &nOutMax, SteamNetworkingMicroseconds usecNow ) const
+	{
+		int nMin = m_nSmoothedPing;
+		int nMax = m_nSmoothedPing;
+		int nBucketsValid = 0;
+		if ( m_nSmoothedPing >= 0 )
+		{
+			SteamNetworkingMicroseconds usecRecentEndThreshold = usecNow - ( (k_nTimeBucketCount-1) * k_usecTimeBucketWidth );
+			for ( const TimeBucket &bucket: m_arTimeBuckets )
+			{
+				if ( bucket.m_usecEnd >= usecRecentEndThreshold )
+				{
+					Assert( bucket.m_nPingCount > 0 );
+					Assert( 0 <= bucket.m_nMinPing );
+					Assert( bucket.m_nMinPing <= bucket.m_nMaxPing );
+					++nBucketsValid;
+					nMin = std::min( nMin, bucket.m_nMinPing );
+					nMax = std::max( nMax, bucket.m_nMaxPing );
+				}
+			}
+		}
+		nOutMin = nMin;
+		nOutMax = nMax;
+		return nBucketsValid;
+	}
 };
 
 /// Token bucket rate limiter
