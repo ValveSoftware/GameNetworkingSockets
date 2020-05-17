@@ -2791,7 +2791,7 @@ void CSteamNetworkConnectionBase::ThinkConnection( SteamNetworkingMicroseconds u
 {
 }
 
-void CSteamNetworkConnectionBase::ProcessSNPPing( int64 nPktNum, CConnectionTransport *pTransport, int msPing, SteamNetworkingMicroseconds usecNow )
+void CSteamNetworkConnectionBase::ProcessSNPPing( int64 nPktNumBeingAcked, CConnectionTransport *pTransport, int msPing, SteamNetworkingMicroseconds usecNow )
 {
 	m_statsEndToEnd.m_ping.ReceivedPing( msPing, usecNow );
 }

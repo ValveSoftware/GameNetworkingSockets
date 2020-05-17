@@ -654,7 +654,7 @@ protected:
 	SSNPReceiverState m_receiverState;
 
 	/// Called from SNP layer when it decodes a packet that serves as a ping measurement
-	virtual void ProcessSNPPing( int64 nPktNum, CConnectionTransport *pTransport, int msPing, SteamNetworkingMicroseconds usecNow );
+	virtual void ProcessSNPPing( int64 nPktNumBeingAcked, CConnectionTransport *pTransport, int msPing, SteamNetworkingMicroseconds usecNow );
 
 private:
 

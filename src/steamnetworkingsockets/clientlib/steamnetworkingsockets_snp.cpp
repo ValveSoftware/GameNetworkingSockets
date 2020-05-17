@@ -875,7 +875,7 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int64 nPktNum, cons
 						// Clamp, if we have slop
 						if ( msPing < 0 )
 							msPing = 0;
-						ProcessSNPPing( nPktNum, pTransport, msPing, usecNow );
+						ProcessSNPPing( nLatestRecvSeqNum, pTransport, msPing, usecNow );
 
 						// Spew
 						SpewVerboseGroup( m_connectionConfig.m_LogLevel_AckRTT.Get(), "[%s] decode pkt %lld latest recv %lld delay %.1fms elapsed %.1fms ping %dms\n",
