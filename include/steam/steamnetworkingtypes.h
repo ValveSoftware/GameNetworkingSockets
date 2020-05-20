@@ -581,8 +581,8 @@ enum ESteamNetTransportKind
 	k_ESteamNetTransport_Unknown = 0,
 	k_ESteamNetTransport_LoopbackBuffers = 1, // Internal buffers, not using OS network stack
 	k_ESteamNetTransport_LocalHost = 2, // Using OS network stack to talk to localhost address
-	k_ESteamNetTransport_UDP = 3, // Ordinary UDP connection, remote address is not a LAN address
-	k_ESteamNetTransport_UDPLan = 4, // Ordinary UDP connection, remote address is a LAN address
+	k_ESteamNetTransport_UDP = 3, // Ordinary UDP connection.
+	k_ESteamNetTransport_UDPProbablyLocal = 4, // Ordinary UDP connection over a route that appears to be "local", meaning we think it is probably fast.  This is just a guess: VPNs and IPv6 make this pretty fuzzy.
 	k_ESteamNetTransport_TURN = 5, // Relayed over TURN server
 	k_ESteamNetTransport_SDRP2P = 6, // P2P connection relayed over Steam Datagram Relay
 	k_ESteamNetTransport_SDRHostedServer = 7, // Connection to a server hosted in a known data center via Steam Datagram Relay
@@ -1117,13 +1117,21 @@ enum ESteamNetworkingConfigValue
 
 	/// [connection string] Comma-separated list of STUN servers that can be used
 	/// for NAT piercing.  If you set this to an empty string, NAT piercing will
-	/// not be attempted
+	/// not be attempted.  Also if "public" candidates are not allowed for
+	/// P2P_Transport_ICE_Enable, then this is ignored.
 	k_ESteamNetworkingConfig_P2P_STUN_ServerList = 103,
 
-//	/// [connection string] Comma-separated list of TURN servers that can be used
-//	/// for relay.  If you set this to an empty string, relaying over TURN will
-//	/// not be attempted
-//	k_ESteamNetworkingConfig_P2P_TURN_ServerList = 104,
+	/// [connection int32] What types of ICE candidates to share with the peer.
+	/// See k_nSteamNetworkingConfig_P2P_Transport_ICE_Enable_xxx values
+	k_ESteamNetworkingConfig_P2P_Transport_ICE_Enable = 104,
+
+	/// [connection int32] When selecting P2P transport, add various
+	/// penalties to the scores for selected transports.  (Route selection
+	/// scores are on a scale of milliseconds.  The score begins with the
+	/// route ping time and is then adjusted.)
+	k_ESteamNetworkingConfig_P2P_Transport_ICE_Penalty = 105,
+	k_ESteamNetworkingConfig_P2P_Transport_SDR_Penalty = 106,
+	//k_ESteamNetworkingConfig_P2P_Transport_LANBeacon_Penalty = 107,
 
 	//
 	// Settings for SDR relayed connections
@@ -1191,6 +1199,14 @@ enum ESteamNetworkingConfigValue
 
 	k_ESteamNetworkingConfigValue__Force32Bit = 0x7fffffff
 };
+
+// Bitmask of types to share
+const int k_nSteamNetworkingConfig_P2P_Transport_ICE_Enable_Default = -1; // Special value - use user defaults
+const int k_nSteamNetworkingConfig_P2P_Transport_ICE_Enable_Disable = 0; // Do not do any ICE work at all or share any IP addresses with peer
+const int k_nSteamNetworkingConfig_P2P_Transport_ICE_Enable_Relay = 1; // Relayed connection via TURN server.
+const int k_nSteamNetworkingConfig_P2P_Transport_ICE_Enable_Private = 2; // host addresses that appear to be link-local or RFC1918 addresses
+const int k_nSteamNetworkingConfig_P2P_Transport_ICE_Enable_Public = 4; // STUN reflexive addresses, or host address that isn't a "private" address
+const int k_nSteamNetworkingConfig_P2P_Transport_ICE_Enable_All = 0x7fffffff;
 
 /// In a few places we need to set configuration options on listen sockets and connections, and
 /// have them take effect *before* the listen socket or connection really starts doing anything.

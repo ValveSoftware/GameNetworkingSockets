@@ -12,6 +12,7 @@ struct P2PSessionState_t;
 namespace SteamNetworkingSocketsLib {
 
 class CSteamNetworkConnectionBase;
+class CConnectionTransport;
 struct SteamNetworkingMessageQueue;
 
 /// Actual implementation of SteamNetworkingMessage_t, which is the API
@@ -152,6 +153,11 @@ struct SNPRange_t
 /// we remove packets from this list.
 struct SNPInFlightPacket_t
 {
+	//
+	// FIXME - Could definitely pack this structure better.  And maybe
+	//         worth it to optimize cache
+	//
+
 	/// Local timestamp when we sent it
 	SteamNetworkingMicroseconds m_usecWhenSent;
 
@@ -159,6 +165,9 @@ struct SNPInFlightPacket_t
 	/// packet as being skipped?  Note that we might subsequently get an
 	/// an ack for this same packet, that's OK!
 	bool m_bNack;
+
+	/// Transport used to send
+	CConnectionTransport *m_pTransport;
 
 	/// List of reliable segments.  Ignoring retransmission,
 	/// there really is no reason why we we would need to have

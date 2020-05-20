@@ -23,8 +23,6 @@ enum ESteamNetworkingUDPMsgID
 	k_ESteamNetworkingUDPMsg_ConnectOK = 35;				// Server->client
 	k_ESteamNetworkingUDPMsg_ConnectionClosed = 36;			// Client<->server.  A reply is requested to this packet
 	k_ESteamNetworkingUDPMsg_NoConnection = 37;				// Client<->server.  A reply should never be sent to this packet
-	//k_ESteamNetworkingUDPMsg_Stats = 38;					// Client<->server.  Standalone stats message.  DEPRECATED.  Always sent as empty "data" packet now.
-	k_ESteamNetworkingUDPMsg_ICEPingCheck = 39;				// Peer-to-peer, confirm end-to-end ICE connectivity
 };
 
 // k_ESteamNetworkingUDPMsg_ChallengeRequest
@@ -143,20 +141,13 @@ message CMsgSteamSockets_UDP_Stats
 		//ACK_REQUEST_RELAY = 1; // Reserved
 		ACK_REQUEST_E2E = 2;
 		ACK_REQUEST_IMMEDIATE = 4;
+		//NOT_PRIMARY_SESSION = 8; // Reserved
+		NOT_PRIMARY_TRANSPORT_E2E = 16; 
 	};
 
 	/// Additional flags.  Should we try to put these in the
 	/// message header and save a few bytes?
 	optional uint32 flags = 3;
-};
-
-// k_ESteamNetworkingUDPMsg_ICEPingCheck
-message CMsgSteamSockets_UDP_ICEPingCheck
-{
-	optional fixed64 send_timestamp = 1; // If present, receiver should immediately reply with this in recv_timestamp
-	optional fixed64 recv_timestamp = 2;
-	optional fixed32 to_connection_id = 3;
-	optional fixed32 from_connection_id = 4;
 };
 
 // Do not remove this comment due to a bug on the Mac OS X protobuf compiler

@@ -206,8 +206,8 @@ message CMsgICERendezvous
 	// ICE candidate
 	message Candidate
 	{
-		optional string sdpm_id = 1;
-		optional uint32 sdpm_line_index = 2;
+		//optional string sdpm_id = 1;
+		//optional uint32 sdpm_line_index = 2;
 		optional string candidate = 3;
 	}
 	optional Candidate add_candidate = 1;
@@ -282,6 +282,22 @@ message CMsgSteamNetworkingP2PRendezvous
 		optional CMsgICERendezvous ice = 1; // Currently only ICE uses the reliable message stream, but this may change
 	}
 	repeated ReliableMessage reliable_messages = 13;
+};
+
+// A summary of what happened in an ICE session, for analytics
+message CMsgSteamNetworkingSocketsICESessionSummary
+{
+	// What types of candidates were we able to gather?
+	// Should always be present
+	optional uint32 local_candidate_types = 1;
+
+	// What types of candidates did we receive from peer?
+	optional uint32 remote_candidate_types = 2;
+
+	// Initial route type, and ping, when when we first pierced NAT.
+	// Will not be present if we never pierced NAT
+	optional uint32 initial_route_kind = 3; // ESteamNetTransportKind
+	optional uint32 initial_ping = 4;
 };
 
 // Do not remove this comment due to a bug on the Mac OS X protobuf compiler

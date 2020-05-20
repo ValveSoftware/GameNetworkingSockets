@@ -14,9 +14,9 @@
 
 extern "C" CreateICESession_t g_SteamNetworkingSockets_CreateICESessionFunc;
 
-class CMsgSteamSockets_UDP_ICEPingCheck;
-
 namespace SteamNetworkingSocketsLib {
+
+constexpr int k_nMinPingTimeLocalTolerance = 5;
 
 class CSteamNetworkConnectionP2P;
 struct UDPSendPacketContext_t;
@@ -24,6 +24,7 @@ struct UDPSendPacketContext_t;
 /// Transport for peer-to-peer connection using WebRTC
 class CConnectionTransportP2PICE final
 : public CConnectionTransportUDPBase
+, public CConnectionTransportP2PBase
 , public IThinker
 , private IICESessionDelegate
 {
@@ -40,11 +41,13 @@ public:
 	virtual void TransportPopulateConnectionInfo( SteamNetConnectionInfo_t &info ) const override;
 	virtual void GetDetailedConnectionStatus( SteamNetworkingDetailedConnectionStatus &stats, SteamNetworkingMicroseconds usecNow ) override;
 	virtual void TransportFreeResources() override;
-	virtual void TransportConnectionStateChanged( ESteamNetworkingConnectionState eOldState ) override;
 	virtual bool BCanSendEndToEndData() const override;
 
 	// IThinker
 	virtual void Think( SteamNetworkingMicroseconds usecNow ) override;
+
+	// CConnectionTransportP2PBase
+	virtual void P2PTransportUpdateRouteMetrics( SteamNetworkingMicroseconds usecNow ) override;
 
 	/// Fill in SDR-specific fields to signal
 	void PopulateRendezvousMsg( CMsgSteamNetworkingP2PRendezvous &msg, SteamNetworkingMicroseconds usecNow );
@@ -52,29 +55,14 @@ public:
 
 	inline int LogLevel_P2PRendezvous() const { return m_connection.m_connectionConfig.m_LogLevel_P2PRendezvous.Get(); }
 
-	void NotifyConnectionFailed( int nReasonCode, const char *pszReason );
-	void QueueSelfDestruct();
-
 	// In certain circumstances we may need to buffer packets
 	std::mutex m_mutexPacketQueue;
 	CUtlBuffer m_bufPacketQueue;
 
-	// Some basic stats tracking about ping times.  Currently these only track the pings
-	// explicitly sent at this layer.  Ideally we would hook into the SNP code, because
-	// almost every data packet we send contains ping-related information.
-	PingTrackerForRouteSelection m_ping;
-	SteamNetworkingMicroseconds m_usecTimeLastRecv;
-	SteamNetworkingMicroseconds m_usecInFlightReplyTimeout;
-	int m_nReplyTimeoutsSinceLastRecv;
-	int m_nTotalPingsSent;
-
-	/// True if we need to take aggressive action to confirm
-	/// end-to-end connectivity.  This will be the case when
-	/// doing initial route finding, or if we aren't sure about
-	/// end-to-end connectivity because we lost all of our
-	/// sessions, etc.  Once we get some data packets, we set
-	/// this flag to false.
-	bool m_bNeedToConfirmEndToEndConnectivity;
+	//EICECandidateType m_eCurrentRouteLocalCandidateType;
+	//EICECandidateType m_eCurrentRouteRemoteCandidateType;
+	SteamNetworkingIPAddr m_currentRouteRemoteAddress;
+	ESteamNetTransportKind m_eCurrentRouteKind;
 
 private:
 	IICESession *m_pICESession;
@@ -82,19 +70,21 @@ private:
 	// Implements IICESessionDelegate
 	virtual void Log( IICESessionDelegate::ELogPriority ePriority, const char *pszMessageFormat, ... ) override;
 	virtual void OnData( const void *pData, size_t nSize ) override;
-	virtual void OnIceCandidateAdded( const char *pszSDPMid, int nSDPMLineIndex, const char *pszCandidate ) override;
+	virtual void OnLocalCandidateGathered( EICECandidateType eType, const char *pszCandidate ) override;
 	virtual void OnWritableStateChanged() override;
+	virtual void OnRouteChanged() override;
+
+	void RouteOrWritableStateChanged();
+	void UpdateRoute();
 
 	void DrainPacketQueue( SteamNetworkingMicroseconds usecNow );
 	void ProcessPacket( const uint8_t *pData, int cbPkt, SteamNetworkingMicroseconds usecNow );
-	void Received_PingCheck( const CMsgSteamSockets_UDP_ICEPingCheck &msg, SteamNetworkingMicroseconds usecNow );
 
 	// Implements CConnectionTransportUDPBase
 	virtual bool SendPacket( const void *pkt, int cbPkt ) override;
 	virtual bool SendPacketGather( int nChunks, const iovec *pChunks, int cbSendTotal ) override;
-
-	// FIXME - Need to figure out when this will be called
-	void TrackSentPingRequest( SteamNetworkingMicroseconds usecNow, bool bAllowDelayedReply );
+	virtual void TrackSentStats( UDPSendPacketContext_t &ctx ) override;
+	virtual void RecvValidUDPDataPacket( UDPRecvPacketContext_t &ctx ) override;
 };
 
 } // namespace SteamNetworkingSocketsLib

@@ -483,6 +483,22 @@ inline void NetAdrToSteamNetworkingIPAddr( SteamNetworkingIPAddr &addr, const ne
 	addr.m_port = netadr.GetPort();
 }
 
+inline bool AddrEqual( const SteamNetworkingIPAddr &s, const netadr_t &n )
+{
+	if ( s.m_port != n.GetPort() )
+		return false;
+	switch ( n.GetType() )
+	{
+		case k_EIPTypeV4:
+			return s.GetIPv4() == n.GetIPv4();
+
+		case k_EIPTypeV6:
+			return memcmp( s.m_ipv6, n.GetIPV6Bytes(), 16 ) == 0;
+	}
+
+	return false;
+}
+
 template <typename T>
 inline int64 NearestWithSameLowerBits( T nLowerBits, int64 nReference )
 {
@@ -692,15 +708,17 @@ struct ConnectionConfig
 	ConfigValue<int32> m_LogLevel_PacketDecode;
 	ConfigValue<int32> m_LogLevel_Message;
 	ConfigValue<int32> m_LogLevel_PacketGaps;
+	ConfigValue<int32> m_LogLevel_P2PRendezvous;
 
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
 		ConfigValue<std::string> m_P2P_STUN_ServerList;
+		ConfigValue<int32> m_P2P_Transport_ICE_Enable;
+		ConfigValue<int32> m_P2P_Transport_ICE_Penalty;
 	#endif
-
-	ConfigValue<int32> m_LogLevel_P2PRendezvous;
 
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 		ConfigValue<std::string> m_SDRClient_DebugTicketAddress;
+		ConfigValue<int32> m_P2P_Transport_SDR_Penalty;
 	#endif
 
 	void Init( ConnectionConfig *pInherit );

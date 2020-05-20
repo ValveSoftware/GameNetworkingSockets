@@ -9,6 +9,8 @@
 
 namespace SteamNetworkingSocketsLib {
 
+class CConnectionTransportUDPBase;
+
 #pragma pack( push, 1 )
 
 const int k_cbSteamNetworkingMinPaddedPacketSize = 512;
@@ -48,11 +50,15 @@ struct UDPSendPacketContext_t : SendPacketContext<CMsgSteamSockets_UDP_Stats>
 	inline explicit UDPSendPacketContext_t( SteamNetworkingMicroseconds usecNow, const char *pszReason ) : SendPacketContext<CMsgSteamSockets_UDP_Stats>( usecNow, pszReason ) {}
 	int m_nStatsNeed;
 
-	void Populate( size_t cbHdrtReserve, EStatsReplyRequest eReplyRequested, CSteamNetworkConnectionBase &connection );
+	void Populate( size_t cbHdrtReserve, EStatsReplyRequest eReplyRequested, CConnectionTransportUDPBase *pTransport );
 
 	void Trim( int cbHdrOutSpaceRemaining );
 };
 
+struct UDPRecvPacketContext_t : RecvPacketContext_t
+{
+	CMsgSteamSockets_UDP_Stats *m_pStatsIn;
+};
 
 extern std::string DescribeStatsContents( const CMsgSteamSockets_UDP_Stats &msg );
 extern bool BCheckRateLimitReportBadPacket( SteamNetworkingMicroseconds usecNow );
@@ -63,6 +69,8 @@ extern void ReallyReportBadUDPPacket( const char *pszFrom, const char *pszMsgTyp
 
 #define ReportBadUDPPacketFromConnectionPeer( pszMsgType, /* fmt */ ... ) \
 	ReportBadUDPPacketFrom( ConnectionDescription(), pszMsgType, __VA_ARGS__ )
+
+extern bool IsRouteToAddressProbablyLocal( netadr_t addr );
 
 /////////////////////////////////////////////////////////////////////////////
 //
@@ -138,11 +146,10 @@ protected:
 	virtual bool SendPacketGather( int nChunks, const iovec *pChunks, int cbSendTotal ) = 0;
 
 	/// Process stats message, either inline or standalone
-	void RecvStats( const CMsgSteamSockets_UDP_Stats &msgStatsIn, bool bInline, SteamNetworkingMicroseconds usecNow );
-	void SendStatsMsg( EStatsReplyRequest eReplyRequested, SteamNetworkingMicroseconds usecNow, const char *pszReason );
-	virtual void TrackSentStats( const CMsgSteamSockets_UDP_Stats &msgStatsOut, bool bInline, SteamNetworkingMicroseconds usecNow );
+	void RecvStats( const CMsgSteamSockets_UDP_Stats &msgStatsIn, SteamNetworkingMicroseconds usecNow );
+	virtual void TrackSentStats( UDPSendPacketContext_t &ctx );
 
-	virtual void RecvValidUDPDataPacket( SteamNetworkingMicroseconds usecNow );
+	virtual void RecvValidUDPDataPacket( UDPRecvPacketContext_t &ctx );
 };
 
 

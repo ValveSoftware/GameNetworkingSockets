@@ -1841,35 +1841,36 @@ int CSteamNetworkConnectionBase::APIReceiveMessages( SteamNetworkingMessage_t **
 	return m_queueRecvMessages.RemoveMessages( ppOutMessages, nMaxMessages );
 }
 
-int64 CSteamNetworkConnectionBase::DecryptDataChunk( uint16 nWireSeqNum, int cbPacketSize, const void *pChunk, int cbChunk, void *&pDecrypted, uint32 &cbDecrypted, SteamNetworkingMicroseconds usecNow )
+bool CSteamNetworkConnectionBase::DecryptDataChunk( uint16 nWireSeqNum, int cbPacketSize, const void *pChunk, int cbChunk, RecvPacketContext_t &ctx )
 {
-	Assert( m_bCryptKeysValid );
-	Assert( cbDecrypted >= k_cbSteamNetworkingSocketsMaxPlaintextPayloadRecv );
-
-	// Track flow, even if we end up discarding this
-	m_statsEndToEnd.TrackRecvPacket( cbPacketSize, usecNow );
+	Assert( m_bCryptKeysValid && BStateIsActive() );
 
 	// Get the full end-to-end packet number, check if we should process it
 	// FIXME This is firing.  Should enable it and fix it.  but things were working before, and I
 	// don't want to freak people out with asserts that are probably harmless
 	//Assert( m_statsEndToEnd.m_nMaxRecvPktNum > 0 );
-	int64 nFullSequenceNumber = m_statsEndToEnd.ExpandWirePacketNumberAndCheck( nWireSeqNum );
-	if ( nFullSequenceNumber <= 0 )
-		return 0;
+	ctx.m_nPktNum = m_statsEndToEnd.ExpandWirePacketNumberAndCheck( nWireSeqNum );
+	if ( ctx.m_nPktNum <= 0 )
+	{
+
+		// Update raw packet counters numbers, but do not update any logical state suc as reply timeouts, etc
+		m_statsEndToEnd.m_recv.ProcessPacket( cbPacketSize );
+		return false;
+	}
 
 	// What cipher are we using?
 	switch ( m_eNegotiatedCipher )
 	{
 		default:
 			AssertMsg1( false, "Bogus cipher %d", m_eNegotiatedCipher );
-			return 0;
+			return false;
 
 		case k_ESteamNetworkingSocketsCipher_NULL:
 		{
 
 			// No encryption!
-			cbDecrypted = cbChunk;
-			pDecrypted = const_cast<void*>( pChunk );
+			ctx.m_cbPlainText = cbChunk;
+			ctx.m_pPlainText = pChunk;
 		}
 		break;
 
@@ -1877,7 +1878,7 @@ int64 CSteamNetworkConnectionBase::DecryptDataChunk( uint16 nWireSeqNum, int cbP
 		{
 
 			// Adjust the IV by the packet number
-			*(uint64 *)&m_cryptIVRecv.m_buf += LittleQWord( nFullSequenceNumber );
+			*(uint64 *)&m_cryptIVRecv.m_buf += LittleQWord( ctx.m_nPktNum );
 			//SpewMsg( "Recv decrypt IV %llu + %02x%02x%02x%02x  encrypted %d %02x%02x%02x%02x\n",
 			//	*(uint64 *)&m_cryptIVRecv.m_buf,
 			//	m_cryptIVRecv.m_buf[8], m_cryptIVRecv.m_buf[9], m_cryptIVRecv.m_buf[10], m_cryptIVRecv.m_buf[11],
@@ -1886,15 +1887,16 @@ int64 CSteamNetworkConnectionBase::DecryptDataChunk( uint16 nWireSeqNum, int cbP
 			//);
 
 			// Decrypt the chunk and check the auth tag
+			uint32 cbDecrypted = sizeof(ctx.m_decrypted);
 			bool bDecryptOK = m_cryptContextRecv.Decrypt(
 				pChunk, cbChunk, // encrypted
 				m_cryptIVRecv.m_buf, // IV
-				pDecrypted, &cbDecrypted, // output
+				ctx.m_decrypted, &cbDecrypted, // output
 				nullptr, 0 // no AAD
 			);
 
 			// Restore the IV to the base value
-			*(uint64 *)&m_cryptIVRecv.m_buf -= LittleQWord( nFullSequenceNumber );
+			*(uint64 *)&m_cryptIVRecv.m_buf -= LittleQWord( ctx.m_nPktNum );
 	
 			// Did decryption fail?
 			if ( !bDecryptOK ) {
@@ -1903,9 +1905,15 @@ int64 CSteamNetworkConnectionBase::DecryptDataChunk( uint16 nWireSeqNum, int cbP
 				// The assumption is that we either have a bug or some weird thing,
 				// or that somebody is spoofing / tampering.  If it's the latter
 				// we don't want to magnify the impact of their efforts
-				SpewWarningRateLimited( usecNow, "[%s] Packet data chunk failed to decrypt!  Could be tampering/spoofing or a bug.", GetDescription() );
-				return 0;
+				SpewWarningRateLimited( ctx.m_usecNow, "[%s] Packet data chunk failed to decrypt!  Could be tampering/spoofing or a bug.", GetDescription() );
+
+				// Update raw packet counters numbers, but do not update any logical state suc as reply timeouts, etc
+				m_statsEndToEnd.m_recv.ProcessPacket( cbPacketSize );
+				return false;
 			}
+
+			ctx.m_cbPlainText = (int)cbDecrypted;
+			ctx.m_pPlainText = ctx.m_decrypted;
 
 			//SpewVerbose( "Connection %u recv seqnum %lld (gap=%d) sz=%d %02x %02x %02x %02x\n", m_unConnectionID, unFullSequenceNumber, nGap, cbDecrypted, arDecryptedChunk[0], arDecryptedChunk[1], arDecryptedChunk[2], arDecryptedChunk[3] );
 		}
@@ -1927,17 +1935,18 @@ int64 CSteamNetworkConnectionBase::DecryptDataChunk( uint16 nWireSeqNum, int cbP
 	// with a lower rate.  If the app is really trying to fill the pipe and blasting a large
 	// amount of data (and not forcing us to send small packets), then our code should be sending
 	// mostly full packets, which means that this is closer to a gap of around ~18MB.
-	int64 nGap = nFullSequenceNumber - m_statsEndToEnd.m_nMaxRecvPktNum;
+	int64 nGap = ctx.m_nPktNum - m_statsEndToEnd.m_nMaxRecvPktNum;
 	if ( nGap > 0x4000 )
 	{
 		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_Generic,
 			"Pkt number lurch by %lld; %04x->%04x",
 			(long long)nGap, (uint16)m_statsEndToEnd.m_nMaxRecvPktNum, nWireSeqNum);
-		return 0;
+		return false;
 	}
 
-	// Decrypted ok
-	return nFullSequenceNumber;
+	// Decrypted ok.  Track flow, and allow this packet to update the logical state, reply timeouts, etc
+	m_statsEndToEnd.TrackRecvPacket( cbPacketSize, ctx.m_usecNow );
+	return true;
 }
 
 EResult CSteamNetworkConnectionBase::APIAcceptConnection()
@@ -2758,9 +2767,9 @@ void CSteamNetworkConnectionBase::ThinkConnection( SteamNetworkingMicroseconds u
 {
 }
 
-void CSteamNetworkConnectionBase::ProcessSNPPing( int64 nPktNumBeingAcked, CConnectionTransport *pTransport, int msPing, SteamNetworkingMicroseconds usecNow )
+void CSteamNetworkConnectionBase::ProcessSNPPing( int msPing, RecvPacketContext_t &ctx )
 {
-	m_statsEndToEnd.m_ping.ReceivedPing( msPing, usecNow );
+	m_statsEndToEnd.m_ping.ReceivedPing( msPing, ctx.m_usecNow );
 }
 
 SteamNetworkingMicroseconds CSteamNetworkConnectionBase::ThinkConnection_FindingRoute( SteamNetworkingMicroseconds usecNow )

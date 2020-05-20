@@ -179,6 +179,7 @@ SSNPSenderState::SSNPSenderState()
 	m_mapInFlightPacketsByPktNum.clear();
 	SNPInFlightPacket_t &sentinel = m_mapInFlightPacketsByPktNum[INT64_MIN];
 	sentinel.m_bNack = false;
+	sentinel.m_pTransport = nullptr;
 	sentinel.m_usecWhenSent = 0;
 	m_itNextInFlightPacketToTimeout = m_mapInFlightPacketsByPktNum.end();
 }
@@ -446,7 +447,7 @@ EResult CSteamNetworkConnectionBase::SNP_FlushMessage( SteamNetworkingMicrosecon
 	return k_EResultOK;
 }
 
-bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int64 nPktNum, const void *pPlainText, int cbPlainText, int usecTimeSinceLast, CConnectionTransport *pTransport, SteamNetworkingMicroseconds usecNow )
+bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLast, RecvPacketContext_t &ctx )
 {
 	#define DECODE_ERROR( ... ) do { \
 		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_InternalError, __VA_ARGS__ ); \
@@ -512,14 +513,17 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int64 nPktNum, cons
 		pDecode += cbSegmentSize;
 
 	// Make sure we have initialized the connection
-	Assert( BStateIsConnectedForWirePurposes() );
+	Assert( BStateIsActive() );
+
+	SteamNetworkingMicroseconds usecNow = ctx.m_usecNow;
+	int64 nPktNum = ctx.m_nPktNum;
 
 	int nLogLevelPacketDecode = m_connectionConfig.m_LogLevel_PacketDecode.Get();
 	SpewVerboseGroup( nLogLevelPacketDecode, "[%s] decode pkt %lld\n", GetDescription(), (long long)nPktNum );
 
 	// Decode frames until we get to the end of the payload
-	const byte *pDecode = (const byte *)pPlainText;
-	const byte *pEnd = pDecode + cbPlainText;
+	const byte *pDecode = (const byte *)ctx.m_pPlainText;
+	const byte *pEnd = pDecode + ctx.m_cbPlainText;
 	int64 nCurMsgNum = 0;
 	int64 nDecodeReliablePos = 0;
 	while ( pDecode < pEnd )
@@ -818,7 +822,7 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int64 nPktNum, cons
 			{
 				uint16 nPackedDelay;
 				READ_16BITU( nPackedDelay, "ack delay" );
-				if ( nPackedDelay != 0xffff && inFlightPkt->first == nLatestRecvSeqNum )
+				if ( nPackedDelay != 0xffff && inFlightPkt->first == nLatestRecvSeqNum && inFlightPkt->second.m_pTransport == ctx.m_pTransport )
 				{
 					SteamNetworkingMicroseconds usecDelay = SteamNetworkingMicroseconds( nPackedDelay ) << k_nAckDelayPrecisionShift;
 					SteamNetworkingMicroseconds usecElapsed = usecNow - inFlightPkt->second.m_usecWhenSent;
@@ -852,7 +856,7 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int64 nPktNum, cons
 						// Clamp, if we have slop
 						if ( msPing < 0 )
 							msPing = 0;
-						ProcessSNPPing( nLatestRecvSeqNum, pTransport, msPing, usecNow );
+						ProcessSNPPing( msPing, ctx );
 
 						// Spew
 						SpewVerboseGroup( m_connectionConfig.m_LogLevel_AckRTT.Get(), "[%s] decode pkt %lld latest recv %lld delay %.1fms elapsed %.1fms ping %dms\n",
@@ -1339,7 +1343,7 @@ inline bool HasOverlappingRange( const SNPRange_t &range, const std::map<SNPRang
 bool CSteamNetworkConnectionBase::SNP_SendPacket( CConnectionTransport *pTransport, SendPacketContext_t &ctx )
 {
 	// Make sure we have initialized the connection
-	Assert( BStateIsConnectedForWirePurposes() );
+	Assert( BStateIsActive() );
 	Assert( !m_senderState.m_mapInFlightPacketsByPktNum.empty() );
 
 	// We must have transport!
@@ -1415,19 +1419,18 @@ bool CSteamNetworkConnectionBase::SNP_SendPacket( CConnectionTransport *pTranspo
 		}
 	}
 
-	// Check if we don't actually have bandwidth to send data, then don't.
-	//
-	// FIXME: Should we ever send data in a transport that is not the currently
-	// selected one.  Seems OK to send acks and stuff.
-	// Also, should we use a different token bucket per transport?
-	if ( m_senderState.m_flTokenBucket < 0.0 )
-	{
+	// Check if we are actually going to send data in this packet
+	if (
+		m_senderState.m_flTokenBucket < 0.0 // No bandwidth available.  (Presumably this is a relatively rare out-of-band connectivity check, etc)  FIXME should we use a different token bucket per transport?
+		|| !BStateIsConnectedForWirePurposes() // not actually in a connection stats where we should be sending real data yet
+		|| pTransport != m_pTransport // transport is not the selected transport
+	) {
 
 		// Serialize some acks, if we want to
 		if ( cbReserveForAcks > 0 )
 		{
-			// But if we're goig to send any acks, then send all of them,
-			// not just the bare minimum.
+			// But if we're going to send any acks, then try to send as many
+			// as possible, not just the bare minimum.
 			pPayloadPtr = SNP_SerializeAckBlocks( ackHelper, pPayloadPtr, pPayloadEnd, usecNow );
 			if ( pPayloadPtr == nullptr )
 				return false; // bug!  Abort
@@ -1437,6 +1440,8 @@ bool CSteamNetworkConnectionBase::SNP_SendPacket( CConnectionTransport *pTranspo
 		}
 
 		// Truncate the buffer, don't try to fit any data
+		// !SPEED! - instead of doing this, we could just put all of the segment code below
+		// in an else() block.
 		pPayloadEnd = pPayloadPtr;
 	}
 
@@ -1662,7 +1667,7 @@ bool CSteamNetworkConnectionBase::SNP_SendPacket( CConnectionTransport *pTranspo
 	// We are gonna send a packet.  Start filling out an entry so that when it's acked (or nacked)
 	// we can know what to do.
 	Assert( m_senderState.m_mapInFlightPacketsByPktNum.lower_bound( m_statsEndToEnd.m_nNextSendSequenceNumber ) == m_senderState.m_mapInFlightPacketsByPktNum.end() );
-	std::pair<int64,SNPInFlightPacket_t> pairInsert( m_statsEndToEnd.m_nNextSendSequenceNumber, SNPInFlightPacket_t{ usecNow, false, {} } );
+	std::pair<int64,SNPInFlightPacket_t> pairInsert( m_statsEndToEnd.m_nNextSendSequenceNumber, SNPInFlightPacket_t{ usecNow, false, pTransport, {} } );
 	SNPInFlightPacket_t &inFlightPkt = pairInsert.second;
 
 	// We might have gone over exactly one byte, because we counted the size byte of the last
@@ -1877,6 +1882,13 @@ bool CSteamNetworkConnectionBase::SNP_SendPacket( CConnectionTransport *pTranspo
 	// We spent some tokens
 	m_senderState.m_flTokenBucket -= (float)nBytesSent;
 	return true;
+}
+
+void CSteamNetworkConnectionBase::SNP_SentNonDataPacket( CConnectionTransport *pTransport, SteamNetworkingMicroseconds usecNow )
+{
+	std::pair<int64,SNPInFlightPacket_t> pairInsert( m_statsEndToEnd.m_nNextSendSequenceNumber-1, SNPInFlightPacket_t{ usecNow, false, pTransport, {} } );
+	auto pairInsertResult = m_senderState.m_mapInFlightPacketsByPktNum.insert( pairInsert );
+	Assert( pairInsertResult.second ); // We should have inserted a new element, not updated an existing element.  Probably an order ofoperations bug with m_nNextSendSequenceNumber
 }
 
 void CSteamNetworkConnectionBase::SNP_GatherAckBlocks( SNPAckSerializerHelper &helper, SteamNetworkingMicroseconds usecNow )

@@ -298,6 +298,9 @@ bool ISteamNetworkingSocketsRunWithLock::RunOrQueue( const char *pszTag )
 		return false;
 	}
 
+	// Service the queue so we always do items in order
+	ServiceQueue();
+
 	// Let derived class do work
 	Run();
 

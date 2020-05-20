@@ -193,7 +193,7 @@ struct PingTrackerDetailed : PingTracker
 
 /// Before switching to a different route, we need to make sure that we have a ping
 /// sample in at least N recent time buckets.  (See PingTrackerForRouteSelection)
-const int k_nRecentValidTimeBucketsToSwitchRoute = 7;
+const int k_nRecentValidTimeBucketsToSwitchRoute = 15;
 
 /// Ping tracker that tracks samples over several intervals.  This is used
 /// to make routing decisions in such a way to avoid route flapping when ping
@@ -203,8 +203,8 @@ const int k_nRecentValidTimeBucketsToSwitchRoute = 7;
 /// a particular ping time for debugging.
 struct PingTrackerForRouteSelection : PingTracker
 {
-	COMPILE_TIME_ASSERT( k_nRecentValidTimeBucketsToSwitchRoute == 7 );
-	static constexpr int k_nTimeBucketCount = 10;
+	COMPILE_TIME_ASSERT( k_nRecentValidTimeBucketsToSwitchRoute == 15 );
+	static constexpr int k_nTimeBucketCount = 17;
 	static constexpr SteamNetworkingMicroseconds k_usecTimeBucketWidth = k_nMillion; // Desired width of each time bucket
 	static constexpr int k_nPingOverride_None = -2; // Ordinary operation.  (-1 is a legit ping time, which means "ping failed")
 	static constexpr SteamNetworkingMicroseconds k_usecAntiFlapRouteCheckPingInterval = 200*1000;

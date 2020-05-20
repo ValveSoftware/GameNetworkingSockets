@@ -4,11 +4,138 @@
 #include "csteamnetworkingsockets.h"
 #include "crypto.h"
 
+#ifdef _WIN32
+	#include <iphlpapi.h>
+#endif
+
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
 
 // Put everything in a namespace, so we don't violate the one definition rule
 namespace SteamNetworkingSocketsLib {
+
+// Try to guess if the route the specified address is probably "local".
+// This is difficult to do in general.  We want something that mostly works.
+//
+// False positives: VPNs and IPv6 addresses that appear to be nearby but are not.
+// False negatives: We can't always tell if a route is local.
+bool IsRouteToAddressProbablyLocal( netadr_t addr )
+{
+
+	// Assume that if we are able to send to any "reserved" route, that is is local.
+	// Note that this will be true for VPNs, too!
+	if ( addr.IsReservedAdr() )
+		return true;
+
+	// But other cases might also be local routes.  E.g. two boxes with public IPs.
+	// Convert to sockaddr struct so we can ask the operating system
+	addr.SetPort(0);
+	sockaddr_storage sockaddrDest;
+	addr.ToSockadr( &sockaddrDest );
+
+	#ifdef _WIN32
+
+		//
+		// These functions were added with Vista, so load dynamically
+		// in case
+		//
+
+		typedef
+		DWORD
+		(WINAPI *FnGetBestInterfaceEx)(
+			struct sockaddr *pDestAddr,
+			PDWORD           pdwBestIfIndex
+			);
+		typedef 
+		NETIO_STATUS
+		(NETIOAPI_API_*FnGetBestRoute2)(
+			NET_LUID *InterfaceLuid,
+			NET_IFINDEX InterfaceIndex,
+			CONST SOCKADDR_INET *SourceAddress,
+			CONST SOCKADDR_INET *DestinationAddress,
+			ULONG AddressSortOptions,
+			PMIB_IPFORWARD_ROW2 BestRoute,
+			SOCKADDR_INET *BestSourceAddress
+			);
+
+		static HMODULE hModule = LoadLibraryA( "Iphlpapi.dll" );
+		static FnGetBestInterfaceEx pGetBestInterfaceEx = hModule ? (FnGetBestInterfaceEx)GetProcAddress( hModule, "GetBestInterfaceEx" ) : nullptr;
+		static FnGetBestRoute2 pGetBestRoute2 = hModule ? (FnGetBestRoute2)GetProcAddress( hModule, "GetBestRoute2" ) : nullptr;;
+		if ( !pGetBestInterfaceEx || !pGetBestRoute2 )
+			return false;
+
+		NET_IFINDEX dwBestIfIndex;
+		DWORD r = (*pGetBestInterfaceEx)( (sockaddr *)&sockaddrDest, &dwBestIfIndex );
+		if ( r != NO_ERROR )
+		{
+			AssertMsg2( false, "GetBestInterfaceEx failed with result %d for address '%s'", r, CUtlNetAdrRender( addr ).String() );
+			return false;
+		}
+
+		MIB_IPFORWARD_ROW2 bestRoute;
+		SOCKADDR_INET bestSourceAddress;
+		r = (*pGetBestRoute2)(
+			nullptr, // InterfaceLuid
+			dwBestIfIndex, // InterfaceIndex
+			nullptr, // SourceAddress
+			(SOCKADDR_INET *)&sockaddrDest, // DestinationAddress
+			0, // AddressSortOptions
+			&bestRoute, // BestRoute
+			&bestSourceAddress // BestSourceAddress
+		);
+		if ( r != NO_ERROR )
+		{
+			AssertMsg2( false, "GetBestRoute2 failed with result %d for address '%s'", r, CUtlNetAdrRender( addr ).String() );
+			return false;
+		}
+		if ( bestRoute.Protocol == MIB_IPPROTO_LOCAL )
+			return true;
+		netadr_t nextHop;
+		if ( !nextHop.SetFromSockadr( &bestRoute.NextHop ) )
+		{
+			AssertMsg( false, "GetBestRoute2 returned invalid next hop address" );
+			return false;
+		}
+
+		nextHop.SetPort( 0 );
+
+		// https://docs.microsoft.com/en-us/windows/win32/api/netioapi/ns-netioapi-mib_ipforward_row2:
+		//   For a remote route, the IP address of the next system or gateway en route.
+		//   If the route is to a local loopback address or an IP address on the local
+		//   link, the next hop is unspecified (all zeros). For a local loopback route,
+		//   this member should be an IPv4 address of 0.0.0.0 for an IPv4 route entry
+		//   or an IPv6 address address of 0::0 for an IPv6 route entry.
+		if ( !nextHop.HasIP() )
+			return true;
+		if ( nextHop == addr )
+			return true;
+
+		// If final destination is on the same IPv6/56 prefix, then assume
+		// it's a local route.  This is an arbitrary prefix size to use,
+		// but it's a compromise.  We think that /64 probably has too
+		// many false negatives, but /48 has have too many false positives.
+		if ( addr.GetType() == k_EIPTypeV6 )
+		{
+			if ( nextHop.GetType() == k_EIPTypeV6 )
+			{
+				if ( memcmp( addr.GetIPV6Bytes(), nextHop.GetIPV6Bytes(), 7 ) == 0 )
+					return true;
+			}
+			netadr_t netdrBestSource;
+			if ( netdrBestSource.SetFromSockadr( &bestSourceAddress ) && netdrBestSource.GetType() == k_EIPTypeV6 )
+			{
+				if ( memcmp( addr.GetIPV6Bytes(), netdrBestSource.GetIPV6Bytes(), 7 ) == 0 )
+					return true;
+			}
+		}
+
+	#else
+		// FIXME - Writeme
+	#endif
+
+	// Nope
+	return false;
+}
 
 /////////////////////////////////////////////////////////////////////////////
 //
@@ -498,20 +625,11 @@ CConnectionTransportUDPBase::CConnectionTransportUDPBase( CSteamNetworkConnectio
 {
 }
 
-void CConnectionTransportUDPBase::SendStatsMsg( EStatsReplyRequest eReplyRequested, SteamNetworkingMicroseconds usecNow, const char *pszReason )
-{
-	UDPSendPacketContext_t ctx( usecNow, pszReason );
-	ctx.Populate( sizeof(UDPDataMsgHdr), eReplyRequested, m_connection );
-
-	// Send a data packet (maybe containing ordinary data), with this piggy backed on top of it
-	m_connection.SNP_SendPacket( this, ctx );
-}
-
 bool CConnectionTransportUDPBase::SendDataPacket( SteamNetworkingMicroseconds usecNow )
 {
 	// Populate context struct with any stats we want/need to send, and how much space we need to reserve for it
 	UDPSendPacketContext_t ctx( usecNow, "data" );
-	ctx.Populate( sizeof(UDPDataMsgHdr), k_EStatsReplyRequest_NothingToSend, m_connection );
+	ctx.Populate( sizeof(UDPDataMsgHdr), k_EStatsReplyRequest_NothingToSend, this );
 
 	// Send a packet
 	return m_connection.SNP_SendPacket( this, ctx );
@@ -545,7 +663,7 @@ int CConnectionTransportUDPBase::SendEncryptedDataChunk( const void *pChunk, int
 	if ( ctx.Serialize( p ) )
 	{
 		// Update bookkeeping with the stuff we are actually sending
-		TrackSentStats( ctx.msg, true, ctx.m_usecNow );
+		TrackSentStats( ctx );
 
 		// Mark header with the flag
 		hdr->m_unMsgFlags |= hdr->kFlag_ProtobufBlob;
@@ -579,6 +697,8 @@ std::string DescribeStatsContents( const CMsgSteamSockets_UDP_Stats &msg )
 		sWhat += " request_ack";
 	if ( msg.flags() & msg.ACK_REQUEST_IMMEDIATE )
 		sWhat += " request_ack_immediate";
+	if ( msg.flags() & msg.NOT_PRIMARY_TRANSPORT_E2E )
+		sWhat += " backup_transport";
 	if ( msg.stats().has_lifetime() )
 		sWhat += " stats.life";
 	if ( msg.stats().has_instantaneous() )
@@ -586,7 +706,7 @@ std::string DescribeStatsContents( const CMsgSteamSockets_UDP_Stats &msg )
 	return sWhat;
 }
 
-void CConnectionTransportUDPBase::RecvStats( const CMsgSteamSockets_UDP_Stats &msgStatsIn, bool bInline, SteamNetworkingMicroseconds usecNow )
+void CConnectionTransportUDPBase::RecvStats( const CMsgSteamSockets_UDP_Stats &msgStatsIn, SteamNetworkingMicroseconds usecNow )
 {
 
 	// Connection quality stats?
@@ -594,9 +714,8 @@ void CConnectionTransportUDPBase::RecvStats( const CMsgSteamSockets_UDP_Stats &m
 		m_connection.m_statsEndToEnd.ProcessMessage( msgStatsIn.stats(), usecNow );
 
 	// Spew appropriately
-	SpewVerbose( "[%s] Recv %s stats:%s\n",
+	SpewVerbose( "[%s] Recv UDP stats:%s\n",
 		ConnectionDescription(),
-		bInline ? "inline" : "standalone",
 		DescribeStatsContents( msgStatsIn ).c_str()
 	);
 
@@ -609,31 +728,39 @@ void CConnectionTransportUDPBase::RecvStats( const CMsgSteamSockets_UDP_Stats &m
 		{
 			bool bImmediate = ( msgStatsIn.flags() & msgStatsIn.ACK_REQUEST_IMMEDIATE ) != 0;
 			m_connection.QueueEndToEndAck( bImmediate, usecNow );
+
+			// Check if need to send an immediately reply, either because they
+			// requested it, or because we are not the currently selected transport,
+			// and we need to need to make sure the reply goes out using us
+			if ( bImmediate || m_connection.m_pTransport != this )
+			{
+				SendEndToEndStatsMsg( k_EStatsReplyRequest_NothingToSend, usecNow, "AckStats" );
+			}
 		}
 	}
 }
 
-void CConnectionTransportUDPBase::TrackSentStats( const CMsgSteamSockets_UDP_Stats &msgStatsOut, bool bInline, SteamNetworkingMicroseconds usecNow )
+void CConnectionTransportUDPBase::TrackSentStats( UDPSendPacketContext_t &ctx )
 {
 
 	// What effective flags will be received?
-	bool bAllowDelayedReply = ( msgStatsOut.flags() & msgStatsOut.ACK_REQUEST_IMMEDIATE ) == 0;
+	bool bAllowDelayedReply = ( ctx.msg.flags() & ctx.msg.ACK_REQUEST_IMMEDIATE ) == 0;
 
 	// Record that we sent stats and are waiting for peer to ack
-	if ( msgStatsOut.has_stats() )
+	if ( ctx.msg.has_stats() )
 	{
-		m_connection.m_statsEndToEnd.TrackSentStats( msgStatsOut.stats(), usecNow, bAllowDelayedReply );
+		m_connection.m_statsEndToEnd.TrackSentStats( ctx.msg.stats(), ctx.m_usecNow, bAllowDelayedReply );
 	}
-	else if ( msgStatsOut.flags() & msgStatsOut.ACK_REQUEST_E2E )
+	else if ( ctx.msg.flags() & ctx.msg.ACK_REQUEST_E2E )
 	{
-		m_connection.m_statsEndToEnd.TrackSentMessageExpectingSeqNumAck( usecNow, bAllowDelayedReply );
+		m_connection.m_statsEndToEnd.TrackSentMessageExpectingSeqNumAck( ctx.m_usecNow, bAllowDelayedReply );
 	}
 
 	// Spew appropriately
-	SpewVerbose( "[%s] Sent %s stats:%s\n",
+	SpewVerbose( "[%s] Sent UDP stats (%s):%s\n",
 		ConnectionDescription(),
-		bInline ? "inline" : "standalone",
-		DescribeStatsContents( msgStatsOut ).c_str()
+		ctx.m_pszReason,
+		DescribeStatsContents( ctx.msg ).c_str()
 	);
 }
 
@@ -731,33 +858,38 @@ void CConnectionTransportUDPBase::Received_Data( const uint8 *pPkt, int cbPkt, S
 	int cbChunk = pPktEnd - pIn;
 
 	// Decrypt it, and check packet number
-	uint8 tempDecrypted[ k_cbSteamNetworkingSocketsMaxPlaintextPayloadRecv ];
-	void *pDecrypted = tempDecrypted;
-	uint32 cbDecrypted = sizeof(tempDecrypted);
-	int64 nFullSequenceNumber = m_connection.DecryptDataChunk( nWirePktNumber, cbPkt, pChunk, cbChunk, pDecrypted, cbDecrypted, usecNow );
-	if ( nFullSequenceNumber <= 0 )
+	UDPRecvPacketContext_t ctx;
+	ctx.m_usecNow = usecNow;
+	ctx.m_pTransport = this;
+	ctx.m_pStatsIn = pMsgStatsIn;
+	if ( !m_connection.DecryptDataChunk( nWirePktNumber, cbPkt, pChunk, cbChunk, ctx ) )
 		return;
 
 	// This is a valid packet.  P2P connections might want to make a note of this
-	RecvValidUDPDataPacket( usecNow );
+	RecvValidUDPDataPacket( ctx );
 
 	// Process plaintext
-	if ( !m_connection.ProcessPlainTextDataChunk( nFullSequenceNumber, pDecrypted, cbDecrypted, 0, this, usecNow ) )
+	int usecTimeSinceLast = 0; // FIXME - should we plumb this through so we can measure jitter?
+	if ( !m_connection.ProcessPlainTextDataChunk( usecTimeSinceLast, ctx ) )
 		return;
 
 	// Process the stats, if any
 	if ( pMsgStatsIn )
-		RecvStats( *pMsgStatsIn, true, usecNow );
+		RecvStats( *pMsgStatsIn, usecNow );
 }
 
-void CConnectionTransportUDPBase::RecvValidUDPDataPacket( SteamNetworkingMicroseconds usecNow )
+void CConnectionTransportUDPBase::RecvValidUDPDataPacket( UDPRecvPacketContext_t &ctx )
 {
 	// Base class doesn't care
 }
 
 void CConnectionTransportUDPBase::SendEndToEndStatsMsg( EStatsReplyRequest eRequest, SteamNetworkingMicroseconds usecNow, const char *pszReason )
 {
-	SendStatsMsg( eRequest, usecNow, pszReason );
+	UDPSendPacketContext_t ctx( usecNow, pszReason );
+	ctx.Populate( sizeof(UDPDataMsgHdr), eRequest, this );
+
+	// Send a data packet (maybe containing ordinary data), with this piggy backed on top of it
+	m_connection.SNP_SendPacket( this, ctx );
 }
 
 void CConnectionTransportUDPBase::SendConnectionClosedOrNoConnection()
@@ -943,12 +1075,16 @@ void CSteamNetworkConnectionUDP::GetConnectionTypeDescription( ConnectionTypeDes
 	V_sprintf_safe( szDescription, "UDP %s@%s", sIdentity.c_str(), szAddr );
 }
 
-void UDPSendPacketContext_t::Populate( size_t cbHdrtReserve, EStatsReplyRequest eReplyRequested, CSteamNetworkConnectionBase &connection )
+void UDPSendPacketContext_t::Populate( size_t cbHdrtReserve, EStatsReplyRequest eReplyRequested, CConnectionTransportUDPBase *pTransport )
 {
+	CSteamNetworkConnectionBase &connection = pTransport->m_connection;
 	LinkStatsTracker<LinkStatsTrackerEndToEnd> &statsEndToEnd = connection.m_statsEndToEnd;
 
+	int nFlags = 0;
+	if ( connection.m_pTransport != pTransport )
+		nFlags |= msg.NOT_PRIMARY_TRANSPORT_E2E;
+
 	// What effective flags should we send
-	uint32 nFlags = 0;
 	int nReadyToSendTracer = 0;
 	if ( eReplyRequested == k_EStatsReplyRequest_Immediate || statsEndToEnd.BNeedToSendPingImmediate( m_usecNow ) )
 		nFlags |= msg.ACK_REQUEST_E2E | msg.ACK_REQUEST_IMMEDIATE;
@@ -1302,8 +1438,8 @@ void CConnectionTransportUDP::TransportPopulateConnectionInfo( SteamNetConnectio
 		NetAdrToSteamNetworkingIPAddr( info.m_addrRemote, addr );
 		if ( addr.IsLoopback() )
 			info.m_eTransportKind = k_ESteamNetTransport_LocalHost;
-		else if ( addr.IsReservedAdr() )
-			info.m_eTransportKind = k_ESteamNetTransport_UDPLan;
+		else if ( m_connection.m_statsEndToEnd.m_ping.m_nSmoothedPing <= 5 && IsRouteToAddressProbablyLocal( addr ) )
+			info.m_eTransportKind = k_ESteamNetTransport_UDPProbablyLocal;
 		else
 			info.m_eTransportKind = k_ESteamNetTransport_UDP;
 	}

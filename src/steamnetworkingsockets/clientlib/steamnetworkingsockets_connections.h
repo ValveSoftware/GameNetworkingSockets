@@ -92,6 +92,42 @@ struct SendPacketContext_t
 	const char *m_pszReason; // Why are we sending this packet?
 };
 
+/// Context used when receiving a data packet
+struct RecvPacketContext_t
+{
+
+//
+// Must be filled in by transport
+//
+
+	/// Current time
+	SteamNetworkingMicroseconds m_usecNow;
+
+	/// What transport is receiving this packet?
+	CConnectionTransport *m_pTransport;
+
+	/// Jitter measurement, if present
+	//int m_usecTimeSinceLast;
+
+//
+// Output of DecryptDataChunk
+//
+
+	/// Expanded packet number
+	int64 m_nPktNum;
+
+	/// Pointer to decrypted data.  Will either point to to the caller's original packet,
+	/// if the packet was not encrypted, or m_decrypted, if it was encrypted and we
+	/// decrypted it
+	const void *m_pPlainText;
+
+	/// Size of plaintext
+	int m_cbPlainText;
+
+	// Temporary buffer to hold decrypted data, if we were actually encrypted
+	uint8 m_decrypted[ k_cbSteamNetworkingSocketsMaxPlaintextPayloadRecv ];
+};
+
 template<typename TStatsMsg>
 struct SendPacketContext : SendPacketContext_t
 {
@@ -413,12 +449,13 @@ public:
 
 	void UpdateMTUFromConfig();
 
-	/// Expand the packet number and decrypt a data chunk.
-	/// Returns the full 64-bit packet number, or 0 on failure.
-	int64 DecryptDataChunk( uint16 nWireSeqNum, int cbPacketSize, const void *pChunk, int cbChunk, void *&pDecrypted, uint32 &cbDecrypted, SteamNetworkingMicroseconds usecNow );
+	/// Expand the packet number, and decrypt the data chunk.
+	/// Returns true if everything is OK and we should continue
+	/// processing the packet
+	bool DecryptDataChunk( uint16 nWireSeqNum, int cbPacketSize, const void *pChunk, int cbChunk, RecvPacketContext_t &ctx );
 
-	/// Process a decrypted data chunk
-	bool ProcessPlainTextDataChunk( int64 nPktNum, const void *pPlainText, int cbPlainText, int usecTimeSinceLast, CConnectionTransport *pTransport, SteamNetworkingMicroseconds usecNow );
+	/// Decode the plaintext
+	bool ProcessPlainTextDataChunk( int usecTimeSinceLast, RecvPacketContext_t &ctx );
 
 	/// Called when we receive an (end-to-end) packet with a sequence number
 	bool RecvNonDataSequencedPacket( int64 nPktNum, SteamNetworkingMicroseconds usecNow );
@@ -452,6 +489,10 @@ public:
 	/// Send a data packet now, even if we don't have the bandwidth available.  Returns true if a packet was
 	/// sent successfully, false if there was a problem.  This will call SendEncryptedDataChunk to do the work
 	bool SNP_SendPacket( CConnectionTransport *pTransport, SendPacketContext_t &ctx );
+
+	/// Record that we sent a non-data packet.  This is so that if the peer acks,
+	/// we can record it as a ping
+	void SNP_SentNonDataPacket( CConnectionTransport *pTransport, SteamNetworkingMicroseconds usecNow );
 
 	/// Called after the connection state changes.  Default behavior is to notify
 	/// the active transport, if any
@@ -654,7 +695,7 @@ protected:
 	SSNPReceiverState m_receiverState;
 
 	/// Called from SNP layer when it decodes a packet that serves as a ping measurement
-	virtual void ProcessSNPPing( int64 nPktNumBeingAcked, CConnectionTransport *pTransport, int msPing, SteamNetworkingMicroseconds usecNow );
+	virtual void ProcessSNPPing( int msPing, RecvPacketContext_t &ctx );
 
 private:
 
