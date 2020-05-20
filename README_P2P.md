@@ -1,10 +1,9 @@
 # About that P2P support....
 
-Peer-to-peer connections require more than just working code.  You need to
-actually deploy some infrastructure.  There are three basic infrastructure
-needs.
-
 ### Deploy some infrastructure
+
+Peer-to-peer connections require more than just working code.  You need to
+actually deploy some infrastructure.  There are three basic needs:
 
 * **Signaling service**  A side channel, capable of relaying small rendezvous
   messages from one peer to another.  This means peers must have a constant
@@ -45,17 +44,17 @@ SteamNetworkingSockets to make P2P connections!
 
 ### WebRTC ICE implementation
 
-We use google's WebRTC code to implement the ICE protocol.  We have a thin
-(interface layer)[src/external/steamwebrtc/ice_session.h] that isolates this
-code from SteamNetworkingSockets, because WebRTC has a relatively complicated
-build system.  (We compile this into a seperate .dll, steamwebrtc, but
-that isn'tnecessary.)
+We use [google's WebRTC code](https://webrtc.googlesource.com/src/) to implement
+the ICE protocol.  We have a thin [interface layer](src/external/steamwebrtc/ice_session.h)
+that isolates this code from SteamNetworkingSockets, because WebRTC has a relatively
+complicated build system.  (We compile this into a seperate .dll, which we call
+steamwebrtc, but that isn't the only way it could be done.)
 
 OK, so the bad news is that getting compling might be just a bit of work.  We
 grabbed a snapshot of the WebRTC code at some point in the past (around 2018).
 Although we have not made any changes to it, we don't know exactly what
-snapshot we grabbed, so we can't tell you xactly what snapshot to grab.
-Anyway, you will probably want to update to the latest code.
+snapshot we grabbed.  But you will probbaly want to update to more recent
+snapshot, anyway.
 
 We'd like to fix this situation, and get synced up so that we are compiling
 against a known release of webrtc.  If you are interested in P2P and want to
