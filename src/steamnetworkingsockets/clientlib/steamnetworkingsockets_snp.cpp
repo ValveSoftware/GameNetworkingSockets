@@ -99,29 +99,6 @@ struct SNPAckSerializerHelper
 
 };
 
-// exponentially weighted moving average
-template< typename T > T tfrc_ewma( T avg, T newval, T weight )
-{
-	return avg ? ( weight * avg + ( 10 - weight ) * newval ) / 10 : newval;
-}
-
-int TFRCCalcX( int s, SteamNetworkingMicroseconds rtt, float p )
-{
-	// TFRC throughput equation
-	// 
-	//                                s
-	//   X_Bps = ----------------------------------------------------------
-	//           R*sqrt(2*b*p/3) + (t_RTO * (3*sqrt(3*b*p/8)*p*(1+32*p^2)))
-	//
-	// b is TCP acknowlege packet rate, assumed to be 1 for this implementation
-
-	float R = (double)rtt / k_nMillion;
-	float t_RTO = std::max( 4 * R, 1.0f );
-
-	return static_cast< int >( static_cast<float>( s ) /
-		( R * sqrt( 2 * p / 3 ) + ( t_RTO * ( 3 * sqrt( 3 * p / 8 ) * p * ( 1 + 32 * ( p * p ) ) ) ) ) );
-}
-
 // Fetch ping, and handle two edge cases:
 // - if we don't have an estimate, just be relatively conservative
 // - clamp to minimum
