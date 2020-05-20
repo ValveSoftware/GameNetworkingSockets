@@ -22,6 +22,8 @@ GameNetworkingSockets is a basic transport layer for games.  The features are:
   used by Google's QUIC protocol.
 * Tools for simulating loss and detailed stats measurement
 * IPv6
+* Peer-to-peer connections.  Read [this](README_P2P.md) for more info
+  about what's required.
 
 What it does *not* do:
 
@@ -89,19 +91,6 @@ the application to express this, but this is getting complicated, making it more
 difficult for app code to do the right thing.  It'd be better if it mostly
 "just worked" when app code does the simple thing.
 
-### NAT piercing (ICE/STUN/TURN)
+### P2P improvements
 
-The Steamworks code supports a custom protocol for relaying packets through our
-network of relays and on our backbone.  At this time the open-source code does
-not have any support for piercing NAT or relaying packets.  But since the
-Steamworks code already has those concepts, it should be pretty easy to add
-support for this.  You'd still be responsible for running the STUN/TURN servers
-and doing the rendezvous/signalling, but the code could use them.
-
-### Non-connection-oriented interface
-
-The Steam version has ISteamMessages, which is a UDP-like interface.  Messages
-are addressed by peer identity, not connection handle.  (Both reliable and
-unreliable messages are still supported.)  We should open-source this API,
-too.  Previously it was only for P2P, but we've found that it's useful for
-porting UDP-based code.
+The [peer-to-peer](README_P2P.md) support needs several improvements.
