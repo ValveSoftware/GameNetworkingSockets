@@ -23,7 +23,6 @@ enum ESteamNetworkingUDPMsgID
 	k_ESteamNetworkingUDPMsg_ConnectOK = 35;				// Server->client
 	k_ESteamNetworkingUDPMsg_ConnectionClosed = 36;			// Client<->server.  A reply is requested to this packet
 	k_ESteamNetworkingUDPMsg_NoConnection = 37;				// Client<->server.  A reply should never be sent to this packet
-	//k_ESteamNetworkingUDPMsg_Stats = 38;					// Client<->server.  Standalone stats message.  DEPRECATED.  Always sent as empty "data" packet now.
 };
 
 // k_ESteamNetworkingUDPMsg_ChallengeRequest
@@ -142,47 +141,13 @@ message CMsgSteamSockets_UDP_Stats
 		//ACK_REQUEST_RELAY = 1; // Reserved
 		ACK_REQUEST_E2E = 2;
 		ACK_REQUEST_IMMEDIATE = 4;
+		//NOT_PRIMARY_SESSION = 8; // Reserved
+		NOT_PRIMARY_TRANSPORT_E2E = 16; 
 	};
 
 	/// Additional flags.  Should we try to put these in the
 	/// message header and save a few bytes?
 	optional uint32 flags = 3;
-};
-
-//=============================================================================
-//
-// WebRTC messages.  WebRT connections are established thorugh signaling,
-// and have their own handshake and Connection ID in the header, so the
-// messages have slightly different contents
-//
-//=============================================================================
-
-/// Control message IDs used by WebRTC connections
-enum ESteamNetworkingWebRTCMsgID
-{
-	// NOTE: Connect request/ok always go through signaling
-
-	k_ESteamNetworkingWebRTCMsg_ConnectionClosed = 36; // Used to initiate graceful connection closure.  Peer is expected to close WebRTC connection in reply
-	//k_ESteamNetworkingWebRTCMsg_NoConnection = 37; // We just close the WebRTC connection and let WebRTC deal with it
-	k_ESteamNetworkingWebRTCMsg_PingCheck = 39;
-};
-
-// k_ESteamNetworkingWebRTCMsg_ConnectionClosed
-message CMsgSteamSockets_WebRTC_ConnectionClosed
-{
-	// No connection IDs.  We assume WebRTC is doing that
-	//optional fixed32 to_connection_id = 4;
-	//optional fixed32 from_connection_id = 5;
-
-	optional string debug = 2;
-	optional uint32 reason_code = 3;
-};
-
-// k_ESteamNetworkingWebRTCMsg_PingCheck
-message CMsgSteamSockets_WebRTC_PingCheck
-{
-	optional fixed64 send_timestamp = 1; // If present, receiver should immediately reply with this in recv_timestamp
-	optional fixed64 recv_timestamp = 2;
 };
 
 // Do not remove this comment due to a bug on the Mac OS X protobuf compiler

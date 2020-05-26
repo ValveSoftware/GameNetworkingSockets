@@ -4,42 +4,138 @@
 #include "csteamnetworkingsockets.h"
 #include "crypto.h"
 
+#ifdef _WIN32
+	#include <iphlpapi.h>
+#endif
+
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
-
-const int k_cbSteamNetworkingMinPaddedPacketSize = 512;
 
 // Put everything in a namespace, so we don't violate the one definition rule
 namespace SteamNetworkingSocketsLib {
 
-#pragma pack( push, 1 )
-
-/// A protobuf-encoded message that is padded to ensure a minimum length
-struct UDPPaddedMessageHdr
+// Try to guess if the route the specified address is probably "local".
+// This is difficult to do in general.  We want something that mostly works.
+//
+// False positives: VPNs and IPv6 addresses that appear to be nearby but are not.
+// False negatives: We can't always tell if a route is local.
+bool IsRouteToAddressProbablyLocal( netadr_t addr )
 {
-	uint8 m_nMsgID;
-	uint16 m_nMsgLength;
-};
 
-struct UDPDataMsgHdr
-{
-	enum
-	{
-		kFlag_ProtobufBlob  = 0x01, // Protobuf-encoded message is inline (CMsgSteamSockets_UDP_Stats)
-	};
+	// Assume that if we are able to send to any "reserved" route, that is is local.
+	// Note that this will be true for VPNs, too!
+	if ( addr.IsReservedAdr() )
+		return true;
 
-	uint8 m_unMsgFlags;
-	uint32 m_unToConnectionID; // Recipient's portion of the connection ID
-	uint16 m_unSeqNum;
+	// But other cases might also be local routes.  E.g. two boxes with public IPs.
+	// Convert to sockaddr struct so we can ask the operating system
+	addr.SetPort(0);
+	sockaddr_storage sockaddrDest;
+	addr.ToSockadr( &sockaddrDest );
 
-	// [optional, if flags&kFlag_ProtobufBlob]  varint-encoded protobuf blob size, followed by blob
-	// Data frame(s)
-	// End of packet
-};
-#pragma pack( pop )
+	#ifdef _WIN32
 
-const int k_nMaxRecentLocalConnectionIDs = 256;
-static CUtlVectorFixed<uint16,k_nMaxRecentLocalConnectionIDs> s_vecRecentLocalConnectionIDs;
+		//
+		// These functions were added with Vista, so load dynamically
+		// in case
+		//
+
+		typedef
+		DWORD
+		(WINAPI *FnGetBestInterfaceEx)(
+			struct sockaddr *pDestAddr,
+			PDWORD           pdwBestIfIndex
+			);
+		typedef 
+		NETIO_STATUS
+		(NETIOAPI_API_*FnGetBestRoute2)(
+			NET_LUID *InterfaceLuid,
+			NET_IFINDEX InterfaceIndex,
+			CONST SOCKADDR_INET *SourceAddress,
+			CONST SOCKADDR_INET *DestinationAddress,
+			ULONG AddressSortOptions,
+			PMIB_IPFORWARD_ROW2 BestRoute,
+			SOCKADDR_INET *BestSourceAddress
+			);
+
+		static HMODULE hModule = LoadLibraryA( "Iphlpapi.dll" );
+		static FnGetBestInterfaceEx pGetBestInterfaceEx = hModule ? (FnGetBestInterfaceEx)GetProcAddress( hModule, "GetBestInterfaceEx" ) : nullptr;
+		static FnGetBestRoute2 pGetBestRoute2 = hModule ? (FnGetBestRoute2)GetProcAddress( hModule, "GetBestRoute2" ) : nullptr;;
+		if ( !pGetBestInterfaceEx || !pGetBestRoute2 )
+			return false;
+
+		NET_IFINDEX dwBestIfIndex;
+		DWORD r = (*pGetBestInterfaceEx)( (sockaddr *)&sockaddrDest, &dwBestIfIndex );
+		if ( r != NO_ERROR )
+		{
+			AssertMsg2( false, "GetBestInterfaceEx failed with result %d for address '%s'", r, CUtlNetAdrRender( addr ).String() );
+			return false;
+		}
+
+		MIB_IPFORWARD_ROW2 bestRoute;
+		SOCKADDR_INET bestSourceAddress;
+		r = (*pGetBestRoute2)(
+			nullptr, // InterfaceLuid
+			dwBestIfIndex, // InterfaceIndex
+			nullptr, // SourceAddress
+			(SOCKADDR_INET *)&sockaddrDest, // DestinationAddress
+			0, // AddressSortOptions
+			&bestRoute, // BestRoute
+			&bestSourceAddress // BestSourceAddress
+		);
+		if ( r != NO_ERROR )
+		{
+			AssertMsg2( false, "GetBestRoute2 failed with result %d for address '%s'", r, CUtlNetAdrRender( addr ).String() );
+			return false;
+		}
+		if ( bestRoute.Protocol == MIB_IPPROTO_LOCAL )
+			return true;
+		netadr_t nextHop;
+		if ( !nextHop.SetFromSockadr( &bestRoute.NextHop ) )
+		{
+			AssertMsg( false, "GetBestRoute2 returned invalid next hop address" );
+			return false;
+		}
+
+		nextHop.SetPort( 0 );
+
+		// https://docs.microsoft.com/en-us/windows/win32/api/netioapi/ns-netioapi-mib_ipforward_row2:
+		//   For a remote route, the IP address of the next system or gateway en route.
+		//   If the route is to a local loopback address or an IP address on the local
+		//   link, the next hop is unspecified (all zeros). For a local loopback route,
+		//   this member should be an IPv4 address of 0.0.0.0 for an IPv4 route entry
+		//   or an IPv6 address address of 0::0 for an IPv6 route entry.
+		if ( !nextHop.HasIP() )
+			return true;
+		if ( nextHop == addr )
+			return true;
+
+		// If final destination is on the same IPv6/56 prefix, then assume
+		// it's a local route.  This is an arbitrary prefix size to use,
+		// but it's a compromise.  We think that /64 probably has too
+		// many false negatives, but /48 has have too many false positives.
+		if ( addr.GetType() == k_EIPTypeV6 )
+		{
+			if ( nextHop.GetType() == k_EIPTypeV6 )
+			{
+				if ( memcmp( addr.GetIPV6Bytes(), nextHop.GetIPV6Bytes(), 7 ) == 0 )
+					return true;
+			}
+			netadr_t netdrBestSource;
+			if ( netdrBestSource.SetFromSockadr( &bestSourceAddress ) && netdrBestSource.GetType() == k_EIPTypeV6 )
+			{
+				if ( memcmp( addr.GetIPV6Bytes(), netdrBestSource.GetIPV6Bytes(), 7 ) == 0 )
+					return true;
+			}
+		}
+
+	#else
+		// FIXME - Writeme
+	#endif
+
+	// Nope
+	return false;
+}
 
 /////////////////////////////////////////////////////////////////////////////
 //
@@ -56,7 +152,7 @@ bool BCheckRateLimitReportBadPacket( SteamNetworkingMicroseconds usecNow )
 	return true;
 }
 
-static void ReallyReportBadUDPPacket( const netadr_t &adrFrom, const char *pszMsgType, const char *pszFmt, ... )
+void ReallyReportBadUDPPacket( const char *pszFrom, const char *pszMsgType, const char *pszFmt, ... )
 {
 	char buf[ 2048 ];
 	va_list ap;
@@ -68,14 +164,11 @@ static void ReallyReportBadUDPPacket( const netadr_t &adrFrom, const char *pszMs
 	if ( !pszMsgType || !pszMsgType[0] )
 		pszMsgType = "message";
 
-	SpewMsg( "Ignored bad %s from %s.  %s\n", pszMsgType, CUtlNetAdrRender( adrFrom ).String(), buf );
+	SpewMsg( "[%s] Ignored bad %s.  %s\n", pszMsgType, pszFrom, buf );
 }
 
-#define ReportBadPacketFrom( adrFrom, pszMsgType, /* fmt */ ... ) \
-	( BCheckRateLimitReportBadPacket( usecNow ) ? ReallyReportBadUDPPacket( adrFrom, pszMsgType, __VA_ARGS__ ) : (void)0 )
-
 #define ReportBadPacket( pszMsgType, /* fmt */ ... ) \
-	ReportBadPacketFrom( adrFrom, pszMsgType, __VA_ARGS__ )
+	ReportBadUDPPacketFrom( CUtlNetAdrRender( adrFrom ).String(), pszMsgType, __VA_ARGS__ )
 
 
 #define ParseProtobufBody( pvMsg, cbMsg, CMsgCls, msgVar ) \
@@ -418,13 +511,12 @@ void CSteamNetworkListenSocketDirectUDP::Received_ConnectRequest( const CMsgStea
 	{
 		CSteamNetworkConnectionBase *pOldConn = m_mapChildConnections[ h ];
 		Assert( pOldConn->m_identityRemote == identityRemote );
-		Assert( pOldConn->GetRemoteAddr() != adrFrom ); // or else why didn't we already map it directly to them!
 
 		// NOTE: We cannot just destroy the object.  The API semantics
 		// are that all connections, once accepted and made visible
 		// to the API, must be closed by the application.
-		ReportBadPacket( "ConnectRequest", "Rejecting connection request from %s at %s, connection ID %u.  That steamID/ConnectionID pair already has a connection from %s\n",
-			SteamNetworkingIdentityRender( identityRemote ).c_str(), CUtlNetAdrRender( adrFrom ).String(), unClientConnectionID, CUtlNetAdrRender( pOldConn->GetRemoteAddr() ).String()
+		ReportBadPacket( "ConnectRequest", "Rejecting connection request from %s at %s, connection ID %u.  That steamID/ConnectionID pair already has a connection [%s]\n",
+			SteamNetworkingIdentityRender( identityRemote ).c_str(), CUtlNetAdrRender( adrFrom ).String(), unClientConnectionID, pOldConn->GetDescription()
 		);
 
 		CMsgSteamSockets_UDP_ConnectionClosed msgReply;
@@ -524,6 +616,404 @@ void CSteamNetworkListenSocketDirectUDP::SendPaddedMsg( uint8 nMsgID, const goog
 
 /////////////////////////////////////////////////////////////////////////////
 //
+// CConnectionTransportUDPBase
+//
+/////////////////////////////////////////////////////////////////////////////
+
+CConnectionTransportUDPBase::CConnectionTransportUDPBase( CSteamNetworkConnectionBase &connection )
+: CConnectionTransport( connection )
+{
+}
+
+bool CConnectionTransportUDPBase::SendDataPacket( SteamNetworkingMicroseconds usecNow )
+{
+	// Populate context struct with any stats we want/need to send, and how much space we need to reserve for it
+	UDPSendPacketContext_t ctx( usecNow, "data" );
+	ctx.Populate( sizeof(UDPDataMsgHdr), k_EStatsReplyRequest_NothingToSend, this );
+
+	// Send a packet
+	return m_connection.SNP_SendPacket( this, ctx );
+}
+
+int CConnectionTransportUDPBase::SendEncryptedDataChunk( const void *pChunk, int cbChunk, SendPacketContext_t &ctxBase )
+{
+	UDPSendPacketContext_t &ctx = static_cast<UDPSendPacketContext_t &>( ctxBase );
+
+	uint8 pkt[ k_cbSteamNetworkingSocketsMaxUDPMsgLen ];
+	UDPDataMsgHdr *hdr = (UDPDataMsgHdr *)pkt;
+	hdr->m_unMsgFlags = 0x80;
+	Assert( m_connection.m_unConnectionIDRemote != 0 );
+	hdr->m_unToConnectionID = LittleDWord( m_connection.m_unConnectionIDRemote );
+	hdr->m_unSeqNum = LittleWord( m_connection.m_statsEndToEnd.ConsumeSendPacketNumberAndGetWireFmt( ctx.m_usecNow ) );
+
+	byte *p = (byte*)( hdr + 1 );
+
+	// Check how much bigger we could grow the header
+	// and still fit in a packet
+	int cbHdrOutSpaceRemaining = pkt + sizeof(pkt) - p - cbChunk;
+	if ( cbHdrOutSpaceRemaining < 0 )
+	{
+		AssertMsg( false, "MTU / header size problem!" );
+		return 0;
+	}
+
+	// Try to trim stuff from blob, if it won't fit
+	ctx.Trim( cbHdrOutSpaceRemaining );
+
+	if ( ctx.Serialize( p ) )
+	{
+		// Update bookkeeping with the stuff we are actually sending
+		TrackSentStats( ctx );
+
+		// Mark header with the flag
+		hdr->m_unMsgFlags |= hdr->kFlag_ProtobufBlob;
+	}
+
+	// !FIXME! Time since previous, for jitter measurement?
+
+	// Use gather-based send.  This saves one memcpy of every payload
+	iovec gather[2];
+	gather[0].iov_base = pkt;
+	gather[0].iov_len = p - pkt;
+	gather[1].iov_base = const_cast<void*>( pChunk );
+	gather[1].iov_len = cbChunk;
+
+	int cbSend = gather[0].iov_len + gather[1].iov_len;
+	Assert( cbSend <= sizeof(pkt) ); // Bug in the code above.  We should never "overflow" the packet.  (Ignoring the fact that we using a gather-based send.  The data could be tiny with a large header for piggy-backed stats.)
+
+	// !FIXME! Should we track data payload separately?  Maybe we ought to track
+	// *messages* instead of packets.
+
+	// Send it
+	if ( SendPacketGather( 2, gather, cbSend ) )
+		return cbSend;
+	return 0;
+}
+
+std::string DescribeStatsContents( const CMsgSteamSockets_UDP_Stats &msg )
+{
+	std::string sWhat;
+	if ( msg.flags() & msg.ACK_REQUEST_E2E )
+		sWhat += " request_ack";
+	if ( msg.flags() & msg.ACK_REQUEST_IMMEDIATE )
+		sWhat += " request_ack_immediate";
+	if ( msg.flags() & msg.NOT_PRIMARY_TRANSPORT_E2E )
+		sWhat += " backup_transport";
+	if ( msg.stats().has_lifetime() )
+		sWhat += " stats.life";
+	if ( msg.stats().has_instantaneous() )
+		sWhat += " stats.rate";
+	return sWhat;
+}
+
+void CConnectionTransportUDPBase::RecvStats( const CMsgSteamSockets_UDP_Stats &msgStatsIn, SteamNetworkingMicroseconds usecNow )
+{
+
+	// Connection quality stats?
+	if ( msgStatsIn.has_stats() )
+		m_connection.m_statsEndToEnd.ProcessMessage( msgStatsIn.stats(), usecNow );
+
+	// Spew appropriately
+	SpewVerbose( "[%s] Recv UDP stats:%s\n",
+		ConnectionDescription(),
+		DescribeStatsContents( msgStatsIn ).c_str()
+	);
+
+	// Check if we need to reply, either now or later
+	if ( m_connection.BStateIsActive() )
+	{
+
+		// Check for queuing outgoing acks
+		if ( ( msgStatsIn.flags() & msgStatsIn.ACK_REQUEST_E2E ) || msgStatsIn.has_stats() )
+		{
+			bool bImmediate = ( msgStatsIn.flags() & msgStatsIn.ACK_REQUEST_IMMEDIATE ) != 0;
+			m_connection.QueueEndToEndAck( bImmediate, usecNow );
+
+			// Check if need to send an immediately reply, either because they
+			// requested it, or because we are not the currently selected transport,
+			// and we need to need to make sure the reply goes out using us
+			if ( bImmediate || m_connection.m_pTransport != this )
+			{
+				SendEndToEndStatsMsg( k_EStatsReplyRequest_NothingToSend, usecNow, "AckStats" );
+			}
+		}
+	}
+}
+
+void CConnectionTransportUDPBase::TrackSentStats( UDPSendPacketContext_t &ctx )
+{
+
+	// What effective flags will be received?
+	bool bAllowDelayedReply = ( ctx.msg.flags() & ctx.msg.ACK_REQUEST_IMMEDIATE ) == 0;
+
+	// Record that we sent stats and are waiting for peer to ack
+	if ( ctx.msg.has_stats() )
+	{
+		m_connection.m_statsEndToEnd.TrackSentStats( ctx.msg.stats(), ctx.m_usecNow, bAllowDelayedReply );
+	}
+	else if ( ctx.msg.flags() & ctx.msg.ACK_REQUEST_E2E )
+	{
+		m_connection.m_statsEndToEnd.TrackSentMessageExpectingSeqNumAck( ctx.m_usecNow, bAllowDelayedReply );
+	}
+
+	// Spew appropriately
+	SpewVerbose( "[%s] Sent UDP stats (%s):%s\n",
+		ConnectionDescription(),
+		ctx.m_pszReason,
+		DescribeStatsContents( ctx.msg ).c_str()
+	);
+}
+
+void CConnectionTransportUDPBase::Received_Data( const uint8 *pPkt, int cbPkt, SteamNetworkingMicroseconds usecNow )
+{
+
+	if ( cbPkt < sizeof(UDPDataMsgHdr) )
+	{
+		ReportBadUDPPacketFromConnectionPeer( "DataPacket", "Packet of size %d is too small.", cbPkt );
+		return;
+	}
+
+	// Check cookie
+	const UDPDataMsgHdr *hdr = (const UDPDataMsgHdr *)pPkt;
+	if ( LittleDWord( hdr->m_unToConnectionID ) != ConnectionIDLocal() )
+	{
+
+		// Wrong session.  It could be an old session, or it could be spoofed.
+		ReportBadUDPPacketFromConnectionPeer( "DataPacket", "Incorrect connection ID" );
+		if ( BCheckGlobalSpamReplyRateLimit( usecNow ) )
+		{
+			SendNoConnection( LittleDWord( hdr->m_unToConnectionID ), 0 );
+		}
+		return;
+	}
+	uint16 nWirePktNumber = LittleWord( hdr->m_unSeqNum );
+
+	// Check state
+	switch ( ConnectionState() )
+	{
+		case k_ESteamNetworkingConnectionState_Dead:
+		case k_ESteamNetworkingConnectionState_None:
+		default:
+			Assert( false );
+			return;
+
+		case k_ESteamNetworkingConnectionState_ClosedByPeer:
+		case k_ESteamNetworkingConnectionState_FinWait:
+		case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
+			SendConnectionClosedOrNoConnection();
+			return;
+
+		case k_ESteamNetworkingConnectionState_Connecting:
+			// Ignore it.  We don't have the SteamID of whoever is on the other end yet,
+			// their encryption keys, etc.  The most likely cause is that a server sent
+			// a ConnectOK, which dropped.  So they think we're connected but we don't
+			// have everything yet.
+			return;
+
+		case k_ESteamNetworkingConnectionState_Linger:
+		case k_ESteamNetworkingConnectionState_Connected:
+		case k_ESteamNetworkingConnectionState_FindingRoute: // not used for raw UDP, but might be used for derived class
+
+			// We'll process the chunk
+			break;
+	}
+
+	const uint8 *pIn = pPkt + sizeof(*hdr);
+	const uint8 *pPktEnd = pPkt + cbPkt;
+
+	// Inline stats?
+	static CMsgSteamSockets_UDP_Stats msgStats;
+	CMsgSteamSockets_UDP_Stats *pMsgStatsIn = nullptr;
+	uint32 cbStatsMsgIn = 0;
+	if ( hdr->m_unMsgFlags & hdr->kFlag_ProtobufBlob )
+	{
+		//Msg_Verbose( "Received inline stats from %s", server.m_szName );
+
+		pIn = DeserializeVarInt( pIn, pPktEnd, cbStatsMsgIn );
+		if ( pIn == NULL )
+		{
+			ReportBadUDPPacketFromConnectionPeer( "DataPacket", "Failed to varint decode size of stats blob" );
+			return;
+		}
+		if ( pIn + cbStatsMsgIn > pPktEnd )
+		{
+			ReportBadUDPPacketFromConnectionPeer( "DataPacket", "stats message size doesn't make sense.  Stats message size %d, packet size %d", cbStatsMsgIn, cbPkt );
+			return;
+		}
+
+		if ( !msgStats.ParseFromArray( pIn, cbStatsMsgIn ) )
+		{
+			ReportBadUDPPacketFromConnectionPeer( "DataPacket", "protobuf failed to parse inline stats message" );
+			return;
+		}
+
+		// Shove sequence number so we know what acks to pend, etc
+		pMsgStatsIn = &msgStats;
+
+		// Advance pointer
+		pIn += cbStatsMsgIn;
+	}
+
+	const void *pChunk = pIn;
+	int cbChunk = pPktEnd - pIn;
+
+	// Decrypt it, and check packet number
+	UDPRecvPacketContext_t ctx;
+	ctx.m_usecNow = usecNow;
+	ctx.m_pTransport = this;
+	ctx.m_pStatsIn = pMsgStatsIn;
+	if ( !m_connection.DecryptDataChunk( nWirePktNumber, cbPkt, pChunk, cbChunk, ctx ) )
+		return;
+
+	// This is a valid packet.  P2P connections might want to make a note of this
+	RecvValidUDPDataPacket( ctx );
+
+	// Process plaintext
+	int usecTimeSinceLast = 0; // FIXME - should we plumb this through so we can measure jitter?
+	if ( !m_connection.ProcessPlainTextDataChunk( usecTimeSinceLast, ctx ) )
+		return;
+
+	// Process the stats, if any
+	if ( pMsgStatsIn )
+		RecvStats( *pMsgStatsIn, usecNow );
+}
+
+void CConnectionTransportUDPBase::RecvValidUDPDataPacket( UDPRecvPacketContext_t &ctx )
+{
+	// Base class doesn't care
+}
+
+void CConnectionTransportUDPBase::SendEndToEndStatsMsg( EStatsReplyRequest eRequest, SteamNetworkingMicroseconds usecNow, const char *pszReason )
+{
+	UDPSendPacketContext_t ctx( usecNow, pszReason );
+	ctx.Populate( sizeof(UDPDataMsgHdr), eRequest, this );
+
+	// Send a data packet (maybe containing ordinary data), with this piggy backed on top of it
+	m_connection.SNP_SendPacket( this, ctx );
+}
+
+void CConnectionTransportUDPBase::SendConnectionClosedOrNoConnection()
+{
+	if ( ConnectionState() == k_ESteamNetworkingConnectionState_ClosedByPeer )
+	{
+		SendNoConnection( ConnectionIDLocal(), ConnectionIDRemote() );
+	}
+	else
+	{
+		CMsgSteamSockets_UDP_ConnectionClosed msg;
+		msg.set_from_connection_id( ConnectionIDLocal() );
+
+		if ( ConnectionIDRemote() )
+			msg.set_to_connection_id( ConnectionIDRemote() );
+
+		msg.set_reason_code( m_connection.m_eEndReason );
+		if ( m_connection.m_szEndDebug[0] )
+			msg.set_debug( m_connection.m_szEndDebug );
+		SendPaddedMsg( k_ESteamNetworkingUDPMsg_ConnectionClosed, msg );
+	}
+}
+
+void CConnectionTransportUDPBase::SendNoConnection( uint32 unFromConnectionID, uint32 unToConnectionID )
+{
+	CMsgSteamSockets_UDP_NoConnection msg;
+	if ( unFromConnectionID == 0 && unToConnectionID == 0 )
+	{
+		AssertMsg( false, "Can't send NoConnection, we need at least one of from/to connection ID!" );
+		return;
+	}
+	if ( unFromConnectionID )
+		msg.set_from_connection_id( unFromConnectionID );
+	if ( unToConnectionID )
+		msg.set_to_connection_id( unToConnectionID );
+	SendMsg( k_ESteamNetworkingUDPMsg_NoConnection, msg );
+}
+
+void CConnectionTransportUDPBase::SendMsg( uint8 nMsgID, const google::protobuf::MessageLite &msg )
+{
+
+	uint8 pkt[ k_cbSteamNetworkingSocketsMaxUDPMsgLen ];
+	pkt[0] = nMsgID;
+	int cbPkt = ProtoMsgByteSize( msg )+1;
+	if ( cbPkt > sizeof(pkt) )
+	{
+		AssertMsg3( false, "Msg type %d is %d bytes, larger than MTU of %d bytes", int( nMsgID ), int( cbPkt ), (int)sizeof(pkt) );
+		return;
+	}
+	uint8 *pEnd = msg.SerializeWithCachedSizesToArray( pkt+1 );
+	Assert( cbPkt == pEnd - pkt );
+
+	SendPacket( pkt, cbPkt );
+}
+
+void CConnectionTransportUDPBase::SendPaddedMsg( uint8 nMsgID, const google::protobuf::MessageLite &msg )
+{
+
+	uint8 pkt[ k_cbSteamNetworkingSocketsMaxUDPMsgLen ];
+	V_memset( pkt, 0, sizeof(pkt) ); // don't send random bits from our process memory over the wire!
+	UDPPaddedMessageHdr *hdr = (UDPPaddedMessageHdr *)pkt;
+	int nMsgLength = ProtoMsgByteSize( msg );
+	if ( nMsgLength + sizeof(*hdr) > k_cbSteamNetworkingSocketsMaxUDPMsgLen )
+	{
+		AssertMsg3( false, "Msg type %d is %d bytes, larger than MTU of %d bytes", int( nMsgID ), int( nMsgLength + sizeof(*hdr) ), (int)sizeof(pkt) );
+		return;
+	}
+	hdr->m_nMsgID = nMsgID;
+	hdr->m_nMsgLength = LittleWord( uint16( nMsgLength ) );
+	uint8 *pEnd = msg.SerializeWithCachedSizesToArray( pkt + sizeof(*hdr) );
+	int cbPkt = pEnd - pkt;
+	Assert( cbPkt == int( sizeof(*hdr) + nMsgLength ) );
+	cbPkt = MAX( cbPkt, k_cbSteamNetworkingMinPaddedPacketSize );
+
+	SendPacket( pkt, cbPkt );
+}
+
+void CConnectionTransportUDPBase::Received_ConnectionClosed( const CMsgSteamSockets_UDP_ConnectionClosed &msg, SteamNetworkingMicroseconds usecNow )
+{
+	// Give them a reply to let them know we heard from them.  If it's the right connection ID,
+	// then they probably aren't spoofing and it's critical that we give them an ack!
+	//
+	// If the wrong connection ID, then it could be an old connection so we'd like to send a reply
+	// to let them know that they can stop telling us the connection is closed.
+	// However, it could just be random garbage, so we need to protect ourselves from abuse,
+	// so limit how many of these we send.
+	bool bConnectionIDMatch =
+		msg.to_connection_id() == ConnectionIDLocal()
+		|| ( msg.to_connection_id() == 0 && msg.from_connection_id() && msg.from_connection_id() == m_connection.m_unConnectionIDRemote ); // they might not know our ID yet, if they are a client aborting the connection really early.
+	if ( bConnectionIDMatch || BCheckGlobalSpamReplyRateLimit( usecNow ) )
+	{
+		// Send a reply, echoing exactly what they sent to us
+		CMsgSteamSockets_UDP_NoConnection msgReply;
+		if ( msg.to_connection_id() )
+			msgReply.set_from_connection_id( msg.to_connection_id() );
+		if ( msg.from_connection_id() )
+			msgReply.set_to_connection_id( msg.from_connection_id() );
+		SendMsg( k_ESteamNetworkingUDPMsg_NoConnection, msgReply );
+	}
+
+	// If incorrect connection ID, then that's all we'll do, since this packet actually
+	// has nothing to do with current connection at all.
+	if ( !bConnectionIDMatch )
+		return;
+
+	// Generic connection code will take it from here.
+	m_connection.ConnectionState_ClosedByPeer( msg.reason_code(), msg.debug().c_str() );
+}
+
+void CConnectionTransportUDPBase::Received_NoConnection( const CMsgSteamSockets_UDP_NoConnection &msg, SteamNetworkingMicroseconds usecNow )
+{
+	// Make sure it's an ack of something we would have sent
+	if ( msg.to_connection_id() != ConnectionIDLocal() || msg.from_connection_id() != m_connection.m_unConnectionIDRemote )
+	{
+		ReportBadUDPPacketFromConnectionPeer( "NoConnection", "Old/incorrect connection ID.  Message is for a stale connection, or is spoofed.  Ignoring." );
+		return;
+	}
+
+	// Generic connection code will take it from here.
+	m_connection.ConnectionState_ClosedByPeer( 0, nullptr );
+}
+
+/////////////////////////////////////////////////////////////////////////////
+//
 // IP connections
 //
 /////////////////////////////////////////////////////////////////////////////
@@ -538,7 +1028,7 @@ CSteamNetworkConnectionUDP::~CSteamNetworkConnectionUDP()
 }
 
 CConnectionTransportUDP::CConnectionTransportUDP( CSteamNetworkConnectionUDP &connection )
-: CConnectionTransport( connection )
+: CConnectionTransportUDPBase( connection )
 , m_pSocket( nullptr )
 {
 }
@@ -585,12 +1075,16 @@ void CSteamNetworkConnectionUDP::GetConnectionTypeDescription( ConnectionTypeDes
 	V_sprintf_safe( szDescription, "UDP %s@%s", sIdentity.c_str(), szAddr );
 }
 
-void UDPSendPacketContext_t::Populate( size_t cbHdrtReserve, EStatsReplyRequest eReplyRequested, CSteamNetworkConnectionBase &connection )
+void UDPSendPacketContext_t::Populate( size_t cbHdrtReserve, EStatsReplyRequest eReplyRequested, CConnectionTransportUDPBase *pTransport )
 {
+	CSteamNetworkConnectionBase &connection = pTransport->m_connection;
 	LinkStatsTracker<LinkStatsTrackerEndToEnd> &statsEndToEnd = connection.m_statsEndToEnd;
 
+	int nFlags = 0;
+	if ( connection.m_pTransport != pTransport )
+		nFlags |= msg.NOT_PRIMARY_TRANSPORT_E2E;
+
 	// What effective flags should we send
-	uint32 nFlags = 0;
 	int nReadyToSendTracer = 0;
 	if ( eReplyRequested == k_EStatsReplyRequest_Immediate || statsEndToEnd.BNeedToSendPingImmediate( m_usecNow ) )
 		nFlags |= msg.ACK_REQUEST_E2E | msg.ACK_REQUEST_IMMEDIATE;
@@ -606,37 +1100,26 @@ void UDPSendPacketContext_t::Populate( size_t cbHdrtReserve, EStatsReplyRequest 
 	m_nFlags = nFlags;
 
 	// Need to send any connection stats stats?
-	if ( statsEndToEnd.BNeedToSendStats( m_usecNow ) )
+	m_nStatsNeed = statsEndToEnd.GetStatsSendNeed( m_usecNow );
+	if ( m_nStatsNeed & k_nSendStats_Due )
 	{
-		m_nStatsNeed = 2;
-		statsEndToEnd.PopulateMessage( *msg.mutable_stats(), m_usecNow );
+		statsEndToEnd.PopulateMessage( m_nStatsNeed, *msg.mutable_stats(), m_usecNow );
 
 		if ( nReadyToSendTracer > 0 )
-			nFlags |= msg.ACK_REQUEST_E2E;
-
-		SlamFlagsAndCalcSize();
-		CalcMaxEncryptedPayloadSize( cbHdrtReserve, &connection );
+			m_nFlags |= msg.ACK_REQUEST_E2E;
 	}
-	else
-	{
-		// Populate flags now, based on what is implied from what we HAVE to send
-		SlamFlagsAndCalcSize();
-		CalcMaxEncryptedPayloadSize( cbHdrtReserve, &connection );
 
-		// Would we like to try to send some additional stats, if there is room?
-		if ( statsEndToEnd.BReadyToSendStats( m_usecNow ) )
-		{
-			if ( nReadyToSendTracer > 0 )
-				nFlags |= msg.ACK_REQUEST_E2E;
-			statsEndToEnd.PopulateMessage( *msg.mutable_stats(), m_usecNow );
-			SlamFlagsAndCalcSize();
-			m_nStatsNeed = 1;
-		}
-		else
-		{
-			// No need to send any stats right now
-			m_nStatsNeed = 0;
-		}
+	// Populate flags now, based on what is implied from what we HAVE to send
+	SlamFlagsAndCalcSize();
+	CalcMaxEncryptedPayloadSize( cbHdrtReserve, &connection );
+
+	// Would we like to try to send some additional stats, if there is room?
+	if ( m_nStatsNeed & k_nSendStats_Ready )
+	{
+		if ( nReadyToSendTracer > 0 )
+			m_nFlags |= msg.ACK_REQUEST_E2E;
+		statsEndToEnd.PopulateMessage( m_nStatsNeed & k_nSendStats_Ready, *msg.mutable_stats(), m_usecNow );
+		SlamFlagsAndCalcSize();
 	}
 }
 
@@ -644,109 +1127,43 @@ void UDPSendPacketContext_t::Trim( int cbHdrOutSpaceRemaining )
 {
 	while ( m_cbTotalSize > cbHdrOutSpaceRemaining )
 	{
-
-		if ( msg.has_stats() )
+		if ( !msg.has_stats() )
 		{
-			AssertMsg( m_nStatsNeed == 1, "We didn't reserve enough space for stats!" );
-			if ( msg.stats().has_instantaneous() && msg.stats().has_lifetime() )
+			// Nothing left to clear!?  We shouldn't get here!
+			AssertMsg( false, "Serialized stats message still won't fit, ever after clearing everything?" );
+			m_cbTotalSize = 0;
+			break;
+		}
+
+		if ( m_nStatsNeed & k_nSendStats_Instantanous_Ready )
+		{
+			msg.mutable_stats()->clear_instantaneous();
+			m_nStatsNeed &= ~k_nSendStats_Instantanous_Ready;
+		}
+		else if ( m_nStatsNeed & k_nSendStats_Lifetime_Ready )
+		{
+			msg.mutable_stats()->clear_lifetime();
+			m_nStatsNeed &= ~k_nSendStats_Lifetime_Ready;
+		}
+		else
+		{
+			AssertMsg( false, "We didn't reserve enough space for stats!" );
+			if ( m_nStatsNeed & k_nSendStats_Instantanous_Due )
 			{
-				// Trying to send both - clear instantaneous
 				msg.mutable_stats()->clear_instantaneous();
+				m_nStatsNeed &= ~k_nSendStats_Instantanous_Due;
 			}
 			else
 			{
-				// Trying to send just one or the other.  Clear the whole container.
-				msg.clear_stats();
+				m_nStatsNeed = 0;
 			}
-
-			SlamFlagsAndCalcSize();
-			continue;
 		}
 
-		// Nothing left to clear!?  We shouldn't get here!
-		AssertMsg( false, "Serialized stats message still won't fit, ever after clearing everything?" );
-		m_cbTotalSize = 0;
-		break;
+		if ( m_nStatsNeed == 0 )
+			msg.clear_stats();
+
+		SlamFlagsAndCalcSize();
 	}
-}
-
-void CConnectionTransportUDP::SendStatsMsg( EStatsReplyRequest eReplyRequested, SteamNetworkingMicroseconds usecNow, const char *pszReason )
-{
-	UDPSendPacketContext_t ctx( usecNow, pszReason );
-	ctx.Populate( sizeof(UDPDataMsgHdr), eReplyRequested, m_connection );
-
-	// Send a data packet (maybe containing ordinary data), with this piggy backed on top of it
-	m_connection.SNP_SendPacket( this, ctx );
-}
-
-bool CConnectionTransportUDP::SendDataPacket( SteamNetworkingMicroseconds usecNow )
-{
-	// Populate context struct with any stats we want/need to send, and how much space we need to reserve for it
-	UDPSendPacketContext_t ctx( usecNow, "data" );
-	ctx.Populate( sizeof(UDPDataMsgHdr), k_EStatsReplyRequest_NothingToSend, m_connection );
-
-	// Send a packet
-	return m_connection.SNP_SendPacket( this, ctx );
-}
-
-int CConnectionTransportUDP::SendEncryptedDataChunk( const void *pChunk, int cbChunk, SendPacketContext_t &ctxBase )
-{
-	if ( !m_pSocket )
-	{
-		Assert( false );
-		return 0;
-	}
-
-	UDPSendPacketContext_t &ctx = static_cast<UDPSendPacketContext_t &>( ctxBase );
-
-	uint8 pkt[ k_cbSteamNetworkingSocketsMaxUDPMsgLen ];
-	UDPDataMsgHdr *hdr = (UDPDataMsgHdr *)pkt;
-	hdr->m_unMsgFlags = 0x80;
-	Assert( m_connection.m_unConnectionIDRemote != 0 );
-	hdr->m_unToConnectionID = LittleDWord( m_connection.m_unConnectionIDRemote );
-	hdr->m_unSeqNum = LittleWord( m_connection.m_statsEndToEnd.ConsumeSendPacketNumberAndGetWireFmt( ctx.m_usecNow ) );
-
-	byte *p = (byte*)( hdr + 1 );
-
-	// Check how much bigger we could grow the header
-	// and still fit in a packet
-	int cbHdrOutSpaceRemaining = pkt + sizeof(pkt) - p - cbChunk;
-	if ( cbHdrOutSpaceRemaining < 0 )
-	{
-		AssertMsg( false, "MTU / header size problem!" );
-		return 0;
-	}
-
-	// Try to trim stuff from blob, if it won't fit
-	ctx.Trim( cbHdrOutSpaceRemaining );
-
-	if ( ctx.Serialize( p ) )
-	{
-		// Update bookkeeping with the stuff we are actually sending
-		TrackSentStats( ctx.msg, true, ctx.m_usecNow );
-
-		// Mark header with the flag
-		hdr->m_unMsgFlags |= hdr->kFlag_ProtobufBlob;
-	}
-
-	// !FIXME! Time since previous, for jitter measurement?
-
-	// Use gather-based send.  This saves one memcpy of every payload
-	iovec gather[2];
-	gather[0].iov_base = pkt;
-	gather[0].iov_len = p - pkt;
-	gather[1].iov_base = const_cast<void*>( pChunk );
-	gather[1].iov_len = cbChunk;
-
-	int cbSend = gather[0].iov_len + gather[1].iov_len;
-	Assert( cbSend <= sizeof(pkt) ); // Bug in the code above.  We should never "overflow" the packet.  (Ignoring the fact that we using a gather-based send.  The data could be tiny with a large header for piggy-backed stats.)
-
-	// !FIXME! Should we track data payload separately?  Maybe we ought to track
-	// *messages* instead of packets.
-
-	// Send it
-	SendPacketGather( 2, gather, cbSend );
-	return cbSend;
 }
 
 bool CConnectionTransportUDP::BConnect( const netadr_t &netadrRemote, SteamDatagramErrMsg &errMsg )
@@ -814,9 +1231,6 @@ bool CSteamNetworkConnectionUDP::BInitConnect( const SteamNetworkingIPAddr &addr
 	// so it's important that it be cleared.  (It should already be so.)
 	Assert( m_identityRemote.IsInvalid() );
 	m_identityRemote.Clear();
-
-	// We know what the remote addr will be.
-	m_netAdrRemote = netadrRemote;
 
 	// We should know our own identity, unless the app has said it's OK to go without this.
 	if ( m_identityLocal.IsInvalid() ) // Specific identity hasn't already been set (by derived class, etc)
@@ -892,45 +1306,6 @@ void CConnectionTransportUDP::SendEndToEndConnectRequest( SteamNetworkingMicrose
 	m_connection.m_statsEndToEnd.TrackSentPingRequest( usecNow, false );
 }
 
-void CConnectionTransportUDP::SendEndToEndStatsMsg( EStatsReplyRequest eRequest, SteamNetworkingMicroseconds usecNow, const char *pszReason )
-{
-	SendStatsMsg( eRequest, usecNow, pszReason );
-}
-
-void CSteamNetworkConnectionUDP::ThinkConnection( SteamNetworkingMicroseconds usecNow )
-{
-
-	// FIXME - We should refactor this, maybe promote this to the base class.
-	//         There's really nothing specific to plain UDP transport here.
-
-	// Check if we have stats we need to flush out
-	if ( !m_statsEndToEnd.IsPassive() && m_pTransport )
-	{
-
-		// Do we need to send something immediately, for any reason?
-		const char *pszReason = NeedToSendEndToEndStatsOrAcks( usecNow );
-		if ( pszReason )
-		{
-			m_pTransport->SendEndToEndStatsMsg( k_EStatsReplyRequest_NothingToSend, usecNow, pszReason );
-
-			// Make sure that took care of what we needed!
-
-			Assert( !NeedToSendEndToEndStatsOrAcks( usecNow ) );
-		}
-
-		// Make sure we are scheduled to think the next time we need to
-		SteamNetworkingMicroseconds usecNextStatsThink = m_statsEndToEnd.GetNextThinkTime( usecNow );
-		if ( usecNextStatsThink <= usecNow )
-		{
-			AssertMsg( false, "We didn't send all the stats we needed to!" );
-		}
-		else
-		{
-			EnsureMinThinkTime( usecNextStatsThink );
-		}
-	}
-}
-
 bool CSteamNetworkConnectionUDP::BBeginAccept(
 	CSteamNetworkListenSocketDirectUDP *pParent,
 	const netadr_t &adrFrom,
@@ -959,7 +1334,6 @@ bool CSteamNetworkConnectionUDP::BBeginAccept(
 	Assert( !m_identityRemote.IsInvalid() );
 
 	m_unConnectionIDRemote = unConnectionIDRemote;
-	m_netAdrRemote = adrFrom;
 	if ( !pParent->BAddChildConnection( this, errMsg ) )
 		return false;
 
@@ -1002,67 +1376,28 @@ EResult CSteamNetworkConnectionUDP::AcceptConnection( SteamNetworkingMicrosecond
 	return k_EResultOK;
 }
 
-void CConnectionTransportUDP::SendMsg( uint8 nMsgID, const google::protobuf::MessageLite &msg )
-{
-
-	uint8 pkt[ k_cbSteamNetworkingSocketsMaxUDPMsgLen ];
-	pkt[0] = nMsgID;
-	int cbPkt = ProtoMsgByteSize( msg )+1;
-	if ( cbPkt > sizeof(pkt) )
-	{
-		AssertMsg3( false, "Msg type %d is %d bytes, larger than MTU of %d bytes", int( nMsgID ), int( cbPkt ), (int)sizeof(pkt) );
-		return;
-	}
-	uint8 *pEnd = msg.SerializeWithCachedSizesToArray( pkt+1 );
-	Assert( cbPkt == pEnd - pkt );
-
-	SendPacket( pkt, cbPkt );
-}
-
-void CConnectionTransportUDP::SendPaddedMsg( uint8 nMsgID, const google::protobuf::MessageLite &msg )
-{
-
-	uint8 pkt[ k_cbSteamNetworkingSocketsMaxUDPMsgLen ];
-	V_memset( pkt, 0, sizeof(pkt) ); // don't send random bits from our process memory over the wire!
-	UDPPaddedMessageHdr *hdr = (UDPPaddedMessageHdr *)pkt;
-	int nMsgLength = ProtoMsgByteSize( msg );
-	if ( nMsgLength + sizeof(*hdr) > k_cbSteamNetworkingSocketsMaxUDPMsgLen )
-	{
-		AssertMsg3( false, "Msg type %d is %d bytes, larger than MTU of %d bytes", int( nMsgID ), int( nMsgLength + sizeof(*hdr) ), (int)sizeof(pkt) );
-		return;
-	}
-	hdr->m_nMsgID = nMsgID;
-	hdr->m_nMsgLength = LittleWord( uint16( nMsgLength ) );
-	uint8 *pEnd = msg.SerializeWithCachedSizesToArray( pkt + sizeof(*hdr) );
-	int cbPkt = pEnd - pkt;
-	Assert( cbPkt == int( sizeof(*hdr) + nMsgLength ) );
-	cbPkt = MAX( cbPkt, k_cbSteamNetworkingMinPaddedPacketSize );
-
-	SendPacket( pkt, cbPkt );
-}
-
-void CConnectionTransportUDP::SendPacket( const void *pkt, int cbPkt )
+bool CConnectionTransportUDP::SendPacket( const void *pkt, int cbPkt )
 {
 	iovec temp;
 	temp.iov_base = const_cast<void*>( pkt );
 	temp.iov_len = cbPkt;
-	SendPacketGather( 1, &temp, cbPkt );
+	return SendPacketGather( 1, &temp, cbPkt );
 }
 
-void CConnectionTransportUDP::SendPacketGather( int nChunks, const iovec *pChunks, int cbSendTotal )
+bool CConnectionTransportUDP::SendPacketGather( int nChunks, const iovec *pChunks, int cbSendTotal )
 {
 	// Safety
 	if ( !m_pSocket )
 	{
 		AssertMsg( false, "Attemt to send packet, but socket has been closed!" );
-		return;
+		return false;
 	}
 
 	// Update stats
 	m_connection.m_statsEndToEnd.TrackSentPacket( cbSendTotal );
 
 	// Hand over to operating system
-	m_pSocket->BSendRawPacketGather( nChunks, pChunks );
+	return m_pSocket->BSendRawPacketGather( nChunks, pChunks );
 }
 
 void CConnectionTransportUDP::TransportConnectionStateChanged( ESteamNetworkingConnectionState eOldState )
@@ -1093,8 +1428,22 @@ void CConnectionTransportUDP::TransportConnectionStateChanged( ESteamNetworkingC
 	}
 }
 
-#define ReportBadPacketIPv4( pszMsgType, /* fmt */ ... ) \
-	ReportBadPacketFrom( m_pSocket->GetRemoteHostAddr(), pszMsgType, __VA_ARGS__ )
+void CConnectionTransportUDP::TransportPopulateConnectionInfo( SteamNetConnectionInfo_t &info ) const
+{
+	CConnectionTransport::TransportPopulateConnectionInfo( info );
+
+	if ( m_pSocket )
+	{
+		const netadr_t &addr = m_pSocket->GetRemoteHostAddr();
+		NetAdrToSteamNetworkingIPAddr( info.m_addrRemote, addr );
+		if ( addr.IsLoopback() )
+			info.m_eTransportKind = k_ESteamNetTransport_LocalHost;
+		else if ( m_connection.m_statsEndToEnd.m_ping.m_nSmoothedPing <= 5 && IsRouteToAddressProbablyLocal( addr ) )
+			info.m_eTransportKind = k_ESteamNetTransport_UDPProbablyLocal;
+		else
+			info.m_eTransportKind = k_ESteamNetTransport_UDP;
+	}
+}
 
 void CConnectionTransportUDP::PacketReceived( const void *pvPkt, int cbPkt, const netadr_t &adrFrom, CConnectionTransportUDP *pSelf )
 {
@@ -1154,195 +1503,12 @@ void CConnectionTransportUDP::PacketReceived( const void *pvPkt, int cbPkt, cons
 	}
 }
 
-std::string DescribeStatsContents( const CMsgSteamSockets_UDP_Stats &msg )
-{
-	std::string sWhat;
-	if ( msg.flags() & msg.ACK_REQUEST_E2E )
-		sWhat += " request_ack";
-	if ( msg.flags() & msg.ACK_REQUEST_IMMEDIATE )
-		sWhat += " request_ack_immediate";
-	if ( msg.stats().has_lifetime() )
-		sWhat += " stats.life";
-	if ( msg.stats().has_instantaneous() )
-		sWhat += " stats.rate";
-	return sWhat;
-}
-
-void CConnectionTransportUDP::RecvStats( const CMsgSteamSockets_UDP_Stats &msgStatsIn, bool bInline, SteamNetworkingMicroseconds usecNow )
-{
-
-	// Connection quality stats?
-	if ( msgStatsIn.has_stats() )
-		m_connection.m_statsEndToEnd.ProcessMessage( msgStatsIn.stats(), usecNow );
-
-	// Spew appropriately
-	SpewVerbose( "[%s] Recv %s stats:%s\n",
-		ConnectionDescription(),
-		bInline ? "inline" : "standalone",
-		DescribeStatsContents( msgStatsIn ).c_str()
-	);
-
-	// Check if we need to reply, either now or later
-	if ( m_connection.BStateIsConnectedForWirePurposes() )
-	{
-
-		// Check for queuing outgoing acks
-		bool bImmediate = ( msgStatsIn.flags() & msgStatsIn.ACK_REQUEST_IMMEDIATE ) != 0;
-		if ( ( msgStatsIn.flags() & msgStatsIn.ACK_REQUEST_E2E ) || msgStatsIn.has_stats() )
-		{
-			m_connection.QueueEndToEndAck( bImmediate, usecNow );
-		}
-
-		// Do we need to send an immediate reply?
-		const char *pszReason = m_connection.NeedToSendEndToEndStatsOrAcks( usecNow );
-		if ( pszReason )
-		{
-			// Send a stats message
-			SendStatsMsg( k_EStatsReplyRequest_NothingToSend, usecNow, pszReason );
-		}
-	}
-}
-
-void CConnectionTransportUDP::TrackSentStats( const CMsgSteamSockets_UDP_Stats &msgStatsOut, bool bInline, SteamNetworkingMicroseconds usecNow )
-{
-
-	// What effective flags will be received?
-	bool bAllowDelayedReply = ( msgStatsOut.flags() & msgStatsOut.ACK_REQUEST_IMMEDIATE ) == 0;
-
-	// Record that we sent stats and are waiting for peer to ack
-	if ( msgStatsOut.has_stats() )
-	{
-		m_connection.m_statsEndToEnd.TrackSentStats( msgStatsOut.stats(), usecNow, bAllowDelayedReply );
-	}
-	else if ( msgStatsOut.flags() & msgStatsOut.ACK_REQUEST_E2E )
-	{
-		m_connection.m_statsEndToEnd.TrackSentMessageExpectingSeqNumAck( usecNow, bAllowDelayedReply );
-	}
-
-	// Spew appropriately
-	SpewVerbose( "[%s] Sent %s stats:%s\n",
-		ConnectionDescription(),
-		bInline ? "inline" : "standalone",
-		DescribeStatsContents( msgStatsOut ).c_str()
-	);
-}
-
-void CConnectionTransportUDP::Received_Data( const uint8 *pPkt, int cbPkt, SteamNetworkingMicroseconds usecNow )
-{
-
-	if ( cbPkt < sizeof(UDPDataMsgHdr) )
-	{
-		ReportBadPacketIPv4( "DataPacket", "Packet of size %d is too small.", cbPkt );
-		return;
-	}
-
-	// Check cookie
-	const UDPDataMsgHdr *hdr = (const UDPDataMsgHdr *)pPkt;
-	if ( LittleDWord( hdr->m_unToConnectionID ) != ConnectionIDLocal() )
-	{
-
-		// Wrong session.  It could be an old session, or it could be spoofed.
-		ReportBadPacketIPv4( "DataPacket", "Incorrect connection ID" );
-		if ( BCheckGlobalSpamReplyRateLimit( usecNow ) )
-		{
-			SendNoConnection( LittleDWord( hdr->m_unToConnectionID ), 0 );
-		}
-		return;
-	}
-	uint16 nWirePktNumber = LittleWord( hdr->m_unSeqNum );
-
-	// Check state
-	switch ( ConnectionState() )
-	{
-		case k_ESteamNetworkingConnectionState_Dead:
-		case k_ESteamNetworkingConnectionState_None:
-		case k_ESteamNetworkingConnectionState_FindingRoute: // not used for raw UDP
-		default:
-			Assert( false );
-			return;
-
-		case k_ESteamNetworkingConnectionState_ClosedByPeer:
-		case k_ESteamNetworkingConnectionState_FinWait:
-		case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
-			SendConnectionClosedOrNoConnection();
-			return;
-
-		case k_ESteamNetworkingConnectionState_Connecting:
-			// Ignore it.  We don't have the SteamID of whoever is on the other end yet,
-			// their encryption keys, etc.  The most likely cause is that a server sent
-			// a ConnectOK, which dropped.  So they think we're connected but we don't
-			// have everything yet.
-			return;
-
-		case k_ESteamNetworkingConnectionState_Linger:
-		case k_ESteamNetworkingConnectionState_Connected:
-
-			// We'll process the chunk
-			break;
-	}
-
-	const uint8 *pIn = pPkt + sizeof(*hdr);
-	const uint8 *pPktEnd = pPkt + cbPkt;
-
-	// Inline stats?
-	static CMsgSteamSockets_UDP_Stats msgStats;
-	CMsgSteamSockets_UDP_Stats *pMsgStatsIn = nullptr;
-	uint32 cbStatsMsgIn = 0;
-	if ( hdr->m_unMsgFlags & hdr->kFlag_ProtobufBlob )
-	{
-		//Msg_Verbose( "Received inline stats from %s", server.m_szName );
-
-		pIn = DeserializeVarInt( pIn, pPktEnd, cbStatsMsgIn );
-		if ( pIn == NULL )
-		{
-			ReportBadPacketIPv4( "DataPacket", "Failed to varint decode size of stats blob" );
-			return;
-		}
-		if ( pIn + cbStatsMsgIn > pPktEnd )
-		{
-			ReportBadPacketIPv4( "DataPacket", "stats message size doesn't make sense.  Stats message size %d, packet size %d", cbStatsMsgIn, cbPkt );
-			return;
-		}
-
-		if ( !msgStats.ParseFromArray( pIn, cbStatsMsgIn ) )
-		{
-			ReportBadPacketIPv4( "DataPacket", "protobuf failed to parse inline stats message" );
-			return;
-		}
-
-		// Shove sequence number so we know what acks to pend, etc
-		pMsgStatsIn = &msgStats;
-
-		// Advance pointer
-		pIn += cbStatsMsgIn;
-	}
-
-	const void *pChunk = pIn;
-	int cbChunk = pPktEnd - pIn;
-
-	// Decrypt it, and check packet number
-	uint8 tempDecrypted[ k_cbSteamNetworkingSocketsMaxPlaintextPayloadRecv ];
-	void *pDecrypted = tempDecrypted;
-	uint32 cbDecrypted = sizeof(tempDecrypted);
-	int64 nFullSequenceNumber = m_connection.DecryptDataChunk( nWirePktNumber, cbPkt, pChunk, cbChunk, pDecrypted, cbDecrypted, usecNow );
-	if ( nFullSequenceNumber <= 0 )
-		return;
-
-	// Process plaintext
-	if ( !m_connection.ProcessPlainTextDataChunk( nFullSequenceNumber, pDecrypted, cbDecrypted, 0, usecNow ) )
-		return;
-
-	// Process the stats, if any
-	if ( pMsgStatsIn )
-		RecvStats( *pMsgStatsIn, true, usecNow );
-}
-
 void CConnectionTransportUDP::Received_ChallengeReply( const CMsgSteamSockets_UDP_ChallengeReply &msg, SteamNetworkingMicroseconds usecNow )
 {
 	// We should only be getting this if we are the "client"
 	if ( ListenSocket() )
 	{
-		ReportBadPacketIPv4( "ChallengeReply", "Shouldn't be receiving this unless on accepted connections, only connections initiated locally." );
+		ReportBadUDPPacketFromConnectionPeer( "ChallengeReply", "Shouldn't be receiving this unless on accepted connections, only connections initiated locally." );
 		return;
 	}
 
@@ -1353,7 +1519,7 @@ void CConnectionTransportUDP::Received_ChallengeReply( const CMsgSteamSockets_UD
 	// Check session ID to make sure they aren't spoofing.
 	if ( msg.connection_id() != ConnectionIDLocal() )
 	{
-		ReportBadPacketIPv4( "ChallengeReply", "Incorrect connection ID.  Message is stale or could be spoofed, ignoring." );
+		ReportBadUDPPacketFromConnectionPeer( "ChallengeReply", "Incorrect connection ID.  Message is stale or could be spoofed, ignoring." );
 		return;
 	}
 	if ( msg.protocol_version() < k_nMinRequiredProtocolVersion )
@@ -1428,14 +1594,14 @@ void CConnectionTransportUDP::Received_ConnectOK( const CMsgSteamSockets_UDP_Con
 	// We should only be getting this if we are the "client"
 	if ( ListenSocket() )
 	{
-		ReportBadPacketIPv4( "ConnectOK", "Shouldn't be receiving this unless on accepted connections, only connections initiated locally." );
+		ReportBadUDPPacketFromConnectionPeer( "ConnectOK", "Shouldn't be receiving this unless on accepted connections, only connections initiated locally." );
 		return;
 	}
 
 	// Check connection ID to make sure they aren't spoofing and it's the same connection we think it is
 	if ( msg.client_connection_id() != ConnectionIDLocal() )
 	{
-		ReportBadPacketIPv4( "ConnectOK", "Incorrect connection ID.  Message is stale or could be spoofed, ignoring." );
+		ReportBadUDPPacketFromConnectionPeer( "ConnectOK", "Incorrect connection ID.  Message is stale or could be spoofed, ignoring." );
 		return;
 	}
 
@@ -1449,7 +1615,7 @@ void CConnectionTransportUDP::Received_ConnectOK( const CMsgSteamSockets_UDP_Con
 		int r = SteamNetworkingIdentityFromSignedCert( identityRemote, msg.cert(), errMsg );
 		if ( r < 0 )
 		{
-			ReportBadPacketIPv4( "ConnectRequest", "Bad identity in cert.  %s", errMsg );
+			ReportBadUDPPacketFromConnectionPeer( "ConnectRequest", "Bad identity in cert.  %s", errMsg );
 			return;
 		}
 		if ( r == 0 )
@@ -1459,7 +1625,7 @@ void CConnectionTransportUDP::Received_ConnectOK( const CMsgSteamSockets_UDP_Con
 			r = SteamNetworkingIdentityFromProtobuf( identityRemote, msg, identity_string, legacy_identity_binary, legacy_server_steam_id, errMsg );
 			if ( r < 0 )
 			{
-				ReportBadPacketIPv4( "ConnectRequest", "Bad identity.  %s", errMsg );
+				ReportBadUDPPacketFromConnectionPeer( "ConnectRequest", "Bad identity.  %s", errMsg );
 				return;
 			}
 			if ( r == 0 )
@@ -1484,7 +1650,7 @@ void CConnectionTransportUDP::Received_ConnectOK( const CMsgSteamSockets_UDP_Con
 			if ( m_connection.m_connectionConfig.m_IP_AllowWithoutAuth.Get() == 0 )
 			{
 				// Should we send an explicit rejection here?
-				ReportBadPacketIPv4( "ConnectOK", "Unauthenticated connections not allowed." );
+				ReportBadUDPPacketFromConnectionPeer( "ConnectOK", "Unauthenticated connections not allowed." );
 				return;
 			}
 
@@ -1520,7 +1686,7 @@ void CConnectionTransportUDP::Received_ConnectOK( const CMsgSteamSockets_UDP_Con
 	// Make sure they are still who we think they are
 	if ( !m_connection.m_identityRemote.IsInvalid() && !( m_connection.m_identityRemote == identityRemote ) )
 	{
-		ReportBadPacketIPv4( "ConnectOK", "server_steam_id doesn't match who we expect to be connecting to!" );
+		ReportBadUDPPacketFromConnectionPeer( "ConnectOK", "server_steam_id doesn't match who we expect to be connecting to!" );
 		return;
 	}
 
@@ -1579,7 +1745,7 @@ void CConnectionTransportUDP::Received_ConnectOK( const CMsgSteamSockets_UDP_Con
 	if ( !m_connection.BRecvCryptoHandshake( msg.cert(), msg.crypt(), false ) )
 	{
 		Assert( ConnectionState() == k_ESteamNetworkingConnectionState_ProblemDetectedLocally );
-		ReportBadPacketIPv4( "ConnectOK", "Failed crypto init.  %s", m_connection.m_szEndDebug );
+		ReportBadUDPPacketFromConnectionPeer( "ConnectOK", "Failed crypto init.  %s", m_connection.m_szEndDebug );
 		return;
 	}
 
@@ -1587,57 +1753,12 @@ void CConnectionTransportUDP::Received_ConnectOK( const CMsgSteamSockets_UDP_Con
 	m_connection.ConnectionState_Connected( usecNow );
 }
 
-void CConnectionTransportUDP::Received_ConnectionClosed( const CMsgSteamSockets_UDP_ConnectionClosed &msg, SteamNetworkingMicroseconds usecNow )
-{
-	// Give them a reply to let them know we heard from them.  If it's the right connection ID,
-	// then they probably aren't spoofing and it's critical that we give them an ack!
-	//
-	// If the wrong connection ID, then it could be an old connection so we'd like to send a reply
-	// to let them know that they can stop telling us the connection is closed.
-	// However, it could just be random garbage, so we need to protect ourselves from abuse,
-	// so limit how many of these we send.
-	bool bConnectionIDMatch =
-		msg.to_connection_id() == ConnectionIDLocal()
-		|| ( msg.to_connection_id() == 0 && msg.from_connection_id() && msg.from_connection_id() == m_connection.m_unConnectionIDRemote ); // they might not know our ID yet, if they are a client aborting the connection really early.
-	if ( bConnectionIDMatch || BCheckGlobalSpamReplyRateLimit( usecNow ) )
-	{
-		// Send a reply, echoing exactly what they sent to us
-		CMsgSteamSockets_UDP_NoConnection msgReply;
-		if ( msg.to_connection_id() )
-			msgReply.set_from_connection_id( msg.to_connection_id() );
-		if ( msg.from_connection_id() )
-			msgReply.set_to_connection_id( msg.from_connection_id() );
-		SendMsg( k_ESteamNetworkingUDPMsg_NoConnection, msgReply );
-	}
-
-	// If incorrect connection ID, then that's all we'll do, since this packet actually
-	// has nothing to do with current connection at all.
-	if ( !bConnectionIDMatch )
-		return;
-
-	// Generic connection code will take it from here.
-	m_connection.ConnectionState_ClosedByPeer( msg.reason_code(), msg.debug().c_str() );
-}
-
-void CConnectionTransportUDP::Received_NoConnection( const CMsgSteamSockets_UDP_NoConnection &msg, SteamNetworkingMicroseconds usecNow )
-{
-	// Make sure it's an ack of something we would have sent
-	if ( msg.to_connection_id() != ConnectionIDLocal() || msg.from_connection_id() != m_connection.m_unConnectionIDRemote )
-	{
-		ReportBadPacketIPv4( "NoConnection", "Old/incorrect connection ID.  Message is for a stale connection, or is spoofed.  Ignoring." );
-		return;
-	}
-
-	// Generic connection code will take it from here.
-	m_connection.ConnectionState_ClosedByPeer( 0, nullptr );
-}
-
 void CConnectionTransportUDP::Received_ChallengeOrConnectRequest( const char *pszDebugPacketType, uint32 unPacketConnectionID, SteamNetworkingMicroseconds usecNow )
 {
 	// If wrong connection ID, then check for sending a generic reply and bail
 	if ( unPacketConnectionID != m_connection.m_unConnectionIDRemote )
 	{
-		ReportBadPacketIPv4( pszDebugPacketType, "Incorrect connection ID, when we do have a connection for this address.  Could be spoofed, ignoring." );
+		ReportBadUDPPacketFromConnectionPeer( pszDebugPacketType, "Incorrect connection ID, when we do have a connection for this address.  Could be spoofed, ignoring." );
 		// Let's not send a reply in this case
 		//if ( BCheckGlobalSpamReplyRateLimit( usecNow ) )
 		//	SendNoConnection( unPacketConnectionID );
@@ -1669,7 +1790,7 @@ void CConnectionTransportUDP::Received_ChallengeOrConnectRequest( const char *ps
 			if ( !ListenSocket() )
 			{
 				// WAT?  We initiated this connection, so why are they requesting to connect?
-				ReportBadPacketIPv4( pszDebugPacketType, "We are the 'client' who initiated the connection, so 'server' shouldn't be sending us this!" );
+				ReportBadUDPPacketFromConnectionPeer( pszDebugPacketType, "We are the 'client' who initiated the connection, so 'server' shouldn't be sending us this!" );
 				return;
 			}
 
@@ -1678,42 +1799,6 @@ void CConnectionTransportUDP::Received_ChallengeOrConnectRequest( const char *ps
 			return;
 	}
 
-}
-
-void CConnectionTransportUDP::SendConnectionClosedOrNoConnection()
-{
-	if ( ConnectionState() == k_ESteamNetworkingConnectionState_ClosedByPeer )
-	{
-		SendNoConnection( ConnectionIDLocal(), ConnectionIDRemote() );
-	}
-	else
-	{
-		CMsgSteamSockets_UDP_ConnectionClosed msg;
-		msg.set_from_connection_id( ConnectionIDLocal() );
-
-		if ( ConnectionIDRemote() )
-			msg.set_to_connection_id( ConnectionIDRemote() );
-
-		msg.set_reason_code( m_connection.m_eEndReason );
-		if ( m_connection.m_szEndDebug[0] )
-			msg.set_debug( m_connection.m_szEndDebug );
-		SendPaddedMsg( k_ESteamNetworkingUDPMsg_ConnectionClosed, msg );
-	}
-}
-
-void CConnectionTransportUDP::SendNoConnection( uint32 unFromConnectionID, uint32 unToConnectionID )
-{
-	CMsgSteamSockets_UDP_NoConnection msg;
-	if ( unFromConnectionID == 0 && unToConnectionID == 0 )
-	{
-		AssertMsg( false, "Can't send NoConnection, we need at least one of from/to connection ID!" );
-		return;
-	}
-	if ( unFromConnectionID )
-		msg.set_from_connection_id( unFromConnectionID );
-	if ( unToConnectionID )
-		msg.set_to_connection_id( unToConnectionID );
-	SendMsg( k_ESteamNetworkingUDPMsg_NoConnection, msg );
 }
 
 void CConnectionTransportUDP::SendConnectOK( SteamNetworkingMicroseconds usecNow )

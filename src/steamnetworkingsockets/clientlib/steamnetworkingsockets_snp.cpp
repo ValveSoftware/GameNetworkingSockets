@@ -99,29 +99,6 @@ struct SNPAckSerializerHelper
 
 };
 
-// exponentially weighted moving average
-template< typename T > T tfrc_ewma( T avg, T newval, T weight )
-{
-	return avg ? ( weight * avg + ( 10 - weight ) * newval ) / 10 : newval;
-}
-
-int TFRCCalcX( int s, SteamNetworkingMicroseconds rtt, float p )
-{
-	// TFRC throughput equation
-	// 
-	//                                s
-	//   X_Bps = ----------------------------------------------------------
-	//           R*sqrt(2*b*p/3) + (t_RTO * (3*sqrt(3*b*p/8)*p*(1+32*p^2)))
-	//
-	// b is TCP acknowlege packet rate, assumed to be 1 for this implementation
-
-	float R = (double)rtt / k_nMillion;
-	float t_RTO = std::max( 4 * R, 1.0f );
-
-	return static_cast< int >( static_cast<float>( s ) /
-		( R * sqrt( 2 * p / 3 ) + ( t_RTO * ( 3 * sqrt( 3 * p / 8 ) * p * ( 1 + 32 * ( p * p ) ) ) ) ) );
-}
-
 // Fetch ping, and handle two edge cases:
 // - if we don't have an estimate, just be relatively conservative
 // - clamp to minimum
@@ -202,6 +179,7 @@ SSNPSenderState::SSNPSenderState()
 	m_mapInFlightPacketsByPktNum.clear();
 	SNPInFlightPacket_t &sentinel = m_mapInFlightPacketsByPktNum[INT64_MIN];
 	sentinel.m_bNack = false;
+	sentinel.m_pTransport = nullptr;
 	sentinel.m_usecWhenSent = 0;
 	m_itNextInFlightPacketToTimeout = m_mapInFlightPacketsByPktNum.end();
 }
@@ -355,7 +333,7 @@ int64 CSteamNetworkConnectionBase::SNP_SendMessage( CSteamNetworkingMessage *pSe
 
 	// Add to pending list
 	m_senderState.m_messagesQueued.push_back( pSendMessage );
-	SpewType( m_connectionConfig.m_LogLevel_Message.Get(), "[%s] SendMessage %s: MsgNum=%lld sz=%d\n",
+	SpewVerboseGroup( m_connectionConfig.m_LogLevel_Message.Get(), "[%s] SendMessage %s: MsgNum=%lld sz=%d\n",
 				 GetDescription(),
 				 pSendMessage->SNPSend_IsReliable() ? "RELIABLE" : "UNRELIABLE",
 				 (long long)pSendMessage->m_nMessageNumber,
@@ -469,7 +447,7 @@ EResult CSteamNetworkConnectionBase::SNP_FlushMessage( SteamNetworkingMicrosecon
 	return k_EResultOK;
 }
 
-bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *pChunk, int cbChunk, SteamNetworkingMicroseconds usecNow )
+bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLast, RecvPacketContext_t &ctx )
 {
 	#define DECODE_ERROR( ... ) do { \
 		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_InternalError, __VA_ARGS__ ); \
@@ -535,14 +513,17 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 		pDecode += cbSegmentSize;
 
 	// Make sure we have initialized the connection
-	Assert( BStateIsConnectedForWirePurposes() );
+	Assert( BStateIsActive() );
+
+	SteamNetworkingMicroseconds usecNow = ctx.m_usecNow;
+	int64 nPktNum = ctx.m_nPktNum;
 
 	int nLogLevelPacketDecode = m_connectionConfig.m_LogLevel_PacketDecode.Get();
-	SpewType( nLogLevelPacketDecode, "[%s] decode pkt %lld\n", GetDescription(), (long long)nPktNum );
+	SpewVerboseGroup( nLogLevelPacketDecode, "[%s] decode pkt %lld\n", GetDescription(), (long long)nPktNum );
 
 	// Decode frames until we get to the end of the payload
-	const byte *pDecode = (const byte *)pChunk;
-	const byte *pEnd = pDecode + cbChunk;
+	const byte *pDecode = (const byte *)ctx.m_pPlainText;
+	const byte *pEnd = pDecode + ctx.m_cbPlainText;
 	int64 nCurMsgNum = 0;
 	int64 nDecodeReliablePos = 0;
 	while ( pDecode < pEnd )
@@ -739,7 +720,7 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 				}
 				continue;
 			}
-			SpewType( nLogLevelPacketDecode+1, "[%s]   decode pkt %lld stop waiting: %lld (was %lld)",
+			SpewDebugGroup( nLogLevelPacketDecode, "[%s]   decode pkt %lld stop waiting: %lld (was %lld)",
 				GetDescription(),
 				(long long)nPktNum,
 				(long long)nMinPktNumToSendAcks, (long long)m_receiverState.m_nMinPktNumToSendAcks );
@@ -825,7 +806,7 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 				}
 			}
 
-			SpewType( nLogLevelPacketDecode+1, "[%s]   decode pkt %lld latest recv %lld\n",
+			SpewDebugGroup( nLogLevelPacketDecode, "[%s]   decode pkt %lld latest recv %lld\n",
 				GetDescription(),
 				(long long)nPktNum, (long long)nLatestRecvSeqNum
 			);
@@ -841,7 +822,7 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 			{
 				uint16 nPackedDelay;
 				READ_16BITU( nPackedDelay, "ack delay" );
-				if ( nPackedDelay != 0xffff && inFlightPkt->first == nLatestRecvSeqNum )
+				if ( nPackedDelay != 0xffff && inFlightPkt->first == nLatestRecvSeqNum && inFlightPkt->second.m_pTransport == ctx.m_pTransport )
 				{
 					SteamNetworkingMicroseconds usecDelay = SteamNetworkingMicroseconds( nPackedDelay ) << k_nAckDelayPrecisionShift;
 					SteamNetworkingMicroseconds usecElapsed = usecNow - inFlightPkt->second.m_usecWhenSent;
@@ -863,7 +844,7 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 						// Either they are lying or some weird timer stuff is happening.
 						// Either way, discard it.
 
-						SpewType( m_connectionConfig.m_LogLevel_AckRTT.Get()-1, "[%s] decode pkt %lld latest recv %lld delay %lluusec INVALID ping %lldusec\n",
+						SpewMsgGroup( m_connectionConfig.m_LogLevel_AckRTT.Get(), "[%s] decode pkt %lld latest recv %lld delay %lluusec INVALID ping %lldusec\n",
 							GetDescription(),
 							(long long)nPktNum, (long long)nLatestRecvSeqNum,
 							(unsigned long long)usecDelay,
@@ -875,11 +856,10 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 						// Clamp, if we have slop
 						if ( msPing < 0 )
 							msPing = 0;
-						m_statsEndToEnd.m_ping.ReceivedPing( msPing, usecNow );
-						// FIXME - should let transport know
+						ProcessSNPPing( msPing, ctx );
 
 						// Spew
-						SpewType( m_connectionConfig.m_LogLevel_AckRTT.Get(), "[%s] decode pkt %lld latest recv %lld delay %.1fms elapsed %.1fms ping %dms\n",
+						SpewVerboseGroup( m_connectionConfig.m_LogLevel_AckRTT.Get(), "[%s] decode pkt %lld latest recv %lld delay %.1fms elapsed %.1fms ping %dms\n",
 							GetDescription(),
 							(long long)nPktNum, (long long)nLatestRecvSeqNum,
 							(float)(usecDelay * 1e-3 ),
@@ -903,7 +883,7 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 				// Decrease flush delay the more blocks they send us.
 				// FIXME - This is not an optimal way to do this.  Forcing us to
 				// ack everything is not what we want to do.  Instead, we should
-				// use a seperate timer for when we need to flush out a stop_waiting
+				// use a separate timer for when we need to flush out a stop_waiting
 				// packet!
 				SteamNetworkingMicroseconds usecDelay = 250*1000 / nBlocks;
 				m_receiverState.QueueFlushAllAcks( usecNow + usecDelay );
@@ -930,7 +910,7 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 
 					nPktNumAckBegin = m_senderState.m_nMinPktWaitingOnAck;
 					nPktNumNackBegin = nPktNumAckBegin;
-					SpewType( nLogLevelPacketDecode+1, "[%s]   decode pkt %lld ack last block ack begin %lld\n",
+					SpewDebugGroup( nLogLevelPacketDecode, "[%s]   decode pkt %lld ack last block ack begin %lld\n",
 						GetDescription(),
 						(long long)nPktNum, (long long)nPktNumAckBegin );
 				}
@@ -967,7 +947,7 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 					if ( nPktNumNackBegin < 0 )
 						DECODE_ERROR( "Nack range underflow, end=%lld, num=%lld", (long long)nPktNumAckBegin, (long long)numAcks );
 
-					SpewType( nLogLevelPacketDecode+1, "[%s]   decode pkt %lld nack [%lld,%lld) ack [%lld,%lld)\n",
+					SpewDebugGroup( nLogLevelPacketDecode, "[%s]   decode pkt %lld nack [%lld,%lld) ack [%lld,%lld)\n",
 						GetDescription(),
 						(long long)nPktNum,
 						(long long)nPktNumNackBegin, (long long)( nPktNumNackBegin + numNacks ),
@@ -1044,7 +1024,7 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 				m_senderState.RemoveAckedReliableMessageFromUnackedList();
 
 				// Spew where we think the peer is decoding the reliable stream
-				if ( g_eSteamDatagramDebugOutputDetailLevel <= k_ESteamNetworkingSocketsDebugOutputType_Debug )
+				if ( nLogLevelPacketDecode >= k_ESteamNetworkingSocketsDebugOutputType_Debug )
 				{
 
 					int64 nPeerReliablePos = m_senderState.m_nReliableStreamPos;
@@ -1053,7 +1033,7 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 					if ( !m_senderState.m_listReadyRetryReliableRange.empty() )
 						nPeerReliablePos = std::min( nPeerReliablePos, m_senderState.m_listReadyRetryReliableRange.begin()->first.m_nBegin );
 
-					SpewType( nLogLevelPacketDecode+1, "[%s]   decode pkt %lld peer reliable pos = %lld\n",
+					SpewDebugGroup( nLogLevelPacketDecode, "[%s]   decode pkt %lld peer reliable pos = %lld\n",
 						GetDescription(),
 						(long long)nPktNum, (long long)nPeerReliablePos );
 				}
@@ -1062,7 +1042,7 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 			// Check if any of this was new info, then advance our stop_waiting value.
 			if ( nLatestRecvSeqNum > m_senderState.m_nMinPktWaitingOnAck )
 			{
-				SpewType( nLogLevelPacketDecode, "[%s]   updating min_waiting_on_ack %lld -> %lld\n",
+				SpewVerboseGroup( nLogLevelPacketDecode, "[%s]   updating min_waiting_on_ack %lld -> %lld\n",
 					GetDescription(),
 					(long long)m_senderState.m_nMinPktWaitingOnAck, (long long)nLatestRecvSeqNum );
 				m_senderState.m_nMinPktWaitingOnAck = nLatestRecvSeqNum;
@@ -1076,7 +1056,15 @@ bool CSteamNetworkConnectionBase::SNP_RecvDataChunk( int64 nPktNum, const void *
 
 	// Update structures needed to populate our ACKs
 	bool bScheduleAck = nDecodeReliablePos > 0;
-	return SNP_RecordReceivedPktNum( nPktNum, usecNow, bScheduleAck );
+	if ( !SNP_RecordReceivedPktNum( nPktNum, usecNow, bScheduleAck ) )
+	{
+		// Do NOT mark that we received this packet
+		return false;
+	}
+
+	// Packet is OK.  Track end-to-end flow.
+	m_statsEndToEnd.TrackProcessSequencedPacket( nPktNum, usecNow, usecTimeSinceLast );
+	return true;
 
 	// Make sure these don't get used beyond where we intended them toget used
 	#undef DECODE_ERROR
@@ -1113,7 +1101,7 @@ void CSteamNetworkConnectionBase::SNP_SenderProcessPacketNack( int64 nPktNum, SN
 		if ( inFlightRange == m_senderState.m_listInFlightReliableRange.end() )
 			continue;
 
-		SpewType( m_connectionConfig.m_LogLevel_PacketDecode.Get(), "[%s] pkt %lld %s, queueing retry of reliable range [%lld,%lld)\n", 
+		SpewMsgGroup( m_connectionConfig.m_LogLevel_PacketDecode.Get(), "[%s] pkt %lld %s, queueing retry of reliable range [%lld,%lld)\n", 
 			GetDescription(),
 			nPktNum,
 			pszDebug,
@@ -1355,7 +1343,7 @@ inline bool HasOverlappingRange( const SNPRange_t &range, const std::map<SNPRang
 bool CSteamNetworkConnectionBase::SNP_SendPacket( CConnectionTransport *pTransport, SendPacketContext_t &ctx )
 {
 	// Make sure we have initialized the connection
-	Assert( BStateIsConnectedForWirePurposes() );
+	Assert( BStateIsActive() );
 	Assert( !m_senderState.m_mapInFlightPacketsByPktNum.empty() );
 
 	// We must have transport!
@@ -1378,7 +1366,7 @@ bool CSteamNetworkConnectionBase::SNP_SendPacket( CConnectionTransport *pTranspo
 	uint8 *pPayloadPtr = payload;
 
 	int nLogLevelPacketDecode = m_connectionConfig.m_LogLevel_PacketDecode.Get();
-	SpewType( nLogLevelPacketDecode, "[%s] encode pkt %lld",
+	SpewVerboseGroup( nLogLevelPacketDecode, "[%s] encode pkt %lld",
 		GetDescription(),
 		(long long)m_statsEndToEnd.m_nNextSendSequenceNumber );
 
@@ -1431,19 +1419,18 @@ bool CSteamNetworkConnectionBase::SNP_SendPacket( CConnectionTransport *pTranspo
 		}
 	}
 
-	// Check if we don't actually have bandwidth to send data, then don't.
-	//
-	// FIXME: Should we ever send data in a transport that is not the currently
-	// selected one.  Seems OK to send acks and stuff.
-	// Also, should we use a different token bucket per transport?
-	if ( m_senderState.m_flTokenBucket < 0.0 )
-	{
+	// Check if we are actually going to send data in this packet
+	if (
+		m_senderState.m_flTokenBucket < 0.0 // No bandwidth available.  (Presumably this is a relatively rare out-of-band connectivity check, etc)  FIXME should we use a different token bucket per transport?
+		|| !BStateIsConnectedForWirePurposes() // not actually in a connection stats where we should be sending real data yet
+		|| pTransport != m_pTransport // transport is not the selected transport
+	) {
 
 		// Serialize some acks, if we want to
 		if ( cbReserveForAcks > 0 )
 		{
-			// But if we're goig to send any acks, then send all of them,
-			// not just the bare minimum.
+			// But if we're going to send any acks, then try to send as many
+			// as possible, not just the bare minimum.
 			pPayloadPtr = SNP_SerializeAckBlocks( ackHelper, pPayloadPtr, pPayloadEnd, usecNow );
 			if ( pPayloadPtr == nullptr )
 				return false; // bug!  Abort
@@ -1453,6 +1440,8 @@ bool CSteamNetworkConnectionBase::SNP_SendPacket( CConnectionTransport *pTranspo
 		}
 
 		// Truncate the buffer, don't try to fit any data
+		// !SPEED! - instead of doing this, we could just put all of the segment code below
+		// in an else() block.
 		pPayloadEnd = pPayloadPtr;
 	}
 
@@ -1678,7 +1667,7 @@ bool CSteamNetworkConnectionBase::SNP_SendPacket( CConnectionTransport *pTranspo
 	// We are gonna send a packet.  Start filling out an entry so that when it's acked (or nacked)
 	// we can know what to do.
 	Assert( m_senderState.m_mapInFlightPacketsByPktNum.lower_bound( m_statsEndToEnd.m_nNextSendSequenceNumber ) == m_senderState.m_mapInFlightPacketsByPktNum.end() );
-	std::pair<int64,SNPInFlightPacket_t> pairInsert( m_statsEndToEnd.m_nNextSendSequenceNumber, SNPInFlightPacket_t{ usecNow, false, {} } );
+	std::pair<int64,SNPInFlightPacket_t> pairInsert( m_statsEndToEnd.m_nNextSendSequenceNumber, SNPInFlightPacket_t{ usecNow, false, pTransport, {} } );
 	SNPInFlightPacket_t &inFlightPkt = pairInsert.second;
 
 	// We might have gone over exactly one byte, because we counted the size byte of the last
@@ -1761,7 +1750,7 @@ bool CSteamNetworkConnectionBase::SNP_SendPacket( CConnectionTransport *pTranspo
 			Assert( !HasOverlappingRange( range, m_senderState.m_listReadyRetryReliableRange ) );
 
 			// Spew
-			SpewType( nLogLevelPacketDecode+1, "[%s]   encode pkt %lld reliable msg %lld offset %d+%d=%d range [%lld,%lld)\n",
+			SpewDebugGroup( nLogLevelPacketDecode, "[%s]   encode pkt %lld reliable msg %lld offset %d+%d=%d range [%lld,%lld)\n",
 				GetDescription(), (long long)m_statsEndToEnd.m_nNextSendSequenceNumber, (long long)seg.m_pMsg->m_nMessageNumber,
 				seg.m_nOffset, seg.m_cbSegSize, seg.m_nOffset+seg.m_cbSegSize,
 				(long long)range.m_nBegin, (long long)range.m_nEnd );
@@ -1792,7 +1781,7 @@ bool CSteamNetworkConnectionBase::SNP_SendPacket( CConnectionTransport *pTranspo
 			pPayloadPtr += seg.m_cbSegSize;
 
 			// Spew
-			SpewType( nLogLevelPacketDecode+1, "[%s]   encode pkt %lld unreliable msg %lld offset %d+%d=%d\n",
+			SpewDebugGroup( nLogLevelPacketDecode, "[%s]   encode pkt %lld unreliable msg %lld offset %d+%d=%d\n",
 				GetDescription(), (long long)m_statsEndToEnd.m_nNextSendSequenceNumber, (long long)seg.m_pMsg->m_nMessageNumber,
 				seg.m_nOffset, seg.m_cbSegSize, seg.m_nOffset+seg.m_cbSegSize );
 
@@ -1893,6 +1882,13 @@ bool CSteamNetworkConnectionBase::SNP_SendPacket( CConnectionTransport *pTranspo
 	// We spent some tokens
 	m_senderState.m_flTokenBucket -= (float)nBytesSent;
 	return true;
+}
+
+void CSteamNetworkConnectionBase::SNP_SentNonDataPacket( CConnectionTransport *pTransport, SteamNetworkingMicroseconds usecNow )
+{
+	std::pair<int64,SNPInFlightPacket_t> pairInsert( m_statsEndToEnd.m_nNextSendSequenceNumber-1, SNPInFlightPacket_t{ usecNow, false, pTransport, {} } );
+	auto pairInsertResult = m_senderState.m_mapInFlightPacketsByPktNum.insert( pairInsert );
+	Assert( pairInsertResult.second ); // We should have inserted a new element, not updated an existing element.  Probably an order ofoperations bug with m_nNextSendSequenceNumber
 }
 
 void CSteamNetworkConnectionBase::SNP_GatherAckBlocks( SNPAckSerializerHelper &helper, SteamNetworkingMicroseconds usecNow )
@@ -2031,7 +2027,7 @@ uint8 *CSteamNetworkConnectionBase::SNP_SerializeAckBlocks( const SNPAckSerializ
 		*pLatestPktNum = LittleWord( (uint16)nLastRecvPktNum );
 		*pTimeSinceLatestPktNum = LittleWord( (uint16)SNPAckSerializerHelper::EncodeTimeSince( usecNow, m_statsEndToEnd.m_usecTimeLastRecvSeq ) );
 
-		SpewType( nLogLevelPacketDecode+1, "[%s]   encode pkt %lld last recv %lld (no loss)\n",
+		SpewDebugGroup( nLogLevelPacketDecode, "[%s]   encode pkt %lld last recv %lld (no loss)\n",
 			GetDescription(),
 			(long long)m_statsEndToEnd.m_nNextSendSequenceNumber, (long long)nLastRecvPktNum
 		);
@@ -2062,7 +2058,7 @@ uint8 *CSteamNetworkConnectionBase::SNP_SerializeAckBlocks( const SNPAckSerializ
 			*pLatestPktNum = LittleWord( uint16( nLastRecvPktNum ) );
 			*pTimeSinceLatestPktNum = LittleWord( (uint16)SNPAckSerializerHelper::EncodeTimeSince( usecNow, itOldestGap->second.m_usecWhenReceivedPktBefore ) );
 
-			SpewType( nLogLevelPacketDecode+1, "[%s]   encode pkt %lld last recv %lld (no blocks, actual last recv=%lld)\n",
+			SpewDebugGroup( nLogLevelPacketDecode, "[%s]   encode pkt %lld last recv %lld (no blocks, actual last recv=%lld)\n",
 				GetDescription(),
 				(long long)m_statsEndToEnd.m_nNextSendSequenceNumber, (long long)nLastRecvPktNum, (long long)m_statsEndToEnd.m_nMaxRecvPktNum
 			);
@@ -2122,7 +2118,7 @@ uint8 *CSteamNetworkConnectionBase::SNP_SerializeAckBlocks( const SNPAckSerializ
 		pLog->m_nAckEnd = nAckEnd;
 	#endif
 
-	SpewType( nLogLevelPacketDecode+1, "[%s]   encode pkt %lld last recv %lld (%d blocks, actual last recv=%lld)\n",
+	SpewDebugGroup( nLogLevelPacketDecode, "[%s]   encode pkt %lld last recv %lld (%d blocks, actual last recv=%lld)\n",
 		GetDescription(),
 		(long long)m_statsEndToEnd.m_nNextSendSequenceNumber, (long long)(nAckEnd-1), nBlocks, (long long)m_statsEndToEnd.m_nMaxRecvPktNum
 	);
@@ -2214,7 +2210,7 @@ uint8 *CSteamNetworkConnectionBase::SNP_SerializeAckBlocks( const SNPAckSerializ
 		// Debug
 		int64 nAckBegin = nAckEnd - pBlock->m_nAck;
 		int64 nNackBegin = nAckBegin - pBlock->m_nNack;
-		SpewType( nLogLevelPacketDecode+1, "[%s]   encode pkt %lld nack [%lld,%lld) ack [%lld,%lld) \n",
+		SpewDebugGroup( nLogLevelPacketDecode, "[%s]   encode pkt %lld nack [%lld,%lld) ack [%lld,%lld) \n",
 			GetDescription(),
 			(long long)m_statsEndToEnd.m_nNextSendSequenceNumber,
 			(long long)nNackBegin, (long long)nAckBegin,
@@ -2242,7 +2238,7 @@ uint8 *CSteamNetworkConnectionBase::SNP_SerializeStopWaitingFrame( uint8 *pOut, 
 	// Calculate offset from the current sequence number
 	int64 nOffset = m_statsEndToEnd.m_nNextSendSequenceNumber - m_senderState.m_nMinPktWaitingOnAck;
 	AssertMsg2( nOffset > 0, "Told peer to stop acking up to %lld, but latest packet we have sent is %lld", (long long)m_senderState.m_nMinPktWaitingOnAck, (long long)m_statsEndToEnd.m_nNextSendSequenceNumber );
-	SpewType( m_connectionConfig.m_LogLevel_PacketDecode.Get(), "[%s]   encode pkt %lld stop_waiting offset %lld = %lld",
+	SpewVerboseGroup( m_connectionConfig.m_LogLevel_PacketDecode.Get(), "[%s]   encode pkt %lld stop_waiting offset %lld = %lld",
 		GetDescription(),
 		(long long)m_statsEndToEnd.m_nNextSendSequenceNumber, (long long)nOffset, (long long)m_senderState.m_nMinPktWaitingOnAck );
 
@@ -2296,12 +2292,12 @@ uint8 *CSteamNetworkConnectionBase::SNP_SerializeStopWaitingFrame( uint8 *pOut, 
 
 void CSteamNetworkConnectionBase::SNP_ReceiveUnreliableSegment( int64 nMsgNum, int nOffset, const void *pSegmentData, int cbSegmentSize, bool bLastSegmentInMessage, SteamNetworkingMicroseconds usecNow )
 {
-	SpewType( m_connectionConfig.m_LogLevel_PacketDecode.Get()+1, "[%s] RX msg %lld offset %d+%d=%d %02x ... %02x\n", GetDescription(), nMsgNum, nOffset, cbSegmentSize, nOffset+cbSegmentSize, ((byte*)pSegmentData)[0], ((byte*)pSegmentData)[cbSegmentSize-1] );
+	SpewDebugGroup( m_connectionConfig.m_LogLevel_PacketDecode.Get(), "[%s] RX msg %lld offset %d+%d=%d %02x ... %02x\n", GetDescription(), nMsgNum, nOffset, cbSegmentSize, nOffset+cbSegmentSize, ((byte*)pSegmentData)[0], ((byte*)pSegmentData)[cbSegmentSize-1] );
 
 	// Ignore data segments when we are not going to process them (e.g. linger)
 	if ( GetState() != k_ESteamNetworkingConnectionState_Connected )
 	{
-		SpewType( m_connectionConfig.m_LogLevel_PacketDecode.Get()+1, "[%s] discarding msg %lld [%d,%d) as connection is in state %d\n",
+		SpewDebugGroup( m_connectionConfig.m_LogLevel_PacketDecode.Get(), "[%s] discarding msg %lld [%d,%d) as connection is in state %d\n",
 			GetDescription(),
 			nMsgNum,
 			nOffset, nOffset+cbSegmentSize,
@@ -2438,7 +2434,7 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 	int64 nSegEnd = nSegBegin + cbSegmentSize;
 
 	// Spew
-	SpewType( nLogLevelPacketDecode, "[%s]   decode pkt %lld reliable range [%lld,%lld)\n",
+	SpewVerboseGroup( nLogLevelPacketDecode, "[%s]   decode pkt %lld reliable range [%lld,%lld)\n",
 		GetDescription(),
 		(long long)nPktNum,
 		(long long)nSegBegin, (long long)nSegEnd );
@@ -2457,7 +2453,7 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 	// Ignore data segments when we are not going to process them (e.g. linger)
 	if ( GetState() != k_ESteamNetworkingConnectionState_Connected )
 	{
-		SpewType( nLogLevelPacketDecode, "[%s]   discarding pkt %lld [%lld,%lld) as connection is in state %d\n",
+		SpewVerboseGroup( nLogLevelPacketDecode, "[%s]   discarding pkt %lld [%lld,%lld) as connection is in state %d\n",
 			GetDescription(),
 			(long long)nPktNum,
 			(long long)nSegBegin, (long long)nSegEnd,
@@ -2687,7 +2683,7 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 		uint8 *pReliableEnd = pReliableDecode + nNumReliableBytes;
 
 		// Spew
-		SpewType( nLogLevelPacketDecode+1, "[%s]   decode pkt %lld valid reliable bytes = %d [%lld,%lld)\n",
+		SpewDebugGroup( nLogLevelPacketDecode, "[%s]   decode pkt %lld valid reliable bytes = %d [%lld,%lld)\n",
 			GetDescription(),
 			(long long)nPktNum, nNumReliableBytes,
 			(long long)m_receiverState.m_nReliableStreamPos,
@@ -2836,7 +2832,7 @@ bool CSteamNetworkConnectionBase::SNP_RecordReceivedPktNum( int64 nPktNum, Steam
 
 		auto iter = m_receiverState.m_mapPacketGaps.insert( x ).first;
 
-		SpewType( m_connectionConfig.m_LogLevel_PacketGaps.Get(), "[%s] drop %d pkts [%lld-%lld)",
+		SpewMsgGroup( m_connectionConfig.m_LogLevel_PacketGaps.Get(), "[%s] drop %d pkts [%lld-%lld)",
 			GetDescription(),
 			(int)( nPktNum - nBegin ),
 			(long long)nBegin, (long long)nPktNum );
@@ -2897,7 +2893,7 @@ bool CSteamNetworkConnectionBase::SNP_RecordReceivedPktNum( int64 nPktNum, Steam
 				// if any, so we can schedule ack below
 				itGap = m_receiverState.m_mapPacketGaps.erase( itGap );
 
-				SpewType( m_connectionConfig.m_LogLevel_PacketGaps.Get(), "[%s] decode pkt %lld, single pkt gap filled", GetDescription(), (long long)nPktNum );
+				SpewVerboseGroup( m_connectionConfig.m_LogLevel_PacketGaps.Get(), "[%s] decode pkt %lld, single pkt gap filled", GetDescription(), (long long)nPktNum );
 			}
 			else
 			{
@@ -2905,7 +2901,7 @@ bool CSteamNetworkConnectionBase::SNP_RecordReceivedPktNum( int64 nPktNum, Steam
 				--itGap->second.m_nEnd;
 				Assert( itGap->first < itGap->second.m_nEnd );
 
-				SpewType( m_connectionConfig.m_LogLevel_PacketGaps.Get(), "[%s] decode pkt %lld, last packet in gap, reduced to [%lld,%lld)", GetDescription(),
+				SpewVerboseGroup( m_connectionConfig.m_LogLevel_PacketGaps.Get(), "[%s] decode pkt %lld, last packet in gap, reduced to [%lld,%lld)", GetDescription(),
 					(long long)nPktNum, (long long)itGap->first, (long long)itGap->second.m_nEnd );
 
 				// Move to the next gap so we can schedule ack below
@@ -2922,7 +2918,7 @@ bool CSteamNetworkConnectionBase::SNP_RecordReceivedPktNum( int64 nPktNum, Steam
 			Assert( itGap->first < itGap->second.m_nEnd );
 			itGap->second.m_usecWhenReceivedPktBefore = usecNow;
 
-			SpewType( m_connectionConfig.m_LogLevel_PacketGaps.Get(), "[%s] decode pkt %lld, first packet in gap, reduced to [%lld,%lld)", GetDescription(),
+			SpewVerboseGroup( m_connectionConfig.m_LogLevel_PacketGaps.Get(), "[%s] decode pkt %lld, first packet in gap, reduced to [%lld,%lld)", GetDescription(),
 				(long long)nPktNum, (long long)itGap->first, (long long)itGap->second.m_nEnd );
 		}
 		else
@@ -2951,7 +2947,7 @@ bool CSteamNetworkConnectionBase::SNP_RecordReceivedPktNum( int64 nPktNum, Steam
 			itGap->second.m_nEnd = nPktNum;
 			Assert( itGap->first < itGap->second.m_nEnd );
 
-			SpewType( m_connectionConfig.m_LogLevel_PacketGaps.Get(), "[%s] decode pkt %lld, gap split [%lld,%lld) and [%lld,%lld)", GetDescription(),
+			SpewVerboseGroup( m_connectionConfig.m_LogLevel_PacketGaps.Get(), "[%s] decode pkt %lld, gap split [%lld,%lld) and [%lld,%lld)", GetDescription(),
 				(long long)nPktNum, (long long)itGap->first, (long long)itGap->second.m_nEnd, upper.first, upper.second.m_nEnd );
 
 			// Insert a new gap to account for the upper end, and

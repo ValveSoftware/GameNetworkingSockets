@@ -83,6 +83,10 @@ public:
 	/// value means more important, and the value you pass is the lowest priority (highest
 	/// numeric value) you wish to receive callbacks for.
 	///
+	/// The value here controls the detail level for most messages.  You can control the
+	/// detail level for various subsystems (perhaps only for certain connections) by
+	/// adjusting the configuration values k_ESteamNetworkingConfig_LogLevel_Xxxxx.
+	///
 	/// Except when debugging, you should only use k_ESteamNetworkingSocketsDebugOutputType_Msg
 	/// or k_ESteamNetworkingSocketsDebugOutputType_Warning.  For best performance, do NOT
 	/// request a high detail level and then filter out messages in your callback.  This incurs
@@ -179,6 +183,25 @@ protected:
 		STEAMNETWORKINGUTILS_INTERFACE_VERSION
 	)
 #endif
+
+/// Utility class for printing a SteamNetworkingIdentity.
+/// E.g. printf( "Identity is '%s'\n", SteamNetworkingIdentityRender( identity ).c_str() );
+struct SteamNetworkingIdentityRender
+{
+	SteamNetworkingIdentityRender( const SteamNetworkingIdentity &x ) { x.ToString( buf, sizeof(buf) ); }
+	inline const char *c_str() const { return buf; }
+private:
+	char buf[ SteamNetworkingIdentity::k_cchMaxString ];
+};
+
+/// Utility class for printing a SteamNetworkingIPAddrRender.
+struct SteamNetworkingIPAddrRender
+{
+	SteamNetworkingIPAddrRender( const SteamNetworkingIPAddr &x, bool bWithPort = true ) { x.ToString( buf, sizeof(buf), bWithPort ); }
+	inline const char *c_str() const { return buf; }
+private:
+	char buf[ SteamNetworkingIPAddr::k_cchMaxString ];
+};
 
 ///////////////////////////////////////////////////////////////////////////////
 //

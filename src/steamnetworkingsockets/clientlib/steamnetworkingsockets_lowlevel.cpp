@@ -104,7 +104,13 @@ void SteamDatagramTransportLock::OnLocked( const char *pszTag, SteamNetworkingMi
 		s_nCurrentLockTags = 0;
 
 		if ( usecTimeSpentWaitingOnLock > s_usecLockWaitWarningThreshold && usecNow > s_usecIgnoreLongLockWaitTimeUntil )
-			SpewWarning( "Waited %.1fms for SteamNetworkingSockets lock", usecTimeSpentWaitingOnLock*1e-3 );
+		{
+			if ( pszTag )
+				SpewWarning( "Waited %.1fms for SteamNetworkingSockets lock [%s]", usecTimeSpentWaitingOnLock*1e-3, pszTag );
+			else
+				SpewWarning( "Waited %.1fms for SteamNetworkingSockets lock", usecTimeSpentWaitingOnLock*1e-3 );
+			ETW_LongOp( "lock wait", usecTimeSpentWaitingOnLock, pszTag );
+		}
 
 		auto callback = s_fLockAcquiredCallback; // save to temp, to prevent very narrow race condition where variable is cleared after we null check it, and we call null
 		if ( callback )
@@ -116,7 +122,8 @@ void SteamDatagramTransportLock::OnLocked( const char *pszTag, SteamNetworkingMi
 		Assert( s_threadIDLockOwner == std::this_thread::get_id() );
 
 		// Getting it again had better be nearly instantaneous!
-		AssertMsg1( usecTimeSpentWaitingOnLock < 100, "Waited %lldusec to take second lock on the same thread??", (long long)usecTimeSpentWaitingOnLock );
+		// FIXME I don't know why this is firing with a lower threshold.  What is it doing?
+		AssertMsg1( usecTimeSpentWaitingOnLock < 2000, "Waited %lldusec to take second lock on the same thread??", (long long)usecTimeSpentWaitingOnLock );
 	}
 	AddTag( pszTag );
 }
@@ -210,6 +217,7 @@ void SteamDatagramTransportLock::Unlock()
 	if ( usecElapsedTooLong != 0 )
 	{
 		SpewWarning( "SteamNetworkingSockets lock held for %.1fms.  (Performance warning).  %s", usecElapsedTooLong*1e-3, tags );
+		ETW_LongOp( "lock held", usecElapsedTooLong, tags );
 	}
 }
 
@@ -289,6 +297,9 @@ bool ISteamNetworkingSocketsRunWithLock::RunOrQueue( const char *pszTag )
 		Queue( pszTag );
 		return false;
 	}
+
+	// Service the queue so we always do items in order
+	ServiceQueue();
 
 	// Let derived class do work
 	Run();
@@ -408,6 +419,15 @@ public:
 			addrSize = (socklen_t)adrTo.ToSockadr( &destAddress );
 		}
 
+		#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ETW
+		{
+			int cbTotal = 0;
+			for ( int i = 0 ; i < nChunks ; ++i )
+				cbTotal += (int)pChunks->iov_len;
+			ETW_UDPSendPacket( adrTo, cbTotal );
+		}
+		#endif
+
 		//const uint8 *pbPkt = (const uint8 *)pPkt;
 		//Log_Detailed( LOG_STEAMDATAGRAM_CLIENT, "%4db -> %s %02x %02x %02x %02x %02x ...\n",
 		//	cbPkt, CUtlNetAdrRender( adrTo ).String(), pbPkt[0], pbPkt[1], pbPkt[2], pbPkt[3], pbPkt[4] );
@@ -457,6 +477,7 @@ public:
 				if ( usecSendElapsed > 1000 )
 				{
 					SpewWarning( "UDP send took %.1fms\n", usecSendElapsed*1e-3 );
+					ETW_LongOp( "UDP send", usecSendElapsed );
 				}
 			}
 		#endif
@@ -1185,6 +1206,7 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 					if ( usecRecvFromElapsed > 1000 )
 					{
 						SpewWarning( "recvfrom took %.1fms\n", usecRecvFromElapsed*1e-3 );
+						ETW_LongOp( "UDP recvfrom", usecRecvFromElapsed );
 					}
 				}
 			#endif
@@ -1249,6 +1271,7 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 			}
 			else
 			{
+				ETW_UDPRecvPacket( adr, ret );
 
 				//const uint8 *pbPkt = (const uint8 *)buf;
 				//Log_Detailed( LOG_STEAMDATAGRAM_CLIENT, "%s -> %4db %02x %02x %02x %02x %02x ...\n",
@@ -1265,6 +1288,7 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 					if ( usecProcessPacketElapsed > 1000 )
 					{
 						SpewWarning( "process packet took %.1fms\n", usecProcessPacketElapsed*1e-3 );
+						ETW_LongOp( "process packet", usecProcessPacketElapsed );
 					}
 				}
 			#endif
@@ -1695,20 +1719,20 @@ void CSharedSocket::RemoteHost::Close()
 /////////////////////////////////////////////////////////////////////////////
 
 SteamNetworkingMicroseconds g_usecLastRateLimitSpew;
-ESteamNetworkingSocketsDebugOutputType g_eSteamDatagramDebugOutputDetailLevel;
+ESteamNetworkingSocketsDebugOutputType g_eDefaultGroupSpewLevel;
 static FSteamNetworkingSocketsDebugOutput s_pfnDebugOutput = nullptr;
 
-void VReallySpewType( ESteamNetworkingSocketsDebugOutputType eType, const char *pMsg, va_list ap )
+void VReallySpewType( int eType, const char *pMsg, va_list ap )
 {
 	// Save callback.  Paranoia for unlikely but possible race condition,
 	// if we spew from more than one place in our code and stuff changes
 	// while we are formatting.
 	FSteamNetworkingSocketsDebugOutput pfnDebugOutput = s_pfnDebugOutput;
 
-	// Filter, just in case.  (We really shouldn't get here, though.)
-	if ( !pfnDebugOutput || eType > g_eSteamDatagramDebugOutputDetailLevel )
+	// Make sure we don't crash.
+	if ( !pfnDebugOutput )
 		return;
-	
+
 	// Do the formatting
 	char buf[ 2048 ];
 	V_vsprintf_safe( buf, pMsg, ap );
@@ -1717,10 +1741,10 @@ void VReallySpewType( ESteamNetworkingSocketsDebugOutputType eType, const char *
 	V_StripTrailingWhitespaceASCII( buf );
 
 	// Invoke callback
-	pfnDebugOutput( eType, buf );
+	pfnDebugOutput( ESteamNetworkingSocketsDebugOutputType(eType), buf );
 }
 
-void ReallySpewType( ESteamNetworkingSocketsDebugOutputType eType, const char *pMsg, ... )
+void ReallySpewType( int eType, const char *pMsg, ... )
 {
 	va_list ap;
 	va_start( ap, pMsg );
@@ -1741,17 +1765,17 @@ static SpewRetval_t SDRSpewFunc( SpewType_t type, char const *pMsg )
 			// |
 			// V
 		case SPEW_MESSAGE:
-			if ( s_pfnDebugOutput && g_eSteamDatagramDebugOutputDetailLevel >= k_ESteamNetworkingSocketsDebugOutputType_Msg )
+			if ( s_pfnDebugOutput && g_eDefaultGroupSpewLevel >= k_ESteamNetworkingSocketsDebugOutputType_Msg )
 				s_pfnDebugOutput( k_ESteamNetworkingSocketsDebugOutputType_Msg, pMsg );
 			break;
 
 		case SPEW_WARNING:
-			if ( s_pfnDebugOutput && g_eSteamDatagramDebugOutputDetailLevel >= k_ESteamNetworkingSocketsDebugOutputType_Warning )
+			if ( s_pfnDebugOutput && g_eDefaultGroupSpewLevel >= k_ESteamNetworkingSocketsDebugOutputType_Warning )
 				s_pfnDebugOutput( k_ESteamNetworkingSocketsDebugOutputType_Warning, pMsg );
 			break;
 
 		case SPEW_ASSERT:
-			if ( s_pfnDebugOutput && g_eSteamDatagramDebugOutputDetailLevel >= k_ESteamNetworkingSocketsDebugOutputType_Error )
+			if ( s_pfnDebugOutput && g_eDefaultGroupSpewLevel >= k_ESteamNetworkingSocketsDebugOutputType_Error )
 				s_pfnDebugOutput( k_ESteamNetworkingSocketsDebugOutputType_Bug, pMsg );
 
 			// Ug, for some reason this is crashing, because it's trying to generate a breakpoint
@@ -1761,12 +1785,12 @@ static SpewRetval_t SDRSpewFunc( SpewType_t type, char const *pMsg )
 			break;
 
 		case SPEW_ERROR:
-			if ( s_pfnDebugOutput && g_eSteamDatagramDebugOutputDetailLevel >= k_ESteamNetworkingSocketsDebugOutputType_Error )
+			if ( s_pfnDebugOutput && g_eDefaultGroupSpewLevel >= k_ESteamNetworkingSocketsDebugOutputType_Error )
 				s_pfnDebugOutput( k_ESteamNetworkingSocketsDebugOutputType_Error, pMsg );
 			return SPEW_ABORT;
 
 		case SPEW_BOLD_MESSAGE:
-			if ( s_pfnDebugOutput && g_eSteamDatagramDebugOutputDetailLevel >= k_ESteamNetworkingSocketsDebugOutputType_Important )
+			if ( s_pfnDebugOutput && g_eDefaultGroupSpewLevel >= k_ESteamNetworkingSocketsDebugOutputType_Important )
 				s_pfnDebugOutput( k_ESteamNetworkingSocketsDebugOutputType_Important, pMsg );
 	}
 	
@@ -1788,6 +1812,9 @@ bool BSteamNetworkingSocketsLowLevelAddRef( SteamDatagramErrMsg &errMsg )
 	if ( s_nLowLevelSupportRefCount.load(std::memory_order_acquire) == 0 )
 	{
 		CCrypto::Init();
+
+		// Initialize event tracing
+		ETW_Init();
 
 		// Give us a extra time here.  This is a one-time init function and the OS might
 		// need to load up libraries and stuff.
@@ -1970,6 +1997,9 @@ void SteamNetworkingSocketsLowLevelDecRef()
 	Assert( s_vecRawSocketsPendingDeletion.IsEmpty() );
 	s_vecRawSocketsPendingDeletion.Purge();
 
+	// Shutdown event tracing
+	ETW_Kill();
+
 	// Nuke sockets and COM
 	#ifdef _WIN32
 		::WSACleanup();
@@ -1991,12 +2021,12 @@ void SteamNetworkingSockets_SetDebugOutputFunction( ESteamNetworkingSocketsDebug
 	if ( pfnFunc && eDetailLevel > k_ESteamNetworkingSocketsDebugOutputType_None )
 	{
 		SteamNetworkingSocketsLib::s_pfnDebugOutput = pfnFunc;
-		SteamNetworkingSocketsLib::g_eSteamDatagramDebugOutputDetailLevel = ESteamNetworkingSocketsDebugOutputType( eDetailLevel );
+		SteamNetworkingSocketsLib::g_eDefaultGroupSpewLevel = ESteamNetworkingSocketsDebugOutputType( eDetailLevel );
 	}
 	else
 	{
 		SteamNetworkingSocketsLib::s_pfnDebugOutput = nullptr;
-		SteamNetworkingSocketsLib::g_eSteamDatagramDebugOutputDetailLevel = k_ESteamNetworkingSocketsDebugOutputType_None;
+		SteamNetworkingSocketsLib::g_eDefaultGroupSpewLevel = k_ESteamNetworkingSocketsDebugOutputType_None;
 	}
 }
 

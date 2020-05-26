@@ -1638,11 +1638,10 @@ void CConnectionTransport::GetDetailedConnectionStatus( SteamNetworkingDetailedC
 
 void CSteamNetworkConnectionBase::ConnectionPopulateInfo( SteamNetConnectionInfo_t &info ) const
 {
+	memset( &info, 0, sizeof(info) );
+
 	info.m_eState = CollapseConnectionStateToAPIState( m_eConnectionState );
 	info.m_hListenSocket = m_pParentListenSocket ? m_pParentListenSocket->m_hListenSocketSelf : k_HSteamListenSocket_Invalid;
-	NetAdrToSteamNetworkingIPAddr( info.m_addrRemote, m_netAdrRemote ); // FIXME this is in a weird place
-	info.m_idPOPRemote = 0;
-	info.m_idPOPRelay = 0;
 	info.m_identityRemote = m_identityRemote;
 	info.m_nUserData = m_nUserData;
 	info.m_eEndReason = m_eEndReason;
@@ -1842,35 +1841,36 @@ int CSteamNetworkConnectionBase::APIReceiveMessages( SteamNetworkingMessage_t **
 	return m_queueRecvMessages.RemoveMessages( ppOutMessages, nMaxMessages );
 }
 
-int64 CSteamNetworkConnectionBase::DecryptDataChunk( uint16 nWireSeqNum, int cbPacketSize, const void *pChunk, int cbChunk, void *&pDecrypted, uint32 &cbDecrypted, SteamNetworkingMicroseconds usecNow )
+bool CSteamNetworkConnectionBase::DecryptDataChunk( uint16 nWireSeqNum, int cbPacketSize, const void *pChunk, int cbChunk, RecvPacketContext_t &ctx )
 {
-	Assert( m_bCryptKeysValid );
-	Assert( cbDecrypted >= k_cbSteamNetworkingSocketsMaxPlaintextPayloadRecv );
-
-	// Track flow, even if we end up discarding this
-	m_statsEndToEnd.TrackRecvPacket( cbPacketSize, usecNow );
+	Assert( m_bCryptKeysValid && BStateIsActive() );
 
 	// Get the full end-to-end packet number, check if we should process it
 	// FIXME This is firing.  Should enable it and fix it.  but things were working before, and I
 	// don't want to freak people out with asserts that are probably harmless
 	//Assert( m_statsEndToEnd.m_nMaxRecvPktNum > 0 );
-	int64 nFullSequenceNumber = m_statsEndToEnd.ExpandWirePacketNumberAndCheck( nWireSeqNum );
-	if ( nFullSequenceNumber <= 0 )
-		return 0;
+	ctx.m_nPktNum = m_statsEndToEnd.ExpandWirePacketNumberAndCheck( nWireSeqNum );
+	if ( ctx.m_nPktNum <= 0 )
+	{
+
+		// Update raw packet counters numbers, but do not update any logical state suc as reply timeouts, etc
+		m_statsEndToEnd.m_recv.ProcessPacket( cbPacketSize );
+		return false;
+	}
 
 	// What cipher are we using?
 	switch ( m_eNegotiatedCipher )
 	{
 		default:
 			AssertMsg1( false, "Bogus cipher %d", m_eNegotiatedCipher );
-			return 0;
+			return false;
 
 		case k_ESteamNetworkingSocketsCipher_NULL:
 		{
 
 			// No encryption!
-			cbDecrypted = cbChunk;
-			pDecrypted = const_cast<void*>( pChunk );
+			ctx.m_cbPlainText = cbChunk;
+			ctx.m_pPlainText = pChunk;
 		}
 		break;
 
@@ -1878,7 +1878,7 @@ int64 CSteamNetworkConnectionBase::DecryptDataChunk( uint16 nWireSeqNum, int cbP
 		{
 
 			// Adjust the IV by the packet number
-			*(uint64 *)&m_cryptIVRecv.m_buf += LittleQWord( nFullSequenceNumber );
+			*(uint64 *)&m_cryptIVRecv.m_buf += LittleQWord( ctx.m_nPktNum );
 			//SpewMsg( "Recv decrypt IV %llu + %02x%02x%02x%02x  encrypted %d %02x%02x%02x%02x\n",
 			//	*(uint64 *)&m_cryptIVRecv.m_buf,
 			//	m_cryptIVRecv.m_buf[8], m_cryptIVRecv.m_buf[9], m_cryptIVRecv.m_buf[10], m_cryptIVRecv.m_buf[11],
@@ -1887,15 +1887,16 @@ int64 CSteamNetworkConnectionBase::DecryptDataChunk( uint16 nWireSeqNum, int cbP
 			//);
 
 			// Decrypt the chunk and check the auth tag
+			uint32 cbDecrypted = sizeof(ctx.m_decrypted);
 			bool bDecryptOK = m_cryptContextRecv.Decrypt(
 				pChunk, cbChunk, // encrypted
 				m_cryptIVRecv.m_buf, // IV
-				pDecrypted, &cbDecrypted, // output
+				ctx.m_decrypted, &cbDecrypted, // output
 				nullptr, 0 // no AAD
 			);
 
 			// Restore the IV to the base value
-			*(uint64 *)&m_cryptIVRecv.m_buf -= LittleQWord( nFullSequenceNumber );
+			*(uint64 *)&m_cryptIVRecv.m_buf -= LittleQWord( ctx.m_nPktNum );
 	
 			// Did decryption fail?
 			if ( !bDecryptOK ) {
@@ -1904,9 +1905,15 @@ int64 CSteamNetworkConnectionBase::DecryptDataChunk( uint16 nWireSeqNum, int cbP
 				// The assumption is that we either have a bug or some weird thing,
 				// or that somebody is spoofing / tampering.  If it's the latter
 				// we don't want to magnify the impact of their efforts
-				SpewWarningRateLimited( usecNow, "[%s] Packet data chunk failed to decrypt!  Could be tampering/spoofing or a bug.", GetDescription() );
-				return 0;
+				SpewWarningRateLimited( ctx.m_usecNow, "[%s] Packet data chunk failed to decrypt!  Could be tampering/spoofing or a bug.", GetDescription() );
+
+				// Update raw packet counters numbers, but do not update any logical state suc as reply timeouts, etc
+				m_statsEndToEnd.m_recv.ProcessPacket( cbPacketSize );
+				return false;
 			}
+
+			ctx.m_cbPlainText = (int)cbDecrypted;
+			ctx.m_pPlainText = ctx.m_decrypted;
 
 			//SpewVerbose( "Connection %u recv seqnum %lld (gap=%d) sz=%d %02x %02x %02x %02x\n", m_unConnectionID, unFullSequenceNumber, nGap, cbDecrypted, arDecryptedChunk[0], arDecryptedChunk[1], arDecryptedChunk[2], arDecryptedChunk[3] );
 		}
@@ -1928,32 +1935,17 @@ int64 CSteamNetworkConnectionBase::DecryptDataChunk( uint16 nWireSeqNum, int cbP
 	// with a lower rate.  If the app is really trying to fill the pipe and blasting a large
 	// amount of data (and not forcing us to send small packets), then our code should be sending
 	// mostly full packets, which means that this is closer to a gap of around ~18MB.
-	int64 nGap = nFullSequenceNumber - m_statsEndToEnd.m_nMaxRecvPktNum;
+	int64 nGap = ctx.m_nPktNum - m_statsEndToEnd.m_nMaxRecvPktNum;
 	if ( nGap > 0x4000 )
 	{
 		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_Generic,
 			"Pkt number lurch by %lld; %04x->%04x",
 			(long long)nGap, (uint16)m_statsEndToEnd.m_nMaxRecvPktNum, nWireSeqNum);
-		return 0;
-	}
-
-	// Decrypted ok
-	return nFullSequenceNumber;
-}
-
-bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int64 nFullSequenceNumber, const void *pDecrypted, uint32 cbDecrypted, int usecTimeSinceLast, SteamNetworkingMicroseconds usecNow )
-{
-
-	// Pass on to reassembly/reliability layer.  It may instruct us to act like we never received this
-	// packet
-	if ( !SNP_RecvDataChunk( nFullSequenceNumber, pDecrypted, cbDecrypted, usecNow ) )
-	{
-		SpewDebug( "[%s] discarding pkt %lld\n", GetDescription(), (long long)nFullSequenceNumber );
 		return false;
 	}
 
-	// Packet is OK.  Track end-to-end flow.
-	m_statsEndToEnd.TrackProcessSequencedPacket( nFullSequenceNumber, usecNow, usecTimeSinceLast );
+	// Decrypted ok.  Track flow, and allow this packet to update the logical state, reply timeouts, etc
+	m_statsEndToEnd.TrackRecvPacket( cbPacketSize, ctx.m_usecNow );
 	return true;
 }
 
@@ -2241,7 +2233,7 @@ bool CSteamNetworkConnectionBase::ReceivedMessage( const void *pData, int cbData
 void CSteamNetworkConnectionBase::ReceivedMessage( CSteamNetworkingMessage *pMsg )
 {
 
-	SpewType( m_connectionConfig.m_LogLevel_Message.Get(), "[%s] RecvMessage MsgNum=%lld sz=%d\n",
+	SpewVerboseGroup( m_connectionConfig.m_LogLevel_Message.Get(), "[%s] RecvMessage MsgNum=%lld sz=%d\n",
 		GetDescription(),
 		(long long)pMsg->m_nMessageNumber,
 		pMsg->m_cbSize );
@@ -2515,10 +2507,14 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 	{ \
 		/* assign into temporary in case x is an expression with side effects */ \
 		SteamNetworkingMicroseconds usecNextThink = (x);  \
-		if ( usecNextThink < usecMinNextThinkTime ) { \
-			Assert( usecNextThink > 0 ); \
-			usecMinNextThinkTime = usecNextThink; \
+		/* Scheduled think time must be in the future.  If some code is setting a think */ \
+		/* time for right now, then it should have just done it. */ \
+		if ( usecNextThink <= usecNow ) { \
+			AssertMsg1( false, "Trying to set next think time %lldusec in the past", (long long)( usecNow - usecMinNextThinkTime ) ); \
+			usecNextThink = usecNow + 10*1000; \
 		} \
+		if ( usecNextThink < usecMinNextThinkTime ) \
+			usecMinNextThinkTime = usecNextThink; \
 	}
 
 	// Check our state
@@ -2653,11 +2649,9 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 			if ( m_pTransport && m_pTransport->BCanSendEndToEndData() )
 			{
 				SteamNetworkingMicroseconds usecNextThinkSNP = SNP_ThinkSendState( usecNow );
-				AssertMsg1( usecNextThinkSNP > usecNow, "SNP next think time must be in in the future.  It's %lldusec in the past", (long long)( usecNow - usecNextThinkSNP ) );
 
 				// Set a pretty tight tolerance if SNP wants to wake up at a certain time.
-				if ( usecNextThinkSNP < k_nThinkTime_Never )
-					UpdateMinThinkTime( usecNextThinkSNP );
+				UpdateMinThinkTime( usecNextThinkSNP );
 			}
 			else
 			{
@@ -2728,76 +2722,35 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 			UpdateMinThinkTime( usecNow + 50*1000 );
 		}
 
-		// Check for keepalives of varying urgency.
-		// Ping aggressively because connection appears to be timing out?
-		if ( m_statsEndToEnd.m_nReplyTimeoutsSinceLastRecv > 0 || m_statsEndToEnd.m_usecWhenTimeoutStarted > 0 )
+		// Check for sending keepalives and stats
+		if ( bCanSendEndToEnd )
 		{
-			SteamNetworkingMicroseconds usecSendAggressivePing = Max( m_statsEndToEnd.m_usecTimeLastRecv, m_statsEndToEnd.m_usecLastSendPacketExpectingImmediateReply ) + k_usecAggressivePingInterval;
-			if ( usecNow >= usecSendAggressivePing )
-			{
-				if ( bCanSendEndToEnd )
-				{
-					if ( m_statsEndToEnd.m_nReplyTimeoutsSinceLastRecv == 1 )
-						SpewVerbose( "[%s] Reply timeout, last recv %.1fms ago.  Sending keepalive.\n", GetDescription(), ( usecNow - m_statsEndToEnd.m_usecTimeLastRecv ) * 1e-3 );
-					else
-						SpewMsg( "[%s] %d reply timeouts, last recv %.1fms ago.  Sending keepalive.\n", GetDescription(), m_statsEndToEnd.m_nReplyTimeoutsSinceLastRecv, ( usecNow - m_statsEndToEnd.m_usecTimeLastRecv ) * 1e-3 );
-					Assert( m_statsEndToEnd.BNeedToSendPingImmediate( usecNow ) ); // Make sure logic matches
-					m_pTransport->SendEndToEndStatsMsg( k_EStatsReplyRequest_Immediate, usecNow, "E2ETimingOutKeepalive" );
-					AssertMsg( !m_statsEndToEnd.BNeedToSendPingImmediate( usecNow ), "SendEndToEndStatsMsg didn't do its job!" );
-					Assert( m_statsEndToEnd.m_usecInFlightReplyTimeout > 0 );
-				}
-				else
-				{
-					// Nothing we can do right now.  Just check back in a little bit.
-					UpdateMinThinkTime( usecNow+20*1000 );
-				}
-			}
-			else
-			{
-				UpdateMinThinkTime( usecSendAggressivePing );
-			}
-		}
 
-		// Ordinary keepalive?
-		if ( m_statsEndToEnd.m_usecInFlightReplyTimeout == 0 )
-		{
-			// FIXME We really should be a lot better here with an adaptive keepalive time.  If they have been
-			// sending us a steady stream of packets, we could expect it to continue at a high rate, so that we
-			// can begin to detect a dropped connection much more quickly.  But if the connection is mostly idle, we want
-			// to make sure we use a relatively long keepalive.
-			SteamNetworkingMicroseconds usecSendKeepalive = m_statsEndToEnd.m_usecTimeLastRecv+k_usecKeepAliveInterval;
-			if ( usecNow >= usecSendKeepalive )
+			// Urgent keepalive because we are timing out?
+			SteamNetworkingMicroseconds usecStatsNextThinkTime = k_nThinkTime_Never;
+			EStatsReplyRequest eReplyRequested;
+			const char *pszStatsReason = m_statsEndToEnd.GetSendReasonOrUpdateNextThinkTime( usecNow, eReplyRequested, usecStatsNextThinkTime );
+			if ( pszStatsReason )
 			{
-				if ( bCanSendEndToEnd )
-				{
-					Assert( m_statsEndToEnd.BNeedToSendKeepalive( usecNow ) ); // Make sure logic matches
-					m_pTransport->SendEndToEndStatsMsg( k_EStatsReplyRequest_DelayedOK, usecNow, "E2EKeepalive" );
-					AssertMsg( !m_statsEndToEnd.BNeedToSendKeepalive( usecNow ), "SendEndToEndStatsMsg didn't do its job!" );
-				}
-				else
-				{
-					// Nothing we can do right now.  Just check back in a little bit.
-					UpdateMinThinkTime( usecNow+20*1000 );
-				}
-			}
-			else
-			{
-				// Not right now, but schedule a wakeup call to do it
-				UpdateMinThinkTime( usecSendKeepalive );
-			}
-		}
-		else
-		{
-			UpdateMinThinkTime( m_statsEndToEnd.m_usecInFlightReplyTimeout );
-		}
-	}
 
-	// Scheduled think time must be in the future.  If some code is setting a think time for right now,
-	// then it should have just done it.
-	if ( usecMinNextThinkTime <= usecNow )
-	{
-		AssertMsg1( false, "Scheduled next think time must be in in the future.  It's %lldusec in the past", (long long)( usecNow - usecMinNextThinkTime ) );
-		usecMinNextThinkTime = usecNow + 1000;
+				// Spew if we're dropping replies
+				if ( m_statsEndToEnd.m_nReplyTimeoutsSinceLastRecv == 1 )
+					SpewVerbose( "[%s] Reply timeout, last recv %.1fms ago.  Sending keepalive.\n", GetDescription(), ( usecNow - m_statsEndToEnd.m_usecTimeLastRecv ) * 1e-3 );
+				else if ( m_statsEndToEnd.m_nReplyTimeoutsSinceLastRecv > 0 )
+					SpewMsg( "[%s] %d reply timeouts, last recv %.1fms ago.  Sending keepalive.\n", GetDescription(), m_statsEndToEnd.m_nReplyTimeoutsSinceLastRecv, ( usecNow - m_statsEndToEnd.m_usecTimeLastRecv ) * 1e-3 );
+
+				// Send it
+				m_pTransport->SendEndToEndStatsMsg( eReplyRequested, usecNow, pszStatsReason );
+
+				// Re-calculate next think time
+				usecStatsNextThinkTime = k_nThinkTime_Never;
+				const char *pszStatsReason2 = m_statsEndToEnd.GetSendReasonOrUpdateNextThinkTime( usecNow, eReplyRequested, usecStatsNextThinkTime );
+				AssertMsg1( pszStatsReason2 == nullptr && usecStatsNextThinkTime > usecNow, "Stats sending didn't clear stats need to send reason %s!", pszStatsReason2 ? pszStatsReason2 : "??" );
+			}
+
+			// Make sure we are scheduled to wake up the next time we need to take action
+			UpdateMinThinkTime( usecStatsNextThinkTime );
+		}
 	}
 
 	// Hook for derived class to do its connection-type-specific stuff
@@ -2812,6 +2765,11 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 
 void CSteamNetworkConnectionBase::ThinkConnection( SteamNetworkingMicroseconds usecNow )
 {
+}
+
+void CSteamNetworkConnectionBase::ProcessSNPPing( int msPing, RecvPacketContext_t &ctx )
+{
+	m_statsEndToEnd.m_ping.ReceivedPing( msPing, ctx.m_usecNow );
 }
 
 SteamNetworkingMicroseconds CSteamNetworkConnectionBase::ThinkConnection_FindingRoute( SteamNetworkingMicroseconds usecNow )
@@ -3243,6 +3201,12 @@ int CSteamNetworkConnectionPipe::SendEncryptedDataChunk( const void *pChunk, int
 {
 	AssertMsg( false, "CSteamNetworkConnectionPipe connections shouldn't try to send 'packets'!" );
 	return -1;
+}
+
+void CSteamNetworkConnectionPipe::TransportPopulateConnectionInfo( SteamNetConnectionInfo_t &info ) const
+{
+	CConnectionTransport::TransportPopulateConnectionInfo( info );
+	info.m_eTransportKind = k_ESteamNetTransport_LoopbackBuffers;
 }
 
 void CSteamNetworkConnectionPipe::ConnectionStateChanged( ESteamNetworkingConnectionState eOldState )

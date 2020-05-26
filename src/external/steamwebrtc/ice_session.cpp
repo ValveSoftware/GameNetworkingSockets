@@ -17,13 +17,47 @@
 
 #include <api/jsep.h>
 #include <logging/rtc_event_log/rtc_event_log_factory.h>
+#ifdef WEBRTC_ANDROID
+#include <p2p/base/p2p_transport_channel.h>
+#include <p2p/base/basic_packet_socket_factory.h>
+#include <p2p/client/basic_port_allocator.h>
+#else
 #include <p2p/base/p2ptransportchannel.h>
 #include <p2p/base/basicpacketsocketfactory.h>
 #include <p2p/client/basicportallocator.h>
+#endif
+
+#include <pc/webrtcsdp.h>
+
+#ifdef _WIN32
+	#define WIN32_LEAN_AND_MEAN
+	#include <windows.h>
+#else
+	#include <pthread.h>
+#endif
+
+#ifdef _MSC_VER
+#define strcasecmp _stricmp
+#define strncasecmp _strnicmp
+#endif
+
+#ifdef WEBRTC_ANDROID
+namespace rtc
+{
+	typedef int64_t PacketTime;
+}
+#endif
 
 extern "C"
 {
-STEAMWEBRTC_DECLSPEC IICESession *CreateWebRTCICESession( IICESessionDelegate *pDelegate, int nInterfaceVersion );
+	extern void (*g_fnWriteEvent_setsockopt)( int slevel, int sopt, int value );
+	extern void (*g_fnWriteEvent_send)( int length );
+	extern void (*g_fnWriteEvent_sendto)( void *addr, int length );
+}
+
+extern "C"
+{
+STEAMWEBRTC_DECLSPEC IICESession *CreateWebRTCICESession( const ICESessionConfig &cfg, IICESessionDelegate *pDelegate, int nInterfaceVersion );
 }
 
 //-----------------------------------------------------------------------------
@@ -35,8 +69,8 @@ public:
 	CICESession( IICESessionDelegate *pDelegate );
 	virtual ~CICESession();
 
-	bool BInitialize();
-	bool BInitializeOnSocketThread();
+	bool BInitialize( const ICESessionConfig &cfg );
+	bool BInitializeOnSocketThread( const ICESessionConfig &cfg );
 	void DestroyOnSocketThread();
 	bool BShuttingDown() const { return m_bShuttingDown; }
 
@@ -45,10 +79,18 @@ public:
 	//
 	virtual void Destroy() override;
 	virtual bool BSendData( const void *pData, size_t nSize ) override;
-	virtual bool BAddRemoteIceCandidate( const char *pszSDPMid, int nSDPMLineIndex, const char *pszCandidate ) override;
+	virtual void SetRemoteAuth( const char *pszUserFrag, const char *pszPwdFrag ) override;
+	virtual EICECandidateType AddRemoteIceCandidate( const char *pszCandidate ) override;
 	virtual bool GetWritableState() override;
+	virtual int GetPing() override;
+	virtual bool GetRoute( EICECandidateType &eLocalCandidate, EICECandidateType &eRemoteCandidate, CandidateAddressString &szRemoteAddress ) override;
+	virtual void SetWriteEvent_setsockopt( void (*fn)( int slevel, int sopt, int value ) ) override { g_fnWriteEvent_setsockopt = fn; }
+	virtual void SetWriteEvent_send( void (*fn)( int length ) ) override { g_fnWriteEvent_send = fn; }
+	virtual void SetWriteEvent_sendto( void (*fn)( void *addr, int length ) ) override { g_fnWriteEvent_sendto = fn; }
 
+	// rtc::MessageHandler
 	virtual void OnMessage( rtc::Message* msg ) override;
+
 
 private:
 	static std::mutex s_mutex;
@@ -56,9 +98,11 @@ private:
 	static rtc::Thread *s_pSocketThread;
 	static rtc::PhysicalSocketServer *s_pSocketServer;
 
+	int m_nAllowedCandidateTypes;
+
 	bool m_bShuttingDown = false;
 	IICESessionDelegate *m_pDelegate = nullptr;
-    std::unique_ptr<cricket::P2PTransportChannel> ice_transport_;
+	std::unique_ptr<cricket::P2PTransportChannel> ice_transport_;
 	std::unique_ptr<webrtc::RtcEventLogFactoryInterface> event_log_factory_;
 	std::unique_ptr<webrtc::RtcEventLog> event_log_;
 	std::unique_ptr<rtc::BasicNetworkManager> default_network_manager_;
@@ -88,7 +132,7 @@ private:
 //-----------------------------------------------------------------------------
 //
 //-----------------------------------------------------------------------------
-IICESession *CreateWebRTCICESession( IICESessionDelegate *pDelegate, int nInterfaceVersion )
+IICESession *CreateWebRTCICESession( const ICESessionConfig &cfg, IICESessionDelegate *pDelegate, int nInterfaceVersion )
 {
 	if ( nInterfaceVersion != ICESESSION_INTERFACE_VERSION )
 	{
@@ -96,7 +140,7 @@ IICESession *CreateWebRTCICESession( IICESessionDelegate *pDelegate, int nInterf
 	}
 
 	CICESession *pSession = new CICESession( pDelegate );
-	if ( !pSession->BInitialize() )
+	if ( !pSession->BInitialize( cfg ) )
 	{
 		pSession->Destroy();
 		return nullptr;
@@ -156,17 +200,32 @@ CICESession::~CICESession()
 //-----------------------------------------------------------------------------
 // 
 //-----------------------------------------------------------------------------
-bool CICESession::BInitialize()
+bool CICESession::BInitialize( const ICESessionConfig &cfg )
 {
-	return s_pSocketThread->Invoke<bool>( RTC_FROM_HERE, rtc::Bind( &CICESession::BInitializeOnSocketThread, this ) );
+	return s_pSocketThread->Invoke<bool>( RTC_FROM_HERE, rtc::Bind( &CICESession::BInitializeOnSocketThread, this, cfg ) );
 }
 
 
 //-----------------------------------------------------------------------------
 // 
 //-----------------------------------------------------------------------------
-bool CICESession::BInitializeOnSocketThread()
+bool CICESession::BInitializeOnSocketThread( const ICESessionConfig &cfg )
 {
+	#ifdef _WIN32
+		::SetThreadPriority( GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL );
+	#elif !defined(WEBRTC_MARVELL) // Don't change priority on Steam Link hardware
+		struct sched_param sched;
+		int policy;
+		pthread_t thread = pthread_self();
+
+		if (pthread_getschedparam(thread, &policy, &sched) == 0) {
+			sched.sched_priority = sched_get_priority_max(policy);
+			pthread_setschedparam(thread, policy, &sched);
+		}
+	#endif
+
+	m_nAllowedCandidateTypes = cfg.m_nCandidateTypes;
+
 	event_log_factory_ = webrtc::CreateRtcEventLogFactory();
 
 	// Uhhhhhhh
@@ -181,35 +240,11 @@ bool CICESession::BInitializeOnSocketThread()
 	default_socket_factory_.reset(
 		new rtc::BasicPacketSocketFactory( s_pSocketThread ));
 
-	webrtc::TurnCustomizer *turn_cusomizer = nullptr;
+	webrtc::TurnCustomizer *turn_customizer = nullptr;
 
 	port_allocator_ = absl::make_unique<cricket::BasicPortAllocator>(
 		default_network_manager_.get(), default_socket_factory_.get(),
-		turn_cusomizer );
-
-	cricket::ServerAddresses stun_servers;
-	for ( int i = 0 ; i < m_pDelegate->GetNumStunServers() ; ++i )
-	{
-		const char *pszStun = m_pDelegate->GetStunServer( i );
-
-		// Skip "stun:" prefix, if present
-		if ( _strnicmp( pszStun, "stun:", 5 ) == 0 )
-			pszStun += 5;
-
-		rtc::SocketAddress address;
-		if ( !address.FromString( std::string( pszStun ) ) )
-		{
-			m_pDelegate->Log( IICESessionDelegate::k_ELogPriorityError, "Invalid STUN server address '%s'\n", pszStun );
-			return false;
-		}
-		if ( address.port() == 0 )
-			address.SetPort( 3478 ); // default STUN port
-
-		stun_servers.insert( address );
-	}
-
-	// FIXME
-	std::vector<cricket::RelayServerConfig> turn_servers;
+		turn_customizer );
 
 	// See PeerConnection::InitializePortAllocator_n
 	port_allocator_->Initialize();
@@ -217,36 +252,69 @@ bool CICESession::BInitializeOnSocketThread()
 	// To handle both internal and externally created port allocator, we will
 	// enable BUNDLE here.
 	uint32_t port_allocator_flags_ = port_allocator_->flags();
-	port_allocator_flags_ |= cricket::PORTALLOCATOR_ENABLE_SHARED_SOCKET |
-							cricket::PORTALLOCATOR_ENABLE_IPV6 |
-							cricket::PORTALLOCATOR_ENABLE_IPV6_ON_WIFI;
-
+	port_allocator_flags_ |= cricket::PORTALLOCATOR_ENABLE_SHARED_SOCKET;
 	port_allocator_flags_ |= cricket::PORTALLOCATOR_DISABLE_TCP;
 
-	//if (configuration.candidate_network_policy ==
-	//	kCandidateNetworkPolicyLowCost) {
-	//port_allocator_flags_ |= cricket::PORTALLOCATOR_DISABLE_COSTLY_NETWORKS;
+	uint32_t candidate_filter = cricket::CF_NONE;
 
+	cricket::ServerAddresses stun_servers;
+	if ( cfg.m_nCandidateTypes & k_EICECandidate_Any_Reflexive )
+	{
+		candidate_filter |= cricket::CF_REFLEXIVE;
+		for ( int i = 0 ; i < cfg.m_nStunServers ; ++i )
+		{
+			const char *pszStun = cfg.m_pStunServers[i];
+
+			// Skip "stun:" prefix, if present
+			if ( strncasecmp( pszStun, "stun:", 5 ) == 0 )
+				pszStun += 5;
+
+			rtc::SocketAddress address;
+			if ( !address.FromString( std::string( pszStun ) ) )
+			{
+				m_pDelegate->Log( IICESessionDelegate::k_ELogPriorityError, "Invalid STUN server address '%s'\n", pszStun );
+				return false;
+			}
+			if ( address.port() == 0 )
+				address.SetPort( 3478 ); // default STUN port
+
+			stun_servers.insert( address );
+		}
+	}
+	else
+	{
+		port_allocator_flags_ |= cricket::PORTALLOCATOR_DISABLE_STUN;
+	}
+
+	if ( cfg.m_nCandidateTypes & (k_EICECandidate_Any_HostPrivate|k_EICECandidate_Any_HostPublic) )
+		candidate_filter |= cricket::CF_HOST;
+	if ( cfg.m_nCandidateTypes & k_EICECandidate_Any_Relay )
+		candidate_filter |= cricket::CF_RELAY;
 	port_allocator_flags_ |= cricket::PORTALLOCATOR_DISABLE_LINK_LOCAL_NETWORKS;
+	if ( cfg.m_nCandidateTypes & k_EICECandidate_Any_IPv6 )
+	{
+		port_allocator_flags_ |= 
+			cricket::PORTALLOCATOR_ENABLE_IPV6 |
+			cricket::PORTALLOCATOR_ENABLE_IPV6_ON_WIFI;
+	}
+
+	std::vector<cricket::RelayServerConfig> turn_servers;
+	if ( cfg.m_nCandidateTypes & (k_EICECandidate_Any_Reflexive|k_EICECandidate_Any_Relay) )
+	{
+		// FIXME list of turn servers here
+	}
 
 	port_allocator_->set_flags(port_allocator_flags_);
 
 	// No step delay is used while allocating ports.
 	port_allocator_->set_step_delay(cricket::kMinimumStepDelay);
 
-	//CF_NONE = 0x0,
-	//CF_HOST = 0x1,
-	//CF_REFLEXIVE = 0x2,
-	//CF_RELAY = 0x4,
-	//CF_ALL = 0x7,
-	// FIXME - remove CF_RELAY conditionally?
-	port_allocator_->set_candidate_filter( cricket::CF_ALL );
+	port_allocator_->set_candidate_filter( candidate_filter );
 
 	//port_allocator_->set_max_ipv6_networks(configuration.max_ipv6_networks);
 
 	int ice_candidate_pool_size = 0; // ???
 	bool prune_turn_ports = false;
-    webrtc::TurnCustomizer* turn_customizer = nullptr;
 	absl::optional<int> stun_candidate_keepalive_interval = absl::nullopt;
 
 	if ( !port_allocator_->SetConfiguration(
@@ -255,7 +323,7 @@ bool CICESession::BInitializeOnSocketThread()
 		turn_customizer,
 		stun_candidate_keepalive_interval
 	) ) {
-		m_pDelegate->Log( IICESessionDelegate::k_ELogPriorityError, "PortAllocator::SetConfiguration faiuled\n" );
+		m_pDelegate->Log( IICESessionDelegate::k_ELogPriorityError, "PortAllocator::SetConfiguration failed\n" );
 		return false;
 	}
 
@@ -264,9 +332,9 @@ bool CICESession::BInitializeOnSocketThread()
 	int component = 0;
 	std::unique_ptr<webrtc::AsyncResolverFactory> async_resolver_factory_; // This is apparently allowed to be null
 
-    ice_transport_ = absl::make_unique<cricket::P2PTransportChannel>(
-        transport_name, component, port_allocator_.get(), async_resolver_factory_.get(),
-        event_log_.get() );
+	ice_transport_ = absl::make_unique<cricket::P2PTransportChannel>(
+		transport_name, component, port_allocator_.get(), async_resolver_factory_.get(),
+		event_log_.get() );
 
 	if ( !ice_transport_ )
 	{
@@ -274,11 +342,15 @@ bool CICESession::BInitializeOnSocketThread()
 		return false;
 	}
 
+	const int kBufferSize = 512*1024;
+	ice_transport_->SetOption( rtc::Socket::OPT_SNDBUF, kBufferSize );
+	ice_transport_->SetOption( rtc::Socket::OPT_RCVBUF, kBufferSize );
+
 	static_assert(
 		(int)k_EICERole_Unknown == (int)cricket::ICEROLE_UNKNOWN
 		&& (int)k_EICERole_Controlling == (int)cricket::ICEROLE_CONTROLLING
 		&& (int)k_EICERole_Controlled == (int)cricket::ICEROLE_CONTROLLED, "We assume our ICE role enum matches WebRTC's" );
-	ice_transport_->SetIceRole( cricket::IceRole( m_pDelegate->GetRole() ) );
+	ice_transport_->SetIceRole( cricket::IceRole( cfg.m_eRole ) );
 
 	//m_transport->SetIceTiebreaker(ice_tiebreaker_);
 	//cricket::IceConfig ice_config;
@@ -299,38 +371,11 @@ bool CICESession::BInitializeOnSocketThread()
 	//ice_config.network_preference = config.network_preference;
 	//ice_transport_->SetIceConfig(ice_config);
 
-	// !TEST! Set ufrag and password.  Do we need to be signaling these?
-	//cricket::IceParameters ice_params;
-	//webrtc::Random random( rtc::SystemTimeNanos() );
-	//char buf[32];
-	//sprintf_s( buf, sizeof(buf), "%8x", random.Rand(0,INT_MAX) );
-	//ice_params.ufrag = buf;
-	//sprintf_s( buf, sizeof(buf), "%8x", random.Rand(0,INT_MAX) );
-	//ice_params.pwd = buf;
-	//ice_transport_->SetIceParameters( ice_params );
-
-	// !TEST! Hardcode some params just so we can move on.
-	// We probably need to signal these
-	{
-		cricket::IceParameters server_ice_params;
-		server_ice_params.ufrag = "s123";
-		server_ice_params.pwd = "sxyz";
-
-		cricket::IceParameters client_ice_params;
-		client_ice_params.ufrag = "c123";
-		client_ice_params.pwd = "cxyz";
-
-		if ( m_pDelegate->GetRole() == k_EICERole_Controlled )
-		{
-			ice_transport_->SetIceParameters( server_ice_params );
-			ice_transport_->SetRemoteIceParameters( client_ice_params );
-		}
-		else
-		{
-			ice_transport_->SetIceParameters( client_ice_params );
-			ice_transport_->SetRemoteIceParameters( server_ice_params );
-		}
-	}
+	// Set our local parameters.  We don't know the other guy's params yet
+	cricket::IceParameters ice_params;
+	ice_params.ufrag = cfg.m_pszLocalUserFrag;
+	ice_params.pwd = cfg.m_pszLocalPwd;
+	ice_transport_->SetIceParameters( ice_params );
 
 	ice_transport_->SignalGatheringState.connect( this, &CICESession::OnTransportGatheringState_n);
 	ice_transport_->SignalCandidateGathered.connect( this, &CICESession::OnTransportCandidateGathered_n);
@@ -372,23 +417,72 @@ void CICESession::Destroy()
 	delete this;
 }
 
+EICECandidateType GetICECandidateType( const cricket::Candidate &candidate )
+{
+	const rtc::SocketAddress &addr = candidate.address();
+	if ( !addr.IsComplete() )
+		return k_EICECandidate_Invalid;
+
+	const std::string &typ = candidate.type();
+	EICECandidateType eResult;
+	if ( strcasecmp( typ.c_str(), cricket::LOCAL_PORT_TYPE ) == 0 )
+	{
+		// NOTE: This doesn't classify fc00::/7 as private
+		if ( addr.IsPrivateIP() )
+			eResult = k_EICECandidate_IPv4_HostPrivate;
+		else
+			eResult = k_EICECandidate_IPv4_HostPublic;
+	}
+	else if ( strcasecmp( typ.c_str(), cricket::STUN_PORT_TYPE ) == 0 || strcasecmp( typ.c_str(), cricket::PRFLX_PORT_TYPE ) == 0 )
+	{
+		eResult = k_EICECandidate_IPv4_Reflexive;
+	}
+	else if ( strcasecmp( typ.c_str(), cricket::RELAY_PORT_TYPE ) == 0 )
+	{
+		eResult = k_EICECandidate_IPv4_Relay;
+	}
+	else
+	{
+		return k_EICECandidate_Invalid;
+	}
+
+	switch ( candidate.address().family() )
+	{
+		case AF_INET:
+			return eResult;
+		case AF_INET6:
+			static_assert(
+				k_EICECandidate_IPv4_HostPrivate<<8 == k_EICECandidate_IPv6_HostPrivate_Unsupported
+				&& k_EICECandidate_IPv4_HostPublic<<8 == k_EICECandidate_IPv6_HostPublic
+				&& k_EICECandidate_IPv4_Reflexive<<8 == k_EICECandidate_IPv6_Reflexive
+				&& k_EICECandidate_IPv4_Relay<<8 == k_EICECandidate_IPv6_Relay, "We assume bit layout" );
+			return EICECandidateType( eResult << 8 );
+	}
+
+	return k_EICECandidate_Invalid;
+}
 
 //-----------------------------------------------------------------------------
 //
 //-----------------------------------------------------------------------------
-bool CICESession::BAddRemoteIceCandidate( const char *pszSDPMid, int nSDPMLineIndex, const char *pszCandidate )
+EICECandidateType CICESession::AddRemoteIceCandidate( const char *pszCandidate )
 {
 	webrtc::SdpParseError error;
-	webrtc::IceCandidateInterface* pCandidate = CreateIceCandidate( pszSDPMid, nSDPMLineIndex, pszCandidate, &error );
-	if ( !error.line.empty() && !error.description.empty() )
-	{
-		m_pDelegate->Log( IICESessionDelegate::k_ELogPriorityError, "Error parsing ICE candidates on line %s: %s\n", error.line.c_str(), error.description.c_str() );
-		return false;
+	cricket::Candidate candidate;
+	if ( !webrtc::SdpDeserializeCandidate(
+		"", // transport_name, not really used
+		std::string( pszCandidate ),
+        &candidate,
+        &error
+	) ) {
+		m_pDelegate->Log( IICESessionDelegate::k_ELogPriorityError, "Error parsing ICE candidate '%s': %s\n", pszCandidate, error.description.c_str() );
+		return k_EICECandidate_Invalid;
 	}
 
-	s_pSocketThread->Invoke<void>( RTC_FROM_HERE, rtc::Bind( &cricket::P2PTransportChannel::AddRemoteCandidate, ice_transport_.get(), pCandidate->candidate() ) );
-	delete pCandidate;
-	return true;
+	// Should we post instead of invoke here?
+	s_pSocketThread->Invoke<void>( RTC_FROM_HERE, rtc::Bind( &cricket::P2PTransportChannel::AddRemoteCandidate, ice_transport_.get(), candidate ) );
+
+	return GetICECandidateType( candidate );
 }
 
 const uint32_t SEND_PACKET_IN_GOOGLE_THREAD = 1000;
@@ -420,21 +514,25 @@ bool CICESession::BSendData( const void *pData, size_t nSize )
 	if ( !ice_transport_ || !ice_transport_->writable() )
 		return false;
 
+	// Create a message to send it in the other thread.  I hate all this payload
+	// copying and context switching.  It's fine on machines with plenty of
+	// hardware threads, but on limited hardware, this is a perf bottleneck
 	SendPacktetInGoogleThread *pkt = (SendPacktetInGoogleThread*)malloc( sizeof(SendPacktetInGoogleThread) - sizeof(SendPacktetInGoogleThread::data) + nSize );
 	new ( pkt ) SendPacktetInGoogleThread();
 	pkt->nSize = nSize;
 	memcpy( pkt->data, pData, nSize );
 	s_pSocketThread->Post( RTC_FROM_HERE, this, SEND_PACKET_IN_GOOGLE_THREAD, pkt, true );
-
-	//// FIXME This is blocking, switching threads back and forth, really bad for perf!
-	//rtc::PacketOptions options;
-	//int flags = 0;
-	//int r = s_pSocketThread->Invoke<int>( RTC_FROM_HERE, rtc::Bind( &cricket::P2PTransportChannel::SendPacket, ice_transport_.get(), (const char *)pData, nSize, options, flags ) );
-	//if ( r >= 0 )
-	//	return true;
-	//m_pDelegate->Log( IICESessionDelegate::k_ELogPriorityError, "P2PTransportChannel::SendPacket returned %d, GetError()=%d\n", r, ice_transport_->GetError() );
-	//return false;
 	return true;
+}
+
+void CICESession::SetRemoteAuth( const char *pszUserFrag, const char *pszPwd )
+{
+	if ( !ice_transport_ )
+		return;
+	cricket::IceParameters ice_params;
+	ice_params.ufrag = pszUserFrag;
+	ice_params.pwd = pszPwd;
+	s_pSocketThread->Invoke<void>( RTC_FROM_HERE, rtc::Bind( &cricket::P2PTransportChannel::SetRemoteIceParameters, ice_transport_.get(), ice_params ) );
 }
 
 bool CICESession::GetWritableState()
@@ -442,24 +540,40 @@ bool CICESession::GetWritableState()
 	return ice_transport_ && ice_transport_->writable();
 }
 
+int CICESession::GetPing()
+{
+	if ( !ice_transport_ )
+		return -1;
+	absl::optional<int> rtt = ice_transport_->GetRttEstimate();
+	return ( rtt ) ? *rtt : -1;
+}
+
+bool CICESession::GetRoute( EICECandidateType &eLocalCandidate, EICECandidateType &eRemoteCandidate, CandidateAddressString &szRemoteAddress )
+{
+	if ( !ice_transport_ )
+		return false;
+	const cricket::Connection *conn = ice_transport_->selected_connection();
+	if ( !conn )
+		return false;
+
+	eLocalCandidate = GetICECandidateType( conn->local_candidate() );
+	eRemoteCandidate = GetICECandidateType( conn->remote_candidate() );
+	std::string remote_addr = conn->remote_candidate().address().ToString();
+	strcpy_s( szRemoteAddress, sizeof(CandidateAddressString), remote_addr.c_str() );
+
+	return eLocalCandidate != k_EICECandidate_Invalid && eRemoteCandidate != k_EICECandidate_Invalid && szRemoteAddress[0] != '\0';
+}
+
 void CICESession::OnTransportGatheringState_n(cricket::IceTransportInternal* transport)
 {
-	m_pDelegate->Log( IICESessionDelegate::k_ELogPriorityError, "P2PTransportChannel::OnTransportGatheringState now %d\n", ice_transport_->gathering_state() );
+	m_pDelegate->Log( IICESessionDelegate::k_ELogPriorityInfo, "P2PTransportChannel::OnTransportGatheringState now %d\n", ice_transport_->gathering_state() );
 }
 
 void CICESession::OnTransportCandidateGathered_n(cricket::IceTransportInternal* transport, const cricket::Candidate& candidate)
 {
-	// !KLUDGE! This is putting SDP stuff on here.  I this the only string format we have?
-    const std::string sdp_mid( "" );
-    int sdp_mline_index = 0;
-	std::unique_ptr<webrtc::IceCandidateInterface> candidate_ptr = webrtc::CreateIceCandidate(
-		sdp_mid,
-		sdp_mline_index,
-		candidate );
-
-	std::string candidate_str;
-	candidate_ptr->ToString( &candidate_str );
-	m_pDelegate->OnIceCandidateAdded( sdp_mid.c_str(), sdp_mline_index, candidate_str.c_str() );
+	std::string sdp = webrtc::SdpSerializeCandidate( candidate );
+	EICECandidateType eType = GetICECandidateType( candidate );
+	m_pDelegate->OnLocalCandidateGathered( eType, sdp.c_str() );
 }
 
 void CICESession::OnTransportCandidatesRemoved_n(cricket::IceTransportInternal* transport, const cricket::Candidates& candidates)
@@ -475,7 +589,17 @@ void CICESession::OnTransportRoleConflict_n(cricket::IceTransportInternal* trans
 
 void CICESession::OnTransportStateChanged_n(cricket::IceTransportInternal* transport)
 {
-	m_pDelegate->Log( IICESessionDelegate::k_ELogPriorityInfo, "ICE state changed to %d\n", ice_transport_->GetState() );
+	cricket::IceTransportState state = ice_transport_->GetState();
+	if ( state == cricket::IceTransportState::STATE_COMPLETED )
+	{
+		m_pDelegate->Log( IICESessionDelegate::k_ELogPriorityInfo, "ICE completed\n" );
+		//m_pDelegate->OnFinished( true );
+	}
+	else if ( state == cricket::IceTransportState::STATE_FAILED )
+	{
+		m_pDelegate->Log( IICESessionDelegate::k_ELogPriorityInfo, "ICE failed\n" );
+		//m_pDelegate->OnFinished( false );
+	}
 }
 
 void CICESession::OnWritableState(rtc::PacketTransportInternal* transport)
@@ -509,5 +633,6 @@ void CICESession::OnReceivingState(rtc::PacketTransportInternal* transport)
 
 void CICESession::OnNetworkRouteChanged(absl::optional<rtc::NetworkRoute> network_route)
 {
-	m_pDelegate->Log( IICESessionDelegate::k_ELogPriorityInfo, "ICE OnNetworkRouteChanged %d\n", ice_transport_->receiving() );
+	m_pDelegate->OnRouteChanged();
+	//m_pDelegate->Log( IICESessionDelegate::k_ELogPriorityInfo, "ICE OnNetworkRouteChanged %d\n", ice_transport_->receiving() );
 }

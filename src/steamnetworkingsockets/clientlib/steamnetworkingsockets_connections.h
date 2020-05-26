@@ -11,7 +11,6 @@
 #endif
 #include "../steamnetworking_statsutils.h"
 #include <tier1/utlhashmap.h>
-#include <tier1/netadr.h>
 #include "steamnetworkingsockets_lowlevel.h"
 #include "../steamnetworkingsockets_thinker.h"
 #include "keypair.h"
@@ -91,6 +90,42 @@ struct SendPacketContext_t
 	const SteamNetworkingMicroseconds m_usecNow;
 	int m_cbMaxEncryptedPayload;
 	const char *m_pszReason; // Why are we sending this packet?
+};
+
+/// Context used when receiving a data packet
+struct RecvPacketContext_t
+{
+
+//
+// Must be filled in by transport
+//
+
+	/// Current time
+	SteamNetworkingMicroseconds m_usecNow;
+
+	/// What transport is receiving this packet?
+	CConnectionTransport *m_pTransport;
+
+	/// Jitter measurement, if present
+	//int m_usecTimeSinceLast;
+
+//
+// Output of DecryptDataChunk
+//
+
+	/// Expanded packet number
+	int64 m_nPktNum;
+
+	/// Pointer to decrypted data.  Will either point to to the caller's original packet,
+	/// if the packet was not encrypted, or m_decrypted, if it was encrypted and we
+	/// decrypted it
+	const void *m_pPlainText;
+
+	/// Size of plaintext
+	int m_cbPlainText;
+
+	// Temporary buffer to hold decrypted data, if we were actually encrypted
+	uint8 m_decrypted[ k_cbSteamNetworkingSocketsMaxPlaintextPayloadRecv ];
 };
 
 template<typename TStatsMsg>
@@ -291,10 +326,15 @@ public:
 	/// (The wire protocol doesn't care about local states such as linger)
 	bool BStateIsConnectedForWirePurposes() const { return m_eConnectionState == k_ESteamNetworkingConnectionState_Connected || m_eConnectionState == k_ESteamNetworkingConnectionState_Linger; }
 
-	/// Accessor for remote address (if we know it)
-	/// FIXME - Should we delete this and move to derived classes?
-	/// It's not always meaningful
-	const netadr_t &GetRemoteAddr() const { return m_netAdrRemote; }
+	/// Return true if the connection is still "active" in some way.
+	bool BStateIsActive() const
+	{
+		return
+			m_eConnectionState == k_ESteamNetworkingConnectionState_Connecting
+			|| m_eConnectionState == k_ESteamNetworkingConnectionState_FindingRoute
+			|| m_eConnectionState == k_ESteamNetworkingConnectionState_Connected
+			|| m_eConnectionState == k_ESteamNetworkingConnectionState_Linger;
+	}
 
 	/// Reason connection ended
 	ESteamNetConnectionEnd GetConnectionEndReason() const { return m_eEndReason; }
@@ -304,7 +344,7 @@ public:
 	inline SteamNetworkingMicroseconds GetTimeEnteredConnectionState() const { return m_usecWhenEnteredConnectionState; }
 
 	/// Fill in connection details
-	virtual void ConnectionPopulateInfo( SteamNetConnectionInfo_t &info ) const;
+	void ConnectionPopulateInfo( SteamNetConnectionInfo_t &info ) const;
 
 //
 // Lifetime management
@@ -409,12 +449,13 @@ public:
 
 	void UpdateMTUFromConfig();
 
-	/// Expand the packet number and decrypt a data chunk.
-	/// Returns the full 64-bit packet number, or 0 on failure.
-	int64 DecryptDataChunk( uint16 nWireSeqNum, int cbPacketSize, const void *pChunk, int cbChunk, void *&pDecrypted, uint32 &cbDecrypted, SteamNetworkingMicroseconds usecNow );
+	/// Expand the packet number, and decrypt the data chunk.
+	/// Returns true if everything is OK and we should continue
+	/// processing the packet
+	bool DecryptDataChunk( uint16 nWireSeqNum, int cbPacketSize, const void *pChunk, int cbChunk, RecvPacketContext_t &ctx );
 
-	/// Process a decrypted data chunk
-	bool ProcessPlainTextDataChunk( int64 nFullSequenceNumber, const void *pDecrypted, uint32 cbDecrypted, int usecTimeSinceLast, SteamNetworkingMicroseconds usecNow );
+	/// Decode the plaintext
+	bool ProcessPlainTextDataChunk( int usecTimeSinceLast, RecvPacketContext_t &ctx );
 
 	/// Called when we receive an (end-to-end) packet with a sequence number
 	bool RecvNonDataSequencedPacket( int64 nPktNum, SteamNetworkingMicroseconds usecNow );
@@ -449,6 +490,10 @@ public:
 	/// sent successfully, false if there was a problem.  This will call SendEncryptedDataChunk to do the work
 	bool SNP_SendPacket( CConnectionTransport *pTransport, SendPacketContext_t &ctx );
 
+	/// Record that we sent a non-data packet.  This is so that if the peer acks,
+	/// we can record it as a ping
+	void SNP_SentNonDataPacket( CConnectionTransport *pTransport, SteamNetworkingMicroseconds usecNow );
+
 	/// Called after the connection state changes.  Default behavior is to notify
 	/// the active transport, if any
 	virtual void ConnectionStateChanged( ESteamNetworkingConnectionState eOldState );
@@ -469,16 +514,6 @@ public:
 			m_receiverState.QueueFlushAllAcks( usecNow + k_usecMaxDataAckDelay );
 			EnsureMinThinkTime( m_receiverState.TimeWhenFlushAcks() );
 		}
-	}
-
-	/// Check if we need to send stats or acks.  If so, return a reason string
-	// FIXME - This needs to be refactored.  There is some redundancy in the different
-	// transport code that uses it
-	const char *NeedToSendEndToEndStatsOrAcks( SteamNetworkingMicroseconds usecNow )
-	{
-		if ( m_receiverState.TimeWhenFlushAcks() <= usecNow )
-			return "SNPFlushAcks";
-		return m_statsEndToEnd.NeedToSend( usecNow );
 	}
 
 	inline const CMsgSteamDatagramSessionCryptInfoSigned &GetSignedCryptLocal() { return m_msgSignedCryptLocal; }
@@ -517,11 +552,6 @@ protected:
 
 	/// Called from BInitConnection, to start obtaining certs, etc
 	virtual void InitConnectionCrypto( SteamNetworkingMicroseconds usecNow );
-
-	/// If this is a direct UDP connection, what is the address of the remote host?
-	/// FIXME - Should we delete this and move to derived classes?
-	/// It's not always meaningful
-	netadr_t m_netAdrRemote;
 
 	/// User data
 	int64 m_nUserData;
@@ -643,7 +673,6 @@ protected:
 	SteamNetworkingMicroseconds SNP_GetNextThinkTime( SteamNetworkingMicroseconds usecNow );
 	SteamNetworkingMicroseconds SNP_TimeWhenWantToSendNextPacket() const;
 	void SNP_PrepareFeedback( SteamNetworkingMicroseconds usecNow );
-	bool SNP_RecvDataChunk( int64 nPktNum, const void *pChunk, int cbChunk, SteamNetworkingMicroseconds usecNow );
 	void SNP_ReceiveUnreliableSegment( int64 nMsgNum, int nOffset, const void *pSegmentData, int cbSegmentSize, bool bLastSegmentInMessage, SteamNetworkingMicroseconds usecNow );
 	bool SNP_ReceiveReliableSegment( int64 nPktNum, int64 nSegBegin, const uint8 *pSegmentData, int cbSegmentSize, SteamNetworkingMicroseconds usecNow );
 	int SNP_ClampSendRate();
@@ -664,6 +693,9 @@ protected:
 
 	SSNPSenderState m_senderState;
 	SSNPReceiverState m_receiverState;
+
+	/// Called from SNP layer when it decodes a packet that serves as a ping measurement
+	virtual void ProcessSNPPing( int msPing, RecvPacketContext_t &ctx );
 
 private:
 
@@ -812,6 +844,7 @@ public:
 	virtual void SendEndToEndConnectRequest( SteamNetworkingMicroseconds usecNow ) override;
 	virtual void SendEndToEndStatsMsg( EStatsReplyRequest eRequest, SteamNetworkingMicroseconds usecNow, const char *pszReason ) override;
 	virtual int SendEncryptedDataChunk( const void *pChunk, int cbChunk, SendPacketContext_t &ctx ) override;
+	virtual void TransportPopulateConnectionInfo( SteamNetConnectionInfo_t &info ) const override;
 
 private:
 

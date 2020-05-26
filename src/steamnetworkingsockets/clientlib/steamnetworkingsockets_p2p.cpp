@@ -24,6 +24,8 @@ namespace SteamNetworkingSocketsLib {
 
 CUtlHashMap<RemoteConnectionKey_t,CSteamNetworkConnectionP2P*, std::equal_to<RemoteConnectionKey_t>, RemoteConnectionKey_t::Hash > g_mapIncomingP2PConnections;
 
+constexpr SteamNetworkingMicroseconds k_usecWaitForControllingAgentBeforeSelectingNonNominatedTransport = 1*k_nMillion;
+
 /////////////////////////////////////////////////////////////////////////////
 //
 // CSteamNetworkListenSocketP2P
@@ -93,8 +95,16 @@ CSteamNetworkConnectionP2P::CSteamNetworkConnectionP2P( CSteamNetworkingSockets 
 	m_nRemoteVirtualPort = -1;
 	m_idxMapIncomingP2PConnections = -1;
 	m_pSignaling = nullptr;
-	m_usecNextEvaluateTransport = 0;
+	m_usecNextEvaluateTransport = k_nThinkTime_ASAP;
 	m_bTransportSticky = false;
+
+	m_pszNeedToSendSignalReason = nullptr;
+	m_usecSendSignalDeadline = k_nThinkTime_Never;
+	m_nLastSendRendesvousMessageID = 0;
+	m_nLastRecvRendesvousMessageID = 0;
+	m_pPeerSelectedTransport = nullptr;
+
+	m_pCurrentTransportP2P = nullptr;
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 		m_pTransportP2PSDR = nullptr;
 	#endif
@@ -113,7 +123,10 @@ CSteamNetworkConnectionP2P::~CSteamNetworkConnectionP2P()
 
 void CSteamNetworkConnectionP2P::GetConnectionTypeDescription( ConnectionTypeDescription_t &szDescription ) const
 {
-	V_sprintf_safe( szDescription, "P2P %s", SteamNetworkingIdentityRender( m_identityRemote ).c_str() );
+	if ( m_pCurrentTransportP2P )
+		V_sprintf_safe( szDescription, "P2P %s %s", m_pCurrentTransportP2P->m_pszP2PTransportDebugName, SteamNetworkingIdentityRender( m_identityRemote ).c_str() );
+	else
+		V_sprintf_safe( szDescription, "P2P %s", SteamNetworkingIdentityRender( m_identityRemote ).c_str() );
 }
 
 bool CSteamNetworkConnectionP2P::BInitConnect( ISteamNetworkingConnectionCustomSignaling *pSignaling, const SteamNetworkingIdentity *pIdentityRemote, int nVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions, SteamDatagramErrMsg &errMsg )
@@ -185,9 +198,7 @@ bool CSteamNetworkConnectionP2P::BInitP2PConnectionCommon( SteamNetworkingMicros
 		m_pTransportP2PSDR = new CConnectionTransportP2PSDR( *this );
 		Assert( !has_element( g_vecSDRClients, m_pTransportP2PSDR ) );
 		g_vecSDRClients.push_back( m_pTransportP2PSDR );
-
-		// Select SDR as the transport
-		m_pTransport = m_pTransportP2PSDR;
+		m_vecAvailableTransports.push_back( m_pTransportP2PSDR );
 	#endif
 
 	return true;
@@ -237,29 +248,80 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 	Assert( !m_pTransportICE );
 	Assert( !m_pTransportICEPendingDelete );
 
-	// Now ICE factory?
+	// Did we already fail?
+	if ( m_nICECloseCode != 0 )
+		return;
+
+	int P2P_Transport_ICE_Enable = m_connectionConfig.m_P2P_Transport_ICE_Enable.Get();
+	if ( P2P_Transport_ICE_Enable < 0 )
+	{
+
+		// FIXME Really consult user options!
+		if ( m_connectionConfig.m_P2P_STUN_ServerList.Get().empty() )
+		{
+			P2P_Transport_ICE_Enable = k_nSteamNetworkingConfig_P2P_Transport_ICE_Enable_Disable;
+		}
+		else
+		{
+			P2P_Transport_ICE_Enable = k_nSteamNetworkingConfig_P2P_Transport_ICE_Enable_All;
+		}
+	}
+
+	if ( P2P_Transport_ICE_Enable <= 0 )
+	{
+		ICEFailed( k_nICECloseCode_Local_UserNotEnabled, "ICE not enabled by local user options" );
+		return;
+	}
+
+	// No ICE factory?
 	if ( !g_SteamNetworkingSockets_CreateICESessionFunc )
-		return;
+	{
+		// !HACK! Just try to load up the dll directly
+		#ifdef STEAMNETWORKINGSOCKETS_PARTNER
+			static bool tried;
+			if ( !tried )
+			{
+				tried = true;
+				SteamDatagramTransportLock::SetLongLockWarningThresholdMS( "LoadICEDll", 500 );
 
-	// !FIXME! Check permissions based on remote host!
+				#if defined( _WIN32 )
+					HMODULE h = ::LoadLibraryA( "steamwebrtc.dll" );
+					if ( h != NULL )
+					{
+						g_SteamNetworkingSockets_CreateICESessionFunc = (CreateICESession_t)::GetProcAddress( h, "CreateWebRTCICESession" );
+					}
+				//#elif defined( OSX ) || defined( IOS ) || defined( TVOS )
+				//	pszModule = "libsteamwebrtc.dylib";
+				//#elif defined( LINUX ) || defined( ANDROID )
+				//	pszModule = "libsteamwebrtc.so";
+				//#else
+				//	#error Need steamwebrtc for this platform
+				#endif
+			}
+		#endif
+		if ( !g_SteamNetworkingSockets_CreateICESessionFunc )
+		{
+			ICEFailed( k_nICECloseCode_Local_FailedInit, "No ICE session factory" );
+			return;
+		}
+	}
 
-	// For now, if we have no STUN servers, then no ICE,
-	// because NAT-punching is the main reason to use ICE.
-	//
-	// But we might want to enable ICE even without STUN.
-	// In some environments, maybe they want to only use TURN.
-	// Or maybe they don't need STUN, and don't need to pierce NAT,
-	// either because both IPs are public, or because they are on
-	// the same LAN.  The LAN case is usually better handled by
-	// broadcast, since that works without signaling.
-	if ( m_connectionConfig.m_P2P_STUN_ServerList.Get().empty() )
-		return;
+	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 
 	m_pTransportICE = new CConnectionTransportP2PICE( *this );
 	m_pTransportICE->Init();
 
+	// Process rendezvous messages that were pended
+	for ( int i = 0 ; i < len( m_vecPendingICEMessages ) && m_pTransportICE ; ++i )
+		m_pTransportICE->RecvRendezvous( m_vecPendingICEMessages[i], usecNow );
+	m_vecPendingICEMessages.clear();
+
 	// If we failed, go ahead and cleanup now
 	CheckCleanupICE();
+
+	// If we're still all good, then add it to the list of options
+	if ( m_pTransportICE )
+		m_vecAvailableTransports.push_back( m_pTransportICE );
 #endif
 }
 
@@ -278,8 +340,8 @@ void CSteamNetworkConnectionP2P::DestroyICENow()
 	// If transport was selected, then make sure and deselect, and force a re-evaluation ASAP
 	if ( m_pTransport && ( m_pTransport == m_pTransportICEPendingDelete || m_pTransport == m_pTransportICE ) )
 	{
-		SelectTransport( nullptr );
-		m_usecNextEvaluateTransport = 0;
+		SelectTransport( nullptr, SteamNetworkingSockets_GetLocalTimestamp() );
+		m_usecNextEvaluateTransport = k_nThinkTime_ASAP;
 		SetNextThinkTimeASAP();
 	}
 
@@ -295,9 +357,46 @@ void CSteamNetworkConnectionP2P::DestroyICENow()
 		m_pTransportICEPendingDelete->TransportDestroySelfNow();
 		m_pTransportICEPendingDelete = nullptr;
 	}
+
+	m_vecPendingICEMessages.clear();
 #endif
 
 }
+
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+
+void CSteamNetworkConnectionP2P::ICEFailed( int nReasonCode, const char *pszReason )
+{
+	SteamDatagramTransportLock::AssertHeldByCurrentThread();
+
+	// Remember reason code, if we didn't already set one
+	if ( m_nICECloseCode == 0 )
+	{
+		SpewMsgGroup( LogLevel_P2PRendezvous(), "[%s] ICE failed %d %s\n", GetDescription(), nReasonCode, pszReason );
+		m_nICECloseCode = nReasonCode;
+		V_strcpy_safe( m_szICECloseMsg, pszReason );
+	}
+
+	QueueDestroyICE();
+}
+
+void CSteamNetworkConnectionP2P::QueueDestroyICE()
+{
+	if ( !m_pTransportICE )
+		return;
+
+	// Queue for deletion
+	if ( !m_pTransportICEPendingDelete )
+	{
+		m_pTransportICEPendingDelete = m_pTransportICE;
+		m_pTransportICE = nullptr;
+	}
+
+	// Make sure we clean ourselves up as soon as it is safe to do so
+	SetNextThinkTimeASAP();
+}
+
+#endif // #ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
 
 void CSteamNetworkConnectionP2P::FreeResources()
 {
@@ -331,6 +430,8 @@ void CSteamNetworkConnectionP2P::DestroyTransport()
 {
 	// We're about to nuke all of our transports, don't point at any of them.
 	m_pTransport = nullptr;
+	m_pCurrentTransportP2P = nullptr;
+	m_vecAvailableTransports.clear();
 
 	// Nuke all known transports.
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
@@ -351,6 +452,9 @@ EResult CSteamNetworkConnectionP2P::AcceptConnection( SteamNetworkingMicrosecond
 	Assert( m_bConnectionInitiatedRemotely );
 	Assert( GetState() == k_ESteamNetworkingConnectionState_Connecting );
 
+	// Check for enabling ICE
+	CheckInitICE();
+
 	// Send them a reply, and include whatever info we have right now
 	SendConnectOKSignal( usecNow );
 
@@ -363,13 +467,28 @@ EResult CSteamNetworkConnectionP2P::AcceptConnection( SteamNetworkingMicrosecond
 	return k_EResultOK;
 }
 
-void CSteamNetworkConnectionP2P::TransportEndToEndConnectivityChanged( CConnectionTransport *pTransport )
+void CSteamNetworkConnectionP2P::ProcessSNPPing( int msPing, RecvPacketContext_t &ctx )
+{
+	if ( ctx.m_pTransport == m_pTransport || m_pTransport == nullptr )
+		CSteamNetworkConnectionBase::ProcessSNPPing( msPing, ctx );
+
+	// !KLUDGE! Because we cannot upcast.  This list should be short, though
+	for ( CConnectionTransportP2PBase *pTransportP2P: m_vecAvailableTransports )
+	{
+		if ( pTransportP2P->m_pSelfAsConnectionTransport == ctx.m_pTransport )
+		{
+			pTransportP2P->m_pingEndToEnd.ReceivedPing( msPing, ctx.m_usecNow );
+		}
+	}
+}
+
+void CSteamNetworkConnectionP2P::TransportEndToEndConnectivityChanged( CConnectionTransportP2PBase *pTransport, SteamNetworkingMicroseconds usecNow )
 {
 	// A major event has happened.  Don't be sticky to current transport.
 	m_bTransportSticky = false;
 
 	// Schedule us to wake up immediately and deal with it.
-	m_usecNextEvaluateTransport = 0;
+	m_usecNextEvaluateTransport = k_nThinkTime_ASAP;
 	SetNextThinkTimeASAP();
 }
 
@@ -379,15 +498,9 @@ void CSteamNetworkConnectionP2P::ConnectionStateChanged( ESteamNetworkingConnect
 	// call TransportConnectionStateChanged on whatever transport is active.
 	// We don't want that here.
 
-	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
-		if ( m_pTransportP2PSDR )
-			m_pTransportP2PSDR->TransportConnectionStateChanged( eOldState );
-	#endif
-
-	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
-		if ( m_pTransportICE )
-			m_pTransportICE->TransportConnectionStateChanged( eOldState );
-	#endif
+	// Inform transports
+	for ( CConnectionTransportP2PBase *pTransportP2P: m_vecAvailableTransports )
+		pTransportP2P->m_pSelfAsConnectionTransport->TransportConnectionStateChanged( eOldState );
 
 	// Reset timer to evaluate transport at certain times
 	switch ( GetState() )
@@ -398,18 +511,33 @@ void CSteamNetworkConnectionP2P::ConnectionStateChanged( ESteamNetworkingConnect
 			Assert( false );
 			break;
 
-		case k_ESteamNetworkingConnectionState_Connecting:
 		case k_ESteamNetworkingConnectionState_ClosedByPeer:
 		case k_ESteamNetworkingConnectionState_FinWait:
-		case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
 		case k_ESteamNetworkingConnectionState_Linger:
-		case k_ESteamNetworkingConnectionState_Connected:
+			break;
+
+		case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
+
+			// If we fail during these states, send a signal to Steam, for analytics
+			if ( eOldState == k_ESteamNetworkingConnectionState_Connecting || eOldState == k_ESteamNetworkingConnectionState_FindingRoute )
+				SendConnectionClosedSignal( SteamNetworkingSockets_GetLocalTimestamp() );
 			break;
 
 		case k_ESteamNetworkingConnectionState_FindingRoute:
-			m_usecNextEvaluateTransport = 0;
+		case k_ESteamNetworkingConnectionState_Connecting:
 			m_bTransportSticky = false; // Not sure how we could have set this flag, but make sure and clear it
+			// |
+			// |
+			// V
+			// FALLTHROUGH
+		case k_ESteamNetworkingConnectionState_Connected:
+
+			// Kick off thinking loop, perhaps taking action immediately
+			m_usecNextEvaluateTransport = k_nThinkTime_ASAP;
 			SetNextThinkTimeASAP();
+			for ( CConnectionTransportP2PBase *pTransportP2P: m_vecAvailableTransports )
+				pTransportP2P->m_pSelfAsThinker->SetNextThinkTimeASAP();
+
 			break;
 	}
 }
@@ -422,7 +550,46 @@ void CSteamNetworkConnectionP2P::ThinkConnection( SteamNetworkingMicroseconds us
 		CheckCleanupICE();
 	#endif
 
-	ThinkSelectTransport( usecNow );
+	// Check for sending signals pending for RTO or Nagle.
+	// (If we have gotten far enough along where we know where
+	// to send them.  Some messages can be queued very early, and
+	// do not depend on who the peer it.)
+	if ( GetState() != k_ESteamNetworkingConnectionState_Connecting )
+	{
+
+		// Process route selection
+		ThinkSelectTransport( usecNow );
+
+		// If nothing scheduled, check RTOs.  If we have something scheduled,
+		// wait for the timer. The timer is short and designed to avoid
+		// a blast, so let it do its job.
+		if ( m_usecSendSignalDeadline == k_nThinkTime_Never )
+		{
+			for ( const OutboundMessage &s: m_vecUnackedOutboundMessages )
+			{
+				if ( s.m_usecRTO < m_usecSendSignalDeadline )
+				{
+					m_usecSendSignalDeadline = s.m_usecRTO;
+					m_pszNeedToSendSignalReason = "MessageRTO";
+					// Keep scanning the list.  we want to collect
+					// the minimum RTO.
+				}
+			}
+		}
+
+		if ( usecNow >= m_usecSendSignalDeadline )
+		{
+			Assert( m_pszNeedToSendSignalReason );
+
+			// Send a signal
+			CMsgSteamNetworkingP2PRendezvous msgRendezvous;
+			SetRendezvousCommonFieldsAndSendSignal( msgRendezvous, usecNow, m_pszNeedToSendSignalReason );
+		}
+
+		Assert( m_usecSendSignalDeadline > usecNow );
+
+		EnsureMinThinkTime( m_usecSendSignalDeadline );
+	}
 }
 
 void CSteamNetworkConnectionP2P::ThinkSelectTransport( SteamNetworkingMicroseconds usecNow )
@@ -433,88 +600,6 @@ void CSteamNetworkConnectionP2P::ThinkSelectTransport( SteamNetworkingMicrosecon
 	{
 		EnsureMinThinkTime( m_usecNextEvaluateTransport );
 		return;
-	}
-
-	struct TransportChoice
-	{
-		CConnectionTransport *m_pTransport;
-		int m_nScore;
-	};
-	vstd::small_vector<TransportChoice, 3 > vecTransports;
-
-	const int k_nPenaltyNotLAN = 20; // LAN should be fast, so always use it if available.  If LAN ping is more than 20....we got problems
-	const int k_nPenaltyNeedToConfirmEndToEndConnectivity = 10000;
-
-	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
-		if ( m_pTransportP2PSDR && m_pTransportP2PSDR->BCanSendEndToEndData() )
-		{
-			TransportChoice t;
-			t.m_pTransport = m_pTransportP2PSDR;
-			t.m_nScore = m_pTransportP2PSDR->GetScoreForActiveSession() + k_nPenaltyNotLAN;
-			if ( m_pTransportP2PSDR->m_bNeedToConfirmEndToEndConnectivity )
-				t.m_nScore += k_nPenaltyNeedToConfirmEndToEndConnectivity;
-			vecTransports.push_back( t );
-		}
-	#endif
-
-	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
-		if ( m_pTransportICE && m_pTransportICE->BCanSendEndToEndData() && m_pTransportICE->m_ping.m_nSmoothedPing >= 0 )
-		{
-			TransportChoice t;
-			t.m_pTransport = m_pTransportICE;
-			t.m_nScore = m_pTransportICE->m_ping.m_nSmoothedPing + k_nPenaltyNotLAN;
-			if ( m_pTransportICE->m_bNeedToConfirmEndToEndConnectivity )
-				t.m_nScore += k_nPenaltyNeedToConfirmEndToEndConnectivity;
-			vecTransports.push_back( t );
-		}
-	#endif
-
-	// !FIXME! need to implementy LAN beacon connectivity.  Until then,
-	// need this to silence a warning
-	(void)k_nPenaltyNotLAN;
-
-	// Locate best and current scores
-	int nCurrentTransportScore = INT_MAX;
-	int nBestTransportScore = INT_MAX;
-	CConnectionTransport *pBestTransport = nullptr;
-	for ( const TransportChoice &t: vecTransports )
-	{
-		if ( t.m_pTransport == m_pTransport )
-			nCurrentTransportScore = t.m_nScore;
-		if ( t.m_nScore < nBestTransportScore )
-		{
-			nBestTransportScore = t.m_nScore;
-			pBestTransport = t.m_pTransport;
-		}
-	}
-
-	// Finding route?
-	if ( GetState() == k_ESteamNetworkingConnectionState_FindingRoute )
-	{
-
-		// As soon as the first transport says it's ready, let's go
-		if ( nBestTransportScore < k_nPenaltyNeedToConfirmEndToEndConnectivity )
-		{
-			SelectTransport( pBestTransport );
-			ConnectionState_Connected( usecNow );
-		}
-	}
-	else if ( m_pTransport == nullptr )
-	{
-		SelectTransport( pBestTransport );
-	}
-	else if ( m_pTransport != pBestTransport )
-	{
-
-		// Check for applying a sticky penalty, that the new guy has to
-		// overcome to switch
-		int nBestScoreWithStickyPenalty = nBestTransportScore;
-		if ( m_bTransportSticky )
-			nBestScoreWithStickyPenalty = nBestTransportScore * 11 / 10 + 5;
-
-		// Switch?
-		if ( nBestScoreWithStickyPenalty < nCurrentTransportScore )
-			SelectTransport( pBestTransport );
 	}
 
 	// Reset timer to evaluate transport at certain times
@@ -535,25 +620,234 @@ void CSteamNetworkConnectionP2P::ThinkSelectTransport( SteamNetworkingMicrosecon
 
 		case k_ESteamNetworkingConnectionState_Linger:
 		case k_ESteamNetworkingConnectionState_Connected:
+		case k_ESteamNetworkingConnectionState_FindingRoute:
 			m_usecNextEvaluateTransport = usecNow + k_nMillion; // Check back periodically
 			break;
-
-		case k_ESteamNetworkingConnectionState_FindingRoute:
-			m_usecNextEvaluateTransport = usecNow + k_nMillion/20; // Run the code below frequently
-			break;
 	}
+
+	bool bEvaluateFrequently = false;
+
+	// Scan all the options
+	int nCurrentTransportScore = k_nRouteScoreHuge;
+	int nBestTransportScore = k_nRouteScoreHuge;
+	CConnectionTransportP2PBase *pBestTransport = nullptr;
+	for ( CConnectionTransportP2PBase *t: m_vecAvailableTransports )
+	{
+		// Update metrics
+		t->P2PTransportUpdateRouteMetrics( usecNow );
+
+		// Add on a penalty if we need to confirm connectivity
+		if ( t->m_bNeedToConfirmEndToEndConnectivity )
+			t->m_routeMetrics.m_nTotalPenalty += k_nRoutePenaltyNeedToConfirmConnectivity;
+
+		// If we are the controlled agent, add a penalty to non-nominated transports
+		if ( !IsControllingAgent() && m_pPeerSelectedTransport != t )
+			t->m_routeMetrics.m_nTotalPenalty += k_nRoutePenaltyNotNominated;
+
+		// Calculate the total score
+		int nScore = t->m_routeMetrics.m_nScoreCurrent + t->m_routeMetrics.m_nTotalPenalty;
+		if ( t == m_pCurrentTransportP2P )
+			nCurrentTransportScore = nScore;
+		if ( nScore < nBestTransportScore )
+		{
+			nBestTransportScore = nScore;
+			pBestTransport = t;
+		}
+	}
+
+	if ( pBestTransport == nullptr )
+	{
+		// No suitable transports at all?
+		SelectTransport( nullptr, usecNow );
+	}
+	else if ( len( m_vecAvailableTransports ) == 1 )
+	{
+		// We only have one option.  No use waiting
+		SelectTransport( pBestTransport, usecNow );
+		m_bTransportSticky = true;
+	}
+	else if ( pBestTransport->m_bNeedToConfirmEndToEndConnectivity )
+	{
+		// Don't switch or activate a transport if we are not certain
+		// about its connectivity and we might have other options
+		m_bTransportSticky = false;
+	}
+	else if ( m_pCurrentTransportP2P == nullptr )
+	{
+		m_bTransportSticky = false;
+
+		// We're making the initial decision, or we lost all transports.
+		// If we're not the controlling agent, give the controlling agent
+		// a bit of time
+		if (
+			IsControllingAgent() // we're in charge
+			|| m_pPeerSelectedTransport == pBestTransport // we want to switch to what the other guy said
+			|| GetTimeEnteredConnectionState() + k_usecWaitForControllingAgentBeforeSelectingNonNominatedTransport < usecNow // we've waited long enough
+		) {
+
+			// Select something as soon as it becomes available
+			SelectTransport( pBestTransport, usecNow );
+		}
+		else
+		{
+			// Wait for the controlling agent to make a decision
+			bEvaluateFrequently = true;
+		}
+	}
+	else if ( m_pCurrentTransportP2P != pBestTransport )
+	{
+
+		const auto &GetStickyPenalizedScore = []( int nScore ) { return nScore * 11 / 10 + 5; };
+
+		// Check for applying a sticky penalty, that the new guy has to
+		// overcome to switch
+		int nBestScoreWithStickyPenalty = nBestTransportScore;
+		if ( m_bTransportSticky )
+			nBestScoreWithStickyPenalty = GetStickyPenalizedScore( nBestTransportScore );
+
+		// Still better?
+		if ( nBestScoreWithStickyPenalty < nCurrentTransportScore )
+		{
+
+			// Make sure we have enough recent ping data to make
+			// the switch
+			bool bReadyToSwitch = true;
+			if ( m_bTransportSticky )
+			{
+
+				// We don't have a particular reason to switch, so let's make sure the new option is
+				// consistently better than the current option, over a sustained time interval
+				if (
+					GetStickyPenalizedScore( pBestTransport->m_routeMetrics.m_nScoreMax ) + pBestTransport->m_routeMetrics.m_nTotalPenalty
+					 < m_pCurrentTransportP2P->m_routeMetrics.m_nScoreMin + m_pCurrentTransportP2P->m_routeMetrics.m_nTotalPenalty
+				) {
+					bEvaluateFrequently = true;
+
+					// The new transport is consistently better within all recent samples.  But is that just because
+					// we don't have many samples?  If so, let's make sure and collect some
+					#define CHECK_READY_TO_SWITCH( pTransport ) \
+						if ( pTransport->m_routeMetrics.m_nBucketsValid < k_nRecentValidTimeBucketsToSwitchRoute ) \
+						{ \
+							bReadyToSwitch = false; \
+							SteamNetworkingMicroseconds usecNextPing = pTransport->m_pingEndToEnd.TimeToSendNextAntiFlapRouteCheckPingRequest(); \
+							if ( usecNextPing > usecNow ) \
+							{ \
+								m_usecNextEvaluateTransport = std::min( m_usecNextEvaluateTransport, usecNextPing ); \
+							} \
+							else if ( pTransport->m_usecEndToEndInFlightReplyTimeout > 0 ) \
+							{ \
+								m_usecNextEvaluateTransport = std::min( m_usecNextEvaluateTransport, pTransport->m_usecEndToEndInFlightReplyTimeout ); \
+							} \
+							else \
+							{ \
+								SpewVerbose( "[%s] %s (%d+%d) appears preferable to current transport %s (%d+%d), but maybe transient.  Pinging via %s.", \
+									GetDescription(), \
+									pBestTransport->m_pszP2PTransportDebugName, \
+									pBestTransport->m_routeMetrics.m_nScoreCurrent, pBestTransport->m_routeMetrics.m_nTotalPenalty, \
+									m_pCurrentTransportP2P->m_pszP2PTransportDebugName, \
+									m_pCurrentTransportP2P->m_routeMetrics.m_nScoreCurrent, m_pCurrentTransportP2P->m_routeMetrics.m_nTotalPenalty, \
+									pTransport->m_pszP2PTransportDebugName \
+								); \
+								pTransport->m_pSelfAsConnectionTransport->SendEndToEndStatsMsg( k_EStatsReplyRequest_Immediate, usecNow, "TransportChangeConfirm" ); \
+							} \
+						}
+
+					CHECK_READY_TO_SWITCH( pBestTransport )
+					CHECK_READY_TO_SWITCH( m_pCurrentTransportP2P )
+
+					#undef CHECK_READY_TO_SWITCH
+				}
+			}
+
+			if ( bReadyToSwitch )
+				SelectTransport( pBestTransport, usecNow );
+			else
+				bEvaluateFrequently = true;
+		}
+	}
+
+	// Check for turning on the sticky flag if things look solid
+	if (
+		m_pCurrentTransportP2P
+		&& m_pCurrentTransportP2P == pBestTransport
+		&& !m_pCurrentTransportP2P->m_bNeedToConfirmEndToEndConnectivity // Never be sticky do a transport that we aren't sure we can communicate on!
+		&& ( IsControllingAgent() || m_pPeerSelectedTransport == m_pCurrentTransportP2P ) // Don't be sticky to a non-nominated transport
+	) {
+		m_bTransportSticky = true;
+	}
+
+	// As soon as we have any viable transport, exit route finding.
+	if ( GetState() == k_ESteamNetworkingConnectionState_FindingRoute )
+	{
+		if ( m_pCurrentTransportP2P && !m_pCurrentTransportP2P->m_bNeedToConfirmEndToEndConnectivity )
+		{
+			ConnectionState_Connected( usecNow );
+		}
+		else
+		{
+			bEvaluateFrequently = true;
+		}
+	}
+
+	// If we're not settled, then make sure we're checking in more frequently
+	if ( bEvaluateFrequently || !m_bTransportSticky || m_pCurrentTransportP2P == nullptr || pBestTransport == nullptr || m_pCurrentTransportP2P->m_bNeedToConfirmEndToEndConnectivity || pBestTransport->m_bNeedToConfirmEndToEndConnectivity )
+		m_usecNextEvaluateTransport = std::min( m_usecNextEvaluateTransport, usecNow + k_nMillion/20 );
+
 	EnsureMinThinkTime( m_usecNextEvaluateTransport );
 }
 
-void CSteamNetworkConnectionP2P::SelectTransport( CConnectionTransport *pTransport )
+void CSteamNetworkConnectionP2P::SelectTransport( CConnectionTransportP2PBase *pTransportP2P, SteamNetworkingMicroseconds usecNow )
 {
+	CConnectionTransport *pTransport = pTransportP2P ? pTransportP2P->m_pSelfAsConnectionTransport : nullptr;
+
 	// No change?
-	if ( pTransport == m_pTransport )
+	if ( pTransportP2P == m_pCurrentTransportP2P )
+	{
 		return;
+	}
+
+	// Spew about this event
+	const int nLogLevel = LogLevel_P2PRendezvous();
+	if ( nLogLevel >= k_ESteamNetworkingSocketsDebugOutputType_Verbose )
+	{
+		if ( pTransportP2P == nullptr )
+		{
+			if ( BStateIsActive() ) // Don't spew about cleaning up
+				ReallySpewType( nLogLevel, "[%s] Deselected '%s' transport, no transport currently active!\n", GetDescription(), m_pCurrentTransportP2P->m_pszP2PTransportDebugName );
+		}
+		else if ( m_pCurrentTransportP2P == nullptr )
+		{
+			ReallySpewType( nLogLevel, "[%s] Selected '%s' transport (ping=%d, score=%d+%d)\n", GetDescription(),
+				pTransportP2P->m_pszP2PTransportDebugName, pTransportP2P->m_pingEndToEnd.m_nSmoothedPing, pTransportP2P->m_routeMetrics.m_nScoreCurrent, pTransportP2P->m_routeMetrics.m_nTotalPenalty );
+		}
+		else
+		{
+			ReallySpewType( nLogLevel, "[%s] Switched to '%s' transport (ping=%d, score=%d=%d) from '%s' (ping=%d, score=%d+%d)\n", GetDescription(),
+				pTransportP2P->m_pszP2PTransportDebugName, pTransportP2P->m_pingEndToEnd.m_nSmoothedPing, pTransportP2P->m_routeMetrics.m_nScoreCurrent, pTransportP2P->m_routeMetrics.m_nTotalPenalty,
+				m_pCurrentTransportP2P->m_pszP2PTransportDebugName, m_pCurrentTransportP2P->m_pingEndToEnd.m_nSmoothedPing, m_pCurrentTransportP2P->m_routeMetrics.m_nScoreCurrent, m_pCurrentTransportP2P->m_routeMetrics.m_nTotalPenalty
+			);
+		}
+	}
+
+	// Slam the ping data with values from the new transport
+	if ( m_pCurrentTransportP2P )
+	{
+		static_cast< PingTracker &>( m_statsEndToEnd.m_ping ) = static_cast< const PingTracker &>( m_pCurrentTransportP2P->m_pingEndToEnd ); // Slice cast
+		m_statsEndToEnd.m_ping.m_usecTimeLastSentPingRequest = 0;
+	}
+
+	m_pCurrentTransportP2P = pTransportP2P;
 	m_pTransport = pTransport;
-	m_bTransportSticky = ( m_pTransport != nullptr );
+	m_bTransportSticky = false; // Assume we won't be sticky for now
+	m_usecNextEvaluateTransport = k_nThinkTime_ASAP;
 	SetDescription();
 	SetNextThinkTimeASAP(); // we might want to send packets ASAP
+
+	// If we're the controlling agent, then send something on this transport ASAP
+	if ( m_pTransport && IsControllingAgent() )
+	{
+		m_pTransport->SendEndToEndStatsMsg( k_EStatsReplyRequest_NoReply, usecNow, "P2PNominate" );
+	}
 }
 
 SteamNetworkingMicroseconds CSteamNetworkConnectionP2P::ThinkConnection_ClientConnecting( SteamNetworkingMicroseconds usecNow )
@@ -587,6 +881,17 @@ SteamNetworkingMicroseconds CSteamNetworkConnectionP2P::ThinkConnection_ClientCo
 		}
 	#endif
 
+	// When using ICE, it takes just a few milliseconds to collect the local candidates.
+	// We'd like to send those in the initial connect request
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+		if ( m_pTransportICE )
+		{
+			SteamNetworkingMicroseconds usecWaitForICE = GetTimeEnteredConnectionState() + 5*1000;
+			if ( usecNow < usecWaitForICE )
+				return usecWaitForICE;
+		}
+	#endif
+
 	// Time to send another connect request?
 	// We always do this through signaling service rendezvous message.  We don't need to have
 	// selected the transport (yet)
@@ -603,7 +908,7 @@ SteamNetworkingMicroseconds CSteamNetworkConnectionP2P::ThinkConnection_ClientCo
 		msgConnectRequest.set_virtual_port( m_nRemoteVirtualPort );
 
 	// Send through signaling service
-	SpewType( LogLevel_P2PRendezvous(), "[%s] Sending P2P ConnectRequest\n", GetDescription() );
+	SpewMsgGroup( LogLevel_P2PRendezvous(), "[%s] Sending P2P ConnectRequest\n", GetDescription() );
 	SetRendezvousCommonFieldsAndSendSignal( msgRendezvous, usecNow, "ConnectRequest" );
 
 	// Remember when we send it
@@ -621,13 +926,13 @@ void CSteamNetworkConnectionP2P::SendConnectOKSignal( SteamNetworkingMicrosecond
 	CMsgSteamNetworkingP2PRendezvous_ConnectOK &msgConnectOK = *msgRendezvous.mutable_connect_ok();
 	*msgConnectOK.mutable_cert() = m_msgSignedCertLocal;
 	*msgConnectOK.mutable_crypt() = m_msgSignedCryptLocal;
-	SpewType( LogLevel_P2PRendezvous(), "[%s] Sending P2P ConnectOK via Steam, remote cxn %u\n", GetDescription(), m_unConnectionIDRemote );
+	SpewMsgGroup( LogLevel_P2PRendezvous(), "[%s] Sending P2P ConnectOK via Steam, remote cxn %u\n", GetDescription(), m_unConnectionIDRemote );
 	SetRendezvousCommonFieldsAndSendSignal( msgRendezvous, usecNow, "ConnectOK" );
 }
 
 void CSteamNetworkConnectionP2P::SendConnectionClosedSignal( SteamNetworkingMicroseconds usecNow )
 {
-	SpewType( LogLevel_P2PRendezvous(), "[%s] Sending graceful P2P ConnectionClosed, remote cxn %u\n", GetDescription(), m_unConnectionIDRemote );
+	SpewVerboseGroup( LogLevel_P2PRendezvous(), "[%s] Sending graceful P2P ConnectionClosed, remote cxn %u\n", GetDescription(), m_unConnectionIDRemote );
 
 	CMsgSteamNetworkingP2PRendezvous msgRendezvous;
 	CMsgSteamNetworkingP2PRendezvous_ConnectionClosed &msgConnectionClosed = *msgRendezvous.mutable_connection_closed();
@@ -642,7 +947,7 @@ void CSteamNetworkConnectionP2P::SendConnectionClosedSignal( SteamNetworkingMicr
 
 void CSteamNetworkConnectionP2P::SendNoConnectionSignal( SteamNetworkingMicroseconds usecNow )
 {
-	SpewType( LogLevel_P2PRendezvous(), "[%s] Sending graceful P2P ConnectionClosed, remote cxn %u\n", GetDescription(), m_unConnectionIDRemote );
+	SpewVerboseGroup( LogLevel_P2PRendezvous(), "[%s] Sending P2P NoConnection signal, remote cxn %u\n", GetDescription(), m_unConnectionIDRemote );
 
 	CMsgSteamNetworkingP2PRendezvous msgRendezvous;
 	CMsgSteamNetworkingP2PRendezvous_ConnectionClosed &msgConnectionClosed = *msgRendezvous.mutable_connection_closed();
@@ -681,14 +986,68 @@ void CSteamNetworkConnectionP2P::SetRendezvousCommonFieldsAndSendSignal( CMsgSte
 			m_pTransportP2PSDR->PopulateRendezvousMsg( msg, usecNow );
 	#endif
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
-		if ( m_pTransportICE && m_nICECloseCode == 0 )
+		if ( m_pTransportICE )
 			m_pTransportICE->PopulateRendezvousMsg( msg, usecNow );
 	#endif
 
+	m_pszNeedToSendSignalReason = nullptr;
+	m_usecSendSignalDeadline = INT64_MAX;
+
+	// Reliable messages?
+	if ( msg.has_connection_closed() )
+	{
+		// Once connection is closed, discard these, never send again
+		m_vecUnackedOutboundMessages.clear();
+	}
+	else
+	{
+		bool bInitialHandshake = msg.has_connect_request() || msg.has_connect_ok();
+
+		int nTotalMsgSize = 0;
+		for ( OutboundMessage &s: m_vecUnackedOutboundMessages )
+		{
+
+			// Not yet ready to retry sending?
+			if ( !msg.has_first_reliable_msg() )
+			{
+
+				// If we have sent recently, assume it's in flight,
+				// and don't give up yet.  Just go ahead and move onto
+				// the next once, speculatively sending them before
+				// we get our ack for the previously sent ones.
+				if ( s.m_usecRTO > usecNow )
+				{
+					if ( !bInitialHandshake ) // However, always start from the beginning in initial handshake packets
+						continue;
+				}
+
+				// Try to keep individual signals relatively small.  If we have a lot
+				// to say, break it up into multiple messages
+				if ( nTotalMsgSize > 800 )
+				{
+					if ( !msg.has_connect_request() )
+						ScheduleSendSignal( "ContinueLargeSignal" );
+					break;
+				}
+
+				// Start sending from this guy forward
+				msg.set_first_reliable_msg( s.m_nID );
+			}
+
+			*msg.add_reliable_messages() = s.m_msg;
+			nTotalMsgSize += s.m_cbSerialized;
+
+			s.m_usecRTO = usecNow + k_nMillion/2; // Reset RTO
+		}
+
+		// Go ahead and always ack, even if we don't need to, because this is small
+		msg.set_ack_reliable_msg( m_nLastRecvRendesvousMessageID );
+	}
+
 	// Spew
 	int nLogLevel = LogLevel_P2PRendezvous();
-	SpewType( nLogLevel, "[%s] Sending P2PRendezvous (%s)\n", GetDescription(), pszDebugReason );
-	SpewType( nLogLevel+1, "%s\n\n", Indent( msg.DebugString() ).c_str() );
+	SpewVerboseGroup( nLogLevel, "[%s] Sending P2PRendezvous (%s)\n", GetDescription(), pszDebugReason );
+	SpewDebugGroup( nLogLevel, "%s\n\n", Indent( msg.DebugString() ).c_str() );
 
 	int cbMsg = ProtoMsgByteSize( msg );
 	uint8 *pMsg = (uint8 *)alloca( cbMsg );
@@ -705,6 +1064,151 @@ void CSteamNetworkConnectionP2P::SetRendezvousCommonFieldsAndSendSignal( CMsgSte
 		//       or the caller might have closed us!
 		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_InternalError, "Failed to send P2P signal" );
 	}
+}
+
+bool CSteamNetworkConnectionP2P::ProcessSignal( const CMsgSteamNetworkingP2PRendezvous &msg, SteamNetworkingMicroseconds usecNow )
+{
+
+	// Go ahead and process the SDR routes, if they are sending them
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
+		if ( m_pTransportP2PSDR )
+		{
+			if ( msg.has_sdr_routes() )
+				m_pTransportP2PSDR->RecvRoutes( msg.sdr_routes() );
+			m_pTransportP2PSDR->CheckRecvRoutesAck( msg );
+		}
+	#endif
+
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+		if ( m_pTransportICE && !msg.ice_enabled() )
+		{
+			// The lack of any message at all (even an empty one) means that they
+			// will not support ICE, so we can destroy our transport
+			SpewMsgGroup( LogLevel_P2PRendezvous(), "[%s] Destroying ICE transport, peer rendezvous indicates they will not use it\n", GetDescription() );
+			m_nICECloseCode = k_nICECloseCode_Remote_NotEnabled;
+			V_strcpy_safe( m_szICECloseMsg, "Peer sent signal without ice_enabled set" );
+			DestroyICENow();
+		}
+	#endif
+
+	// Check for acking reliable messages
+	if ( msg.ack_reliable_msg() > 0 )
+	{
+
+		// Remove messages that are being acked
+		while ( !m_vecUnackedOutboundMessages.empty() && m_vecUnackedOutboundMessages[0].m_nID <= msg.ack_reliable_msg() )
+			erase_at( m_vecUnackedOutboundMessages, 0 );
+
+		// If anything ready to retry now, schedule wakeup
+		if ( m_usecSendSignalDeadline == k_nThinkTime_Never )
+		{
+			SteamNetworkingMicroseconds usecNextRTO = k_nThinkTime_Never;
+			for ( const OutboundMessage &s: m_vecUnackedOutboundMessages )
+				usecNextRTO = std::min( usecNextRTO, s.m_usecRTO );
+			EnsureMinThinkTime( usecNextRTO );
+		}
+	}
+
+	// Check if they sent reliable messages
+	if ( msg.has_first_reliable_msg() )
+	{
+
+		// Send an ack, no matter what
+		ScheduleSendSignal( "AckMessages" );
+
+		// Do we have a gap?
+		if ( msg.first_reliable_msg() > m_nLastRecvRendesvousMessageID+1 )
+		{
+			// Something got dropped.  They will need to re-transmit.
+			// FIXME We could save these, though, so that if they
+			// retransmit, but not everything here, we won't have to ask them
+			// for these messages again.  Just discard for now
+		}
+		else
+		{
+
+			// Take the update
+			for ( int i = m_nLastRecvRendesvousMessageID+1-msg.first_reliable_msg() ; i < msg.reliable_messages_size() ; ++i )
+			{
+				++m_nLastRecvRendesvousMessageID;
+				const CMsgSteamNetworkingP2PRendezvous_ReliableMessage &reliable_msg = msg.reliable_messages(i);
+
+				#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+					if ( reliable_msg.has_ice() )
+					{
+						if ( m_pTransportICE )
+						{
+							m_pTransportICE->RecvRendezvous( reliable_msg.ice(), usecNow );
+						}
+						else if ( GetState() == k_ESteamNetworkingConnectionState_Connecting && m_nICECloseCode == 0 )
+						{
+							m_vecPendingICEMessages.push_back( reliable_msg.ice() );
+						}
+					}
+				#endif
+
+				(void)reliable_msg; // Avoid compiler warning, depending on what transports are available
+			}
+		}
+	}
+
+	// Already closed?
+	switch ( GetState() )
+	{
+		default:
+		case k_ESteamNetworkingConnectionState_None:
+		case k_ESteamNetworkingConnectionState_Dead: // shouldn't be in the map!
+			Assert( false );
+			// FALLTHROUGH
+		case k_ESteamNetworkingConnectionState_FinWait:
+		case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
+			SendConnectionClosedSignal( usecNow );
+			return true;
+
+		case k_ESteamNetworkingConnectionState_ClosedByPeer:
+			// Must be stray / out of order message, since we think they already closed
+			// the connection.
+			SendNoConnectionSignal( usecNow );
+			return true;
+
+		case k_ESteamNetworkingConnectionState_Connecting:
+
+			if ( msg.has_connect_ok() )
+			{
+				if ( m_bConnectionInitiatedRemotely )
+				{
+					SpewWarningGroup( LogLevel_P2PRendezvous(), "[%s] Ignoring P2P connect_ok, since they initiated the connection\n", GetDescription() );
+					return false;
+				}
+
+				SpewMsgGroup( LogLevel_P2PRendezvous(), "[%s] Received ConnectOK in P2P Rendezvous.\n", GetDescription() );
+				ProcessSignal_ConnectOK( msg.connect_ok(), usecNow );
+			}
+			break;
+
+		case k_ESteamNetworkingConnectionState_Linger:
+		case k_ESteamNetworkingConnectionState_FindingRoute:
+		case k_ESteamNetworkingConnectionState_Connected:
+
+			// Now that we know we still might want to talk to them,
+			// check for redundant connection request.  (Our reply dropped.)
+			if ( msg.has_connect_request() )
+			{
+				if ( m_bConnectionInitiatedRemotely )
+				{
+					// NOTE: We're assuming here that it actually is a redundant retry,
+					//       meaning they specified all the same parameters as before!
+					SendConnectOKSignal( usecNow );
+				}
+				else
+				{
+					AssertMsg( false, "Received ConnectRequest in P2P rendezvous message, but we are the 'client'!" );
+				}
+			}
+			break;
+	}
+
+	return true;
 }
 
 void CSteamNetworkConnectionP2P::ProcessSignal_ConnectOK( const CMsgSteamNetworkingP2PRendezvous_ConnectOK &msgConnectOK, SteamNetworkingMicroseconds usecNow )
@@ -726,6 +1230,197 @@ void CSteamNetworkConnectionP2P::ProcessSignal_ConnectOK( const CMsgSteamNetwork
 
 	// We're not fully connected.  Now we're doing rendezvous
 	ConnectionState_FindingRoute( usecNow );
+}
+
+void CSteamNetworkConnectionP2P::QueueSignalReliableMessage( CMsgSteamNetworkingP2PRendezvous_ReliableMessage &&msg, const char *pszDebug )
+{
+	SpewVerboseGroup( LogLevel_P2PRendezvous(), "[%s] Queue reliable signal message %s: { %s }\n", GetDescription(), pszDebug, msg.ShortDebugString().c_str() );
+	OutboundMessage *p = push_back_get_ptr( m_vecUnackedOutboundMessages );
+	p->m_nID = ++m_nLastSendRendesvousMessageID;
+	p->m_usecRTO = 1;
+	p->m_msg = std::move( msg );
+	p->m_cbSerialized = p->m_msg.ByteSize();
+	ScheduleSendSignal( pszDebug );
+}
+
+void CSteamNetworkConnectionP2P::ScheduleSendSignal( const char *pszReason )
+{
+	SteamNetworkingMicroseconds usecDeadline = SteamNetworkingSockets_GetLocalTimestamp() + 10*1000;
+	if ( !m_pszNeedToSendSignalReason || m_usecSendSignalDeadline > usecDeadline )
+	{
+		m_pszNeedToSendSignalReason = pszReason;
+		m_usecSendSignalDeadline = usecDeadline;
+	}
+	EnsureMinThinkTime( m_usecSendSignalDeadline );
+}
+
+void CSteamNetworkConnectionP2P::PeerSelectedTransportChanged()
+{
+
+	// If we are not the controlling agent, then we probably need to switch
+	if ( !IsControllingAgent() && m_pPeerSelectedTransport != m_pCurrentTransportP2P )
+	{
+		m_usecNextEvaluateTransport = k_nThinkTime_ASAP;
+		m_bTransportSticky = false;
+		SetNextThinkTimeASAP();
+	}
+
+	if ( m_pPeerSelectedTransport )
+		SpewMsgGroup( LogLevel_P2PRendezvous(), "[%s] Peer appears to be using '%s' transport as primary\n", GetDescription(), m_pPeerSelectedTransport->m_pszP2PTransportDebugName );
+}
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// CSteamNetworkingSockets CConnectionTransportP2PBase
+//
+/////////////////////////////////////////////////////////////////////////////
+
+CConnectionTransportP2PBase::CConnectionTransportP2PBase( const char *pszDebugName, CConnectionTransport *pSelfBase, IThinker *pSelfThinker )
+: m_pszP2PTransportDebugName( pszDebugName )
+, m_pSelfAsConnectionTransport( pSelfBase )
+, m_pSelfAsThinker( pSelfThinker )
+{
+	m_pingEndToEnd.Reset();
+	m_usecEndToEndInFlightReplyTimeout = 0;
+	m_nReplyTimeoutsSinceLastRecv = 0;
+	m_nTotalPingsSent = 0;
+	m_bNeedToConfirmEndToEndConnectivity = true;
+	m_routeMetrics.SetInvalid();
+}
+
+void CConnectionTransportP2PBase::P2PTransportTrackSentEndToEndPingRequest( SteamNetworkingMicroseconds usecNow, bool bAllowDelayedReply )
+{
+	m_pingEndToEnd.m_usecTimeLastSentPingRequest = usecNow;
+	if ( m_usecEndToEndInFlightReplyTimeout == 0 )
+	{
+		++m_nTotalPingsSent;
+		m_usecEndToEndInFlightReplyTimeout = usecNow + m_pingEndToEnd.CalcConservativeTimeout();
+		if ( bAllowDelayedReply )
+			m_usecEndToEndInFlightReplyTimeout += k_usecSteamDatagramRouterPendClientPing; // Is this the appropriate constant to use?
+
+		m_pSelfAsThinker->EnsureMinThinkTime( m_usecEndToEndInFlightReplyTimeout );
+	}
+}
+
+void CConnectionTransportP2PBase::P2PTransportThink( SteamNetworkingMicroseconds usecNow )
+{
+	CSteamNetworkConnectionP2P &conn = Connection();
+
+	// We only need to take action while connecting, or trying to connect
+	switch ( conn.GetState() )
+	{
+
+		case k_ESteamNetworkingConnectionState_FindingRoute:
+		case k_ESteamNetworkingConnectionState_Connected:
+		case k_ESteamNetworkingConnectionState_Linger:
+			break;
+
+		default:
+
+			// We'll have to wait until we get a callback
+			return;
+	}
+
+	// Check for reply timeout
+	if ( m_usecEndToEndInFlightReplyTimeout )
+	{
+		if ( m_usecEndToEndInFlightReplyTimeout < usecNow )
+		{
+			m_usecEndToEndInFlightReplyTimeout = 0;
+			++m_nReplyTimeoutsSinceLastRecv;
+			if ( m_nReplyTimeoutsSinceLastRecv > 2 && !m_bNeedToConfirmEndToEndConnectivity )
+			{
+				SpewMsg( "[%s] %s: %d consecutive end-to-end timeouts\n",
+					conn.GetDescription(), m_pszP2PTransportDebugName, m_nReplyTimeoutsSinceLastRecv );
+				P2PTransportEndToEndConnectivityNotConfirmed( usecNow );
+				conn.TransportEndToEndConnectivityChanged( this, usecNow );
+			}
+		}
+	}
+
+	// Check back in periodically
+	SteamNetworkingMicroseconds usecNextThink = usecNow + 2*k_nMillion;
+
+	// Check for sending ping requests
+	if ( m_usecEndToEndInFlightReplyTimeout == 0 && m_pSelfAsConnectionTransport->BCanSendEndToEndData() )
+	{
+
+		// Check for pinging as fast as possible until we get an initial ping sample.
+		CConnectionTransportP2PBase *pCurrentP2PTransport = Connection().m_pCurrentTransportP2P;
+		if ( m_nTotalPingsSent < 10 )
+		{
+			m_pSelfAsConnectionTransport->SendEndToEndStatsMsg( k_EStatsReplyRequest_Immediate, usecNow, "Initial end-to-end samples" );
+		}
+		else if ( 
+			pCurrentP2PTransport == this // they have selected us
+			|| pCurrentP2PTransport == nullptr // They haven't selected anybody
+			|| pCurrentP2PTransport->m_bNeedToConfirmEndToEndConnectivity // current transport is not in good shape
+		) {
+
+			// We're a viable option right now, not just a backup
+			if ( 
+				// Some reason to establish connectivity or collect more data?
+				m_bNeedToConfirmEndToEndConnectivity
+				|| m_nReplyTimeoutsSinceLastRecv > 0
+				|| m_pingEndToEnd.m_nSmoothedPing < 0
+				|| m_pingEndToEnd.m_nValidPings < V_ARRAYSIZE(m_pingEndToEnd.m_arPing)
+				|| m_pingEndToEnd.m_nTotalPingsReceived < 10
+			) {
+				m_pSelfAsConnectionTransport->SendEndToEndStatsMsg( k_EStatsReplyRequest_Immediate, usecNow, "Connectivity check" );
+			}
+			else
+			{
+				// We're the current transport and everything looks good.  We will let
+				// the end-to-end keepalives handle things, no need to take our own action here.
+			}
+		}
+		else
+		{
+			// They are using some other transport.  Just ping every now and then
+			// so that if conditions change, we could discover that we are better
+			SteamNetworkingMicroseconds usecNextPing = m_pingEndToEnd.m_usecTimeLastSentPingRequest + 10*k_nMillion;
+			if ( usecNextPing <= usecNow )
+			{
+				m_pSelfAsConnectionTransport->SendEndToEndStatsMsg( k_EStatsReplyRequest_DelayedOK, usecNow, "P2PGrassGreenerCheck" );
+			}
+			else
+			{
+				usecNextThink = std::min( usecNextThink, usecNextPing );
+			}
+		}
+	}
+
+	if ( m_usecEndToEndInFlightReplyTimeout )
+		usecNextThink = std::min( usecNextThink, m_usecEndToEndInFlightReplyTimeout );
+	m_pSelfAsThinker->EnsureMinThinkTime( usecNextThink );
+}
+
+void CConnectionTransportP2PBase::P2PTransportEndToEndConnectivityNotConfirmed( SteamNetworkingMicroseconds usecNow )
+{
+	if ( !m_bNeedToConfirmEndToEndConnectivity )
+		return;
+	CSteamNetworkConnectionP2P &conn = Connection();
+	SpewWarningGroup( conn.LogLevel_P2PRendezvous(), "[%s] %s end-to-end connectivity lost\n", conn.GetDescription(), m_pszP2PTransportDebugName );
+	m_bNeedToConfirmEndToEndConnectivity = true;
+	conn.TransportEndToEndConnectivityChanged( this, usecNow );
+}
+
+void CConnectionTransportP2PBase::P2PTransportEndToEndConnectivityConfirmed( SteamNetworkingMicroseconds usecNow )
+{
+	CSteamNetworkConnectionP2P &conn = Connection();
+
+	if ( !m_pSelfAsConnectionTransport->BCanSendEndToEndData() )
+	{
+		AssertMsg2( false, "[%s] %s trying to mark connectivity as confirmed, but !BCanSendEndToEndData!", conn.GetDescription(), m_pszP2PTransportDebugName );
+		return;
+	}
+
+	if ( m_bNeedToConfirmEndToEndConnectivity )
+	{
+		SpewVerboseGroup( conn.LogLevel_P2PRendezvous(), "[%s] %s end-to-end connectivity confirmed\n", conn.GetDescription(), m_pszP2PTransportDebugName );
+		m_bNeedToConfirmEndToEndConnectivity = false;
+		conn.TransportEndToEndConnectivityChanged( this, usecNow );
+	}
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -830,12 +1525,12 @@ bool CSteamNetworkingSockets::ReceivedP2PCustomSignal( const void *pMsg, int cbM
 		// any time we receive random message.
 		if ( pConnBase == nullptr )
 		{
-			SpewType( nLogLevel, "Ignoring P2PRendezvous from %s to unknown connection #%u\n", SteamNetworkingIdentityRender( identityRemote ).c_str(), msg.to_connection_id() );
+			SpewMsgGroup( nLogLevel, "Ignoring P2PRendezvous from %s to unknown connection #%u\n", SteamNetworkingIdentityRender( identityRemote ).c_str(), msg.to_connection_id() );
 			return true;
 		}
 
-		SpewType( nLogLevel, "[%s] Recv P2PRendezvous\n", pConnBase->GetDescription() );
-		SpewType( nLogLevel+1, "%s\n\n", Indent( msg.DebugString() ).c_str() );
+		SpewVerboseGroup( nLogLevel, "[%s] Recv P2PRendezvous\n", pConnBase->GetDescription() );
+		SpewDebugGroup( nLogLevel, "%s\n\n", Indent( msg.DebugString() ).c_str() );
 
 		pConn = pConnBase->AsSteamNetworkConnectionP2P();
 		if ( !pConn )
@@ -1073,101 +1768,22 @@ bool CSteamNetworkingSockets::ReceivedP2PCustomSignal( const void *pMsg, int cbM
 					break;
 			}
 
-			// Fire up ICE
-			// FIXME Really we should wait until the app accepts the connection, if it hasn't already
-			if ( msg.has_webrtc() )
-				pConn->CheckInitICE();
+			// Remember if peer has ICE enabled
+			#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+				if ( !msg.ice_enabled() )
+				{
+					pConn->m_nICECloseCode = k_nICECloseCode_Remote_NotEnabled;
+					V_strcpy_safe( pConn->m_szICECloseMsg, "Peer did not enable ICE" );
+				}
+			#endif
 		}
 
 		// Stop suppressing state change notifications
 		pConn->m_bSupressStateChangeCallbacks = false;
 	}
 
-	// Go ahead and process the SDR routes, if they are sending them
-	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
-		if ( pConn->m_pTransportP2PSDR )
-		{
-			if ( msg.has_sdr_routes() )
-				pConn->m_pTransportP2PSDR->RecvRoutes( msg.sdr_routes() );
-			pConn->m_pTransportP2PSDR->CheckRecvRoutesAck( msg );
-		}
-	#endif
-
-	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
-		if ( pConn->m_pTransportICE )
-		{
-			// If they send rendezvous, then process it
-			if ( msg.has_webrtc() )
-			{
-				pConn->m_pTransportICE->RecvRendezvous( msg.webrtc(), usecNow );
-			}
-			else
-			{
-				// The lack of any message at all (even an empty one) means that they
-				// will not support ICE, so we can destroy our transport
-				SpewType( nLogLevel, "[%s] Destroying ICE transport, peer rendezvous indicates they will not use it\n", pConn->GetDescription() );
-				pConn->DestroyICENow();
-			}
-		}
-	#endif
-
-	// Already closed?
-	switch ( pConn->GetState() )
-	{
-		default:
-		case k_ESteamNetworkingConnectionState_None:
-		case k_ESteamNetworkingConnectionState_Dead: // shouldn't be in the map!
-			Assert( false );
-			// FALLTHROUGH
-		case k_ESteamNetworkingConnectionState_FinWait:
-		case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
-			pConn->SendConnectionClosedSignal( usecNow );
-			return true;
-
-		case k_ESteamNetworkingConnectionState_ClosedByPeer:
-			// Must be stray / out of order message, since we think they already closed
-			// the connection.
-			pConn->SendNoConnectionSignal( usecNow );
-			return true;
-
-		case k_ESteamNetworkingConnectionState_Connecting:
-
-			if ( msg.has_connect_ok() )
-			{
-				if ( pConn->m_bConnectionInitiatedRemotely )
-				{
-					SpewWarning( "Ignoring P2P connect_ok from %s, since they initiated the connection\n", SteamNetworkingIdentityRender( identityRemote ).c_str() );
-					return false;
-				}
-
-				SpewType( nLogLevel, "[%s] Received ConnectOK in P2P Rendezvous from %s.\n", pConn->GetDescription(), SteamNetworkingIdentityRender( identityRemote ).c_str() );
-				pConn->ProcessSignal_ConnectOK( msg.connect_ok(), usecNow );
-			}
-			break;
-
-		case k_ESteamNetworkingConnectionState_Linger:
-		case k_ESteamNetworkingConnectionState_FindingRoute:
-		case k_ESteamNetworkingConnectionState_Connected:
-
-			// Now that we know we still might want to talk to them,
-			// check for redundant connection request.  (Our reply dropped.)
-			if ( msg.has_connect_request() )
-			{
-				if ( pConn->m_bConnectionInitiatedRemotely )
-				{
-					// NOTE: We're assuming here that it actually is a redundant retry,
-					//       meaning they specified all the same parameters as before!
-					pConn->SendConnectOKSignal( usecNow );
-				}
-				else
-				{
-					AssertMsg( false, "Received ConnectRequest in P2P rendezvous message, but we are the 'client'!" );
-				}
-			}
-			break;
-	}
-
-	return true;
+	// Process the message
+	return pConn->ProcessSignal( msg, usecNow );
 }
 
 } // namespace SteamNetworkingSocketsLib

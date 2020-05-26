@@ -346,8 +346,7 @@ struct SteamNetworkingDetailedConnectionStatus
 	/// Currently selected front router, if any.
 	/// Note that PoP ID can be found in the SteamNetConnectionInfo_t
 	char m_szPrimaryRouterName[64];
-	uint32 m_unPrimaryRouterIP;
-	uint16 m_unPrimaryRouterPort;
+	SteamNetworkingIPAddr m_addrPrimaryRouter;
 
 	/// Stats for "front" link to current router
 	SteamDatagramLinkStats m_statsPrimaryRouter;
@@ -361,8 +360,7 @@ struct SteamNetworkingDetailedConnectionStatus
 	/// Currently selected back router, if any
 	SteamNetworkingPOPID m_idBackupRouterCluster;
 	char m_szBackupRouterName[64];
-	uint32 m_unBackupRouterIP;
-	uint16 m_unBackupRouterPort;
+	SteamNetworkingIPAddr m_addrBackupRouter;
 
 	/// Ping times to backup router, if any
 	int m_nBackupRouterFrontPing, m_nBackupRouterBackPing;

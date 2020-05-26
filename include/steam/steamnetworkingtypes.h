@@ -200,6 +200,8 @@ struct SteamNetworkingIPAddr
 	/// form according to RFC5952.  If you include the port, IPv6 will be surrounded by
 	/// brackets, e.g. [::1:2]:80.  Your buffer should be at least k_cchMaxString bytes
 	/// to avoid truncation
+	///
+	/// See also SteamNetworkingIdentityRender
 	inline void ToString( char *buf, size_t cbBuf, bool bWithPort ) const;
 
 	/// Parse an IP address and optional port.  If a port is not present, it is set to 0.
@@ -268,6 +270,8 @@ struct SteamNetworkingIdentity
 	/// or any other time you need to encode the identity as a string.  It has a
 	/// URL-like format (type:<type-data>).  Your buffer should be at least
 	/// k_cchMaxString bytes big to avoid truncation.
+	///
+	/// See also SteamNetworkingIPAddrRender
 	void ToString( char *buf, size_t cbBuf ) const;
 
 	/// Parse back a string that was generated using ToString.  If we don't understand the
@@ -571,6 +575,21 @@ enum ESteamNetConnectionEnd
 	k_ESteamNetConnectionEnd__Force32Bit = 0x7fffffff
 };
 
+/// Enumerate different kinds of transport that can be used
+enum ESteamNetTransportKind
+{
+	k_ESteamNetTransport_Unknown = 0,
+	k_ESteamNetTransport_LoopbackBuffers = 1, // Internal buffers, not using OS network stack
+	k_ESteamNetTransport_LocalHost = 2, // Using OS network stack to talk to localhost address
+	k_ESteamNetTransport_UDP = 3, // Ordinary UDP connection.
+	k_ESteamNetTransport_UDPProbablyLocal = 4, // Ordinary UDP connection over a route that appears to be "local", meaning we think it is probably fast.  This is just a guess: VPNs and IPv6 make this pretty fuzzy.
+	k_ESteamNetTransport_TURN = 5, // Relayed over TURN server
+	k_ESteamNetTransport_SDRP2P = 6, // P2P connection relayed over Steam Datagram Relay
+	k_ESteamNetTransport_SDRHostedServer = 7, // Connection to a server hosted in a known data center via Steam Datagram Relay
+
+	k_ESteamNetTransport_Force32Bit = 0x7fffffff
+};
+
 /// Max length, in bytes (including null terminator) of the reason string
 /// when a connection is closed.
 const int k_cchSteamNetworkingMaxConnectionCloseReason = 128;
@@ -622,8 +641,14 @@ struct SteamNetConnectionInfo_t
 	/// This string is used in various internal logging messages
 	char m_szConnectionDescription[ k_cchSteamNetworkingMaxConnectionDescription ];
 
+	/// What kind of transport is currently being used?
+	/// Note that this is potentially a dynamic property!  Also, it may not
+	/// always be available, especially right as the connection starts, or
+	/// after the connection ends.
+	ESteamNetTransportKind m_eTransportKind;
+
 	/// Internal stuff, room to change API easily
-	uint32 reserved[64];
+	uint32 reserved[63];
 };
 
 /// Quick connection state, pared down to something you could call
@@ -1092,13 +1117,21 @@ enum ESteamNetworkingConfigValue
 
 	/// [connection string] Comma-separated list of STUN servers that can be used
 	/// for NAT piercing.  If you set this to an empty string, NAT piercing will
-	/// not be attempted
+	/// not be attempted.  Also if "public" candidates are not allowed for
+	/// P2P_Transport_ICE_Enable, then this is ignored.
 	k_ESteamNetworkingConfig_P2P_STUN_ServerList = 103,
 
-//	/// [connection string] Comma-separated list of TURN servers that can be used
-//	/// for relay.  If you set this to an empty string, relaying over TURN will
-//	/// not be attempted
-//	k_ESteamNetworkingConfig_P2P_TURN_ServerList = 104,
+	/// [connection int32] What types of ICE candidates to share with the peer.
+	/// See k_nSteamNetworkingConfig_P2P_Transport_ICE_Enable_xxx values
+	k_ESteamNetworkingConfig_P2P_Transport_ICE_Enable = 104,
+
+	/// [connection int32] When selecting P2P transport, add various
+	/// penalties to the scores for selected transports.  (Route selection
+	/// scores are on a scale of milliseconds.  The score begins with the
+	/// route ping time and is then adjusted.)
+	k_ESteamNetworkingConfig_P2P_Transport_ICE_Penalty = 105,
+	k_ESteamNetworkingConfig_P2P_Transport_SDR_Penalty = 106,
+	//k_ESteamNetworkingConfig_P2P_Transport_LANBeacon_Penalty = 107,
 
 	//
 	// Settings for SDR relayed connections
@@ -1150,11 +1183,15 @@ enum ESteamNetworkingConfigValue
 	k_ESteamNetworkingConfig_SDRClient_FakeClusterPing = 36,
 
 	//
-	// Log levels for debuging information.  A higher priority
-	// (lower numeric value) will cause more stuff to be printed.  
+	// Log levels for debugging information of various subsystems.
+	// Higher numeric values will cause more stuff to be printed.
+	// See ISteamNetworkingUtils::SetDebugOutputFunction for more
+	// information
+	//
+	// The default for all values is k_ESteamNetworkingSocketsDebugOutputType_Warning.
 	//
 	k_ESteamNetworkingConfig_LogLevel_AckRTT = 13, // [connection int32] RTT calculations for inline pings and replies
-	k_ESteamNetworkingConfig_LogLevel_PacketDecode = 14, // [connection int32] log SNP packets send
+	k_ESteamNetworkingConfig_LogLevel_PacketDecode = 14, // [connection int32] log SNP packets send/recv
 	k_ESteamNetworkingConfig_LogLevel_Message = 15, // [connection int32] log each message send/recv
 	k_ESteamNetworkingConfig_LogLevel_PacketGaps = 16, // [connection int32] dropped packets
 	k_ESteamNetworkingConfig_LogLevel_P2PRendezvous = 17, // [connection int32] P2P rendezvous messages
@@ -1162,6 +1199,14 @@ enum ESteamNetworkingConfigValue
 
 	k_ESteamNetworkingConfigValue__Force32Bit = 0x7fffffff
 };
+
+// Bitmask of types to share
+const int k_nSteamNetworkingConfig_P2P_Transport_ICE_Enable_Default = -1; // Special value - use user defaults
+const int k_nSteamNetworkingConfig_P2P_Transport_ICE_Enable_Disable = 0; // Do not do any ICE work at all or share any IP addresses with peer
+const int k_nSteamNetworkingConfig_P2P_Transport_ICE_Enable_Relay = 1; // Relayed connection via TURN server.
+const int k_nSteamNetworkingConfig_P2P_Transport_ICE_Enable_Private = 2; // host addresses that appear to be link-local or RFC1918 addresses
+const int k_nSteamNetworkingConfig_P2P_Transport_ICE_Enable_Public = 4; // STUN reflexive addresses, or host address that isn't a "private" address
+const int k_nSteamNetworkingConfig_P2P_Transport_ICE_Enable_All = 0x7fffffff;
 
 /// In a few places we need to set configuration options on listen sockets and connections, and
 /// have them take effect *before* the listen socket or connection really starts doing anything.
@@ -1259,6 +1304,8 @@ inline SteamNetworkingPOPID CalculateSteamNetworkingPOPIDFromString( const char 
 }
 
 /// Unpack integer to string representation, including terminating '\0'
+///
+/// See also SteamNetworkingPOPIDRender
 template <int N>
 inline void GetSteamNetworkingLocationPOPStringFromID( SteamNetworkingPOPID id, char (&szCode)[N] )
 {
@@ -1272,6 +1319,16 @@ inline void GetSteamNetworkingLocationPOPStringFromID( SteamNetworkingPOPID id, 
 
 /// The POPID "dev" is used in non-production environments for testing.
 const SteamNetworkingPOPID k_SteamDatagramPOPID_dev = ( (uint32)'d' << 16U ) | ( (uint32)'e' << 8U ) | (uint32)'v';
+
+/// Utility class for printing a SteamNetworkingPOPID.
+struct SteamNetworkingPOPIDRender
+{
+	SteamNetworkingPOPIDRender( SteamNetworkingPOPID x ) { GetSteamNetworkingLocationPOPStringFromID( x, buf ); }
+	inline const char *c_str() const { return buf; }
+private:
+	char buf[ 8 ];
+};
+
 
 ///////////////////////////////////////////////////////////////////////////////
 //

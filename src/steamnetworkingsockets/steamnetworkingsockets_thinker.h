@@ -15,6 +15,7 @@ namespace SteamNetworkingSocketsLib {
 /////////////////////////////////////////////////////////////////////////////
 
 const SteamNetworkingMicroseconds k_nThinkTime_Never = INT64_MAX;
+const SteamNetworkingMicroseconds k_nThinkTime_ASAP = 1; // by convention, we do not allow setting a think time to 0, since 0 is often an uninitialized variable.
 class ThinkerSetIndex;
 
 class IThinker
@@ -50,7 +51,7 @@ public:
 	void ClearNextThinkTime() { SetNextThinkTime( k_nThinkTime_Never ); }
 
 	/// Request an immediate wakeup.
-	void SetNextThinkTimeASAP() { EnsureMinThinkTime( 1 ); }
+	void SetNextThinkTimeASAP() { EnsureMinThinkTime( k_nThinkTime_ASAP ); }
 
 	/// Fetch time when the next Think() call is currently scheduled to
 	/// happen.

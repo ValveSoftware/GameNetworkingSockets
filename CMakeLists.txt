@@ -30,6 +30,8 @@ endif()
 
 option(Protobuf_USE_STATIC_LIBS "Build with a static Protobuf library" OFF)
 option(LIGHT_TESTS "Use smaller/shorter tests for simple integration testing (e.g. Travis)" OFF)
+option(GAMENETWORKINGSOCKETS_BUILD_EXAMPLES "Build the included example chat program" ON)
+option(GAMENETWORKINGSOCKETS_BUILD_TESTS "Build crypto, pki and network connection tests" ON)
 
 #
 # Primary crypto library (for AES, SHA256, etc)
@@ -86,14 +88,16 @@ endif()
 
 if (USE_CRYPTO25519 STREQUAL "OpenSSL" OR USE_CRYPTO STREQUAL "OpenSSL")
 	find_package(OpenSSL REQUIRED)
+	message( STATUS "OPENSSL_INCLUDE_DIR = ${OPENSSL_INCLUDE_DIR}" )
 
 	# Ensure the OpenSSL version is recent enough. We need a bunch of EVP
 	# functionality.
 	cmake_push_check_state()
+	set(CMAKE_REQUIRED_INCLUDES ${OPENSSL_INCLUDE_DIR})
 	set(CMAKE_REQUIRED_LIBRARIES OpenSSL::Crypto)
 	check_symbol_exists(EVP_MD_CTX_free openssl/evp.h OPENSSL_NEW_ENOUGH)
 	if (NOT OPENSSL_NEW_ENOUGH)
-		message(FATAL_ERROR "Your OpenSSL version appears to be too old. Check that you're using OpenSSL 1.1.0 or later.")
+		message(FATAL_ERROR "Cannot find EVP_MD_CTX_free in OpenSSL headers/libs for the target architecture.  Check that you're using OpenSSL 1.1.0 or later.")
 	endif()
 	cmake_pop_check_state()
 	cmake_push_check_state()
@@ -105,7 +109,7 @@ if (USE_CRYPTO25519 STREQUAL "OpenSSL" OR USE_CRYPTO STREQUAL "OpenSSL")
 endif()
 
 if(USE_CRYPTO25519 STREQUAL "OpenSSL" AND NOT OPENSSL_HAS_25519_RAW)
-	message(FATAL_ERROR "This version of OpenSSL does not support ed25519/curve25519. Please use -DUSE_CRYPTO25519=Reference or upgrade OpenSSL to 1.1.1 or later")
+	message(FATAL_ERROR "Cannot find (EVP_PKEY_get_raw_public_key in OpenSSL headers/libs for the target architecture.  Please use -DUSE_CRYPTO25519=Reference or upgrade OpenSSL to 1.1.1 or later")
 endif()
 
 if(USE_CRYPTO STREQUAL "libsodium" OR USE_CRYPTO25519 STREQUAL "libsodium")
@@ -118,10 +122,15 @@ if(USE_CRYPTO STREQUAL "libsodium")
 	endif()
 endif()
 
-add_subdirectory(examples)
+if(GAMENETWORKINGSOCKETS_BUILD_EXAMPLES)
+	add_subdirectory(examples)
+endif()
+
+if(GAMENETWORKINGSOCKETS_BUILD_TESTS)
+	add_subdirectory(tests)
+endif()
 add_subdirectory(gateway)
 add_subdirectory(src)
-add_subdirectory(tests)
 
 message(STATUS "---------------------------------------------------------")
 message(STATUS "Crypto library for AES/SHA256: ${USE_CRYPTO}")
