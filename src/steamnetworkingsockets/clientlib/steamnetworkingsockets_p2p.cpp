@@ -1239,7 +1239,7 @@ void CSteamNetworkConnectionP2P::QueueSignalReliableMessage( CMsgSteamNetworking
 	p->m_nID = ++m_nLastSendRendesvousMessageID;
 	p->m_usecRTO = 1;
 	p->m_msg = std::move( msg );
-	p->m_cbSerialized = p->m_msg.ByteSize();
+	p->m_cbSerialized = ProtoMsgByteSize(p->m_msg);
 	ScheduleSendSignal( pszDebug );
 }
 
