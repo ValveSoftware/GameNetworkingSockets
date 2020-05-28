@@ -1206,10 +1206,9 @@ SteamNetworkingMicroseconds CSteamNetworkConnectionBase::SNP_SenderCheckInFlight
 	++inFlightPkt;
 
 	// Expire old packets (all of these should have been marked as nacked)
-	SteamNetworkingMicroseconds usecNackExpiry = usecRTO*2;
+	SteamNetworkingMicroseconds usecWhenExpiry = usecNow - usecRTO*2;
 	for (;;)
 	{
-		SteamNetworkingMicroseconds usecWhenExpiry = inFlightPkt->second.m_usecWhenSent - usecNackExpiry;
 		if ( inFlightPkt->second.m_usecWhenSent > usecWhenExpiry )
 			break;
 
