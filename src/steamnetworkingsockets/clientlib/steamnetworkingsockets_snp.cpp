@@ -1384,14 +1384,12 @@ inline bool HasOverlappingRange( const SNPRange_t &range, const std::map<SNPRang
 
 bool CSteamNetworkConnectionBase::SNP_SendPacket( CConnectionTransport *pTransport, SendPacketContext_t &ctx )
 {
-	// Make sure we have initialized the connection
-	Assert( BStateIsActive() );
-	Assert( !m_senderState.m_mapInFlightPacketsByPktNum.empty() );
-
-	// We must have transport!
-	if ( !pTransport )
+	// Check calling conditions, and don't crash
+	if ( !BStateIsActive() || m_senderState.m_mapInFlightPacketsByPktNum.empty() || !pTransport )
 	{
-		Assert( false );
+		Assert( BStateIsActive() );
+		Assert( !m_senderState.m_mapInFlightPacketsByPktNum.empty() );
+		Assert( pTransport );
 		return false;
 	}
 

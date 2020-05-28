@@ -174,6 +174,8 @@ struct SteamDatagramLinkLifetimeStats
 	/// Reset all values to zero / unknown status
 	void Clear();
 
+	int m_nConnectedSeconds; // -1 if we don't track it
+
 	//
 	// Lifetime counters.
 	// NOTE: Average packet loss, etc can be deduced from this.

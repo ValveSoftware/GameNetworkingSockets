@@ -1843,12 +1843,19 @@ int CSteamNetworkConnectionBase::APIReceiveMessages( SteamNetworkingMessage_t **
 
 bool CSteamNetworkConnectionBase::DecryptDataChunk( uint16 nWireSeqNum, int cbPacketSize, const void *pChunk, int cbChunk, RecvPacketContext_t &ctx )
 {
-	Assert( m_bCryptKeysValid && BStateIsActive() );
+	if ( !m_bCryptKeysValid || !BStateIsActive() )
+	{
+		Assert( m_bCryptKeysValid );
+		Assert( BStateIsActive() );
+		return false;
+	}
+
+	// Sequence number should be initialized at this point!  We had some cases where
+	// the protocol was not properly assigning a sequence number, but those should be
+	// fixed now
+	AssertMsg1( m_statsEndToEnd.m_nMaxRecvPktNum > 0 || m_statsEndToEnd.m_nPeerProtocolVersion < 10, "[%s] packet number not properly initialized!", GetDescription() );
 
 	// Get the full end-to-end packet number, check if we should process it
-	// FIXME This is firing.  Should enable it and fix it.  but things were working before, and I
-	// don't want to freak people out with asserts that are probably harmless
-	//Assert( m_statsEndToEnd.m_nMaxRecvPktNum > 0 );
 	ctx.m_nPktNum = m_statsEndToEnd.ExpandWirePacketNumberAndCheck( nWireSeqNum );
 	if ( ctx.m_nPktNum <= 0 )
 	{
@@ -2143,6 +2150,10 @@ void CSteamNetworkConnectionBase::SetState( ESteamNetworkingConnectionState eNew
 		case k_ESteamNetworkingConnectionState_FinWait:
 		case k_ESteamNetworkingConnectionState_ClosedByPeer:
 
+			// Check for leaving connected state
+			if ( m_statsEndToEnd.m_usecWhenStartedConnectedState != 0 && m_statsEndToEnd.m_usecWhenEndedConnectedState == 0 )
+				m_statsEndToEnd.m_usecWhenEndedConnectedState = usecNow;
+
 			// Let stats tracking system know that it shouldn't
 			// expect to be able to get stuff acked, etc
 			m_statsEndToEnd.SetPassive( true, m_usecWhenEnteredConnectionState );
@@ -2156,6 +2167,7 @@ void CSteamNetworkConnectionBase::SetState( ESteamNetworkingConnectionState eNew
 
 			// Key exchange should be complete
 			Assert( m_bCryptKeysValid );
+			Assert( m_statsEndToEnd.m_usecWhenStartedConnectedState != 0 );
 
 			// Link stats tracker should send and expect, acks, keepalives, etc
 			m_statsEndToEnd.SetPassive( false, m_usecWhenEnteredConnectionState );
@@ -2428,6 +2440,10 @@ void CSteamNetworkConnectionBase::ConnectionState_Connected( SteamNetworkingMicr
 			{
 				// We must receive a packet in order to be connected!
 				Assert( m_statsEndToEnd.m_usecTimeLastRecv > 0 );
+
+				// Should only enter this state once
+				Assert( m_statsEndToEnd.m_usecWhenStartedConnectedState == 0 );
+				m_statsEndToEnd.m_usecWhenStartedConnectedState = usecNow;
 
 				// Spew, if this is newsworthy
 				if ( !m_bConnectionInitiatedRemotely || GetState() == k_ESteamNetworkingConnectionState_FindingRoute )

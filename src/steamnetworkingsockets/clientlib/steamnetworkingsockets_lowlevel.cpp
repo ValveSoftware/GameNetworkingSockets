@@ -1441,6 +1441,9 @@ static void SteamNetworkingThreadProc()
 	#endif
 
 	#if defined(_WIN32) && !defined(__GNUC__)
+
+		#pragma warning( disable: 6132 ) // Possible infinite loop:  use of the constant EXCEPTION_CONTINUE_EXECUTION in the exception-filter expression of a try-except.  Execution restarts in the protected block.
+
 		typedef struct tagTHREADNAME_INFO
 		{
 			DWORD dwType;

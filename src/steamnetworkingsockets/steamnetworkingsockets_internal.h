@@ -276,6 +276,9 @@ COMPILE_TIME_ASSERT( ( k_usecTimeSinceLastPacketMaxReasonable >> k_usecTimeSince
 /// should be a bit higher that our serialization precision.
 const SteamNetworkingMicroseconds k_usecTimeSinceLastPacketMinReasonable = 2 << k_usecTimeSinceLastPacketSerializedPrecisionShift;
 
+/// A really terrible ping score, but one that we can do some math with without overflowing
+constexpr int k_nRouteScoreHuge = INT_MAX/8;
+
 /// Protocol version of this code.  This is a blunt instrument, which is incremented when we
 /// wish to change the wire protocol in a way that doesn't have some other easy
 /// mechanism for dealing with compatibility (e.g. using protobuf's robust mechanisms).

@@ -849,6 +849,12 @@ struct LinkStatsTrackerEndToEnd : public LinkStatsTrackerBase
 		return m_ping.m_nSmoothedPing*3000 + ( k_usecMaxDataAckDelay + 10000 );
 	}
 
+	/// Time when the connection entered the connection state
+	SteamNetworkingMicroseconds m_usecWhenStartedConnectedState;
+
+	/// Time when the connection ended
+	SteamNetworkingMicroseconds m_usecWhenEndedConnectedState;
+
 	/// Time when the current interval started
 	SteamNetworkingMicroseconds m_usecSpeedIntervalStart;
 

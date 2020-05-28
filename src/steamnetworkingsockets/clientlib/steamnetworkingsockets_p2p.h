@@ -7,6 +7,10 @@
 #include "steamnetworkingsockets_connections.h"
 #include "csteamnetworkingsockets.h"
 
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
+	#include <steamdatagram_messages_sdr.pb.h>
+#endif
+
 class CMsgSteamDatagramConnectRequest;
 
 namespace SteamNetworkingSocketsLib {
@@ -32,10 +36,6 @@ constexpr int k_nICECloseCode_Local_NotCompiled = k_ESteamNetConnectionEnd_Local
 constexpr int k_nICECloseCode_Local_UserNotEnabled = k_ESteamNetConnectionEnd_Local_Max-1;
 constexpr int k_nICECloseCode_Aborted = k_ESteamNetConnectionEnd_Local_Max-2;
 constexpr int k_nICECloseCode_Remote_NotEnabled = k_ESteamNetConnectionEnd_Remote_Max;
-
-// A really terrible ping score, but one that we can do some math with without overflowing
-constexpr int k_nRouteScoreHuge = INT_MAX/8;
-
 
 struct SteamNetworkingMessagesSession;
 class CSteamNetworkingMessages;
@@ -87,7 +87,11 @@ public:
 	PingTrackerForRouteSelection m_pingEndToEnd;
 	SteamNetworkingMicroseconds m_usecEndToEndInFlightReplyTimeout;
 	int m_nReplyTimeoutsSinceLastRecv;
-	int m_nTotalPingsSent;
+	int m_nKeepTryingToPingCounter;
+	SteamNetworkingMicroseconds m_usecWhenSelected; // nonzero if we are the current transport
+	SteamNetworkingMicroseconds m_usecTimeSelectedAccumulator; // How much time have we spent selected, not counting the current activation
+
+	SteamNetworkingMicroseconds CalcTotalTimeSelected( SteamNetworkingMicroseconds usecNow ) const;
 
 	struct P2PRouteQualityMetrics
 	{
@@ -200,9 +204,14 @@ public:
 	//
 	// Different transports
 	//
+
+	// Steam datagram relay
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 		CConnectionTransportP2PSDR *m_pTransportP2PSDR;
+		CMsgSteamNetworkingP2PSDRRoutingSummary m_msgSDRRoutingSummary;
 	#endif
+
+	// ICE (direct NAT punch)
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
 
 		// ICE transport that we are using, if any
@@ -275,6 +284,8 @@ public:
 	void ThinkSelectTransport( SteamNetworkingMicroseconds usecNow );
 	void TransportEndToEndConnectivityChanged( CConnectionTransportP2PBase *pTransportP2P, SteamNetworkingMicroseconds usecNow );
 	void SelectTransport( CConnectionTransportP2PBase *pTransport, SteamNetworkingMicroseconds usecNow );
+
+	void UpdateTransportSummaries( SteamNetworkingMicroseconds usecNow );
 
 	// FIXME - UDP transport for LAN discovery, so P2P works without any signaling
 

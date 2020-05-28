@@ -252,21 +252,20 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 	if ( GetICEFailureCode() != 0 )
 		return;
 
+	// Fetch enabled option
 	int P2P_Transport_ICE_Enable = m_connectionConfig.m_P2P_Transport_ICE_Enable.Get();
 	if ( P2P_Transport_ICE_Enable < 0 )
 	{
 
-		// FIXME Really consult user options!
-		if ( m_connectionConfig.m_P2P_STUN_ServerList.Get().empty() )
-		{
-			P2P_Transport_ICE_Enable = k_nSteamNetworkingConfig_P2P_Transport_ICE_Enable_Disable;
-		}
-		else
-		{
-			P2P_Transport_ICE_Enable = k_nSteamNetworkingConfig_P2P_Transport_ICE_Enable_All;
-		}
+		// Ask platform if we should enable it for this peer
+		P2P_Transport_ICE_Enable = m_pSteamNetworkingSocketsInterface->GetP2P_Transport_ICE_Enable( m_identityRemote );
 	}
 
+	// Burn it into the connection config, if we inherited it, since we cannot change it
+	// after this point
+	m_connectionConfig.m_P2P_Transport_ICE_Enable.Set( P2P_Transport_ICE_Enable );
+
+	// Disabled?
 	if ( P2P_Transport_ICE_Enable <= 0 )
 	{
 		ICEFailed( k_nICECloseCode_Local_UserNotEnabled, "ICE not enabled by local user options" );
@@ -382,7 +381,7 @@ void CSteamNetworkConnectionP2P::GuessICEFailureReason( ESteamNetConnectionEnd &
 	}
 
 	// Did we ever pierce NAT?  If so, then we just dropped connection.
-	if ( m_msgICESessionSummary.has_nat_traversal_ms() )
+	if ( m_msgICESessionSummary.has_negotiation_ms() )
 	{
 		nReasonCode = k_ESteamNetConnectionEnd_Misc_Timeout;
 		V_strcpy_safe( msg, "ICE connection dropped after successful negotiation" );
@@ -404,8 +403,15 @@ void CSteamNetworkConnectionP2P::GuessICEFailureReason( ESteamNetConnectionEnd &
 		return;
 	}
 
-	// Problem on our end?
-	if ( nFailedToGatherTypes & (k_EICECandidate_Any_HostPrivate|k_EICECandidate_Any_HostPublic) )
+	// If we enabled all host candidates, and failed to gather any, then we have a problem
+	// on our end.  Note that if we only allow one or the other kind, or only IPv4, etc, that
+	// there are network configurations where we may legit fail to gather candidates.  (E.g.
+	// their IP address is public and they don't have a LAN IP.  Or they only have IPv6.)  But
+	// every computer should have *some* IP, and if we enabled all host candidate types (which
+	// will be a in important use case worth handling specifically), then we should gather some
+	// host candidates.
+	const int k_EICECandidate_Any_Host = k_EICECandidate_Any_HostPrivate | k_EICECandidate_Any_HostPublic;
+	if ( ( nFailedToGatherTypes & k_EICECandidate_Any_Host ) == k_EICECandidate_Any_Host )
 	{
 		// We should always be able to collect these sorts of candidates!
 		nReasonCode = k_ESteamNetConnectionEnd_Misc_InternalError;
@@ -416,13 +422,17 @@ void CSteamNetworkConnectionP2P::GuessICEFailureReason( ESteamNetConnectionEnd &
 	// Never received *any* candidates from them?
 	if ( nRemoteTypes == 0 )
 	{
+		// FIXME - not we probably can detect if it's likely to be on their end.
+		// If we are getting signals from them, just none with any candidates,
+		// then it's very likely on their end, not just because they gathered
+		// them but couldn't send them to us.
 		nReasonCode = k_ESteamNetConnectionEnd_Misc_Generic;
 		V_strcpy_safe( msg, "Never received any remote candidates" );
 		return;
 	}
 
 	// We failed to STUN?
-	if ( !( nGatheredTypes & k_EICECandidate_Any_Reflexive ) )
+	if ( nFailedToGatherTypes & k_EICECandidate_Any_Reflexive )
 	{
 		if ( m_connectionConfig.m_P2P_STUN_ServerList.Get().empty() )
 		{
@@ -615,20 +625,41 @@ void CSteamNetworkConnectionP2P::TransportEndToEndConnectivityChanged( CConnecti
 	m_usecNextEvaluateTransport = k_nThinkTime_ASAP;
 	SetNextThinkTimeASAP();
 
-	// Check if this is the first time ICE was successful
-	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
-		if ( !pTransport->m_bNeedToConfirmEndToEndConnectivity && pTransport == m_pTransportICE && !m_msgICESessionSummary.has_nat_traversal_ms() )
+	// Reset counter to make sure we collect a few more, either immediately if we can, or when
+	// we come back alive.  Also, this makes sure that as soon as we get confirmed connectivity,
+	// that we send something to the peer so they can get confirmation, too.
+	pTransport->m_nKeepTryingToPingCounter = std::max( pTransport->m_nKeepTryingToPingCounter, 5 );
+
+	// Check for recording the time when a transport first became available
+	if ( !pTransport->m_bNeedToConfirmEndToEndConnectivity && BStateIsActive() )
+	{
+
+		SteamNetworkingMicroseconds usecWhenStartedNegotiation = m_usecWhenStartedFindingRoute;
+		if ( usecWhenStartedNegotiation == 0 )
 		{
-			if ( m_usecWhenStartedFindingRoute == 0 )
-			{
-				AssertMsg1( false, "[%s] We are confirming end-to-end connectivity, but usecWhenStartedFindingRoute == 0", GetDescription() );
-			}
-			else
-			{
-				m_msgICESessionSummary.set_nat_traversal_ms( ( usecNow - m_usecWhenStartedFindingRoute + 500 ) / 1000 );
-			}
+			// It's actually possible for us to confirm end-to-end connectivity before
+			// entering the routing finding state.  If we are initiating the connection,
+			// we might have sent info to the peer through our connect request which they
+			// use to get back to us over the transport, before their COnnectOK reply signal
+			// reaches us!
+			Assert( GetState() == k_ESteamNetworkingConnectionState_Connecting );
+			usecWhenStartedNegotiation = GetTimeEnteredConnectionState();
 		}
-	#endif
+
+		// Round to nearest ms, and clamp to 1, to make sure that 0 is not interpreted
+		// anywhere as "no data", instead of "incredibly fast", which is actually happening.
+		int msNegotiationTime = std::max( 1, (int)( ( usecNow - usecWhenStartedNegotiation + 500 ) / 1000 ) );
+
+		// Wwich transport?
+		#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+			if ( pTransport == m_pTransportICE && !m_msgICESessionSummary.has_negotiation_ms() )
+				m_msgICESessionSummary.set_negotiation_ms( msNegotiationTime );
+		#endif
+		#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
+			if ( pTransport == m_pTransportP2PSDR && !m_msgSDRRoutingSummary.has_negotiation_ms() )
+				m_msgSDRRoutingSummary.set_negotiation_ms( msNegotiationTime );
+		#endif
+	}
 }
 
 void CSteamNetworkConnectionP2P::ConnectionStateChanged( ESteamNetworkingConnectionState eOldState )
@@ -665,6 +696,7 @@ void CSteamNetworkConnectionP2P::ConnectionStateChanged( ESteamNetworkingConnect
 			break;
 
 		case k_ESteamNetworkingConnectionState_FindingRoute:
+			Assert( m_usecWhenStartedFindingRoute == 0 ); // Should only enter this state once
 			m_usecWhenStartedFindingRoute = usecNow;
 			// |
 			// |
@@ -979,11 +1011,16 @@ void CSteamNetworkConnectionP2P::SelectTransport( CConnectionTransportP2PBase *p
 		}
 	}
 
-	// Slam the ping data with values from the new transport
+	// Slam the connection end-to-end ping data with values from the new transport
 	if ( m_pCurrentTransportP2P )
 	{
 		static_cast< PingTracker &>( m_statsEndToEnd.m_ping ) = static_cast< const PingTracker &>( m_pCurrentTransportP2P->m_pingEndToEnd ); // Slice cast
 		m_statsEndToEnd.m_ping.m_usecTimeLastSentPingRequest = 0;
+
+		// Count up time we were selected
+		Assert( m_pCurrentTransportP2P->m_usecWhenSelected );
+		m_pCurrentTransportP2P->m_usecTimeSelectedAccumulator = m_pCurrentTransportP2P->CalcTotalTimeSelected( usecNow );
+		m_pCurrentTransportP2P->m_usecWhenSelected = 0;
 	}
 
 	m_pCurrentTransportP2P = pTransportP2P;
@@ -993,11 +1030,42 @@ void CSteamNetworkConnectionP2P::SelectTransport( CConnectionTransportP2PBase *p
 	SetDescription();
 	SetNextThinkTimeASAP(); // we might want to send packets ASAP
 
+	// Remember when we became active
+	if ( m_pCurrentTransportP2P )
+	{
+		Assert( m_pCurrentTransportP2P->m_usecWhenSelected == 0 );
+		m_pCurrentTransportP2P->m_usecWhenSelected = usecNow;
+	}
+
+	// Make sure the summaries are updated with the current total time selected
+	UpdateTransportSummaries( usecNow );
+
 	// If we're the controlling agent, then send something on this transport ASAP
 	if ( m_pTransport && IsControllingAgent() )
 	{
 		m_pTransport->SendEndToEndStatsMsg( k_EStatsReplyRequest_NoReply, usecNow, "P2PNominate" );
 	}
+}
+
+void CSteamNetworkConnectionP2P::UpdateTransportSummaries( SteamNetworkingMicroseconds usecNow )
+{
+
+	#define UPDATE_SECONDS_SELECTED( pTransport, msg ) \
+		if ( pTransport ) \
+		{ \
+			SteamNetworkingMicroseconds usec = pTransport->CalcTotalTimeSelected( usecNow ); \
+			msg.set_selected_seconds( usec <= 0 ? 0 : std::max( 1, (int)( ( usec + 500*1000 ) / k_nMillion ) ) ); \
+		}
+
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+		UPDATE_SECONDS_SELECTED( m_pTransportICE, m_msgICESessionSummary )
+	#endif
+
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
+		UPDATE_SECONDS_SELECTED( m_pTransportP2PSDR, m_msgSDRRoutingSummary )
+	#endif
+
+	#undef UPDATE_SECONDS_SELECTED
 }
 
 SteamNetworkingMicroseconds CSteamNetworkConnectionP2P::ThinkConnection_ClientConnecting( SteamNetworkingMicroseconds usecNow )
@@ -1426,7 +1494,9 @@ CConnectionTransportP2PBase::CConnectionTransportP2PBase( const char *pszDebugNa
 	m_pingEndToEnd.Reset();
 	m_usecEndToEndInFlightReplyTimeout = 0;
 	m_nReplyTimeoutsSinceLastRecv = 0;
-	m_nTotalPingsSent = 0;
+	m_nKeepTryingToPingCounter = 5;
+	m_usecWhenSelected = 0;
+	m_usecTimeSelectedAccumulator = 0;
 	m_bNeedToConfirmEndToEndConnectivity = true;
 	m_routeMetrics.SetInvalid();
 }
@@ -1436,7 +1506,8 @@ void CConnectionTransportP2PBase::P2PTransportTrackSentEndToEndPingRequest( Stea
 	m_pingEndToEnd.m_usecTimeLastSentPingRequest = usecNow;
 	if ( m_usecEndToEndInFlightReplyTimeout == 0 )
 	{
-		++m_nTotalPingsSent;
+		if ( m_nKeepTryingToPingCounter > 0 )
+			--m_nKeepTryingToPingCounter;
 		m_usecEndToEndInFlightReplyTimeout = usecNow + m_pingEndToEnd.CalcConservativeTimeout();
 		if ( bAllowDelayedReply )
 			m_usecEndToEndInFlightReplyTimeout += k_usecSteamDatagramRouterPendClientPing; // Is this the appropriate constant to use?
@@ -1490,9 +1561,9 @@ void CConnectionTransportP2PBase::P2PTransportThink( SteamNetworkingMicroseconds
 
 		// Check for pinging as fast as possible until we get an initial ping sample.
 		CConnectionTransportP2PBase *pCurrentP2PTransport = Connection().m_pCurrentTransportP2P;
-		if ( m_nTotalPingsSent < 10 )
+		if ( m_nKeepTryingToPingCounter > 0 )
 		{
-			m_pSelfAsConnectionTransport->SendEndToEndStatsMsg( k_EStatsReplyRequest_Immediate, usecNow, "Initial end-to-end samples" );
+			m_pSelfAsConnectionTransport->SendEndToEndStatsMsg( k_EStatsReplyRequest_Immediate, usecNow, "End-to-end ping sample" );
 		}
 		else if ( 
 			pCurrentP2PTransport == this // they have selected us
@@ -1564,6 +1635,20 @@ void CConnectionTransportP2PBase::P2PTransportEndToEndConnectivityConfirmed( Ste
 		m_bNeedToConfirmEndToEndConnectivity = false;
 		conn.TransportEndToEndConnectivityChanged( this, usecNow );
 	}
+}
+
+SteamNetworkingMicroseconds CConnectionTransportP2PBase::CalcTotalTimeSelected( SteamNetworkingMicroseconds usecNow ) const
+{
+	SteamNetworkingMicroseconds result = m_usecTimeSelectedAccumulator;
+	if ( m_usecWhenSelected > 0 )
+	{
+		SteamNetworkingMicroseconds whenEnded = Connection().m_statsEndToEnd.m_usecWhenEndedConnectedState;
+		if ( whenEnded == 0 )
+			whenEnded = usecNow;
+		Assert( whenEnded >= m_usecWhenSelected );
+		result += usecNow - m_usecWhenSelected;
+	}
+	return result;
 }
 
 /////////////////////////////////////////////////////////////////////////////

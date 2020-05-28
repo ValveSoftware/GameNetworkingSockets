@@ -4,6 +4,13 @@
 #include <tier1/utlbuffer.h>
 #include "steamnetworking_statsutils.h"
 
+// !KLUDGE! For SteamNetworkingSockets_GetLocalTimestamp
+#ifdef IS_STEAMDATAGRAMROUTER
+	#include "router/sdr.h"
+#else
+	#include "clientlib/steamnetworkingsockets_lowlevel.h"
+#endif
+
 // Must be the last include
 #include <tier0/memdbgon.h>
 
@@ -30,6 +37,7 @@ void SteamDatagramLinkInstantaneousStats::Clear()
 void SteamDatagramLinkLifetimeStats::Clear()
 {
 	memset( this, 0, sizeof(*this) );
+	m_nConnectedSeconds = -1;
 	m_nPingNtile5th = -1;
 	m_nPingNtile50th = -1;
 	m_nPingNtile75th = -1;
@@ -722,6 +730,9 @@ void LinkStatsTrackerEndToEnd::InitInternal( SteamNetworkingMicroseconds usecNow
 {
 	LinkStatsTrackerBase::InitInternal( usecNow );
 
+	m_usecWhenStartedConnectedState = 0;
+	m_usecWhenEndedConnectedState = 0;
+
 	m_TXSpeedSample.Clear();
 	m_nTXSpeed = 0;
 	m_nTXSpeedHistogram16 = 0; // Speed at kb/s
@@ -797,6 +808,16 @@ void LinkStatsTrackerEndToEnd::UpdateSpeeds( int nTXSpeed, int nRXSpeed )
 void LinkStatsTrackerEndToEnd::GetLifetimeStats( SteamDatagramLinkLifetimeStats &s ) const
 {
 	LinkStatsTrackerBase::GetLifetimeStats(s);
+
+	if ( m_usecWhenStartedConnectedState == 0 || m_usecWhenStartedConnectedState == m_usecWhenEndedConnectedState )
+	{
+		s.m_nConnectedSeconds = 0;
+	}
+	else
+	{
+		SteamNetworkingMicroseconds usecWhenEnded = m_usecWhenEndedConnectedState ? m_usecWhenEndedConnectedState : SteamNetworkingSockets_GetLocalTimestamp();
+		s.m_nConnectedSeconds = std::max( k_nMillion, usecWhenEnded - m_usecWhenStartedConnectedState + 500000 ) / k_nMillion;
+	}
 
 	s.m_nTXSpeedMax           = m_nTXSpeedMax;
 
@@ -882,6 +903,9 @@ void LinkStatsInstantaneousMsgToStruct( const CMsgSteamDatagramLinkInstantaneous
 
 void LinkStatsLifetimeStructToMsg( const SteamDatagramLinkLifetimeStats &s, CMsgSteamDatagramLinkLifetimeStats &msg )
 {
+	if ( s.m_nConnectedSeconds >= 0 )
+		msg.set_connected_seconds( s.m_nConnectedSeconds );
+
 	msg.set_packets_sent( s.m_nPacketsSent );
 	msg.set_kb_sent( ( s.m_nBytesSent + 512 ) / 1024 );
 	msg.set_packets_recv( s.m_nPacketsRecv );
@@ -975,6 +999,7 @@ void LinkStatsLifetimeStructToMsg( const SteamDatagramLinkLifetimeStats &s, CMsg
 
 void LinkStatsLifetimeMsgToStruct( const CMsgSteamDatagramLinkLifetimeStats &msg, SteamDatagramLinkLifetimeStats &s )
 {
+	s.m_nConnectedSeconds = msg.has_connected_seconds() ? msg.connected_seconds() : -1;
 	s.m_nPacketsSent = msg.packets_sent();
 	s.m_nBytesSent = msg.kb_sent() * 1024;
 	s.m_nPacketsRecv = msg.packets_recv();

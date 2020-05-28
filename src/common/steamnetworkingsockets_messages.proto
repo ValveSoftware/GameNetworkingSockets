@@ -84,7 +84,14 @@ message CMsgSteamDatagramLinkInstantaneousStats
 message CMsgSteamDatagramLinkLifetimeStats
 {
 	//optional uint32 rms_ping_ms = 1;
-	//optional uint32 connection_age = 2;
+
+	// Duration of the connection (so far, if we are still connected).
+	// This is primarily used when reporting end-to-end stats to relays,
+	// who may not have been involved with the connection for its entire
+	// duration
+	optional uint32 connected_seconds = 2;
+
+	// Packet counters
 	optional uint64 packets_sent = 3;
 	optional uint64 kb_sent = 4;
 	optional uint64 packets_recv = 5;
@@ -303,7 +310,11 @@ message CMsgSteamNetworkingICESessionSummary
 	// Will not be present if we never pierced NAT
 	optional uint32 initial_route_kind = 3; // ESteamNetTransportKind
 	optional uint32 initial_ping = 4;
-	optional uint32 nat_traversal_ms = 5; // How long did it take to get a NAT traversal result (either success or failure)
+	optional uint32 initial_score = 6;
+	optional uint32 negotiation_ms = 5; // How long did it take to get a NAT traversal result (either success or failure)
+
+	// How long were we the selcted transport?
+	optional uint32 selected_seconds = 12;
 };
 
 // Do not remove this comment due to a bug on the Mac OS X protobuf compiler
