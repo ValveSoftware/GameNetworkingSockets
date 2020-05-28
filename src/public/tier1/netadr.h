@@ -33,6 +33,7 @@ typedef enum
 	NA_IPV6,
 } netadrtype_t;
 
+const netadrtype_t k_EIPTypeInvalid = NA_NULL;
 const netadrtype_t k_EIPTypeV4 = NA_IP;
 const netadrtype_t k_EIPTypeV6 = NA_IPV6;
 
