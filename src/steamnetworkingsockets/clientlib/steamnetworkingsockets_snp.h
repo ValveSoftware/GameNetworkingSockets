@@ -7,13 +7,17 @@
 #include <map>
 #include <set>
 
-// Paranoia level:
+// Set paranoia level, if not already set:
 // 0 = disabled
 // 1 = sometimes
 // 2 = max
-
-// !KLUDGE! Always enable this until we track down this memory thing
-#define STEAMNETWORKINGSOCKETS_SNP_PARANOIA 2
+#ifndef STEAMNETWORKINGSOCKETS_SNP_PARANOIA
+	#ifdef _DEBUG
+		#define STEAMNETWORKINGSOCKETS_SNP_PARANOIA 2
+	#else
+		#define STEAMNETWORKINGSOCKETS_SNP_PARANOIA 0
+	#endif
+#endif
 
 struct P2PSessionState_t;
 
