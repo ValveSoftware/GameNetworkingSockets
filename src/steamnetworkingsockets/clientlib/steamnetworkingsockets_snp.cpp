@@ -2851,6 +2851,9 @@ bool CSteamNetworkConnectionBase::SNP_RecordReceivedPktNum( int64 nPktNum, Steam
 		return true;
 	}
 
+	// At this point, ack invariants should be met
+	m_receiverState.DebugCheckPackGapMap();
+
 	// Check if this introduced a gap since the last sequence packet we have received
 	if ( nPktNum > m_statsEndToEnd.m_nMaxRecvPktNum )
 	{
@@ -2900,8 +2903,11 @@ bool CSteamNetworkConnectionBase::SNP_RecordReceivedPktNum( int64 nPktNum, Steam
 		// Schedule ack of this pack (which at this point means reporting
 		// on everything) by the requested time
 		m_receiverState.QueueFlushAllAcks( usecScheduleAck );
+
+		// At this point, ack invariants should be met
+		m_receiverState.DebugCheckPackGapMap();
 	}
-	else if ( !m_receiverState.m_mapPacketGaps.empty() )
+	else
 	{
 		// Check if this filed a gap
 		auto itGap = m_receiverState.m_mapPacketGaps.upper_bound( nPktNum );
@@ -2936,6 +2942,9 @@ bool CSteamNetworkConnectionBase::SNP_RecordReceivedPktNum( int64 nPktNum, Steam
 				itGap = m_receiverState.m_mapPacketGaps.erase( itGap );
 
 				SpewVerboseGroup( m_connectionConfig.m_LogLevel_PacketGaps.Get(), "[%s] decode pkt %lld, single pkt gap filled", GetDescription(), (long long)nPktNum );
+
+				// At this point, ack invariants should be met
+				m_receiverState.DebugCheckPackGapMap();
 			}
 			else
 			{
@@ -2948,6 +2957,9 @@ bool CSteamNetworkConnectionBase::SNP_RecordReceivedPktNum( int64 nPktNum, Steam
 
 				// Move to the next gap so we can schedule ack below
 				++itGap;
+
+				// At this point, ack invariants should be met
+				m_receiverState.DebugCheckPackGapMap();
 			}
 		}
 		else if ( itGap->first == nPktNum )
@@ -2962,6 +2974,9 @@ bool CSteamNetworkConnectionBase::SNP_RecordReceivedPktNum( int64 nPktNum, Steam
 
 			SpewVerboseGroup( m_connectionConfig.m_LogLevel_PacketGaps.Get(), "[%s] decode pkt %lld, first packet in gap, reduced to [%lld,%lld)", GetDescription(),
 				(long long)nPktNum, (long long)itGap->first, (long long)itGap->second.m_nEnd );
+
+			// At this point, ack invariants should be met
+			m_receiverState.DebugCheckPackGapMap();
 		}
 		else
 		{
@@ -2995,12 +3010,12 @@ bool CSteamNetworkConnectionBase::SNP_RecordReceivedPktNum( int64 nPktNum, Steam
 			// Insert a new gap to account for the upper end, and
 			// advance iterator to it, so that we can schedule ack below
 			itGap = m_receiverState.m_mapPacketGaps.insert( upper ).first;
+
+			// At this point, ack invariants should be met
+			m_receiverState.DebugCheckPackGapMap();
 		}
 
 		Assert( itGap != m_receiverState.m_mapPacketGaps.end() );
-
-		// At this point, ack invariants should be met
-		m_receiverState.DebugCheckPackGapMap();
 
 		// Need to schedule ack (earlier than it is already scheduled)?
 		if ( usecScheduleAck < itGap->second.m_usecWhenAckPrior )
@@ -3066,11 +3081,6 @@ bool CSteamNetworkConnectionBase::SNP_RecordReceivedPktNum( int64 nPktNum, Steam
 			// Make sure we didn't screw things up
 			m_receiverState.DebugCheckPackGapMap();
 		}
-	}
-	else
-	{
-		// How do we get here?
-		Assert( false );
 	}
 
 	// OK, this packet is legit, allow caller to continue processing it
