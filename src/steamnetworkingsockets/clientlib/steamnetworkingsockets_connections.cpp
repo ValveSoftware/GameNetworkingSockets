@@ -2966,8 +2966,10 @@ CSteamNetworkConnectionPipe *CSteamNetworkConnectionPipe::CreateLoopbackConnecti
 	{
 		V_strcpy_safe( errMsg, "new CSteamNetworkConnectionPipe failed" );
 failed:
-		pClient->ConnectionDestroySelfNow();
-		pServer->ConnectionDestroySelfNow();
+		if ( pClient )
+			pClient->ConnectionDestroySelfNow();
+		if ( pServer )
+			pServer->ConnectionDestroySelfNow();
 		return nullptr;
 	}
 
@@ -2980,12 +2982,12 @@ failed:
 	if ( !pClient->BInitConnection( usecNow, nOptions, pOptions, errMsg ) )
 		goto failed;
 
-	// Client sends a "connect" packet
-	pClient->FakeSendStats( usecNow, 0 );
-
 	// Server receives the connection and starts "accepting" it
 	if ( !pServer->BBeginAccept( pListenSocket, usecNow, errMsg ) )
 		goto failed;
+
+	// Client sends a "connect" packet
+	pClient->FakeSendStats( usecNow, 0 );
 
 	// Now we wait for the app to accept the connection
 	return pClient;
