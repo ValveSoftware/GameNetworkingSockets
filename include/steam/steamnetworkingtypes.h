@@ -487,7 +487,7 @@ enum ESteamNetConnectionEnd
 		// on our end
 		k_ESteamNetConnectionEnd_Local_HostedServerPrimaryRelay = 3003,
 
-		// We're not able to get the network config.  This is
+		// We're not able to get the SDR network config.  This is
 		// *almost* always a local issue, since the network config
 		// comes from the CDN, which is pretty darn reliable.
 		k_ESteamNetConnectionEnd_Local_NetworkConfig = 3004,
@@ -495,6 +495,14 @@ enum ESteamNetConnectionEnd
 		// Steam rejected our request because we don't have rights
 		// to do this.
 		k_ESteamNetConnectionEnd_Local_Rights = 3005,
+
+		// ICE P2P rendezvous failed because we were not able to
+		// determine our "public" address (e.g. reflexive address via STUN)
+		//
+		// If relay fallback is available (it always is on Steam), then
+		// this is only used internally and will not be returned as a high
+		// level failure.
+		k_ESteamNetConnectionEnd_Local_P2P_ICE_NoPublicAddresses = 3006,
 
 	k_ESteamNetConnectionEnd_Local_Max = 3999,
 
@@ -538,6 +546,15 @@ enum ESteamNetConnectionEnd
 		// (Probably the code you are running is too old.)
 		k_ESteamNetConnectionEnd_Remote_BadProtocolVersion = 4006,
 
+		// NAT punch failed failed because we never received any public
+		// addresses from the remote host.  (But we did receive some
+		// signals form them.)
+		//
+		// If relay fallback is available (it always is on Steam), then
+		// this is only used internally and will not be returned as a high
+		// level failure.
+		k_ESteamNetConnectionEnd_Remote_P2P_ICE_NoPublicAddresses = 4007,
+
 	k_ESteamNetConnectionEnd_Remote_Max = 4999,
 
 	// 5xxx: Connection failed for some other reason.
@@ -569,6 +586,21 @@ enum ESteamNetConnectionEnd
 		// active with which to talk back to a client.  (It's the client's
 		// job to open and maintain those sessions.)
 		k_ESteamNetConnectionEnd_Misc_NoRelaySessionsToClient = 5006,
+
+		// While trying to initiate a connection, we never received
+		// *any* communication from the peer.
+		//k_ESteamNetConnectionEnd_Misc_ServerNeverReplied = 5007,
+
+		// P2P rendezvous failed in a way that we don't have more specific
+		// information
+		k_ESteamNetConnectionEnd_Misc_P2P_Rendezvous = 5008,
+
+		// NAT punch failed, probably due to NAT/firewall configuration.
+		//
+		// If relay fallback is available (it always is on Steam), then
+		// this is only used internally and will not be returned as a high
+		// level failure.
+		k_ESteamNetConnectionEnd_Misc_P2P_NAT_Firewall = 5009,
 
 	k_ESteamNetConnectionEnd_Misc_Max = 5999,
 
