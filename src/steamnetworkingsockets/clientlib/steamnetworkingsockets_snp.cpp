@@ -182,7 +182,37 @@ SSNPSenderState::SSNPSenderState()
 	sentinel.m_pTransport = nullptr;
 	sentinel.m_usecWhenSent = 0;
 	m_itNextInFlightPacketToTimeout = m_mapInFlightPacketsByPktNum.end();
+	DebugCheckInFlightPacketMap();
 }
+
+#if STEAMNETWORKINGSOCKETS_SNP_PARANOIA > 0
+void SSNPSenderState::DebugCheckInFlightPacketMap() const
+{
+	Assert( !m_mapInFlightPacketsByPktNum.empty() );
+	bool bFoundNextToTimeout = false;
+	auto it = m_mapInFlightPacketsByPktNum.begin();
+	Assert( it->first == INT64_MIN );
+	Assert( m_itNextInFlightPacketToTimeout != it );
+	int64 prevPktNum = it->first;
+	SteamNetworkingMicroseconds prevWhenSent = it->second.m_usecWhenSent;
+	while ( ++it != m_mapInFlightPacketsByPktNum.end() )
+	{
+		Assert( prevPktNum < it->first );
+		Assert( prevWhenSent <= it->second.m_usecWhenSent );
+		if ( it == m_itNextInFlightPacketToTimeout )
+		{
+			Assert( !bFoundNextToTimeout );
+			bFoundNextToTimeout = true;
+		}
+		prevPktNum = it->first;
+		prevWhenSent = it->second.m_usecWhenSent;
+	}
+	if ( !bFoundNextToTimeout )
+	{
+		Assert( m_itNextInFlightPacketToTimeout == m_mapInFlightPacketsByPktNum.end() );
+	}
+}
+#endif
 
 //-----------------------------------------------------------------------------
 SSNPReceiverState::SSNPReceiverState()
@@ -515,10 +545,10 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLa
 	// Make sure we have initialized the connection
 	Assert( BStateIsActive() );
 
-	SteamNetworkingMicroseconds usecNow = ctx.m_usecNow;
-	int64 nPktNum = ctx.m_nPktNum;
+	const SteamNetworkingMicroseconds usecNow = ctx.m_usecNow;
+	const int64 nPktNum = ctx.m_nPktNum;
 
-	int nLogLevelPacketDecode = m_connectionConfig.m_LogLevel_PacketDecode.Get();
+	const int nLogLevelPacketDecode = m_connectionConfig.m_LogLevel_PacketDecode.Get();
 	SpewVerboseGroup( nLogLevelPacketDecode, "[%s] decode pkt %lld\n", GetDescription(), (long long)nPktNum );
 
 	// Decode frames until we get to the end of the payload
@@ -766,6 +796,16 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLa
 			// Ack
 			//
 
+			#if STEAMNETWORKINGSOCKETS_SNP_PARANOIA > 0
+				m_senderState.DebugCheckInFlightPacketMap();
+				#if STEAMNETWORKINGSOCKETS_SNP_PARANOIA == 1
+				if ( ( nPktNum & 255 ) == 0 ) // only do it periodically
+				#endif
+				{
+					m_senderState.DebugCheckInFlightPacketMap();
+				}
+			#endif
+
 			// Parse latest received sequence number
 			int64 nLatestRecvSeqNum;
 			{
@@ -994,7 +1034,7 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLa
 					// No need to track this anymore, remove from our table
 					inFlightPkt = m_senderState.m_mapInFlightPacketsByPktNum.erase( inFlightPkt );
 					--inFlightPkt;
-					Assert( !m_senderState.m_mapInFlightPacketsByPktNum.empty() );
+					m_senderState.MaybeCheckInFlightPacketMap();
 				}
 
 				// Ack of in-flight end-to-end stats?
@@ -1121,8 +1161,8 @@ void CSteamNetworkConnectionBase::SNP_SenderProcessPacketNack( int64 nPktNum, SN
 SteamNetworkingMicroseconds CSteamNetworkConnectionBase::SNP_SenderCheckInFlightPackets( SteamNetworkingMicroseconds usecNow )
 {
 	// Fast path for nothing in flight.
-	Assert( !m_senderState.m_mapInFlightPacketsByPktNum.empty() );
-	if ( m_senderState.m_mapInFlightPacketsByPktNum.size() == 1 )
+	m_senderState.MaybeCheckInFlightPacketMap();
+	if ( m_senderState.m_mapInFlightPacketsByPktNum.size() <= 1 )
 	{
 		Assert( m_senderState.m_itNextInFlightPacketToTimeout == m_senderState.m_mapInFlightPacketsByPktNum.end() );
 		return k_nThinkTime_Never;
@@ -1185,6 +1225,9 @@ SteamNetworkingMicroseconds CSteamNetworkConnectionBase::SNP_SenderCheckInFlight
 		if ( inFlightPkt == m_senderState.m_mapInFlightPacketsByPktNum.end() )
 			break;
 	}
+
+	// Make sure we didn't hose data structures
+	m_senderState.MaybeCheckInFlightPacketMap();
 
 	// Return time when we really need to check back in again.
 	// We don't wake up early just to expire old nacked packets,
@@ -3169,7 +3212,7 @@ void SSNPReceiverState::QueueFlushAllAcks( SteamNetworkingMicroseconds usecWhen 
 	}
 }
 
-#ifdef _DEBUG
+#if STEAMNETWORKINGSOCKETS_SNP_PARANOIA > 1
 void SSNPReceiverState::DebugCheckPackGapMap() const
 {
 	int64 nPrevEnd = 0;

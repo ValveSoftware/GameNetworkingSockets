@@ -7,6 +7,14 @@
 #include <map>
 #include <set>
 
+// Paranoia level:
+// 0 = disabled
+// 1 = sometimes
+// 2 = max
+
+// !KLUDGE! Always enable this until we track down this memory thing
+#define STEAMNETWORKINGSOCKETS_SNP_PARANOIA 2
+
 struct P2PSessionState_t;
 
 namespace SteamNetworkingSocketsLib {
@@ -356,6 +364,18 @@ struct SSNPSenderState
 
 	// Remove messages from m_unackedReliableMessages that have been fully acked.
 	void RemoveAckedReliableMessageFromUnackedList();
+
+	/// Check invariants in debug.
+	#if STEAMNETWORKINGSOCKETS_SNP_PARANOIA == 0 
+		inline void DebugCheckInFlightPacketMap() const {}
+	#else
+		void DebugCheckInFlightPacketMap() const;
+	#endif
+	#if STEAMNETWORKINGSOCKETS_SNP_PARANOIA > 1
+		inline void MaybeCheckInFlightPacketMap() const { DebugCheckInFlightPacketMap(); }
+	#else
+		inline void MaybeCheckInFlightPacketMap() const {}
+	#endif
 };
 
 struct SSNPRecvUnreliableSegmentKey
@@ -448,7 +468,7 @@ struct SSNPReceiverState
 	/// The next ack that needs to be sent.  The invariant
 	/// for the times are:
 	///
-	/// * Blocks with lower pakcet numbers: m_usecWhenAckPrior = INT64_MAX
+	/// * Blocks with lower packet numbers: m_usecWhenAckPrior = INT64_MAX
 	/// * This block: m_usecWhenAckPrior < INT64_MAX, or we are the sentinel
 	/// * Blocks with higher packet numbers (if we are not the sentinel): m_usecWhenAckPrior >= previous m_usecWhenAckPrior
 	///
@@ -459,7 +479,7 @@ struct SSNPReceiverState
 	/// many as will fit.  The one exception is that if
 	/// sending an ack would imply a NACK that we don't want to
 	/// send yet.  (Remember the restrictions on what we are able
-	/// to commununicate due to the tight RLE encoding of the wire
+	/// to communicate due to the tight RLE encoding of the wire
 	/// format.)  These delays are usually very short lived, and
 	/// only happen when there is packet loss, so they don't delay
 	/// acks very much.  The whole purpose of this rather involved
@@ -495,7 +515,7 @@ struct SSNPReceiverState
 	}
 
 	/// Check invariants in debug.
-	#ifdef _DEBUG
+	#if STEAMNETWORKINGSOCKETS_SNP_PARANOIA > 1
 		void DebugCheckPackGapMap() const;
 	#else
 		inline void DebugCheckPackGapMap() const {}
