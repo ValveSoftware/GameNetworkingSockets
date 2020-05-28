@@ -2933,12 +2933,36 @@ bool CSteamNetworkConnectionBase::SNP_RecordReceivedPktNum( int64 nPktNum, Steam
 				// Were we waiting to ack/nack this?  Then move forward to the next gap, if any
 				usecScheduleAck = std::min( usecScheduleAck, itGap->second.m_usecWhenAckPrior );
 				if ( m_receiverState.m_itPendingAck == itGap )
-				{
 					++m_receiverState.m_itPendingAck;
+				if ( m_receiverState.m_itPendingNack == itGap )
+					++m_receiverState.m_itPendingNack;
 
-					// If next guy was not scheduled to ack, that means we are either already
-					// at the sentinel, or else all later gaps are not scheduled to ack, and so
-					// we can skip to the sentinel
+				// Save time when we needed to ack the packets before this gap
+				SteamNetworkingMicroseconds usecWhenAckPrior = itGap->second.m_usecWhenAckPrior;
+
+				// Gap is totally filled.  Erase, and move to the next one,
+				// if any, so we can schedule ack below
+				itGap = m_receiverState.m_mapPacketGaps.erase( itGap );
+
+				// Were we scheduled to ack the packets before this?  If so, then
+				// we still need to do that, only now when we send that ack, we will
+				// ack the packets after this gap as well, since they will be included
+				// in the same ack block.
+				//
+				// NOTE: This is based on what was scheduled to be acked before we got
+				// this packet.  If we need to update the schedule to ack the current
+				// packet, we will do that below.  However, usually if previous
+				// packets were already scheduled to be acked, then that deadline time
+				// will be sooner usecScheduleAck, so the code below will not actually
+				// do anything.
+				if ( usecWhenAckPrior < itGap->second.m_usecWhenAckPrior )
+				{
+					itGap->second.m_usecWhenAckPrior = usecWhenAckPrior;
+				}
+				else
+				{
+					// Otherwise, we might not have any acks scheduled.  In that
+					// case, the invariant is that m_itPendingAck should point at the sentinel
 					if ( m_receiverState.m_itPendingAck->second.m_usecWhenAckPrior == INT64_MAX )
 					{
 						m_receiverState.m_itPendingAck = m_receiverState.m_mapPacketGaps.end();
@@ -2946,12 +2970,6 @@ bool CSteamNetworkConnectionBase::SNP_RecordReceivedPktNum( int64 nPktNum, Steam
 						Assert( m_receiverState.m_itPendingAck->first == INT64_MAX );
 					}
 				}
-				if ( m_receiverState.m_itPendingNack == itGap )
-					++m_receiverState.m_itPendingNack;
-
-				// Gap is totally filled.  Erase, and move to the next one,
-				// if any, so we can schedule ack below
-				itGap = m_receiverState.m_mapPacketGaps.erase( itGap );
 
 				SpewVerboseGroup( m_connectionConfig.m_LogLevel_PacketGaps.Get(), "[%s] decode pkt %lld, single pkt gap filled", GetDescription(), (long long)nPktNum );
 
