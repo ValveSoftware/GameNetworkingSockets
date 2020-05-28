@@ -2933,7 +2933,19 @@ bool CSteamNetworkConnectionBase::SNP_RecordReceivedPktNum( int64 nPktNum, Steam
 				// Were we waiting to ack/nack this?  Then move forward to the next gap, if any
 				usecScheduleAck = std::min( usecScheduleAck, itGap->second.m_usecWhenAckPrior );
 				if ( m_receiverState.m_itPendingAck == itGap )
+				{
 					++m_receiverState.m_itPendingAck;
+
+					// If next guy was not scheduled to ack, that means we are either already
+					// at the sentinel, or else all later gaps are not scheduled to ack, and so
+					// we can skip to the sentinel
+					if ( m_receiverState.m_itPendingAck->second.m_usecWhenAckPrior == INT64_MAX )
+					{
+						m_receiverState.m_itPendingAck = m_receiverState.m_mapPacketGaps.end();
+						--m_receiverState.m_itPendingAck;
+						Assert( m_receiverState.m_itPendingAck->first == INT64_MAX );
+					}
+				}
 				if ( m_receiverState.m_itPendingNack == itGap )
 					++m_receiverState.m_itPendingNack;
 
