@@ -285,19 +285,25 @@ message CMsgSteamNetworkingP2PRendezvous
 };
 
 // A summary of what happened in an ICE session, for analytics
-message CMsgSteamNetworkingSocketsICESessionSummary
+message CMsgSteamNetworkingICESessionSummary
 {
+	// What was the overall outcome of ICE?
+	// Should always be set.  Will be zero if
+	// ICE succeeded
+	optional uint32 failure_reason_code = 7; // ESteamNetConnectionEnd (or special internal value), if we failed in some way
+
 	// What types of candidates were we able to gather?
-	// Should always be present
-	optional uint32 local_candidate_types = 1;
+	// Should always be present if this message is sent
+	optional uint32 local_candidate_types = 1; // k_EICECandidate_xxx
 
 	// What types of candidates did we receive from peer?
-	optional uint32 remote_candidate_types = 2;
+	optional uint32 remote_candidate_types = 2; // k_EICECandidate_xxx
 
 	// Initial route type, and ping, when when we first pierced NAT.
 	// Will not be present if we never pierced NAT
 	optional uint32 initial_route_kind = 3; // ESteamNetTransportKind
 	optional uint32 initial_ping = 4;
+	optional uint32 nat_traversal_ms = 5; // How long did it take to get a NAT traversal result (either success or failure)
 };
 
 // Do not remove this comment due to a bug on the Mac OS X protobuf compiler

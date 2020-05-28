@@ -26,8 +26,7 @@ CConnectionTransportP2PICE::CConnectionTransportP2PICE( CSteamNetworkConnectionP
 , CConnectionTransportP2PBase( "ICE", this, this )
 , m_pICESession( nullptr )
 {
-	//m_eCurrentRouteLocalCandidateType = k_EICECandidate_Invalid;
-	//m_eCurrentRouteRemoteCandidateType = k_EICECandidate_Invalid;
+	m_nAllowedCandidateTypes = 0;
 	m_eCurrentRouteKind = k_ESteamNetTransport_Unknown;
 	m_currentRouteRemoteAddress.Clear();
 }
@@ -114,11 +113,19 @@ void CConnectionTransportP2PICE::Init()
 	// Set role
 	cfg.m_eRole = Connection().IsControllingAgent() ? k_EICERole_Controlling : k_EICERole_Controlled;
 
-	// Get the stun server list
+	const int P2P_Transport_ICE_Enable = m_connection.m_connectionConfig.m_P2P_Transport_ICE_Enable.Get();
+
+	m_nAllowedCandidateTypes = 0;
+	if ( P2P_Transport_ICE_Enable & k_nSteamNetworkingConfig_P2P_Transport_ICE_Enable_Private )
+		m_nAllowedCandidateTypes |= k_EICECandidate_Any_HostPrivate;
+
+	// Get the STUN server list
 	std::vector<std::string> vecStunServers;
 	std::vector<const char *> vecStunServersPsz;
-	if ( m_connection.m_connectionConfig.m_P2P_Transport_ICE_Enable.Get() & k_nSteamNetworkingConfig_P2P_Transport_ICE_Enable_Public )
+	if ( P2P_Transport_ICE_Enable & k_nSteamNetworkingConfig_P2P_Transport_ICE_Enable_Public )
 	{
+		m_nAllowedCandidateTypes |= k_EICECandidate_Any_HostPublic;
+
 		SpewVerboseGroup( LogLevel_P2PRendezvous(), "[%s] Using STUN server list: %s\n", ConnectionDescription(), m_connection.m_connectionConfig.m_P2P_STUN_ServerList.Get().c_str() );
 		{
 			CUtlVectorAutoPurge<char *> tempStunServers;
@@ -143,6 +150,25 @@ void CConnectionTransportP2PICE::Init()
 	}
 	cfg.m_nStunServers = len( vecStunServersPsz );
 	cfg.m_pStunServers = vecStunServersPsz.data();
+
+	// Get the TURN server list
+	if ( P2P_Transport_ICE_Enable & k_nSteamNetworkingConfig_P2P_Transport_ICE_Enable_Relay )
+	{
+		// FIXME
+	}
+
+	if ( cfg.m_nStunServers > 0 )
+		m_nAllowedCandidateTypes |= k_EICECandidate_Any_Reflexive;
+	if ( cfg.m_nTurnServers > 0 )
+		m_nAllowedCandidateTypes |= k_EICECandidate_Any_Relay;
+	cfg.m_nCandidateTypes = m_nAllowedCandidateTypes;
+
+	// No candidates possible?
+	if ( m_nAllowedCandidateTypes == 0 )
+	{
+		Connection().ICEFailed( k_nICECloseCode_Local_UserNotEnabled, "No local candidate types are allowed by user settings and configured servers" );
+		return;
+	}
 
 	// Create the session
 	m_pICESession = (*g_SteamNetworkingSockets_CreateICESessionFunc)( cfg, this, ICESESSION_INTERFACE_VERSION );
@@ -339,8 +365,7 @@ bool CConnectionTransportP2PICE::SendPacketGather( int nChunks, const iovec *pCh
 	if ( nChunks == 1 )
 	{
 		Assert( (int)pChunks->iov_len == cbSendTotal );
-		SendPacket( pChunks->iov_base, pChunks->iov_len );
-		return false;
+		return SendPacket( pChunks->iov_base, pChunks->iov_len );
 	}
 	if ( cbSendTotal > k_cbSteamNetworkingSocketsMaxUDPMsgLen )
 	{
@@ -391,7 +416,7 @@ void CConnectionTransportP2PICE::RecvValidUDPDataPacket( UDPRecvPacketContext_t 
 	if ( !ctx.m_pStatsIn || !( ctx.m_pStatsIn->flags() & ctx.m_pStatsIn->NOT_PRIMARY_TRANSPORT_E2E ) )
 		Connection().SetPeerSelectedTransport( this );
 	P2PTransportTrackRecvEndToEndPacket( ctx.m_usecNow );
-	if ( m_bNeedToConfirmEndToEndConnectivity )
+	if ( m_bNeedToConfirmEndToEndConnectivity && BCanSendEndToEndData() )
 		P2PTransportEndToEndConnectivityConfirmed( ctx.m_usecNow );
 }
 
@@ -465,7 +490,7 @@ void CConnectionTransportP2PICE::RouteOrWritableStateChanged()
 
 	Connection().TransportEndToEndConnectivityChanged( this, usecNow );
 
-	CMsgSteamNetworkingSocketsICESessionSummary &ice_summary = Connection().m_msgICESessionSummary;
+	CMsgSteamNetworkingICESessionSummary &ice_summary = Connection().m_msgICESessionSummary;
 	if (
 		ConnectionState() == k_ESteamNetworkingConnectionState_FindingRoute
 		|| !ice_summary.has_initial_ping()
@@ -555,7 +580,7 @@ void CConnectionTransportP2PICE::OnLocalCandidateGathered( EICECandidateType eTy
 		virtual void RunTransportP2PICE( CConnectionTransportP2PICE *pTransport )
 		{
 			CSteamNetworkConnectionP2P &conn = pTransport->Connection();
-			CMsgSteamNetworkingSocketsICESessionSummary &sum = conn.m_msgICESessionSummary;
+			CMsgSteamNetworkingICESessionSummary &sum = conn.m_msgICESessionSummary;
 			sum.set_local_candidate_types( sum.local_candidate_types() | eType );
 			pTransport->Connection().QueueSignalReliableMessage( std::move(msg), "LocalCandidateAdded" );
 		}

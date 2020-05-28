@@ -30,7 +30,7 @@ constexpr int k_nP2P_TransportOverride_ICE = 2;
 
 constexpr int k_nICECloseCode_Local_NotCompiled = k_ESteamNetConnectionEnd_Local_Max;
 constexpr int k_nICECloseCode_Local_UserNotEnabled = k_ESteamNetConnectionEnd_Local_Max-1;
-constexpr int k_nICECloseCode_Local_FailedInit = k_ESteamNetConnectionEnd_Local_Max-2;
+constexpr int k_nICECloseCode_Aborted = k_ESteamNetConnectionEnd_Local_Max-2;
 constexpr int k_nICECloseCode_Remote_NotEnabled = k_ESteamNetConnectionEnd_Remote_Max;
 
 // A really terrible ping score, but one that we can do some math with without overflowing
@@ -212,20 +212,22 @@ public:
 		// m_pTransportICE.  Then it will be deleted at a safe time.
 		CConnectionTransportP2PICE *m_pTransportICEPendingDelete;
 
-		// Failure reason for ICE, if any.  (0 if no failure yet.)
-		int m_nICECloseCode;
-		char m_szICECloseMsg[ k_cchSteamNetworkingMaxConnectionCloseReason ];
-
 		// When we receive a connection from peer, we need to wait for the app
 		// to accept it.  During that time we may need to pend any ICE messages
 		std::vector<CMsgICERendezvous> m_vecPendingICEMessages;
 
-		CMsgSteamNetworkingSocketsICESessionSummary m_msgICESessionSummary;
+		// Summary of connection.  Note in particular that the failure reason (if any)
+		// is here.
+		CMsgSteamNetworkingICESessionSummary m_msgICESessionSummary;
+
+		// Detailed failure reason string.
+		ConnectionEndDebugMsg m_szICECloseMsg;
 
 		void ICEFailed( int nReasonCode, const char *pszReason );
-		void QueueDestroyICE();
+		inline int GetICEFailureCode() const { return m_msgICESessionSummary.failure_reason_code(); }
+		void GuessICEFailureReason( ESteamNetConnectionEnd &nReasonCode, ConnectionEndDebugMsg &msg, SteamNetworkingMicroseconds usecNow );
 	#else
-		static constexpr int m_nICECloseCode = k_nICECloseCode_Local_NotCompiled;
+		inline int GetICEFailureCode() const { return k_nICECloseCode_Local_NotCompiled; }
 	#endif
 
 	/// Sometimes it's nice to have all existing options in a list
@@ -254,9 +256,14 @@ public:
 	// Check if we pended ICE deletion, then do so now
 	void CheckCleanupICE();
 
+	// If we don't already have a failure code for ice, set one now.
+	void EnsureICEFailureReasonSet( SteamNetworkingMicroseconds usecNow );
+
 	//
 	// Transport evaluation and selection
 	//
+
+	SteamNetworkingMicroseconds m_usecWhenStartedFindingRoute;
 
 	SteamNetworkingMicroseconds m_usecNextEvaluateTransport;
 

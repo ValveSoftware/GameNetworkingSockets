@@ -2805,10 +2805,32 @@ void CSteamNetworkConnectionBase::ConnectionTimedOut( SteamNetworkingMicrosecond
 	ESteamNetConnectionEnd nReasonCode;
 	ConnectionEndDebugMsg msg;
 
-	// Set some generic defaults using our base class version, so
-	// this function will work even if the derived class forgets to
-	// call the base class.
-	CSteamNetworkConnectionBase::GuessTimeoutReason( nReasonCode, msg, usecNow );
+	// Set some generic defaults.
+	nReasonCode = k_ESteamNetConnectionEnd_Misc_Timeout;
+	switch ( GetState() )
+	{
+		case k_ESteamNetworkingConnectionState_Connecting:
+			// Should use this more specific reason code at somepoint, when I add an API to get localized error messages
+			//if ( !m_bConnectionInitiatedRemotely && m_statsEndToEnd.m_usecTimeLastRecv == 0 )
+			//{
+			//	nReasonCode = k_ESteamNetConnectionEnd_Misc_ServerNeverReplied;
+			//	V_strcpy_safe( msg, "" );
+			//}
+			//else
+			//{
+				V_strcpy_safe( msg, "Timed out attempting to connect" );
+			//}
+			break;
+
+		case k_ESteamNetworkingConnectionState_FindingRoute:
+			nReasonCode = k_ESteamNetConnectionEnd_Misc_P2P_Rendezvous;
+			V_strcpy_safe( msg, "Timed out attempting to negotiate rendezvous" );
+			break;
+
+		default:
+			V_strcpy_safe( msg, "Connection dropped" );
+			break;
+	}
 
 	// Check if connection has a more enlightened understanding of what's wrong
 	GuessTimeoutReason( nReasonCode, msg, usecNow );
@@ -2819,23 +2841,7 @@ void CSteamNetworkConnectionBase::ConnectionTimedOut( SteamNetworkingMicrosecond
 
 void CSteamNetworkConnectionBase::GuessTimeoutReason( ESteamNetConnectionEnd &nReasonCode, ConnectionEndDebugMsg &msg, SteamNetworkingMicroseconds usecNow )
 {
-	NOTE_UNUSED( usecNow );
-
-	nReasonCode = k_ESteamNetConnectionEnd_Misc_Timeout;
-	switch ( GetState() )
-	{
-		case k_ESteamNetworkingConnectionState_Connecting:
-			V_strcpy_safe( msg, "Timed out attempting to connect" );
-			break;
-
-		case k_ESteamNetworkingConnectionState_FindingRoute:
-			V_strcpy_safe( msg, "Timed out attempting to negotiate rendezvous" );
-			break;
-
-		default:
-			V_strcpy_safe( msg, "Connection dropped" );
-			break;
-	}
+	// No enlightenments at base class
 }
 
 void CSteamNetworkConnectionBase::UpdateSpeeds( int nTXSpeed, int nRXSpeed )

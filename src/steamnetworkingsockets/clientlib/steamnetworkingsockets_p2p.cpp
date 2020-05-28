@@ -95,6 +95,7 @@ CSteamNetworkConnectionP2P::CSteamNetworkConnectionP2P( CSteamNetworkingSockets 
 	m_nRemoteVirtualPort = -1;
 	m_idxMapIncomingP2PConnections = -1;
 	m_pSignaling = nullptr;
+	m_usecWhenStartedFindingRoute = 0;
 	m_usecNextEvaluateTransport = k_nThinkTime_ASAP;
 	m_bTransportSticky = false;
 
@@ -111,7 +112,6 @@ CSteamNetworkConnectionP2P::CSteamNetworkConnectionP2P( CSteamNetworkingSockets 
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
 		m_pTransportICE = nullptr;
 		m_pTransportICEPendingDelete = nullptr;
-		m_nICECloseCode = 0;
 		m_szICECloseMsg[ 0 ] = '\0';
 	#endif
 }
@@ -249,7 +249,7 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 	Assert( !m_pTransportICEPendingDelete );
 
 	// Did we already fail?
-	if ( m_nICECloseCode != 0 )
+	if ( GetICEFailureCode() != 0 )
 		return;
 
 	int P2P_Transport_ICE_Enable = m_connectionConfig.m_P2P_Transport_ICE_Enable.Get();
@@ -301,7 +301,7 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 		#endif
 		if ( !g_SteamNetworkingSockets_CreateICESessionFunc )
 		{
-			ICEFailed( k_nICECloseCode_Local_FailedInit, "No ICE session factory" );
+			ICEFailed( k_ESteamNetConnectionEnd_Misc_InternalError, "No ICE session factory" );
 			return;
 		}
 	}
@@ -321,9 +321,143 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 
 	// If we're still all good, then add it to the list of options
 	if ( m_pTransportICE )
+	{
 		m_vecAvailableTransports.push_back( m_pTransportICE );
+
+		// Set a field in the ice session summary message,
+		// which is how we will remember that we did attempt to use ICE
+		Assert( !m_msgICESessionSummary.has_local_candidate_types() );
+		m_msgICESessionSummary.set_local_candidate_types( 0 );
+	}
 #endif
 }
+
+
+void CSteamNetworkConnectionP2P::EnsureICEFailureReasonSet( SteamNetworkingMicroseconds usecNow )
+{
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+
+	// Already have a reason?
+	if ( m_msgICESessionSummary.has_failure_reason_code() )
+		return;
+
+	// If we never tried ICE, then there's no "failure"!
+	if ( !m_msgICESessionSummary.has_local_candidate_types() )
+		return;
+
+	// Classify failure, and make it permanent
+	ESteamNetConnectionEnd nReasonCode;
+	GuessICEFailureReason( nReasonCode, m_szICECloseMsg, usecNow );
+	m_msgICESessionSummary.set_failure_reason_code( nReasonCode );
+	int nSeverity = ( nReasonCode != 0 && nReasonCode != k_nICECloseCode_Aborted ) ? k_ESteamNetworkingSocketsDebugOutputType_Msg : k_ESteamNetworkingSocketsDebugOutputType_Verbose;
+	SpewTypeGroup( nSeverity, LogLevel_P2PRendezvous(), "[%s] Guessed ICE failure to be %d: %s\n",
+		GetDescription(), nReasonCode, m_szICECloseMsg );
+
+#endif
+}
+
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+void CSteamNetworkConnectionP2P::GuessICEFailureReason( ESteamNetConnectionEnd &nReasonCode, ConnectionEndDebugMsg &msg, SteamNetworkingMicroseconds usecNow )
+{
+	// Already have a reason?
+	if ( m_msgICESessionSummary.has_failure_reason_code() )
+	{
+		nReasonCode = ESteamNetConnectionEnd( m_msgICESessionSummary.failure_reason_code() );
+		V_strcpy_safe( msg, m_szICECloseMsg );
+		return;
+	}
+
+	// This should not be called if we never even tried
+	Assert( m_msgICESessionSummary.has_local_candidate_types() );
+
+	// This ought to be called before we cleanup and destroy the info we need
+	Assert( m_pTransportICE );
+
+	// If we are connected right now, then there is no problem!
+	if ( m_pTransportICE && !m_pTransportICE->m_bNeedToConfirmEndToEndConnectivity )
+	{
+		nReasonCode = k_ESteamNetConnectionEnd_Invalid;
+		V_strcpy_safe( msg, "OK" );
+		return;
+	}
+
+	// Did we ever pierce NAT?  If so, then we just dropped connection.
+	if ( m_msgICESessionSummary.has_nat_traversal_ms() )
+	{
+		nReasonCode = k_ESteamNetConnectionEnd_Misc_Timeout;
+		V_strcpy_safe( msg, "ICE connection dropped after successful negotiation" );
+		return;
+	}
+
+	// OK, looks like we never pierced NAT.  Try to figure out why.
+	const int nAllowedTypes = m_pTransportICE ? m_pTransportICE->m_nAllowedCandidateTypes : 0;
+	const int nGatheredTypes = m_msgICESessionSummary.local_candidate_types();
+	const int nFailedToGatherTypes = nAllowedTypes & ~nGatheredTypes;
+	const int nRemoteTypes = m_msgICESessionSummary.remote_candidate_types();
+
+	// Terminated prematurely?  Presumably the higher level code hs a reason,
+	// and so this will only be used for analytics.
+	if ( m_usecWhenStartedFindingRoute == 0 || m_usecWhenStartedFindingRoute+5*k_nMillion > usecNow )
+	{
+		nReasonCode = ESteamNetConnectionEnd( k_nICECloseCode_Aborted );
+		V_strcpy_safe( msg, "NAT traversal aborted" );
+		return;
+	}
+
+	// Problem on our end?
+	if ( nFailedToGatherTypes & (k_EICECandidate_Any_HostPrivate|k_EICECandidate_Any_HostPublic) )
+	{
+		// We should always be able to collect these sorts of candidates!
+		nReasonCode = k_ESteamNetConnectionEnd_Misc_InternalError;
+		V_strcpy_safe( msg, "Never gathered *any* host candidates?" );
+		return;
+	}
+
+	// Never received *any* candidates from them?
+	if ( nRemoteTypes == 0 )
+	{
+		nReasonCode = k_ESteamNetConnectionEnd_Misc_Generic;
+		V_strcpy_safe( msg, "Never received any remote candidates" );
+		return;
+	}
+
+	// We failed to STUN?
+	if ( !( nGatheredTypes & k_EICECandidate_Any_Reflexive ) )
+	{
+		if ( m_connectionConfig.m_P2P_STUN_ServerList.Get().empty() )
+		{
+			nReasonCode = k_ESteamNetConnectionEnd_Misc_InternalError;
+			V_strcpy_safe( msg, "No configured STUN servers" );
+			return;
+		}
+		nReasonCode = k_ESteamNetConnectionEnd_Local_P2P_ICE_NoPublicAddresses;
+		V_strcpy_safe( msg, "Failed to determine our public address via STUN" );
+		return;
+	}
+
+	// FIXME - we should probably handle this as a special case.  TURN candidates
+	// should basically always work
+	//if ( (nAllowedTypes|nGatheredTypes) | k_EICECandidate_Any_Relay )
+	//{
+	//}
+
+	// Any candidates from remote host that we really ought to have been able to talk to?
+	if ( !(nRemoteTypes & ( k_EICECandidate_IPv4_HostPublic|k_EICECandidate_Any_Reflexive|k_EICECandidate_Any_Relay) ) )
+	{
+		nReasonCode = k_ESteamNetConnectionEnd_Remote_P2P_ICE_NoPublicAddresses;
+		V_strcpy_safe( msg, "No public or relay candidates from remote host" );
+		return;
+	}
+
+	// NOTE: in theory, we could haveIPv4 vs IPv6 capabilities mismatch.  In practice
+	// does that ever happen?
+
+	// OK, both sides shared reflexive candidates, but we still failed?  This is probably
+	// a firewall thing
+	nReasonCode = k_ESteamNetConnectionEnd_Misc_P2P_NAT_Firewall;
+	V_strcpy_safe( msg, "NAT traversal failed" );
+}
+#endif
 
 void CSteamNetworkConnectionP2P::CheckCleanupICE()
 {
@@ -364,39 +498,29 @@ void CSteamNetworkConnectionP2P::DestroyICENow()
 }
 
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
-
 void CSteamNetworkConnectionP2P::ICEFailed( int nReasonCode, const char *pszReason )
 {
 	SteamDatagramTransportLock::AssertHeldByCurrentThread();
 
 	// Remember reason code, if we didn't already set one
-	if ( m_nICECloseCode == 0 )
+	if ( GetICEFailureCode() == 0 )
 	{
 		SpewMsgGroup( LogLevel_P2PRendezvous(), "[%s] ICE failed %d %s\n", GetDescription(), nReasonCode, pszReason );
-		m_nICECloseCode = nReasonCode;
+		m_msgICESessionSummary.set_failure_reason_code( nReasonCode );
 		V_strcpy_safe( m_szICECloseMsg, pszReason );
 	}
-
-	QueueDestroyICE();
-}
-
-void CSteamNetworkConnectionP2P::QueueDestroyICE()
-{
-	if ( !m_pTransportICE )
-		return;
 
 	// Queue for deletion
 	if ( !m_pTransportICEPendingDelete )
 	{
 		m_pTransportICEPendingDelete = m_pTransportICE;
 		m_pTransportICE = nullptr;
+
+		// Make sure we clean ourselves up as soon as it is safe to do so
+		SetNextThinkTimeASAP();
 	}
-
-	// Make sure we clean ourselves up as soon as it is safe to do so
-	SetNextThinkTimeASAP();
 }
-
-#endif // #ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+#endif
 
 void CSteamNetworkConnectionP2P::FreeResources()
 {
@@ -490,19 +614,32 @@ void CSteamNetworkConnectionP2P::TransportEndToEndConnectivityChanged( CConnecti
 	// Schedule us to wake up immediately and deal with it.
 	m_usecNextEvaluateTransport = k_nThinkTime_ASAP;
 	SetNextThinkTimeASAP();
+
+	// Check if this is the first time ICE was successful
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+		if ( !pTransport->m_bNeedToConfirmEndToEndConnectivity && pTransport == m_pTransportICE && !m_msgICESessionSummary.has_nat_traversal_ms() )
+		{
+			if ( m_usecWhenStartedFindingRoute == 0 )
+			{
+				AssertMsg1( false, "[%s] We are confirming end-to-end connectivity, but usecWhenStartedFindingRoute == 0", GetDescription() );
+			}
+			else
+			{
+				m_msgICESessionSummary.set_nat_traversal_ms( ( usecNow - m_usecWhenStartedFindingRoute + 500 ) / 1000 );
+			}
+		}
+	#endif
 }
 
 void CSteamNetworkConnectionP2P::ConnectionStateChanged( ESteamNetworkingConnectionState eOldState )
 {
+	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
+
 	// NOTE: Do not call base class, because it it going to
 	// call TransportConnectionStateChanged on whatever transport is active.
 	// We don't want that here.
 
-	// Inform transports
-	for ( CConnectionTransportP2PBase *pTransportP2P: m_vecAvailableTransports )
-		pTransportP2P->m_pSelfAsConnectionTransport->TransportConnectionStateChanged( eOldState );
-
-	// Reset timer to evaluate transport at certain times
+	// Take action at certain transitions
 	switch ( GetState() )
 	{
 		case k_ESteamNetworkingConnectionState_Dead:
@@ -513,17 +650,26 @@ void CSteamNetworkConnectionP2P::ConnectionStateChanged( ESteamNetworkingConnect
 
 		case k_ESteamNetworkingConnectionState_ClosedByPeer:
 		case k_ESteamNetworkingConnectionState_FinWait:
+			EnsureICEFailureReasonSet( usecNow );
+			break;
+
 		case k_ESteamNetworkingConnectionState_Linger:
 			break;
 
 		case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
+			EnsureICEFailureReasonSet( usecNow );
 
 			// If we fail during these states, send a signal to Steam, for analytics
 			if ( eOldState == k_ESteamNetworkingConnectionState_Connecting || eOldState == k_ESteamNetworkingConnectionState_FindingRoute )
-				SendConnectionClosedSignal( SteamNetworkingSockets_GetLocalTimestamp() );
+				SendConnectionClosedSignal( usecNow );
 			break;
 
 		case k_ESteamNetworkingConnectionState_FindingRoute:
+			m_usecWhenStartedFindingRoute = usecNow;
+			// |
+			// |
+			// V
+			// FALLTHROUGH
 		case k_ESteamNetworkingConnectionState_Connecting:
 			m_bTransportSticky = false; // Not sure how we could have set this flag, but make sure and clear it
 			// |
@@ -540,6 +686,10 @@ void CSteamNetworkConnectionP2P::ConnectionStateChanged( ESteamNetworkingConnect
 
 			break;
 	}
+
+	// Inform transports
+	for ( CConnectionTransportP2PBase *pTransportP2P: m_vecAvailableTransports )
+		pTransportP2P->m_pSelfAsConnectionTransport->TransportConnectionStateChanged( eOldState );
 }
 
 void CSteamNetworkConnectionP2P::ThinkConnection( SteamNetworkingMicroseconds usecNow )
@@ -1080,15 +1230,8 @@ bool CSteamNetworkConnectionP2P::ProcessSignal( const CMsgSteamNetworkingP2PRend
 	#endif
 
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
-		if ( m_pTransportICE && !msg.ice_enabled() )
-		{
-			// The lack of any message at all (even an empty one) means that they
-			// will not support ICE, so we can destroy our transport
-			SpewMsgGroup( LogLevel_P2PRendezvous(), "[%s] Destroying ICE transport, peer rendezvous indicates they will not use it\n", GetDescription() );
-			m_nICECloseCode = k_nICECloseCode_Remote_NotEnabled;
-			V_strcpy_safe( m_szICECloseMsg, "Peer sent signal without ice_enabled set" );
-			DestroyICENow();
-		}
+		if ( !msg.ice_enabled() )
+			ICEFailed( k_nICECloseCode_Remote_NotEnabled, "Peer sent signal without ice_enabled set" );
 	#endif
 
 	// Check for acking reliable messages
@@ -1140,7 +1283,7 @@ bool CSteamNetworkConnectionP2P::ProcessSignal( const CMsgSteamNetworkingP2PRend
 						{
 							m_pTransportICE->RecvRendezvous( reliable_msg.ice(), usecNow );
 						}
-						else if ( GetState() == k_ESteamNetworkingConnectionState_Connecting && m_nICECloseCode == 0 )
+						else if ( GetState() == k_ESteamNetworkingConnectionState_Connecting && GetICEFailureCode() == 0 )
 						{
 							m_vecPendingICEMessages.push_back( reliable_msg.ice() );
 						}
@@ -1767,15 +1910,6 @@ bool CSteamNetworkingSockets::ReceivedP2PCustomSignal( const void *pMsg, int cbM
 					// They accepted the request already.
 					break;
 			}
-
-			// Remember if peer has ICE enabled
-			#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
-				if ( !msg.ice_enabled() )
-				{
-					pConn->m_nICECloseCode = k_nICECloseCode_Remote_NotEnabled;
-					V_strcpy_safe( pConn->m_szICECloseMsg, "Peer did not enable ICE" );
-				}
-			#endif
 		}
 
 		// Stop suppressing state change notifications
