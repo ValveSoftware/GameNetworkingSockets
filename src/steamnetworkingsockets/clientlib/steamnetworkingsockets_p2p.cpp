@@ -659,6 +659,9 @@ void CSteamNetworkConnectionP2P::TransportEndToEndConnectivityChanged( CConnecti
 			if ( pTransport == m_pTransportP2PSDR && !m_msgSDRRoutingSummary.has_negotiation_ms() )
 				m_msgSDRRoutingSummary.set_negotiation_ms( msNegotiationTime );
 		#endif
+
+		// Compiler warning if nothing enabled
+		(void)msNegotiationTime;
 	}
 }
 
