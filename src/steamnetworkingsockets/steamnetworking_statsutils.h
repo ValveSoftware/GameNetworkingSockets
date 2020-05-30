@@ -579,9 +579,10 @@ struct LinkStatsTrackerBase
 	/// connectivity as well.
 	inline bool BNeedToSendPingImmediate( SteamNetworkingMicroseconds usecNow ) const
 	{
-		if ( m_bPassive || m_nReplyTimeoutsSinceLastRecv == 0 )
-			return false;
-		return usecNow < m_usecLastSendPacketExpectingImmediateReply+k_usecAggressivePingInterval;
+		return
+			!m_bPassive
+			&& m_nReplyTimeoutsSinceLastRecv > 0 // We're timing out
+			&& m_usecLastSendPacketExpectingImmediateReply+k_usecAggressivePingInterval <= usecNow; // we haven't just recently sent an aggressive ping.
 	}
 
 	/// Check if we should send a keepalive ping.  In this case we haven't heard from the peer in a while,
@@ -591,7 +592,7 @@ struct LinkStatsTrackerBase
 		return
 			!m_bPassive
 			&& m_usecInFlightReplyTimeout == 0 // not already tracking some other message for which we expect a reply (and which would confirm that the connection is alive)
-			&& m_usecTimeLastRecv + k_usecKeepAliveInterval < usecNow; // haven't heard from the peer recently
+			&& m_usecTimeLastRecv + k_usecKeepAliveInterval <= usecNow; // haven't heard from the peer recently
 	}
 
 	/// Fill out message with everything we'd like to send.  We don't assume that we will
