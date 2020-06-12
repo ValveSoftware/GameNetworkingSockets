@@ -422,12 +422,14 @@ static void TestNetworkConditions( int rate, float loss, int lag, float reorderP
 	//SteamNetworkingMicroseconds usecLastNow = usecWhenStarted;
 
 #if defined(SANITIZER) || defined(LIGHT_TESTS)
-	const SteamNetworkingMicroseconds usecQuietDuration = 5000000;
-	const SteamNetworkingMicroseconds usecActiveDuration = 5000000;
+	const SteamNetworkingMicroseconds usecQuietDuration = 500000;
+	const SteamNetworkingMicroseconds usecActiveDuration = 500000;
+	const float flWaitBetweenPrints = 1.0f;
 	int nIterations = 1;
 #else
 	const SteamNetworkingMicroseconds usecQuietDuration = 10000000;
 	const SteamNetworkingMicroseconds usecActiveDuration = 25000000;
+	const float flWaitBetweenPrints = 5.0f;
 	int nIterations = 4;
 #endif
 	bool bQuiet = true;
@@ -454,7 +456,7 @@ static void TestNetworkConditions( int rate, float loss, int lag, float reorderP
 
 		bool bCheckStateChange = ( usecWhenStateEnd == 0 ); 
 		float flElapsedPrint = ( now - usecLastPrint ) * 1e-6f;
-		if ( flElapsedPrint > 5.0f )
+		if ( flElapsedPrint > flWaitBetweenPrints )
 		{
 			g_peerServer.UpdateInterval( flElapsedPrint );
 			g_peerClient.UpdateInterval( flElapsedPrint );
@@ -566,8 +568,8 @@ static void RunSteamDatagramConnectionTest()
 		TestNetworkConditions( rate, loss, lag, reorderPct, reorderLag, true );
 	};
 
-	Test( 64000, 20, 100, 4, 50 ); // low bandwidth, terrible packet loss
 #ifndef LIGHT_TESTS
+	Test( 64000, 20, 100, 4, 50 ); // low bandwidth, terrible packet loss
 	Test( 1000000, 20, 100, 4, 10 ); // high bandwidth, terrible packet loss
 	Test( 1000000, 2, 5, 2, 1 ); // wifi (high bandwideth, low packet loss, occasional reordering with very small delay)
 	Test( 2000000, 0, 0, 0, 0 ); // LAN (high bandwidth, negligible lag/loss)
@@ -584,8 +586,8 @@ static void RunSteamDatagramConnectionTest()
 	Test( 1000000, 1, 25, 1, 10 );
 
 	Test( 64000, 5, 50, 2, 50 );
-	Test( 1000000, 5, 50, 2, 10 );
 #endif
+	Test( 1000000, 5, 50, 2, 10 );
 }
 
 // Some tests for identity string handling.  Doesn't really have anything to do with
