@@ -153,6 +153,7 @@ void LinkStatsTrackerBase::InitInternal( SteamNetworkingMicroseconds usecNow )
 	m_usecMaxJitterPreviousInterval = -1;
 	m_flInPacketsWeirdSequencePct = -1.0f;
 	m_nPktsRecvSequenced = 0;
+	m_nDebugPktsRecvInOrder = 0;
 	m_nPktsRecvDropped = 0;
 	m_nPktsRecvOutOfOrder = 0;
 	m_nPktsRecvDuplicate = 0;
@@ -309,6 +310,36 @@ void LinkStatsTrackerBase::InitMaxRecvPktNum( int64 nPktNum )
 		m_recvPktNumberMask[1] = ~(uint64)0;
 	else
 		m_recvPktNumberMask[1] = ( (uint64)1 << nBitsToSet ) - 1;
+
+	m_nDebugLastInitMaxRecvPktNum = nPktNum;
+}
+
+std::string LinkStatsTrackerBase::RecvPktNumStateDebugString() const
+{
+	char buf[256];
+	V_sprintf_safe( buf,
+		"maxrecv=%lld, init=%lld, inorder=%lld, mask=%llx,%llx",
+		(long long)m_nMaxRecvPktNum, (long long)m_nDebugLastInitMaxRecvPktNum, (long long)m_nDebugPktsRecvInOrder,
+		(unsigned long long)m_recvPktNumberMask[0], (unsigned long long)m_recvPktNumberMask[1] );
+	return std::string(buf);
+}
+
+std::string LinkStatsTrackerBase::HistoryRecvSeqNumDebugString( int nMaxPkts ) const
+{
+	constexpr int N = V_ARRAYSIZE( m_arDebugHistoryRecvSeqNum );
+	COMPILE_TIME_ASSERT( ( N & (N-1) ) == 0 );
+	nMaxPkts = std::min( nMaxPkts, N );
+
+	std::string result;
+	int64 idx = m_nPktsRecvSequenced;
+	while ( --nMaxPkts >= 0 && --idx >= 0 )
+	{
+		char buf[32];
+		V_sprintf_safe( buf, "%s%lld", result.empty() ? "" : ",", (long long)m_arDebugHistoryRecvSeqNum[ idx & (N-1) ] );
+		result.append( buf );
+	}
+
+	return result;
 }
 
 bool LinkStatsTrackerBase::BCheckPacketNumberOldOrDuplicate( int64 nPktNum )
@@ -316,6 +347,7 @@ bool LinkStatsTrackerBase::BCheckPacketNumberOldOrDuplicate( int64 nPktNum )
 	// We've received a packet with a sequence number.
 	// Update stats
 	++m_nPktsRecvSequencedCurrentInterval;
+	m_arDebugHistoryRecvSeqNum[ m_nPktsRecvSequenced & 255 ] = nPktNum;
 	++m_nPktsRecvSequenced;
 
 	// Packet number is increasing?
@@ -384,6 +416,7 @@ void LinkStatsTrackerBase::TrackProcessSequencedPacket( int64 nPktNum, SteamNetw
 	int64 nGap = nPktNum - m_nMaxRecvPktNum;
 	if ( likely( nGap == 1 ) )
 	{
+		++m_nDebugPktsRecvInOrder;
 
 		// We've received two packets, in order.  Did the sender supply the time between packets on his side?
 		if ( usecSenderTimeSincePrev > 0 )
@@ -425,14 +458,42 @@ void LinkStatsTrackerBase::TrackProcessSequencedPacket( int64 nPktNum, SteamNetw
 		else
 		{
 			// This is weird.
-			AssertMsg8( false,
-				"No dropped packets, pkt num %lld -> %lld, dup bit not set?  recvseq=%lld, lurch=%lld, ooo=%lld, mask=[0x%llx, 0x%llx].  (%s)",
-				(long long)m_nMaxRecvPktNum, (long long)nPktNum,
-				(long long)m_nPktsRecvSequenced, (long long)m_nPktsRecvSequenceNumberLurch,
-				(long long)m_nPktsRecvOutOfOrder,
-				(unsigned long long)m_recvPktNumberMask[0], (unsigned long long)m_recvPktNumberMask[1],
-				Describe().c_str()
-			);
+			// !TEST! Only assert if we can provide more detailed info to debug.
+			// Also note that on the relay, old peers are using a single sequence
+			// number stream, shred across multiple sessions, and we are not
+			// tracking this properly, because we don't know which session we
+			// marked the "drop" in.
+			if ( m_nPktsRecvSequenced < 256 && m_nPeerProtocolVersion >= 9 )
+			{
+				AssertMsg( false,
+					"No dropped packets, pkt num %lld, dup bit not set?  recvseq=%lld inorder=%lld, dup=%lld, lurch=%lld, ooo=%lld, %s.  (%s)",
+					(long long)nPktNum, (long long)m_nPktsRecvSequenced,
+					(long long)m_nDebugPktsRecvInOrder, (long long)m_nPktsRecvDuplicate,
+					(long long)m_nPktsRecvSequenceNumberLurch, (long long)m_nPktsRecvOutOfOrder,
+					RecvPktNumStateDebugString().c_str(),
+					Describe().c_str()
+				);
+				#ifdef IS_STEAMDATAGRAMROUTER
+				int64 idx = m_nPktsRecvSequenced-1;
+				while ( idx >= 0 )
+				{
+					CUtlBuffer buf( 0, 1024, CUtlBuffer::TEXT_BUFFER );
+					switch ( idx )
+					{
+						default: buf.Printf( "%7lld", (long long)m_arDebugHistoryRecvSeqNum[ idx-- & 255 ] ); 
+						case  6: buf.Printf( "%7lld", (long long)m_arDebugHistoryRecvSeqNum[ idx-- & 255 ] ); 
+						case  5: buf.Printf( "%7lld", (long long)m_arDebugHistoryRecvSeqNum[ idx-- & 255 ] ); 
+						case  4: buf.Printf( "%7lld", (long long)m_arDebugHistoryRecvSeqNum[ idx-- & 255 ] ); 
+						case  3: buf.Printf( "%7lld", (long long)m_arDebugHistoryRecvSeqNum[ idx-- & 255 ] ); 
+						case  2: buf.Printf( "%7lld", (long long)m_arDebugHistoryRecvSeqNum[ idx-- & 255 ] ); 
+						case  1: buf.Printf( "%7lld", (long long)m_arDebugHistoryRecvSeqNum[ idx-- & 255 ] ); 
+						case  0: buf.Printf( "%7lld", (long long)m_arDebugHistoryRecvSeqNum[ idx-- & 255 ] );
+					}
+					buf.PutChar( '\n' );
+					g_pLogger->Write( buf.Base(), buf.TellPut() );
+				}
+				#endif
+			}
 		}
 		if ( m_nPktsRecvDroppedCurrentInterval > 0 ) // Might have marked it in the previous interval.  Our stats will be slightly off in this case.  Not worth it to try to get this exactly right.
 			--m_nPktsRecvDroppedCurrentInterval;

@@ -457,6 +457,12 @@ struct LinkStatsTrackerBase
 	/// Packet and data rate trackers for inbound flow
 	PacketRate_t m_recv;
 
+	// TEMP delete this once I track down the accounting bug
+	int64 m_nDebugLastInitMaxRecvPktNum;
+	int64 m_nDebugPktsRecvInOrder;
+	int64 m_arDebugHistoryRecvSeqNum[ 256 ];
+	std::string HistoryRecvSeqNumDebugString( int nMaxPkts ) const;
+
 	/// Setup state to expect the next packet to be nPktNum+1,
 	/// and discard all packets <= nPktNum
 	void InitMaxRecvPktNum( int64 nPktNum );
@@ -470,6 +476,9 @@ struct LinkStatsTrackerBase
 	/// higher than m_nMaxRecvPktNum.)  m_recvPktNumberMask[0] bit n
 	/// corresponds to B - 64 + n.
 	uint64 m_recvPktNumberMask[2];
+
+	/// Get string describing state of recent packets received.
+	std::string RecvPktNumStateDebugString() const;
 
 	/// Called when we receive a packet with a sequence number.
 	/// This expands the wire packet number to its full value,
