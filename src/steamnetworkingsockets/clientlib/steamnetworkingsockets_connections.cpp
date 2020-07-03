@@ -600,6 +600,7 @@ CSteamNetworkConnectionBase::CSteamNetworkConnectionBase( CSteamNetworkingSocket
 	//m_nVirtualPort = -1;
 	m_nUserData = -1;
 	m_eConnectionState = k_ESteamNetworkingConnectionState_None;
+	m_eConnectionWireState = k_ESteamNetworkingConnectionState_None;
 	m_usecWhenEnteredConnectionState = 0;
 	m_usecWhenSentConnectRequest = 0;
 	m_ulHandshakeRemoteTimestamp = 0;
@@ -632,6 +633,7 @@ CSteamNetworkConnectionBase::~CSteamNetworkConnectionBase()
 {
 	Assert( m_hConnectionSelf == k_HSteamNetConnection_Invalid );
 	Assert( m_eConnectionState == k_ESteamNetworkingConnectionState_Dead );
+	Assert( m_eConnectionWireState == k_ESteamNetworkingConnectionState_Dead );
 	Assert( m_queueRecvMessages.empty() );
 	Assert( m_pParentListenSocket == nullptr );
 	Assert( m_pMessagesSession == nullptr );
@@ -2132,17 +2134,65 @@ void CSteamNetworkConnectionBase::SetState( ESteamNetworkingConnectionState eNew
 {
 	if ( eNewState == m_eConnectionState )
 		return;
-	ESteamNetworkingConnectionState eOldState = m_eConnectionState;
+	const ESteamNetworkingConnectionState eOldState = m_eConnectionState;
 	m_eConnectionState = eNewState;
 
 	// Remember when we entered this state
 	m_usecWhenEnteredConnectionState = usecNow;
 
+	// Set wire state
+	switch ( GetState() )
+	{
+		default:
+			Assert( false );
+		case k_ESteamNetworkingConnectionState_Dead:
+		case k_ESteamNetworkingConnectionState_None:
+		case k_ESteamNetworkingConnectionState_Connected:
+		case k_ESteamNetworkingConnectionState_FindingRoute:
+		case k_ESteamNetworkingConnectionState_Connecting:
+		case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
+		case k_ESteamNetworkingConnectionState_ClosedByPeer:
+			m_eConnectionWireState = eNewState;
+			break;
+
+		case k_ESteamNetworkingConnectionState_FinWait:
+
+			// Check where we are coming from
+			switch ( eOldState )
+			{
+				case k_ESteamNetworkingConnectionState_Dead:
+				case k_ESteamNetworkingConnectionState_None:
+				case k_ESteamNetworkingConnectionState_FinWait:
+				default:
+					Assert( false );
+					break;
+
+				case k_ESteamNetworkingConnectionState_ClosedByPeer:
+				case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
+					Assert( m_eConnectionWireState == eOldState );
+					m_eConnectionWireState = eOldState;
+					break;
+
+				case k_ESteamNetworkingConnectionState_Linger:
+				case k_ESteamNetworkingConnectionState_Connecting:
+				case k_ESteamNetworkingConnectionState_FindingRoute:
+				case k_ESteamNetworkingConnectionState_Connected:
+					m_eConnectionWireState = k_ESteamNetworkingConnectionState_FinWait;
+					break;
+			}
+			break;
+
+		case k_ESteamNetworkingConnectionState_Linger:
+			Assert( eOldState == k_ESteamNetworkingConnectionState_Connected );
+			m_eConnectionWireState = k_ESteamNetworkingConnectionState_Connected;
+			break;
+	}
+
 	// Post a notification when certain state changes occur.  Note that
 	// "internal" state changes, where the connection is effectively closed
 	// from the application's perspective, are not relevant
-	ESteamNetworkingConnectionState eOldAPIState = CollapseConnectionStateToAPIState( eOldState );
-	ESteamNetworkingConnectionState eNewAPIState = CollapseConnectionStateToAPIState( GetState() );
+	const ESteamNetworkingConnectionState eOldAPIState = CollapseConnectionStateToAPIState( eOldState );
+	const ESteamNetworkingConnectionState eNewAPIState = CollapseConnectionStateToAPIState( GetState() );
 
 	// Internal connection used by the higher-level messages interface?
 	if ( !m_bSupressStateChangeCallbacks )

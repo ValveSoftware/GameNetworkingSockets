@@ -321,19 +321,19 @@ public:
 
 	/// High level state of the connection
 	ESteamNetworkingConnectionState GetState() const { return m_eConnectionState; }
+	ESteamNetworkingConnectionState GetWireState() const { return m_eConnectionWireState; }
 
 	/// Check if the connection is 'connected' from the perspective of the wire protocol.
 	/// (The wire protocol doesn't care about local states such as linger)
-	bool BStateIsConnectedForWirePurposes() const { return m_eConnectionState == k_ESteamNetworkingConnectionState_Connected || m_eConnectionState == k_ESteamNetworkingConnectionState_Linger; }
+	bool BStateIsConnectedForWirePurposes() const { return m_eConnectionWireState == k_ESteamNetworkingConnectionState_Connected; }
 
 	/// Return true if the connection is still "active" in some way.
 	bool BStateIsActive() const
 	{
 		return
-			m_eConnectionState == k_ESteamNetworkingConnectionState_Connecting
-			|| m_eConnectionState == k_ESteamNetworkingConnectionState_FindingRoute
-			|| m_eConnectionState == k_ESteamNetworkingConnectionState_Connected
-			|| m_eConnectionState == k_ESteamNetworkingConnectionState_Linger;
+			m_eConnectionWireState == k_ESteamNetworkingConnectionState_Connecting
+			|| m_eConnectionWireState == k_ESteamNetworkingConnectionState_FindingRoute
+			|| m_eConnectionWireState == k_ESteamNetworkingConnectionState_Connected;
 	}
 
 	/// Reason connection ended
@@ -712,6 +712,19 @@ private:
 	void SetState( ESteamNetworkingConnectionState eNewState, SteamNetworkingMicroseconds usecNow );
 	ESteamNetworkingConnectionState m_eConnectionState;
 
+	/// State of the connection as our peer would observe it.
+	/// (Certain local state transitions are not meaningful.)
+	///
+	/// Differs from m_eConnectionState in two ways:
+	/// - Linger is not used.  Instead, to the peer we are "connected."
+	/// - When the local connection state transitions
+	///   from ProblemDetectedLocally or ClosedByPeer to FinWait,
+	///   when the application closes the connection, this value
+	///   will not change.  It will retain the previous state,
+	///   so that while we are in the FinWait state, we can send
+	///   appropriate cleanup messages.
+	ESteamNetworkingConnectionState m_eConnectionWireState;
+
 	/// Timestamp when we entered the current state.  Used for various
 	/// timeouts.
 	SteamNetworkingMicroseconds m_usecWhenEnteredConnectionState;
@@ -796,6 +809,7 @@ public:
 
 	// Some accessors for commonly needed info
 	inline ESteamNetworkingConnectionState ConnectionState() const { return m_connection.GetState(); }
+	inline ESteamNetworkingConnectionState ConnectionWireState() const { return m_connection.GetWireState(); }
 	inline uint32 ConnectionIDLocal() const { return m_connection.m_unConnectionIDLocal; }
 	inline uint32 ConnectionIDRemote() const { return m_connection.m_unConnectionIDRemote; }
 	inline CSteamNetworkListenSocketBase *ListenSocket() const { return m_connection.m_pParentListenSocket; }

@@ -894,7 +894,7 @@ void CConnectionTransportUDPBase::SendEndToEndStatsMsg( EStatsReplyRequest eRequ
 
 void CConnectionTransportUDPBase::SendConnectionClosedOrNoConnection()
 {
-	if ( ConnectionState() == k_ESteamNetworkingConnectionState_ClosedByPeer )
+	if ( ConnectionWireState() == k_ESteamNetworkingConnectionState_ClosedByPeer )
 	{
 		SendNoConnection( ConnectionIDLocal(), ConnectionIDRemote() );
 	}
