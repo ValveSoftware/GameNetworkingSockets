@@ -235,8 +235,8 @@ bool CSteamNetworkConnectionP2P::BBeginAccept(
 	}
 	m_idxMapIncomingP2PConnections = g_mapIncomingP2PConnections.InsertOrReplace( key, this );
 
-	ConnectionState_Connecting( usecNow );
-	return true;
+	// Start the connection state machine
+	return BConnectionState_Connecting( usecNow, errMsg );
 }
 
 CSteamNetworkConnectionP2P *CSteamNetworkConnectionP2P::AsSteamNetworkConnectionP2P()

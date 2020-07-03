@@ -2565,19 +2565,24 @@ void CSteamNetworkConnectionBase::ConnectionState_ClosedByPeer( int nReason, con
 	}
 }
 
-void CSteamNetworkConnectionBase::ConnectionState_Connecting( SteamNetworkingMicroseconds usecNow )
+bool CSteamNetworkConnectionBase::BConnectionState_Connecting( SteamNetworkingMicroseconds usecNow, SteamNetworkingErrMsg &errMsg )
 {
-	// We should only transition to this state from the initial state
+	// Already failed (and they didn't handle it)?  We should only transition to this state from the initial state
 	if ( GetState() != k_ESteamNetworkingConnectionState_None )
 	{
-		AssertMsg( false, "[%s] Unexpected state %d", GetDescription(), GetState() );
-		return;
+		V_sprintf_safe( errMsg, "Unexpected state %d", GetState() );
+		AssertMsg( false, "[%s] %s", GetDescription(), errMsg );
+		return false;
 	}
 
+	// Set the state
 	SetState( k_ESteamNetworkingConnectionState_Connecting, usecNow );
 
 	// Schedule a wakeup call ASAP so we can start sending out packets immediately
 	SetNextThinkTimeASAP();
+
+	// OK
+	return true;
 }
 
 void CSteamNetworkConnectionBase::ConnectionState_Connected( SteamNetworkingMicroseconds usecNow )
@@ -3124,7 +3129,11 @@ failed:
 			AssertMsg( false, "BRecvCryptoHandshake failed creating loopback pipe socket pair" );
 			goto failed;
 		}
-		p->ConnectionState_Connecting( usecNow );
+		if ( !p->BConnectionState_Connecting( usecNow, errMsg ) )
+		{
+			AssertMsg( false, "BConnectionState_Connecting failed creating loopback pipe socket pair.  %s", errMsg );
+			goto failed;
+		}
 		p->ConnectionState_Connected( usecNow );
 	}
 
@@ -3170,7 +3179,8 @@ failed:
 		goto failed;
 
 	// Client sends a "connect" packet
-	pClient->ConnectionState_Connecting( usecNow );
+	if ( !pClient->BConnectionState_Connecting( usecNow, errMsg ) )
+		goto failed;
 	pClient->FakeSendStats( usecNow, 0 );
 
 	// Now we wait for the app to accept the connection
@@ -3279,9 +3289,8 @@ bool CSteamNetworkConnectionPipe::BBeginAccept( CSteamNetworkListenSocketBase *p
 		return false;
 	}
 
-	ConnectionState_Connecting( usecNow );
-
-	return true;
+	// Transition to connecting state
+	return BConnectionState_Connecting( usecNow, errMsg );
 }
 
 EResult CSteamNetworkConnectionPipe::AcceptConnection( SteamNetworkingMicroseconds usecNow )

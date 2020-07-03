@@ -1273,9 +1273,7 @@ bool CSteamNetworkConnectionUDP::BInitConnect( const SteamNetworkingIPAddr &addr
 	}
 
 	// Start the connection state machine
-	ConnectionState_Connecting( usecNow );
-
-	return true;
+	return BConnectionState_Connecting( usecNow, errMsg );
 }
 
 bool CConnectionTransportUDP::BCanSendEndToEndConnectRequest() const
@@ -1357,10 +1355,8 @@ bool CSteamNetworkConnectionUDP::BBeginAccept(
 		return false;
 	}
 
-	ConnectionState_Connecting( usecNow );
-
-	// OK
-	return true;
+	// Start the connection state machine
+	return BConnectionState_Connecting( usecNow, errMsg );
 }
 
 EResult CSteamNetworkConnectionUDP::AcceptConnection( SteamNetworkingMicroseconds usecNow )
