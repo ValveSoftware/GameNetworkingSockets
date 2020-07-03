@@ -512,9 +512,14 @@ public:
 		}
 		else
 		{
-			m_receiverState.QueueFlushAllAcks( usecNow + k_usecMaxDataAckDelay );
-			EnsureMinThinkTime( m_receiverState.TimeWhenFlushAcks() );
+			QueueFlushAllAcks( usecNow + k_usecMaxDataAckDelay );
 		}
+	}
+
+	void QueueFlushAllAcks( SteamNetworkingMicroseconds usecWhen )
+	{
+		m_receiverState.QueueFlushAllAcks( usecWhen );
+		EnsureMinThinkTime( m_receiverState.TimeWhenFlushAcks() );
 	}
 
 	inline const CMsgSteamDatagramSessionCryptInfoSigned &GetSignedCryptLocal() { return m_msgSignedCryptLocal; }

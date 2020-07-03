@@ -934,7 +934,7 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLa
 				// use a separate timer for when we need to flush out a stop_waiting
 				// packet!
 				SteamNetworkingMicroseconds usecDelay = 250*1000 / nBlocks;
-				m_receiverState.QueueFlushAllAcks( usecNow + usecDelay );
+				QueueFlushAllAcks( usecNow + usecDelay );
 			}
 
 			// Process ack blocks, working backwards from the latest received sequence number.
@@ -2874,19 +2874,24 @@ void CSteamNetworkConnectionBase::SNP_RecordReceivedPktNum( int64 nPktNum, Steam
 	if ( unlikely( nPktNum < m_receiverState.m_nMinPktNumToSendAcks ) )
 		return;
 
-	// Latest time that this packet should be acked.
-	// (We might already be scheduled to send and ack that would include this packet.)
-	SteamNetworkingMicroseconds usecScheduleAck = bScheduleAck ? usecNow + k_usecMaxDataAckDelay : INT64_MAX;
-
 	// Fast path for the (hopefully) most common case of packets arriving in order
 	if ( likely( nPktNum == m_statsEndToEnd.m_nMaxRecvPktNum+1 ) )
 	{
-		m_receiverState.QueueFlushAllAcks( usecScheduleAck );
+		if ( bScheduleAck ) // fast path for all unreliable data (common when we are just being used for transport)
+		{
+			// Schedule ack of this packet (since we are the highest numbered
+			// packet, that means reporting on everything)
+			QueueFlushAllAcks( usecNow + k_usecMaxDataAckDelay );
+		}
 		return;
 	}
 
 	// At this point, ack invariants should be met
 	m_receiverState.DebugCheckPackGapMap();
+
+	// Latest time that this packet should be acked.
+	// (We might already be scheduled to send and ack that would include this packet.)
+	SteamNetworkingMicroseconds usecScheduleAck = bScheduleAck ? usecNow + k_usecMaxDataAckDelay : INT64_MAX;
 
 	// Check if this introduced a gap since the last sequence packet we have received
 	if ( nPktNum > m_statsEndToEnd.m_nMaxRecvPktNum )
@@ -2934,12 +2939,13 @@ void CSteamNetworkConnectionBase::SNP_RecordReceivedPktNum( int64 nPktNum, Steam
 			m_receiverState.m_itPendingAck = iter;
 		}
 
-		// Schedule ack of this pack (which at this point means reporting
-		// on everything) by the requested time
-		m_receiverState.QueueFlushAllAcks( usecScheduleAck );
-
 		// At this point, ack invariants should be met
 		m_receiverState.DebugCheckPackGapMap();
+
+		// Schedule ack of this packet (since we are the highest numbered
+		// packet, that means reporting on everything) by the requested
+		// time
+		QueueFlushAllAcks( usecScheduleAck );
 	}
 	else
 	{
@@ -3149,6 +3155,10 @@ void CSteamNetworkConnectionBase::SNP_RecordReceivedPktNum( int64 nPktNum, Steam
 			// Make sure we didn't screw things up
 			m_receiverState.DebugCheckPackGapMap();
 		}
+
+		// Make sure are scheduled to wake up
+		if ( bScheduleAck )
+			EnsureMinThinkTime( m_receiverState.TimeWhenFlushAcks() );
 	}
 }
 
