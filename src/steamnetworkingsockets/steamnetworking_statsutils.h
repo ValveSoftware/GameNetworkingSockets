@@ -484,6 +484,18 @@ struct LinkStatsTrackerBase
 		return nPktNum;
 	}
 
+	/// Same as ExpandWirePacketNumberAndCheck, but if this is the first sequenced
+	/// packet we have ever received, initialize the packet number
+	int64 ExpandWirePacketNumberAndCheckMaybeInitialize( uint16 nWireSeqNum )
+	{
+		if ( unlikely( m_nMaxRecvPktNum == 0 ) )
+		{
+			AssertMsg( m_nPktsRecvSequenced == 0, "%s has received sequence packets, but MaxRecvPktNum==0" );
+			InitMaxRecvPktNum( (int64)(uint16)(nWireSeqNum - 1) );
+		}
+		return ExpandWirePacketNumberAndCheck( nWireSeqNum );
+	}
+
 	/// Packets that we receive that exceed the rate limit.
 	/// (We might drop these, or we might just want to be interested in how often it happens.)
 	PacketRate_t m_recvExceedRateLimit;
