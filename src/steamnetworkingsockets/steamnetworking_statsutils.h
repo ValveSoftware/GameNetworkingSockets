@@ -137,7 +137,10 @@ struct PingTracker
 	/// Estimate a conservative (i.e. err on the large side) timeout for the connection
 	SteamNetworkingMicroseconds CalcConservativeTimeout() const
 	{
-		return ( m_nSmoothedPing >= 0 ) ? ( WorstPingInRecentSample()*2000 + 250000 ) : k_nMillion;
+		constexpr SteamNetworkingMicroseconds k_usecMaxTimeout = 1250000;
+		if ( m_nSmoothedPing < 0 )
+			return k_usecMaxTimeout;
+		return std::min( SteamNetworkingMicroseconds{ WorstPingInRecentSample()*2000 + 250000 }, k_usecMaxTimeout );
 	}
 
 	/// Smoothed ping value
