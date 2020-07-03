@@ -1138,7 +1138,9 @@ void CSteamNetworkConnectionBase::SetCryptoCipherList()
 {
 	Assert( m_msgCryptLocal.ciphers_size() == 0 ); // Should only do this once
 
-	// Select the ciphers we want to use, in preference order
+	// Select the ciphers we want to use, in preference order.
+	// Also, lock it, we cannot change it any more
+	m_connectionConfig.m_Unencrypted.Lock();
 	int unencrypted = m_connectionConfig.m_Unencrypted.Get();
 	switch ( unencrypted )
 	{
@@ -2186,6 +2188,38 @@ void CSteamNetworkConnectionBase::SetState( ESteamNetworkingConnectionState eNew
 			Assert( eOldState == k_ESteamNetworkingConnectionState_Connected );
 			m_eConnectionWireState = k_ESteamNetworkingConnectionState_Connected;
 			break;
+	}
+
+	// Certain connection options cannot be changed after a certain point
+	bool bLock = false;
+	if ( GetState() == k_ESteamNetworkingConnectionState_Connecting )
+	{
+		if ( m_bConnectionInitiatedRemotely )
+		{
+			// Remote host initiated the connection.  All options below can be tweaked
+			// until
+		}
+		else
+		{
+			// We initiated the connection.  All options listed below must be set at creation time
+			bLock = true;
+		}
+	}
+	else if ( BStateIsActive() )
+	{
+		bLock = true;
+	}
+	if ( bLock )
+	{
+		// Can't change certain options after this point
+		m_connectionConfig.m_IP_AllowWithoutAuth.Lock();
+		m_connectionConfig.m_Unencrypted.Lock();
+		#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
+			m_connectionConfig.m_SDRClient_DebugTicketAddress.Lock();
+		#endif
+		#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+			m_connectionConfig.m_P2P_Transport_ICE_Enable.Lock();
+		#endif
 	}
 
 	// Post a notification when certain state changes occur.  Note that

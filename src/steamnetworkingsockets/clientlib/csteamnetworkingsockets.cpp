@@ -1265,7 +1265,6 @@ static bool AssignConfigValueTyped( ConfigValue<int32> *pVal, ESteamNetworkingCo
 			return false;
 	}
 
-	pVal->m_bValueSet = true;
 	return true;
 }
 
@@ -1300,7 +1299,6 @@ static bool AssignConfigValueTyped( ConfigValue<int64> *pVal, ESteamNetworkingCo
 			return false;
 	}
 
-	pVal->m_bValueSet = true;
 	return true;
 }
 
@@ -1335,7 +1333,6 @@ static bool AssignConfigValueTyped( ConfigValue<float> *pVal, ESteamNetworkingCo
 			return false;
 	}
 
-	pVal->m_bValueSet = true;
 	return true;
 }
 
@@ -1368,7 +1365,6 @@ static bool AssignConfigValueTyped( ConfigValue<std::string> *pVal, ESteamNetwor
 			return false;
 	}
 
-	pVal->m_bValueSet = true;
 	return true;
 }
 
@@ -1384,7 +1380,6 @@ static bool AssignConfigValueTyped( ConfigValue<void *> *pVal, ESteamNetworkingC
 			return false;
 	}
 
-	pVal->m_bValueSet = true;
 	return true;
 }
 
@@ -1400,6 +1395,10 @@ bool SetConfigValueTyped(
 	if ( !pVal )
 		return false;
 
+	// Locked values cannot be changed
+	if ( pVal->IsLocked() )
+		return false;
+
 	// Clearing the value?
 	if ( pArg == nullptr )
 	{
@@ -1407,13 +1406,13 @@ bool SetConfigValueTyped(
 		{
 			auto *pGlobal = (typename GlobalConfigValueBase<T>::Value *)( pVal );
 			Assert( pGlobal->m_pInherit == nullptr );
-			Assert( pGlobal->m_bValueSet );
+			Assert( pGlobal->IsSet() );
 			pGlobal->m_data = pGlobal->m_defaultValue;
 		}
 		else
 		{
 			Assert( pVal->m_pInherit );
-			pVal->m_bValueSet = false;
+			pVal->m_eState = ConfigValueBase::kENotSet;
 		}
 		return true;
 	}
@@ -1421,6 +1420,9 @@ bool SetConfigValueTyped(
 	// Call type-specific method to set it
 	if ( !AssignConfigValueTyped( pVal, eDataType, pArg ) )
 		return false;
+
+	// Mark it as set
+	pVal->m_eState = ConfigValueBase::kESet;
 
 	// Apply limits
 	pEntry->Clamp<T>( pVal->m_data );
@@ -1479,10 +1481,10 @@ ESteamNetworkingGetConfigValueResult GetConfigValueTyped(
 	}
 
 	// Remember if it was set at this level
-	bool bValWasSet = pVal->m_bValueSet;
+	bool bValWasSet = pVal->IsSet();
 
 	// Find the place where the actual value comes from
-	while ( !pVal->m_bValueSet )
+	while ( !pVal->IsSet() )
 	{
 		Assert( pVal->m_pInherit );
 		pVal = static_cast<ConfigValue<T> *>( pVal->m_pInherit );

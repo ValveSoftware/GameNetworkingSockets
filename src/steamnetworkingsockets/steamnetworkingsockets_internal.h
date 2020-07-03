@@ -578,15 +578,25 @@ struct ConfigValueBase
 	// Config value we should inherit from, if we are not set
 	ConfigValueBase *m_pInherit = nullptr;
 
+	enum EState
+	{
+		kENotSet,
+		kESet,
+		kELocked,
+	};
+
 	// Is the value set?
-	bool m_bValueSet = false;
+	EState m_eState = kENotSet;
+
+	inline bool IsLocked() const { return m_eState == kELocked; }
+	inline bool IsSet() const { return m_eState > kENotSet; }
 };
 
 template<typename T>
 struct ConfigValue : public ConfigValueBase
 {
 	inline ConfigValue() : m_data{} {}
-	inline explicit ConfigValue( const T &defaultValue ) : m_data(defaultValue) { m_bValueSet = true; }
+	inline explicit ConfigValue( const T &defaultValue ) : m_data(defaultValue) { m_eState = kESet; }
 
 	T m_data;
 
@@ -594,7 +604,7 @@ struct ConfigValue : public ConfigValueBase
 	inline const T &Get() const
 	{
 		const ConfigValueBase *p = this;
-		while ( !p->m_bValueSet )
+		while ( !p->IsSet() )
 		{
 			Assert( p->m_pInherit );
 			p = p->m_pInherit;
@@ -606,8 +616,17 @@ struct ConfigValue : public ConfigValueBase
 
 	void Set( const T &value )
 	{
+		Assert( !IsLocked() );
 		m_data = value;
-		m_bValueSet = true;
+		m_eState = kESet;
+	}
+
+	// Lock in the current value
+	void Lock()
+	{
+		if ( !IsSet() )
+			m_data = Get();
+		m_eState = kELocked;
 	}
 };
 
@@ -674,7 +693,7 @@ struct GlobalConfigValueBase : GlobalConfigValueEntry
 	inline const T &Get() const
 	{
 		Assert( !m_value.m_pInherit );
-		Assert( m_value.m_bValueSet );
+		Assert( m_value.IsSet() );
 		return m_value.m_data;
 	}
 
