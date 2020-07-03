@@ -841,6 +841,9 @@ void CSteamNetworkConnectionBase::SetPollGroup( CSteamNetworkPollGroup *pPollGro
 
 bool CSteamNetworkConnectionBase::BInitConnection( SteamNetworkingMicroseconds usecNow, int nOptions, const SteamNetworkingConfigValue_t *pOptions, SteamDatagramErrMsg &errMsg )
 {
+	// Should only be called while we are in the initial state
+	Assert( GetState() == k_ESteamNetworkingConnectionState_None );
+
 	// Make sure MTU values are initialized
 	UpdateMTUFromConfig();
 
@@ -934,6 +937,9 @@ bool CSteamNetworkConnectionBase::BInitConnection( SteamNetworkingMicroseconds u
 
 	// Clear everything out
 	ClearCrypto();
+
+	// We should still be in the initial state
+	Assert( GetState() == k_ESteamNetworkingConnectionState_None );
 
 	// Take action to start obtaining a cert, or if we already have one, then set it now
 	InitConnectionCrypto( usecNow );
@@ -2262,7 +2268,14 @@ void CSteamNetworkConnectionBase::SetState( ESteamNetworkingConnectionState eNew
 			// an API perspective
 			if ( eOldAPIState != eNewAPIState )
 			{
-				PostConnectionStateChangedCallback( eOldAPIState, eNewAPIState );
+				if ( eOldState == k_ESteamNetworkingConnectionState_None && GetState() == k_ESteamNetworkingConnectionState_ProblemDetectedLocally )
+				{
+					// Do not post callbacks for internal failures during connection creation
+				}
+				else
+				{
+					PostConnectionStateChangedCallback( eOldAPIState, eNewAPIState );
+				}
 			}
 		}
 	}
