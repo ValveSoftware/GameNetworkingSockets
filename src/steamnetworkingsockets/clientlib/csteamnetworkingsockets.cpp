@@ -446,6 +446,19 @@ bool CSteamNetworkingSockets::GetIdentity( SteamNetworkingIdentity *pIdentity )
 	return !m_identity.IsInvalid();
 }
 
+int CSteamNetworkingSockets::GetSecondsUntilCertExpiry() const
+{
+	if ( !m_msgSignedCert.has_cert() )
+		return INT_MIN;
+
+	Assert( m_msgSignedCert.has_ca_signature() ); // Connections may use unsigned certs in certain situations, but we never use them here
+	Assert( m_msgCert.has_key_data() );
+	Assert( m_msgCert.has_time_expiry() ); // We should never generate keys without an expiry!
+
+	int nSeconduntilExpiry = (long)m_msgCert.time_expiry() - (long)m_pSteamNetworkingUtils->GetTimeSecure();
+	return nSeconduntilExpiry;
+}
+
 bool CSteamNetworkingSockets::GetCertificateRequest( int *pcbBlob, void *pBlob, SteamNetworkingErrMsg &errMsg )
 {
 	SteamDatagramTransportLock scopeLock( "GetCertificateRequest" );

@@ -52,10 +52,14 @@ public:
 	void CacheIdentity() { m_identity.SetLocalHost(); }
 	virtual ESteamNetworkingAvailability InitAuthentication() override;
 	virtual ESteamNetworkingAvailability GetAuthenticationStatus( SteamNetAuthenticationStatus_t *pAuthStatus ) override;
+	inline bool BCertRequestInFlight() { return false; }
 #else
 	virtual void AsyncCertRequest() = 0;
+	virtual bool BCertRequestInFlight() = 0;
 	virtual void CacheIdentity() = 0;
 #endif
+
+	int GetSecondsUntilCertExpiry() const;
 
 	/// Perform cleanup and self-destruct.  Use this instead of
 	/// calling operator delete.  This solves some complications
