@@ -161,7 +161,7 @@ protected:
 	bool m_bHaveLowLevelRef;
 	bool BInitLowLevel( SteamNetworkingErrMsg &errMsg );
 
-	HSteamNetConnection InternalConnectP2P( ISteamNetworkingConnectionCustomSignaling *pSignaling, const SteamNetworkingIdentity *pPeerIdentity, int nVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions );
+	HSteamNetConnection InternalConnectP2P( ISteamNetworkingConnectionCustomSignaling *pSignaling, const SteamNetworkingIdentity *pPeerIdentity, int nRemoteVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions );
 
 	// Protected - use Destroy()
 	virtual ~CSteamNetworkingSockets();

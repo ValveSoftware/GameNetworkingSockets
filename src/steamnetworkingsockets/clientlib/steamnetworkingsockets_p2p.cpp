@@ -34,16 +34,16 @@ constexpr SteamNetworkingMicroseconds k_usecWaitForControllingAgentBeforeSelecti
 
 CSteamNetworkListenSocketP2P::CSteamNetworkListenSocketP2P( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface )
 : CSteamNetworkListenSocketBase( pSteamNetworkingSocketsInterface )
-, m_nVirtualPort( -1 )
+, m_nLocalVirtualPort( -1 )
 {
 }
 
 CSteamNetworkListenSocketP2P::~CSteamNetworkListenSocketP2P()
 {
 	// Remove from virtual port map
-	if ( m_nVirtualPort >= 0 )
+	if ( m_nLocalVirtualPort >= 0 )
 	{
-		int h = m_pSteamNetworkingSocketsInterface->m_mapListenSocketsByVirtualPort.Find( m_nVirtualPort );
+		int h = m_pSteamNetworkingSocketsInterface->m_mapListenSocketsByVirtualPort.Find( m_nLocalVirtualPort );
 		if ( h != m_pSteamNetworkingSocketsInterface->m_mapListenSocketsByVirtualPort.InvalidIndex() && m_pSteamNetworkingSocketsInterface->m_mapListenSocketsByVirtualPort[h] == this )
 		{
 			m_pSteamNetworkingSocketsInterface->m_mapListenSocketsByVirtualPort[h] = nullptr; // just for grins
@@ -53,13 +53,13 @@ CSteamNetworkListenSocketP2P::~CSteamNetworkListenSocketP2P()
 		{
 			AssertMsg( false, "Bookkeeping bug!" );
 		}
-		m_nVirtualPort = -1;
+		m_nLocalVirtualPort = -1;
 	}
 }
 
-bool CSteamNetworkListenSocketP2P::BInit( int nVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions, SteamDatagramErrMsg &errMsg )
+bool CSteamNetworkListenSocketP2P::BInit( int nLocalVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions, SteamDatagramErrMsg &errMsg )
 {
-	Assert( nVirtualPort >= 0 );
+	Assert( nLocalVirtualPort >= 0 );
 
 	// We need SDR functionality in order to support P2P
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
@@ -68,13 +68,13 @@ bool CSteamNetworkListenSocketP2P::BInit( int nVirtualPort, int nOptions, const 
 			return false;
 	#endif
 
-	if ( m_pSteamNetworkingSocketsInterface->m_mapListenSocketsByVirtualPort.HasElement( nVirtualPort ) )
+	if ( m_pSteamNetworkingSocketsInterface->m_mapListenSocketsByVirtualPort.HasElement( nLocalVirtualPort ) )
 	{
-		V_sprintf_safe( errMsg, "Already have a listen socket on P2P virtual port %d", nVirtualPort );
+		V_sprintf_safe( errMsg, "Already have a listen socket on P2P virtual port %d", nLocalVirtualPort );
 		return false;
 	}
-	m_pSteamNetworkingSocketsInterface->m_mapListenSocketsByVirtualPort.Insert( nVirtualPort, this );
-	m_nVirtualPort = nVirtualPort;
+	m_pSteamNetworkingSocketsInterface->m_mapListenSocketsByVirtualPort.Insert( nLocalVirtualPort, this );
+	m_nLocalVirtualPort = nLocalVirtualPort;
 
 	// Set options, add us to the global table
 	if ( !BInitListenSocketCommon( nOptions, pOptions, errMsg ) )
@@ -129,7 +129,7 @@ void CSteamNetworkConnectionP2P::GetConnectionTypeDescription( ConnectionTypeDes
 		V_sprintf_safe( szDescription, "P2P %s", SteamNetworkingIdentityRender( m_identityRemote ).c_str() );
 }
 
-bool CSteamNetworkConnectionP2P::BInitConnect( ISteamNetworkingConnectionCustomSignaling *pSignaling, const SteamNetworkingIdentity *pIdentityRemote, int nVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions, SteamDatagramErrMsg &errMsg )
+bool CSteamNetworkConnectionP2P::BInitConnect( ISteamNetworkingConnectionCustomSignaling *pSignaling, const SteamNetworkingIdentity *pIdentityRemote, int nRemoteVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions, SteamDatagramErrMsg &errMsg )
 {
 	Assert( !m_pTransport );
 
@@ -138,7 +138,7 @@ bool CSteamNetworkConnectionP2P::BInitConnect( ISteamNetworkingConnectionCustomS
 	m_pSignaling = pSignaling;
 	if ( pIdentityRemote )
 		m_identityRemote = *pIdentityRemote;
-	m_nRemoteVirtualPort = nVirtualPort;
+	m_nRemoteVirtualPort = nRemoteVirtualPort;
 
 	// Remember when we started finding a session
 	//m_usecTimeStartedFindingSession = usecNow;
@@ -1671,7 +1671,7 @@ HSteamNetConnection CSteamNetworkingSockets::ConnectP2PCustomSignaling( ISteamNe
 	return InternalConnectP2P( pSignaling, pPeerIdentity, -1, nOptions, pOptions );
 }
 
-HSteamNetConnection CSteamNetworkingSockets::InternalConnectP2P( ISteamNetworkingConnectionCustomSignaling *pSignaling, const SteamNetworkingIdentity *pPeerIdentity, int nVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions )
+HSteamNetConnection CSteamNetworkingSockets::InternalConnectP2P( ISteamNetworkingConnectionCustomSignaling *pSignaling, const SteamNetworkingIdentity *pPeerIdentity, int nRemoteVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions )
 {
 
 	CSteamNetworkConnectionP2P *pConn = new CSteamNetworkConnectionP2P( this );
@@ -1682,7 +1682,7 @@ HSteamNetConnection CSteamNetworkingSockets::InternalConnectP2P( ISteamNetworkin
 	}
 
 	SteamDatagramErrMsg errMsg;
-	if ( !pConn->BInitConnect( pSignaling, pPeerIdentity, nVirtualPort, nOptions, pOptions, errMsg ) )
+	if ( !pConn->BInitConnect( pSignaling, pPeerIdentity, nRemoteVirtualPort, nOptions, pOptions, errMsg ) )
 	{
 		if ( pPeerIdentity )
 			SpewError( "Cannot create P2P connection to %s.  %s", SteamNetworkingIdentityRender( *pPeerIdentity ).c_str(), errMsg );

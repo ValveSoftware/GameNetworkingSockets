@@ -597,7 +597,6 @@ CSteamNetworkConnectionBase::CSteamNetworkConnectionBase( CSteamNetworkingSocket
 : m_pSteamNetworkingSocketsInterface( pSteamNetworkingSocketsInterface )
 {
 	m_hConnectionSelf = k_HSteamNetConnection_Invalid;
-	//m_nVirtualPort = -1;
 	m_nUserData = -1;
 	m_eConnectionState = k_ESteamNetworkingConnectionState_None;
 	m_eConnectionWireState = k_ESteamNetworkingConnectionState_None;

@@ -88,7 +88,34 @@ public:
 	virtual HSteamNetConnection ConnectByIPAddress( const SteamNetworkingIPAddr &address, int nOptions, const SteamNetworkingConfigValue_t *pOptions ) = 0;
 
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
-	/// P2P stfuf through default signaling mechanism.
+	/// Like CreateListenSocketIP, but clients will connect using ConnectP2P
+	///
+	/// nLocalVirtualPort specifies how clients can connect to this socket using
+	/// ConnectP2P.  It's very common for applications to only have one listening socket;
+	/// in that case, use zero.  If you need to open multiple listen sockets and have clients
+	/// be able to connect to one or the other, then nLocalVirtualPort should be a small
+	/// integer (<1000) unique to each listen socket you create.
+	///
+	/// If you use this, you probably want to call ISteamNetworkingUtils::InitRelayNetworkAccess()
+	/// when your app initializes
+	///
+	/// If you need to set any initial config options, pass them here.  See
+	/// SteamNetworkingConfigValue_t for more about why this is preferable to
+	/// setting the options "immediately" after creation.
+	virtual HSteamListenSocket CreateListenSocketP2P( int nLocalVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions ) = 0;
+
+	/// Begin connecting to a server that is identified using a platform-specific identifier.
+	/// This uses the default rendezvous service, which depends on the platform and library
+	/// configuration.  (E.g. on Steam, it goes through the steam backend.)  The traffic is relayed
+	/// over the Steam Datagram Relay network.
+	///
+	/// If you use this, you probably want to call ISteamNetworkingUtils::InitRelayNetworkAccess()
+	/// when your app initializes
+	///
+	/// If you need to set any initial config options, pass them here.  See
+	/// SteamNetworkingConfigValue_t for more about why this is preferable to
+	/// setting the options "immediately" after creation.
+	virtual HSteamNetConnection ConnectP2P( const SteamNetworkingIdentity &identityRemote, int nRemoteVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions ) = 0;
 #endif
 
 	/// Accept an incoming connection that has been received on a listen socket.
@@ -420,8 +447,129 @@ public:
 	virtual int ReceiveMessagesOnPollGroup( HSteamNetPollGroup hPollGroup, SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages ) = 0; 
 
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
-	// Dedicated servers hosted in known data centers
-	// Relayed connections using custom signaling protocol
+
+	//
+	// Clients connecting to dedicated servers hosted in a data center,
+	// using central-authority-granted tickets.
+	//
+
+	/// Call this when you receive a ticket from your backend / matchmaking system.  Puts the
+	/// ticket into a persistent cache, and optionally returns the parsed ticket.
+	///
+	/// See stamdatagram_ticketgen.h for more details.
+	virtual bool ReceivedRelayAuthTicket( const void *pvTicket, int cbTicket, SteamDatagramRelayAuthTicket *pOutParsedTicket ) = 0;
+
+	/// Search cache for a ticket to talk to the server on the specified virtual port.
+	/// If found, returns the number of seconds until the ticket expires, and optionally
+	/// the complete cracked ticket.  Returns 0 if we don't have a ticket.
+	///
+	/// Typically this is useful just to confirm that you have a ticket, before you
+	/// call ConnectToHostedDedicatedServer to connect to the server.
+	virtual int FindRelayAuthTicketForServer( const SteamNetworkingIdentity &identityGameServer, int nRemoteVirtualPort, SteamDatagramRelayAuthTicket *pOutParsedTicket ) = 0;
+
+	/// Client call to connect to a server hosted in a Valve data center, on the specified virtual
+	/// port.  You must have placed a ticket for this server into the cache, or else this connect attempt will fail!
+	///
+	/// You may wonder why tickets are stored in a cache, instead of simply being passed as an argument
+	/// here.  The reason is to make reconnection to a gameserver robust, even if the client computer loses
+	/// connection to Steam or the central backend, or the app is restarted or crashes, etc.
+	///
+	/// If you use this, you probably want to call ISteamNetworkingUtils::InitRelayNetworkAccess()
+	/// when your app initializes
+	///
+	/// If you need to set any initial config options, pass them here.  See
+	/// SteamNetworkingConfigValue_t for more about why this is preferable to
+	/// setting the options "immediately" after creation.
+	virtual HSteamNetConnection ConnectToHostedDedicatedServer( const SteamNetworkingIdentity &identityTarget, int nRemoteVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions ) = 0;
+
+	//
+	// Servers hosted in data centers known to the Valve relay network
+	//
+
+	/// Returns the value of the SDR_LISTEN_PORT environment variable.  This
+	/// is the UDP server your server will be listening on.  This will
+	/// configured automatically for you in production environments.
+	///
+	/// In development, you'll need to set it yourself.  See
+	/// https://partner.steamgames.com/doc/api/ISteamNetworkingSockets
+	/// for more information on how to configure dev environments.
+	virtual uint16 GetHostedDedicatedServerPort() = 0;
+
+	/// Returns 0 if SDR_LISTEN_PORT is not set.  Otherwise, returns the data center the server
+	/// is running in.  This will be k_SteamDatagramPOPID_dev in non-production environment.
+	virtual SteamNetworkingPOPID GetHostedDedicatedServerPOPID() = 0;
+
+	/// Return info about the hosted server.  This contains the PoPID of the server,
+	/// and opaque routing information that can be used by the relays to send traffic
+	/// to your server.
+	///
+	/// You will need to send this information to your backend, and put it in tickets,
+	/// so that the relays will know how to forward traffic from
+	/// clients to your server.  See SteamDatagramRelayAuthTicket for more info.
+	///
+	/// Also, note that the routing information is contained in SteamDatagramGameCoordinatorServerLogin,
+	/// so if possible, it's preferred to use GetGameCoordinatorServerLogin to send this info
+	/// to your game coordinator service, and also login securely at the same time.
+	///
+	/// On a successful exit, k_EResultOK is returned
+	///
+	/// Unsuccessful exit:
+	/// - Something other than k_EResultOK is returned.
+	/// - k_EResultInvalidState: We are not configured to listen for SDR (SDR_LISTEN_SOCKET
+	///   is not set.)
+	/// - k_EResultPending: we do not (yet) have the authentication information needed.
+	///   (See GetAuthenticationStatus.)  If you use environment variables to pre-fetch
+	///   the network config, this data should always be available immediately.
+	/// - A non-localized diagnostic debug message will be placed in m_data that describes
+	///   the cause of the failure.
+	///
+	/// NOTE: The returned blob is not encrypted.  Send it to your backend, but don't
+	///       directly share it with clients.
+	virtual EResult GetHostedDedicatedServerAddress( SteamDatagramHostedAddress *pRouting ) = 0;
+
+	/// Create a listen socket on the specified virtual port.  The physical UDP port to use
+	/// will be determined by the SDR_LISTEN_PORT environment variable.  If a UDP port is not
+	/// configured, this call will fail.
+	///
+	/// Note that this call MUST be made through the SteamGameServerNetworkingSockets() interface
+	///
+	/// If you need to set any initial config options, pass them here.  See
+	/// SteamNetworkingConfigValue_t for more about why this is preferable to
+	/// setting the options "immediately" after creation.
+	virtual HSteamListenSocket CreateHostedDedicatedServerListenSocket( int nLocalVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions ) = 0;
+
+	/// Generate an authentication blob that can be used to securely login with
+	/// your backend, using SteamDatagram_ParseHostedServerLogin.  (See
+	/// steamdatagram_gamecoordinator.h)
+	///
+	/// Before calling the function:
+	/// - Populate the app data in pLoginInfo (m_cbAppData and m_appData).  You can leave
+	///   all other fields uninitialized.
+	/// - *pcbSignedBlob contains the size of the buffer at pBlob.  (It should be
+	///   at least k_cbMaxSteamDatagramGameCoordinatorServerLoginSerialized.)
+	///
+	/// On a successful exit:
+	/// - k_EResultOK is returned
+	/// - All of the remaining fields of pLoginInfo will be filled out.
+	/// - *pcbSignedBlob contains the size of the serialized blob that has been
+	///   placed into pBlob.
+	///
+	/// Unsuccessful exit:
+	/// - Something other than k_EResultOK is returned.
+	/// - k_EResultNotLoggedOn: you are not logged in (yet)
+	/// - See GetHostedDedicatedServerAddress for more potential failure return values.
+	/// - A non-localized diagnostic debug message will be placed in pBlob that describes
+	///   the cause of the failure.
+	///
+	/// This works by signing the contents of the SteamDatagramGameCoordinatorServerLogin
+	/// with the cert that is issued to this server.  In dev environments, it's OK if you do
+	/// not have a cert.  (You will need to enable insecure dev login in SteamDatagram_ParseHostedServerLogin.)
+	/// Otherwise, you will need a signed cert.
+	///
+	/// NOTE: The routing blob returned here is not encrypted.  Send it to your backend
+	///       and don't share it directly with clients.
+	virtual EResult GetGameCoordinatorServerLogin( SteamDatagramGameCoordinatorServerLogin *pLoginInfo, int *pcbSignedBlob, void *pBlob ) = 0;
+
 #endif // #ifndef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 
 	//
