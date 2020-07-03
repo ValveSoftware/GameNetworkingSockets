@@ -24,10 +24,10 @@ class PercentileGenerator
 public:
 	PercentileGenerator() { Clear(); }
 
-	/// Throw away all samples and restart histogram collection
+	/// Throw away all samples and restart collection
 	void Clear() { m_nSamples = m_nSamplesTotal = 0; m_bNeedSort = false; }
 
-	/// Add a sample to the histogram
+	/// Add a sample
 	void AddSample( T x );
 
 	/// Return number of samples we have right now.  This is always <=
@@ -38,7 +38,7 @@ public:
 	int NumSamplesTotal() const { return m_nSamplesTotal; }
 
 	/// Max number of samples we can accept.
-	int MaxSamples() const { return MAX_SAMPLES; }
+	static int MaxSamples() { return MAX_SAMPLES; }
 
 	/// Fetch an estimate of the Nth percentile.
 	/// The percentile should in the range (0,1).  (exclusive)
@@ -122,8 +122,8 @@ T PercentileGenerator<T,MAX_SAMPLES>::GetPercentile( float flPct )const
 		return m_arSamples[m_nSamples-1];
 
 	// Cast to float first, so that we don't blow up if the type is unsigned, etc
-	float l = m_arSamples[idx];
-	float r = m_arSamples[idx+1];
+	float l = (float)m_arSamples[idx];
+	float r = (float)m_arSamples[idx+1];
 
 	// Lerp and cast back to T
 	return T( l + (r-l)*(flIdx-idx) );
