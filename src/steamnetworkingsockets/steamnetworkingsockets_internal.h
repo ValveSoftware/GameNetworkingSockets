@@ -1091,6 +1091,7 @@ namespace vstd
 	{
 		if ( n <= capacity_ )
 			return;
+		assert( capacity_ >= size_ );
 		if ( std::is_trivial<T>::value && dynamic_ )
 		{
 			dynamic_ = (T*)realloc( dynamic_, n * sizeof(T) );
@@ -1098,11 +1099,15 @@ namespace vstd
 		else
 		{
 			T *new_dynamic = (T *)malloc( n * sizeof(T) );
-			T *e = end();
-			for ( T *s = begin(), *d = new_dynamic ; s < e ; ++s, ++d )
+			T *s = begin();
+			T *e = s + size_;
+			T *d = new_dynamic;
+			while ( s < e )
 			{
 				new ( d ) T ( std::move( *s ) );
 				s->~T();
+				++s;
+				++d;
 			}
 			if ( dynamic_ )
 				::free( dynamic_ );

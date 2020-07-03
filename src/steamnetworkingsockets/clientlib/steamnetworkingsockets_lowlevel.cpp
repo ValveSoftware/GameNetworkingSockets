@@ -1052,24 +1052,27 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 	SteamDatagramTransportLock::AssertHeldByCurrentThread();
 	Assert( SteamDatagramTransportLock::s_nLocked == 1 );
 
+	const int nSocketsToPoll = s_vecRawSockets.Count();
+
 	#ifdef _WIN32
-		HANDLE *pEvents = (HANDLE*)alloca( sizeof(HANDLE) * (s_vecRawSockets.Count()+1) );
+		HANDLE *pEvents = (HANDLE*)alloca( sizeof(HANDLE) * (nSocketsToPoll+1) );
 		int nEvents = 0;
 	#else
-		pollfd *pPollFDs = (pollfd*)alloca( sizeof(pollfd) * (s_vecRawSockets.Count()+1) ); 
+		pollfd *pPollFDs = (pollfd*)alloca( sizeof(pollfd) * (nSocketsToPoll+1) ); 
 		int nPollFDs = 0;
 	#endif
 
-	CRawUDPSocketImpl **pSocketsToPoll = (CRawUDPSocketImpl **)alloca( sizeof(CRawUDPSocketImpl *) * s_vecRawSockets.Count() ); 
-	int nSocketsToPoll = 0;
+	CRawUDPSocketImpl **pSocketsToPoll = (CRawUDPSocketImpl **)alloca( sizeof(CRawUDPSocketImpl *) * nSocketsToPoll ); 
 
-	for ( CRawUDPSocketImpl *pSock: s_vecRawSockets )
+	for ( int i = 0 ; i < nSocketsToPoll ; ++i )
 	{
+		CRawUDPSocketImpl *pSock = s_vecRawSockets[ i ];
+
 		// Should be totally valid at this point
 		Assert( pSock->m_callback.m_fnCallback );
 		Assert( pSock->m_socket != INVALID_SOCKET );
 
-		pSocketsToPoll[ nSocketsToPoll++ ] = pSock;
+		pSocketsToPoll[ i ] = pSock;
 
 		#ifdef _WIN32
 			pEvents[ nEvents++ ] = pSock->m_event;
