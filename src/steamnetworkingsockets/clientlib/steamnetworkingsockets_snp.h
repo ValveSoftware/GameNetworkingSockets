@@ -19,6 +19,28 @@
 	#endif
 #endif
 
+#if STEAMNETWORKINGSOCKETS_SNP_PARANOIA > 0
+	#if defined(__GNUC__ ) && defined( __linux__ ) && !defined( __ANDROID__ )
+		#include <debug/map>
+		// FIXME use debug versions
+		template< typename K, typename V, typename L = std::less<K> >
+		using std_map = __gnu_debug::map<K,V,L>;
+
+		template <typename K, typename V, typename L>
+		inline int len( const std_map<K,V,L> &map )
+		{
+			return (int)map.size();
+		}
+
+	#else
+		template< typename K, typename V, typename L = std::less<K> >
+		using std_map = std::map<K,V,L>;
+	#endif
+#else
+	template< typename K, typename V, typename L = std::less<K> >
+	using std_map = std::map<K,V,L>;
+#endif
+
 struct P2PSessionState_t;
 
 namespace SteamNetworkingSocketsLib {
@@ -343,12 +365,12 @@ struct SSNPSenderState
 	/// List of packets that we have sent but don't know whether they were received or not.
 	/// We keep a dummy sentinel at the head of the list, with a negative packet number.
 	/// This vastly simplifies the processing.
-	std::map<int64,SNPInFlightPacket_t> m_mapInFlightPacketsByPktNum;
+	std_map<int64,SNPInFlightPacket_t> m_mapInFlightPacketsByPktNum;
 
 	/// The next unacked packet that should be timed out and implicitly NACKed,
 	/// if we don't receive an ACK in time.  Will be m_mapInFlightPacketsByPktNum.end()
 	/// if we don't have any in flight packets that we are waiting on.
-	std::map<int64,SNPInFlightPacket_t>::iterator m_itNextInFlightPacketToTimeout;
+	std_map<int64,SNPInFlightPacket_t>::iterator m_itNextInFlightPacketToTimeout;
 
 	/// Ordered list of reliable ranges that we have recently sent
 	/// in a packet.  These should be non-overlapping, and furthermore
@@ -356,11 +378,11 @@ struct SSNPSenderState
 	///
 	/// The "value" portion of the map is the message that has the first bit of
 	/// reliable data we need for this message
-	std::map<SNPRange_t,CSteamNetworkingMessage*,SNPRange_t::NonOverlappingLess> m_listInFlightReliableRange;
+	std_map<SNPRange_t,CSteamNetworkingMessage*,SNPRange_t::NonOverlappingLess> m_listInFlightReliableRange;
 
 	/// Ordered list of ranges that have been put on the wire,
 	/// but have been detected as dropped, and now need to be retried.
-	std::map<SNPRange_t,CSteamNetworkingMessage*,SNPRange_t::NonOverlappingLess> m_listReadyRetryReliableRange;
+	std_map<SNPRange_t,CSteamNetworkingMessage*,SNPRange_t::NonOverlappingLess> m_listReadyRetryReliableRange;
 
 	/// Oldest packet sequence number that we are still asking peer
 	/// to send acks for.
@@ -422,7 +444,7 @@ struct SSNPReceiverState
 	/// needs to be fragmented, we store the pieces here.  NOTE: it might be more efficient
 	/// to use a simpler container, with worse O(), since this should ordinarily be
 	/// a pretty small list.
-	std::map<SSNPRecvUnreliableSegmentKey,SSNPRecvUnreliableSegmentData> m_mapUnreliableSegments;
+	std_map<SSNPRecvUnreliableSegmentKey,SSNPRecvUnreliableSegmentData> m_mapUnreliableSegments;
 
 	/// Stream position of the first byte in m_bufReliableData.  Remember that the first byte
 	/// in the reliable stream is actually at position 1, not 0
@@ -444,7 +466,7 @@ struct SSNPReceiverState
 	/// !SPEED! We should probably use a small fixed-sized, sorted vector here,
 	/// since in most cases the list will be small, and the cost of dynamic memory
 	/// allocation will be way worse than O(n) insertion/removal.
-	std::map<int64,int64> m_mapReliableStreamGaps;
+	std_map<int64,int64> m_mapReliableStreamGaps;
 
 	/// List of gaps in the packet sequence numbers we have received.
 	/// Since these must never overlap, we store them using begin as the
@@ -461,7 +483,7 @@ struct SSNPReceiverState
 	/// !SPEED! We should probably use a small fixed-sized, sorted vector here,
 	/// since in most cases the list will be small, and the cost of dynamic memory
 	/// allocation will be way worse than O(n) insertion/removal.
-	std::map<int64,SSNPPacketGap> m_mapPacketGaps;
+	std_map<int64,SSNPPacketGap> m_mapPacketGaps;
 
 	/// Oldest packet sequence number we need to ack to our peer
 	int64 m_nMinPktNumToSendAcks = 0;
@@ -490,13 +512,13 @@ struct SSNPReceiverState
 	/// bookkeeping is to figure out which acks we *need* to send,
 	/// and which acks we cannot send yet, so we can make optimal
 	/// decisions.
-	std::map<int64,SSNPPacketGap>::iterator m_itPendingAck;
+	std_map<int64,SSNPPacketGap>::iterator m_itPendingAck;
 
 	/// Iterator into m_mapPacketGaps.  If != the sentinel,
 	/// we will avoid reporting on the dropped packets in this
 	/// gap (and all higher numbered packets), because we are
 	/// waiting in the hopes that they will arrive out of order.
-	std::map<int64,SSNPPacketGap>::iterator m_itPendingNack;
+	std_map<int64,SSNPPacketGap>::iterator m_itPendingNack;
 
 	/// Queue a flush of ALL acks (and NACKs!) by the given time.
 	/// If anything is scheduled to happen earlier, that schedule
