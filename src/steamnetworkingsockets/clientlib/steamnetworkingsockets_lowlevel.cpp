@@ -1722,6 +1722,7 @@ void CSharedSocket::RemoteHost::Close()
 /////////////////////////////////////////////////////////////////////////////
 
 SteamNetworkingMicroseconds g_usecLastRateLimitSpew;
+int g_nRateLimitSpewCount;
 ESteamNetworkingSocketsDebugOutputType g_eDefaultGroupSpewLevel;
 static FSteamNetworkingSocketsDebugOutput s_pfnDebugOutput = nullptr;
 

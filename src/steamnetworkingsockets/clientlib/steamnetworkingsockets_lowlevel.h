@@ -254,13 +254,19 @@ extern void ProcessPendingDestroyClosedRawUDPSockets();
 
 /// Last time that we spewed something that was subject to rate limit 
 extern SteamNetworkingMicroseconds g_usecLastRateLimitSpew;
+extern int g_nRateLimitSpewCount;
 
 /// Check for rate limiting spew (e.g. when spew could be triggered by malicious sender.)
 inline bool BRateLimitSpew( SteamNetworkingMicroseconds usecNow )
 {
-	if ( usecNow < g_usecLastRateLimitSpew + 100000 )
-		return false;
-	g_usecLastRateLimitSpew = usecNow;
+	if ( g_nRateLimitSpewCount <= 0 )
+	{
+		if ( usecNow < g_usecLastRateLimitSpew + 300000 )
+			return false;
+		g_usecLastRateLimitSpew = usecNow;
+		g_nRateLimitSpewCount = 3; // Allow a short burst, because sometimes we need messages from different levels on the call stack
+	}
+	--g_nRateLimitSpewCount;
 	return true;
 }
 
