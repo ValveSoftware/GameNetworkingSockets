@@ -1009,7 +1009,10 @@ void CConnectionTransportUDPBase::Received_NoConnection( const CMsgSteamSockets_
 	}
 
 	// Generic connection code will take it from here.
-	m_connection.ConnectionState_ClosedByPeer( 0, nullptr );
+	// Closure failure code will only be used if this is news.
+	// If we closed the connection (the usual case), it
+	// will not be used.
+	m_connection.ConnectionState_ClosedByPeer( k_ESteamNetConnectionEnd_Misc_PeerSentNoConnection, "Received unexpected 'no connection' from peer");
 }
 
 /////////////////////////////////////////////////////////////////////////////

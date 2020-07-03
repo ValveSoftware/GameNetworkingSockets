@@ -602,6 +602,21 @@ enum ESteamNetConnectionEnd
 		// level failure.
 		k_ESteamNetConnectionEnd_Misc_P2P_NAT_Firewall = 5009,
 
+		// Our peer replied that it has no record of the connection.
+		// This should not happen ordinarily, but can happen in a few
+		// exception cases:
+		//
+		// - This is an old connection, and the peer has already cleaned
+		//   up and forgotten about it.  (Perhaps it timed out and they
+		//   closed it and were not able to communicate this to us.)
+		// - A bug or internal protocol error has caused us to try to
+		//   talk to the peer about the connection before we received
+		//   confirmation that the peer has accepted the connection.
+		// - The peer thinks that we have closed the connection for some
+		//   reason (perhaps a bug), and believes that is it is
+		//   acknowledging our closure.
+		k_ESteamNetConnectionEnd_Misc_PeerSentNoConnection = 5010,
+
 	k_ESteamNetConnectionEnd_Misc_Max = 5999,
 
 	k_ESteamNetConnectionEnd__Force32Bit = 0x7fffffff
