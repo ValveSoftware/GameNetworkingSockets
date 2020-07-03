@@ -988,19 +988,17 @@ void CSteamNetworkConnectionBase::ClearCrypto()
 	m_cryptIVRecv.Wipe();
 }
 
-bool CSteamNetworkConnectionBase::RecvNonDataSequencedPacket( int64 nPktNum, SteamNetworkingMicroseconds usecNow )
+void CSteamNetworkConnectionBase::RecvNonDataSequencedPacket( int64 nPktNum, SteamNetworkingMicroseconds usecNow )
 {
+	// Note: order of operations is important betwen these two calls
 
-	// Let SNP know when we received it, so we can track loss events and send acks
-	if ( SNP_RecordReceivedPktNum( nPktNum, usecNow, false ) )
-	{
+	// Let SNP know when we received it, so we can track loss events and send acks.  We do
+	// not schedule acks to be sent at this time, but when they are sent, we will implicitly
+	// ack this one
+	SNP_RecordReceivedPktNum( nPktNum, usecNow, false );
 
-		// And also the general purpose sequence number/stats tracker
-		// for the end-to-end flow.
-		m_statsEndToEnd.TrackProcessSequencedPacket( nPktNum, usecNow, 0 );
-	}
-
-	return true;
+	// Update general sequence number/stats tracker for the end-to-end flow.
+	m_statsEndToEnd.TrackProcessSequencedPacket( nPktNum, usecNow, 0 );
 }
 
 bool CSteamNetworkConnectionBase::BThinkCryptoReady( SteamNetworkingMicroseconds usecNow )
@@ -2278,7 +2276,12 @@ bool CSteamNetworkConnectionBase::ReceivedMessage( const void *pData, int cbData
 	// Create a message
 	CSteamNetworkingMessage *pMsg = CSteamNetworkingMessage::New( this, cbData, nMsgNum, nFlags, usecNow );
 	if ( !pMsg )
+	{
+		// Hm.  this failure really is probably a sign that we are in a pretty bad state,
+		// and we are unlikely to recover.  Should we just abort the connection?
+		// Right now, we'll try to muddle on.
 		return false;
+	}
 
 	// Copy the data
 	memcpy( pMsg->m_pData, pData, cbData );

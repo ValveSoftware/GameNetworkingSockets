@@ -454,11 +454,12 @@ public:
 	/// processing the packet
 	bool DecryptDataChunk( uint16 nWireSeqNum, int cbPacketSize, const void *pChunk, int cbChunk, RecvPacketContext_t &ctx );
 
-	/// Decode the plaintext
+	/// Decode the plaintext.  Returns false if the packet seems corrupt or bogus, or should abort further
+	/// processing.
 	bool ProcessPlainTextDataChunk( int usecTimeSinceLast, RecvPacketContext_t &ctx );
 
 	/// Called when we receive an (end-to-end) packet with a sequence number
-	bool RecvNonDataSequencedPacket( int64 nPktNum, SteamNetworkingMicroseconds usecNow );
+	void RecvNonDataSequencedPacket( int64 nPktNum, SteamNetworkingMicroseconds usecNow );
 
 	// Called from SNP to update transmit/receive speeds
 	void UpdateSpeeds( int nTXSpeed, int nRXSpeed );
@@ -678,7 +679,7 @@ protected:
 	int SNP_ClampSendRate();
 	void SNP_PopulateDetailedStats( SteamDatagramLinkStats &info );
 	void SNP_PopulateQuickStats( SteamNetworkingQuickConnectionStatus &info, SteamNetworkingMicroseconds usecNow );
-	bool SNP_RecordReceivedPktNum( int64 nPktNum, SteamNetworkingMicroseconds usecNow, bool bScheduleAck );
+	void SNP_RecordReceivedPktNum( int64 nPktNum, SteamNetworkingMicroseconds usecNow, bool bScheduleAck );
 	EResult SNP_FlushMessage( SteamNetworkingMicroseconds usecNow );
 
 	/// Accumulate "tokens" into our bucket base on the current calculated send rate
