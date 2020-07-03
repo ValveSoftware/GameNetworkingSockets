@@ -3220,6 +3220,8 @@ void SSNPReceiverState::QueueFlushAllAcks( SteamNetworkingMicroseconds usecWhen 
 {
 	DebugCheckPackGapMap();
 
+	Assert( usecWhen > 0 ); // zero is reserved and should never be used as a requested wake time
+
 	// if we're already scheduled for earlier, then there cannot be any work to do
 	auto it = m_mapPacketGaps.end();
 	--it;

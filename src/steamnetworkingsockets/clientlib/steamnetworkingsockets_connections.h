@@ -506,7 +506,7 @@ public:
 	{
 		if ( bImmediate )
 		{
-			m_receiverState.QueueFlushAllAcks( 0 );
+			m_receiverState.QueueFlushAllAcks( k_nThinkTime_ASAP );
 			SetNextThinkTimeASAP();
 		}
 		else
