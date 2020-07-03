@@ -103,6 +103,7 @@ set(GNS_COMMON_FLAGS
 	-Wno-unused-local-typedef
 	-Wno-unused-const-variable
 	-Wno-nested-anon-types
+	-Wno-format-truncation
 )
 
 if(USE_CRYPTO25519 STREQUAL "Reference")

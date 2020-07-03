@@ -44,6 +44,7 @@ warn_flags_common = [
   '-Wno-unused-local-typedef',
   '-Wno-unused-parameter',
   '-Wno-nested-anon-types',
+  '-Wno-format-truncation'
 ]
 
 werror = get_option('Werror')

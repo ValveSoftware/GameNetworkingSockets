@@ -30,15 +30,15 @@
 class CDbgFmtMsg
 {
 public:
-	CDbgFmtMsg(PRINTF_FORMAT_STRING const char *pszFormat, ...) FMTFUNCTION( 2, 3 )
+	explicit CDbgFmtMsg(PRINTF_FORMAT_STRING const char *pszFormat, ...) FMTFUNCTION( 2, 3 )
 	{ 
 		va_list arg_ptr;
 
 		va_start(arg_ptr, pszFormat);
-		_vsnprintf(m_szBuf, sizeof(m_szBuf)-1, pszFormat, arg_ptr);
+		_vsnprintf(m_szBuf, kBufLen-1, pszFormat, arg_ptr);
 		va_end(arg_ptr);
 
-		m_szBuf[sizeof(m_szBuf)-1] = 0;
+		m_szBuf[kBufLen-1] = 0;
 	}
 
 	operator const char *() const				
@@ -50,8 +50,47 @@ public:
 	{ 
 		return m_szBuf; 
 	}
-private:
-	char m_szBuf[256];
+protected:
+	CDbgFmtMsg() {}
+	static constexpr int kBufLen = 256;
+	char m_szBuf[kBufLen];
+};
+
+// Helper function declaration to encode variadic argument count >= 1 as size of return type
+template <typename... A>
+static auto DbgMsgCountArgsT( A... a ) -> char(&)[sizeof...( a )];
+
+template <bool bSingleRawStringArgument> class CDbgFmtSafeImplT;
+
+// Single-arg specialization is used with AssertMsg( cond, "string with % in it" )
+template <> class CDbgFmtSafeImplT<true> : public CDbgFmtMsg
+{
+public:
+	CDbgFmtSafeImplT( const char *pszMsg )
+	{
+		_snprintf(m_szBuf, kBufLen-1, "Assertion Failed: %s", pszMsg );
+		m_szBuf[kBufLen - 1] = 0;
+	}
+};
+
+// Multi-arg specialization is used with AssertMsg( cond, "format string %s %d", pszString, iValue )
+template <> class CDbgFmtSafeImplT<false> : public CDbgFmtMsg
+{
+public:
+	CDbgFmtSafeImplT( PRINTF_FORMAT_STRING const char *pszFormat, ... ) FMTFUNCTION( 2, 3 )
+	{
+		static const char szPrefix[] = "Assertion Failed: ";
+		constexpr int k_nPrefixLen = sizeof( szPrefix );
+		memcpy( m_szBuf, szPrefix, k_nPrefixLen-1 );
+
+		va_list arg_ptr;
+
+		va_start(arg_ptr, pszFormat);
+		_vsnprintf(m_szBuf+k_nPrefixLen, kBufLen-k_nPrefixLen-1, pszFormat, arg_ptr);
+		va_end(arg_ptr);
+
+		m_szBuf[kBufLen-1] = 0;
+	}
 };
 
 /* Various types of spew messages */
@@ -219,9 +258,9 @@ DBG_INTERFACE void AssertMsgImplementation( const char* _msg, bool _bFatal, cons
 #ifdef DBGFLAG_ASSERT
 
 #define  Assert( _exp )           							_AssertMsgSmall( _exp, "Assertion Failed: " #_exp,  false, false )
-#define  AssertMsg( _exp, _msg )  							_AssertMsgSmall( _exp, CDbgFmtMsg( "Assertion Failed: %s", (const char*)_msg ).ToString(), false, false )
+#define  AssertMsg( _exp, ... )  							_AssertMsgSmall( _exp, CDbgFmtSafeImplT< sizeof( DbgMsgCountArgsT( __VA_ARGS__ ) ) == 1 >( __VA_ARGS__ ).ToString(), false, false )
 #define  AssertOnce( _exp )       							_AssertMsgOnce( _exp, "Assertion Failed: " #_exp), false, false )
-#define  AssertMsgOnce( _exp, _msg )  						_AssertMsgOnce( _exp, CDbgFmtMsg( "Assertion Failed: %s", (const char*)_msg ).ToString(), false, false )
+#define  AssertMsgOnce( _exp, ... )  						_AssertMsgOnce( _exp, CDbgFmtSafeImplT< sizeof( DbgMsgCountArgsT( __VA_ARGS__ ) ) == 1 >( __VA_ARGS__ ).ToString(), false, false )
 #define  AssertEquals( _exp, _expectedValue )              	AssertMsg2( (_exp) == (_expectedValue), "Expected %d but got %d!", (_expectedValue), (_exp) ) 
 #define  AssertFloatEquals( _exp, _expectedValue, _tol )  	AssertMsg2( fabs((_exp) - (_expectedValue)) <= (_tol), "Expected %f but got %f!", (_expectedValue), (_exp) )
 #define  VerifyEquals( _exp, _expectedValue )           	AssertEquals( _exp, _expectedValue )
