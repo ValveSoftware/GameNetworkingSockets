@@ -1888,7 +1888,8 @@ bool CSteamNetworkingSockets::ReceivedP2PCustomSignal( const void *pMsg, int cbM
 			pConn->m_unConnectionIDRemote = msg.from_connection_id();
 
 			// Suppress state change notifications for now
-			pConn->m_bSupressStateChangeCallbacks = true;
+			Assert( pConn->m_nSupressStateChangeCallbacks == 0 );
+			pConn->m_nSupressStateChangeCallbacks = 1;
 
 			// Is this a higher-level "P2P sessions"-style request?  Then we
 			// need to setup the messages session relationship now
@@ -2001,7 +2002,8 @@ bool CSteamNetworkingSockets::ReceivedP2PCustomSignal( const void *pMsg, int cbM
 		}
 
 		// Stop suppressing state change notifications
-		pConn->m_bSupressStateChangeCallbacks = false;
+		Assert( pConn->m_nSupressStateChangeCallbacks == 1 );
+		pConn->m_nSupressStateChangeCallbacks = 0;
 	}
 
 	// Process the message

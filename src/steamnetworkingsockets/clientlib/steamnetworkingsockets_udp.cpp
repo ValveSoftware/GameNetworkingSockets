@@ -1919,8 +1919,8 @@ failed:
 
 	// Don't post any state changes for these transitions.  We just want to immediately start in the
 	// connected state
-	pConn[0]->m_bSupressStateChangeCallbacks = true;
-	pConn[1]->m_bSupressStateChangeCallbacks = true;
+	++pConn[0]->m_nSupressStateChangeCallbacks;
+	++pConn[1]->m_nSupressStateChangeCallbacks;
 
 	CConnectionTransportUDP *pTransport[2] = {
 		new CConnectionTransportUDP( *pConn[0] ),
@@ -1961,8 +1961,8 @@ failed:
 	}
 
 	// Any further state changes are legit
-	pConn[0]->m_bSupressStateChangeCallbacks = false;
-	pConn[1]->m_bSupressStateChangeCallbacks = false;
+	pConn[0]->m_nSupressStateChangeCallbacks = 0;
+	pConn[1]->m_nSupressStateChangeCallbacks = 0;
 
 	return true;
 }

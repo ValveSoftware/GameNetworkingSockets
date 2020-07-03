@@ -623,7 +623,7 @@ CSteamNetworkConnectionBase::CSteamNetworkConnectionBase( CSteamNetworkingSocket
 	memset( m_szDescription, 0, sizeof( m_szDescription ) );
 	m_bConnectionInitiatedRemotely = false;
 	m_pTransport = nullptr;
-	m_bSupressStateChangeCallbacks = false;
+	m_nSupressStateChangeCallbacks = 0;
  
 	// Initialize configuration using parent interface for now.
 	m_connectionConfig.Init( &m_pSteamNetworkingSocketsInterface->m_connectionConfig );
@@ -2195,7 +2195,8 @@ void CSteamNetworkConnectionBase::SetState( ESteamNetworkingConnectionState eNew
 	const ESteamNetworkingConnectionState eNewAPIState = CollapseConnectionStateToAPIState( GetState() );
 
 	// Internal connection used by the higher-level messages interface?
-	if ( !m_bSupressStateChangeCallbacks )
+	Assert( m_nSupressStateChangeCallbacks >= 0 );
+	if ( m_nSupressStateChangeCallbacks == 0 )
 	{
 		if ( m_pMessagesInterface )
 		{
@@ -3030,8 +3031,8 @@ failed:
 
 	// Don't post any state changes for these transitions.  We just want to immediately start in the
 	// connected state
-	pConn[0]->m_bSupressStateChangeCallbacks = true;
-	pConn[1]->m_bSupressStateChangeCallbacks = true;
+	++pConn[0]->m_nSupressStateChangeCallbacks;
+	++pConn[1]->m_nSupressStateChangeCallbacks;
 
 	// Do generic base class initialization
 	for ( int i = 0 ; i < 2 ; ++i )
@@ -3068,8 +3069,8 @@ failed:
 	}
 
 	// Any further state changes are legit
-	pConn[0]->m_bSupressStateChangeCallbacks = false;
-	pConn[1]->m_bSupressStateChangeCallbacks = false;
+	pConn[0]->m_nSupressStateChangeCallbacks = 0;
+	pConn[1]->m_nSupressStateChangeCallbacks = 0;
 	return true;
 }
 

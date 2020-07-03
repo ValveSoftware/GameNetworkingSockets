@@ -500,7 +500,7 @@ public:
 	virtual void ConnectionStateChanged( ESteamNetworkingConnectionState eOldState );
 
 	/// Called to post a callback
-	bool m_bSupressStateChangeCallbacks;
+	int m_nSupressStateChangeCallbacks;
 	void PostConnectionStateChangedCallback( ESteamNetworkingConnectionState eOldAPIState, ESteamNetworkingConnectionState eNewAPIState );
 
 	void QueueEndToEndAck( bool bImmediate, SteamNetworkingMicroseconds usecNow )
