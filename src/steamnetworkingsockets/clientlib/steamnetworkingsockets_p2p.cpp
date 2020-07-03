@@ -432,7 +432,7 @@ void CSteamNetworkConnectionP2P::GuessICEFailureReason( ESteamNetConnectionEnd &
 	}
 
 	// We failed to STUN?
-	if ( nFailedToGatherTypes & k_EICECandidate_Any_Reflexive )
+	if ( ( nAllowedTypes & k_EICECandidate_Any_Reflexive ) != 0 && ( nGatheredTypes & (k_EICECandidate_Any_Reflexive|k_EICECandidate_IPv4_HostPublic) ) == 0 )
 	{
 		if ( m_connectionConfig.m_P2P_STUN_ServerList.Get().empty() )
 		{
