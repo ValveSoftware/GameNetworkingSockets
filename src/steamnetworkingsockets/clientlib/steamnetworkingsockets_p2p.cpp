@@ -234,6 +234,8 @@ bool CSteamNetworkConnectionP2P::BBeginAccept(
 		return false;
 	}
 	m_idxMapIncomingP2PConnections = g_mapIncomingP2PConnections.InsertOrReplace( key, this );
+
+	ConnectionState_Connecting( usecNow );
 	return true;
 }
 

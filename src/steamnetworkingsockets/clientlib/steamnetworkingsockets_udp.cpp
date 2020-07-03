@@ -1272,8 +1272,8 @@ bool CSteamNetworkConnectionUDP::BInitConnect( const SteamNetworkingIPAddr &addr
 		return false;
 	}
 
-	// Start the connection state machine, and send the first request packet.
-	CheckConnectionStateAndSetNextThinkTime( usecNow );
+	// Start the connection state machine
+	ConnectionState_Connecting( usecNow );
 
 	return true;
 }
@@ -1356,6 +1356,8 @@ bool CSteamNetworkConnectionUDP::BBeginAccept(
 		V_sprintf_safe( errMsg, "Failed crypto init.  %s", m_szEndDebug );
 		return false;
 	}
+
+	ConnectionState_Connecting( usecNow );
 
 	// OK
 	return true;

@@ -935,14 +935,14 @@ bool CSteamNetworkConnectionBase::BInitConnection( SteamNetworkingMicroseconds u
 	// Clear everything out
 	ClearCrypto();
 
-	// Switch connection state, queue state change notifications.
-	SetState( k_ESteamNetworkingConnectionState_Connecting, usecNow );
-
 	// Take action to start obtaining a cert, or if we already have one, then set it now
 	InitConnectionCrypto( usecNow );
-
-	// Queue us to think ASAP.
-	SetNextThinkTime( usecNow );
+	if ( GetState() != k_ESteamNetworkingConnectionState_None )
+	{
+		Assert( GetState() == k_ESteamNetworkingConnectionState_ProblemDetectedLocally );
+		V_sprintf_safe( errMsg, "Crypto init error.  %s", m_szEndDebug );
+		return false;
+	}
 
 	return true;
 }
@@ -1005,7 +1005,8 @@ void CSteamNetworkConnectionBase::RecvNonDataSequencedPacket( int64 nPktNum, Ste
 
 bool CSteamNetworkConnectionBase::BThinkCryptoReady( SteamNetworkingMicroseconds usecNow )
 {
-	Assert( GetState() == k_ESteamNetworkingConnectionState_Connecting );
+	// Should only be called from initial states
+	Assert( GetState() == k_ESteamNetworkingConnectionState_None || GetState() == k_ESteamNetworkingConnectionState_Connecting );
 
 	// Do we already have a cert?
 	if ( m_msgSignedCertLocal.has_cert() )
@@ -1033,7 +1034,7 @@ bool CSteamNetworkConnectionBase::BThinkCryptoReady( SteamNetworkingMicroseconds
 			m_pSteamNetworkingSocketsInterface->AsyncCertRequest();
 
 			// Handle synchronous failure.
-			if ( GetState() != k_ESteamNetworkingConnectionState_Connecting )
+			if ( GetState() == k_ESteamNetworkingConnectionState_None && GetState() != k_ESteamNetworkingConnectionState_Connecting )
 				return false;
 
 			// If fetching of cert or trusted cert list in flight, then wait for that to finish
@@ -2315,9 +2316,6 @@ void CSteamNetworkConnectionBase::SetState( ESteamNetworkingConnectionState eNew
 
 		case k_ESteamNetworkingConnectionState_Connecting:
 
-			// If we've completed key exchange, then we should be connected
-			Assert( !m_bCryptKeysValid );
-
 			// And we shouldn't mark stats object as ready until we go connected
 			Assert( m_statsEndToEnd.IsPassive() );
 			break;
@@ -2553,6 +2551,21 @@ void CSteamNetworkConnectionBase::ConnectionState_ClosedByPeer( int nReason, con
 			SetState( k_ESteamNetworkingConnectionState_ClosedByPeer, SteamNetworkingSockets_GetLocalTimestamp() );
 			break;
 	}
+}
+
+void CSteamNetworkConnectionBase::ConnectionState_Connecting( SteamNetworkingMicroseconds usecNow )
+{
+	// We should only transition to this state from the initial state
+	if ( GetState() != k_ESteamNetworkingConnectionState_None )
+	{
+		AssertMsg( false, "[%s] Unexpected state %d", GetDescription(), GetState() );
+		return;
+	}
+
+	SetState( k_ESteamNetworkingConnectionState_Connecting, usecNow );
+
+	// Schedule a wakeup call ASAP so we can start sending out packets immediately
+	SetNextThinkTimeASAP();
 }
 
 void CSteamNetworkConnectionBase::ConnectionState_Connected( SteamNetworkingMicroseconds usecNow )
@@ -3099,6 +3112,7 @@ failed:
 			AssertMsg( false, "BRecvCryptoHandshake failed creating loopback pipe socket pair" );
 			goto failed;
 		}
+		p->ConnectionState_Connecting( usecNow );
 		p->ConnectionState_Connected( usecNow );
 	}
 
@@ -3144,6 +3158,7 @@ failed:
 		goto failed;
 
 	// Client sends a "connect" packet
+	pClient->ConnectionState_Connecting( usecNow );
 	pClient->FakeSendStats( usecNow, 0 );
 
 	// Now we wait for the app to accept the connection
@@ -3251,6 +3266,8 @@ bool CSteamNetworkConnectionPipe::BBeginAccept( CSteamNetworkListenSocketBase *p
 		V_sprintf_safe( errMsg, "Failed crypto init.  %s", m_szEndDebug );
 		return false;
 	}
+
+	ConnectionState_Connecting( usecNow );
 
 	return true;
 }
