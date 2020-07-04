@@ -55,11 +55,14 @@ public:
 	/// Setup
 	bool BInit( int nLocalVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions, SteamDatagramErrMsg &errMsg );
 
+	inline int LocalVirtualPort() const
+	{
+		Assert( m_connectionConfig.m_LocalVirtualPort.IsLocked() );
+		return m_connectionConfig.m_LocalVirtualPort.m_data;
+	}
+
 private:
 	virtual ~CSteamNetworkListenSocketP2P(); // hidden destructor, don't call directly.  Use Destroy()
-
-	/// The "virtual port" of the server for relay connections.
-	int m_nLocalVirtualPort;
 };
 
 /// Mixin base class for different P2P transports.
@@ -146,7 +149,13 @@ public:
 	CSteamNetworkConnectionP2P( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface );
 
 	/// Start connecting to a remote peer at the specified virtual port
-	bool BInitConnect( ISteamNetworkingConnectionCustomSignaling *pSignaling, const SteamNetworkingIdentity *pIdentityRemote, int nRemoteVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions, SteamDatagramErrMsg &errMsg );
+	bool BInitConnect(
+		ISteamNetworkingConnectionCustomSignaling *pSignaling,
+		const SteamNetworkingIdentity *pIdentityRemote, int nRemoteVirtualPort,
+		int nOptions, const SteamNetworkingConfigValue_t *pOptions,
+		CSteamNetworkConnectionP2P **pOutMatchingSymmetricConnection,
+		SteamDatagramErrMsg &errMsg
+	);
 
 	/// Begin accepting a P2P connection
 	bool BBeginAccept(
@@ -154,6 +163,10 @@ public:
 		SteamDatagramErrMsg &errMsg,
 		SteamNetworkingMicroseconds usecNow
 	);
+
+	/// Called on a connection that we initiated, when we have a matching symmetric incoming connection,
+	/// and we need to change the role of our connection to be "server"
+	void ChangeRoleToServerAndAccept( const CMsgSteamNetworkingP2PRendezvous &msg, SteamNetworkingMicroseconds usecNow );
 
 	// CSteamNetworkConnectionBase overrides
 	virtual void FreeResources() override;
@@ -165,6 +178,7 @@ public:
 	virtual CSteamNetworkConnectionP2P *AsSteamNetworkConnectionP2P() override;
 	virtual void ConnectionStateChanged( ESteamNetworkingConnectionState eOldState ) override;
 	virtual void ProcessSNPPing( int msPing, RecvPacketContext_t &ctx ) override;
+	virtual bool BSupportsSymmetricMode() override;
 
 	void SendConnectOKSignal( SteamNetworkingMicroseconds usecNow );
 	void SendConnectionClosedSignal( SteamNetworkingMicroseconds usecNow );
@@ -192,11 +206,17 @@ public:
 		return m_bConnectionInitiatedRemotely;
 	}
 
-	/// What virtual port are we requesting?
+	/// Virtual port on the remote host.  If connection was initiated locally, this will always be valid.
+	/// If initiated remotely, we don't need to know except for the purpose of purposes of symmetric connection
+	/// matching.  If the peer didn't specify when attempting to connect, we will assume that it is the same
+	/// as the local virtual port.
 	int m_nRemoteVirtualPort;
 
+	/// local virtual port is a configuration option
+	inline int LocalVirtualPort() const { return m_connectionConfig.m_LocalVirtualPort.Get(); }
+
 	/// Handle to our entry in g_mapIncomingP2PConnections, or -1 if we're not in the map
-	int m_idxMapIncomingP2PConnections;
+	int m_idxMapP2PConnectionsByRemoteInfo;
 
 	/// How to send signals to the remote host for this
 	ISteamNetworkingConnectionCustomSignaling *m_pSignaling;
@@ -257,6 +277,8 @@ public:
 		}
 	}
 
+	bool BInitSDR( SteamNetworkingErrMsg &errMsg );
+
 	// Check if user permissions for the remote host are allowed, then
 	// create ICE.  Also, if the connection was initiated remotely,
 	// we will create an offer
@@ -290,6 +312,10 @@ public:
 	// FIXME - UDP transport for LAN discovery, so P2P works without any signaling
 
 	inline int LogLevel_P2PRendezvous() const { return m_connectionConfig.m_LogLevel_P2PRendezvous.Get(); }
+
+	static CSteamNetworkConnectionP2P *FindDuplicateConnection( CSteamNetworkingSockets *pInterfaceLocal, int nLocalVirtualPort, const SteamNetworkingIdentity &identityRemote, int nRemoteVirtualPort, bool bOnlySymmetricConnections, CSteamNetworkConnectionP2P *pIgnore );
+
+	bool BEnsureInP2PConnectionMapByRemoteInfo( SteamDatagramErrMsg &errMsg );
 
 private:
 	virtual ~CSteamNetworkConnectionP2P(); // hidden destructor, don't call directly.  Use ConnectionDestroySelfNow

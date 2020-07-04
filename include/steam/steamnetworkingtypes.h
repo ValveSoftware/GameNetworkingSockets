@@ -683,9 +683,10 @@ struct SteamNetConnectionInfo_t
 	/// have some details specific to the issue.
 	char m_szEndDebug[ k_cchSteamNetworkingMaxConnectionCloseReason ];
 
-	/// Debug description.  This includes the connection handle,
-	/// connection type (and peer information), and the app name.
-	/// This string is used in various internal logging messages
+	/// Debug description.  This includes the internal connection ID,
+	/// connection type (and peer information), and any name
+	/// given to the connection by the app.  This string is used in various
+	/// internal logging messages.
 	char m_szConnectionDescription[ k_cchSteamNetworkingMaxConnectionDescription ];
 
 	/// What kind of transport is currently being used?
@@ -1146,6 +1147,107 @@ enum ESteamNetworkingConfigValue
 	///
 	/// (This flag is itself a dev variable.)
 	k_ESteamNetworkingConfig_EnumerateDevVars = 35,
+
+	/// [connection int32] Set this to 1 on outbound connections and listen sockets,
+	/// to enable "symmetric connect mode", which is useful in the following
+	/// common peer-to-peer use case:
+	///
+	/// - The two peers are "equal" to each other.  (Neither is clearly the "client"
+	///   or "server".)
+	/// - Either peer may initiate the connection, and indeed they may do this
+	///   at the same time
+	/// - The peers only desire a single connection to each other, and if both
+	///   peers initiate connections simultaneously, a protocol is needed for them
+	///   to resolve the conflict, so that we end up with a single connection.
+	///
+	/// This use case is both common, and involves subtle race conditions and tricky
+	/// pitfalls, which is why the API has support for dealing with it.
+	///
+	/// If an incoming connection arrives on a listen socket or via custom signaling,
+	/// and the application has not attempted to make a matching outbound connection
+	/// in symmetric mode, then the incoming connection can be accepted as usual.
+	/// A "matching" connection means that the relevant endpoint information matches.
+	/// (At the time this comment is being written, this is only supported for P2P
+	/// connections, which means that the peer identities must match, and the virtual
+	/// port must match.  At a later time, symmetric mode may be supported for other
+	/// connection types.)
+	///
+	/// If connections are initiated by both peers simultaneously, race conditions
+	/// can arise, but fortunately, most of them are handled internally and do not
+	/// require any special awareness from the application.  However, there
+	/// is one important case that application code must be aware of:
+	/// If application code attempts an outbound connection using a ConnectXxx
+	/// function in symmetric mode, and a matching incoming connection is already
+	/// waiting on a listen socket, then instead of forming a new connection,
+	/// the ConnectXxx call will accept the existing incoming connection, and return
+	/// a connection handle to this accepted connection.
+	/// IMPORTANT: in this case, a SteamNetConnectionStatusChangedCallback_t
+	/// has probably *already* been posted to the queue for the incoming connection!
+	/// (Once callbacks are posted to the queue, they are not modified.)  It doesn't
+	/// matter if the callback has not been consumed by the app.  Thus, application
+	/// code that makes use of symmetric connections must be aware that, when processing a
+	/// SteamNetConnectionStatusChangedCallback_t for an incoming connection, the
+	/// m_hConn may refer to a new connection that the app has has not
+	/// seen before (the usual case), but it may also refer to a connection that
+	/// has already been accepted implicitly through a call to Connect()!  In this
+	/// case, AcceptConnection() will return k_EResultDuplicateRequest.
+	///
+	/// Only one symmetric connection to a given peer (on a given virtual port)
+	/// may exist at any given time.  If client code attempts to create a connection,
+	/// and a (live) connection already exists on the local host, then either the
+	/// existing connection will be accepted as described above, or the attempt
+	/// to create a new connection will fail.  Furthermore, linger mode functionality
+	/// is not supported on symmetric connections.
+	///
+	/// A more complicated race condition can arise if both peers initiate a connection
+	/// at roughly the same time.  In this situation, each peer will receive an incoming
+	/// connection from the other peer, when the application code has already initiated
+	/// an outgoing connection to that peer.  The peers must resolve this conflict and
+	/// decide who is going to act as the "server" and who will act as the "client".
+	/// Typically the application does not need to be aware of this case as it is handled
+	/// internally.  On both sides, the will observe their outbound connection being
+	/// "accepted", although one of them one have been converted internally to act
+	/// as the "server".
+	///
+	/// In general, symmetric mode should be all-or-nothing: do not mix symmetric
+	/// connections with a non-symmetric connection that it might possible "match"
+	/// with.  If you use symmetric mode on any connections, then both peers should
+	/// use it on all connections, and the corresponding listen socket, if any.  The
+	/// behaviour when symmetric and ordinary connections are mixed is not defined by
+	/// this API, and you should not rely on it.  (This advice only applies when connections
+	/// might possibly "match".  For example, it's OK to use all symmetric mode
+	/// connections on one virtual port, and all ordinary, non-symmetric connections
+	/// on a different virtual port, as there is no potential for ambiguity.)
+	///
+	/// When using the feature, you should set it in the following situations on
+	/// applicable objects:
+	///
+	/// - When creating an outbound connection using ConnectXxx function
+	/// - When creating a listen socket.  (Note that this will automatically cause
+	///   any accepted connections to inherit the flag.)
+	/// - When using custom signaling, before accepting an incoming connection.
+	///
+	/// Setting the flag on listen socket and accepted connections will enable the
+	/// API to automatically deal with duplicate incoming connections, even if the
+	/// local host has not made any outbound requests.  (In general, such duplicate
+	/// requests from a peer are ignored internally and will not be visible to the
+	/// application code.  The previous connection must be closed or resolved first.)
+	k_ESteamNetworkingConfig_SymmetricConnect = 37,
+
+	/// [connection int32] For connection types that use "virtual ports", this can be used
+	/// to assign a local virtual port.  For incoming connections, this will always be the
+	/// virtual port of the listen socket (or the port requested by the remote host if custom
+	/// signaling is used and the connection is accepted), and cannot be changed.  For
+	/// connections initiated locally, the local virtual port will default to the same as the
+	/// requested remote virtual port, if you do not specify a different option when creating
+	/// the connection.  The local port is only relevant for symmetric connections, when
+	/// determining if two connections "match."  In this case, if you need the local and remote
+	/// port to differ, you can set this value.
+	///
+	/// You can also read back this value on listen sockets.
+	///
+	/// This value should not be read or written in any other context.
+	k_ESteamNetworkingConfig_LocalVirtualPort = 38,
 
 	//
 	// P2P settings

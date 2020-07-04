@@ -22,7 +22,7 @@
 // Put everything in a namespace, so we don't violate the one definition rule
 namespace SteamNetworkingSocketsLib {
 
-CUtlHashMap<RemoteConnectionKey_t,CSteamNetworkConnectionP2P*, std::equal_to<RemoteConnectionKey_t>, RemoteConnectionKey_t::Hash > g_mapIncomingP2PConnections;
+CUtlHashMap<RemoteConnectionKey_t,CSteamNetworkConnectionP2P*, std::equal_to<RemoteConnectionKey_t>, RemoteConnectionKey_t::Hash > g_mapP2PConnectionsByRemoteInfo;
 
 constexpr SteamNetworkingMicroseconds k_usecWaitForControllingAgentBeforeSelectingNonNominatedTransport = 1*k_nMillion;
 
@@ -34,16 +34,15 @@ constexpr SteamNetworkingMicroseconds k_usecWaitForControllingAgentBeforeSelecti
 
 CSteamNetworkListenSocketP2P::CSteamNetworkListenSocketP2P( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface )
 : CSteamNetworkListenSocketBase( pSteamNetworkingSocketsInterface )
-, m_nLocalVirtualPort( -1 )
 {
 }
 
 CSteamNetworkListenSocketP2P::~CSteamNetworkListenSocketP2P()
 {
 	// Remove from virtual port map
-	if ( m_nLocalVirtualPort >= 0 )
+	if ( m_connectionConfig.m_LocalVirtualPort.IsSet() )
 	{
-		int h = m_pSteamNetworkingSocketsInterface->m_mapListenSocketsByVirtualPort.Find( m_nLocalVirtualPort );
+		int h = m_pSteamNetworkingSocketsInterface->m_mapListenSocketsByVirtualPort.Find( LocalVirtualPort() );
 		if ( h != m_pSteamNetworkingSocketsInterface->m_mapListenSocketsByVirtualPort.InvalidIndex() && m_pSteamNetworkingSocketsInterface->m_mapListenSocketsByVirtualPort[h] == this )
 		{
 			m_pSteamNetworkingSocketsInterface->m_mapListenSocketsByVirtualPort[h] = nullptr; // just for grins
@@ -53,7 +52,6 @@ CSteamNetworkListenSocketP2P::~CSteamNetworkListenSocketP2P()
 		{
 			AssertMsg( false, "Bookkeeping bug!" );
 		}
-		m_nLocalVirtualPort = -1;
 	}
 }
 
@@ -74,7 +72,10 @@ bool CSteamNetworkListenSocketP2P::BInit( int nLocalVirtualPort, int nOptions, c
 		return false;
 	}
 	m_pSteamNetworkingSocketsInterface->m_mapListenSocketsByVirtualPort.Insert( nLocalVirtualPort, this );
-	m_nLocalVirtualPort = nLocalVirtualPort;
+
+	// Lock in virtual port into connection config map.
+	m_connectionConfig.m_LocalVirtualPort.Set( nLocalVirtualPort );
+	m_connectionConfig.m_LocalVirtualPort.Lock();
 
 	// Set options, add us to the global table
 	if ( !BInitListenSocketCommon( nOptions, pOptions, errMsg ) )
@@ -93,7 +94,7 @@ CSteamNetworkConnectionP2P::CSteamNetworkConnectionP2P( CSteamNetworkingSockets 
 : CSteamNetworkConnectionBase( pSteamNetworkingSocketsInterface )
 {
 	m_nRemoteVirtualPort = -1;
-	m_idxMapIncomingP2PConnections = -1;
+	m_idxMapP2PConnectionsByRemoteInfo = -1;
 	m_pSignaling = nullptr;
 	m_usecWhenStartedFindingRoute = 0;
 	m_usecNextEvaluateTransport = k_nThinkTime_ASAP;
@@ -118,7 +119,7 @@ CSteamNetworkConnectionP2P::CSteamNetworkConnectionP2P( CSteamNetworkingSockets 
 
 CSteamNetworkConnectionP2P::~CSteamNetworkConnectionP2P()
 {
-	Assert( m_idxMapIncomingP2PConnections == -1 );
+	Assert( m_idxMapP2PConnectionsByRemoteInfo == -1 );
 }
 
 void CSteamNetworkConnectionP2P::GetConnectionTypeDescription( ConnectionTypeDescription_t &szDescription ) const
@@ -129,9 +130,18 @@ void CSteamNetworkConnectionP2P::GetConnectionTypeDescription( ConnectionTypeDes
 		V_sprintf_safe( szDescription, "P2P %s", SteamNetworkingIdentityRender( m_identityRemote ).c_str() );
 }
 
-bool CSteamNetworkConnectionP2P::BInitConnect( ISteamNetworkingConnectionCustomSignaling *pSignaling, const SteamNetworkingIdentity *pIdentityRemote, int nRemoteVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions, SteamDatagramErrMsg &errMsg )
+bool CSteamNetworkConnectionP2P::BInitConnect(
+	ISteamNetworkingConnectionCustomSignaling *pSignaling,
+	const SteamNetworkingIdentity *pIdentityRemote, int nRemoteVirtualPort,
+	int nOptions, const SteamNetworkingConfigValue_t *pOptions,
+	CSteamNetworkConnectionP2P **pOutMatchingSymmetricConnection,
+	SteamDatagramErrMsg &errMsg
+)
 {
 	Assert( !m_pTransport );
+
+	if ( pOutMatchingSymmetricConnection )
+		*pOutMatchingSymmetricConnection = nullptr;
 
 	// Remember who we're talking to
 	Assert( m_pSignaling == nullptr );
@@ -148,14 +158,37 @@ bool CSteamNetworkConnectionP2P::BInitConnect( ISteamNetworkingConnectionCustomS
 	if ( !BInitP2PConnectionCommon( usecNow, nOptions, pOptions, errMsg ) )
 		return false;
 
-	// Check if we should try ICE
+	// Check if there is a matching connection, for symmetric mode
+	if ( !m_identityRemote.IsInvalid() && LocalVirtualPort() >= 0 )
+	{
+		bool bOnlySymmetricConnections = !BSymmetricMode();
+		CSteamNetworkConnectionP2P *pMatchingConnection = CSteamNetworkConnectionP2P::FindDuplicateConnection( m_pSteamNetworkingSocketsInterface, LocalVirtualPort(), m_identityRemote, m_nRemoteVirtualPort, bOnlySymmetricConnections, this );
+		if ( pMatchingConnection )
+		{
+			if ( pOutMatchingSymmetricConnection )
+				*pOutMatchingSymmetricConnection = pMatchingConnection;
+			V_sprintf_safe( errMsg, "Existing symmetric connection [%s]", pMatchingConnection->GetDescription() );
+			return false;
+		}
+	}
+	else
+	{
+		if ( BSymmetricMode() )
+		{
+			Assert( LocalVirtualPort() >= 0 );
+			V_strcpy_safe( errMsg, "To use symmetric connect, remote identity must be specified" );
+			return false;
+		}
+	}
+
+	if ( !BInitSDR( errMsg ) )
+		return false;
+
+	// Check if we should try ICE.
 	CheckInitICE();
 
-	// Start the connection state machine, and send the first request packet.
-	CheckConnectionStateAndSetNextThinkTime( usecNow );
-
-	// Done
-	return true;
+	// Start the connection state machine
+	return BConnectionState_Connecting( usecNow, errMsg );
 }
 
 bool CSteamNetworkConnectionP2P::BInitP2PConnectionCommon( SteamNetworkingMicroseconds usecNow, int nOptions, const SteamNetworkingConfigValue_t *pOptions, SteamDatagramErrMsg &errMsg )
@@ -163,6 +196,38 @@ bool CSteamNetworkConnectionP2P::BInitP2PConnectionCommon( SteamNetworkingMicros
 	// Let base class do some common initialization
 	if ( !CSteamNetworkConnectionBase::BInitConnection( usecNow, nOptions, pOptions, errMsg ) )
 		return false;
+
+	// Check for defaulting the local virtual port to be the same as the remote virtual port
+	if ( LocalVirtualPort() < 0 && m_nRemoteVirtualPort >= 0 )
+		m_connectionConfig.m_LocalVirtualPort.Set( m_nRemoteVirtualPort );
+
+	// Local virtual port cannot be changed henceforth
+	m_connectionConfig.m_LocalVirtualPort.Lock();
+
+	// Check for activating symmetric mode based on listen socket on the same local virtual port
+	int nLocalVirtualPort = LocalVirtualPort();
+	if ( nLocalVirtualPort >= 0 && !BSymmetricMode() )
+	{
+
+		// Are we listening on that virtual port?
+		int idxListenSock = m_pSteamNetworkingSocketsInterface->m_mapListenSocketsByVirtualPort.Find( nLocalVirtualPort );
+		if ( idxListenSock != m_pSteamNetworkingSocketsInterface->m_mapListenSocketsByVirtualPort.InvalidIndex() )
+		{
+
+			// Really, they should match.  App code should be all-or-nothing.  It should not mix.
+			if ( m_pSteamNetworkingSocketsInterface->m_mapListenSocketsByVirtualPort[ idxListenSock ]->BSymmetricMode() )
+			{
+				SpewWarning( "[%s] Setting SymmetricConnect=1 because it is enabled on listen socket on virtual port %d.  To avoid this warning, specify the option on connection creation\n", GetDescription(), nLocalVirtualPort );
+				Assert( !m_connectionConfig.m_SymmetricConnect.IsLocked() );
+				m_connectionConfig.m_SymmetricConnect.Unlock();
+				m_connectionConfig.m_SymmetricConnect.Set( 1 );
+			}
+		}
+	}
+
+	// Once symmetric mode is activated, it cannot be turned off!
+	if ( BSymmetricMode() )
+		m_connectionConfig.m_SymmetricConnect.Lock();
 
 	// We must know our own identity to initiate or receive this kind of connection
 	if ( m_identityLocal.IsInvalid() )
@@ -185,6 +250,146 @@ bool CSteamNetworkConnectionP2P::BInitP2PConnectionCommon( SteamNetworkingMicros
 		SpewWarning( "Connecting P2P socket to self (%s).  Traffic will be relayed over the network", SteamNetworkingIdentityRender( m_identityRemote ).c_str() );
 	}
 
+	return true;
+}
+
+bool CSteamNetworkConnectionP2P::BEnsureInP2PConnectionMapByRemoteInfo( SteamDatagramErrMsg &errMsg )
+{
+	Assert( !m_identityRemote.IsInvalid() );
+	Assert( m_unConnectionIDRemote );
+
+	RemoteConnectionKey_t key{ m_identityRemote, m_unConnectionIDRemote };
+	if ( m_idxMapP2PConnectionsByRemoteInfo >= 0 )
+	{
+		Assert( g_mapP2PConnectionsByRemoteInfo.Key( m_idxMapP2PConnectionsByRemoteInfo ) == key );
+		Assert( g_mapP2PConnectionsByRemoteInfo[ m_idxMapP2PConnectionsByRemoteInfo ] == this );
+	}
+	else
+	{
+		if ( g_mapP2PConnectionsByRemoteInfo.HasElement( key ) )
+		{
+			// "should never happen"
+			V_sprintf_safe( errMsg, "Duplicate P2P connection %s %u!", SteamNetworkingIdentityRender( m_identityRemote ).c_str(), m_unConnectionIDRemote );
+			AssertMsg1( false, "%s", errMsg );
+			return false;
+		}
+		m_idxMapP2PConnectionsByRemoteInfo = g_mapP2PConnectionsByRemoteInfo.InsertOrReplace( key, this );
+	}
+
+	return true;
+}
+
+bool CSteamNetworkConnectionP2P::BBeginAccept(
+	const CMsgSteamNetworkingP2PRendezvous_ConnectRequest &msgConnectRequest,
+	SteamDatagramErrMsg &errMsg,
+	SteamNetworkingMicroseconds usecNow
+) {
+	m_bConnectionInitiatedRemotely = true;
+
+	// Let base class do some common initialization
+	if ( !BInitP2PConnectionCommon( usecNow, 0, nullptr, errMsg ) )
+		return false;
+
+	// Initialize SDR transport
+	if ( !BInitSDR( errMsg ) )
+		return false;
+
+	// Process crypto handshake now
+	if ( !BRecvCryptoHandshake( msgConnectRequest.cert(), msgConnectRequest.crypt(), true ) )
+	{
+		Assert( GetState() == k_ESteamNetworkingConnectionState_ProblemDetectedLocally );
+		V_sprintf_safe( errMsg, "Error with crypto.  %s", m_szEndDebug );
+		return false;
+	}
+
+	// Add to connection map
+	if ( !BEnsureInP2PConnectionMapByRemoteInfo( errMsg ) )
+		return false;
+
+	// Start the connection state machine
+	return BConnectionState_Connecting( usecNow, errMsg );
+}
+
+void CSteamNetworkConnectionP2P::ChangeRoleToServerAndAccept( const CMsgSteamNetworkingP2PRendezvous &msg, SteamNetworkingMicroseconds usecNow )
+{
+	int nLogLevel = LogLevel_P2PRendezvous();
+
+	// Our connection should be the server.  We should change the role of this connection.
+	// But we can only do that if we are still trying to connect!
+	if ( GetState() != k_ESteamNetworkingConnectionState_Connecting )
+	{
+		SpewWarningGroup( nLogLevel, "[%s] Symmetric role resolution for connect request remote cxn ID #%u says we should act as server.  But we cannot change our role, since we are already in state %d!  Dropping incoming request\n", GetDescription(), msg.from_connection_id(), GetState() );
+		return;
+	}
+
+	// We should currently be the client, and we should not already know anything about the remote host
+	if ( m_bConnectionInitiatedRemotely )
+	{
+		AssertMsg( false, "[%s] Symmetric role resolution for connect request remote cxn ID #%u says we should act as server.  But we are already the server!  Why haven't we transitioned out of connecting state.  Dropping incoming request\n", GetDescription(), msg.from_connection_id() );
+		return;
+	}
+
+	SpewVerboseGroup( nLogLevel, "[%s] Symmetric role resolution for connect request remote cxn ID #%u says we should act as client.  Changing role\n", GetDescription(), msg.from_connection_id() );
+
+	// !KLUDGE! If we already started ICE, then we have to nuke it and restart.
+	// It'd be better if we could just ask ICE to change the role.
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+		bool bRestartICE = false;
+		CheckCleanupICE();
+		if ( m_pTransportICE )
+		{
+			SpewVerboseGroup( nLogLevel, "[%s] Symmetric role resolution for connect request remote cxn ID #%u says we should act as client.  Changing role\n", GetDescription(), msg.from_connection_id() );
+			DestroyICENow();
+			bRestartICE = true;
+		}
+	#endif
+
+	// We should not have done the crypto handshake yet
+	Assert( !m_unConnectionIDRemote );
+	Assert( m_idxMapP2PConnectionsByRemoteInfo < 0 );
+	Assert( !m_bCryptKeysValid );
+	Assert( m_sCertRemote.empty() );
+	Assert( m_sCryptRemote.empty() );
+
+	// Change role
+	m_bConnectionInitiatedRemotely = true;
+	m_unConnectionIDRemote = msg.from_connection_id();
+
+	// Clear crypt stuff that we usually do immediately as the client, but have
+	// to defer when we're the server.  We need to redo it, now that our role has
+	// changed
+	ClearLocalCrypto();
+
+	// Process crypto handshake now -- acting as the "server"
+	const CMsgSteamNetworkingP2PRendezvous_ConnectRequest &msgConnectRequest = msg.connect_request();
+	if ( !BRecvCryptoHandshake( msgConnectRequest.cert(), msgConnectRequest.crypt(), true ) )
+	{
+		Assert( GetState() == k_ESteamNetworkingConnectionState_ProblemDetectedLocally );
+		return;
+	}
+
+	// Add to connection map
+	SteamNetworkingErrMsg errMsg;
+	if ( !BEnsureInP2PConnectionMapByRemoteInfo( errMsg ) )
+	{
+		AssertMsg( false, errMsg );
+	}
+
+	// Restart ICE if necessary
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+		if ( bRestartICE )
+			CheckInitICE();
+	#endif
+
+}
+
+CSteamNetworkConnectionP2P *CSteamNetworkConnectionP2P::AsSteamNetworkConnectionP2P()
+{
+	return this;
+}
+
+bool CSteamNetworkConnectionP2P::BInitSDR( SteamNetworkingErrMsg &errMsg )
+{
 	// Create SDR transport, if SDR is enabled
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 
@@ -204,55 +409,19 @@ bool CSteamNetworkConnectionP2P::BInitP2PConnectionCommon( SteamNetworkingMicros
 	return true;
 }
 
-bool CSteamNetworkConnectionP2P::BBeginAccept(
-	const CMsgSteamNetworkingP2PRendezvous_ConnectRequest &msgConnectRequest,
-	SteamDatagramErrMsg &errMsg,
-	SteamNetworkingMicroseconds usecNow
-) {
-	m_bConnectionInitiatedRemotely = true;
-
-	// Let base class do some common initialization
-	if ( !BInitP2PConnectionCommon( usecNow, 0, nullptr, errMsg ) )
-		return false;
-
-	// Process crypto handshake now
-	if ( !BRecvCryptoHandshake( msgConnectRequest.cert(), msgConnectRequest.crypt(), true ) )
-	{
-		Assert( GetState() == k_ESteamNetworkingConnectionState_ProblemDetectedLocally );
-		V_sprintf_safe( errMsg, "Error with crypto.  %s", m_szEndDebug );
-		return false;
-	}
-
-	// Add to connection map
-	Assert( m_idxMapIncomingP2PConnections == -1 );
-	RemoteConnectionKey_t key{ m_identityRemote, m_unConnectionIDRemote };
-	if ( g_mapIncomingP2PConnections.HasElement( key ) )
-	{
-		// "should never happen"
-		V_sprintf_safe( errMsg, "Duplicate P2P connection %s %u!", SteamNetworkingIdentityRender( m_identityRemote ).c_str(), m_unConnectionIDRemote );
-		AssertMsg1( false, "%s", errMsg );
-		return false;
-	}
-	m_idxMapIncomingP2PConnections = g_mapIncomingP2PConnections.InsertOrReplace( key, this );
-
-	// Start the connection state machine
-	return BConnectionState_Connecting( usecNow, errMsg );
-}
-
-CSteamNetworkConnectionP2P *CSteamNetworkConnectionP2P::AsSteamNetworkConnectionP2P()
-{
-	return this;
-}
-
 void CSteamNetworkConnectionP2P::CheckInitICE()
 {
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
-	Assert( !m_pTransportICE );
-	Assert( !m_pTransportICEPendingDelete );
 
 	// Did we already fail?
 	if ( GetICEFailureCode() != 0 )
 		return;
+
+	// Already created?
+	if ( m_pTransportICE )
+		return;
+	Assert( !m_pTransportICEPendingDelete );
+	CheckCleanupICE();
 
 	// Fetch enabled option
 	int P2P_Transport_ICE_Enable = m_connectionConfig.m_P2P_Transport_ICE_Enable.Get();
@@ -537,18 +706,18 @@ void CSteamNetworkConnectionP2P::ICEFailed( int nReasonCode, const char *pszReas
 void CSteamNetworkConnectionP2P::FreeResources()
 {
 	// Remove from global map, if we're in it
-	if ( m_idxMapIncomingP2PConnections >= 0 )
+	if ( m_idxMapP2PConnectionsByRemoteInfo >= 0 )
 	{
-		if ( g_mapIncomingP2PConnections.IsValidIndex( m_idxMapIncomingP2PConnections ) && g_mapIncomingP2PConnections[ m_idxMapIncomingP2PConnections ] == this )
+		if ( g_mapP2PConnectionsByRemoteInfo.IsValidIndex( m_idxMapP2PConnectionsByRemoteInfo ) && g_mapP2PConnectionsByRemoteInfo[ m_idxMapP2PConnectionsByRemoteInfo ] == this )
 		{
-			g_mapIncomingP2PConnections[ m_idxMapIncomingP2PConnections ] = nullptr; // just for grins
-			g_mapIncomingP2PConnections.RemoveAt( m_idxMapIncomingP2PConnections );
+			g_mapP2PConnectionsByRemoteInfo[ m_idxMapP2PConnectionsByRemoteInfo ] = nullptr; // just for grins
+			g_mapP2PConnectionsByRemoteInfo.RemoveAt( m_idxMapP2PConnectionsByRemoteInfo );
 		}
 		else
 		{
 			AssertMsg( false, "g_mapIncomingP2PConnections bookkeeping mismatch" );
 		}
-		m_idxMapIncomingP2PConnections = -1;
+		m_idxMapP2PConnectionsByRemoteInfo = -1;
 	}
 
 	// Release signaling
@@ -582,11 +751,74 @@ void CSteamNetworkConnectionP2P::DestroyTransport()
 	#endif
 }
 
+CSteamNetworkConnectionP2P *CSteamNetworkConnectionP2P::FindDuplicateConnection( CSteamNetworkingSockets *pInterfaceLocal, int nLocalVirtualPort, const SteamNetworkingIdentity &identityRemote, int nRemoteVirtualPort, bool bOnlySymmetricConnections, CSteamNetworkConnectionP2P *pIgnore )
+{
+	for ( CSteamNetworkConnectionBase *pConn: g_mapConnections.IterValues() )
+	{
+		if ( pConn->m_pSteamNetworkingSocketsInterface != pInterfaceLocal )
+			continue;
+		if ( !(  pConn->m_identityRemote == identityRemote ) )
+			continue;
+
+		// Check state
+		switch ( pConn->GetState() )
+		{
+			case k_ESteamNetworkingConnectionState_Dead:
+			default:
+				Assert( false );
+			case k_ESteamNetworkingConnectionState_ClosedByPeer:
+			case k_ESteamNetworkingConnectionState_FinWait:
+			case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
+				// Connection no longer alive, we could create a new one
+				continue;
+
+			case k_ESteamNetworkingConnectionState_None:
+				// Not finished initializing.  But that should only possibly be the case
+				// for one connection, one we are in the process of creating.  And so we
+				// should be ignoring it.
+				Assert( pConn == pIgnore );
+				continue;
+
+			case k_ESteamNetworkingConnectionState_Connecting:
+			case k_ESteamNetworkingConnectionState_FindingRoute:
+			case k_ESteamNetworkingConnectionState_Connected:
+			case k_ESteamNetworkingConnectionState_Linger:
+				// Yes, it's a possible duplicate
+				break;
+		}
+		if ( bOnlySymmetricConnections && !pConn->BSymmetricMode() )
+			continue;
+		if ( pConn == pIgnore )
+			continue;
+		CSteamNetworkConnectionP2P *pConnP2P = pConn->AsSteamNetworkConnectionP2P();
+		if ( !pConnP2P )
+			continue;
+		if ( pConnP2P->m_nRemoteVirtualPort != nRemoteVirtualPort )
+			continue;
+		if ( pConnP2P->LocalVirtualPort() != nLocalVirtualPort )
+			continue;
+		return pConnP2P;
+	}
+
+	return nullptr;
+}
+
 EResult CSteamNetworkConnectionP2P::AcceptConnection( SteamNetworkingMicroseconds usecNow )
 {
 	// Calling code shouldn't call us unless this is true
 	Assert( m_bConnectionInitiatedRemotely );
 	Assert( GetState() == k_ESteamNetworkingConnectionState_Connecting );
+
+	// Check symmetric mode.  Note that if they are using the API properly, we should
+	// have already detected this earlier!
+	if ( BSymmetricMode() )
+	{
+		if ( CSteamNetworkConnectionP2P::FindDuplicateConnection( m_pSteamNetworkingSocketsInterface, LocalVirtualPort(), m_identityRemote, m_nRemoteVirtualPort, false, this ) )
+		{
+			ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_InternalError, "Cannot accept connection, duplicate symmetric connection already exists" );
+			return k_EResultFail;
+		}
+	}
 
 	// Check for enabling ICE
 	CheckInitICE();
@@ -616,6 +848,11 @@ void CSteamNetworkConnectionP2P::ProcessSNPPing( int msPing, RecvPacketContext_t
 			pTransportP2P->m_pingEndToEnd.ReceivedPing( msPing, ctx.m_usecNow );
 		}
 	}
+}
+
+bool CSteamNetworkConnectionP2P::BSupportsSymmetricMode()
+{
+	return true;
 }
 
 void CSteamNetworkConnectionP2P::TransportEndToEndConnectivityChanged( CConnectionTransportP2PBase *pTransport, SteamNetworkingMicroseconds usecNow )
@@ -1127,8 +1364,8 @@ SteamNetworkingMicroseconds CSteamNetworkConnectionP2P::ThinkConnection_ClientCo
 	CMsgSteamNetworkingP2PRendezvous_ConnectRequest &msgConnectRequest = *msgRendezvous.mutable_connect_request();
 	*msgConnectRequest.mutable_cert() = m_msgSignedCertLocal;
 	*msgConnectRequest.mutable_crypt() = m_msgSignedCryptLocal;
-	if ( m_nRemoteVirtualPort >= 0 )
-		msgConnectRequest.set_virtual_port( m_nRemoteVirtualPort );
+	msgConnectRequest.set_to_virtual_port( m_nRemoteVirtualPort );
+	msgConnectRequest.set_from_virtual_port( LocalVirtualPort() );
 
 	// Send through signaling service
 	SpewMsgGroup( LogLevel_P2PRendezvous(), "[%s] Sending P2P ConnectRequest\n", GetDescription() );
@@ -1190,8 +1427,14 @@ void CSteamNetworkConnectionP2P::SetRendezvousCommonFieldsAndSendSignal( CMsgSte
 	Assert( !msg.has_to_connection_id() );
 	if ( !msg.has_connect_request() )
 	{
-		Assert( m_unConnectionIDRemote != 0 );
-		msg.set_to_connection_id( m_unConnectionIDRemote );
+		if ( m_unConnectionIDRemote )
+		{
+			msg.set_to_connection_id( m_unConnectionIDRemote );
+		}
+		else
+		{
+			Assert( msg.has_connection_closed() );
+		}
 	}
 
 	char szTempIdentity[ SteamNetworkingIdentity::k_cchMaxString ];
@@ -1662,18 +1905,17 @@ SteamNetworkingMicroseconds CConnectionTransportP2PBase::CalcTotalTimeSelected( 
 //
 /////////////////////////////////////////////////////////////////////////////
 
-HSteamNetConnection CSteamNetworkingSockets::ConnectP2PCustomSignaling( ISteamNetworkingConnectionCustomSignaling *pSignaling, const SteamNetworkingIdentity *pPeerIdentity, int nOptions, const SteamNetworkingConfigValue_t *pOptions )
+HSteamNetConnection CSteamNetworkingSockets::ConnectP2PCustomSignaling( ISteamNetworkingConnectionCustomSignaling *pSignaling, const SteamNetworkingIdentity *pPeerIdentity, int nVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions )
 {
 	if ( !pSignaling )
 		return k_HSteamNetConnection_Invalid;
 
 	SteamDatagramTransportLock scopeLock( "ConnectP2PCustomSignaling" );
-	return InternalConnectP2P( pSignaling, pPeerIdentity, -1, nOptions, pOptions );
+	return InternalConnectP2P( pSignaling, pPeerIdentity, nVirtualPort, nOptions, pOptions );
 }
 
 HSteamNetConnection CSteamNetworkingSockets::InternalConnectP2P( ISteamNetworkingConnectionCustomSignaling *pSignaling, const SteamNetworkingIdentity *pPeerIdentity, int nRemoteVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions )
 {
-
 	CSteamNetworkConnectionP2P *pConn = new CSteamNetworkConnectionP2P( this );
 	if ( !pConn )
 	{
@@ -1682,17 +1924,71 @@ HSteamNetConnection CSteamNetworkingSockets::InternalConnectP2P( ISteamNetworkin
 	}
 
 	SteamDatagramErrMsg errMsg;
-	if ( !pConn->BInitConnect( pSignaling, pPeerIdentity, nRemoteVirtualPort, nOptions, pOptions, errMsg ) )
+	CSteamNetworkConnectionP2P *pMatchingConnection = nullptr;
+	if ( pConn->BInitConnect( pSignaling, pPeerIdentity, nRemoteVirtualPort, nOptions, pOptions, &pMatchingConnection, errMsg ) )
+		return pConn->m_hConnectionSelf;
+
+	// Failed.  Destroy the failed connection
+	pConn->ConnectionDestroySelfNow();
+	pConn = nullptr;
+
+	// Did we fail because we found an existing matching connection?
+	if ( pMatchingConnection )
 	{
-		if ( pPeerIdentity )
-			SpewError( "Cannot create P2P connection to %s.  %s", SteamNetworkingIdentityRender( *pPeerIdentity ).c_str(), errMsg );
+
+		// If connection is inbound, then we can just implicitly accept it.
+		if ( !pMatchingConnection->m_bConnectionInitiatedRemotely || pMatchingConnection->GetState() != k_ESteamNetworkingConnectionState_Connecting )
+		{
+			V_sprintf_safe( errMsg, "Found existing connection [%s].  Only one symmetric connection can be active at a time.", pMatchingConnection->GetDescription() );
+		}
 		else
-			SpewError( "Cannot create P2P connection.  %s", errMsg );
-		pConn->ConnectionDestroySelfNow();
-		return k_HSteamNetConnection_Invalid;
+		{
+			SpewVerbose( "[%s] Accepting inbound connection implicitly, based on matching outbound connect request\n", pMatchingConnection->GetDescription() );
+
+			// OK, we can try to accept this connection.  HOWEVER, first let's apply
+			// any connection options the caller is passing in.
+			if ( pOptions )
+			{
+				for ( int i = 0 ; i < nOptions ; ++i )
+				{
+					const SteamNetworkingConfigValue_t &opt = pOptions[i];
+
+					// Skip these, they are locked
+					if ( opt.m_eValue == k_ESteamNetworkingConfig_LocalVirtualPort || opt.m_eValue == k_ESteamNetworkingConfig_SymmetricConnect )
+						continue;
+
+					// Set the option
+					if ( !m_pSteamNetworkingUtils->SetConfigValueStruct( opt, k_ESteamNetworkingConfig_Connection, pMatchingConnection->m_hConnectionSelf ) )
+					{
+						// Spew, but keep going!
+						SpewBug( errMsg, "[%s] Failed to set option %d while implicitly accepting.  Ignoring failure!", pMatchingConnection->GetDescription(), opt.m_eValue );
+					}
+				}
+			}
+			else
+			{
+				Assert( nOptions == 0 );
+			}
+
+			// Implicitly accept connection
+			EResult eAcceptResult = pMatchingConnection->AcceptConnection( SteamNetworkingSockets_GetLocalTimestamp() );
+			if ( eAcceptResult != k_EResultOK )
+			{
+				SpewBug( errMsg, "[%s] Failed to implicitly accept with return code %d", pMatchingConnection->GetDescription(), eAcceptResult );
+				return k_HSteamNetConnection_Invalid;
+			}
+
+			// All good!  Return the handle to the incoming connection that was accepted
+			return pMatchingConnection->m_hConnectionSelf;
+		}
 	}
 
-	return pConn->m_hConnectionSelf;
+	// Failed
+	if ( pPeerIdentity )
+		SpewError( "Cannot create P2P connection to %s.  %s", SteamNetworkingIdentityRender( *pPeerIdentity ).c_str(), errMsg );
+	else
+		SpewError( "Cannot create P2P connection.  %s", errMsg );
+	return k_HSteamNetConnection_Invalid;
 }
 
 static void SendP2PRejection( ISteamNetworkingCustomSignalingRecvContext *pContext, SteamNetworkingIdentity &identityPeer, const CMsgSteamNetworkingP2PRendezvous &msg, int nEndReason, const char *fmt, ... )
@@ -1720,6 +2016,54 @@ static void SendP2PRejection( ISteamNetworkingCustomSignalingRecvContext *pConte
 
 bool CSteamNetworkingSockets::ReceivedP2PCustomSignal( const void *pMsg, int cbMsg, ISteamNetworkingCustomSignalingRecvContext *pContext )
 {
+	return InternalReceivedP2PSignal( pMsg, cbMsg, pContext, false );
+}
+
+// Compare connections initiated by two peers, and make a decision
+// which one should take priority.  We use the Connection IDs as the
+// first discriminator, and we do it in a "rock-paper-scissors" sort
+// of a way, such that all IDs are equally likely to win if you don't
+// know the other ID, and a malicious client has no strategy for
+// influencing the outcome to achieve any particular end.
+//
+// <0: A should be the "client"
+// >0: B should be the "client"
+// 0: cannot choose.  (*exceedingly* rare)
+static int CompareSymmetricConnections( uint32 nConnectionIDA, const std::string &sTieBreakerA, uint32 nConnectionIDB, const std::string &sTieBreakerB )
+{
+
+	// Start by select
+	int result;
+	if ( nConnectionIDA < nConnectionIDB ) result = -1;
+	else if ( nConnectionIDA > nConnectionIDB ) result = +1;
+	else
+	{
+		// This is exceedingly rare.  We go ahead and write some code to handle it, because
+		// why not?  It would probably be acceptable to punt here and fail the connection.
+		// But assert, because if we do hit this case, it is almost certainly more likely
+		// to be a bug in our code than an actual collision.
+		//
+		// Also note that it is possible to make a connection to "yourself"
+		AssertMsg( false, "Symmetric connections with connection IDs!  Odds are 1:2e32!" );
+
+		// Compare a secondary source of entropy.  Even if encryption is disabled, we still create a key per connection.
+		int n = std::min( len( sTieBreakerA ), len( sTieBreakerB ) );
+		Assert( n >= 32 );
+		result = memcmp( sTieBreakerA.c_str(), sTieBreakerB.c_str(), n );
+		Assert( result != 0 );
+	}
+
+	// Check parity of lowest bit and flip result
+	if ( ( nConnectionIDA ^ nConnectionIDB ) & 1 )
+		result = result;
+
+	return result;
+}
+
+bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const void *pMsg, int cbMsg, ISteamNetworkingCustomSignalingRecvContext *pContext, bool bDefaultPlatformSignaling )
+{
+	SteamDatagramErrMsg errMsg;
+
 	// Deserialize the message
 	CMsgSteamNetworkingP2PRendezvous msg;
 	if ( !msg.ParseFromArray( pMsg, cbMsg ) )
@@ -1743,8 +2087,8 @@ bool CSteamNetworkingSockets::ReceivedP2PCustomSignal( const void *pMsg, int cbM
 
 	int nLogLevel = m_connectionConfig.m_LogLevel_P2PRendezvous.Get();
 
-	// Grab the lock now
-	SteamDatagramTransportLock lock( "ReceivedP2PCustomSignal" );
+	// Grab the lock now.  (We might not have previously held it.)
+	SteamDatagramTransportLock lock( "ReceivedP2PSignal" );
 
 	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 
@@ -1806,7 +2150,9 @@ bool CSteamNetworkingSockets::ReceivedP2PCustomSignal( const void *pMsg, int cbM
 		{
 			pConn->m_unConnectionIDRemote = msg.from_connection_id();
 		}
-
+		if ( !pConn->BEnsureInP2PConnectionMapByRemoteInfo( errMsg ) )
+				return false;
+	
 		// Closing the connection gracefully through rendezvous?
 		// (Usually we try to close the connection through the
 		// relay network.)
@@ -1852,11 +2198,11 @@ bool CSteamNetworkingSockets::ReceivedP2PCustomSignal( const void *pMsg, int cbM
 		Assert( !msg.has_connection_closed() ); // Not a local code bug, but fishy for them to send both
 
 		RemoteConnectionKey_t key{ identityRemote, msg.from_connection_id() };
-		int idxMapP2P = g_mapIncomingP2PConnections.Find( key );
-		if ( idxMapP2P != g_mapIncomingP2PConnections.InvalidIndex() )
+		int idxMapP2P = g_mapP2PConnectionsByRemoteInfo.Find( key );
+		if ( idxMapP2P != g_mapP2PConnectionsByRemoteInfo.InvalidIndex() )
 		{
-			pConn = g_mapIncomingP2PConnections[ idxMapP2P ];
-			Assert( pConn->m_idxMapIncomingP2PConnections == idxMapP2P );
+			pConn = g_mapP2PConnectionsByRemoteInfo[ idxMapP2P ];
+			Assert( pConn->m_idxMapP2PConnectionsByRemoteInfo == idxMapP2P );
 			Assert( pConn->m_identityRemote == identityRemote );
 			Assert( pConn->m_unConnectionIDRemote == msg.from_connection_id() );
 		}
@@ -1872,9 +2218,10 @@ bool CSteamNetworkingSockets::ReceivedP2PCustomSignal( const void *pMsg, int cbM
 			// P2P connections always require certs issued by Steam!
 			if ( !m_msgSignedCert.has_ca_signature() )
 			{
-				SpewWarning( "Ignoring P2P connection request from %s.  We cannot accept it since we don't have a cert from Steam yet!\n", SteamNetworkingIdentityRender( identityRemote ).c_str() );
+				SpewWarning( "Ignoring P2P connection request from %s.  We cannot accept it since we don't have a cert yet!\n", SteamNetworkingIdentityRender( identityRemote ).c_str() );
 				return true; // Return true because the signal is valid, we just cannot do anything with it right now
 			}
+			Assert( !m_identity.IsInvalid() );
 
 			const CMsgSteamNetworkingP2PRendezvous_ConnectRequest &msgConnectRequest = msg.connect_request();
 			if ( !msgConnectRequest.has_cert() || !msgConnectRequest.has_crypt() )
@@ -1883,67 +2230,125 @@ bool CSteamNetworkingSockets::ReceivedP2PCustomSignal( const void *pMsg, int cbM
 				return false;
 			}
 
+			// Determine virtual ports, and locate the listen socket, if any
+			int nLocalVirtualPort = -1;
+			int nRemoteVirtualPort = -1;
+			bool bSymmetricListenSocket = false;
+			#ifdef STEAMNETWORKINGSOCKETS_HAS_DEFAULT_P2P_SIGNALING
+				CSteamNetworkListenSocketP2P *pListenSock = nullptr;
+				CSteamNetworkingMessages *pSteamNetworkingMessages = nullptr;
+			#endif
+			if ( msgConnectRequest.has_to_virtual_port() )
+			{
+				nLocalVirtualPort = msgConnectRequest.to_virtual_port();
+				if ( msgConnectRequest.has_from_virtual_port() )
+					nRemoteVirtualPort = msgConnectRequest.from_virtual_port();
+				else
+					nRemoteVirtualPort = nLocalVirtualPort;
+
+				#ifdef STEAMNETWORKINGSOCKETS_HAS_DEFAULT_P2P_SIGNALING
+					if ( bDefaultPlatformSignaling )
+					{
+
+						if ( nLocalVirtualPort == k_nVirtualPort_P2P )
+						{
+							// FIXME - Let's delete this from the API, and make it a totally separate layer written
+							// on top of our existing APIs
+
+							pSteamNetworkingMessages = GetSteamNetworkingMessages();
+							if ( !pSteamNetworkingMessages )
+							{
+								AssertMsg1( false, "Ignoring P2P CMsgSteamDatagramConnectRequest from %s; can't get NetworkingMessages interface!", SteamNetworkingIdentityRender( identityRemote ).c_str() );
+								SendP2PRejection( pContext, identityRemote, msg, k_ESteamNetConnectionEnd_Misc_Generic, "Internal error accepting connection.  Can't get NetworkingMessages interface" );
+								return false;
+							}
+						}
+						else
+						{
+							// Locate the listen socket
+							int idxListenSock = m_mapListenSocketsByVirtualPort.Find( nLocalVirtualPort );
+							if ( idxListenSock == m_mapListenSocketsByVirtualPort.InvalidIndex() )
+							{
+
+								// Totally ignore it.  We don't want this to be able to be used as a way to
+								// tell if you are online or not.
+								SpewMsgGroup( nLogLevel, "Ignoring P2P CMsgSteamDatagramConnectRequest from %s; we're not listening on virtual port %d\n", SteamNetworkingIdentityRender( identityRemote ).c_str(), nLocalVirtualPort );
+								return false;
+							}
+							pListenSock = m_mapListenSocketsByVirtualPort[ idxListenSock ];
+							bSymmetricListenSocket = pListenSock->BSymmetricMode();
+						}
+					}
+				#endif
+
+				// Check for matching symmetric connections
+				if ( nLocalVirtualPort >= 0 )
+				{
+					bool bOnlySymmetricConnections = !bSymmetricListenSocket; // If listen socket is symmetric, than any other existing connection counts.  Otherwise, we only conflict with existing connections opened in symmetric mode
+					CSteamNetworkConnectionP2P *pMatchingConnection = CSteamNetworkConnectionP2P::FindDuplicateConnection( this, nLocalVirtualPort, identityRemote, nRemoteVirtualPort, bOnlySymmetricConnections, nullptr );
+					if ( pMatchingConnection )
+					{
+						Assert( pMatchingConnection->m_pParentListenSocket == nullptr ); // This conflict should only happen for connections we initiate!
+						int cmp = CompareSymmetricConnections( pMatchingConnection->m_unConnectionIDLocal, pMatchingConnection->GetSignedCertLocal().cert(), msg.from_connection_id(), msgConnectRequest.cert().cert() );
+
+						// Check if we prefer for our connection to act as the "client"
+						if ( cmp <= 0 )
+						{
+							SpewVerboseGroup( nLogLevel, "[%s] Symmetric role resolution for connect request remote cxn ID #%u says we should act as client.  Dropping incoming request, we will wait for them to accept ours\n", pMatchingConnection->GetDescription(), msg.from_connection_id() );
+							Assert( !pMatchingConnection->m_bConnectionInitiatedRemotely );
+							return true;
+						}
+
+						pMatchingConnection->ChangeRoleToServerAndAccept( msg, usecNow );
+						return true;
+					}
+				}
+
+			}
+			else
+			{
+				// Old client using custom signaling that previously did not specify virtual ports.
+				// This is OK
+				Assert( !bDefaultPlatformSignaling );
+			}
+
 			// Create a connection
-			SteamDatagramErrMsg errMsg;
 			pConn = new CSteamNetworkConnectionP2P( this );
 			pConn->m_identityRemote = identityRemote;
 			pConn->m_unConnectionIDRemote = msg.from_connection_id();
+			pConn->m_nRemoteVirtualPort = nRemoteVirtualPort;
+			pConn->m_connectionConfig.m_LocalVirtualPort.Set( nLocalVirtualPort );
+			if ( bSymmetricListenSocket )
+			{
+				pConn->m_connectionConfig.m_SymmetricConnect.Set( 1 );
+				pConn->m_connectionConfig.m_SymmetricConnect.Lock();
+			}
 
 			// Suppress state change notifications for now
 			Assert( pConn->m_nSupressStateChangeCallbacks == 0 );
 			pConn->m_nSupressStateChangeCallbacks = 1;
 
-			// Is this a higher-level "P2P sessions"-style request?  Then we
-			// need to setup the messages session relationship now
-			if ( msgConnectRequest.has_virtual_port() )
-			{
-				#ifdef STEAMNETWORKINGSOCKETS_HAS_DEFAULT_P2P_SIGNALING
-					if ( msgConnectRequest.virtual_port() == k_nVirtualPort_P2P )
+			// Add it to the listen socket or messages session, if any
+			#ifdef STEAMNETWORKINGSOCKETS_HAS_DEFAULT_P2P_SIGNALING
+				if ( pListenSock )
+				{
+					if ( !pListenSock->BAddChildConnection( pConn, errMsg ) )
 					{
-						CSteamNetworkingMessages *pSteamNetworkingMessages = GetSteamNetworkingMessages();
-						if ( !pSteamNetworkingMessages )
-						{
-							AssertMsg1( false, "Ignoring P2P CMsgSteamDatagramConnectRequest from %s; can't get NetworkingMessages interface!", SteamNetworkingIdentityRender( pConn->m_identityRemote ).c_str() );
-							pConn->ConnectionDestroySelfNow();
-							SendP2PRejection( pContext, identityRemote, msg, k_ESteamNetConnectionEnd_Misc_Generic, "Internal error accepting connection.  Can't get NetworkingMessages interface" );
-							return false;
-						}
-
-						if ( !pSteamNetworkingMessages->BAcceptConnection( pConn, usecNow, errMsg ) )
-						{
-							pConn->ConnectionDestroySelfNow();
-							SendP2PRejection( pContext, identityRemote, msg, k_ESteamNetConnectionEnd_Misc_Generic, "Internal error accepting connection.  %s", errMsg );
-							return false;
-						}
+						SpewDebug( "Ignoring P2P CMsgSteamDatagramConnectRequest from %s on virtual port %d; %s\n", SteamNetworkingIdentityRender( pConn->m_identityRemote ).c_str(), nLocalVirtualPort, errMsg );
+						pConn->ConnectionDestroySelfNow();
+						return false;
 					}
-					else
+				}
+				if ( pSteamNetworkingMessages )
+				{
+					if ( !pSteamNetworkingMessages->BAcceptConnection( pConn, usecNow, errMsg ) )
 					{
-						// Locate the listen socket
-						int idxListenSock = m_mapListenSocketsByVirtualPort.Find( msgConnectRequest.virtual_port() );
-						if ( idxListenSock == m_mapListenSocketsByVirtualPort.InvalidIndex() )
-						{
-
-							// Totally ignore it.  We don't want this to be able to be used as a way to
-							// tell if you are online or not.
-							SpewDebug( "Ignoring P2P CMsgSteamDatagramConnectRequest from %s; we're not listening on virtual port %d\n", SteamNetworkingIdentityRender( pConn->m_identityRemote ).c_str(), msgConnectRequest.virtual_port() );
-
-							pConn->ConnectionDestroySelfNow();
-							return false;
-						}
-						CSteamNetworkListenSocketP2P *pListenSock = m_mapListenSocketsByVirtualPort[ idxListenSock ];
-						if ( !pListenSock->BAddChildConnection( pConn, errMsg ) )
-						{
-							SpewDebug( "Ignoring P2P CMsgSteamDatagramConnectRequest from %s on virtual port %d; %s\n", SteamNetworkingIdentityRender( pConn->m_identityRemote ).c_str(), msgConnectRequest.virtual_port(), errMsg );
-							pConn->ConnectionDestroySelfNow();
-							return false;
-						}
+						pConn->ConnectionDestroySelfNow();
+						SendP2PRejection( pContext, identityRemote, msg, k_ESteamNetConnectionEnd_Misc_Generic, "Internal error accepting connection.  %s", errMsg );
+						return false;
 					}
-				#else
-					SpewDebug( "Ignoring P2P CMsgSteamDatagramConnectRequest from %s on virtual port %d; no default signaling\n", SteamNetworkingIdentityRender( pConn->m_identityRemote ).c_str(), msgConnectRequest.virtual_port() );
-					pConn->ConnectionDestroySelfNow();
-					return false;
-				#endif
-			}
+				}
+			#endif
 
 			// OK, start setting up the connection
 			if ( !pConn->BBeginAccept( 
@@ -2001,11 +2406,11 @@ bool CSteamNetworkingSockets::ReceivedP2PCustomSignal( const void *pMsg, int cbM
 					// They accepted the request already.
 					break;
 			}
-		}
 
-		// Stop suppressing state change notifications
-		Assert( pConn->m_nSupressStateChangeCallbacks == 1 );
-		pConn->m_nSupressStateChangeCallbacks = 0;
+			// Stop suppressing state change notifications
+			Assert( pConn->m_nSupressStateChangeCallbacks == 1 );
+			pConn->m_nSupressStateChangeCallbacks = 0;
+		}
 	}
 
 	// Process the message

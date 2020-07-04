@@ -57,6 +57,8 @@ DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, MTU_PacketSize, 1300, k_cbSteamNetwor
 	DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, IP_AllowWithoutAuth, 0, 0, 2 );
 #endif
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, Unencrypted, 0, 0, 3 );
+DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, SymmetricConnect, 0, 0, 1 );
+DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, LocalVirtualPort, -1, -1, 65535 );
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, LogLevel_AckRTT, k_ESteamNetworkingSocketsDebugOutputType_Warning, k_ESteamNetworkingSocketsDebugOutputType_Error, k_ESteamNetworkingSocketsDebugOutputType_Everything );
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, LogLevel_PacketDecode, k_ESteamNetworkingSocketsDebugOutputType_Warning, k_ESteamNetworkingSocketsDebugOutputType_Error, k_ESteamNetworkingSocketsDebugOutputType_Everything );
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, LogLevel_Message, k_ESteamNetworkingSocketsDebugOutputType_Warning, k_ESteamNetworkingSocketsDebugOutputType_Error, k_ESteamNetworkingSocketsDebugOutputType_Everything );
@@ -1501,15 +1503,23 @@ bool CSteamNetworkingUtils::SetConfigValue( ESteamNetworkingConfigValue eValue,
 	ESteamNetworkingConfigScope eScopeType, intptr_t scopeObj,
 	ESteamNetworkingConfigDataType eDataType, const void *pValue )
 {
+
+	// Check for special values
+	switch ( eValue )
+	{
+		case k_ESteamNetworkingConfig_MTU_DataSize:
+			SpewWarning( "MTU_DataSize is readonly" );
+			return false;
+
+		case k_ESteamNetworkingConfig_SymmetricConnect:
+			SpewBug( "SymmetricConnect must be set at connection creation time\n" );
+			return false;
+	}
+
 	GlobalConfigValueEntry *pEntry = FindConfigValueEntry( eValue );
 	if ( pEntry == nullptr )
 		return false;
 
-	if ( eValue == k_ESteamNetworkingConfig_MTU_DataSize )
-	{
-		SpewWarning( "MTU_DataSize is readonly" );
-		return false;
-	}
 
 	SteamDatagramTransportLock scopeLock( "SetConfigValue" );
 

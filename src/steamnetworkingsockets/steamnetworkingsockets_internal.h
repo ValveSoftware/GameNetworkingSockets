@@ -590,6 +590,13 @@ struct ConfigValueBase
 
 	inline bool IsLocked() const { return m_eState == kELocked; }
 	inline bool IsSet() const { return m_eState > kENotSet; }
+
+	// Unlock, if we are locked
+	inline void Unlock()
+	{
+		if ( m_eState == kELocked )
+			m_eState = kESet;
+	}
 };
 
 template<typename T>
@@ -614,7 +621,7 @@ struct ConfigValue : public ConfigValueBase
 		return t->m_data;
 	}
 
-	void Set( const T &value )
+	inline void Set( const T &value )
 	{
 		Assert( !IsLocked() );
 		m_data = value;
@@ -622,7 +629,7 @@ struct ConfigValue : public ConfigValueBase
 	}
 
 	// Lock in the current value
-	void Lock()
+	inline void Lock()
 	{
 		if ( !IsSet() )
 			m_data = Get();
@@ -725,6 +732,8 @@ struct ConnectionConfig
 	ConfigValue<int32> m_NagleTime;
 	ConfigValue<int32> m_IP_AllowWithoutAuth;
 	ConfigValue<int32> m_Unencrypted;
+	ConfigValue<int32> m_SymmetricConnect;
+	ConfigValue<int32> m_LocalVirtualPort;
 
 	ConfigValue<int32> m_LogLevel_AckRTT;
 	ConfigValue<int32> m_LogLevel_PacketDecode;

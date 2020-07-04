@@ -486,6 +486,18 @@ bool CSteamNetworkListenSocketBase::BInitListenSocketCommon( int nOptions, const
 		return false;
 	}
 
+	// Check if symmetric is enabled, then make sure it's supported.
+	// It cannot be changed after listen socket creation
+	m_connectionConfig.m_SymmetricConnect.Lock();
+	if ( BSymmetricMode() )
+	{
+		if ( !BSupportsSymmetricMode() )
+		{
+			V_strcpy_safe( errMsg, "Symmetric mode not supported" );
+			return false;
+		}
+	}
+
 	// OK
 	return true;
 }
@@ -512,6 +524,11 @@ void CSteamNetworkListenSocketBase::Destroy()
 bool CSteamNetworkListenSocketBase::APIGetAddress( SteamNetworkingIPAddr *pAddress )
 {
 	// Base class doesn't know
+	return false;
+}
+
+bool CSteamNetworkListenSocketBase::BSupportsSymmetricMode()
+{
 	return false;
 }
 
@@ -952,6 +969,11 @@ bool CSteamNetworkConnectionBase::BInitConnection( SteamNetworkingMicroseconds u
 	return true;
 }
 
+bool CSteamNetworkConnectionBase::BSupportsSymmetricMode()
+{
+	return false;
+}
+
 void CSteamNetworkConnectionBase::SetAppName( const char *pszName )
 {
 	V_strcpy_safe( m_szAppName, pszName ? pszName : "" );
@@ -978,16 +1000,19 @@ void CSteamNetworkConnectionBase::InitConnectionCrypto( SteamNetworkingMicroseco
 
 void CSteamNetworkConnectionBase::ClearCrypto()
 {
-	m_eNegotiatedCipher = k_ESteamNetworkingSocketsCipher_INVALID;
-	m_keyPrivate.Wipe();
 	m_msgCertRemote.Clear();
 	m_msgCryptRemote.Clear();
+	m_bCertHasIdentity = false;
+	m_keyPrivate.Wipe();
+	ClearLocalCrypto();
+}
 
+void CSteamNetworkConnectionBase::ClearLocalCrypto()
+{
+	m_eNegotiatedCipher = k_ESteamNetworkingSocketsCipher_INVALID;
 	m_keyExchangePrivateKeyLocal.Wipe();
 	m_msgCryptLocal.Clear();
 	m_msgSignedCryptLocal.Clear();
-
-	m_bCertHasIdentity = false;
 	m_bCryptKeysValid = false;
 	m_cryptContextSend.Wipe();
 	m_cryptContextRecv.Wipe();
@@ -1039,7 +1064,7 @@ bool CSteamNetworkConnectionBase::BThinkCryptoReady( SteamNetworkingMicroseconds
 			m_pSteamNetworkingSocketsInterface->AsyncCertRequest();
 
 			// Handle synchronous failure.
-			if ( GetState() == k_ESteamNetworkingConnectionState_None && GetState() != k_ESteamNetworkingConnectionState_Connecting )
+			if ( GetState() != k_ESteamNetworkingConnectionState_None && GetState() != k_ESteamNetworkingConnectionState_Connecting )
 				return false;
 
 			// If fetching of cert or trusted cert list in flight, then wait for that to finish
@@ -1179,10 +1204,11 @@ void CSteamNetworkConnectionBase::SetCryptoCipherList()
 
 void CSteamNetworkConnectionBase::FinalizeLocalCrypto()
 {
+	// Make sure we have what we need
 	Assert( m_msgCryptLocal.ciphers_size() > 0 );
+	Assert( m_keyPrivate.IsValid() );
 
 	// Should only do this once
-	Assert( m_keyPrivate.IsValid() );
 	Assert( !m_msgSignedCryptLocal.has_info() );
 
 	// Set protocol version
@@ -1205,7 +1231,8 @@ void CSteamNetworkConnectionBase::FinalizeLocalCrypto()
 	m_keyPrivate.GenerateSignature( m_msgSignedCryptLocal.info().c_str(), m_msgSignedCryptLocal.info().length(), &sig );
 	m_msgSignedCryptLocal.set_signature( &sig, sizeof(sig) );
 
-	m_keyPrivate.Wipe();
+	// Note: In certain circumstances, we may need to do this again, so don't wipte the key just yet
+	//m_keyPrivate.Wipe();
 }
 
 void CSteamNetworkConnectionBase::SetLocalCertUnsigned()
@@ -1238,7 +1265,7 @@ void CSteamNetworkConnectionBase::CertRequestFailed( ESteamNetConnectionEnd nCon
 {
 
 	// Make sure we care about this
-	if ( GetState() != k_ESteamNetworkingConnectionState_Connecting )
+	if ( GetState() != k_ESteamNetworkingConnectionState_Connecting && GetState() != k_ESteamNetworkingConnectionState_None )
 		return;
 	if ( BHasLocalCert() )
 		return;
@@ -1485,6 +1512,10 @@ bool CSteamNetworkConnectionBase::BFinishCryptoHandshake( bool bServer )
 		FinalizeLocalCrypto();
 	}
 	Assert( m_msgSignedCryptLocal.has_info() );
+
+	// At this point, we know that we will never the private key again.  So let's
+	// wipe it now, to minimize the number of copies of this hanging around in memory.
+	m_keyPrivate.Wipe();
 
 	// Key exchange public key
 	CECKeyExchangePublicKey keyExchangePublicKeyRemote;
@@ -2020,6 +2051,11 @@ EResult CSteamNetworkConnectionBase::APIAcceptConnection()
 		{
 			SpewWarning( "[%s] Cannot accept connection; already closed by remote host.", GetDescription() );
 		}
+		else if ( BSymmetricMode() && BStateIsActive() )
+		{
+			SpewMsg( "[%s] Symmetric connection has already been accepted (perhaps implicitly, by attempting matching outbound connection)", GetDescription() );
+			return k_EResultDuplicateRequest;
+		}
 		else
 		{
 			SpewError( "[%s] Cannot accept connection, current state is %d.", GetDescription(), GetState() );
@@ -2220,6 +2256,7 @@ void CSteamNetworkConnectionBase::SetState( ESteamNetworkingConnectionState eNew
 		// Can't change certain options after this point
 		m_connectionConfig.m_IP_AllowWithoutAuth.Lock();
 		m_connectionConfig.m_Unencrypted.Lock();
+		m_connectionConfig.m_SymmetricConnect.Lock();
 		#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 			m_connectionConfig.m_SDRClient_DebugTicketAddress.Lock();
 		#endif
@@ -2575,6 +2612,22 @@ bool CSteamNetworkConnectionBase::BConnectionState_Connecting( SteamNetworkingMi
 		return false;
 	}
 
+	// Check if symmetric mode is being requested, but doesn't make sense
+	if ( BSymmetricMode() )
+	{
+		if ( !BSupportsSymmetricMode() )
+		{
+			V_strcpy_safe( errMsg, "SymmetricConnect not supported" );
+			return false;
+		}
+		if ( m_identityRemote.IsInvalid() )
+		{
+			V_strcpy_safe( errMsg, "Remote identity must be known to use symmetric mode" );
+			AssertMsg( false, errMsg );
+			return false;
+		}
+	}
+
 	// Set the state
 	SetState( k_ESteamNetworkingConnectionState_Connecting, usecNow );
 
@@ -2671,6 +2724,11 @@ void CSteamNetworkConnectionBase::Think( SteamNetworkingMicroseconds usecNow )
 		delete this;
 		return;
 	}
+
+	// Safety check against leaving callbacks suppressed.  If this fires, there's a good chance
+	// we have already suppressed a callback that we should have posted, which is very bad
+	AssertMsg( m_nSupressStateChangeCallbacks == 0, "[%s] m_nSupressStateChangeCallbacks left on!", GetDescription() );
+	m_nSupressStateChangeCallbacks = 0;
 
 	// CheckConnectionStateAndSetNextThinkTime does all the work of examining the current state
 	// and deciding what to do.  But it should be safe to call at any time, whereas Think()

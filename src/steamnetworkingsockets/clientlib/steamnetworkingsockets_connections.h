@@ -244,6 +244,10 @@ public:
 	/// Configuration options that will apply to all connections accepted through this listen socket
 	ConnectionConfig m_connectionConfig;
 
+	/// Symmetric mode
+	inline bool BSymmetricMode() const { return m_connectionConfig.m_SymmetricConnect.Get() != 0; }
+	virtual bool BSupportsSymmetricMode();
+
 	/// For legacy interface.
 	#ifdef STEAMNETWORKINGSOCKETS_STEAMCLIENT
 	CSteamNetworkPollGroup m_legacyPollGroup;
@@ -539,6 +543,10 @@ public:
 		EnsureMinThinkTime( usecNow + k_usecConnectRetryInterval );
 	}
 
+	/// Symmetric mode
+	inline bool BSymmetricMode() const { return m_connectionConfig.m_SymmetricConnect.Get() != 0; }
+	virtual bool BSupportsSymmetricMode();
+
 	// Check the certs, save keys, etc
 	bool BRecvCryptoHandshake( const CMsgSteamDatagramCertificateSigned &msgCert, const CMsgSteamDatagramSessionCryptInfoSigned &msgSessionInfo, bool bServer );
 	bool BFinishCryptoHandshake( bool bServer );
@@ -624,6 +632,7 @@ protected:
 	void ClearCrypto();
 	bool BThinkCryptoReady( SteamNetworkingMicroseconds usecNow );
 	void SetLocalCertUnsigned();
+	void ClearLocalCrypto();
 	void FinalizeLocalCrypto();
 	void SetCryptoCipherList();
 
