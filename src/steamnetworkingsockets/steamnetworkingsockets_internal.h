@@ -741,6 +741,8 @@ struct ConnectionConfig
 	ConfigValue<int32> m_LogLevel_PacketGaps;
 	ConfigValue<int32> m_LogLevel_P2PRendezvous;
 
+	ConfigValue<void *> m_Callback_ConnectionStatusChanged;
+
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
 		ConfigValue<std::string> m_P2P_STUN_ServerList;
 		ConfigValue<int32> m_P2P_Transport_ICE_Enable;

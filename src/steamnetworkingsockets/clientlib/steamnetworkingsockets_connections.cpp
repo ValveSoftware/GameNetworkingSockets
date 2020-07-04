@@ -2469,7 +2469,7 @@ void CSteamNetworkConnectionBase::PostConnectionStateChangedCallback( ESteamNetw
 	ConnectionPopulateInfo( c.m_info );
 	c.m_eOldState = eOldAPIState;
 	c.m_hConn = m_hConnectionSelf;
-	m_pSteamNetworkingSocketsInterface->QueueCallback( c );
+	m_pSteamNetworkingSocketsInterface->QueueCallback( c, m_connectionConfig.m_Callback_ConnectionStatusChanged.Get() );
 }
 
 void CSteamNetworkConnectionBase::ConnectionState_ProblemDetectedLocally( ESteamNetConnectionEnd eReason, const char *pszFmt, ... )

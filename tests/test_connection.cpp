@@ -22,6 +22,8 @@ static SteamNetworkingMicroseconds g_usecTestElapsed;
 FILE *g_fpLog = nullptr;
 SteamNetworkingMicroseconds g_logTimeZero;
 
+void OnSteamNetConnectionStatusChanged( SteamNetConnectionStatusChangedCallback_t *pInfo );
+
 static void DebugOutput( ESteamNetworkingSocketsDebugOutputType eType, const char *pszMsg )
 {
 	SteamNetworkingMicroseconds time = SteamNetworkingUtils()->GetLocalTimestamp() - g_logTimeZero;
@@ -71,6 +73,7 @@ static void InitSteamDatagramConnectionSockets()
 	SteamNetworkingUtils()->SetDebugOutputFunction( k_ESteamNetworkingSocketsDebugOutputType_Debug, DebugOutput );
 	//SteamNetworkingUtils()->SetDebugOutputFunction( k_ESteamNetworkingSocketsDebugOutputType_Verbose, DebugOutput );
 	//SteamNetworkingUtils()->SetDebugOutputFunction( k_ESteamNetworkingSocketsDebugOutputType_Msg, DebugOutput );
+	SteamNetworkingUtils()->SetGlobalCallback_SteamNetConnectionStatusChanged( OnSteamNetConnectionStatusChanged );
 
 	#ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
 		SteamDatagramErrMsg errMsg;
@@ -268,89 +271,79 @@ static void Recv( ISteamNetworkingSockets *pSteamSocketNetworking )
 	}
 }
 
-struct TestSteamNetworkingSocketsCallbacks : public ISteamNetworkingSocketsCallbacks
+void OnSteamNetConnectionStatusChanged( SteamNetConnectionStatusChangedCallback_t *pInfo )
 {
-	virtual ~TestSteamNetworkingSocketsCallbacks() {} // Silence GCC warning
-	virtual void OnSteamNetConnectionStatusChanged( SteamNetConnectionStatusChangedCallback_t *pInfo ) override
+	// What's the state of the connection?
+	switch ( pInfo->m_info.m_eState )
 	{
-		// What's the state of the connection?
-		switch ( pInfo->m_info.m_eState )
+	case k_ESteamNetworkingConnectionState_ClosedByPeer:
+	case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
+		Printf( "Steam Net connection %x %s, reason %d: %s\n",
+			pInfo->m_hConn,
+			( pInfo->m_info.m_eState == k_ESteamNetworkingConnectionState_ClosedByPeer ? "closed by peer" : "problem detected locally" ),
+			pInfo->m_info.m_eEndReason,
+			pInfo->m_info.m_szEndDebug
+		);
+
+		// Close our end
+		SteamNetworkingSockets()->CloseConnection( pInfo->m_hConn, 0, nullptr, false );
+
+		if ( g_peerServer.m_hSteamNetConnection == pInfo->m_hConn )
 		{
-		case k_ESteamNetworkingConnectionState_ClosedByPeer:
-		case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
-			Printf( "Steam Net connection %x %s, reason %d: %s\n",
-				pInfo->m_hConn,
-				( pInfo->m_info.m_eState == k_ESteamNetworkingConnectionState_ClosedByPeer ? "closed by peer" : "problem detected locally" ),
-				pInfo->m_info.m_eEndReason,
-				pInfo->m_info.m_szEndDebug
-			);
-
-			// Close our end
-			SteamNetworkingSockets()->CloseConnection( pInfo->m_hConn, 0, nullptr, false );
-
-			if ( g_peerServer.m_hSteamNetConnection == pInfo->m_hConn )
-			{
-				g_peerServer.m_hSteamNetConnection = k_HSteamNetConnection_Invalid;
-			}
-			if ( g_peerClient.m_hSteamNetConnection == pInfo->m_hConn )
-			{
-				g_peerClient.m_hSteamNetConnection = k_HSteamNetConnection_Invalid;
-			}
-
-			break;
-
-	/*
-		case k_ESteamNetworkingConnectionState_None:
-			Printf( "No steam Net connection %x (%s)\n", pInfo->m_hConn, pInfo->m_info.m_steamIDRemote.Render() );
-
-			if ( g_hSteamNetConnection == pInfo->m_hConn )
-			{
-				g_bIsConnected = false;
-				g_hSteamNetConnection = k_HSteamNetConnection_Invalid;
-			}
-			break;
-	*/
-
-		case k_ESteamNetworkingConnectionState_Connecting:
-
-			// Is this a connection we initiated, or one that we are receiving?
-			if ( g_hSteamListenSocket != k_HSteamListenSocket_Invalid && pInfo->m_info.m_hListenSocket == g_hSteamListenSocket )
-			{
-				// Somebody's knocking
-				Printf( "[%s] Accepting\n", pInfo->m_info.m_szConnectionDescription );
-				g_peerServer.m_hSteamNetConnection = pInfo->m_hConn;
-				g_peerServer.m_bIsConnected = true;
-				SteamNetworkingSockets()->AcceptConnection( pInfo->m_hConn );
-				SteamNetworkingSockets()->SetConnectionName( g_peerServer.m_hSteamNetConnection, "Server" );
-
-			}
-			break;
-
-		case k_ESteamNetworkingConnectionState_Connected:
-			if ( pInfo->m_hConn == g_peerClient.m_hSteamNetConnection )
-			{
-				g_peerClient.m_bIsConnected = true;
-			}
-			Printf( "[%s] connected\n", pInfo->m_info.m_szConnectionDescription );
-
-			break;
-
-		default:
-			// Silences -Wswitch
-			break;
+			g_peerServer.m_hSteamNetConnection = k_HSteamNetConnection_Invalid;
 		}
+		if ( g_peerClient.m_hSteamNetConnection == pInfo->m_hConn )
+		{
+			g_peerClient.m_hSteamNetConnection = k_HSteamNetConnection_Invalid;
+		}
+
+		break;
+
+/*
+	case k_ESteamNetworkingConnectionState_None:
+		Printf( "No steam Net connection %x (%s)\n", pInfo->m_hConn, pInfo->m_info.m_steamIDRemote.Render() );
+
+		if ( g_hSteamNetConnection == pInfo->m_hConn )
+		{
+			g_bIsConnected = false;
+			g_hSteamNetConnection = k_HSteamNetConnection_Invalid;
+		}
+		break;
+*/
+
+	case k_ESteamNetworkingConnectionState_Connecting:
+
+		// Is this a connection we initiated, or one that we are receiving?
+		if ( g_hSteamListenSocket != k_HSteamListenSocket_Invalid && pInfo->m_info.m_hListenSocket == g_hSteamListenSocket )
+		{
+			// Somebody's knocking
+			Printf( "[%s] Accepting\n", pInfo->m_info.m_szConnectionDescription );
+			g_peerServer.m_hSteamNetConnection = pInfo->m_hConn;
+			g_peerServer.m_bIsConnected = true;
+			SteamNetworkingSockets()->AcceptConnection( pInfo->m_hConn );
+			SteamNetworkingSockets()->SetConnectionName( g_peerServer.m_hSteamNetConnection, "Server" );
+
+		}
+		break;
+
+	case k_ESteamNetworkingConnectionState_Connected:
+		if ( pInfo->m_hConn == g_peerClient.m_hSteamNetConnection )
+		{
+			g_peerClient.m_bIsConnected = true;
+		}
+		Printf( "[%s] connected\n", pInfo->m_info.m_szConnectionDescription );
+
+		break;
+
+	default:
+		// Silences -Wswitch
+		break;
 	}
-};
-
-
-static TestSteamNetworkingSocketsCallbacks g_Callbacks;
+}
 
 static void PumpCallbacks()
 {
-	#ifdef STEAMNETWORKINGSOCKETS_STEAM
-		SteamAPI_RunCallbacks();
-	#endif
-	SteamNetworkingSockets()->RunCallbacks( &g_Callbacks );
+	SteamNetworkingSockets()->RunCallbacks();
 	std::this_thread::sleep_for( std::chrono::milliseconds( 2 ) );
 }
 

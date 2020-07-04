@@ -20,7 +20,6 @@
 
 #include "steamnetworkingtypes.h"
 
-class ISteamNetworkingSocketsCallbacks;
 struct SteamNetAuthenticationStatus_t;
 class ISteamNetworkingConnectionCustomSignaling;
 class ISteamNetworkingCustomSignalingRecvContext;
@@ -662,13 +661,12 @@ public:
 	/// SteamDatagram_CreateCert.
 	virtual bool SetCertificate( const void *pCertificate, int cbCertificate, SteamNetworkingErrMsg &errMsg ) = 0;
 
-	// Invoke all callbacks queued for this interface.
-	// On Steam, callbacks are dispatched via the ordinary Steamworks callbacks mechanism.
-	// So if you have code that is also targeting Steam, you should call this at about the
-	// same time you would call SteamAPI_RunCallbacks and SteamGameServer_RunCallbacks.
-#ifdef STEAMNETWORKINGSOCKETS_STANDALONELIB
-	virtual void RunCallbacks( ISteamNetworkingSocketsCallbacks *pCallbacks ) = 0;
-#endif
+	/// Invoke all callback functions queued for this interface.
+	/// See k_ESteamNetworkingConfig_Callback_ConnectionStatusChanged, etc
+	///
+	/// You don't need to call this if you are using Steam's callback dispatch
+	/// mechanism (SteamAPI_RunCallbacks and SteamGameserver_RunCallbacks).
+	virtual void RunCallbacks() = 0;
 protected:
 	~ISteamNetworkingSockets(); // Silence some warnings
 };

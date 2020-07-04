@@ -64,6 +64,7 @@ DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, LogLevel_PacketDecode, k_ESteamNetwor
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, LogLevel_Message, k_ESteamNetworkingSocketsDebugOutputType_Warning, k_ESteamNetworkingSocketsDebugOutputType_Error, k_ESteamNetworkingSocketsDebugOutputType_Everything );
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, LogLevel_PacketGaps, k_ESteamNetworkingSocketsDebugOutputType_Warning, k_ESteamNetworkingSocketsDebugOutputType_Error, k_ESteamNetworkingSocketsDebugOutputType_Everything );
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, LogLevel_P2PRendezvous, k_ESteamNetworkingSocketsDebugOutputType_Warning, k_ESteamNetworkingSocketsDebugOutputType_Error, k_ESteamNetworkingSocketsDebugOutputType_Everything );
+DEFINE_CONNECTON_DEFAULT_CONFIGVAL( void *, Callback_ConnectionStatusChanged, nullptr );
 
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( std::string, P2P_STUN_ServerList, "" );
@@ -1067,8 +1068,7 @@ int CSteamNetworkingSockets::GetP2P_Transport_ICE_Enable( const SteamNetworkingI
 	return k_nSteamNetworkingConfig_P2P_Transport_ICE_Enable_Disable;
 }
 
-#ifdef STEAMNETWORKINGSOCKETS_STANDALONELIB
-void CSteamNetworkingSockets::RunCallbacks( ISteamNetworkingSocketsCallbacks *pCallbacks )
+void CSteamNetworkingSockets::RunCallbacks()
 {
 
 	// Only hold lock for a brief period
@@ -1085,30 +1085,24 @@ void CSteamNetworkingSockets::RunCallbacks( ISteamNetworkingSocketsCallbacks *pC
 	// Dispatch the callbacks
 	for ( QueuedCallback &x: listTemp )
 	{
+		// NOTE: this switch statement is probably not necessary, if we are willing to make
+		// some (almost certainly reasonable in practice) assumptions about the parameter
+		// passing ABI.  All of these function calls basically have the same signature except
+		// for the actual type of the argument being pointed to.
 		switch ( x.nCallback )
 		{
 			case SteamNetConnectionStatusChangedCallback_t::k_iCallback:
 				COMPILE_TIME_ASSERT( sizeof(SteamNetConnectionStatusChangedCallback_t) <= sizeof(x.data) );
-				pCallbacks->OnSteamNetConnectionStatusChanged( (SteamNetConnectionStatusChangedCallback_t*)x.data );
+				((FnSteamNetConnectionStatusChanged)x.fnCallback)( (SteamNetConnectionStatusChangedCallback_t*)x.data );
 				break;
-		#ifdef STEAMNETWORKINGSOCKETS_STEAM
-			case P2PSessionRequest_t::k_iCallback:
-				COMPILE_TIME_ASSERT( sizeof(P2PSessionRequest_t) <= sizeof(x.data) );
-				pCallbacks->OnP2PSessionRequest( (P2PSessionRequest_t*)x.data );
-				break;
-			case P2PSessionConnectFail_t::k_iCallback:
-				COMPILE_TIME_ASSERT( sizeof(P2PSessionConnectFail_t) <= sizeof(x.data) );
-				pCallbacks->OnP2PSessionConnectFail( (P2PSessionConnectFail_t*)x.data );
-				break;
-		#endif
 		#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 			case SteamNetAuthenticationStatus_t::k_iCallback:
 				COMPILE_TIME_ASSERT( sizeof(SteamNetAuthenticationStatus_t) <= sizeof(x.data) );
-				pCallbacks->OnAuthenticationStatusChanged( (SteamNetAuthenticationStatus_t *)x.data );
+				((FnSteamNetAuthenticationStatusChanged)x.fnCallback)( (SteamNetAuthenticationStatus_t *)x.data );
 				break;
 			case SteamRelayNetworkStatus_t::k_iCallback:
 				COMPILE_TIME_ASSERT( sizeof(SteamRelayNetworkStatus_t) <= sizeof(x.data) );
-				pCallbacks->OnRelayNetworkStatusChanged( (SteamRelayNetworkStatus_t*)x.data );
+				((FnSteamRelayNetworkStatusChanged)x.fnCallback)( (SteamRelayNetworkStatus_t*)x.data );
 				break;
 		#endif
 			default:
@@ -1117,10 +1111,12 @@ void CSteamNetworkingSockets::RunCallbacks( ISteamNetworkingSocketsCallbacks *pC
 	}
 }
 
-void CSteamNetworkingSockets::InternalQueueCallback( int nCallback, int cbCallback, const void *pvCallback )
+void CSteamNetworkingSockets::InternalQueueCallback( int nCallback, int cbCallback, const void *pvCallback, void *fnRegisteredFunctionPtr )
 {
 	SteamDatagramTransportLock::AssertHeldByCurrentThread();
 
+	if ( !fnRegisteredFunctionPtr )
+		return;
 	if ( cbCallback > sizeof( ((QueuedCallback*)0)->data ) )
 	{
 		AssertMsg( false, "Callback doesn't fit!" );
@@ -1130,14 +1126,9 @@ void CSteamNetworkingSockets::InternalQueueCallback( int nCallback, int cbCallba
 
 	QueuedCallback &q = *push_back_get_ptr( m_vecPendingCallbacks );
 	q.nCallback = nCallback;
+	q.fnCallback = fnRegisteredFunctionPtr;
 	memcpy( q.data, pvCallback, cbCallback );
 }
-#else
-void CSteamNetworkingSockets::InternalQueueCallback( int nCallback, int cbCallback, const void *pvCallback )
-{
-	AssertMsg( false, "Should never be used" );
-}
-#endif
 
 /////////////////////////////////////////////////////////////////////////////
 //

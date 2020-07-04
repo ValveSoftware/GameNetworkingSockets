@@ -74,9 +74,9 @@ public:
 	}
 
 	template <typename T>
-	void QueueCallback( const T& x )
+	void QueueCallback( const T& x, void *fnRegisteredFunctionPtr )
 	{
-		InternalQueueCallback( T::k_iCallback, sizeof(T), &x );
+		InternalQueueCallback( T::k_iCallback, sizeof(T), &x, fnRegisteredFunctionPtr );
 	}
 
 	// Implements ISteamNetworkingSockets
@@ -115,9 +115,7 @@ public:
 	virtual int ReceiveMessagesOnListenSocketLegacyPollGroup( HSteamListenSocket hSocket, SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages ) override;
 #endif
 
-#ifdef STEAMNETWORKINGSOCKETS_STANDALONELIB
-	virtual void RunCallbacks( ISteamNetworkingSocketsCallbacks *pCallbacks ) override;
-#endif
+	virtual void RunCallbacks() override;
 
 	/// Configuration options that will apply to all connections on this interface
 	ConnectionConfig m_connectionConfig;
@@ -146,17 +144,14 @@ protected:
 
 	SteamNetworkingIdentity m_identity;
 
-#ifdef STEAMNETWORKINGSOCKETS_STANDALONELIB
-	void InternalQueueCallback( int nCallback, int cbCallback, const void *pvCallback );
 	struct QueuedCallback
 	{
 		int nCallback;
+		void *fnCallback;
 		char data[ sizeof(SteamNetConnectionStatusChangedCallback_t) ]; // whatever the biggest callback struct we have is
 	};
 	std::vector<QueuedCallback> m_vecPendingCallbacks;
-#else
-	virtual void InternalQueueCallback( int nCallback, int cbCallback, const void *pvCallback ) = 0;
-#endif
+	virtual void InternalQueueCallback( int nCallback, int cbCallback, const void *pvCallback, void *fnRegisteredFunctionPtr );
 
 	bool m_bHaveLowLevelRef;
 	bool BInitLowLevel( SteamNetworkingErrMsg &errMsg );

@@ -63,6 +63,11 @@ struct SteamNetConnectionStatusChangedCallback_t;
 struct SteamNetAuthenticationStatus_t;
 struct SteamRelayNetworkStatus_t;
 
+typedef void (*FnSteamNetConnectionStatusChanged)( SteamNetConnectionStatusChangedCallback_t * );
+typedef void (*FnSteamNetAuthenticationStatusChanged)( SteamNetAuthenticationStatus_t * );
+typedef void (*FnSteamRelayNetworkStatusChanged)(SteamRelayNetworkStatus_t *);
+
+
 /// Handle used to identify a connection to a remote host.
 typedef uint32 HSteamNetConnection;
 const HSteamNetConnection k_HSteamNetConnection_Invalid = 0;
@@ -1250,6 +1255,56 @@ enum ESteamNetworkingConfigValue
 	k_ESteamNetworkingConfig_LocalVirtualPort = 38,
 
 	//
+	// Callbacks
+	//
+
+	// On Steam, you may use the default Steam callback dispatch mechanism.  If you prefer
+	// to not use this dispatch mechanism (or you are not running with Steam), or you want
+	// to associate specific functions with specific listen sockets or connections, you can
+	// register them as configuration values.
+	//
+	// Note also that ISteamNetworkingUtils has some helpers to set these globally.
+
+	/// [connection FnSteamNetConnectionStatusChanged] Callback that will be invoked
+	/// when the state of a connection changes.
+	///
+	/// IMPORTANT: callbacks are dispatched to the handler that is in effect at the time
+	/// the event occurs, which might be in another thread.  For example, immediately after
+	/// creating a listen socket, you may receive an incoming connection.  And then immediately
+	/// after this, the remote host may close the connection.  All of this could happen
+	/// before the function to create the listen socket has returned.  For this reason,
+	/// callbacks usually must be in effect at the time of object creation.  This means
+	/// you should set them when you are creating the listen socket or connection, or have
+	/// them in effect so they will be inherited at the time of object creation.
+	///
+	/// For example:
+	///
+	/// exterm void MyStatusChangedFunc( SteamNetConnectionStatusChangedCallback_t *info );
+	/// SteamNetworkingConfigValue_t opt; opt.SetPtr( k_ESteamNetworkingConfig_Callback_ConnectionStatusChanged, MyStatusChangedFunc );
+	/// SteamNetworkingIPAddr localAddress; localAddress.Clear();
+	/// HSteamListenSocket hListenSock = SteamNetworkingSockets()->CreateListenSocketIP( localAddress, 1, &opt );
+	///
+	/// When accepting an incoming connection, there is no atomic way to switch the
+	/// callback.  However, if the connection is DOA, AcceptConnection() will fail, and
+	/// you can fetch the state of the connection at that time.
+	///
+	/// If all connections and listen sockets can use the same callback, the simplest
+	/// method is to set it globally before you create any listen sockets or connections.
+	k_ESteamNetworkingConfig_Callback_ConnectionStatusChanged = 201,
+
+	/// [global FnSteamNetAuthenticationStatusChanged] Callback that will be invoked
+	/// when our auth state changes.  If you use this, install the callback before creating
+	/// any connections or listen sockets, and don't change it.
+	/// See: ISteamNetworkingUtils::SetGlobalCallback_SteamNetAuthenticationStatusChanged
+	k_ESteamNetworkingConfig_Callback_AuthStatusChanged = 202,
+
+	/// [global FnSteamRelayNetworkStatusChanged] Callback that will be invoked
+	/// when our auth state changes.  If you use this, install the callback before creating
+	/// any connections or listen sockets, and don't change it.
+	/// See: ISteamNetworkingUtils::SetGlobalCallback_SteamRelayNetworkStatusChanged
+	k_ESteamNetworkingConfig_Callback_RelayNetworkStatusChanged = 203,
+
+	//
 	// P2P settings
 	//
 
@@ -1385,6 +1440,40 @@ struct SteamNetworkingConfigValue_t
 		const char *m_string; // Points to your '\0'-terminated buffer
 		void *m_ptr;
 	} m_val;
+
+	//
+	// Shortcut helpers to set the type and value in a single call
+	//
+	inline void SetInt32( ESteamNetworkingConfigValue eVal, int32_t data )
+	{
+		m_eValue = eVal;
+		m_eDataType = k_ESteamNetworkingConfig_Int32;
+		m_val.m_int32 = data;
+	}
+	inline void SetInt64( ESteamNetworkingConfigValue eVal, int64_t data )
+	{
+		m_eValue = eVal;
+		m_eDataType = k_ESteamNetworkingConfig_Int64;
+		m_val.m_int64 = data;
+	}
+	inline void SetFloat( ESteamNetworkingConfigValue eVal, float data )
+	{
+		m_eValue = eVal;
+		m_eDataType = k_ESteamNetworkingConfig_Float;
+		m_val.m_float = data;
+	}
+	inline void SetPtr( ESteamNetworkingConfigValue eVal, void *data )
+	{
+		m_eValue = eVal;
+		m_eDataType = k_ESteamNetworkingConfig_Ptr;
+		m_val.m_ptr = data;
+	}
+	inline void SetString( ESteamNetworkingConfigValue eVal, const char *data ) // WARNING - Just saves your pointer.  Does NOT make a copy of the string
+	{
+		m_eValue = eVal;
+		m_eDataType = k_ESteamNetworkingConfig_Ptr;
+		m_val.m_string = data;
+	}
 };
 
 /// Return value of ISteamNetworkintgUtils::GetConfigValue

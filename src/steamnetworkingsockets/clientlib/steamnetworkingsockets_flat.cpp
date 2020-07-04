@@ -12,7 +12,7 @@
 
 //--- ISteamNetworkingSockets-------------------------
 
-STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets *SteamAPI_SteamNetworkingSockets_v008()
+STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets *SteamAPI_SteamNetworkingSockets_v009()
 {
 	return SteamNetworkingSockets();
 }
@@ -159,9 +159,9 @@ STEAMNETWORKINGSOCKETS_INTERFACE EResult SteamAPI_ISteamNetworkingSockets_GetGam
 {
 	return self->GetGameCoordinatorServerLogin( pLoginInfo,pcbSignedBlob,pBlob );
 }
-STEAMNETWORKINGSOCKETS_INTERFACE HSteamNetConnection SteamAPI_ISteamNetworkingSockets_ConnectP2PCustomSignaling( ISteamNetworkingSockets* self, ISteamNetworkingConnectionCustomSignaling * pSignaling, const SteamNetworkingIdentity * pPeerIdentity, int nOptions, const SteamNetworkingConfigValue_t * pOptions )
+STEAMNETWORKINGSOCKETS_INTERFACE HSteamNetConnection SteamAPI_ISteamNetworkingSockets_ConnectP2PCustomSignaling( ISteamNetworkingSockets* self, ISteamNetworkingConnectionCustomSignaling * pSignaling, const SteamNetworkingIdentity * pPeerIdentity, int nRemoteVirtualPort, int nOptions, const SteamNetworkingConfigValue_t * pOptions )
 {
-	return self->ConnectP2PCustomSignaling( pSignaling,pPeerIdentity,nOptions,pOptions );
+	return self->ConnectP2PCustomSignaling( pSignaling,pPeerIdentity,nRemoteVirtualPort,nOptions,pOptions );
 }
 STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_ReceivedP2PCustomSignal( ISteamNetworkingSockets* self, const void * pMsg, int cbMsg, ISteamNetworkingCustomSignalingRecvContext * pContext )
 {
@@ -176,28 +176,10 @@ STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_SetCertif
 {
 	return self->SetCertificate( pCertificate,cbCertificate,errMsg );
 }
-
-#ifdef STEAMNETWORKINGSOCKETS_STANDALONELIB
-STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_ISteamNetworkingSockets_RunConnectionStatusChangedCallbacks( intptr_t instancePtr, FSteamNetConnectionStatusChangedCallback callback, intptr_t context )
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_ISteamNetworkingSockets_RunCallbacks( ISteamNetworkingSockets* self )
 {
-	struct CallbackAdapter : ISteamNetworkingSocketsCallbacks
-	{
-		CallbackAdapter( FSteamNetConnectionStatusChangedCallback _callback, intptr_t _context )
-		: m_callback( _callback ), m_context( _context ) {}
-
-		virtual void OnSteamNetConnectionStatusChanged( SteamNetConnectionStatusChangedCallback_t *pInfo ) override
-		{
-			(*m_callback)( pInfo, m_context );
-		}
-
-		FSteamNetConnectionStatusChangedCallback m_callback;
-		intptr_t m_context;
-	};
-
-	CallbackAdapter adapter( callback, context );
-	((ISteamNetworkingSockets*)instancePtr)->RunCallbacks( &adapter );
+	self->RunCallbacks(  );
 }
-#endif
 
 //--- ISteamNetworkingUtils-------------------------
 
@@ -280,6 +262,10 @@ STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingUtils_SetGlobalCo
 {
 	return self->SetGlobalConfigValueString( eValue,val );
 }
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingUtils_SetGlobalConfigValuePtr( ISteamNetworkingUtils* self, ESteamNetworkingConfigValue eValue, void * val )
+{
+	return self->SetGlobalConfigValuePtr( eValue,val );
+}
 STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingUtils_SetConnectionConfigValueInt32( ISteamNetworkingUtils* self, HSteamNetConnection hConn, ESteamNetworkingConfigValue eValue, int32 val )
 {
 	return self->SetConnectionConfigValueInt32( hConn,eValue,val );
@@ -291,6 +277,18 @@ STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingUtils_SetConnecti
 STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingUtils_SetConnectionConfigValueString( ISteamNetworkingUtils* self, HSteamNetConnection hConn, ESteamNetworkingConfigValue eValue, const char * val )
 {
 	return self->SetConnectionConfigValueString( hConn,eValue,val );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingUtils_SetGlobalCallback_SteamNetConnectionStatusChanged( ISteamNetworkingUtils* self, FnSteamNetConnectionStatusChanged fnCallback )
+{
+	return self->SetGlobalCallback_SteamNetConnectionStatusChanged( fnCallback );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingUtils_SetGlobalCallback_SteamNetAuthenticationStatusChanged( ISteamNetworkingUtils* self, FnSteamNetAuthenticationStatusChanged fnCallback )
+{
+	return self->SetGlobalCallback_SteamNetAuthenticationStatusChanged( fnCallback );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingUtils_SetGlobalCallback_SteamRelayNetworkStatusChanged( ISteamNetworkingUtils* self, FnSteamRelayNetworkStatusChanged fnCallback )
+{
+	return self->SetGlobalCallback_SteamRelayNetworkStatusChanged( fnCallback );
 }
 STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingUtils_SetConfigValue( ISteamNetworkingUtils* self, ESteamNetworkingConfigValue eValue, ESteamNetworkingConfigScope eScopeType, intptr_t scopeObj, ESteamNetworkingConfigDataType eDataType, const void * pArg )
 {
