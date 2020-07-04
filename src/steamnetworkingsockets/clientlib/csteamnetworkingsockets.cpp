@@ -1374,8 +1374,8 @@ static bool AssignConfigValueTyped( ConfigValue<void *> *pVal, ESteamNetworkingC
 {
 	switch ( eDataType )
 	{
-		case k_ESteamNetworkingConfig_FunctionPtr:
-			pVal->m_data = (void **)pArg;
+		case k_ESteamNetworkingConfig_Ptr:
+			pVal->m_data = *(void **)pArg;
 			break;
 
 		default:
@@ -1529,7 +1529,7 @@ bool CSteamNetworkingUtils::SetConfigValue( ESteamNetworkingConfigValue eValue,
 		case k_ESteamNetworkingConfig_Int64: return SetConfigValueTyped<int64>( pEntry, eScopeType, scopeObj, eDataType, pValue );
 		case k_ESteamNetworkingConfig_Float: return SetConfigValueTyped<float>( pEntry, eScopeType, scopeObj, eDataType, pValue );
 		case k_ESteamNetworkingConfig_String: return SetConfigValueTyped<std::string>( pEntry, eScopeType, scopeObj, eDataType, pValue );
-		case k_ESteamNetworkingConfig_FunctionPtr: return SetConfigValueTyped<void *>( pEntry, eScopeType, scopeObj, eDataType, pValue );
+		case k_ESteamNetworkingConfig_Ptr: return SetConfigValueTyped<void *>( pEntry, eScopeType, scopeObj, eDataType, pValue );
 	}
 
 	Assert( false );
@@ -1572,22 +1572,31 @@ ESteamNetworkingGetConfigValueResult CSteamNetworkingUtils::GetConfigValue(
 		case k_ESteamNetworkingConfig_Int64: return GetConfigValueTyped<int64>( pEntry, eScopeType, scopeObj, pResult, cbResult );
 		case k_ESteamNetworkingConfig_Float: return GetConfigValueTyped<float>( pEntry, eScopeType, scopeObj, pResult, cbResult );
 		case k_ESteamNetworkingConfig_String: return GetConfigValueTyped<std::string>( pEntry, eScopeType, scopeObj, pResult, cbResult );
-		case k_ESteamNetworkingConfig_FunctionPtr: return GetConfigValueTyped<void *>( pEntry, eScopeType, scopeObj, pResult, cbResult );
+		case k_ESteamNetworkingConfig_Ptr: return GetConfigValueTyped<void *>( pEntry, eScopeType, scopeObj, pResult, cbResult );
 	}
 
 	Assert( false ); // FIXME
 	return k_ESteamNetworkingGetConfigValue_BadValue;
 }
 
-bool IsDevConfigValue( ESteamNetworkingConfigValue eVal )
+static bool BEnumerateConfigValue( const GlobalConfigValueEntry *pVal )
 {
-	switch  ( eVal )
+	if ( pVal->m_eDataType == k_ESteamNetworkingConfig_Ptr )
+		return false;
+
+	switch  ( pVal->m_eValue )
 	{
+		// Never enumerate these
+		case k_ESteamNetworkingConfig_SymmetricConnect:
+		case k_ESteamNetworkingConfig_LocalVirtualPort:
+			return false;
+
+		// Dev var?
 		case k_ESteamNetworkingConfig_IP_AllowWithoutAuth:
 		case k_ESteamNetworkingConfig_Unencrypted:
 		case k_ESteamNetworkingConfig_EnumerateDevVars:
 		case k_ESteamNetworkingConfig_SDRClient_FakeClusterPing:
-			return true;
+			return g_Config_EnumerateDevVars.Get();
 	}
 
 	return false;
@@ -1619,7 +1628,7 @@ bool CSteamNetworkingUtils::GetConfigValueInfo( ESteamNetworkingConfigValue eVal
 				*pOutNextValue = k_ESteamNetworkingConfig_Invalid;
 				break;
 			}
-			if ( g_Config_EnumerateDevVars.Get() || !IsDevConfigValue( pNext->m_eValue ) )
+			if ( BEnumerateConfigValue( pNext ) )
 			{
 				*pOutNextValue = pNext->m_eValue;
 				break;
@@ -1633,7 +1642,7 @@ bool CSteamNetworkingUtils::GetConfigValueInfo( ESteamNetworkingConfigValue eVal
 ESteamNetworkingConfigValue CSteamNetworkingUtils::GetFirstConfigValue()
 {
 	EnsureConfigValueTableInitted();
-	Assert( !IsDevConfigValue( s_vecConfigValueTable[0]->m_eValue ) );
+	Assert( !BEnumerateConfigValue( s_vecConfigValueTable[0] ) );
 	return s_vecConfigValueTable[0]->m_eValue;
 }
 

@@ -1043,7 +1043,7 @@ enum ESteamNetworkingConfigDataType
 	k_ESteamNetworkingConfig_Int64 = 2,
 	k_ESteamNetworkingConfig_Float = 3,
 	k_ESteamNetworkingConfig_String = 4,
-	k_ESteamNetworkingConfig_FunctionPtr = 5, // NOTE: When setting	callbacks, you should put the pointer into a variable and pass a pointer to that variable.
+	k_ESteamNetworkingConfig_Ptr = 5,
 
 	k_ESteamNetworkingConfigDataType__Force32Bit = 0x7fffffff
 };
@@ -1383,7 +1383,7 @@ struct SteamNetworkingConfigValue_t
 		int64_t m_int64;
 		float m_float;
 		const char *m_string; // Points to your '\0'-terminated buffer
-		void *m_functionPtr;
+		void *m_ptr;
 	} m_val;
 };
 
