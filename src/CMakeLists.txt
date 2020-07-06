@@ -183,7 +183,10 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 			OpenSSL::Crypto
 		)
 		if(WIN32 AND OPENSSL_USE_STATIC_LIBS)
-			list(APPEND CMAKE_REQUIRED_LIBRARIES ws2_32 crypt32)
+			target_link_libraries(${GNS_TARGET} PUBLIC
+				ws2_32
+				crypt32
+			)
 		endif()
 	endif()
 

@@ -478,7 +478,7 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 						ICEFailed( k_nICECloseCode_Local_NotCompiled, errMsg );
 					}
 				#elif defined( LINUX ) || defined( ANDROID )
-					const char* pszModule = "libsteamwebrtc.dylib";
+					const char* pszModule = "libsteamwebrtc.so";
 					void* h = dlopen(pszModule, RTLD_LAZY);
 					if ( h != NULL )
 					{
