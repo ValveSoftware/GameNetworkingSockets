@@ -86,6 +86,10 @@ if(USE_CRYPTO25519 STREQUAL "Reference")
 	)
 endif()
 
+if(USE_STEAMWEBRTC)
+	add_subdirectory(external/steamwebrtc)
+endif(USE_STEAMWEBRTC)
+
 set(C99_FEATURES
 	c_restrict
 	c_function_prototypes)
@@ -165,10 +169,22 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 		Threads::Threads
 	)
 
+	if(USE_STEAMWEBRTC AND STEAMWEBRTC_USE_STATIC_LIBS)
+		target_compile_definitions(${GNS_TARGET} PRIVATE
+			STEAMWEBRTC_USE_STATIC_LIBS
+		)
+		target_link_libraries(${GNS_TARGET} PUBLIC
+			steamwebrtc
+		)
+	endif()
+
 	if(USE_CRYPTO STREQUAL "OpenSSL" OR USE_CRYPTO25519 STREQUAL "OpenSSL")
 		target_link_libraries(${GNS_TARGET} PUBLIC
 			OpenSSL::Crypto
 		)
+		if(WIN32 AND OPENSSL_USE_STATIC_LIBS)
+			list(APPEND CMAKE_REQUIRED_LIBRARIES ws2_32 crypt32)
+		endif()
 	endif()
 
 	if(USE_CRYPTO STREQUAL "libsodium" OR USE_CRYPTO25519 STREQUAL "libsodium")
@@ -218,8 +234,14 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 	endif()
 
 	if(CMAKE_SYSTEM_NAME MATCHES Linux)
+		if(USE_STEAMWEBRTC AND NOT STEAMWEBRTC_USE_STATIC_LIBS)
+			target_link_libraries(${GNS_TARGET} PRIVATE dl)
+		endif()
 		target_compile_definitions(${GNS_TARGET} PUBLIC POSIX LINUX)
 	elseif(CMAKE_SYSTEM_NAME MATCHES Darwin)
+		if(USE_STEAMWEBRTC AND NOT STEAMWEBRTC_USE_STATIC_LIBS)
+			target_link_libraries(${GNS_TARGET} PRIVATE dl)
+		endif()
 		target_compile_definitions(${GNS_TARGET} PUBLIC POSIX OSX)
 	elseif(CMAKE_SYSTEM_NAME MATCHES Windows)
 		target_compile_definitions(${GNS_TARGET} PUBLIC WIN32)

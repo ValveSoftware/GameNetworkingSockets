@@ -11,6 +11,7 @@ PACKAGES=(
 	clang
 	cmake
 	meson
+	git
 )
 
 PACKAGES+=(protobuf)

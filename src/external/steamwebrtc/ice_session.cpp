@@ -3,31 +3,28 @@
 #include "steamwebrtc_internal.h"
 
 #include <mutex>
+#include <string.h>
 
-#include "rtc_base.h"
+#include <string>
+
+#include <absl/types/optional.h>
+#include <absl/memory/memory.h>
+#include <api/task_queue/default_task_queue_factory.h>
+#include <api/task_queue/task_queue_factory.h>
+#include <api/async_resolver_factory.h>
+#include <api/turn_customizer.h>
+#include <rtc_base/network_route.h>
+#include <api/rtc_event_log/rtc_event_log_factory.h>
 #include <rtc_base/bind.h>
-#include <rtc_base/flags.h>
-#ifdef WEBRTC_ANDROID
 #include <rtc_base/physical_socket_server.h>
 #include <rtc_base/ssl_adapter.h>
-#else
-#include <rtc_base/physicalsocketserver.h>
-#include <rtc_base/ssladapter.h>
-#endif
 
 #include <api/jsep.h>
-#include <logging/rtc_event_log/rtc_event_log_factory.h>
-#ifdef WEBRTC_ANDROID
 #include <p2p/base/p2p_transport_channel.h>
 #include <p2p/base/basic_packet_socket_factory.h>
 #include <p2p/client/basic_port_allocator.h>
-#else
-#include <p2p/base/p2ptransportchannel.h>
-#include <p2p/base/basicpacketsocketfactory.h>
-#include <p2p/client/basicportallocator.h>
-#endif
 
-#include <pc/webrtcsdp.h>
+#include <pc/webrtc_sdp.h>
 
 #ifdef _WIN32
 	#define WIN32_LEAN_AND_MEAN
@@ -41,18 +38,11 @@
 #define strncasecmp _strnicmp
 #endif
 
-#ifdef WEBRTC_ANDROID
-namespace rtc
-{
-	typedef int64_t PacketTime;
-}
-#endif
-
 extern "C"
 {
-	extern void (*g_fnWriteEvent_setsockopt)( int slevel, int sopt, int value );
-	extern void (*g_fnWriteEvent_send)( int length );
-	extern void (*g_fnWriteEvent_sendto)( void *addr, int length );
+	static void (*g_fnWriteEvent_setsockopt)( int slevel, int sopt, int value ) = nullptr;
+	static void (*g_fnWriteEvent_send)( int length ) = nullptr;
+	static void (*g_fnWriteEvent_sendto)( void *addr, int length ) = nullptr;
 }
 
 extern "C"
@@ -103,6 +93,7 @@ private:
 	bool m_bShuttingDown = false;
 	IICESessionDelegate *m_pDelegate = nullptr;
 	std::unique_ptr<cricket::P2PTransportChannel> ice_transport_;
+	std::unique_ptr<webrtc::TaskQueueFactory> task_queue_factory;
 	std::unique_ptr<webrtc::RtcEventLogFactoryInterface> event_log_factory_;
 	std::unique_ptr<webrtc::RtcEventLog> event_log_;
 	std::unique_ptr<rtc::BasicNetworkManager> default_network_manager_;
@@ -120,7 +111,7 @@ private:
 		rtc::PacketTransportInternal* transport,
 		const char* data,
 		size_t size,
-		const rtc::PacketTime& packet_time,
+		const int64_t& packet_time,
 		int flags);
 	void OnSentPacket(rtc::PacketTransportInternal* transport, const rtc::SentPacket& sent_packet);
 	void OnReadyToSend(rtc::PacketTransportInternal* transport);
@@ -157,7 +148,8 @@ rtc::PhysicalSocketServer *CICESession::s_pSocketServer = nullptr;
 // Constructor
 //-----------------------------------------------------------------------------
 CICESession::CICESession( IICESessionDelegate *pDelegate ) :
-	m_pDelegate( pDelegate )
+	m_pDelegate( pDelegate ),
+	task_queue_factory(webrtc::CreateDefaultTaskQueueFactory())
 {
 	s_mutex.lock();
 	if ( ++s_nInstaneCount == 1 )
@@ -226,7 +218,7 @@ bool CICESession::BInitializeOnSocketThread( const ICESessionConfig &cfg )
 
 	m_nAllowedCandidateTypes = cfg.m_nCandidateTypes;
 
-	event_log_factory_ = webrtc::CreateRtcEventLogFactory();
+	event_log_factory_ = absl::make_unique<webrtc::RtcEventLogFactory>(task_queue_factory.get());
 
 	// Uhhhhhhh
 	auto encoding_type = webrtc::RtcEventLog::EncodingType::Legacy;
@@ -234,7 +226,7 @@ bool CICESession::BInitializeOnSocketThread( const ICESessionConfig &cfg )
 	//  encoding_type = RtcEventLog::EncodingType::NewFormat;
 	event_log_ = event_log_factory_
 				? event_log_factory_->CreateRtcEventLog(encoding_type)
-				: absl::make_unique<webrtc::RtcEventLogNullImpl>();
+				: absl::make_unique<webrtc::RtcEventLogNull>();
 
 	default_network_manager_.reset(new rtc::BasicNetworkManager());
 	default_socket_factory_.reset(
@@ -301,7 +293,44 @@ bool CICESession::BInitializeOnSocketThread( const ICESessionConfig &cfg )
 	std::vector<cricket::RelayServerConfig> turn_servers;
 	if ( cfg.m_nCandidateTypes & (k_EICECandidate_Any_Reflexive|k_EICECandidate_Any_Relay) )
 	{
-		// FIXME list of turn servers here
+		candidate_filter |= cricket::CF_REFLEXIVE | cricket::CF_RELAY;
+		for ( int i = 0 ; i < cfg.m_nTurnServers ; ++i )
+		{
+			const ICESessionConfig::TurnServer *pTurn = &cfg.m_pTurnServers[i];
+			
+			if ( !pTurn || !pTurn->m_pszHost || !pTurn->m_pszPwd || !pTurn->m_pszUsername ) {
+				continue;
+			}
+
+			const char *pszTurn = pTurn->m_pszHost;
+
+			// Skip "turn:" prefix, if present
+			if ( strncasecmp( pszTurn, "turn:", 5 ) == 0 )
+				pszTurn += 5;
+
+			rtc::SocketAddress address;
+			if ( !address.FromString( std::string( pszTurn ) ) )
+			{
+				m_pDelegate->Log( IICESessionDelegate::k_ELogPriorityError, "Invalid Turn server address '%s'\n", pszTurn );
+				return false;
+			}
+			if ( address.port() == 0 )
+				address.SetPort( 3478 ); // default STUN port
+
+			switch( pTurn->m_protocolType ) {
+				case k_EProtocolTypeUDP:
+				case k_EProtocolTypeTCP:
+				case k_EProtocolTypeSSLTCP:
+				case k_EProtocolTypeTLS:
+				default:
+				m_pDelegate->Log( IICESessionDelegate::k_ELogPriorityError, "Invalid Turn server protocol type '%d'\n", (int) pTurn->m_protocolType );
+				return false;
+			}
+
+			cricket::RelayServerConfig turn(address.hostname(), address.port(), 
+				pTurn->m_pszUsername, pTurn->m_pszPwd, (cricket::ProtocolType) pTurn->m_protocolType);
+			turn_servers.push_back( turn );
+		}
 	}
 
 	port_allocator_->set_flags(port_allocator_flags_);
@@ -559,7 +588,11 @@ bool CICESession::GetRoute( EICECandidateType &eLocalCandidate, EICECandidateTyp
 	eLocalCandidate = GetICECandidateType( conn->local_candidate() );
 	eRemoteCandidate = GetICECandidateType( conn->remote_candidate() );
 	std::string remote_addr = conn->remote_candidate().address().ToString();
+#ifdef HAVE_STRCPY_S
 	strcpy_s( szRemoteAddress, sizeof(CandidateAddressString), remote_addr.c_str() );
+#else
+	strncpy( szRemoteAddress, remote_addr.c_str(), std::min(sizeof(CandidateAddressString) -1, remote_addr.size()) );
+#endif
 
 	return eLocalCandidate != k_EICECandidate_Invalid && eRemoteCandidate != k_EICECandidate_Invalid && szRemoteAddress[0] != '\0';
 }
@@ -612,7 +645,7 @@ void CICESession::OnReadPacket(
 	rtc::PacketTransportInternal* transport,
 	const char* data,
 	size_t size,
-	const rtc::PacketTime& packet_time,
+	const int64_t& packet_time,
 	int flags
 ) {
 	m_pDelegate->OnData( data, size );

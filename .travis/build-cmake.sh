@@ -69,6 +69,12 @@ fi
 cmake_configure build-cmake ${CMAKE_ARGS[@]} -DCMAKE_BUILD_TYPE=RelWithDebInfo ..
 cmake_build build-cmake
 
+# Build binaries with webrtc
+if [[ $BUILD_WEBRTC -ne 0 ]]; then
+	cmake_configure build-cmake-webrtc ${CMAKE_ARGS[@]} -DCMAKE_BUILD_TYPE=RelWithDebInfo -DUSE_STEAMWEBRTC=ON -DSTEAMWEBRTC_USE_STATIC_LIBS=OFF ..
+	cmake_build build-cmake-webrtc
+fi
+
 # Build binaries with reference ed25519/curve25519
 cmake_configure build-cmake-ref ${CMAKE_ARGS[@]} -DCMAKE_BUILD_TYPE=RelWithDebInfo -DUSE_CRYPTO25519=Reference ..
 cmake_build build-cmake-ref

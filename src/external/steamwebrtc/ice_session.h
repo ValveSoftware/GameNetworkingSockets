@@ -40,6 +40,13 @@ enum EICECandidateType : int
 	k_EICECandidate_IPv6_Reflexive = 0x800,
 };
 
+enum EProtocolType {
+	k_EProtocolTypeUDP,
+	k_EProtocolTypeTCP,
+	k_EProtocolTypeSSLTCP,  // Pseudo-TLS.
+	k_EProtocolTypeTLS,
+};
+
 constexpr int k_EICECandidate_Any_Relay = k_EICECandidate_IPv4_Relay | k_EICECandidate_IPv6_Relay;
 constexpr int k_EICECandidate_Any_HostPrivate = k_EICECandidate_IPv4_HostPrivate | k_EICECandidate_IPv6_HostPrivate_Unsupported;
 constexpr int k_EICECandidate_Any_HostPublic = k_EICECandidate_IPv4_HostPublic | k_EICECandidate_IPv6_HostPublic;
@@ -122,6 +129,7 @@ struct ICESessionConfig
 		const char *m_pszHost = nullptr;
 		const char *m_pszUsername = nullptr;
 		const char *m_pszPwd = nullptr;
+		const EProtocolType m_protocolType = k_EProtocolTypeUDP;
 	};
 
 	EICERole m_eRole = k_EICERole_Unknown;
