@@ -14,7 +14,8 @@ env:
     - CONTAINER_NAME=travis-docker-builder
   jobs:
     - IMAGE=alpine IMAGE_TAG=latest
-    - IMAGE=archlinux IMAGE_TAG=latest
+    # Disabled: Compiler bug in LLVM. https://bugs.llvm.org/show_bug.cgi?id=46313
+    #- IMAGE=archlinux IMAGE_TAG=latest
     - IMAGE=ubuntu IMAGE_TAG=latest
     - IMAGE=ubuntu IMAGE_TAG=rolling
     - IMAGE=ubuntu IMAGE_TAG=devel
