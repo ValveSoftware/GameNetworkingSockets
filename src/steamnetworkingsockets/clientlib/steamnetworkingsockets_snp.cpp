@@ -3500,17 +3500,4 @@ void CSteamNetworkConnectionBase::SNP_PopulateQuickStats( SteamNetworkingQuickCo
 	}
 }
 
-#ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
-void CSteamNetworkConnectionBase::SNP_PopulateP2PSessionStateStats( P2PSessionState_t &info ) const
-{
-	info.m_nBytesQueuedForSend = 0;
-	info.m_nPacketsQueuedForSend = 0;
-	for ( CSteamNetworkingMessage *pMsg = m_senderState.m_messagesQueued.m_pFirst ; pMsg ; pMsg = pMsg->m_links.m_pNext )
-	{
-		info.m_nBytesQueuedForSend += pMsg->m_cbSize;
-		info.m_nPacketsQueuedForSend += 1;
-	}
-}
-#endif
-
 } // namespace SteamNetworkingSocketsLib

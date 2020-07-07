@@ -86,7 +86,6 @@ public:
 	/// setting the options "immediately" after creation.
 	virtual HSteamNetConnection ConnectByIPAddress( const SteamNetworkingIPAddr &address, int nOptions, const SteamNetworkingConfigValue_t *pOptions ) = 0;
 
-#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 	/// Like CreateListenSocketIP, but clients will connect using ConnectP2P
 	///
 	/// nLocalVirtualPort specifies how clients can connect to this socket using
@@ -103,19 +102,14 @@ public:
 	/// setting the options "immediately" after creation.
 	virtual HSteamListenSocket CreateListenSocketP2P( int nLocalVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions ) = 0;
 
-	/// Begin connecting to a server that is identified using a platform-specific identifier.
+	/// Begin connecting to a peer that is identified using a platform-specific identifier.
 	/// This uses the default rendezvous service, which depends on the platform and library
-	/// configuration.  (E.g. on Steam, it goes through the steam backend.)  The traffic is relayed
-	/// over the Steam Datagram Relay network.
-	///
-	/// If you use this, you probably want to call ISteamNetworkingUtils::InitRelayNetworkAccess()
-	/// when your app initializes
+	/// configuration.  (E.g. on Steam, it goes through the steam backend.)
 	///
 	/// If you need to set any initial config options, pass them here.  See
 	/// SteamNetworkingConfigValue_t for more about why this is preferable to
 	/// setting the options "immediately" after creation.
 	virtual HSteamNetConnection ConnectP2P( const SteamNetworkingIdentity &identityRemote, int nRemoteVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions ) = 0;
-#endif
 
 	/// Accept an incoming connection that has been received on a listen socket.
 	///

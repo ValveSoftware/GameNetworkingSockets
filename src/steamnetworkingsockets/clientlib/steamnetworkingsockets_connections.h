@@ -173,15 +173,15 @@ struct SendPacketContext : SendPacketContext_t
 	void CalcMaxEncryptedPayloadSize( size_t cbHdrReserve, CSteamNetworkConnectionBase *pConnection );
 };
 
-/// Connections created through the "messages" interface are not directly exposed to the app.
-// They have different mechanisms for notifying of received messages and state changes.
-class ISteamNetworkingMessagesSession
+/// Replace internal states that are not visible outside of the API with
+/// the corresponding state that we show the the application.
+inline ESteamNetworkingConnectionState CollapseConnectionStateToAPIState( ESteamNetworkingConnectionState eState )
 {
-public:
-	CSteamNetworkConnectionBase *m_pConnection; // active connection, if any.  Might be NULL!
-	virtual void ReceivedMessage( CSteamNetworkingMessage *pMsg ) = 0;
-	virtual void ConnectionStateChanged( ESteamNetworkingConnectionState eOldState, ESteamNetworkingConnectionState eNewState ) = 0;
-};
+	// All the hidden internal states are assigned negative values
+	if ( eState < 0 )
+		return k_ESteamNetworkingConnectionState_None;
+	return eState;
+}
 
 /////////////////////////////////////////////////////////////////////////////
 //
@@ -305,6 +305,10 @@ public:
 	/// Fill in detailed connection stats
 	virtual void APIGetDetailedConnectionStatus( SteamNetworkingDetailedConnectionStatus &stats, SteamNetworkingMicroseconds usecNow );
 
+	/// Hook to allow connections to customize message sending.
+	/// (E.g. loopback.)
+	virtual int64 _APISendMessageToConnection( CSteamNetworkingMessage *pMsg, SteamNetworkingMicroseconds usecNow, bool *pbThinkImmediately );
+
 //
 // Accessor
 //
@@ -419,11 +423,6 @@ public:
 	/// Our handle in our parent's m_listAcceptedConnections (if we were accepted on a listen socket)
 	int m_hSelfInParentListenSocketMap;
 
-	// Was this connection created as part of the "messages" interface?  If so, what interface
-	// owns us, and if so, are we still associated with an active session?
-	CSteamNetworkingMessages *m_pMessagesInterface;
-	ISteamNetworkingMessagesSession *m_pMessagesSession;
-
 	// Linked list of received messages
 	SteamNetworkingMessageQueue m_queueRecvMessages;
 
@@ -475,7 +474,6 @@ public:
 	void SetLocalCert( const CMsgSteamDatagramCertificateSigned &msgSignedCert, const CECSigningPrivateKey &keyPrivate, bool bCertHasIdentity );
 	void InterfaceGotCert();
 
-	void SNP_PopulateP2PSessionStateStats( P2PSessionState_t &info ) const;
 	bool SNP_BHasAnyBufferedRecvData() const
 	{
 		return !m_receiverState.m_bufReliableStream.empty();
@@ -613,10 +611,6 @@ protected:
 	/// Called when a timeout is detected.  Derived connection types can inspect this
 	/// to provide a more specific explanation.  Base class just uses the generic reason codes.
 	virtual void GuessTimeoutReason( ESteamNetConnectionEnd &nReasonCode, ConnectionEndDebugMsg &msg, SteamNetworkingMicroseconds usecNow );
-
-	/// Hook to allow connections to customize message sending.
-	/// (E.g. loopback.)
-	virtual int64 _APISendMessageToConnection( CSteamNetworkingMessage *pMsg, SteamNetworkingMicroseconds usecNow, bool *pbThinkImmediately );
 
 	/// Called when we receive a complete message.  Should allocate a message object and put it into the proper queues
 	bool ReceivedMessage( const void *pData, int cbData, int64 nMsgNum, int nFlags, SteamNetworkingMicroseconds usecNow );
@@ -910,6 +904,7 @@ extern CUtlHashMap<int, CSteamNetworkPollGroup *, std::equal_to<int>, Identity<i
 
 extern bool BCheckGlobalSpamReplyRateLimit( SteamNetworkingMicroseconds usecNow );
 extern CSteamNetworkConnectionBase *GetConnectionByHandle( HSteamNetConnection sock );
+extern CSteamNetworkPollGroup *GetPollGroupByHandle( HSteamNetPollGroup hPollGroup );
 
 inline CSteamNetworkConnectionBase *FindConnectionByLocalID( uint32 nLocalConnectionID )
 {

@@ -39,16 +39,6 @@ bool BCheckGlobalSpamReplyRateLimit( SteamNetworkingMicroseconds usecNow )
 	return true;
 }
 
-/// Replace internal states that are not visible outside of the API with
-/// the corresponding state that we show the the application.
-inline ESteamNetworkingConnectionState CollapseConnectionStateToAPIState( ESteamNetworkingConnectionState eState )
-{
-	// All the hidden internal states are assigned negative values
-	if ( eState < 0 )
-		return k_ESteamNetworkingConnectionState_None;
-	return eState;
-}
-
 // Hack code used to generate C++ code to add a new CA key to the table above
 //void KludgePrintPublicKey()
 //{
@@ -630,8 +620,6 @@ CSteamNetworkConnectionBase::CSteamNetworkConnectionBase( CSteamNetworkingSocket
 	m_pParentListenSocket = nullptr;
 	m_pPollGroup = nullptr;
 	m_hSelfInParentListenSocketMap = -1;
-	m_pMessagesInterface = nullptr;
-	m_pMessagesSession = nullptr;
 	m_bCertHasIdentity = false;
 	m_bCryptKeysValid = false;
 	m_eNegotiatedCipher = k_ESteamNetworkingSocketsCipher_INVALID;
@@ -652,7 +640,6 @@ CSteamNetworkConnectionBase::~CSteamNetworkConnectionBase()
 	Assert( m_eConnectionWireState == k_ESteamNetworkingConnectionState_Dead );
 	Assert( m_queueRecvMessages.empty() );
 	Assert( m_pParentListenSocket == nullptr );
-	Assert( m_pMessagesSession == nullptr );
 }
 
 void CSteamNetworkConnectionBase::ConnectionDestroySelfNow()
@@ -692,9 +679,6 @@ void CSteamNetworkConnectionBase::FreeResources()
 	// API-visible state, this will queue the state change notification
 	// while we still know who our listen socket is (if any).
 	SetState( k_ESteamNetworkingConnectionState_Dead, SteamNetworkingSockets_GetLocalTimestamp() );
-
-	// We should be detatched from any mesages session!
-	Assert( m_pMessagesSession == nullptr );
 
 	// Discard any messages that weren't retrieved
 	m_queueRecvMessages.PurgeMessages();
@@ -2275,43 +2259,16 @@ void CSteamNetworkConnectionBase::SetState( ESteamNetworkingConnectionState eNew
 	Assert( m_nSupressStateChangeCallbacks >= 0 );
 	if ( m_nSupressStateChangeCallbacks == 0 )
 	{
-		if ( m_pMessagesInterface )
+		// Check for posting callback, if connection state has changed from an API perspective
+		if ( eOldAPIState != eNewAPIState )
 		{
-			// Are we still associated with our session?
-			if ( m_pMessagesSession )
+			if ( eOldState == k_ESteamNetworkingConnectionState_None && GetState() == k_ESteamNetworkingConnectionState_ProblemDetectedLocally )
 			{
-				// How did we get here?  We should be closed!
-				if ( m_pMessagesSession->m_pConnection != this )
-				{
-					AssertMsg2( false, "Connection/session linkage bookkeeping bug!  %s state %d", GetDescription(), (int)GetState() );
-				}
-				else
-				{
-					m_pMessagesSession->ConnectionStateChanged( eOldAPIState, eNewAPIState );
-				}
+				// Do not post callbacks for internal failures during connection creation
 			}
 			else
 			{
-				// We should only detach after being closed or destroyed.
-				AssertMsg2( GetState() == k_ESteamNetworkingConnectionState_FinWait || GetState() == k_ESteamNetworkingConnectionState_Dead || GetState() == k_ESteamNetworkingConnectionState_None,
-					"Connection %s has detatched from messages session, but is in state %d", GetDescription(), (int)GetState() );
-			}
-		}
-		else
-		{
-
-			// Ordinary connection.  Check for posting callback, if connection state has changed from
-			// an API perspective
-			if ( eOldAPIState != eNewAPIState )
-			{
-				if ( eOldState == k_ESteamNetworkingConnectionState_None && GetState() == k_ESteamNetworkingConnectionState_ProblemDetectedLocally )
-				{
-					// Do not post callbacks for internal failures during connection creation
-				}
-				else
-				{
-					PostConnectionStateChangedCallback( eOldAPIState, eNewAPIState );
-				}
+				PostConnectionStateChangedCallback( eOldAPIState, eNewAPIState );
 			}
 		}
 	}
@@ -2431,29 +2388,6 @@ void CSteamNetworkConnectionBase::ReceivedMessage( CSteamNetworkingMessage *pMsg
 		GetDescription(),
 		(long long)pMsg->m_nMessageNumber,
 		pMsg->m_cbSize );
-
-	// Special case for internal connections used by Messages interface
-	if ( m_pMessagesInterface )
-	{
-		// Are we still associated with our session?
-		if ( !m_pMessagesSession )
-		{
-			// How did we get here?  We should be closed, and once closed,
-			// we should not receive any more messages
-			AssertMsg2( false, "Received message for connection %s associated with Messages interface, but no session.  Connection state is %d", GetDescription(), (int)GetState() );
-			pMsg->Release();
-		}
-		else if ( m_pMessagesSession->m_pConnection != this )
-		{
-			AssertMsg2( false, "Connection/session linkage bookkeeping bug!  %s state %d", GetDescription(), (int)GetState() );
-			pMsg->Release();
-		}
-		else
-		{
-			m_pMessagesSession->ReceivedMessage( pMsg );
-		}
-		return;
-	}
 
 	// Add to end of my queue.
 	pMsg->LinkToQueueTail( &CSteamNetworkingMessage::m_links, &m_queueRecvMessages );
@@ -2793,7 +2727,7 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 		{
 			// We don't send any data packets or keepalives in this state.
 			// We're just waiting for the client API to close us.  Let's check
-			// in once after a pretty lengthy delay, and assert if we're stil alive
+			// in once after a pretty lengthy delay, and assert if we're still alive
 			SteamNetworkingMicroseconds usecTimeout = m_usecWhenEnteredConnectionState + 20*k_nMillion;
 			if ( usecNow >= usecTimeout )
 			{
@@ -2819,11 +2753,12 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 				// We should squawk about this and let them know.
 				if ( m_eConnectionState != k_ESteamNetworkingConnectionState_FindingRoute && m_bConnectionInitiatedRemotely )
 				{
-					if ( m_pMessagesSession )
-					{
-						ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_Timeout, "%s", "App did not respond to Messages session request in time, discarding." );
-					}
-					else
+					// FIXME We probably need a way to turn off this warning for messages sessions
+					//if ( m_pMessagesSession )
+					//{
+					//	ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_Timeout, "%s", "App did not respond to Messages session request in time, discarding." );
+					//}
+					//else
 					{
 						AssertMsg( false, "Application didn't accept or close incoming connection in a reasonable amount of time.  This is probably a bug." );
 						ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_Timeout, "%s", "App didn't accept or close incoming connection in time." );
