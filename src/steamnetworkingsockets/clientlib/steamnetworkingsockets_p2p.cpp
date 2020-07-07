@@ -2055,7 +2055,7 @@ static int CompareSymmetricConnections( uint32 nConnectionIDA, const std::string
 
 	// Check parity of lowest bit and flip result
 	if ( ( nConnectionIDA ^ nConnectionIDB ) & 1 )
-		result = result;
+		result = -result;
 
 	return result;
 }
