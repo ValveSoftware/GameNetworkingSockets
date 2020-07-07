@@ -63,8 +63,8 @@
 // Otherwise, we don't
 #ifdef STEAMNETWORKINGSOCKETS_STEAM
 	#define STEAMNETWORKINGSOCKETS_HAS_DEFAULT_P2P_SIGNALING
+	#define STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
 #endif
-
 
 // Redefine the macros for byte-swapping, to sure the correct
 // argument size.  We probably should move this into platform.h,
