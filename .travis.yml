@@ -19,7 +19,8 @@ env:
     - IMAGE=ubuntu IMAGE_TAG=latest
     - IMAGE=ubuntu IMAGE_TAG=rolling
     - IMAGE=ubuntu IMAGE_TAG=devel
-    - IMAGE=fedora IMAGE_TAG=latest
+    # Disabled: Compiler bug in LLVM. https://bugs.llvm.org/show_bug.cgi?id=46313
+    #- IMAGE=fedora IMAGE_TAG=latest
     #- IMAGE=fedora IMAGE_TAG=rawhide
 
 jobs:
