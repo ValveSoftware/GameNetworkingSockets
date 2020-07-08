@@ -60,13 +60,15 @@ IThinker::~IThinker()
 
 void IThinker::SetNextThinkTime( SteamNetworkingMicroseconds usecTargetThinkTime )
 {
-	// Protect against us blowing up because of an invalid think time
-	if ( usecTargetThinkTime <= 0 )
+	// Protect against us blowing up because of an invalid think time.
+	// Zero is reserved (since it often means there is an uninitialized value),
+	// and our initial time value is effectively infinite compared to the
+	// intervals we deal with in this code, so we should never need to deal
+	// with a timestamp that far in the past.  See k_nThinkTime_ASAP
+	if ( unlikely( usecTargetThinkTime <= 0 ) )
 	{
-#ifndef _DEBUG // Running into this a lot while streaming and breaking in the debugger...
 		AssertMsg1( false, "Attempt to set target think time to %lld", (long long)usecTargetThinkTime );
-#endif
-		usecTargetThinkTime = Plat_USTime() + 5000;
+		usecTargetThinkTime = SteamNetworkingSockets_GetLocalTimestamp() + 2000;
 	}
 
 	// Clearing it?
