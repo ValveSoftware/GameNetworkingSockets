@@ -4,7 +4,7 @@
 #include "csteamnetworkingsockets.h"
 #include "crypto.h"
 
-#ifdef _WIN32
+#ifdef _WINDOWS
 	#include <iphlpapi.h>
 #endif
 
@@ -33,7 +33,7 @@ bool IsRouteToAddressProbablyLocal( netadr_t addr )
 	sockaddr_storage sockaddrDest;
 	addr.ToSockadr( &sockaddrDest );
 
-	#ifdef _WIN32
+	#ifdef _WINDOWS
 
 		//
 		// These functions were added with Vista, so load dynamically

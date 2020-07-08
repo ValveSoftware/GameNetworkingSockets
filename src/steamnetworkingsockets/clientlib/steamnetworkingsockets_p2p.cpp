@@ -450,7 +450,7 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 				tried = true;
 				SteamDatagramTransportLock::SetLongLockWarningThresholdMS( "LoadICEDll", 500 );
 
-				#if defined( _WIN32 )
+				#if defined( _WINDOWS )
 					HMODULE h = ::LoadLibraryA( "steamwebrtc.dll" );
 					if ( h != NULL )
 					{
