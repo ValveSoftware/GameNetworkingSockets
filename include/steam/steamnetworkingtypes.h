@@ -981,20 +981,21 @@ const int k_nSteamNetworkingSend_UseCurrentThread = 16;
 // if you attempt to send a message, and the session was proactively closed by the
 // peer, or an error occurred that disrupted communications, then you must close the
 // session using ISteamNetworkingMessages::CloseSessionWithUser before attempting to
-// send another message.  In this way, the disruption cannot go unnoticed, and a more
-// clear order of events can be ascertained.  This is especially important when reliable
-// messages are used, since if the connection is disrupted, some of those messages will not
-// have been delivered, and it is in general not possible to know which.  Although a
-// SteamNetworkingMessagesSessionFailed_t callback will be posted when an error occurs,
+// send another message.  (Or you can simply add this flag and retry.)  In this way,
+// the disruption cannot go unnoticed, and a more clear order of events can be
+// ascertained. This is especially important when reliable messages are used, since
+// if the connection is disrupted, some of those messages will not have been delivered,
+// and it is in general not possible to know which.  Although a
+// SteamNetworkingMessagesSessionFailed_t callback will be posted when an error occurs
 // to notify you that a failure has happened, callbacks are asynchronous, so it is not
 // possible to tell exactly when it happened.  And because the primary purpose of
 // ISteamNetworkingMessages is to be like UDP, there is no notification when a peer closes
 // the session.
 //
 // If you are not using any reliable messages (e.g. you are using ISteamNetworkingMessages
-// exactly as a transport replacement UDP-style datagrams only), you may not need to
+// exactly as a transport replacement for UDP-style datagrams only), you may not need to
 // know when an underlying connection fails, and so you may not need this notification.
-const int k_nSteamNetworkingSend_AutoRestartBrokwnSession = 32;
+const int k_nSteamNetworkingSend_AutoRestartBrokenSession = 32;
 
 //
 // Ping location / measurement
