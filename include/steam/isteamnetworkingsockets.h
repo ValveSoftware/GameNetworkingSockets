@@ -733,7 +733,7 @@ public:
 	///
 	/// After accepting a connection (through either means), the connection
 	/// will transition into the "finding route" state.
-	virtual ISteamNetworkingConnectionCustomSignaling *OnConnectRequest( HSteamNetConnection hConn, const SteamNetworkingIdentity &identityPeer ) = 0;
+	virtual ISteamNetworkingConnectionCustomSignaling *OnConnectRequest( HSteamNetConnection hConn, const SteamNetworkingIdentity &identityPeer, int nLocalVirtualPort ) = 0;
 
 	/// This is called actively communication rejection or failure
 	/// to the incoming message.  If you intend to ignore all incoming requests

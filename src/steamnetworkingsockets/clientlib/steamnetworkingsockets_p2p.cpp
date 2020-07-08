@@ -2461,7 +2461,7 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const void *pMsg, int c
 			}
 
 			// Inform app about the incoming request, see what they want to do
-			pConn->m_pSignaling = pContext->OnConnectRequest( pConn->m_hConnectionSelf, identityRemote );
+			pConn->m_pSignaling = pContext->OnConnectRequest( pConn->m_hConnectionSelf, identityRemote, nLocalVirtualPort );
 
 			// Already closed?
 			switch ( pConn->GetState() )
