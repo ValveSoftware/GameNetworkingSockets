@@ -37,8 +37,6 @@ constexpr int k_nICECloseCode_Local_UserNotEnabled = k_ESteamNetConnectionEnd_Lo
 constexpr int k_nICECloseCode_Aborted = k_ESteamNetConnectionEnd_Local_Max-2;
 constexpr int k_nICECloseCode_Remote_NotEnabled = k_ESteamNetConnectionEnd_Remote_Max;
 
-struct SteamNetworkingMessagesSession;
-class CSteamNetworkingMessages;
 class CConnectionTransportP2PSDR;
 class CConnectionTransportP2PICE;
 

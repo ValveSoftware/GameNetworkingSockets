@@ -82,6 +82,8 @@ public:
 	// Implements ISteamNetworkingSockets
 	virtual HSteamListenSocket CreateListenSocketIP( const SteamNetworkingIPAddr &localAddress, int nOptions, const SteamNetworkingConfigValue_t *pOptions ) override;
 	virtual HSteamNetConnection ConnectByIPAddress( const SteamNetworkingIPAddr &adress, int nOptions, const SteamNetworkingConfigValue_t *pOptions ) override;
+	virtual HSteamListenSocket CreateListenSocketP2P( int nLocalVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions ) override;
+	virtual HSteamNetConnection ConnectP2P( const SteamNetworkingIdentity &identityRemote, int nRemoteVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions ) override;
 	virtual EResult AcceptConnection( HSteamNetConnection hConn ) override;
 	virtual bool CloseConnection( HSteamNetConnection hConn, int nReason, const char *pszDebug, bool bEnableLinger ) override;
 	virtual bool CloseListenSocket( HSteamListenSocket hSocket ) override;
@@ -128,13 +130,15 @@ public:
 	CUtlHashMap<int,CSteamNetworkListenSocketP2P *,std::equal_to<int>,std::hash<int>> m_mapListenSocketsByVirtualPort;
 
 #ifdef STEAMNETWORKINGSOCKETS_HAS_DEFAULT_P2P_SIGNALING
-	inline CSteamNetworkingMessages *GetSteamNetworkingMessages()
-	{
-		if ( !m_pSteamNetworkingMessages )
-			m_pSteamNetworkingMessages = CreateSteamNetworkingMessages();
-		return m_pSteamNetworkingMessages;
-	}
-	virtual CSteamNetworkingMessages *CreateSteamNetworkingMessages() = 0;
+	CSteamNetworkingMessages *GetSteamNetworkingMessages();
+
+	// Rendezvous will depend on the platform
+	virtual ISteamNetworkingConnectionCustomSignaling *CreateDefaultP2PSignaling( const SteamNetworkingIdentity &identityRemote, SteamNetworkingErrMsg &errMsg ) = 0;
+
+	CSteamNetworkListenSocketP2P *InternalCreateListenSocketP2P( int nLocalVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions );
+	CSteamNetworkConnectionBase *InternalConnectP2PDefaultSignaling( const SteamNetworkingIdentity &identityRemote, int nRemoteVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions );
+
+
 #endif // #ifdef STEAMNETWORKINGSOCKETS_HAS_DEFAULT_P2P_SIGNALING
 	CSteamNetworkingMessages *m_pSteamNetworkingMessages;
 
@@ -156,7 +160,7 @@ protected:
 	bool m_bHaveLowLevelRef;
 	bool BInitLowLevel( SteamNetworkingErrMsg &errMsg );
 
-	HSteamNetConnection InternalConnectP2P( ISteamNetworkingConnectionCustomSignaling *pSignaling, const SteamNetworkingIdentity *pPeerIdentity, int nRemoteVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions );
+	CSteamNetworkConnectionBase *InternalConnectP2P( ISteamNetworkingConnectionCustomSignaling *pSignaling, const SteamNetworkingIdentity *pPeerIdentity, int nRemoteVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions );
 	bool InternalReceivedP2PSignal( const void *pMsg, int cbMsg, ISteamNetworkingCustomSignalingRecvContext *pContext, bool bDefaultPlatformSignaling );
 
 	// Protected - use Destroy()
