@@ -45,10 +45,13 @@ class CConnectionTransportP2PICE;
 /// We can only do this on platforms where this is some sort of "default" signaling
 /// mechanism
 
-class CSteamNetworkListenSocketP2P : public CSteamNetworkListenSocketBase
+class CSteamNetworkListenSocketP2P final : public CSteamNetworkListenSocketBase
 {
 public:
 	CSteamNetworkListenSocketP2P( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface );
+
+	// CSteamNetworkListenSocketBase overrides
+	virtual bool BSupportsSymmetricMode() override { return true; }
 
 	/// Setup
 	bool BInit( int nLocalVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions, SteamDatagramErrMsg &errMsg );
