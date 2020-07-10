@@ -1501,16 +1501,11 @@ bool CSteamNetworkingUtils::SetConfigValue( ESteamNetworkingConfigValue eValue,
 		case k_ESteamNetworkingConfig_MTU_DataSize:
 			SpewWarning( "MTU_DataSize is readonly" );
 			return false;
-
-		case k_ESteamNetworkingConfig_SymmetricConnect:
-			SpewBug( "SymmetricConnect must be set at connection creation time\n" );
-			return false;
 	}
 
 	GlobalConfigValueEntry *pEntry = FindConfigValueEntry( eValue );
 	if ( pEntry == nullptr )
 		return false;
-
 
 	SteamDatagramTransportLock scopeLock( "SetConfigValue" );
 
