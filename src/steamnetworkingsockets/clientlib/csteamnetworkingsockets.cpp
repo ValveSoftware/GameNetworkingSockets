@@ -1590,7 +1590,7 @@ static bool BEnumerateConfigValue( const GlobalConfigValueEntry *pVal )
 			return g_Config_EnumerateDevVars.Get();
 	}
 
-	return false;
+	return true;
 }
 
 bool CSteamNetworkingUtils::GetConfigValueInfo( ESteamNetworkingConfigValue eValue,
@@ -1633,7 +1633,7 @@ bool CSteamNetworkingUtils::GetConfigValueInfo( ESteamNetworkingConfigValue eVal
 ESteamNetworkingConfigValue CSteamNetworkingUtils::GetFirstConfigValue()
 {
 	EnsureConfigValueTableInitted();
-	Assert( !BEnumerateConfigValue( s_vecConfigValueTable[0] ) );
+	Assert( BEnumerateConfigValue( s_vecConfigValueTable[0] ) );
 	return s_vecConfigValueTable[0]->m_eValue;
 }
 
