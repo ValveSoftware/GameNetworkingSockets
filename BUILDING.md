@@ -12,6 +12,7 @@ Building
   * OpenSSL 1.1.1 or later
   * OpenSSL 1.1.x, plus ed25519-donna and curve25519-donna.  (We've made some
     minor changes, so the source is included in this project.)
+  * libsodium
   * [bcrypt](https://docs.microsoft.com/en-us/windows/desktop/api/bcrypt/) (windows only)
 * Google protobuf 2.6.1+
 
@@ -55,10 +56,28 @@ $ ninja
 
 ## Windows / Visual Studio
 
-Unfortuanetly, because Windows lacks a robust package ecosystem, getting setup
-is a bit of an arduous gauntlet.
+On Windows, you can use the [vcpkg](https://github.com/microsoft/vcpkg/) package manager. Or setup the 
+dependencies by hand, which is a bit of an arduous gauntlet.
 
-### OpenSSL
+### vcpkg
+
+Follow the [quick start](https://github.com/microsoft/vcpkg/#quick-start-windows) instructions to set up vcpkg, 
+and to integrate it with Visual Studio.
+
+To build GameNetworking sockets:
+
+```
+> .\vcpkg\vcpkg --overlay-ports=path\to\GameNetworkingSockets\vcpkg_ports install gamenetworkingsockets
+```
+You can use the vcpkg option `--triplet x64-windows` or `--triplet x86-windows` to force the choice of a 
+particular target architecture. The library should be immediately available in Visual Studio projects if 
+the vcpkg integration is installed, or the vcpkg CMake toolchain file can be used for CMake-based projects. 
+
+To use libsodium as the crypto backend rather than OpenSSL, install `gamenetworkingsockets[core,libsodium]`.
+
+### Manual setup
+
+#### OpenSSL
 
 You can install the [OpenSSL binaries](https://slproweb.com/products/Win32OpenSSL.html)
 provided by Shining Light Productions. The Windows CMake distribution understands
@@ -69,7 +88,7 @@ easier. Be sure to pick the installers **without** the "Light"suffix. In this in
 For CMake to find the libraries, you may need to set the environment variable
 `OPENSSL_ROOT_DIR`.
 
-### Checking prerequisites
+#### Checking prerequisites
 
 Start a Visual Studio Command Prompt (2017+), and double-check
 that you have everything you need.  Note that Visual Studio comes with these tools,
@@ -99,7 +118,7 @@ C:\dev> ninja --version
 ```
 
 
-### Protobuf
+#### Protobuf
 
 Instructions for getting a working installation of google protobuf on Windows can
 be found [here](https://github.com/protocolbuffers/protobuf/blob/master/cmake/README.md).
@@ -138,7 +157,7 @@ C:\dev\protobuf\cmake_build> ninja
 C:\dev\protobuf\cmake_build> ninja install
 ```
 
-### Building
+#### Building
 
 Start a Visual Studio Command Prompt, and create a directory to hold the build output.
 
