@@ -1,0 +1,14 @@
+Source: gamenetworkingsockets
+Version: 2020-07-10
+Description: GameNetworkingSockets is a basic transport layer for games.
+Homepage: https://github.com/ValveSoftware/GameNetworkingSockets
+Build-Depends: protobuf
+Default-Features: openssl
+
+Feature: openssl
+Description: Use OpenSSL as the crypto backend
+Build-Depends: openssl
+
+Feature: libsodium
+Description: Use libsodium as the crypto backend
+Build-Depends: libsodium
