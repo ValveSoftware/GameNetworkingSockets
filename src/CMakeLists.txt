@@ -2,6 +2,7 @@ include(CheckCCompilerFlag)
 include(CheckCXXCompilerFlag)
 include(CheckSymbolExists)
 include(CMakePushCheckState)
+include(GNUInstallDirs)
 
 find_package(Protobuf REQUIRED)
 find_package(Threads REQUIRED)
@@ -146,13 +147,14 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 	target_sources(${GNS_TARGET} PRIVATE ${GNS_PROTO_SRCS})
 
 	target_include_directories(${GNS_TARGET} PUBLIC
-		"../include"
-		${CMAKE_CURRENT_BINARY_DIR}
+		"$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>"
+		"$<INSTALL_INTERFACE:$<INSTALL_PREFIX>/${CMAKE_INSTALL_INCLUDEDIR}/GameNetworkingSockets>"
 	)
 
 	target_include_directories(${GNS_TARGET} PRIVATE
 		"common"
 		"public"
+		${CMAKE_CURRENT_BINARY_DIR}
 
 		# Only necessary if we're not using protobuf::libprotobuf
 		# But that's not supported until CMake 3.9
@@ -266,19 +268,48 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 
 	set_target_properties(${GNS_TARGET} PROPERTIES
 		CXX_STANDARD 11
-		)
+	)
+
+	add_sanitizers(${GNS_TARGET})
 
 endmacro()
 
 add_library(GameNetworkingSockets SHARED "")
+add_library(GameNetworkingSockets::GameNetworkingSockets ALIAS GameNetworkingSockets)
 add_library(GameNetworkingSockets::shared ALIAS GameNetworkingSockets)
 gamenetworkingsockets_common(GameNetworkingSockets)
-add_sanitizers(GameNetworkingSockets)
 
 add_library(GameNetworkingSockets_s STATIC "")
+add_library(GameNetworkingSockets::GameNetworkingSockets_s ALIAS GameNetworkingSockets_s)
 add_library(GameNetworkingSockets::static ALIAS GameNetworkingSockets_s)
 target_compile_definitions(GameNetworkingSockets_s INTERFACE STEAMNETWORKINGSOCKETS_STATIC_LINK)
 gamenetworkingsockets_common(GameNetworkingSockets_s)
-add_sanitizers(GameNetworkingSockets_s)
+
+# Install rules
+install(
+	TARGETS GameNetworkingSockets GameNetworkingSockets_s
+	EXPORT GameNetworkingSockets
+)
+
+install(DIRECTORY ../include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/GameNetworkingSockets)
+
+install(
+	EXPORT GameNetworkingSockets
+	DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/GameNetworkingSockets
+	NAMESPACE GameNetworkingSockets::
+)
+
+include(CMakePackageConfigHelpers)
+
+configure_package_config_file(../cmake/GameNetworkingSocketsConfig.cmake.in
+	${CMAKE_CURRENT_BINARY_DIR}/GameNetworkingSocketsConfig.cmake
+	INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/GameNetworkingSockets
+	PATH_VARS CMAKE_INSTALL_FULL_INCLUDEDIR
+)
+
+install(FILES 
+	${CMAKE_CURRENT_BINARY_DIR}/GameNetworkingSocketsConfig.cmake
+	DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/GameNetworkingSockets
+)
 
 # vim: set ts=4 sts=4 sw=4 noet:

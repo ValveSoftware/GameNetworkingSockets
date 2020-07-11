@@ -1,0 +1,25 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+
+find_dependency(Threads)
+
+if(@USE_CRYPTO@ STREQUAL "OpenSSL" OR @USE_CRYPTO25519@ STREQUAL "OpenSSL")
+    find_dependency(OpenSSL)
+endif()
+
+if(@USE_CRYPTO@ STREQUAL "libsodium" OR @USE_CRYPTO25519@ STREQUAL "libsodium")
+    find_dependency(sodium)
+endif()
+
+include(${CMAKE_CURRENT_LIST_DIR}/GameNetworkingSockets.cmake)
+
+set_target_properties(
+    GameNetworkingSockets::GameNetworkingSockets GameNetworkingSockets::GameNetworkingSockets_s
+    PROPERTIES IMPORTED_GLOBAL True
+)
+add_library(GameNetworkingSockets::shared ALIAS GameNetworkingSockets::GameNetworkingSockets)
+add_library(GameNetworkingSockets::static ALIAS GameNetworkingSockets::GameNetworkingSockets_s)
+
+check_required_components(GameNetworkingSockets)
+set(GameNetworkingSockets_FOUND 1)
