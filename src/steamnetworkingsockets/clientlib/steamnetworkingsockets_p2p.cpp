@@ -2381,13 +2381,22 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const void *pMsg, int c
 				if ( idxListenSock == m_mapListenSocketsByVirtualPort.InvalidIndex() )
 				{
 
-					// Totally ignore it.  We don't want this to be able to be used as a way to
-					// tell if you are online or not.
-					SpewMsgGroup( nLogLevel, "Ignoring P2P CMsgSteamDatagramConnectRequest from %s; we're not listening on virtual port %d\n", SteamNetworkingIdentityRender( identityRemote ).c_str(), nLocalVirtualPort );
-					return false;
+					// If default signaling, then it must match up to a listen socket.
+					// If custom signaling, then they need not have created one.
+					if ( bDefaultSignaling )
+					{
+
+						// Totally ignore it.  We don't want this to be able to be used as a way to
+						// tell if you are online or not.
+						SpewMsgGroup( nLogLevel, "Ignoring P2P CMsgSteamDatagramConnectRequest from %s; we're not listening on virtual port %d\n", SteamNetworkingIdentityRender( identityRemote ).c_str(), nLocalVirtualPort );
+						return false;
+					}
 				}
-				pListenSock = m_mapListenSocketsByVirtualPort[ idxListenSock ];
-				bSymmetricListenSocket = pListenSock->BSymmetricMode();
+				else
+				{
+					pListenSock = m_mapListenSocketsByVirtualPort[ idxListenSock ];
+					bSymmetricListenSocket = pListenSock->BSymmetricMode();
+				}
 
 				// Check for matching symmetric connections
 				if ( nLocalVirtualPort >= 0 )
