@@ -64,7 +64,8 @@ public:
 	/// Perform cleanup and self-destruct.  Use this instead of
 	/// calling operator delete.  This solves some complications
 	/// due to calling virtual functions from within destructor.
-	virtual void Destroy() ICLIENTNETWORKING_OVERRIDE;
+	void Destroy();
+	virtual void FreeResources();
 
 	const SteamNetworkingIdentity &InternalGetIdentity()
 	{

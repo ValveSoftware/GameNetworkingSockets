@@ -349,18 +349,11 @@ void CSteamNetworkingSockets::KillConnections()
 {
 	SteamDatagramTransportLock::AssertHeldByCurrentThread( "CSteamNetworkingSockets::KillConnections" );
 
-	// First, nuke messages interface, if we had one.
-	#ifdef STEAMNETWORKINGSOCKETS_HAS_DEFAULT_P2P_SIGNALING
+	// Warn messages interface that it needs to clean up.  We need to do this
+	// because that class has pointers to objects that we are about to destroy.
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
 		if ( m_pSteamNetworkingMessages )
-		{
-			delete m_pSteamNetworkingMessages;
-
-			// That destructor should clear our pointer (so we can be destroyed in either order)
-			Assert( m_pSteamNetworkingMessages == nullptr );
-
-			// But clear it just to be safe
-			m_pSteamNetworkingMessages = nullptr;
-		}
+			m_pSteamNetworkingMessages->FreeResources();
 	#endif
 
 	// Destroy all of my connections
@@ -402,6 +395,27 @@ void CSteamNetworkingSockets::Destroy()
 {
 	SteamDatagramTransportLock::AssertHeldByCurrentThread( "CSteamNetworkingSockets::Destroy" );
 
+	FreeResources();
+
+	// Nuke messages interface, if we had one.
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
+		if ( m_pSteamNetworkingMessages )
+		{
+			delete m_pSteamNetworkingMessages;
+			Assert( m_pSteamNetworkingMessages == nullptr ); // Destructor should sever this link
+			m_pSteamNetworkingMessages = nullptr; // Buuuuut we'll slam it, too, in case there's a bug
+		}
+	#endif
+
+	// Remove from list of extant instances, if we are there
+	find_and_remove_element( s_vecSteamNetworkingSocketsInstances, this );
+
+	delete this;
+}
+
+void CSteamNetworkingSockets::FreeResources()
+{
+
 	KillConnections();
 
 	// Clear identity and crypto stuff.
@@ -417,12 +431,6 @@ void CSteamNetworkingSockets::Destroy()
 		m_bHaveLowLevelRef = false;
 		SteamNetworkingSocketsLowLevelDecRef();
 	}
-
-	// Remove from list of extant instances, if we are there
-	find_and_remove_element( s_vecSteamNetworkingSocketsInstances, this );
-
-	// Self destruct
-	delete this;
 }
 
 bool CSteamNetworkingSockets::BHasAnyConnections() const
