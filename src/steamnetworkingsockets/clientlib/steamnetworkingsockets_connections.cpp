@@ -2173,6 +2173,8 @@ void CSteamNetworkConnectionBase::SetState( ESteamNetworkingConnectionState eNew
 	{
 		default:
 			Assert( false );
+			// FALLTHROUGH
+
 		case k_ESteamNetworkingConnectionState_Dead:
 		case k_ESteamNetworkingConnectionState_None:
 		case k_ESteamNetworkingConnectionState_Connected:
