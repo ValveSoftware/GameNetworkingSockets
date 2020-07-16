@@ -36,12 +36,19 @@
 template <typename K, typename T, typename L, typename H > 
 class CUtlHashMap
 {
+protected:
+	enum ReplaceExisting
+	{
+		False = 0,
+		True = 1,
+	};
+
 public:
-	typedef K KeyType_t;
-	typedef T ElemType_t;
-	typedef int IndexType_t;
-	typedef L EqualityFunc_t;
-	typedef H HashFunc_t;
+	using KeyType_t= K;
+	using ElemType_t = T;
+	using IndexType_t = int;
+	using EqualityFunc_t = L;
+	using HashFunc_t = H;
 	static constexpr IndexType_t kInvalidIndex = -1;
 
 	CUtlHashMap()
@@ -101,25 +108,49 @@ public:
 	static constexpr IndexType_t InvalidIndex()						{ return -1; }
 
 	// Insert method
-	IndexType_t  Insert( const KeyType_t &key )								{ return InsertOrReplace( key ); }
-	IndexType_t  Insert( const KeyType_t &key, const ElemType_t &insert )	{ return InsertOrReplace( key, insert ); }
-	IndexType_t  InsertOrReplace( const KeyType_t &key );
-	IndexType_t  InsertOrReplace( const KeyType_t &key, const ElemType_t &insert );
-	IndexType_t  InsertWithDupes( const KeyType_t &key, const ElemType_t &insert );
+	IndexType_t  Insert( const KeyType_t &key )								{ return FindOrInsert_Internal( key, ReplaceExisting::True ); }
+	IndexType_t  Insert( KeyType_t &&key )									{ return FindOrInsert_Internal( std::move(key), ReplaceExisting::True ); }
+	
+	// Insert or replace the existing if found (no dupes)
+	IndexType_t  Insert( const KeyType_t &key, const ElemType_t &insert )	{ return FindOrInsert_Internal( key, insert, ReplaceExisting::True ); }
+	IndexType_t  Insert( const KeyType_t &key, ElemType_t &&insert )		{ return FindOrInsert_Internal( key, std::move(insert), ReplaceExisting::True ); }
+	IndexType_t  Insert( KeyType_t &&key, const ElemType_t &insert )		{ return FindOrInsert_Internal( std::move(key), insert, ReplaceExisting::True ); }
+	IndexType_t  Insert( KeyType_t &&key, ElemType_t &&insert )				{ return FindOrInsert_Internal( std::move(key), std::move(insert), ReplaceExisting::True ); }
+
+	// Insert or replace the existing if found (no dupes)
+	IndexType_t  InsertOrReplace( const KeyType_t &key, const ElemType_t &insert )	{ return FindOrInsert_Internal( key, insert, ReplaceExisting::True ); }
+	IndexType_t  InsertOrReplace( const KeyType_t &key, ElemType_t &&insert )		{ return FindOrInsert_Internal( key, std::move(insert), ReplaceExisting::True ); }
+	IndexType_t  InsertOrReplace( KeyType_t &&key, const ElemType_t &insert )		{ return FindOrInsert_Internal( std::move(key), insert, ReplaceExisting::True ); }
+	IndexType_t  InsertOrReplace( KeyType_t &&key, ElemType_t &&insert )			{ return FindOrInsert_Internal( std::move(key), std::move(insert), ReplaceExisting::True ); }
+
+	// Insert ALWAYS, possibly creating a dupe
+	IndexType_t  InsertWithDupes( const KeyType_t &key, const ElemType_t &insert )	{ return InsertWithDupes_Internal( key, insert ); }
+	IndexType_t  InsertWithDupes( const KeyType_t &key, ElemType_t &&insert )		{ return InsertWithDupes_Internal( key, std::move(insert) ); }
+	IndexType_t  InsertWithDupes( KeyType_t &&key, const ElemType_t &insert )		{ return InsertWithDupes_Internal( std::move(key), insert ); }
+	IndexType_t  InsertWithDupes( KeyType_t &&key, ElemType_t &&insert )			{ return InsertWithDupes_Internal( std::move(key), std::move(insert) ); }
 
 	// Find-or-insert method, one-arg - can insert default-constructed element
 	// when there is no available copy constructor or assignment operator
-	IndexType_t  FindOrInsert( const KeyType_t &key );
+	IndexType_t  FindOrInsert( const KeyType_t &key )						{ return FindOrInsert_Internal( key, ReplaceExisting::False ); }
+	IndexType_t  FindOrInsert( KeyType_t &&key )							{ return FindOrInsert_Internal( std::move(key), ReplaceExisting::False ); }
 
 	// Find-or-insert method, two-arg - can insert an element when there is no
 	// copy constructor for the type (but does require assignment operator)
-	IndexType_t  FindOrInsert( const KeyType_t &key, const ElemType_t &insert );
+	IndexType_t  FindOrInsert( const KeyType_t &key, const ElemType_t &insert )	{ return FindOrInsert_Internal( key, insert, ReplaceExisting::False ); }
+	IndexType_t  FindOrInsert( const KeyType_t &key, ElemType_t &&insert )		{ return FindOrInsert_Internal( key, std::move(insert), ReplaceExisting::False ); }
+	IndexType_t  FindOrInsert( KeyType_t &&key, const ElemType_t &insert )		{ return FindOrInsert_Internal( std::move(key), insert, ReplaceExisting::False ); }
+	IndexType_t  FindOrInsert( KeyType_t &&key, ElemType_t &&insert )			{ return FindOrInsert_Internal( std::move(key), std::move(insert), ReplaceExisting::False ); }
 
 	// Find key, insert with default value if not found.  Returns pointer to the
 	// element
 	ElemType_t *FindOrInsertGetPtr( const KeyType_t &key )
 	{
 		IndexType_t i = FindOrInsert(key);
+		return &m_memNodes.Element( i ).m_elem;
+	}
+	ElemType_t *FindOrInsertGetPtr( KeyType_t &&key )
+	{
+		IndexType_t i = FindOrInsert( std::move( key ) );
 		return &m_memNodes.Element( i ).m_elem;
 	}
 
@@ -188,7 +219,17 @@ public:
 	void Swap( CUtlHashMap< K, T, L, H > &that );
 
 protected:
-	IndexType_t InsertUnconstructed( const KeyType_t &key, IndexType_t *pExistingIndex, bool bAllowDupes );
+	template < typename pf_key >
+	IndexType_t  FindOrInsert_Internal( pf_key &&key, ReplaceExisting bReplace );
+
+	template < typename pf_key, typename pf_elem >
+	IndexType_t  FindOrInsert_Internal( pf_key &&key, pf_elem &&insert, ReplaceExisting bReplace );
+
+	template < typename pf_key, typename pf_elem >
+	IndexType_t  InsertWithDupes_Internal( pf_key &&key, pf_elem &&insert );
+
+	template < typename KeyType_universal_ref >
+	IndexType_t InsertUnconstructed( KeyType_universal_ref &&key, IndexType_t *pExistingIndex, bool bAllowDupes );
 
 	inline IndexType_t FreeNodeIDToIndex( IndexType_t i ) const	{ return (0-i)-3; }
 	inline IndexType_t FreeNodeIndexToID( IndexType_t i ) const	{ return (-3)-i; }
@@ -384,11 +425,13 @@ public:
 
 
 //-----------------------------------------------------------------------------
-// Purpose: inserts a key into the map with an unconstructed element member
-// (to be copy constructed or default-constructed by a wrapper function)
+// Purpose: inserts and constructs a key into the map.
+// Element member is left unconstructed (to be copy constructed or default-constructed by a wrapper function)
+// Supports both copy and move constructors for KeyType_t via universal refs and type deduction
 //-----------------------------------------------------------------------------
 template <typename K, typename T, typename L, typename H> 
-inline int CUtlHashMap<K,T,L,H>::InsertUnconstructed( const KeyType_t &key, int *piNodeExistingIfDupe, bool bAllowDupes )
+template <typename KeyType_universal_ref>
+inline int CUtlHashMap<K,T,L,H>::InsertUnconstructed( KeyType_universal_ref &&key, int *piNodeExistingIfDupe, bool bAllowDupes )
 {
 	// make sure we have room in the hash table
 	if ( m_cElements >= m_vecHashBuckets.Count() )
@@ -433,8 +476,9 @@ inline int CUtlHashMap<K,T,L,H>::InsertUnconstructed( const KeyType_t &key, int 
 	// make an item
 	int iNewNode = AllocNode();
 	m_memNodes[iNewNode].m_iNextNode = kInvalidIndex;
-	CopyConstruct( &m_memNodes[iNewNode].m_key, key );
+	CopyConstruct( &m_memNodes[iNewNode].m_key, std::forward<KeyType_universal_ref>( key ) );
 	// Note: m_elem remains intentionally unconstructed here
+	// Note: key may have been moved depending on which constructor was called.
 
 	iBucket = basetypes::ModPowerOf2( hash, m_vecHashBuckets.Count() );
 
@@ -457,11 +501,18 @@ inline int CUtlHashMap<K,T,L,H>::InsertUnconstructed( const KeyType_t &key, int 
 // Purpose: inserts a default item into the map, no change if key already exists
 //-----------------------------------------------------------------------------
 template <typename K, typename T, typename L, typename H> 
-inline int CUtlHashMap<K,T,L,H>::FindOrInsert( const KeyType_t &key )
+template < typename pf_key >
+inline int CUtlHashMap<K,T,L,H>::FindOrInsert_Internal( pf_key &&key, ReplaceExisting bReplace )
 {
 	int iNodeExisting;
-	int iNodeInserted = InsertUnconstructed( key, &iNodeExisting, false /*no duplicates allowed*/ ); // copies key
-	if ( iNodeInserted != kInvalidIndex )
+	int iNodeInserted = InsertUnconstructed( std::forward<pf_key>( key ), &iNodeExisting, false /*no duplicates allowed*/ );
+	// If replacing, stomp the existing one
+	if ( bReplace && iNodeExisting != kInvalidIndex )
+	{
+		Destruct( &m_memNodes[ iNodeExisting ].m_elem );
+		ValueInitializeConstruct( &m_memNodes[ iNodeExisting ].m_elem );
+	}
+	else if ( iNodeInserted != kInvalidIndex )
 	{
 		ValueInitializeConstruct( &m_memNodes[ iNodeInserted ].m_elem );
 		return iNodeInserted;
@@ -474,50 +525,22 @@ inline int CUtlHashMap<K,T,L,H>::FindOrInsert( const KeyType_t &key )
 // Purpose: inserts an item into the map, no change if key already exists
 //-----------------------------------------------------------------------------
 template <typename K, typename T, typename L, typename H> 
-inline int CUtlHashMap<K,T,L,H>::FindOrInsert( const KeyType_t &key, const ElemType_t &insert )
+template < typename pf_key, typename pf_elem >
+inline int CUtlHashMap<K,T,L,H>::FindOrInsert_Internal( pf_key &&key, pf_elem &&elem, ReplaceExisting bReplace )
 {
 	int iNodeExisting;
-	int iNodeInserted = InsertUnconstructed( key, &iNodeExisting, false /*no duplicates allowed*/ ); // copies key
-	if ( iNodeInserted != kInvalidIndex )
+	int iNodeInserted = InsertUnconstructed( std::forward<pf_key>( key ), &iNodeExisting, false /*no duplicates allowed*/ );
+	// If replacing, stomp the existing one
+	if ( bReplace && iNodeExisting != kInvalidIndex )
 	{
-		CopyConstruct( &m_memNodes[ iNodeInserted ].m_elem, insert );
+		Destruct( &m_memNodes[ iNodeExisting ].m_elem );
+		CopyConstruct( &m_memNodes[ iNodeExisting ].m_elem, std::forward<pf_elem>( elem ) );
+	}
+	else if ( iNodeInserted != kInvalidIndex )
+	{
+		CopyConstruct( &m_memNodes[ iNodeInserted ].m_elem, std::forward<pf_elem>( elem ) );
 		return iNodeInserted;
 	}
-	return iNodeExisting;
-}
-
-
-//-----------------------------------------------------------------------------
-// Purpose: inserts an item into the map, replaces existing item with same key
-//-----------------------------------------------------------------------------
-template <typename K, typename T, typename L, typename H> 
-inline int CUtlHashMap<K,T,L,H>::InsertOrReplace( const KeyType_t &key )
-{
-	int iNodeExisting;
-	int iNodeInserted = InsertUnconstructed( key, &iNodeExisting, false /*no duplicates allowed*/ ); // copies key
-	if ( iNodeInserted != kInvalidIndex )
-	{
-		ValueInitializeConstruct( &m_memNodes[ iNodeInserted ].m_elem );
-		return iNodeInserted;
-	}
-	return iNodeExisting;
-}
-
-
-//-----------------------------------------------------------------------------
-// Purpose: inserts an item into the map, replaces existing item with same key
-//-----------------------------------------------------------------------------
-template <typename K, typename T, typename L, typename H> 
-inline int CUtlHashMap<K,T,L,H>::InsertOrReplace( const KeyType_t &key, const ElemType_t &insert )
-{
-	int iNodeExisting;
-	int iNodeInserted = InsertUnconstructed( key, &iNodeExisting, false /*no duplicates allowed*/ ); // copies key
-	if ( iNodeInserted != kInvalidIndex )
-	{
-		CopyConstruct( &m_memNodes[ iNodeInserted ].m_elem, insert );
-		return iNodeInserted;
-	}
-	m_memNodes[ iNodeExisting ].m_elem = insert;
 	return iNodeExisting;
 }
 
@@ -525,12 +548,13 @@ inline int CUtlHashMap<K,T,L,H>::InsertOrReplace( const KeyType_t &key, const El
 // Purpose: inserts element no matter what, even if key already exists
 //-----------------------------------------------------------------------------
 template <typename K, typename T, typename L, typename H> 
-inline int CUtlHashMap<K,T,L,H>::InsertWithDupes( const KeyType_t &key, const ElemType_t &insert )
+template < typename pf_key, typename pf_elem >
+inline int CUtlHashMap<K,T,L,H>::InsertWithDupes_Internal( pf_key &&key, pf_elem &&insert )
 {
-	int iNodeInserted = InsertUnconstructed( key, NULL, true /*duplicates allowed!*/ ); // copies key
+	int iNodeInserted = InsertUnconstructed( std::forward<pf_key>( key ), NULL, true /*duplicates allowed!*/ ); // copies key
 	if ( iNodeInserted != kInvalidIndex )
 	{
-		CopyConstruct( &m_memNodes[ iNodeInserted ].m_elem, insert );
+		CopyConstruct( &m_memNodes[ iNodeInserted ].m_elem, std::forward<pf_elem>( insert ) );
 	}
 	return iNodeInserted;
 }
