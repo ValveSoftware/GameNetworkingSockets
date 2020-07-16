@@ -344,6 +344,20 @@ void CSteamNetworkingSockets::KillConnections()
 {
 	SteamDatagramTransportLock::AssertHeldByCurrentThread( "CSteamNetworkingSockets::KillConnections" );
 
+	// First, nuke messages interface, if we had one.
+	#ifdef STEAMNETWORKINGSOCKETS_HAS_DEFAULT_P2P_SIGNALING
+		if ( m_pSteamNetworkingMessages )
+		{
+			delete m_pSteamNetworkingMessages;
+
+			// That destructor should clear our pointer (so we can be destroyed in either order)
+			Assert( m_pSteamNetworkingMessages == nullptr );
+
+			// But clear it just to be safe
+			m_pSteamNetworkingMessages = nullptr;
+		}
+	#endif
+
 	// Destroy all of my connections
 	FOR_EACH_HASHMAP( g_mapConnections, idx )
 	{
@@ -382,20 +396,6 @@ void CSteamNetworkingSockets::KillConnections()
 void CSteamNetworkingSockets::Destroy()
 {
 	SteamDatagramTransportLock::AssertHeldByCurrentThread( "CSteamNetworkingSockets::Destroy" );
-
-	// Nuke messages interface, if we had one
-	#ifdef STEAMNETWORKINGSOCKETS_HAS_DEFAULT_P2P_SIGNALING
-		if ( m_pSteamNetworkingMessages )
-		{
-			delete m_pSteamNetworkingMessages;
-
-			// That destructor should clear our pointer (so we can be destroyed in either order)
-			Assert( m_pSteamNetworkingMessages == nullptr );
-
-			// But clear it just to be safe
-			m_pSteamNetworkingMessages = nullptr;
-		}
-	#endif
 
 	KillConnections();
 
