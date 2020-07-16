@@ -1546,6 +1546,33 @@ bool CSteamNetworkConnectionP2P::ProcessSignal( const CMsgSteamNetworkingP2PRend
 			ICEFailed( k_nICECloseCode_Remote_NotEnabled, "Peer sent signal without ice_enabled set" );
 	#endif
 
+	// Closing the connection through rendezvous?
+	// (Usually we try to close the connection through the
+	// data transport, but in some cases that may not be possible.)
+	if ( msg.has_connection_closed() )
+	{
+		const CMsgSteamNetworkingP2PRendezvous_ConnectionClosed &connection_closed = msg.connection_closed();
+
+		// Give them a reply if appropriate
+		if ( connection_closed.reason_code() != k_ESteamNetConnectionEnd_Internal_P2PNoConnection )
+			SendNoConnectionSignal( usecNow );
+
+		// Generic state machine take it from here.  (This call does the right
+		// thing regardless of the current connection state.)
+		if ( connection_closed.reason_code() == k_ESteamNetConnectionEnd_Internal_P2PNoConnection )
+		{
+			// If we were already closed, this won't actually be "unexpected".  The
+			// error message and code we pass here are only used if we are not already
+			// closed.
+			ConnectionState_ClosedByPeer( k_ESteamNetConnectionEnd_Misc_PeerSentNoConnection, "Received unexpected P2P 'no connection' signal" ); 
+		}
+		else
+		{
+			ConnectionState_ClosedByPeer( connection_closed.reason_code(), connection_closed.debug().c_str() ); 
+		}
+		return true;
+	}
+
 	// Check for acking reliable messages
 	if ( msg.ack_reliable_msg() > 0 )
 	{
@@ -2271,52 +2298,17 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const void *pMsg, int c
 			pConn->m_unConnectionIDRemote = msg.from_connection_id();
 		}
 		if ( !pConn->BEnsureInP2PConnectionMapByRemoteInfo( errMsg ) )
-				return false;
-	
-		// Closing the connection gracefully through rendezvous?
-		// (Usually we try to close the connection through the
-		// relay network.)
-		if ( msg.has_connection_closed() )
-		{
-			const CMsgSteamNetworkingP2PRendezvous_ConnectionClosed &connection_closed = msg.connection_closed();
-
-			// Give them a reply if appropriate
-			if ( connection_closed.reason_code() != k_ESteamNetConnectionEnd_Internal_P2PNoConnection )
-				pConn->SendNoConnectionSignal( usecNow );
-
-			// If connection is already closed, then we're good.
-			if ( pConn->GetState() == k_ESteamNetworkingConnectionState_FinWait )
-			{
-
-				// No need to hang around any more, we know that we're cleaned up on both ends
-				pConn->QueueDestroy();
-			}
-			else
-			{
-
-				// Generic state machine take it from here.  (This call does the right
-				// thing regardless of the current connection state.)
-				if ( connection_closed.reason_code() == k_ESteamNetConnectionEnd_Internal_P2PNoConnection )
-				{
-					pConn->ConnectionState_ClosedByPeer( k_ESteamNetConnectionEnd_Misc_Generic, "Received unexpected P2P 'non connection' signal" ); 
-				}
-				else
-				{
-					pConn->ConnectionState_ClosedByPeer( connection_closed.reason_code(), connection_closed.debug().c_str() ); 
-				}
-			}
-			return true;
-		}
-	}
-	else if ( !msg.has_connect_request() || !msg.from_connection_id() )
-	{
-		SpewWarning( "Bad P2P signal from '%s': no connect_request or (\n", msg.from_identity().c_str() );
-		return false;
+			return false;
 	}
 	else
 	{
-		Assert( !msg.has_connection_closed() ); // Not a local code bug, but fishy for them to send both
 
+		// They didn't know our connection ID (yet).  But we might recognize their connection ID.
+		if ( !msg.from_connection_id() )
+		{
+			SpewWarning( "Bad P2P signal from '%s': neither from/to connection IDs present\n", msg.from_identity().c_str() );
+			return false;
+		}
 		RemoteConnectionKey_t key{ identityRemote, msg.from_connection_id() };
 		int idxMapP2P = g_mapP2PConnectionsByRemoteInfo.Find( key );
 		if ( idxMapP2P != g_mapP2PConnectionsByRemoteInfo.InvalidIndex() )
@@ -2328,6 +2320,20 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const void *pMsg, int c
 		}
 		else
 		{
+
+			// Only other legit case is a new connect request.
+			if ( !msg.has_connect_request() )
+			{
+				SpewWarning( "Ignoring P2P signal from '%s', unknown remote connection #%u\n", msg.from_identity().c_str(), msg.from_connection_id() );
+
+				// We unfortunately must not reply in this case.  If we do reply,
+				// then all you need to do to tell if somebody is online is send a
+				// signal with a random connection ID.  If we did have such a
+				// connection, but it is deleted now, then hopefully we cleaned it
+				// up properly, handling potential for dropped cleanup messages,
+				// in the FinWait state
+				return true;
+			}
 
 			// Make sure we have a recent cert.  Start requesting another if needed.
 			#ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
