@@ -556,6 +556,13 @@ public:
 	// Upcasts.  So we don't have to compile with RTTI
 	virtual CSteamNetworkConnectionP2P *AsSteamNetworkConnectionP2P();
 
+	/// Check if this connection is an internal connection for the
+	/// ISteamMessages interface.  The messages layer *mostly* works
+	/// on top of the sockets system, but in a few places we need
+	/// to break the abstraction and do things other clients of the
+	/// API could not do easily
+	inline bool IsConnectionForMessagesSession() const { return m_connectionConfig.m_LocalVirtualPort.Get() == k_nVirtualPort_Messages; }
+
 protected:
 	CSteamNetworkConnectionBase( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface );
 	virtual ~CSteamNetworkConnectionBase(); // hidden destructor, don't call directly.  Use ConnectionDestroySelfNow()

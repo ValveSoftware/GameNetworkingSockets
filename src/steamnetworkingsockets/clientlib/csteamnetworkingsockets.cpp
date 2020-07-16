@@ -42,6 +42,11 @@ DEFINE_GLOBAL_CONFIGVAL( float, FakePacketDup_Recv, 0.0f, 0.0f, 100.0f );
 DEFINE_GLOBAL_CONFIGVAL( int32, FakePacketDup_TimeMax, 10, 0, 5000 );
 DEFINE_GLOBAL_CONFIGVAL( int32, EnumerateDevVars, 0, 0, 1 );
 
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
+DEFINE_GLOBAL_CONFIGVAL( void*, Callback_MessagesSessionRequest, nullptr );
+DEFINE_GLOBAL_CONFIGVAL( void*, Callback_MessagesSessionFailed, nullptr );
+#endif
+
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, TimeoutInitial, 10000, 0, INT32_MAX );
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, TimeoutConnected, 10000, 0, INT32_MAX );
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, SendBufferSize, 512*1024, 0, 0x10000000 );
@@ -1089,25 +1094,29 @@ void CSteamNetworkingSockets::RunCallbacks()
 		// some (almost certainly reasonable in practice) assumptions about the parameter
 		// passing ABI.  All of these function calls basically have the same signature except
 		// for the actual type of the argument being pointed to.
+
+		#define DISPATCH_CALLBACK( structType, fnType ) \
+			case structType::k_iCallback: \
+				COMPILE_TIME_ASSERT( sizeof(structType) <= sizeof(x.data) ); \
+				((fnType)x.fnCallback)( (structType*)x.data ); \
+				break; \
+
 		switch ( x.nCallback )
 		{
-			case SteamNetConnectionStatusChangedCallback_t::k_iCallback:
-				COMPILE_TIME_ASSERT( sizeof(SteamNetConnectionStatusChangedCallback_t) <= sizeof(x.data) );
-				((FnSteamNetConnectionStatusChanged)x.fnCallback)( (SteamNetConnectionStatusChangedCallback_t*)x.data );
-				break;
+			DISPATCH_CALLBACK( SteamNetConnectionStatusChangedCallback_t, FnSteamNetConnectionStatusChanged )
 		#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
-			case SteamNetAuthenticationStatus_t::k_iCallback:
-				COMPILE_TIME_ASSERT( sizeof(SteamNetAuthenticationStatus_t) <= sizeof(x.data) );
-				((FnSteamNetAuthenticationStatusChanged)x.fnCallback)( (SteamNetAuthenticationStatus_t *)x.data );
-				break;
-			case SteamRelayNetworkStatus_t::k_iCallback:
-				COMPILE_TIME_ASSERT( sizeof(SteamRelayNetworkStatus_t) <= sizeof(x.data) );
-				((FnSteamRelayNetworkStatusChanged)x.fnCallback)( (SteamRelayNetworkStatus_t*)x.data );
-				break;
+			DISPATCH_CALLBACK( SteamNetAuthenticationStatus_t, FnSteamNetAuthenticationStatusChanged )
+			DISPATCH_CALLBACK( SteamRelayNetworkStatus_t, FnSteamRelayNetworkStatusChanged )
+		#endif
+		#ifdef STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
+			DISPATCH_CALLBACK( SteamNetworkingMessagesSessionRequest_t, FnSteamNetworkingMessagesSessionRequest )
+			DISPATCH_CALLBACK( SteamNetworkingMessagesSessionFailed_t, FnSteamNetworkingMessagesSessionFailed )
 		#endif
 			default:
 				AssertMsg1( false, "Unknown callback type %d!", x.nCallback );
 		}
+
+		#undef DISPATCH_CALLBACK
 	}
 }
 

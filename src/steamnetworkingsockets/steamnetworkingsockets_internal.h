@@ -782,6 +782,11 @@ extern GlobalConfigValue<float> g_Config_FakePacketDup_Recv;
 extern GlobalConfigValue<int32> g_Config_FakePacketDup_TimeMax;
 extern GlobalConfigValue<int32> g_Config_EnumerateDevVars;
 
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
+extern GlobalConfigValue<void*> g_Config_Callback_MessagesSessionRequest;
+extern GlobalConfigValue<void*> g_Config_Callback_MessagesSessionFailed;
+#endif
+
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 extern GlobalConfigValue<int32> g_Config_SDRClient_ConsecutitivePingTimeoutsFailInitial;
 extern GlobalConfigValue<int32> g_Config_SDRClient_ConsecutitivePingTimeoutsFail;

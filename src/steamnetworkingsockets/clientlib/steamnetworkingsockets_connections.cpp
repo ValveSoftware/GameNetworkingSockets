@@ -2403,7 +2403,28 @@ void CSteamNetworkConnectionBase::PostConnectionStateChangedCallback( ESteamNetw
 	ConnectionPopulateInfo( c.m_info );
 	c.m_eOldState = eOldAPIState;
 	c.m_hConn = m_hConnectionSelf;
-	m_pSteamNetworkingSocketsInterface->QueueCallback( c, m_connectionConfig.m_Callback_ConnectionStatusChanged.Get() );
+
+	// !KLUDGE! For ISteamnetworkingMessages connections, we want to process the callback immediately.
+	void *fnCallback = m_connectionConfig.m_Callback_ConnectionStatusChanged.Get();
+	if ( IsConnectionForMessagesSession() )
+	{
+		if ( fnCallback )
+		{
+			FnSteamNetConnectionStatusChanged fnConnectionStatusChanged = (FnSteamNetConnectionStatusChanged)( fnCallback );
+			(*fnConnectionStatusChanged)( &c );
+		}
+		else
+		{
+			// Currently there is no use case that does this.  It's probably a bug.
+			Assert( false );
+		}
+	}
+	else
+	{
+
+		// Typical codepath - post to a queue
+		m_pSteamNetworkingSocketsInterface->QueueCallback( c, fnCallback );
+	}
 }
 
 void CSteamNetworkConnectionBase::ConnectionState_ProblemDetectedLocally( ESteamNetConnectionEnd eReason, const char *pszFmt, ... )
@@ -2753,12 +2774,13 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 				// We should squawk about this and let them know.
 				if ( m_eConnectionState != k_ESteamNetworkingConnectionState_FindingRoute && m_bConnectionInitiatedRemotely )
 				{
-					// FIXME We probably need a way to turn off this warning for messages sessions
-					//if ( m_pMessagesSession )
-					//{
-					//	ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_Timeout, "%s", "App did not respond to Messages session request in time, discarding." );
-					//}
-					//else
+					// Discard this warning for messages sessions.  It's part of the messages API design
+					// that the app can ignore these connections if they do not want to accept them.
+					if ( IsConnectionForMessagesSession() )
+					{
+						ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_Timeout, "%s", "App did not respond to Messages session request in time, discarding." );
+					}
+					else
 					{
 						AssertMsg( false, "Application didn't accept or close incoming connection in a reasonable amount of time.  This is probably a bug." );
 						ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_Timeout, "%s", "App didn't accept or close incoming connection in time." );

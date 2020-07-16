@@ -62,11 +62,14 @@ struct SteamDatagramGameCoordinatorServerLogin;
 struct SteamNetConnectionStatusChangedCallback_t;
 struct SteamNetAuthenticationStatus_t;
 struct SteamRelayNetworkStatus_t;
+struct SteamNetworkingMessagesSessionRequest_t;
+struct SteamNetworkingMessagesSessionFailed_t;
 
 typedef void (*FnSteamNetConnectionStatusChanged)( SteamNetConnectionStatusChangedCallback_t * );
 typedef void (*FnSteamNetAuthenticationStatusChanged)( SteamNetAuthenticationStatus_t * );
 typedef void (*FnSteamRelayNetworkStatusChanged)(SteamRelayNetworkStatus_t *);
-
+typedef void (*FnSteamNetworkingMessagesSessionRequest)(SteamNetworkingMessagesSessionRequest_t *);
+typedef void (*FnSteamNetworkingMessagesSessionFailed)(SteamNetworkingMessagesSessionFailed_t *);
 
 /// Handle used to identify a connection to a remote host.
 typedef uint32 HSteamNetConnection;
@@ -1324,6 +1327,17 @@ enum ESteamNetworkingConfigValue
 	/// any connections or listen sockets, and don't change it.
 	/// See: ISteamNetworkingUtils::SetGlobalCallback_SteamRelayNetworkStatusChanged
 	k_ESteamNetworkingConfig_Callback_RelayNetworkStatusChanged = 203,
+
+	/// [global FnSteamNetworkingMessagesSessionRequest] Callback that will be invoked
+	/// when a peer wants to initiate a SteamNetworkingMessagesSessionRequest.
+	/// See: ISteamNetworkingUtils::SetGlobalCallback_MessagesSessionRequest
+	k_ESteamNetworkingConfig_Callback_MessagesSessionRequest = 204,
+
+	/// [global FnSteamNetworkingMessagesSessionFailed] Callback that will be invoked
+	/// when a session you have initiated, or accepted either fails to connect, or loses
+	/// connection in some unexpected way.
+	/// See: ISteamNetworkingUtils::SetGlobalCallback_MessagesSessionFailed
+	k_ESteamNetworkingConfig_Callback_MessagesSessionFailed = 205,
 
 	//
 	// P2P settings
