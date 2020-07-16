@@ -8,10 +8,15 @@
 
 #include <time.h>
 #include <ostream>
+#include <memory>
 #include <crypto.h>
 #include <crypto_25519.h>
 #include "steamnetworkingsockets_certstore.h"
 #include <tier1/utlhashmap.h>
+
+#ifdef DBGFLAG_VALIDATE
+	#include <tier0/validator_std.h>
+#endif
 
 // Must be the last include
 #include <tier0/memdbgon.h>
@@ -263,7 +268,7 @@ struct PublicKey
 		}
 	#endif
 };
-static CUtlHashMap<uint64,PublicKey*,std::equal_to<uint64>,std::hash<uint64> > s_mapPublicKeys;
+static CUtlHashMap<uint64,std::unique_ptr<PublicKey>,std::equal_to<uint64>,std::hash<uint64> > s_mapPublicKeys;
 static bool s_bTrustValid = false;
 
 static PublicKey *FindPublicKey( uint64 nKeyID )
@@ -271,7 +276,7 @@ static PublicKey *FindPublicKey( uint64 nKeyID )
 	int idx = s_mapPublicKeys.Find( nKeyID );
 	if ( idx == s_mapPublicKeys.InvalidIndex() )
 		return nullptr;
-	return s_mapPublicKeys[ idx ];
+	return s_mapPublicKeys[ idx ].get();
 }
 
 static void CertStore_OneTimeInit()
@@ -288,9 +293,15 @@ static void CertStore_OneTimeInit()
 			V_sprintf_safe( checkID, "ID%llu", (unsigned long long)nKeyID );
 			AssertFatal( V_stristr( STEAMNETWORKINGSOCKETS_HARDCODED_ROOT_CA_KEY, checkID ) != NULL );
 
-			s_mapPublicKeys.Insert( nKeyID, pKey );
+			s_mapPublicKeys.Insert( nKeyID, std::unique_ptr<PublicKey>( pKey ) );
 		}
 	#endif
+}
+
+void CertStore_Reset()
+{
+	s_mapPublicKeys.RemoveAll();
+	s_bTrustValid = false;
 }
 
 void CertStore_AddKeyRevocation( uint64 key_id )
@@ -301,7 +312,7 @@ void CertStore_AddKeyRevocation( uint64 key_id )
 		pKey = new PublicKey;
 		pKey->m_eTrust = k_ETrust_Revoked;
 		pKey->m_status_msg = "Revoked";
-		s_mapPublicKeys.Insert( key_id, pKey );
+		s_mapPublicKeys.Insert( key_id, std::unique_ptr<PublicKey>( pKey ) );
 		s_bTrustValid = false;
 		return;
 	}
@@ -372,7 +383,7 @@ bool CertStore_AddCertFromBase64( const char *pszBase64, SteamNetworkingErrMsg &
 	{
 		pKey = new PublicKey;
 		pKey->m_keyPublic.CopyFrom( publicKey );
-		s_mapPublicKeys.Insert( key_id, pKey );
+		s_mapPublicKeys.Insert( key_id, std::unique_ptr<PublicKey>( pKey ) );
 	}
 
 	// Add the cert
@@ -558,16 +569,16 @@ static void CertStore_EnsureTrustValid()
 		return;
 
 	// Mark everything not in a "terminal" state as unknown
-	for ( PublicKey *pKey: s_mapPublicKeys.IterValues() )
+	for ( const std::unique_ptr<PublicKey> &pKey: s_mapPublicKeys.IterValues() )
 	{
 		if ( pKey->m_eTrust != k_ETrust_Revoked && pKey->m_eTrust != k_ETrust_Hardcoded )
 			pKey->m_eTrust = k_ETrust_Unknown;
 	}
 
 	// Now scan all keys, and recursively calculate their trust
-	for ( PublicKey *pKey: s_mapPublicKeys.IterValues() )
+	for ( const std::unique_ptr<PublicKey> &pKey: s_mapPublicKeys.IterValues() )
 	{
-		RecursiveEvaluateKeyTrust( pKey );
+		RecursiveEvaluateKeyTrust( pKey.get() );
 	}
 
 	// Mark trust as having been calculated
@@ -737,7 +748,7 @@ void CertStore_Check()
 
 	for ( auto item: s_mapPublicKeys.IterItems() )
 	{
-		PublicKey *pKey = item.Element();
+		const std::unique_ptr<PublicKey> &pKey = item.Element();
 		AssertMsg2( pKey->IsTrusted() || pKey->m_eTrust == k_ETrust_Revoked, "Key %llu not trusted: %s", (unsigned long long)item.Key(), pKey->m_status_msg.c_str() );
 	}
 }
@@ -748,7 +759,7 @@ void CertStore_Print( std::ostream &out )
 
 	for ( auto item: s_mapPublicKeys.IterItems() )
 	{
-		PublicKey *pKey = item.Element();
+		const std::unique_ptr<PublicKey> &pKey = item.Element();
 		out << "Public key " << (unsigned long long)item.Key() << " " << MsgOrOK(pKey->m_status_msg) << std::endl;
 		pKey->m_effectiveAuthScope.Print( out, "  " );
 		if ( pKey->m_idxNewestValidCert >= 0 )

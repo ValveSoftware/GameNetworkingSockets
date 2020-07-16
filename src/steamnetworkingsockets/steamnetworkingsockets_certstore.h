@@ -104,6 +104,9 @@ struct CertAuthScope
 	void Print( std::ostream &out, const char *pszIndent ) const;
 };
 
+/// Nuke all certs and start over from scratch
+extern void CertStore_Reset();
+
 /// Add a cert to the store from a base-64 blob (the body of the PEM-like blob).  Returns false
 /// only if there was a parse error.  DOES NOT check for expiry or validate any signatures, etc.
 extern bool CertStore_AddCertFromBase64( const char *pszBase64, SteamNetworkingErrMsg &errMsg );
