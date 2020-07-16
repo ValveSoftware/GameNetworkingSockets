@@ -1955,6 +1955,11 @@ failed:
 			AssertMsg( false, "BRecvCryptoHandshake failed creating localhost socket pair" );
 			goto failed;
 		}
+		if ( !p->BConnectionState_Connecting( usecNow, errMsg ) )
+		{
+			AssertMsg( false, "BConnectionState_Connecting failed creating loopback pipe socket pair.  %s", errMsg );
+			goto failed;
+		}
 		p->ConnectionState_Connected( usecNow );
 	}
 
