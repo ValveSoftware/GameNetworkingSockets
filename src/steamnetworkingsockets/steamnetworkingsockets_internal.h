@@ -291,6 +291,10 @@ const uint32 k_nCurrentProtocolVersion = 9;
 /// do this again, and we'll need to have more sophisticated mechanisms. 
 const uint32 k_nMinRequiredProtocolVersion = 8;
 
+/// SteamNetworkingMessages is built on top of SteamNetworkingSockets.  We use a reserved
+/// virtual port for this interface
+const int k_nVirtualPort_Messages = 0x7fffffff;
+
 // Serialize an UNSIGNED quantity.  Returns pointer to the next byte.
 // https://developers.google.com/protocol-buffers/docs/encoding
 template <typename T>

@@ -2364,7 +2364,7 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const void *pMsg, int c
 					nRemoteVirtualPort = nLocalVirtualPort;
 
 				#ifdef STEAMNETWORKINGSOCKETS_HAS_DEFAULT_P2P_SIGNALING
-					if ( bDefaultSignaling && nLocalVirtualPort == k_nVirtualPort_P2P )
+					if ( bDefaultSignaling && nLocalVirtualPort == k_nVirtualPort_Messages )
 					{
 						// Make sure messages system is initialized
 						if ( !GetSteamNetworkingMessages() )
