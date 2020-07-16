@@ -26,14 +26,9 @@ class ISteamNetworkingCustomSignalingRecvContext;
 
 //-----------------------------------------------------------------------------
 /// Lower level networking interface that more closely mirrors the standard
-/// Berkeley sockets model.  Sockets are hard!  You should probably only use
-/// this interface under the existing circumstances:
+/// Berkeley sockets model.
 ///
-/// - You have an existing socket-based codebase you want to port, or coexist with.
-/// - You want to be able to connect based on IP address, rather than (just) Steam ID.
-/// - You need low-level control of bandwidth utilization, when to drop packets, etc.
-///
-/// Note that neither of the terms "connection" and "socket" will correspond
+/// Note that neither of the terms "connection" nor "socket" necessarily correspond
 /// one-to-one with an underlying UDP socket.  An attempt has been made to
 /// keep the semantics as similar to the standard socket model when appropriate,
 /// but some deviations do exist.
