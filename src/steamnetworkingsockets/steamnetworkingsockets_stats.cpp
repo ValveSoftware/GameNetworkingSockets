@@ -149,15 +149,16 @@ void LinkStatsTrackerBase::InitInternal( SteamNetworkingMicroseconds usecNow )
 	m_nNextSendSequenceNumber = 1;
 	m_usecTimeLastSentSeq = 0;
 	InitMaxRecvPktNum( 0 );
+	m_seqPktCounters.Reset();
 	m_flInPacketsDroppedPct = -1.0f;
-	m_usecMaxJitterPreviousInterval = -1;
 	m_flInPacketsWeirdSequencePct = -1.0f;
+	m_usecMaxJitterPreviousInterval = -1;
 	m_nPktsRecvSequenced = 0;
 	m_nDebugPktsRecvInOrder = 0;
-	m_nPktsRecvDropped = 0;
-	m_nPktsRecvOutOfOrder = 0;
-	m_nPktsRecvDuplicate = 0;
-	m_nPktsRecvSequenceNumberLurch = 0;
+	m_nPktsRecvDroppedAccumulator = 0;
+	m_nPktsRecvOutOfOrderAccumulator = 0;
+	m_nPktsRecvDuplicateAccumulator = 0;
+	m_nPktsRecvLurchAccumulator = 0;
 	m_usecTimeLastRecv = 0;
 	m_usecTimeLastRecvSeq = 0;
 	memset( &m_latestRemote, 0, sizeof(m_latestRemote) );
@@ -195,10 +196,11 @@ void LinkStatsTrackerBase::SetPassiveInternal( bool bFlag, SteamNetworkingMicros
 
 void LinkStatsTrackerBase::StartNextInterval( SteamNetworkingMicroseconds usecNow )
 {
-	m_nPktsRecvSequencedCurrentInterval = 0;
-	m_nPktsRecvDroppedCurrentInterval = 0;
-	m_nPktsRecvWeirdSequenceCurrentInterval = 0;
-	m_usecMaxJitterCurrentInterval = -1;
+	m_nPktsRecvDroppedAccumulator += m_seqPktCounters.m_nDropped;
+	m_nPktsRecvOutOfOrderAccumulator += m_seqPktCounters.m_nOutOfOrder;
+	m_nPktsRecvDuplicateAccumulator += m_seqPktCounters.m_nDuplicate;
+	m_nPktsRecvLurchAccumulator += m_seqPktCounters.m_nLurch;
+	m_seqPktCounters.Reset();
 	m_usecIntervalStart = usecNow;
 }
 
@@ -211,9 +213,10 @@ void LinkStatsTrackerBase::UpdateInterval( SteamNetworkingMicroseconds usecNow )
 	COMPILE_TIME_ASSERT( k_usecSteamDatagramLinkStatsDefaultInterval >= 5*k_nMillion );
 	if ( flElapsed > 4.5f )
 	{
-		if ( m_nPktsRecvSequencedCurrentInterval > 5 )
+		if ( m_seqPktCounters.m_nRecv > 5 )
 		{
-			int nBad = m_nPktsRecvDroppedCurrentInterval + m_nPktsRecvWeirdSequenceCurrentInterval;
+			int nWeird = m_seqPktCounters.Weird();
+			int nBad = m_seqPktCounters.m_nDropped + nWeird;
 			if ( nBad == 0 )
 			{
 				// Perfect connection.  This will hopefully be relatively common
@@ -224,8 +227,8 @@ void LinkStatsTrackerBase::UpdateInterval( SteamNetworkingMicroseconds usecNow )
 			{
 
 				// Less than perfect.  Compute quality metric.
-				int nTotalSent = m_nPktsRecvSequencedCurrentInterval + m_nPktsRecvDroppedCurrentInterval;
-				int nRecvGood = m_nPktsRecvSequencedCurrentInterval - m_nPktsRecvWeirdSequenceCurrentInterval;
+				int nTotalSent = m_seqPktCounters.m_nRecv + m_seqPktCounters.m_nDropped;
+				int nRecvGood = m_seqPktCounters.m_nRecv - nWeird;
 				int nQuality = nRecvGood * 100 / nTotalSent;
 
 				// Cap at 99, since 100 is reserved to mean "perfect",
@@ -275,9 +278,9 @@ void LinkStatsTrackerBase::UpdateInterval( SteamNetworkingMicroseconds usecNow )
 	m_recv.UpdateInterval( flElapsed );
 	m_recvExceedRateLimit.UpdateInterval( flElapsed );
 
-	// Calculate rate of packet flow imperfections
-	Assert( m_nPktsRecvWeirdSequenceCurrentInterval <= m_nPktsRecvSequencedCurrentInterval );
-	if ( m_nPktsRecvSequencedCurrentInterval <= 0 )
+	int nWeirdSequenceCurrentInterval = m_seqPktCounters.Weird();
+	Assert( nWeirdSequenceCurrentInterval <= m_seqPktCounters.m_nRecv );
+	if ( m_seqPktCounters.m_nRecv <= 0 )
 	{
 		// No sequenced packets received during interval, so no data available
 		m_flInPacketsDroppedPct = -1.0f;
@@ -285,13 +288,13 @@ void LinkStatsTrackerBase::UpdateInterval( SteamNetworkingMicroseconds usecNow )
 	}
 	else
 	{
-		float flToPct = 1.0f / float( m_nPktsRecvSequencedCurrentInterval + m_nPktsRecvDroppedCurrentInterval );
-		m_flInPacketsDroppedPct = m_nPktsRecvDroppedCurrentInterval * flToPct;
-		m_flInPacketsWeirdSequencePct = m_nPktsRecvWeirdSequenceCurrentInterval * flToPct;
+		float flToPct = 1.0f / float( m_seqPktCounters.m_nRecv + m_seqPktCounters.m_nDropped );
+		m_flInPacketsDroppedPct = m_seqPktCounters.m_nDropped * flToPct;
+		m_flInPacketsWeirdSequencePct = nWeirdSequenceCurrentInterval * flToPct;
 	}
 
 	// Peak jitter value
-	m_usecMaxJitterPreviousInterval = m_usecMaxJitterCurrentInterval;
+	m_usecMaxJitterPreviousInterval = m_seqPktCounters.m_usecMaxJitter;
 
 	// Reset for next time
 	StartNextInterval( usecNow );
@@ -342,187 +345,52 @@ std::string LinkStatsTrackerBase::HistoryRecvSeqNumDebugString( int nMaxPkts ) c
 	return result;
 }
 
-bool LinkStatsTrackerBase::BCheckPacketNumberOldOrDuplicate( int64 nPktNum )
+void LinkStatsTrackerBase::InternalProcessSequencedPacket_OutOfOrder( int64 nPktNum )
 {
-	// We've received a packet with a sequence number.
-	// Update stats
-	++m_nPktsRecvSequencedCurrentInterval;
-	m_arDebugHistoryRecvSeqNum[ m_nPktsRecvSequenced & 255 ] = nPktNum;
-	++m_nPktsRecvSequenced;
 
-	// Packet number is increasing?
-	// (Maybe by a lot -- we don't handle that here.)
-	if ( likely( nPktNum > m_nMaxRecvPktNum ) )
-		return true;
-
-	// Which block of 64-bit packets is it in?
-	int64 B = m_nMaxRecvPktNum & ~int64{63};
-	int64 idxRecvBitmask = ( ( nPktNum - B ) >> 6 ) + 1;
-	Assert( idxRecvBitmask < 2 );
-	if ( idxRecvBitmask < 0 )
+	// We should have previously counted this packet as dropped.
+	if ( PktsRecvDropped() == 0 )
 	{
-		// Too old (at least 64 packets old, maybe up to 128).
-		// Track stats, both lifetime and current interval
-		++m_nPktsRecvSequenceNumberLurch; // Should we track this under a different stat?
-		++m_nPktsRecvWeirdSequenceCurrentInterval;
-		return false;
-	}
-	uint64 bit = uint64{1} << ( nPktNum & 63 );
-	if ( m_recvPktNumberMask[ idxRecvBitmask ] & bit )
-	{
-		// Duplicate
-		// Track stats, both lifetime and current interval
-		++m_nPktsRecvDuplicate;
-		++m_nPktsRecvWeirdSequenceCurrentInterval;
-		return false;
-	}
-
-	// We have an out of order packet.  We'll update that
-	// stat in TrackProcessSequencedPacket
-	Assert( nPktNum > 0 && nPktNum < m_nMaxRecvPktNum );
-	return true;
-}
-
-void LinkStatsTrackerBase::TrackProcessSequencedPacket( int64 nPktNum, SteamNetworkingMicroseconds usecNow, int usecSenderTimeSincePrev )
-{
-	Assert( nPktNum > 0 );
-
-	// Update bitfield of received packets
-	int64 B = m_nMaxRecvPktNum & ~int64{63};
-	int64 idxRecvBitmask = ( ( nPktNum - B ) >> 6 ) + 1;
-	Assert( idxRecvBitmask >= 0 ); // We should have discarded very old packets already
-	if ( idxRecvBitmask >= 2 ) // Most common case is 0 or 1
-	{
-		if ( idxRecvBitmask == 2 )
+		// This is weird.
+		// !TEST! Only assert if we can provide more detailed info to debug.
+		// Also note that on the relay, old peers are using a single sequence
+		// number stream, shred across multiple sessions, and we are not
+		// tracking this properly, because we don't know which session we
+		// marked the "drop" in.
+		if ( m_nPktsRecvSequenced < 256 && m_nPeerProtocolVersion >= 9 )
 		{
-			// Crossed to the next 64-packet block.  Shift bitmasks forward by one.
-			m_recvPktNumberMask[0] = m_recvPktNumberMask[1];
-		}
-		else
-		{
-			// Large packet number jump, we skipped a whole block
-			m_recvPktNumberMask[0] = 0;
-		}
-		m_recvPktNumberMask[1] = 0;
-		idxRecvBitmask = 1;
-	}
-	uint64 bit = uint64{1} << ( nPktNum & 63 );
-	Assert( !( m_recvPktNumberMask[ idxRecvBitmask ] & bit ) ); // Should not have already been marked!  We should have already discarded duplicates
-	m_recvPktNumberMask[ idxRecvBitmask ] |= bit;
-
-	// Check for dropped packet.  Since we hope that by far the most common
-	// case will be packets delivered in order, we optimize this logic
-	// for that case.
-	int64 nGap = nPktNum - m_nMaxRecvPktNum;
-	if ( likely( nGap == 1 ) )
-	{
-		++m_nDebugPktsRecvInOrder;
-
-		// We've received two packets, in order.  Did the sender supply the time between packets on his side?
-		if ( usecSenderTimeSincePrev > 0 )
-		{
-			int usecJitter = ( usecNow - m_usecTimeLastRecvSeq ) - usecSenderTimeSincePrev;
-			usecJitter = abs( usecJitter );
-			if ( usecJitter < k_usecTimeSinceLastPacketMaxReasonable )
+			AssertMsg( false,
+				"No dropped packets, pkt num %lld, dup bit not set?  recvseq=%lld inorder=%lld, dup=%lld, lurch=%lld, ooo=%lld, %s.  (%s)",
+				(long long)nPktNum, (long long)m_nPktsRecvSequenced,
+				(long long)m_nDebugPktsRecvInOrder, (long long)PktsRecvDuplicate(),
+				(long long)PktsRecvLurch(), (long long)PktsRecvOutOfOrder(),
+				RecvPktNumStateDebugString().c_str(),
+				Describe().c_str()
+			);
+	#ifdef IS_STEAMDATAGRAMROUTER
+			int64 idx = m_nPktsRecvSequenced-1;
+			while ( idx >= 0 )
 			{
-
-				// Update max jitter for current interval
-				m_usecMaxJitterCurrentInterval = Max( m_usecMaxJitterCurrentInterval, usecJitter );
-				m_jitterHistogram.AddSample( usecJitter );
-			}
-			else
-			{
-				// Something is really, really off.  Discard measurement
-			}
-		}
-
-	}
-	else if ( unlikely( nGap <= 0 ) )
-	{
-		// Packet number moving backward
-		// We should have already rejected duplicates
-		Assert( nGap != 0 );
-
-		// Packet number moving in reverse.
-		// It should be a *small* negative step, e.g. packets delivered out of order.
-		// If the packet is really old, we should have already discarded it earlier.
-		Assert( nGap >= -8 * (int64)sizeof(m_recvPktNumberMask) );
-		++m_nPktsRecvOutOfOrder;
-		++m_nPktsRecvWeirdSequenceCurrentInterval;
-
-		// We previously counted this packet as dropped.  Undo that, it wasn't dropped.
-		if ( m_nPktsRecvDropped > 0 )
-		{
-			--m_nPktsRecvDropped;
-		}
-		else
-		{
-			// This is weird.
-			// !TEST! Only assert if we can provide more detailed info to debug.
-			// Also note that on the relay, old peers are using a single sequence
-			// number stream, shred across multiple sessions, and we are not
-			// tracking this properly, because we don't know which session we
-			// marked the "drop" in.
-			if ( m_nPktsRecvSequenced < 256 && m_nPeerProtocolVersion >= 9 )
-			{
-				AssertMsg( false,
-					"No dropped packets, pkt num %lld, dup bit not set?  recvseq=%lld inorder=%lld, dup=%lld, lurch=%lld, ooo=%lld, %s.  (%s)",
-					(long long)nPktNum, (long long)m_nPktsRecvSequenced,
-					(long long)m_nDebugPktsRecvInOrder, (long long)m_nPktsRecvDuplicate,
-					(long long)m_nPktsRecvSequenceNumberLurch, (long long)m_nPktsRecvOutOfOrder,
-					RecvPktNumStateDebugString().c_str(),
-					Describe().c_str()
-				);
-				#ifdef IS_STEAMDATAGRAMROUTER
-				int64 idx = m_nPktsRecvSequenced-1;
-				while ( idx >= 0 )
+				CUtlBuffer buf( 0, 1024, CUtlBuffer::TEXT_BUFFER );
+				switch ( idx )
 				{
-					CUtlBuffer buf( 0, 1024, CUtlBuffer::TEXT_BUFFER );
-					switch ( idx )
-					{
-						default: buf.Printf( "%7lld", (long long)m_arDebugHistoryRecvSeqNum[ idx-- & 255 ] ); 
-						case  6: buf.Printf( "%7lld", (long long)m_arDebugHistoryRecvSeqNum[ idx-- & 255 ] ); 
-						case  5: buf.Printf( "%7lld", (long long)m_arDebugHistoryRecvSeqNum[ idx-- & 255 ] ); 
-						case  4: buf.Printf( "%7lld", (long long)m_arDebugHistoryRecvSeqNum[ idx-- & 255 ] ); 
-						case  3: buf.Printf( "%7lld", (long long)m_arDebugHistoryRecvSeqNum[ idx-- & 255 ] ); 
-						case  2: buf.Printf( "%7lld", (long long)m_arDebugHistoryRecvSeqNum[ idx-- & 255 ] ); 
-						case  1: buf.Printf( "%7lld", (long long)m_arDebugHistoryRecvSeqNum[ idx-- & 255 ] ); 
-						case  0: buf.Printf( "%7lld", (long long)m_arDebugHistoryRecvSeqNum[ idx-- & 255 ] );
-					}
-					buf.PutChar( '\n' );
-					g_pLogger->Write( buf.Base(), buf.TellPut() );
+				default: buf.Printf( "%7lld", (long long)m_arDebugHistoryRecvSeqNum[ idx-- & 255 ] ); 
+				case  6: buf.Printf( "%7lld", (long long)m_arDebugHistoryRecvSeqNum[ idx-- & 255 ] ); 
+				case  5: buf.Printf( "%7lld", (long long)m_arDebugHistoryRecvSeqNum[ idx-- & 255 ] ); 
+				case  4: buf.Printf( "%7lld", (long long)m_arDebugHistoryRecvSeqNum[ idx-- & 255 ] ); 
+				case  3: buf.Printf( "%7lld", (long long)m_arDebugHistoryRecvSeqNum[ idx-- & 255 ] ); 
+				case  2: buf.Printf( "%7lld", (long long)m_arDebugHistoryRecvSeqNum[ idx-- & 255 ] ); 
+				case  1: buf.Printf( "%7lld", (long long)m_arDebugHistoryRecvSeqNum[ idx-- & 255 ] ); 
+				case  0: buf.Printf( "%7lld", (long long)m_arDebugHistoryRecvSeqNum[ idx-- & 255 ] );
 				}
-				#endif
+				buf.PutChar( '\n' );
+				g_pLogger->Write( buf.Base(), buf.TellPut() );
 			}
+	#endif
 		}
-		if ( m_nPktsRecvDroppedCurrentInterval > 0 ) // Might have marked it in the previous interval.  Our stats will be slightly off in this case.  Not worth it to try to get this exactly right.
-			--m_nPktsRecvDroppedCurrentInterval;
-		return;
-	}
-	else 
-	{
-		// Packet number moving forward, i.e. a dropped packet
-		// Large gap?
-		if ( unlikely( nGap >= 100 ) )
-		{
-			// Very weird.
-			++m_nPktsRecvSequenceNumberLurch;
-			++m_nPktsRecvWeirdSequenceCurrentInterval;
-
-			// Reset the sequence number for packets going forward.
-			InitMaxRecvPktNum( nPktNum );
-			return;
-		}
-
-		// Probably the most common case (after a perfect packet stream), we just dropped a packet or two
-		int nDropped = nGap-1;
-		m_nPktsRecvDropped += nDropped;
-		m_nPktsRecvDroppedCurrentInterval += nDropped;
 	}
 
-	// Save highest known sequence number for next time.
-	m_nMaxRecvPktNum = nPktNum;
-	m_usecTimeLastRecvSeq = usecNow;
+	m_seqPktCounters.OnOutOfOrder();
 }
 
 bool LinkStatsTrackerBase::BCheckHaveDataToSendInstantaneous( SteamNetworkingMicroseconds usecNow )
@@ -704,10 +572,10 @@ void LinkStatsTrackerBase::GetLifetimeStats( SteamDatagramLinkLifetimeStats &s )
 	s.m_nPacketsRecv = m_recv.m_packets.Total();
 	s.m_nBytesRecv = m_recv.m_bytes.Total();
 	s.m_nPktsRecvSequenced = m_nPktsRecvSequenced;
-	s.m_nPktsRecvDropped = m_nPktsRecvDropped;
-	s.m_nPktsRecvOutOfOrder = m_nPktsRecvOutOfOrder;
-	s.m_nPktsRecvDuplicate = m_nPktsRecvDuplicate;
-	s.m_nPktsRecvSequenceNumberLurch = m_nPktsRecvSequenceNumberLurch;
+	s.m_nPktsRecvDropped = PktsRecvDropped();
+	s.m_nPktsRecvOutOfOrder = PktsRecvOutOfOrder();
+	s.m_nPktsRecvDuplicate = PktsRecvDuplicate();
+	s.m_nPktsRecvSequenceNumberLurch = PktsRecvLurch();
 
 	s.m_qualityHistogram = m_qualityHistogram;
 

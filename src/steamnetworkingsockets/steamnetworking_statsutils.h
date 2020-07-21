@@ -396,6 +396,79 @@ constexpr int k_nSendStats_Lifetime = k_nSendStats_Lifetime_Due|k_nSendStats_Lif
 constexpr int k_nSendStats_Due = k_nSendStats_Instantanous_Due|k_nSendStats_Lifetime_Due;
 constexpr int k_nSendStats_Ready = k_nSendStats_Instantanous_Ready|k_nSendStats_Lifetime_Ready;
 
+/// Track quality stats based on flow of sequence numbers
+struct SequencedPacketCounters
+{
+	int m_nRecv; // packets successfully received containing a sequence number
+	int m_nDropped; // packets assumed to be dropped in the current interval
+	int m_nOutOfOrder; // any sequence number deviation other than a simple dropped packet.  (Most recent interval.)
+	int m_nLurch; // any sequence number deviation other than a simple dropped packet.  (Most recent interval.)
+	int m_nDuplicate; // any sequence number deviation other than a simple dropped packet.  (Most recent interval.)
+	int m_usecMaxJitter;
+
+	void Reset()
+	{
+		m_nRecv = 0;
+		m_nDropped = 0;
+		m_nOutOfOrder = 0;
+		m_nLurch = 0;
+		m_nDuplicate = 0;
+		m_usecMaxJitter = -1;
+	}
+
+	void Accumulate( const SequencedPacketCounters &x )
+	{
+		m_nRecv += x.m_nRecv;
+		m_nDropped += x.m_nDropped;
+		m_nOutOfOrder += m_nOutOfOrder;
+		m_nLurch += m_nLurch;
+		m_nDuplicate += x.m_nDuplicate;
+		m_usecMaxJitter = std::max( m_usecMaxJitter, x.m_usecMaxJitter );
+	}
+
+	inline int Weird() const { return m_nOutOfOrder + m_nLurch + m_nDuplicate; }
+
+	static inline float CalculateQuality( int nRecv, int nDropped, int nWeird )
+	{
+		Assert( nRecv >= nWeird );
+		int nSent = nRecv + nDropped;
+		if ( nSent <= 0 )
+			return -1.0f;
+		return (float)(nRecv - nWeird) / (float)nSent;
+	}
+
+	inline float CalculateQuality() const
+	{
+		return CalculateQuality( m_nRecv, m_nDropped, Weird() );
+	}
+
+	inline void OnRecv()
+	{
+		++m_nRecv;
+	}
+	inline void OnDropped( int nDropped )
+	{
+		m_nDropped += nDropped;
+	}
+	inline void OnDuplicate()
+	{
+		++m_nDuplicate;
+	}
+	inline void OnLurch()
+	{
+		++m_nLurch;
+	}
+	inline void OnOutOfOrder()
+	{
+		++m_nOutOfOrder;
+
+		// We previously marked this as dropped.  Undo that
+		if ( m_nDropped > 0 ) // Might have marked it in the previous interval.  Our stats will be slightly off in this case.  Not worth it to try to get this exactly right.
+			--m_nDropped;
+	}
+
+};
+
 
 /// Base class used to handle link quality calculations.
 ///
@@ -483,31 +556,6 @@ struct LinkStatsTrackerBase
 	/// Get string describing state of recent packets received.
 	std::string RecvPktNumStateDebugString() const;
 
-	/// Called when we receive a packet with a sequence number.
-	/// This expands the wire packet number to its full value,
-	/// and checks if it is a duplicate or out of range.
-	/// Stats are also updated
-	int64 ExpandWirePacketNumberAndCheck( uint16 nWireSeqNum )
-	{
-		int16 nGap = (int16)( nWireSeqNum - (uint16)m_nMaxRecvPktNum );
-		int64 nPktNum = m_nMaxRecvPktNum + nGap;
-		if ( !BCheckPacketNumberOldOrDuplicate( nPktNum ) )
-			return 0;
-		return nPktNum;
-	}
-
-	/// Same as ExpandWirePacketNumberAndCheck, but if this is the first sequenced
-	/// packet we have ever received, initialize the packet number
-	int64 ExpandWirePacketNumberAndCheckMaybeInitialize( uint16 nWireSeqNum )
-	{
-		if ( unlikely( m_nMaxRecvPktNum == 0 ) )
-		{
-			AssertMsg( m_nPktsRecvSequenced == 0, "%s has received sequence packets, but MaxRecvPktNum==0" );
-			InitMaxRecvPktNum( (int64)(uint16)(nWireSeqNum - 1) );
-		}
-		return ExpandWirePacketNumberAndCheck( nWireSeqNum );
-	}
-
 	/// Packets that we receive that exceed the rate limit.
 	/// (We might drop these, or we might just want to be interested in how often it happens.)
 	PacketRate_t m_recvExceedRateLimit;
@@ -529,37 +577,28 @@ struct LinkStatsTrackerBase
 		m_usecWhenTimeoutStarted = 0;
 	}
 
-	/// Called when we have processed a packet with a sequence number, to update estimated
-	/// number of dropped packets, etc.  This MUST only be called after we have
-	/// called ExpandWirePacketNumberAndCheck, to ensure that the packet number is not a
-	/// duplicate or out of range.
-	void TrackProcessSequencedPacket( int64 nPktNum, SteamNetworkingMicroseconds usecNow, int usecSenderTimeSincePrev );
-
 	//
-	// Instantaneous stats
+	// Quality metrics stats
 	//
 
-	// Accumulators for current interval
-	int m_nPktsRecvSequencedCurrentInterval; // packets successfully received containing a sequence number
-	int m_nPktsRecvDroppedCurrentInterval; // packets assumed to be dropped in the current interval
-	int m_nPktsRecvWeirdSequenceCurrentInterval; // any sequence number deviation other than a simple dropped packet.  (Most recent interval.)
-	int m_usecMaxJitterCurrentInterval;
+	// Track instantaneous rate of number of sequence number anomalies
+	SequencedPacketCounters m_seqPktCounters;
 
 	// Instantaneous rates, calculated from most recent completed interval
 	float m_flInPacketsDroppedPct;
 	float m_flInPacketsWeirdSequencePct;
 	int m_usecMaxJitterPreviousInterval;
 
-	//
-	// Lifetime stats
-	//
-
-	// Lifetime counters
+	// Lifetime counters.  The "accumulator" values do not include the current interval -- use the accessors to get those
 	int64 m_nPktsRecvSequenced;
-	int64 m_nPktsRecvDropped;
-	int64 m_nPktsRecvOutOfOrder;
-	int64 m_nPktsRecvDuplicate;
-	int64 m_nPktsRecvSequenceNumberLurch; // sequence number had a really large discontinuity
+	int64 m_nPktsRecvDroppedAccumulator;
+	int64 m_nPktsRecvOutOfOrderAccumulator;
+	int64 m_nPktsRecvDuplicateAccumulator;
+	int64 m_nPktsRecvLurchAccumulator;
+	inline int64 PktsRecvDropped() const { return m_nPktsRecvDroppedAccumulator + m_seqPktCounters.m_nDropped; }
+	inline int64 PktsRecvOutOfOrder() const { return m_nPktsRecvOutOfOrderAccumulator + m_seqPktCounters.m_nOutOfOrder; }
+	inline int64 PktsRecvDuplicate() const { return m_nPktsRecvDuplicateAccumulator + m_seqPktCounters.m_nDuplicate; }
+	inline int64 PktsRecvLurch() const { return m_nPktsRecvLurchAccumulator + m_seqPktCounters.m_nLurch; }
 
 	/// Lifetime quality statistics
 	PercentileGenerator<uint8> m_qualitySample;
@@ -830,6 +869,27 @@ protected:
 		return false;
 	}
 
+	// Hooks that derived classes may override when we process a packet
+	// and it meets certain characteristics
+	inline void InternalProcessSequencedPacket_Count()
+	{
+		m_seqPktCounters.OnRecv();
+		++m_nPktsRecvSequenced;
+	}
+	void InternalProcessSequencedPacket_OutOfOrder( int64 nPktNum );
+	inline void InternalProcessSequencedPacket_Duplicate()
+	{
+		m_seqPktCounters.OnDuplicate();
+	}
+	inline void InternalProcessSequencedPacket_Lurch()
+	{
+		m_seqPktCounters.OnLurch();
+	}
+	inline void InternalProcessSequencedPacket_Dropped( int nDropped )
+	{
+		m_seqPktCounters.OnDropped( nDropped );
+	}
+
 private:
 
 	// Number of lifetime sequenced packets received, and overall packets sent,
@@ -852,9 +912,6 @@ private:
 	void UpdateInterval( SteamNetworkingMicroseconds usecNow );
 
 	void StartNextInterval( SteamNetworkingMicroseconds usecNow );
-
-	/// Do internal stats handling and checking on packet number
-	bool BCheckPacketNumberOldOrDuplicate( int64 nPktNum );
 };
 
 struct LinkStatsTrackerEndToEnd : public LinkStatsTrackerBase
@@ -1049,6 +1106,157 @@ struct LinkStatsTracker final : public TLinkStatsTracker
 		if ( TLinkStatsTracker::GetSendReasonOrUpdateNextThinkTime( usecNow, eReplyRequested, usecNextThink ) )
 			return k_nThinkTime_ASAP;
 		return usecNextThink;
+	}
+
+	/// Called when we receive a packet with a sequence number.
+	/// This expands the wire packet number to its full value,
+	/// and checks if it is a duplicate or out of range.
+	/// Stats are also updated
+	int64 ExpandWirePacketNumberAndCheck( uint16 nWireSeqNum )
+	{
+		int16 nGap = (int16)( nWireSeqNum - (uint16)TLinkStatsTracker::m_nMaxRecvPktNum );
+		int64 nPktNum = TLinkStatsTracker::m_nMaxRecvPktNum + nGap;
+
+		// We've received a packet with a sequence number.
+		// Update stats
+		TLinkStatsTracker::m_arDebugHistoryRecvSeqNum[ TLinkStatsTracker::m_nPktsRecvSequenced & 255 ] = nPktNum;
+		TLinkStatsTracker::InternalProcessSequencedPacket_Count();
+
+		// Packet number is increasing?
+		// (Maybe by a lot -- we don't handle that here.)
+		if ( likely( nPktNum > TLinkStatsTracker::m_nMaxRecvPktNum ) )
+			return nPktNum;
+
+		// Which block of 64-bit packets is it in?
+		int64 B = TLinkStatsTracker::m_nMaxRecvPktNum & ~int64{63};
+		int64 idxRecvBitmask = ( ( nPktNum - B ) >> 6 ) + 1;
+		Assert( idxRecvBitmask < 2 );
+		if ( idxRecvBitmask < 0 )
+		{
+			// Too old (at least 64 packets old, maybe up to 128).
+			TLinkStatsTracker::InternalProcessSequencedPacket_Lurch(); // Should we track "very old" under a different stat than "lurch"?
+			return 0;
+		}
+		uint64 bit = uint64{1} << ( nPktNum & 63 );
+		if ( TLinkStatsTracker::m_recvPktNumberMask[ idxRecvBitmask ] & bit )
+		{
+			// Duplicate
+			TLinkStatsTracker::InternalProcessSequencedPacket_Duplicate();
+			return 0;
+		}
+
+		// We have an out of order packet.  We'll update that
+		// stat in TrackProcessSequencedPacket
+		Assert( nPktNum > 0 && nPktNum < TLinkStatsTracker::m_nMaxRecvPktNum );
+		return nPktNum;
+	}
+
+	/// Same as ExpandWirePacketNumberAndCheck, but if this is the first sequenced
+	/// packet we have ever received, initialize the packet number
+	int64 ExpandWirePacketNumberAndCheckMaybeInitialize( uint16 nWireSeqNum )
+	{
+		if ( unlikely( TLinkStatsTracker::m_nMaxRecvPktNum == 0 ) )
+		{
+			AssertMsg( TLinkStatsTracker::m_nPktsRecvSequenced == 0, "%s has received sequence packets, but MaxRecvPktNum==0", TLinkStatsTracker::Describe().c_str() );
+			TLinkStatsTracker::InitMaxRecvPktNum( (int64)(uint16)(nWireSeqNum - 1) );
+		}
+		return ExpandWirePacketNumberAndCheck( nWireSeqNum );
+	}
+
+	/// Called when we have processed a packet with a sequence number, to update estimated
+	/// number of dropped packets, etc.  This MUST only be called after we have
+	/// called ExpandWirePacketNumberAndCheck, to ensure that the packet number is not a
+	/// duplicate or out of range.
+	inline void TrackProcessSequencedPacket( int64 nPktNum, SteamNetworkingMicroseconds usecNow, int usecSenderTimeSincePrev )
+	{
+		Assert( nPktNum > 0 );
+
+		// Update bitfield of received packets
+		int64 B = TLinkStatsTracker::m_nMaxRecvPktNum & ~int64{63};
+		int64 idxRecvBitmask = ( ( nPktNum - B ) >> 6 ) + 1;
+		Assert( idxRecvBitmask >= 0 ); // We should have discarded very old packets already
+		if ( idxRecvBitmask >= 2 ) // Most common case is 0 or 1
+		{
+			if ( idxRecvBitmask == 2 )
+			{
+				// Crossed to the next 64-packet block.  Shift bitmasks forward by one.
+				TLinkStatsTracker::m_recvPktNumberMask[0] = TLinkStatsTracker::m_recvPktNumberMask[1];
+			}
+			else
+			{
+				// Large packet number jump, we skipped a whole block
+				TLinkStatsTracker::m_recvPktNumberMask[0] = 0;
+			}
+			TLinkStatsTracker::m_recvPktNumberMask[1] = 0;
+			idxRecvBitmask = 1;
+		}
+		uint64 bit = uint64{1} << ( nPktNum & 63 );
+		Assert( !( TLinkStatsTracker::m_recvPktNumberMask[ idxRecvBitmask ] & bit ) ); // Should not have already been marked!  We should have already discarded duplicates
+		TLinkStatsTracker::m_recvPktNumberMask[ idxRecvBitmask ] |= bit;
+
+		// Check for dropped packet.  Since we hope that by far the most common
+		// case will be packets delivered in order, we optimize this logic
+		// for that case.
+		int64 nGap = nPktNum - TLinkStatsTracker::m_nMaxRecvPktNum;
+		if ( likely( nGap == 1 ) )
+		{
+			++TLinkStatsTracker::m_nDebugPktsRecvInOrder;
+
+			// We've received two packets, in order.  Did the sender supply the time between packets on his side?
+			if ( usecSenderTimeSincePrev > 0 )
+			{
+				int usecJitter = ( usecNow - TLinkStatsTracker::m_usecTimeLastRecvSeq ) - usecSenderTimeSincePrev;
+				usecJitter = abs( usecJitter );
+				if ( usecJitter < k_usecTimeSinceLastPacketMaxReasonable )
+				{
+
+					// Update max jitter for current interval
+					TLinkStatsTracker::m_seqPktCounters.m_usecMaxJitter = std::max( TLinkStatsTracker::m_seqPktCounters.m_usecMaxJitter, usecJitter );
+					TLinkStatsTracker::m_jitterHistogram.AddSample( usecJitter );
+				}
+				else
+				{
+					// Something is really, really off.  Discard measurement
+				}
+			}
+
+		}
+		else if ( unlikely( nGap <= 0 ) )
+		{
+			// Packet number moving backward
+			// We should have already rejected duplicates
+			Assert( nGap != 0 );
+
+			// Packet number moving in reverse.
+			// It should be a *small* negative step, e.g. packets delivered out of order.
+			// If the packet is really old, we should have already discarded it earlier.
+			Assert( nGap >= -8 * (int64)sizeof(TLinkStatsTracker::m_recvPktNumberMask) );
+
+			// out of order
+			TLinkStatsTracker::InternalProcessSequencedPacket_OutOfOrder( nPktNum );
+			return;
+		}
+		else 
+		{
+			// Packet number moving forward, i.e. a dropped packet
+			// Large gap?
+			if ( unlikely( nGap >= 100 ) )
+			{
+				// Very weird.
+				TLinkStatsTracker::InternalProcessSequencedPacket_Lurch();
+
+				// Reset the sequence number for packets going forward.
+				TLinkStatsTracker::InitMaxRecvPktNum( nPktNum );
+				return;
+			}
+
+			// Probably the most common case (after a perfect packet stream), we just dropped a packet or two
+			TLinkStatsTracker::InternalProcessSequencedPacket_Dropped( nGap-1 );
+		}
+
+		// Save highest known sequence number for next time.
+		TLinkStatsTracker::m_nMaxRecvPktNum = nPktNum;
+		TLinkStatsTracker::m_usecTimeLastRecvSeq = usecNow;
 	}
 };
 
