@@ -337,11 +337,11 @@ extern void WakeSteamDatagramThread();
 /// Class used to take some action while we have the global thread locked,
 /// perhaps later and in another thread if necessary.  Intended to be used
 /// from callbacks and other contexts where we don't know what thread we are
-/// in and cannot risk trying to waiton the lock, without risking creating
+/// in and cannot risk trying to wait on the lock, without risking creating
 /// a deadlock.
 ///
 /// Note: This code could have been a lot simpler with std::function, but
-/// it was intentionally notused, to avoid adding that runtime dependency.
+/// it was intentionally not used, to avoid adding that runtime dependency.
 class ISteamNetworkingSocketsRunWithLock
 {
 public:
