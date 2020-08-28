@@ -311,7 +311,7 @@ public:
 		inline ItemRef( const CUtlHashMap< K, T, L, H > &map, int idx ) : m_node( const_cast< Node_t &>( map.m_memNodes[idx] ) ), m_idx(idx) {}
 		ItemRef( const ItemRef &x ) = default;
 		inline int Index() const { return m_idx; }
-		inline const KeyType_t &Key() { return m_node.m_key; }
+		inline const KeyType_t &Key() const { return m_node.m_key; }
 		inline const ElemType_t &Element() const { return m_node.m_elem; }
 	};
 	struct MutableItemRef : ItemRef
