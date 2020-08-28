@@ -69,7 +69,8 @@ static int s_nCurrentLockTags;
 constexpr int k_nMaxCurrentLockTags = 8;
 static const char *s_pszCurrentLockTags[k_nMaxCurrentLockTags];
 static int s_nCurrentLockTagCounts[k_nMaxCurrentLockTags];
-static void (*s_fLockAcquiredCallback)( SteamNetworkingMicroseconds usecWaited );
+static void (*s_fLockAcquiredCallback)( const char *tags, SteamNetworkingMicroseconds usecWaited );
+static void (*s_fLockHeldCallback)( const char *tags, SteamNetworkingMicroseconds usecWaited );
 static SteamNetworkingMicroseconds s_usecLockWaitWarningThreshold = 2*1000;
 
 void SteamDatagramTransportLock::AddTag( const char *pszTag )
@@ -114,7 +115,7 @@ void SteamDatagramTransportLock::OnLocked( const char *pszTag, SteamNetworkingMi
 
 		auto callback = s_fLockAcquiredCallback; // save to temp, to prevent very narrow race condition where variable is cleared after we null check it, and we call null
 		if ( callback )
-			callback( usecTimeSpentWaitingOnLock );
+			callback( pszTag, usecTimeSpentWaitingOnLock );
 	}
 	else
 	{
@@ -163,23 +164,26 @@ void SteamDatagramTransportLock::Unlock()
 	char tags[ 256 ];
 
 	AssertHeldByCurrentThread();
+	SteamNetworkingMicroseconds usecElapsed = 0;
 	SteamNetworkingMicroseconds usecElapsedTooLong = 0;
+	auto lockHeldCallback = s_fLockHeldCallback;
+
 	if ( s_nLocked == 1 )
 	{
 
 		// We're about to do the final release.  How long did we hold the lock?
-		usecElapsedTooLong = SteamNetworkingSockets_GetLocalTimestamp() - s_usecWhenLocked;
+		usecElapsed = SteamNetworkingSockets_GetLocalTimestamp() - s_usecWhenLocked;
 
-		// If that duration is acceptable, then clear it.  We need to check the
-		// threshold here because the threshold could change by another thread
-		// immediately after we release the lock.  Also, if we're debugging, all bets are
-		// off.  They could have hit a breakpoint, and we don't want to create a bunch
-		// of confusing spew with spurious asserts
-		if ( usecElapsedTooLong < s_usecLongLockWarningThreshold || Plat_IsInDebugSession() )
+		// Too long?  We need to check the threshold here because the threshold could
+		// change by another thread immediately after we release the lock.  Also, if
+		// we're debugging, all bets are off.  They could have hit a breakpoint, and
+		// we don't want to create a bunch of confusing spew with spurious asserts
+		if ( usecElapsed >= s_usecLongLockWarningThreshold && !Plat_IsInDebugSession() )
 		{
-			usecElapsedTooLong = 0;
+			usecElapsedTooLong = usecElapsed;
 		}
-		else
+
+		if ( usecElapsedTooLong > 0 || lockHeldCallback )
 		{
 			char *p = tags;
 			char *end = tags + sizeof(tags) - 1;
@@ -212,6 +216,11 @@ void SteamDatagramTransportLock::Unlock()
 	#else
 		s_steamDatagramTransportMutex.unlock();
 	#endif
+
+	if ( usecElapsed > 0 && lockHeldCallback )
+	{
+		lockHeldCallback(tags, usecElapsed);
+	}
 
 	// Yelp if we held the lock for longer than the threshold.
 	if ( usecElapsedTooLong != 0 )
@@ -2149,7 +2158,12 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetLockWaitWarningT
 	s_usecLockWaitWarningThreshold = usecTheshold;
 }
 
-STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetLockAcquiredCallback( void (*callback)( SteamNetworkingMicroseconds usecWaited ) )
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetLockAcquiredCallback( void (*callback)( const char *tags, SteamNetworkingMicroseconds usecWaited ) )
 {
 	s_fLockAcquiredCallback = callback;
+}
+
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetLockHeldCallback( void (*callback)( const char *tags, SteamNetworkingMicroseconds usecWaited ) )
+{
+	s_fLockHeldCallback = callback;
 }
