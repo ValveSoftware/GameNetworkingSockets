@@ -31,15 +31,4 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetLockAcquiredCall
 
 }
 
-/// Callback dispatch mechanism.  Override this and then use
-/// ISteamNetworkingSockets::RunCallbacks.
-class ISteamNetworkingSocketsCallbacks
-{
-public:
-	inline ISteamNetworkingSocketsCallbacks() {}
-	virtual void OnSteamNetConnectionStatusChanged( SteamNetConnectionStatusChangedCallback_t * ) = 0;
-protected:
-	inline ~ISteamNetworkingSocketsCallbacks() {}
-};
-
 #endif // STEAMNETWORKINGSOCKETS_H
