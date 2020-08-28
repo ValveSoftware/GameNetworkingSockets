@@ -542,6 +542,10 @@ struct LinkStatsTrackerBase
 	/// Setup state to expect the next packet to be nPktNum+1,
 	/// and discard all packets <= nPktNum
 	void InitMaxRecvPktNum( int64 nPktNum );
+	void ResetMaxRecvPktNumForIncomingWirePktNum( uint16 nPktNum )
+	{
+		InitMaxRecvPktNum( (int64)(uint16)( nPktNum - 1 ) );
+	}
 
 	/// Bitmask of recently received packets, used to reject duplicate packets.
 	/// (Important for preventing replay attacks.)
@@ -1156,10 +1160,7 @@ struct LinkStatsTracker final : public TLinkStatsTracker
 	int64 ExpandWirePacketNumberAndCheckMaybeInitialize( uint16 nWireSeqNum )
 	{
 		if ( unlikely( TLinkStatsTracker::m_nMaxRecvPktNum == 0 ) )
-		{
-			AssertMsg( TLinkStatsTracker::m_nPktsRecvSequenced == 0, "%s has received sequence packets, but MaxRecvPktNum==0", TLinkStatsTracker::Describe().c_str() );
-			TLinkStatsTracker::InitMaxRecvPktNum( (int64)(uint16)(nWireSeqNum - 1) );
-		}
+			TLinkStatsTracker::ResetMaxRecvPktNumForIncomingWirePktNum( nWireSeqNum );
 		return ExpandWirePacketNumberAndCheck( nWireSeqNum );
 	}
 
