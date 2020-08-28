@@ -4,11 +4,6 @@
 #include "steamnetworkingsockets_connections.h"
 #include "crypto.h"
 
-#ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
-// FIXME For P2P stats stuff
-#include <steam/isteamnetworking.h>
-#endif
-
 // Acks may be delayed.  This controls the precision used on the wire to encode the delay time.
 constexpr int k_nAckDelayPrecisionShift = 5;
 constexpr SteamNetworkingMicroseconds k_usecAckDelayPrecision = (1 << k_nAckDelayPrecisionShift );
