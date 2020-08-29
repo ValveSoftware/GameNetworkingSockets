@@ -4,6 +4,7 @@
 #define STEAMNETWORKINGSOCKETS_P2P_H
 #pragma once
 
+#include <steam/steamnetworkingcustomsignaling.h>
 #include "steamnetworkingsockets_connections.h"
 #include "csteamnetworkingsockets.h"
 
