@@ -1,0 +1,7 @@
+[submodule "src/external/abseil"]
+	path = src/external/abseil
+	url = https://github.com/abseil/abseil-cpp
+	branch = lts_2020_02_25
+[submodule "src/external/webrtc"]
+	path = src/external/webrtc
+	url = https://webrtc.googlesource.com/src
