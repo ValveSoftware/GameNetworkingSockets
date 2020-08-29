@@ -42,6 +42,7 @@ DEFINE_GLOBAL_CONFIGVAL( float, FakePacketDup_Recv, 0.0f, 0.0f, 100.0f );
 DEFINE_GLOBAL_CONFIGVAL( int32, FakePacketDup_TimeMax, 10, 0, 5000 );
 DEFINE_GLOBAL_CONFIGVAL( int32, EnumerateDevVars, 0, 0, 1 );
 
+DEFINE_GLOBAL_CONFIGVAL( void *, Callback_AuthStatusChanged, nullptr );
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
 DEFINE_GLOBAL_CONFIGVAL( void*, Callback_MessagesSessionRequest, nullptr );
 DEFINE_GLOBAL_CONFIGVAL( void*, Callback_MessagesSessionFailed, nullptr );
@@ -301,9 +302,23 @@ CSteamNetworkingSockets::CSteamNetworkingSockets( CSteamNetworkingUtils *pSteamN
 : m_bHaveLowLevelRef( false )
 , m_pSteamNetworkingUtils( pSteamNetworkingUtils )
 , m_pSteamNetworkingMessages( nullptr )
+, m_bEverTriedToGetCert( false )
+, m_bEverGotCert( false )
+#ifdef STEAMNETWORKINGSOCKETS_CAN_REQUEST_CERT
+, m_scheduleCheckRenewCert( this, &CSteamNetworkingSockets::CheckAuthenticationPrerequisites )
+#endif
 {
 	m_connectionConfig.Init( nullptr );
 	m_identity.Clear();
+
+	#ifdef STEAMNETWORKINGSOCKETS_CAN_REQUEST_CERT
+		m_CertStatus.m_eAvail = k_ESteamNetworkingAvailability_NeverTried;
+		m_CertStatus.m_debugMsg[0] = '\0';
+	#else
+		m_CertStatus.m_eAvail = k_ESteamNetworkingAvailability_CannotTry;
+		V_strcpy_safe( m_CertStatus.m_debugMsg, "No certificate authority" );
+	#endif
+	m_AuthenticationStatus = m_CertStatus;
 }
 
 CSteamNetworkingSockets::~CSteamNetworkingSockets()
@@ -632,33 +647,215 @@ bool CSteamNetworkingSockets::SetCertificate( const void *pCertificate, int cbCe
 	// Save it off
 	m_msgSignedCert = std::move( msgCertSigned );
 	m_msgCert = std::move( msgCert );
+	// If shouldn't already be expired.
+	AssertMsg( GetSecondsUntilCertExpiry() > 0, "Cert already invalid / expired?" );
 
-	// Make sure we have everything else we need to do authentication
-	InitAuthentication();
+	// We've got a valid cert
+	SetCertStatus( k_ESteamNetworkingAvailability_Current, "OK" );
+
+	// Make sure we have everything else we need to do authentication.
+	// This will also make sure we have renewal scheduled
+	AuthenticationNeeded();
 
 	// OK
 	return true;
 }
 
-#ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
 ESteamNetworkingAvailability CSteamNetworkingSockets::InitAuthentication()
 {
-	return k_ESteamNetworkingAvailability_CannotTry;
+	SteamDatagramTransportLock scopeLock( "InitAuthentication" );
+
+	// Check/fetch prerequisites
+	AuthenticationNeeded();
+
+	// Return status
+	return m_AuthenticationStatus.m_eAvail;
 }
+
+void CSteamNetworkingSockets::CheckAuthenticationPrerequisites( SteamNetworkingMicroseconds usecNow )
+{
+#ifdef STEAMNETWORKINGSOCKETS_CAN_REQUEST_CERT
+	// Check if we're in flight already.
+	bool bInFlight = BCertRequestInFlight();
+
+	// Do we already have a cert?
+	if ( m_msgSignedCert.has_cert() )
+	{
+		//Assert( m_CertStatus.m_eAvail == k_ESteamNetworkingAvailability_Current );
+
+		// How much more life does it have in it?
+		int nSeconduntilExpiry = GetSecondsUntilCertExpiry();
+		if ( nSeconduntilExpiry < 0 )
+		{
+
+			// It's already expired, we might as well discard it now.
+			SpewMsg( "Cert expired %d seconds ago.  Discarding and requesting another\n", -nSeconduntilExpiry );
+			m_msgSignedCert.Clear();
+			m_msgCert.Clear();
+			m_keyPrivateKey.Wipe();
+
+			// Update cert status
+			SetCertStatus( k_ESteamNetworkingAvailability_Previously, "Expired" );
+		}
+		else
+		{
+
+			// If request is already active, don't do any of the work below, and don't spam while we wait, since this function may be called frequently.
+			if ( bInFlight )
+				return;
+
+			// Check if it's time to renew
+			SteamNetworkingMicroseconds usecTargetRenew = usecNow + ( nSeconduntilExpiry - k_nSecCertExpirySeekRenew ) * k_nMillion;
+			if ( usecTargetRenew > usecNow )
+			{
+				SteamNetworkingMicroseconds usecScheduledRenew = m_scheduleCheckRenewCert.GetScheduleTime();
+				SteamNetworkingMicroseconds usecLatestRenew = usecTargetRenew + 4*k_nMillion;
+				if ( usecScheduledRenew <= usecLatestRenew )
+				{
+					// Currently scheduled time is good enough.  Don't constantly update the schedule time,
+					// that involves a (small amount) of work.  Just wait for it
+				}
+				else
+				{
+					// Schedule a check later
+					m_scheduleCheckRenewCert.Schedule( usecTargetRenew + 2*k_nMillion );
+				}
+				return;
+			}
+
+			// Currently valid, but it's time to renew.  Spew about this.
+			SpewMsg( "Cert expires in %d seconds.  Requesting another, but keeping current cert in case request fails\n", nSeconduntilExpiry );
+		}
+	}
+
+	// If a request is already active, then we just need to wait for it to complete
+	if ( bInFlight )
+		return;
+
+	// Invoke platform code to begin fetching a cert
+	BeginFetchCertAsync();
+#endif
+}
+
+void CSteamNetworkingSockets::SetCertStatus( ESteamNetworkingAvailability eAvail, const char *pszFmt, ... )
+{
+	char msg[ sizeof(m_CertStatus.m_debugMsg) ];
+	va_list ap;
+	va_start( ap, pszFmt );
+	V_vsprintf_safe( msg, pszFmt, ap );
+	va_end( ap );
+
+	// Mark success or an attempt
+	if ( eAvail == k_ESteamNetworkingAvailability_Current )
+		m_bEverGotCert = true;
+	if ( eAvail == k_ESteamNetworkingAvailability_Attempting || eAvail == k_ESteamNetworkingAvailability_Retrying )
+		m_bEverTriedToGetCert = true;
+
+	// If we failed, but we previously succeeded, convert to "previously"
+	if ( eAvail == k_ESteamNetworkingAvailability_Failed && m_bEverGotCert )
+		eAvail = k_ESteamNetworkingAvailability_Previously;
+
+	// No change?
+	if ( m_CertStatus.m_eAvail == eAvail && V_stricmp( m_CertStatus.m_debugMsg, msg ) == 0 )
+		return;
+
+	// Update
+	m_CertStatus.m_eAvail = eAvail;
+	V_strcpy_safe( m_CertStatus.m_debugMsg, msg );
+
+	// Check if our high level authentication status changed
+	DeduceAuthenticationStatus();
+}
+
+void CSteamNetworkingSockets::DeduceAuthenticationStatus()
+{
+	// For the base class, the overall authentication status is identical to the status of
+	// our cert.  (Derived classes may add additional criteria)
+	SetAuthenticationStatus( m_CertStatus );
+}
+
+void CSteamNetworkingSockets::SetAuthenticationStatus( const SteamNetAuthenticationStatus_t &newStatus )
+{
+
+	// No change?
+	bool bStatusChanged = newStatus.m_eAvail != m_AuthenticationStatus.m_eAvail;
+	if ( !bStatusChanged && V_strcmp( m_AuthenticationStatus.m_debugMsg, newStatus.m_debugMsg ) == 0 )
+		return;
+
+	// Update
+	m_AuthenticationStatus = newStatus;
+
+	// Re-cache identity
+	InternalGetIdentity();
+
+	// Post a callback, but only if the high level status changed.  Don't post a callback just
+	// because the message changed
+	if ( bStatusChanged )
+	{
+		// Spew
+		SpewMsg( "AuthStatus (%s):  %s  (%s)",
+			SteamNetworkingIdentityRender( m_identity ).c_str(),
+			GetAvailabilityString( m_AuthenticationStatus.m_eAvail ), m_AuthenticationStatus.m_debugMsg );
+
+		QueueCallback( m_AuthenticationStatus, g_Config_Callback_AuthStatusChanged.Get() );
+	}
+}
+
+#ifdef STEAMNETWORKINGSOCKETS_CAN_REQUEST_CERT
+void CSteamNetworkingSockets::AsyncCertRequestFinished()
+{
+	Assert( m_msgSignedCert.has_cert() );
+	SetCertStatus( k_ESteamNetworkingAvailability_Current, "OK" );
+
+	// Check for any connections that we own that are waiting on a cert
+	for ( CSteamNetworkConnectionBase *pConn: g_mapConnections.IterValues() )
+	{
+		if ( pConn->m_pSteamNetworkingSocketsInterface == this )
+			pConn->InterfaceGotCert();
+	}
+}
+
+void CSteamNetworkingSockets::CertRequestFailed( ESteamNetworkingAvailability eCertAvail, ESteamNetConnectionEnd nConnectionEndReason, const char *pszMsg )
+{
+	SpewWarning( "Cert request for %s failed with reason code %d.  %s\n", SteamNetworkingIdentityRender( InternalGetIdentity() ).c_str(), nConnectionEndReason, pszMsg );
+
+	// Schedule a retry.  Note that if we have active connections that need for a cert,
+	// we may end up retrying sooner.  If we don't have any active connections, spamming
+	// retries way too frequently may be really bad; we might end up DoS-ing ourselves.
+	// Do we need to make this configurable?
+	m_scheduleCheckRenewCert.Schedule( SteamNetworkingSockets_GetLocalTimestamp() + k_nMillion*30 );
+
+	if ( m_msgSignedCert.has_cert() )
+	{
+		SpewMsg( "But we still have a valid cert, continuing with that one\n" );
+		AsyncCertRequestFinished();
+		return;
+	}
+
+	// Set generic cert status, so we will post a callback
+	SetCertStatus( eCertAvail, "%s", pszMsg );
+
+	for ( CSteamNetworkConnectionBase *pConn: g_mapConnections.IterValues() )
+	{
+		if ( pConn->m_pSteamNetworkingSocketsInterface == this )
+			pConn->CertRequestFailed( nConnectionEndReason, pszMsg );
+	}
+
+	// FIXME If we have any listen sockets, we might need to let them know about this as well?
+}
+#endif
 
 ESteamNetworkingAvailability CSteamNetworkingSockets::GetAuthenticationStatus( SteamNetAuthenticationStatus_t *pDetails )
 {
+	SteamDatagramTransportLock scopeLock;
 
-	// We don't really have any mechanism right now for you to do your own PKI.
-	// Do you want this feature?  Let us know on github!
+	// Return details, if requested
 	if ( pDetails )
-	{
-		pDetails->m_eAvail = k_ESteamNetworkingAvailability_CannotTry;
-		V_strcpy_safe( pDetails->m_debugMsg, "No certificate authority" );
-	}
-	return k_ESteamNetworkingAvailability_CannotTry;
+		*pDetails = m_AuthenticationStatus;
+
+	// Return status
+	return m_AuthenticationStatus.m_eAvail;
 }
-#endif
 
 HSteamListenSocket CSteamNetworkingSockets::CreateListenSocketIP( const SteamNetworkingIPAddr &localAddr, int nOptions, const SteamNetworkingConfigValue_t *pOptions )
 {
@@ -1015,8 +1212,10 @@ bool CSteamNetworkingSockets::BCertHasIdentity() const
 }
 
 
-bool CSteamNetworkingSockets::SetCertificateAndPrivateKey( const void *pCert, int cbCert, void *pPrivateKey, int cbPrivateKey, SteamDatagramErrMsg &errMsg )
+bool CSteamNetworkingSockets::SetCertificateAndPrivateKey( const void *pCert, int cbCert, void *pPrivateKey, int cbPrivateKey )
 {
+	SteamDatagramTransportLock::AssertHeldByCurrentThread( "SetCertificateAndPrivateKey" );
+
 	m_msgCert.Clear();
 	m_msgSignedCert.Clear();
 	m_keyPrivateKey.Wipe();
@@ -1026,15 +1225,17 @@ bool CSteamNetworkingSockets::SetCertificateAndPrivateKey( const void *pCert, in
 	//
 	if ( !m_keyPrivateKey.LoadFromAndWipeBuffer( pPrivateKey, cbPrivateKey ) )
 	{
-		V_strcpy_safe( errMsg, "Invalid private key" );
+		SetCertStatus( k_ESteamNetworkingAvailability_Failed, "Invalid private key" );
 		return false;
 	}
 
 	//
 	// Decode the cert
 	//
-	if ( !ParseCertFromPEM( pCert, cbCert, m_msgSignedCert, errMsg ) )
+	SteamNetworkingErrMsg parseErrMsg;
+	if ( !ParseCertFromPEM( pCert, cbCert, m_msgSignedCert, parseErrMsg ) )
 	{
+		SetCertStatus( k_ESteamNetworkingAvailability_Failed, parseErrMsg );
 		return false;
 	}
 
@@ -1044,12 +1245,12 @@ bool CSteamNetworkingSockets::SetCertificateAndPrivateKey( const void *pCert, in
 		|| !m_msgCert.has_time_expiry()
 		|| !m_msgCert.has_key_data()
 	) {
-		V_strcpy_safe( errMsg, "Invalid cert" );
+		SetCertStatus( k_ESteamNetworkingAvailability_Failed, "Invalid cert" );
 		return false;
 	}
 	if ( m_msgCert.key_type() != CMsgSteamDatagramCertificate_EKeyType_ED25519 )
 	{
-		V_strcpy_safe( errMsg, "Invalid cert or unsupported public key type" );
+		SetCertStatus( k_ESteamNetworkingAvailability_Failed, "Invalid cert or unsupported public key type" );
 		return false;
 	}
 
@@ -1060,14 +1261,16 @@ bool CSteamNetworkingSockets::SetCertificateAndPrivateKey( const void *pCert, in
 	CECSigningPublicKey pubKey;
 	if ( !pubKey.SetRawDataWithoutWipingInput( m_msgCert.key_data().c_str(), m_msgCert.key_data().length() ) )
 	{
-		V_strcpy_safe( errMsg, "Invalid public key" );
+		SetCertStatus( k_ESteamNetworkingAvailability_Failed, "Invalid public key" );
 		return false;
 	}
 	if ( !m_keyPrivateKey.MatchesPublicKey( pubKey ) )
 	{
-		V_strcpy_safe( errMsg, "Private key doesn't match public key from cert" );
+		SetCertStatus( k_ESteamNetworkingAvailability_Failed, "Private key doesn't match public key from cert" );
 		return false;
 	}
+
+	SetCertStatus( k_ESteamNetworkingAvailability_Current, "OK" );
 
 	return true;
 }

@@ -237,14 +237,19 @@ bool CSteamNetworkListenSocketDirectUDP::BInit( const SteamNetworkingIPAddr &loc
 	if ( !BInitListenSocketCommon( nOptions, pOptions, errMsg ) )
 		return false;
 
-	// Do we need a cert?
-	if ( m_connectionConfig.m_IP_AllowWithoutAuth.Get() == 0 )
+	// Might we need to authenticate?
+	int IP_AllowWithoutAuth = m_connectionConfig.m_IP_AllowWithoutAuth.Get();
+	if ( IP_AllowWithoutAuth < 2 )
 	{
-		#ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
-			V_strcpy_safe( errMsg, "No cert authority, must set IP_AllowWithoutAuth" );
-			return false;
-		#else
-			m_pSteamNetworkingSocketsInterface->AsyncCertRequest();
+		m_pSteamNetworkingSocketsInterface->AuthenticationNeeded();
+
+		// If we know for sure that this can't ever work, then go ahead and fail now.
+		#ifndef STEAMNETWORKINGSOCKETS_CAN_REQUEST_CERT
+			if ( IP_AllowWithoutAuth == 0 )
+			{
+				V_strcpy_safe( errMsg, "No cert authority, must set IP_AllowWithoutAuth" );
+				return false;
+			}
 		#endif
 	}
 
@@ -1854,7 +1859,7 @@ void CConnectionTransportUDP::SendConnectOK( SteamNetworkingMicroseconds usecNow
 EUnsignedCert CSteamNetworkConnectionUDP::AllowRemoteUnsignedCert()
 {
 	// NOTE: No special override for localhost.
-	// Should we add a seperat3e convar for this?
+	// Should we add a seperate convar for this?
 	// For the CSteamNetworkConnectionlocalhostLoopback connection,
 	// we know both ends are us.  but if they are just connecting to
 	// 127.0.0.1, it's not clear that we should handle this any

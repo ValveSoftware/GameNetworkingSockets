@@ -41,7 +41,7 @@ public:
 	CMsgSteamDatagramCertificate m_msgCert;
 	CECSigningPrivateKey m_keyPrivateKey;
 	bool BCertHasIdentity() const;
-	virtual bool SetCertificateAndPrivateKey( const void *pCert, int cbCert, void *pPrivateKey, int cbPrivateKey, SteamDatagramErrMsg &errMsg );
+	virtual bool SetCertificateAndPrivateKey( const void *pCert, int cbCert, void *pPrivateKey, int cbPrivateKey );
 
 	bool BHasAnyConnections() const;
 	bool BHasAnyListenSockets() const;
@@ -50,16 +50,9 @@ public:
 #ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
 	bool BInitGameNetworkingSockets( const SteamNetworkingIdentity *pIdentity, SteamDatagramErrMsg &errMsg );
 	void CacheIdentity() { m_identity.SetLocalHost(); }
-	virtual ESteamNetworkingAvailability InitAuthentication() override;
-	virtual ESteamNetworkingAvailability GetAuthenticationStatus( SteamNetAuthenticationStatus_t *pAuthStatus ) override;
-	inline bool BCertRequestInFlight() { return false; }
 #else
-	virtual void AsyncCertRequest() = 0;
-	virtual bool BCertRequestInFlight() = 0;
 	virtual void CacheIdentity() = 0;
 #endif
-
-	int GetSecondsUntilCertExpiry() const;
 
 	/// Perform cleanup and self-destruct.  Use this instead of
 	/// calling operator delete.  This solves some complications
@@ -130,6 +123,35 @@ public:
 
 	CUtlHashMap<int,CSteamNetworkListenSocketP2P *,std::equal_to<int>,std::hash<int>> m_mapListenSocketsByVirtualPort;
 
+	//
+	// Authentication
+	//
+
+#ifdef STEAMNETWORKINGSOCKETS_CAN_REQUEST_CERT
+	virtual bool BCertRequestInFlight() = 0;
+
+	ScheduledMethodThinker<CSteamNetworkingSockets> m_scheduleCheckRenewCert;
+
+	/// Platform-specific code to actually obtain a cert
+	virtual void BeginFetchCertAsync() = 0;
+#else
+	inline bool BCertRequestInFlight() { return false; }
+#endif
+
+	/// Called in any situation where we need to be able to authenticate, or anticipate
+	/// needing to be able to do so soon.  If we don't have one right now, we will begin
+	/// taking action to obtain one
+	virtual void CheckAuthenticationPrerequisites( SteamNetworkingMicroseconds usecNow );
+	void AuthenticationNeeded() { CheckAuthenticationPrerequisites( SteamNetworkingSockets_GetLocalTimestamp() ); }
+
+	virtual ESteamNetworkingAvailability InitAuthentication() override final;
+	virtual ESteamNetworkingAvailability GetAuthenticationStatus( SteamNetAuthenticationStatus_t *pAuthStatus ) override final;
+	int GetSecondsUntilCertExpiry() const;
+
+	//
+	// Default signaling
+	//
+
 #ifdef STEAMNETWORKINGSOCKETS_HAS_DEFAULT_P2P_SIGNALING
 	CSteamNetworkingMessages *GetSteamNetworkingMessages();
 
@@ -144,6 +166,29 @@ public:
 	CSteamNetworkingMessages *m_pSteamNetworkingMessages;
 
 protected:
+
+	/// Overall authentication status.  Depends on the status of our cert, and the ability
+	/// to obtain the CA certs (from the network config)
+	SteamNetAuthenticationStatus_t m_AuthenticationStatus;
+
+	/// Set new status, dispatch callbacks if it actually changed
+	void SetAuthenticationStatus( const SteamNetAuthenticationStatus_t &newStatus );
+
+	/// Current status of our attempt to get a certificate
+	bool m_bEverTriedToGetCert;
+	bool m_bEverGotCert;
+	SteamNetAuthenticationStatus_t m_CertStatus;
+
+	/// Set cert status, and then update m_AuthenticationStatus and
+	/// dispatch any callbacks as needed
+	void SetCertStatus( ESteamNetworkingAvailability eAvail, const char *pszFmt, ... );
+#ifdef STEAMNETWORKINGSOCKETS_CAN_REQUEST_CERT
+	void AsyncCertRequestFinished();
+	void CertRequestFailed( ESteamNetworkingAvailability eCertAvail, ESteamNetConnectionEnd nConnectionEndReason, const char *pszMsg );
+#endif
+
+	/// Figure out the current authentication status.  And if it has changed, send out callbacks
+	virtual void DeduceAuthenticationStatus();
 
 	void KillConnections();
 

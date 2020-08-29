@@ -66,6 +66,11 @@
 	#define STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
 #endif
 
+#ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
+	// STEAMNETWORKINGSOCKETS_CAN_REQUEST_CERT means we know how to make a cert request from some sort of certificate authority
+	#define STEAMNETWORKINGSOCKETS_CAN_REQUEST_CERT
+#endif
+
 // Redefine the macros for byte-swapping, to sure the correct
 // argument size.  We probably should move this into platform.h,
 // but I suspect we'd find a bunch of "bugs" which currently don't
@@ -195,6 +200,9 @@ const int k_cbSteamNetworkingSocketsMaxPlaintextPayloadSend = k_cbSteamNetworkin
 /// Use larger limits for what we are willing to receive.
 const int k_cbSteamNetworkingSocketsMaxEncryptedPayloadRecv = k_cbSteamNetworkingSocketsMaxUDPMsgLen;
 const int k_cbSteamNetworkingSocketsMaxPlaintextPayloadRecv = k_cbSteamNetworkingSocketsMaxUDPMsgLen;
+
+/// If we have a cert that is going to expire in <N secondws, try to renew it
+const int k_nSecCertExpirySeekRenew = 3600*2;
 
 /// Make sure we have enough room for our headers and occasional inline pings and stats and such
 /// FIXME - For relayed connections, we send some of the stats outside the encrypted block, so that

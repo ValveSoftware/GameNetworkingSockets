@@ -1956,7 +1956,7 @@ CSteamNetworkListenSocketP2P *CSteamNetworkingSockets::InternalCreateListenSocke
 
 	// We'll need a cert.  Start sure async process to get one is in
 	// progress (or try again if we tried earlier and failed)
-	AsyncCertRequest();
+	AuthenticationNeeded();
 
 	// Create listen socket
 	CSteamNetworkListenSocketP2P *pSock = new CSteamNetworkListenSocketP2P( this );
@@ -2336,8 +2336,8 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const void *pMsg, int c
 			}
 
 			// Make sure we have a recent cert.  Start requesting another if needed.
-			#ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
-				AsyncCertRequest();
+			#ifdef STEAMNETWORKINGSOCKETS_CAN_REQUEST_CERT
+				AuthenticationNeeded();
 			#endif
 
 			// If we don't have a signed cert now, then we cannot accept this connection!

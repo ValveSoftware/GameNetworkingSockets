@@ -1037,7 +1037,7 @@ bool CSteamNetworkConnectionBase::BThinkCryptoReady( SteamNetworkingMicroseconds
 
 	// Check for fetching a cert, if a previous cert attempt failed,
 	// or the cert we have is old
-	#ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
+	#ifdef STEAMNETWORKINGSOCKETS_CAN_REQUEST_CERT
 		if ( AllowLocalUnsignedCert() != k_EUnsignedCert_Allow )
 		{
 
@@ -1045,7 +1045,7 @@ bool CSteamNetworkConnectionBase::BThinkCryptoReady( SteamNetworkingMicroseconds
 			// If this fails (either immediately, or asynchronously), we will
 			// get a CertFailed call with the appropriate code, and we can decide
 			// what we want to do.
-			m_pSteamNetworkingSocketsInterface->AsyncCertRequest();
+			m_pSteamNetworkingSocketsInterface->CheckAuthenticationPrerequisites( usecNow );
 
 			// Handle synchronous failure.
 			if ( GetState() != k_ESteamNetworkingConnectionState_None && GetState() != k_ESteamNetworkingConnectionState_Connecting )
@@ -1071,12 +1071,6 @@ bool CSteamNetworkConnectionBase::BThinkCryptoReady( SteamNetworkingMicroseconds
 					return false;
 
 				case k_ESteamNetworkingAvailability_Current:
-
-					// We do have a cert -- but if it's close to expiring,
-					// the above call will have triggerd a re-fetch.
-					// If so, wait for that to finish
-					if ( m_pSteamNetworkingSocketsInterface->BCertRequestInFlight() )
-						return false;
 					break;
 			}
 
@@ -1084,11 +1078,16 @@ bool CSteamNetworkConnectionBase::BThinkCryptoReady( SteamNetworkingMicroseconds
 	#endif
 
 	// Already have a signed cert?
-	// If a request is in flight, then the one we have might be out of date,
-	// so wait for that request to finish.
 	int nSecondsUntilCertExpiry = m_pSteamNetworkingSocketsInterface->GetSecondsUntilCertExpiry();
 	if ( nSecondsUntilCertExpiry > 0 )
 	{
+
+		// We do have a cert -- but if it's close to expiring, wait for any active fetch to finish,
+		// because there's a good chance that our peer will reject it.  (We usually refresh our certs
+		// well ahead of time, so we really should never hit this.)  Note that if this request
+		// fails, we will get a callback, and an opportunity to attempt to proceed with an unsigned cert
+		if ( nSecondsUntilCertExpiry < 300 && m_pSteamNetworkingSocketsInterface->BCertRequestInFlight() )
+			return false;
 
 		// Use it!
 		SpewVerbose( "[%s] Our cert expires in %d seconds.\n", GetDescription(), nSecondsUntilCertExpiry );
@@ -1104,7 +1103,7 @@ bool CSteamNetworkConnectionBase::BThinkCryptoReady( SteamNetworkingMicroseconds
 	}
 
 	// Otherwise, we don't have a signed cert (yet?).
-	#ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
+	#ifndef STEAMNETWORKINGSOCKETS_CAN_REQUEST_CERT
 		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_InternalError, "Need a cert authority!" );
 		Assert( false );
 	#endif
