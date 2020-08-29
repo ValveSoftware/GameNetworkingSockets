@@ -42,29 +42,15 @@ also included with Steam, but outside the scope of a transport library like this
 However, assuming you have all of those requirements, you can use
 SteamNetworkingSockets to make P2P connections!
 
-### WebRTC ICE implementation
-
-We use [google's WebRTC code](https://webrtc.googlesource.com/src/) to implement
-the ICE protocol.  We have a thin [interface layer](src/external/steamwebrtc/ice_session.h)
-that isolates this code from SteamNetworkingSockets, because WebRTC has a relatively
-complicated build system.  (We compile this into a seperate .dll, which we call
-steamwebrtc, but that isn't the only way it could be done.)
-
-OK, so the bad news is that getting compling might be just a bit of work.  We
-grabbed a snapshot of the WebRTC code at some point in the past (around 2018).
-Although we have not made any changes to it, we don't know exactly what
-snapshot we grabbed.  But you will probbaly want to update to more recent
-snapshot, anyway.
-
-We'd like to fix this situation, and get synced up so that we are compiling
-against a known release of webrtc.  If you are interested in P2P and want to
-help with tis, please email us and we can work with you to make it happen!
-
 ### Roadmap
 
-Here's some things we have in mind to make P2P support better:
+Here are some things we have in mind to make P2P support better:
 
-* Make it easier to obtain and compile the right version of WebRTC.
-  (If you are interested, please help!)
+* Write a dummy P2P signaling server, and a test/example.  This will make it
+  possible for others to write plugins for their own signaling service.
+  (Issue #133)
+* Write plugins for some standard signaling services.  [XMPP](https://xmpp.org/)
+  is a logical choice.  This would be a great project for somebody else to
+  do.
 * LAN beacon support, so that P2P connections can be made when signaling
-  is down.
+  is down.  (Issue #82)
