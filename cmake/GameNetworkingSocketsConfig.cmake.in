@@ -18,8 +18,11 @@ set_target_properties(
     GameNetworkingSockets::GameNetworkingSockets GameNetworkingSockets::GameNetworkingSockets_s
     PROPERTIES IMPORTED_GLOBAL True
 )
-add_library(GameNetworkingSockets::shared ALIAS GameNetworkingSockets::GameNetworkingSockets)
-add_library(GameNetworkingSockets::static ALIAS GameNetworkingSockets::GameNetworkingSockets_s)
+
+if(${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.11.0")
+    add_library(GameNetworkingSockets::shared ALIAS GameNetworkingSockets::GameNetworkingSockets)
+    add_library(GameNetworkingSockets::static ALIAS GameNetworkingSockets::GameNetworkingSockets_s)
+endif()
 
 check_required_components(GameNetworkingSockets)
 set(GameNetworkingSockets_FOUND 1)
