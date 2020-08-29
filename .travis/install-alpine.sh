@@ -16,6 +16,8 @@ PACKAGES=(
 	cmake
 	meson
 	pkgconf
+	git
+	linux-headers
 )
 
 PACKAGES+=(protobuf-dev)

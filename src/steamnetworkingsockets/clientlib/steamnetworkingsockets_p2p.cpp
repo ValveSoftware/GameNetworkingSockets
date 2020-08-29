@@ -439,6 +439,9 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 		return;
 	}
 
+#ifdef STEAMWEBRTC_USE_STATIC_LIBS
+	g_SteamNetworkingSockets_CreateICESessionFunc = (CreateICESession_t)CreateWebRTCICESession;
+#else
 	// No ICE factory?
 	if ( !g_SteamNetworkingSockets_CreateICESessionFunc )
 	{
@@ -456,12 +459,34 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 					{
 						g_SteamNetworkingSockets_CreateICESessionFunc = (CreateICESession_t)::GetProcAddress( h, "CreateWebRTCICESession" );
 					}
-				//#elif defined( OSX ) || defined( IOS ) || defined( TVOS )
-				//	pszModule = "libsteamwebrtc.dylib";
-				//#elif defined( LINUX ) || defined( ANDROID )
-				//	pszModule = "libsteamwebrtc.so";
-				//#else
-				//	#error Need steamwebrtc for this platform
+				#elif defined( OSX ) || defined( IOS ) || defined( TVOS )
+					const char* pszModule = "libsteamwebrtc.dylib";
+					void* h = dlopen(pszModule, RTLD_LAZY);
+					if ( h != NULL )
+					{
+						g_SteamNetworkingSockets_CreateICESessionFunc = (CreateICESession_t)dlsym( h, "CreateWebRTCICESession" );
+					}
+					if ( h == NULL )
+					{
+						SteamNetworkingErrMsg errMsg;
+						V_sprintf_safe( errMsg, "ICE not enabled. Failed to open shared object : %s", dlerror() );
+						ICEFailed( k_nICECloseCode_Local_NotCompiled, errMsg );
+					}
+				#elif defined( LINUX ) || defined( ANDROID )
+					const char* pszModule = "libsteamwebrtc.so";
+					void* h = dlopen(pszModule, RTLD_LAZY);
+					if ( h != NULL )
+					{
+						g_SteamNetworkingSockets_CreateICESessionFunc = (CreateICESession_t)dlsym( h, "CreateWebRTCICESession" );
+					}
+					if ( h == NULL )
+					{
+						SteamNetworkingErrMsg errMsg;
+						V_sprintf_safe( errMsg, "ICE not enabled. Failed to open shared object : %s", dlerror() );
+						ICEFailed( k_nICECloseCode_Local_NotCompiled, errMsg );
+					}
+				#else
+					#error Need steamwebrtc for this platform
 				#endif
 			}
 		#endif
@@ -471,6 +496,7 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 			return;
 		}
 	}
+#endif
 
 	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 

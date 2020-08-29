@@ -14,6 +14,8 @@ PACKAGES=(
 	cmake
 	meson
 	pkgconf-pkg-config
+	git
+	make
 )
 
 PACKAGES+=(protobuf-compiler protobuf-devel)
