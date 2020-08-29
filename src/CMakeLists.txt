@@ -289,6 +289,8 @@ gamenetworkingsockets_common(GameNetworkingSockets_s)
 install(
 	TARGETS GameNetworkingSockets GameNetworkingSockets_s
 	EXPORT GameNetworkingSockets
+	LIBRARY DESTINATION ${CMAKE_INSTALL_BINDIR}
+	ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
 )
 
 install(DIRECTORY ../include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/GameNetworkingSockets)
