@@ -18,7 +18,7 @@ PACKAGES=(
 	pkgconf
 	git
 	linux-headers
-	golang
+	go
 )
 
 PACKAGES+=(protobuf-dev)
