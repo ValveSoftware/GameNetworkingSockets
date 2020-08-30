@@ -1,3 +1,42 @@
+// Really simple P2P signaling server.
+//
+// When establishing peer-to-peer connections, the peers
+// need some sort of pre-arranged side channels that they
+// can use to exchange messages.  This channel is assumed
+// to be relatively low bandwidth and high latency.  This
+// service is often called "signaling".
+//
+// This server has the following really simple protocol:
+// It listens on a particular TCP port.  Clients connect
+// raw TCP.  The protocol is text-based and line oriented,
+// so it is easy to test using telnet.  When a client
+// connects, it should send its identity on the first line.
+// Afterwards, clients can send a message to a peer by
+// sending a line formatted as follows:
+//
+// DESTINATION_IDENTITY PAYLOAD
+//
+// Identites may not contain spaces, and the payload
+// should be plain ASCII text.  (Hex or base64 encode it).
+//
+// If there is a client with that destination identity,
+// then the server will forward the message on.  Otherwise
+// it is discarded.
+//
+// Forwarded messages have basically the same format and
+// are the only type of message the server ever sends to the
+// client.  The only difference is that the identity is the
+// identity of the sender.
+//
+// This is just an example code to illustrate what a
+// signaling service is.  A real production server would
+// probably need to be able to scale across multiple
+// processes, and provide authentication and rate
+// limiting.
+//
+// Note that SteamNetworkingSockets use of signaling
+// service does NOT assume guaranteed delivery.
+
 package main
 
 import (
@@ -8,6 +47,8 @@ import (
 	"bufio"
 	"log"
 )
+
+const DEFAULT_LISTEN_PORT = 10000
 
 // Current list of client connections
 var g_mapClientConnections = make(map[string]net.Conn)
@@ -95,7 +136,7 @@ func ServiceConnection(conn net.Conn) {
 func main() {
 
     // Parse command line flags
-	port := flag.Int("port", 10000, "Port to listen on")
+	port := flag.Int("port", DEFAULT_LISTEN_PORT, "Port to listen on")
     flag.Parse()
 	listen_addr := fmt.Sprintf("0.0.0.0:%d", *port)
 
