@@ -60,6 +60,18 @@ void TEST_Printf( const char *fmt, ... )
 	DebugOutput( k_ESteamNetworkingSocketsDebugOutputType_Msg, text );
 }
 
+void TEST_Fatal( const char *fmt, ... )
+{
+	fflush(stdout);
+	va_list ap;
+	va_start(ap, fmt);
+	vfprintf(stderr, fmt, ap);
+	va_end(ap);
+	fputc('\n', stderr);
+	fflush(stderr);
+	exit(1);
+}
+
 void TEST_Init( const SteamNetworkingIdentity *pIdentity )
 {
 	g_fpLog = fopen( "log.txt", "wt" );

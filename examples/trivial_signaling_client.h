@@ -5,7 +5,6 @@
 #pragma once
 
 #include <steam/steamnetworkingcustomsignaling.h>
-struct sockaddr;
 class ISteamNetworkingSockets;
 
 // FIXME - Eventually I intend to add a mechanism to set the default
@@ -35,6 +34,7 @@ public:
 /// Interface to our client.
 class ITrivialSignalingClient : public ISteamNetworkingCustomSignalingService
 {
+public:
 
 	/// Poll the server for incoming signals and dispatch them.
 	/// We use polling in this example just to keep it simple.
@@ -47,7 +47,7 @@ class ITrivialSignalingClient : public ISteamNetworkingCustomSignalingService
 
 // Start connecting to the signaling server.
 ITrivialSignalingClient *CreateTrivialSignalingClient(
-	const sockaddr *adrServer, size_t adrSize, // Address of the server.
+	const char *address, // Address:port
 	ISteamNetworkingSockets *pSteamNetworkingSockets, // Where should we send signals when we get them?
 	SteamNetworkingErrMsg &errMsg // Error message is retjrned here if we fail
 );

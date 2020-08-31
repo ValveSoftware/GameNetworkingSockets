@@ -10,10 +10,14 @@
 #include <steam/isteamnetworkingsockets.h>
 #include <steam/isteamnetworkingutils.h>
 
+#include "../tests/test_common.h"
+
 #ifdef POSIX
 	#include <unistd.h>
 	#include <sys/socket.h>
+	#include <sys/types.h>
 	#include <netinet/in.h>
+	#include <netdb.h>
 	typedef int SOCKET;
 	constexpr SOCKET INVALID_SOCKET = -1;
 	inline void closesocket( SOCKET s ) { close(s); }
@@ -114,12 +118,16 @@ class CTrivialSignalingClient : public ITrivialSignalingClient
 		#endif
 		m_sock = socket( m_adrServer.ss_family, sockType, IPPROTO_TCP );
 		if ( m_sock == INVALID_SOCKET )
+		{
+			TEST_Printf( "socket() failed, error=%d\n", GetSocketError() );
 			return;
+		}
 		#ifdef _WIN32
 			opt = 1;
 			if ( ioctlsocket( sock, FIONBIO, (unsigned long*)&opt ) == -1 )
 			{
 				CloseSocket();
+				TEST_Printf( "ioctlsocket() failed, error=%d\n", GetSocketError() );
 				return;
 			}
 		#endif
@@ -161,6 +169,8 @@ public:
 			{
 				// Socket hosed, or we sent a partial signal.
 				// We need to restart connection
+				TEST_Printf( "Failed to send %d bytes to trivial signaling server.  send() returned %d, errno=%d.  Closing and restarting connection.\n",
+					l, r, GetSocketError() );
 				CloseSocket();
 			}
 		}
@@ -187,7 +197,7 @@ public:
 	{
 		// Drain the socket into the buffer, and check for reconnecting
 		sockMutex.lock();
-		if ( m_sock != INVALID_SOCKET )
+		if ( m_sock == INVALID_SOCKET )
 		{
 			Connect();
 		}
@@ -203,7 +213,10 @@ public:
 				{
 					int e = GetSocketError();
 					if ( e != EAGAIN && e != EWOULDBLOCK )
+					{
+						TEST_Printf( "Failed to recv from trivial signaling server.  recv() returned %d, errno=%d.  Closing and restarting connection\n", r, e );
 						CloseSocket();
+					}
 					break;
 				}
 
@@ -241,7 +254,8 @@ public:
 					int l = HexDigitVal( m_sBufferedData[i+1] );
 					if ( ( h | l ) & ~0xf )
 					{
-						assert(false); // Failed hex decode.  Not a bug in our code here, but this is just example code, so we'll handle it this way
+						// Failed hex decode.  Not a bug in our code here, but this is just example code, so we'll handle it this way
+						assert( !"Failed hex decode from signaling server?!" );
 						goto next_message;
 					}
 					data.push_back( (char)(h<<4 | l ) );
@@ -309,11 +323,40 @@ next_message:
 };
 
 // Start connecting to the signaling server.
-//ITrivialSignalingClient *CreateTrivialSignalingClient(
-//	const sockaddr *adrServer, size_t adrSize, // Address of the server.
-//	ISteamNetworkingSockets *pSteamNetworkingSockets, // Where should we send signals when we get them?
-//	SteamnetworkingErrMsg &errMsg // Error message is retjrned here if we fail
-//);
+ITrivialSignalingClient *CreateTrivialSignalingClient(
+	const char *pszServerAddress, // Address of the server.
+	ISteamNetworkingSockets *pSteamNetworkingSockets, // Where should we send signals when we get them?
+	SteamNetworkingErrMsg &errMsg // Error message is retjrned here if we fail
+) {
+
+	std::string sAddress( pszServerAddress );
+	std::string sService;
+	size_t colon = sAddress.find( ':' );
+	if ( colon == std::string::npos )
+	{
+		sService = "10000"; // Default port
+	}
+	else
+	{
+		sService = sAddress.substr( colon+1 );
+		sAddress.erase( colon );
+	}
+
+	// Resolve name synchronously
+	addrinfo *pAddrInfo = nullptr;
+	int r = getaddrinfo( sAddress.c_str(), sService.c_str(), nullptr, &pAddrInfo );
+	if ( r != 0 || pAddrInfo == nullptr )
+	{
+		sprintf( errMsg, "Invalid/unknown server address.  getaddrinfo returned %d", r );
+		return nullptr;
+	}
+
+	auto *pClient = new CTrivialSignalingClient( pAddrInfo->ai_addr, pAddrInfo->ai_addrlen, pSteamNetworkingSockets );
+
+	freeaddrinfo( pAddrInfo );
+
+	return pClient;
+}
 
 	
 
