@@ -13,8 +13,12 @@ Building
   * OpenSSL 1.1.x, plus ed25519-donna and curve25519-donna.  (We've made some
     minor changes, so the source is included in this project.)
   * libsodium
-  * [bcrypt](https://docs.microsoft.com/en-us/windows/desktop/api/bcrypt/) (windows only)
+  * [bcrypt](https://docs.microsoft.com/en-us/windows/desktop/api/bcrypt/)
+    (windows only)
 * Google protobuf 2.6.1+
+* Google [webrtc](https://opensource.google/projects/webrtc) is used for
+  NAT piercing (ICE) for P2P connections.  The relevant code is linked in as a
+  git submodule.  You'll need to initialize that submodule to compile.
 
 ## Linux
 
@@ -38,14 +42,7 @@ Arch Linux:
 
 ### Building
 
-Using Meson:
-
-```
-$ meson . build
-$ ninja -C build
-```
-
-Or CMake:
+Using CMake (preferred):
 
 ```
 $ mkdir build
@@ -54,10 +51,16 @@ $ cmake -G Ninja ..
 $ ninja
 ```
 
+Or Meson (supported...kind-of):
+
+```
+$ meson . build
+$ ninja -C build
+```
+
 ## Windows / Visual Studio
 
-On Windows, you can use the [vcpkg](https://github.com/microsoft/vcpkg/) package manager. Or setup the 
-dependencies by hand, which is a bit of an arduous gauntlet.
+On Windows, you can use the [vcpkg](https://github.com/microsoft/vcpkg/) package manager.
 
 ### vcpkg
 
@@ -76,6 +79,8 @@ the vcpkg integration is installed, or the vcpkg CMake toolchain file can be use
 To use libsodium as the crypto backend rather than OpenSSL, install `gamenetworkingsockets[core,libsodium]`.
 
 ### Manual setup
+
+Setting up the dependencies by hand is a bit of an arduous gauntlet.
 
 #### OpenSSL
 
