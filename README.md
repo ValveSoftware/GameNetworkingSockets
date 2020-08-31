@@ -69,8 +69,11 @@ to facilitate binding to other languages.
 
 Third party language bindings:
 
-* C#: <https://github.com/nxrighthere/ValveSockets-CSharp>
-* Go: <https://github.com/nielsAD/gns/>
+* C#:
+  * <https://github.com/nxrighthere/ValveSockets-CSharp>
+  * <https://github.com/Facepunch/Facepunch.Steamworks>
+* Go:
+  * <https://github.com/nielsAD/gns/>
 
 ## Roadmap
 
