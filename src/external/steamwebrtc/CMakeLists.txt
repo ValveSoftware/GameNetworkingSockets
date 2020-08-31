@@ -21,7 +21,7 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(abseil_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../abseil)
 set(abseil_BINARY_DIR ${CMAKE_BINARY_DIR}/abseil)  #FIXME Is this right?
 if(NOT EXISTS ${abseil_SOURCE_DIR}/CMakeLists.txt)
-	message(FATAL_ERROR "abeil submodule not initialized.\n(Try 'git submodule init src/external/abseil')" )
+	message(FATAL_ERROR "abeil submodule not initialized.\n(Try 'git submodule update src/external/abseil')" )
 endif()
 
 add_subdirectory(${abseil_SOURCE_DIR} ${abseil_BINARY_DIR})
@@ -40,7 +40,7 @@ add_subdirectory(${abseil_SOURCE_DIR} ${abseil_BINARY_DIR})
 set(webrtc_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../webrtc)
 #FIXME set(webrtc_BUILD_DIR ????? )
 if(NOT EXISTS ${webrtc_SOURCE_DIR}/rtc_base)
-	message(FATAL_ERROR "webrtc submodule not initialized.\n(Try: 'git submodule init src/external/webrtc')" )
+	message(FATAL_ERROR "webrtc submodule not initialized.\n(Try: 'git submodule update src/external/webrtc')" )
 endif()
 
 include (CheckTypeSize)
