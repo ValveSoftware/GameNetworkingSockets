@@ -705,6 +705,7 @@ else(WIN32)
     target_link_libraries(webrtc-lite
         pthread
     )
+	target_compile_options(webrtc-lite PRIVATE -Wno-attributes)
 endif(WIN32)
 
 
@@ -751,9 +752,9 @@ set_source_files_properties(${WEBRTC_LITE_PROTO_SRCS} ${WEBRTC_LITE_PROTO_HDRS} 
 #target_compile_definitions(webrtc-lite PRIVATE WEBRTC_LIBRARY_IMPL)
 
 # FIXME - not supported on older cmake
-target_link_directories(webrtc-lite PUBLIC
-    ${CONAN_ABSEIL_ROOT}/lib
-)
+#target_link_directories(webrtc-lite PUBLIC
+#    ${CONAN_ABSEIL_ROOT}/lib
+#)
 
 target_include_directories(webrtc-lite PUBLIC
     ${webrtc_SOURCE_DIR}
