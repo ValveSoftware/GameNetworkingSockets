@@ -22,6 +22,7 @@ set(GNS_SRCS
 	"steamnetworkingsockets/clientlib/steamnetworkingsockets_connections.cpp"
 	"steamnetworkingsockets/clientlib/steamnetworkingsockets_lowlevel.cpp"
 	"steamnetworkingsockets/clientlib/steamnetworkingsockets_p2p.cpp"
+	"steamnetworkingsockets/clientlib/steamnetworkingsockets_p2p_ice.cpp"
 	"steamnetworkingsockets/clientlib/steamnetworkingsockets_snp.cpp"
 	"steamnetworkingsockets/clientlib/steamnetworkingsockets_udp.cpp"
 	"steamnetworkingsockets/steamnetworkingsockets_certs.cpp"
@@ -87,9 +88,10 @@ if(USE_CRYPTO25519 STREQUAL "Reference")
 	)
 endif()
 
-if(USE_STEAMWEBRTC)
+# If WebRTC enabled, build the thin wrapper library
+if(USE_WEBRTC)
 	add_subdirectory(external/steamwebrtc)
-endif(USE_STEAMWEBRTC)
+endif(USE_WEBRTC)
 
 set(C99_FEATURES
 	c_restrict
@@ -171,13 +173,22 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 		Threads::Threads
 	)
 
-	if(USE_STEAMWEBRTC AND STEAMWEBRTC_USE_STATIC_LIBS)
+	# Enable ICE?
+	if(USE_WEBRTC)
+
+		# Enable ICE
 		target_compile_definitions(${GNS_TARGET} PRIVATE
-			STEAMWEBRTC_USE_STATIC_LIBS
-		)
-		target_link_libraries(${GNS_TARGET} PUBLIC
-			steamwebrtc
-		)
+			STEAMNETWORKINGSOCKETS_ENABLE_ICE )
+
+		# Wrapper lib linked statically?
+		if(STEAMWEBRTC_USE_STATIC_LIBS)
+			target_compile_definitions(${GNS_TARGET} PRIVATE
+				STEAMWEBRTC_USE_STATIC_LIBS
+			)
+			target_link_libraries(${GNS_TARGET} PUBLIC
+				steamwebrtc
+			)
+		endif()
 	endif()
 
 	if(USE_CRYPTO STREQUAL "OpenSSL" OR USE_CRYPTO25519 STREQUAL "OpenSSL")
