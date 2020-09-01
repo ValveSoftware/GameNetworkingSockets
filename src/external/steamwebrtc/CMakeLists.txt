@@ -7,35 +7,11 @@ find_package(Protobuf REQUIRED)
 
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-# cmake fetch (not supported on older cmake)
-#FetchContent_Declare(
-#  abseil
-#  GIT_REPOSITORY https://github.com/abseil/abseil-cpp
-#  GIT_TAG        lts_2020_02_25 #refs/remotes/branch-heads/4180
-#)
-#
-#FetchContent_GetProperties(abseil)
-#if(NOT abseil_POPULATED)
-#  FetchContent_Populate(abseil)
-#endif()
 set(abseil_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../abseil)
-set(abseil_BINARY_DIR ${CMAKE_BINARY_DIR}/abseil)  #FIXME Is this right?
 if(NOT EXISTS ${abseil_SOURCE_DIR}/CMakeLists.txt)
 	message(FATAL_ERROR "abeil submodule not initialized.\n(Try 'git submodule update src/external/abseil')" )
 endif()
-
-add_subdirectory(${abseil_SOURCE_DIR} ${abseil_BINARY_DIR})
-
-#FetchContent_Declare(
-#  webrtc
-#  GIT_REPOSITORY https://webrtc.googlesource.com/src
-#  GIT_TAG        30a3e787948dd6cdd541773101d664b85eb332a6 #refs/remotes/branch-heads/4180
-#)
-#
-#FetchContent_GetProperties(webrtc)
-#if(NOT webrtc_POPULATED)
-#  FetchContent_Populate(webrtc)
-#endif()
+add_subdirectory(${abseil_SOURCE_DIR} ${CMAKE_BINARY_DIR}/abseil)
 
 set(webrtc_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../webrtc)
 #FIXME set(webrtc_BUILD_DIR ????? )
