@@ -2359,17 +2359,30 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const void *pMsg, int c
 				return true;
 			}
 
-			// Make sure we have a recent cert.  Start requesting another if needed.
-			AuthenticationNeeded();
-
-			// If we don't have a signed cert now, then we cannot accept this connection!
-			// P2P connections always require certs issued by Steam!
-			if ( !m_msgSignedCert.has_ca_signature() )
+			// We must know who we are.
+			if ( m_identity.IsInvalid() )
 			{
-				SpewWarning( "Ignoring P2P connection request from %s.  We cannot accept it since we don't have a cert yet!\n", SteamNetworkingIdentityRender( identityRemote ).c_str() );
-				return true; // Return true because the signal is valid, we just cannot do anything with it right now
+				SpewWarning( "Ignoring P2P signal from '%s', no local identity\n", msg.from_identity().c_str() );
+				return false;
 			}
-			Assert( !m_identity.IsInvalid() );
+
+			// Are we ready with authentication?
+			// This is actually not really correct to use a #define here.  Really, we ought
+			// to create a connection and check AllowLocalUnsignedCert/AllowRemoteUnsignedCert.
+			#ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
+
+				// Make sure we have a recent cert.  Start requesting another if needed.
+				AuthenticationNeeded();
+
+				// If we don't have a signed cert now, then we cannot accept this connection!
+				// P2P connections always require certs issued by Steam!
+				if ( !m_msgSignedCert.has_ca_signature() )
+				{
+					SpewWarning( "Ignoring P2P connection request from %s.  We cannot accept it since we don't have a cert yet!\n",
+						SteamNetworkingIdentityRender( identityRemote ).c_str() );
+					return true; // Return true because the signal is valid, we just cannot do anything with it right now
+				}
+			#endif
 
 			const CMsgSteamNetworkingP2PRendezvous_ConnectRequest &msgConnectRequest = msg.connect_request();
 			if ( !msgConnectRequest.has_cert() || !msgConnectRequest.has_crypt() )
