@@ -133,6 +133,10 @@ class CTrivialSignalingClient : public ITrivialSignalingClient
 		#endif
 
 		connect( m_sock, (const sockaddr *)&m_adrServer, (socklen_t )m_adrServerSize );
+
+		// And immediate send our greeting.  This just puts in in the buffer and
+		// it will go out once the socket connects.
+		Send( m_sGreeting );
 	}
 
 public:
