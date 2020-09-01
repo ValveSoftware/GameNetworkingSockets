@@ -224,7 +224,19 @@ int main( int argc, const char **argv )
 				g_nVirtualPortLocal );
 		}
 
-		g_hConnection = SteamNetworkingSockets()->ConnectP2P( identityRemote, g_nVirtualPortRemote, (int)vecOpts.size(), vecOpts.data() );
+		// Connect using the "custom signaling" path.  Note that when
+		// you are using this path, the identity is actually optional,
+		// since we don't need it.  (Your signaling object already
+		// knows how to talk to the peer) and then the peer identity
+		// will be confirmed via rendezvous.
+		SteamNetworkingErrMsg errMsg;
+		ISteamNetworkingConnectionCustomSignaling *pConnSignaling = pSignaling->CreateSignalingForConnection(
+			identityRemote,
+			nullptr,
+			errMsg
+		);
+		assert( pConnSignaling );
+		g_hConnection = SteamNetworkingSockets()->ConnectP2PCustomSignaling( pConnSignaling, &identityRemote, g_nVirtualPortRemote, (int)vecOpts.size(), vecOpts.data() );
 	}
 
 	// Main test loop
