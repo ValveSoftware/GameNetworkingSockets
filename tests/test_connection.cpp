@@ -8,6 +8,8 @@
 #include <chrono>
 #include <thread>
 
+#include "test_common.h"
+
 #include <steam/steamnetworkingsockets.h>
 #include <steam/isteamnetworkingutils.h>
 #ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
@@ -18,93 +20,6 @@
 
 static std::default_random_engine g_rand;
 static SteamNetworkingMicroseconds g_usecTestElapsed;
-
-FILE *g_fpLog = nullptr;
-SteamNetworkingMicroseconds g_logTimeZero;
-
-void OnSteamNetConnectionStatusChanged( SteamNetConnectionStatusChangedCallback_t *pInfo );
-
-static void DebugOutput( ESteamNetworkingSocketsDebugOutputType eType, const char *pszMsg )
-{
-	SteamNetworkingMicroseconds time = SteamNetworkingUtils()->GetLocalTimestamp() - g_logTimeZero;
-	if ( g_fpLog )
-		fprintf( g_fpLog, "%10.6f %s\n", time*1e-6, pszMsg );
-	if ( eType <= k_ESteamNetworkingSocketsDebugOutputType_Msg )
-	{
-		printf( "%10.6f %s\n", time*1e-6, pszMsg );
-		fflush(stdout);
-	}
-	if ( eType == k_ESteamNetworkingSocketsDebugOutputType_Bug )
-	{
-		fflush(stdout);
-		fflush(stderr);
-		if ( g_fpLog )
-			fflush( g_fpLog );
-
-		// !KLUDGE! Our logging (which is done while we hold the lock)
-		// is occasionally triggering this assert.  Just ignroe that one
-		// error for now.
-		// Yes, this is a kludge.
-		if ( strstr( pszMsg, "SteamDatagramTransportLock held for" ) )
-			return;
-
-		assert( !"TEST FAILED" );
-	}
-}
-
-static void Printf( const char *fmt, ... )
-{
-	char text[ 2048 ];
-	va_list ap;
-	va_start( ap, fmt );
-	vsprintf( text, fmt, ap );
-	va_end(ap);
-	char *nl = strchr( text, '\0' ) - 1;
-	if ( nl >= text && *nl == '\n' )
-		*nl = '\0';
-	DebugOutput( k_ESteamNetworkingSocketsDebugOutputType_Msg, text );
-}
-
-static void InitSteamDatagramConnectionSockets()
-{
-	g_fpLog = fopen( "log.txt", "wt" );
-	g_logTimeZero = SteamNetworkingUtils()->GetLocalTimestamp();
-
-	SteamNetworkingUtils()->SetDebugOutputFunction( k_ESteamNetworkingSocketsDebugOutputType_Debug, DebugOutput );
-	//SteamNetworkingUtils()->SetDebugOutputFunction( k_ESteamNetworkingSocketsDebugOutputType_Verbose, DebugOutput );
-	//SteamNetworkingUtils()->SetDebugOutputFunction( k_ESteamNetworkingSocketsDebugOutputType_Msg, DebugOutput );
-	SteamNetworkingUtils()->SetGlobalCallback_SteamNetConnectionStatusChanged( OnSteamNetConnectionStatusChanged );
-
-	#ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
-		SteamDatagramErrMsg errMsg;
-		if ( !GameNetworkingSockets_Init( nullptr, errMsg ) )
-		{
-			fprintf( stderr, "GameNetworkingSockets_Init failed.  %s", errMsg );
-			exit(1);
-		}
-	#else
-		//SteamAPI_Init();
-
-		SteamDatagramClient_SetAppID( 570 ); // Just set something, doesn't matter what
-		//SteamDatagramClient_SetUniverse( k_EUniverseDev );
-
-		SteamDatagramErrMsg errMsg;
-		if ( !SteamDatagramClient_Init( true, errMsg ) )
-		{
-			fprintf( stderr, "SteamDatagramClient_Init failed.  %s", errMsg );
-			exit(1);
-		}
-	#endif
-}
-
-static void ShutdownSteamDatagramConnectionSockets()
-{
-	#ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
-		GameNetworkingSockets_Kill();
-	#else
-		SteamDatagramClient_Kill();
-	#endif
-}
 
 static HSteamListenSocket g_hSteamListenSocket = k_HSteamListenSocket_Invalid;
 
@@ -186,7 +101,7 @@ struct SFakePeer
 
 		if ( result != k_EResultOK )
 		{
-			Printf( "***ERROR ON Send: %s %.3f %s message %lld, %d bytes (pending %d bytes)\n", 
+			TEST_Printf( "***ERROR ON Send: %s %.3f %s message %lld, %d bytes (pending %d bytes)\n", 
 				 m_sName.c_str(), 
 				 g_usecTestElapsed*1e-6,
 				 msg.m_bReliable ? "reliable" : "unreliable",
@@ -197,7 +112,7 @@ struct SFakePeer
 		}
 	#if 0
 		else
-			Printf( "Send: %s %.3f %s message %lld, %d bytes (pending %d bytes)\n", 
+			TEST_Printf( "Send: %s %.3f %s message %lld, %d bytes (pending %d bytes)\n", 
 				 connection.m_sName.c_str(), 
 				 g_usecTestElapsed*1e-6,
 				 msg.m_bReliable ? "reliable" : "unreliable",
@@ -244,7 +159,7 @@ static void Recv( ISteamNetworkingSockets *pSteamSocketNetworking )
 		{
 
 			// Print that it happened.
-			Printf(
+			TEST_Printf(
 				"Recv: %s, %s MISMATCH NUM wanted %lld got %lld\n",
 				pConnection->m_sName.c_str(),
 				pTestMsg->m_bReliable ? "RELIABLE" : "UNRELIABLE",
@@ -278,7 +193,7 @@ void OnSteamNetConnectionStatusChanged( SteamNetConnectionStatusChangedCallback_
 	{
 	case k_ESteamNetworkingConnectionState_ClosedByPeer:
 	case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
-		Printf( "Steam Net connection %x %s, reason %d: %s\n",
+		TEST_Printf( "Steam Net connection %x %s, reason %d: %s\n",
 			pInfo->m_hConn,
 			( pInfo->m_info.m_eState == k_ESteamNetworkingConnectionState_ClosedByPeer ? "closed by peer" : "problem detected locally" ),
 			pInfo->m_info.m_eEndReason,
@@ -301,7 +216,7 @@ void OnSteamNetConnectionStatusChanged( SteamNetConnectionStatusChangedCallback_
 
 /*
 	case k_ESteamNetworkingConnectionState_None:
-		Printf( "No steam Net connection %x (%s)\n", pInfo->m_hConn, pInfo->m_info.m_steamIDRemote.Render() );
+		TEST_Printf( "No steam Net connection %x (%s)\n", pInfo->m_hConn, pInfo->m_info.m_steamIDRemote.Render() );
 
 		if ( g_hSteamNetConnection == pInfo->m_hConn )
 		{
@@ -317,7 +232,7 @@ void OnSteamNetConnectionStatusChanged( SteamNetConnectionStatusChangedCallback_
 		if ( g_hSteamListenSocket != k_HSteamListenSocket_Invalid && pInfo->m_info.m_hListenSocket == g_hSteamListenSocket )
 		{
 			// Somebody's knocking
-			Printf( "[%s] Accepting\n", pInfo->m_info.m_szConnectionDescription );
+			TEST_Printf( "[%s] Accepting\n", pInfo->m_info.m_szConnectionDescription );
 			g_peerServer.m_hSteamNetConnection = pInfo->m_hConn;
 			g_peerServer.m_bIsConnected = true;
 			SteamNetworkingSockets()->AcceptConnection( pInfo->m_hConn );
@@ -331,7 +246,7 @@ void OnSteamNetConnectionStatusChanged( SteamNetConnectionStatusChangedCallback_
 		{
 			g_peerClient.m_bIsConnected = true;
 		}
-		Printf( "[%s] connected\n", pInfo->m_info.m_szConnectionDescription );
+		TEST_Printf( "[%s] connected\n", pInfo->m_info.m_szConnectionDescription );
 
 		break;
 
@@ -341,15 +256,9 @@ void OnSteamNetConnectionStatusChanged( SteamNetConnectionStatusChangedCallback_
 	}
 }
 
-static void PumpCallbacks()
-{
-	SteamNetworkingSockets()->RunCallbacks();
-	std::this_thread::sleep_for( std::chrono::milliseconds( 2 ) );
-}
-
 static void PumpCallbacksAndMakeSureStillConnected()
 {
-	PumpCallbacks();
+	TEST_PumpCallbacks();
 	assert( g_peerClient.m_bIsConnected  );
 	assert( g_peerServer.m_bIsConnected );
 	assert( g_peerServer.m_hSteamNetConnection != k_HSteamNetConnection_Invalid );
@@ -368,35 +277,35 @@ static void PrintStatus( const SFakePeer &p1, const SFakePeer &p2 )
 {
 	const SteamNetworkingQuickConnectionStatus &info1 = p1.m_info;
 	const SteamNetworkingQuickConnectionStatus &info2 = p2.m_info;
-	Printf( "\n" );
-	Printf( "%12s %12s\n", p1.m_sName.c_str(), p2.m_sName.c_str() );
-	Printf( "%10dms %10dms  Ping\n", info1.m_nPing, info2.m_nPing );
-	Printf( "%12s %12s  Quality\n", FormatQuality( info1.m_flConnectionQualityLocal ).c_str(), FormatQuality( info2.m_flConnectionQualityLocal ).c_str() );
-	Printf( "%11.1fK %11.1fK  Send buffer\n", ( info1.m_cbPendingReliable+info1.m_cbPendingUnreliable )/1024.0f, ( info2.m_cbPendingReliable+info2.m_cbPendingUnreliable )/1024.0f );
-	Printf( "%11.1fK %11.1fK  Send rate (app)\n", p1.m_flSendRate/1024.0f, p2.m_flSendRate/1024.0f );
-	Printf( "%11.1fK %11.1fK  Send rate (wire)\n", info1.m_flOutBytesPerSec/1024.0f, info2.m_flOutBytesPerSec/1024.0f );
-	Printf( "%12.1f %12.1f  Send pkts/sec (wire)\n", info1.m_flOutPacketsPerSec, info2.m_flOutPacketsPerSec );
-	Printf( "%11.1fK %11.1fK  Send bandwidth (estimate)\n", info1.m_nSendRateBytesPerSecond/1024.0f, info2.m_nSendRateBytesPerSecond/1024.0f );
-	Printf( "%11.1fK %11.1fK  Recv rate (app)\n", p1.m_flRecvRate/1024.0f, p2.m_flRecvRate/1024.0f );
-	Printf( "%11.1fK %11.1fK  Recv rate (wire)\n", info1.m_flInBytesPerSec/1024.0f, info2.m_flInBytesPerSec/1024.0f );
-	Printf( "%12.1f %12.1f  Recv pkts/sec (wire)\n", info1.m_flInPacketsPerSec, info2.m_flInPacketsPerSec );
-	Printf( "%10.1fms %10.1fms  Send buffer drain time, based on bandwidth\n", ( info1.m_cbPendingReliable+info1.m_cbPendingUnreliable )*1000.0f/info1.m_nSendRateBytesPerSecond, ( info2.m_cbPendingReliable+info2.m_cbPendingUnreliable )*1000.0f/info2.m_nSendRateBytesPerSecond );
-	Printf( "%10.1fms %10.1fms  App RTT (reliable)\n", p1.m_flReliableMsgDelay*1e3, p2.m_flReliableMsgDelay*1e3 );
-	Printf( "%10.1fms %10.1fms  App RTT (unreliable)\n", p1.m_flUnreliableMsgDelay*1e3, p2.m_flUnreliableMsgDelay*1e3 );
+	TEST_Printf( "\n" );
+	TEST_Printf( "%12s %12s\n", p1.m_sName.c_str(), p2.m_sName.c_str() );
+	TEST_Printf( "%10dms %10dms  Ping\n", info1.m_nPing, info2.m_nPing );
+	TEST_Printf( "%12s %12s  Quality\n", FormatQuality( info1.m_flConnectionQualityLocal ).c_str(), FormatQuality( info2.m_flConnectionQualityLocal ).c_str() );
+	TEST_Printf( "%11.1fK %11.1fK  Send buffer\n", ( info1.m_cbPendingReliable+info1.m_cbPendingUnreliable )/1024.0f, ( info2.m_cbPendingReliable+info2.m_cbPendingUnreliable )/1024.0f );
+	TEST_Printf( "%11.1fK %11.1fK  Send rate (app)\n", p1.m_flSendRate/1024.0f, p2.m_flSendRate/1024.0f );
+	TEST_Printf( "%11.1fK %11.1fK  Send rate (wire)\n", info1.m_flOutBytesPerSec/1024.0f, info2.m_flOutBytesPerSec/1024.0f );
+	TEST_Printf( "%12.1f %12.1f  Send pkts/sec (wire)\n", info1.m_flOutPacketsPerSec, info2.m_flOutPacketsPerSec );
+	TEST_Printf( "%11.1fK %11.1fK  Send bandwidth (estimate)\n", info1.m_nSendRateBytesPerSecond/1024.0f, info2.m_nSendRateBytesPerSecond/1024.0f );
+	TEST_Printf( "%11.1fK %11.1fK  Recv rate (app)\n", p1.m_flRecvRate/1024.0f, p2.m_flRecvRate/1024.0f );
+	TEST_Printf( "%11.1fK %11.1fK  Recv rate (wire)\n", info1.m_flInBytesPerSec/1024.0f, info2.m_flInBytesPerSec/1024.0f );
+	TEST_Printf( "%12.1f %12.1f  Recv pkts/sec (wire)\n", info1.m_flInPacketsPerSec, info2.m_flInPacketsPerSec );
+	TEST_Printf( "%10.1fms %10.1fms  Send buffer drain time, based on bandwidth\n", ( info1.m_cbPendingReliable+info1.m_cbPendingUnreliable )*1000.0f/info1.m_nSendRateBytesPerSecond, ( info2.m_cbPendingReliable+info2.m_cbPendingUnreliable )*1000.0f/info2.m_nSendRateBytesPerSecond );
+	TEST_Printf( "%10.1fms %10.1fms  App RTT (reliable)\n", p1.m_flReliableMsgDelay*1e3, p2.m_flReliableMsgDelay*1e3 );
+	TEST_Printf( "%10.1fms %10.1fms  App RTT (unreliable)\n", p1.m_flUnreliableMsgDelay*1e3, p2.m_flUnreliableMsgDelay*1e3 );
 }
 
 static void TestNetworkConditions( int rate, float loss, int lag, float reorderPct, int reorderLag, bool bActLikeGame )
 {
 	ISteamNetworkingSockets *pSteamSocketNetworking = SteamNetworkingSockets();
 
-	Printf( "---------------------------------------------------\n" );
-	Printf( "NETWORK CONDITIONS\n" );
-	Printf( "Rate . . . . . . : %d Bps\n", rate );
-	Printf( "Loss . . . . . . : %g%%\n", loss );
-	Printf( "Ping . . . . . . : %d\n", lag*2 );
-	Printf( "Reorder. . . . . : %g%% @ %dms\n", reorderPct, reorderLag );
-	Printf( "Act like game. . : %d\n", (int)bActLikeGame );
-	Printf( "---------------------------------------------------\n" );
+	TEST_Printf( "---------------------------------------------------\n" );
+	TEST_Printf( "NETWORK CONDITIONS\n" );
+	TEST_Printf( "Rate . . . . . . : %d Bps\n", rate );
+	TEST_Printf( "Loss . . . . . . : %g%%\n", loss );
+	TEST_Printf( "Ping . . . . . . : %d\n", lag*2 );
+	TEST_Printf( "Reorder. . . . . : %g%% @ %dms\n", reorderPct, reorderLag );
+	TEST_Printf( "Act like game. . : %d\n", (int)bActLikeGame );
+	TEST_Printf( "---------------------------------------------------\n" );
 
 	SteamNetworkingUtils()->SetGlobalConfigValueInt32( k_ESteamNetworkingConfig_SendRateMin, rate );
 	SteamNetworkingUtils()->SetGlobalConfigValueInt32( k_ESteamNetworkingConfig_SendRateMax, rate );
@@ -470,14 +379,14 @@ static void TestNetworkConditions( int rate, float loss, int lag, float reorderP
 					usecWhenStateEnd = g_usecTestElapsed + ( bQuiet ? usecQuietDuration : usecActiveDuration );
 					if ( nIterations-- <= 0 )
 						break;
-					Printf( "Entering active time (sending enabled)\n" );
+					TEST_Printf( "Entering active time (sending enabled)\n" );
 				}
 			}
 			else
 			{
 				bQuiet = true;
 				usecWhenStateEnd = g_usecTestElapsed + usecQuietDuration;
-				Printf( "Entering quiet time (no sending) to see how fast queues drain\n" );
+				TEST_Printf( "Entering quiet time (no sending) to see how fast queues drain\n" );
 			}
 		}
 
@@ -553,7 +462,7 @@ static void RunSteamDatagramConnectionTest()
 
 	// Wait for connection to complete
 	while ( !g_peerClient.m_bIsConnected || !g_peerServer.m_bIsConnected )
-		PumpCallbacks();
+		TEST_PumpCallbacks();
 
 	auto Test = []( int rate, float loss, int lag, float reorderPct, int reorderLag )
 	{
@@ -626,12 +535,13 @@ int main(  )
 	TestSteamNetworkingIdentity();
 
 	// Create client and server sockets
-	InitSteamDatagramConnectionSockets();
+	TEST_Init( nullptr );
+	SteamNetworkingUtils()->SetGlobalCallback_SteamNetConnectionStatusChanged( OnSteamNetConnectionStatusChanged );
 
 	// Run the test
 	RunSteamDatagramConnectionTest();
 
-	ShutdownSteamDatagramConnectionSockets();
+	TEST_Kill();	
 	return 0;
 }
 

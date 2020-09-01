@@ -3,7 +3,8 @@ Building
 
 ## Dependencies
 
-* CMake or Meson, and build tool like Ninja, GNU Make or Visual Studio
+* CMake 3.10 or later
+* A build tool like Ninja, GNU Make or Visual Studio
 * A C++11-compliant compiler, such as:
   * GCC 7.3 or later
   * Clang 3.3 or later
@@ -13,8 +14,12 @@ Building
   * OpenSSL 1.1.x, plus ed25519-donna and curve25519-donna.  (We've made some
     minor changes, so the source is included in this project.)
   * libsodium
-  * [bcrypt](https://docs.microsoft.com/en-us/windows/desktop/api/bcrypt/) (windows only)
+  * [bcrypt](https://docs.microsoft.com/en-us/windows/desktop/api/bcrypt/)
+    (windows only)
 * Google protobuf 2.6.1+
+* Google [webrtc](https://opensource.google/projects/webrtc) is used for
+  NAT piercing (ICE) for P2P connections.  The relevant code is linked in as a
+  git submodule.  You'll need to initialize that submodule to compile.
 
 ## Linux
 
@@ -38,14 +43,7 @@ Arch Linux:
 
 ### Building
 
-Using Meson:
-
-```
-$ meson . build
-$ ninja -C build
-```
-
-Or CMake:
+Using CMake (preferred):
 
 ```
 $ mkdir build
@@ -56,8 +54,7 @@ $ ninja
 
 ## Windows / Visual Studio
 
-On Windows, you can use the [vcpkg](https://github.com/microsoft/vcpkg/) package manager. Or setup the 
-dependencies by hand, which is a bit of an arduous gauntlet.
+On Windows, you can use the [vcpkg](https://github.com/microsoft/vcpkg/) package manager.
 
 ### vcpkg
 
@@ -76,6 +73,8 @@ the vcpkg integration is installed, or the vcpkg CMake toolchain file can be use
 To use libsodium as the crypto backend rather than OpenSSL, install `gamenetworkingsockets[core,libsodium]`.
 
 ### Manual setup
+
+Setting up the dependencies by hand is a bit of an arduous gauntlet.
 
 #### OpenSSL
 
@@ -224,7 +223,6 @@ a 32-bit build, install the i686 versions of these packages):
 $ pacman -S \
     git \
     mingw-w64-x86_64-gcc \
-    mingw-w64-x86_64-meson \
     mingw-w64-x86_64-openssl \
     mingw-w64-x86_64-pkg-config \
     mingw-w64-x86_64-protobuf
@@ -235,8 +233,10 @@ And finally, clone the repository and build it:
 ```
 $ git clone https://github.com/ValveSoftware/GameNetworkingSockets.git
 $ cd GameNetworkingSockets
-$ meson . build
-$ ninja -C build
+$ mkdir build
+$ cd build
+$ cmake -G Ninja ..
+$ ninja
 ```
 
 **NOTE:** When building with MSYS2, be sure you launch the correct version of
@@ -262,9 +262,3 @@ This extension allows for configuring the CMake project and building it from
 within the Visual Studio Code IDE.
 
 VS Marketplace Link: https://marketplace.visualstudio.com/items?itemName=vector-of-bool.cmake-tools
-
-### Meson by Ali Sabil
-This extension comes in handy if you're editing the Meson build files.
-
-VS Marketplace Link: https://marketplace.visualstudio.com/items?itemName=asabil.meson
-

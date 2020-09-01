@@ -12,6 +12,7 @@ PACKAGES=(
 	cmake
 	meson
 	git
+	golang
 )
 
 PACKAGES+=(protobuf)

@@ -16,6 +16,7 @@ PACKAGES=(
 	pkgconf-pkg-config
 	git
 	make
+	golang
 )
 
 PACKAGES+=(protobuf-compiler protobuf-devel)

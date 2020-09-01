@@ -4,6 +4,10 @@
 #include "csteamnetworkingsockets.h"
 #include "crypto.h"
 
+#ifdef POSIX
+	#include <dlfcn.h>
+#endif
+
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 	#include "steamnetworkingsockets_sdr_p2p.h"
 #endif
