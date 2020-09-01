@@ -28,6 +28,12 @@ ETestRole g_eTestRole = k_ETestRole_Undefined;
 int g_nVirtualPortLocal = 0; // Used when listening, and when connecting
 int g_nVirtualPortRemote = 0; // Only used when connecting
 
+void Quit( int rc )
+{
+	TEST_Kill();
+	exit(rc);
+}
+
 void OnSteamNetConnectionStatusChanged( SteamNetConnectionStatusChangedCallback_t *pInfo )
 {
 	// What's the state of the connection?
@@ -49,6 +55,12 @@ void OnSteamNetConnectionStatusChanged( SteamNetConnectionStatusChangedCallback_
 		if ( g_hConnection == pInfo->m_hConn )
 		{
 			g_hConnection = k_HSteamNetConnection_Invalid;
+
+			// Go ahead and bail whenever this happens
+			int rc = 0; // Normal
+			if ( rc == k_ESteamNetworkingConnectionState_ProblemDetectedLocally )
+				rc = 1;
+			Quit( rc );
 		}
 		else
 		{
@@ -69,6 +81,9 @@ void OnSteamNetConnectionStatusChanged( SteamNetConnectionStatusChangedCallback_
 		if ( g_hListenSock != k_HSteamListenSocket_Invalid && pInfo->m_info.m_hListenSocket == g_hListenSock )
 		{
 			// Somebody's knocking
+			// Note that we assume we will only ever receive a single connection
+			assert( g_hConnection == k_HSteamNetConnection_Invalid ); // not really a bug in this code, but a bug in the test
+
 			TEST_Printf( "[%s] Accepting\n", pInfo->m_info.m_szConnectionDescription );
 			g_hConnection = pInfo->m_hConn;
 			SteamNetworkingSockets()->AcceptConnection( pInfo->m_hConn );
@@ -77,6 +92,7 @@ void OnSteamNetConnectionStatusChanged( SteamNetConnectionStatusChangedCallback_
 		{
 			// Note that we will get notification when our own connection that
 			// we initiate enters this state.
+			assert( g_hConnection == pInfo->m_hConn );
 		}
 		break;
 
@@ -154,6 +170,7 @@ int main( int argc, const char **argv )
 		TEST_Fatal( "Failed to initializing signaling client.  %s", errMsg );
 
 	SteamNetworkingUtils()->SetGlobalCallback_SteamNetConnectionStatusChanged( OnSteamNetConnectionStatusChanged );
+	SteamNetworkingUtils()->SetGlobalConfigValueInt32( k_ESteamNetworkingConfig_LogLevel_P2PRendezvous, k_ESteamNetworkingSocketsDebugOutputType_Verbose );
 
 	// Create listen socket to receive connections on, unless we are the client
 	if ( g_eTestRole == k_ETestRole_Server )
@@ -249,7 +266,5 @@ int main( int argc, const char **argv )
 		TEST_PumpCallbacks();
 	}
 
-
-	TEST_Kill();	
 	return 0;
 }
