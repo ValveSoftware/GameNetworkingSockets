@@ -47,7 +47,7 @@ def StartClientInThread( role, local, remote ):
     ]
     return StartProcessInThread( local, cmdline );
 
-signaling = StartProcessInThread( "signaling", [ './trivial_signaling_server' ], cwd="../examples" )
+signaling = StartProcessInThread( "signaling", [ './trivial_signaling_server' ] )
 
 client1 = StartClientInThread( "server", "peer_server", "peer_client" )
 client2 = StartClientInThread( "client", "peer_client", "peer_server" )
