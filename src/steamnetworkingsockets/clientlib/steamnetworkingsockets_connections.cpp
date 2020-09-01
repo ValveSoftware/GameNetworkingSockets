@@ -1629,15 +1629,25 @@ bool CSteamNetworkConnectionBase::BFinishCryptoHandshake( bool bServer )
 
 EUnsignedCert CSteamNetworkConnectionBase::AllowLocalUnsignedCert()
 {
-	// FIXME - We should probably lock this down and change the default.
-	//         For now we'll try to continue, but warn
-	return k_EUnsignedCert_AllowWarn;
+	#ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
+		// We don't have a cert authority.  We probably ought to make this customizable
+		return k_EUnsignedCert_Allow;
+	#else
+		// FIXME - We should probably lock this down and change the default.
+		//         For now we'll try to continue, but warn
+		return k_EUnsignedCert_AllowWarn;
+	#endif
 }
 
 EUnsignedCert CSteamNetworkConnectionBase::AllowRemoteUnsignedCert()
 {
-	// !KLUDGE! For now, assume this is OK, but warn about it.  We need to make this configurable and lock it down
-	return k_EUnsignedCert_AllowWarn;
+	#ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
+		// We don't have a cert authority.  We probably ought to make this customizable
+		return k_EUnsignedCert_Allow;
+	#else
+		// !KLUDGE! For now, assume this is OK, but warn about it.  We need to make this configurable and lock it down
+		return k_EUnsignedCert_AllowWarn;
+	#endif
 }
 
 ESteamNetConnectionEnd CSteamNetworkConnectionBase::CheckRemoteCert( const CertAuthScope *pCACertAuthScope, SteamNetworkingErrMsg &errMsg )
