@@ -194,6 +194,7 @@ public:
 
 		// FIXME - here we really ouight to confirm that the string version of the
 		// identity does not have spaces, since our protocol doesn't permit it.
+		TEST_Printf( "Creating signaling session for peer '%s'\n", sIdentityPeer.c_str() );
 
 		return new ConnectionSignaling( this, sIdentityPeer.c_str() );
 	}
