@@ -68,7 +68,7 @@ bool CSteamNetworkListenSocketP2P::BInit( int nLocalVirtualPort, int nOptions, c
 
 	if ( m_pSteamNetworkingSocketsInterface->m_mapListenSocketsByVirtualPort.HasElement( nLocalVirtualPort ) )
 	{
-		V_sprintf_safe( errMsg, "Already have a listen socket on P2P virtual port %d", nLocalVirtualPort );
+		V_sprintf_safe( errMsg, "Already have a listen socket on P2P vport %d", nLocalVirtualPort );
 		return false;
 	}
 	m_pSteamNetworkingSocketsInterface->m_mapListenSocketsByVirtualPort.Insert( nLocalVirtualPort, this );
@@ -217,7 +217,7 @@ bool CSteamNetworkConnectionP2P::BInitP2PConnectionCommon( SteamNetworkingMicros
 			// Really, they should match.  App code should be all-or-nothing.  It should not mix.
 			if ( m_pSteamNetworkingSocketsInterface->m_mapListenSocketsByVirtualPort[ idxListenSock ]->BSymmetricMode() )
 			{
-				SpewWarning( "[%s] Setting SymmetricConnect=1 because it is enabled on listen socket on virtual port %d.  To avoid this warning, specify the option on connection creation\n", GetDescription(), nLocalVirtualPort );
+				SpewWarning( "[%s] Setting SymmetricConnect=1 because it is enabled on listen socket on vport %d.  To avoid this warning, specify the option on connection creation\n", GetDescription(), nLocalVirtualPort );
 				Assert( !m_connectionConfig.m_SymmetricConnect.IsLocked() );
 				m_connectionConfig.m_SymmetricConnect.Unlock();
 				m_connectionConfig.m_SymmetricConnect.Set( 1 );
@@ -2039,7 +2039,7 @@ CSteamNetworkConnectionBase *CSteamNetworkingSockets::InternalConnectP2PDefaultS
 			int idx = pLocalInstance->m_mapListenSocketsByVirtualPort.Find( nRemoteVirtualPort );
 			if ( idx == pLocalInstance->m_mapListenSocketsByVirtualPort.InvalidIndex() )
 			{
-				SpewError( "Cannot create P2P connection to local identity %s.  We are not listening on virtual port %d", SteamNetworkingIdentityRender( identityRemote ).c_str(), nRemoteVirtualPort );
+				SpewError( "Cannot create P2P connection to local identity %s.  We are not listening on vport %d", SteamNetworkingIdentityRender( identityRemote ).c_str(), nRemoteVirtualPort );
 				return nullptr;
 			}
 
@@ -2429,7 +2429,7 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const void *pMsg, int c
 
 						// Totally ignore it.  We don't want this to be able to be used as a way to
 						// tell if you are online or not.
-						SpewMsgGroup( nLogLevel, "Ignoring P2P CMsgSteamDatagramConnectRequest from %s; we're not listening on virtual port %d\n", SteamNetworkingIdentityRender( identityRemote ).c_str(), nLocalVirtualPort );
+						SpewMsgGroup( nLogLevel, "Ignoring P2P CMsgSteamDatagramConnectRequest from %s; we're not listening on vport %d\n", SteamNetworkingIdentityRender( identityRemote ).c_str(), nLocalVirtualPort );
 						return false;
 					}
 				}
@@ -2491,7 +2491,8 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const void *pMsg, int c
 			{
 				if ( !pListenSock->BAddChildConnection( pConn, errMsg ) )
 				{
-					SpewDebug( "Ignoring P2P connect request from %s on virtual port %d; %s\n", SteamNetworkingIdentityRender( pConn->m_identityRemote ).c_str(), nLocalVirtualPort, errMsg );
+					SpewDebug( "Ignoring P2P connect request from %s on vport %d; %s\n",
+						SteamNetworkingIdentityRender( pConn->m_identityRemote ).c_str(), nLocalVirtualPort, errMsg );
 					pConn->ConnectionDestroySelfNow();
 					return false;
 				}
