@@ -77,6 +77,7 @@ class CTrivialSignalingClient : public ITrivialSignalingClient
 			signal.push_back('\n');
 
 			m_pOwner->Send( signal );
+			return true;
 		}
 
 		// Self destruct.  This will be called by SteamNetworkingSockets when it's done with us.
