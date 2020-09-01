@@ -915,7 +915,7 @@ void CSteamNetworkConnectionP2P::TransportEndToEndConnectivityChanged( CConnecti
 		// anywhere as "no data", instead of "incredibly fast", which is actually happening.
 		int msNegotiationTime = std::max( 1, (int)( ( usecNow - usecWhenStartedNegotiation + 500 ) / 1000 ) );
 
-		// Wwich transport?
+		// Which transport?
 		#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
 			if ( pTransport == m_pTransportICE && !m_msgICESessionSummary.has_negotiation_ms() )
 				m_msgICESessionSummary.set_negotiation_ms( msNegotiationTime );
