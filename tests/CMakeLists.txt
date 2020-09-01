@@ -31,8 +31,8 @@ target_include_directories(test_crypto PRIVATE ../src ../src/public ../src/commo
 target_link_libraries(test_crypto GameNetworkingSockets_s)
 add_sanitizers(test_crypto)
 
-file(COPY aesgcmtestvectors DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
+file(COPY aesgcmtestvectors DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
 
 # NOTE: This happens when we generate the projects, and really we'd like to actually
 # make a build rule to copy it.  I don't want to do that work right now.
-file(COPY test_p2p.py DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
+file(COPY test_p2p.py DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})

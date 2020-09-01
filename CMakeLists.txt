@@ -4,6 +4,11 @@ include(CMakeDependentOption)
 include(CMakePushCheckState)
 include(CheckSymbolExists)
 
+# Put all the output from all projects into the same folder
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+
 project(GameNetworkingSockets C CXX)
 
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
@@ -140,9 +145,7 @@ endif()
 
 add_subdirectory(src)
 
-message(STATUS "---------------------------------------------------------")
+#message(STATUS "---------------------------------------------------------")
 message(STATUS "Crypto library for AES/SHA256: ${USE_CRYPTO}")
 message(STATUS "Crypto library for ed25519/curve25519: ${USE_CRYPTO25519}")
-message(STATUS "---------------------------------------------------------")
-
-# vim: set ts=4 sts=4 sw=4 noet:
+#message(STATUS "---------------------------------------------------------")

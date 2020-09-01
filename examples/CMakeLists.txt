@@ -7,7 +7,7 @@ find_library(golang REQUIRED)
 # Trivial signaling server, written in go
 #
 set(SIGNAL_SERVER_TARGET trivial_signaling_server)
-set(SIGNAL_SERVER_OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/trivial_signaling_server)
+set(SIGNAL_SERVER_OUTPUT ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/trivial_signaling_server)
 set(SIGNAL_SERVER_SRCS
   trivial_signaling_server.go
 )
@@ -18,9 +18,7 @@ add_custom_command(
     COMMENT "Building GO Trivial signaling server"
     COMMAND env go build -o "${SIGNAL_SERVER_OUTPUT}" ${CMAKE_GO_FLAGS} ${SIGNAL_SERVER_SRCS}
 )
-add_custom_target(${SIGNAL_SERVER_TARGET}_all ALL DEPENDS ${SIGNAL_SERVER_OUTPUT})
-#add_custom_target(${SIGNAL_SERVER_TARGET} ALL)
-#add_custom_target(${SIGNAL_SERVER_OUTPUT} ALL)
+add_custom_target(${SIGNAL_SERVER_TARGET} ALL DEPENDS ${SIGNAL_SERVER_OUTPUT})
 
 #
 # Really simple client/server chat
