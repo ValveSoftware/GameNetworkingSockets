@@ -846,6 +846,9 @@ EResult CSteamNetworkConnectionP2P::AcceptConnection( SteamNetworkingMicrosecond
 		}
 	}
 
+	// Spew
+	SpewVerboseGroup( LogLevel_P2PRendezvous(), "[%s] Accepting connection, transitioning to 'finding route' state\n", GetDescription() );
+
 	// Check for enabling ICE
 	CheckInitICE();
 
@@ -2527,7 +2530,9 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const void *pMsg, int c
 
 					// app context closed the connection.  This means that they want to send
 					// a rejection
-					SendP2PRejection( pContext, identityRemote, msg, k_ESteamNetConnectionEnd_Misc_Generic, "Internal error accepting connection.  %s", errMsg );
+					SpewVerboseGroup( nLogLevel, "[%s] P2P connect request actively rejected by app, sending rejection (%s)\n",
+						pConn->GetDescription(), pConn->GetConnectionEndDebugString() );
+					SendP2PRejection( pContext, identityRemote, msg, pConn->GetConnectionEndReason(), "%s", pConn->GetConnectionEndDebugString() );
 					pConn->ConnectionDestroySelfNow();
 					return true;
 
@@ -2537,6 +2542,8 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const void *pMsg, int c
 					if ( !pConn->m_pSignaling )
 					{
 						// They decided to ignore it, by just returning null
+						SpewVerboseGroup( nLogLevel, "App ignored P2P connect request from %s on vport %d\n",
+							SteamNetworkingIdentityRender( pConn->m_identityRemote ).c_str(), nLocalVirtualPort );
 						pConn->ConnectionDestroySelfNow();
 						return true;
 					}
@@ -2544,6 +2551,9 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const void *pMsg, int c
 					// They return signaling, which means that they will consider accepting it.
 					// But they didn't accept it, so they want to go through the normal
 					// callback mechanism.
+
+					SpewVerboseGroup( nLogLevel, "[%s] Received incoming P2P connect request; awaiting app to accept connection\n",
+						pConn->GetDescription() );
 					pConn->PostConnectionStateChangedCallback( k_ESteamNetworkingConnectionState_None, k_ESteamNetworkingConnectionState_Connecting );
 					break;
 
