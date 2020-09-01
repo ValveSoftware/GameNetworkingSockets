@@ -91,6 +91,9 @@ void TEST_Init( const SteamNetworkingIdentity *pIdentity )
 	#else
 		//SteamAPI_Init();
 
+		// Cannot specify custom identity
+		assert( pIdentity == nullptr );
+
 		SteamDatagramClient_SetAppID( 570 ); // Just set something, doesn't matter what
 		//SteamDatagramClient_SetUniverse( k_EUniverseDev );
 
