@@ -46,6 +46,7 @@ static void NukeProcess( int rc )
 	#ifdef WIN32
 		ExitProcess( rc );
 	#else
+		(void)rc; // Unused formal parameter
 		kill( getpid(), SIGKILL );
 	#endif
 }
