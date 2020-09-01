@@ -47,28 +47,23 @@ include (CheckTypeSize)
 CHECK_TYPE_SIZE("void*" CMAKE_SIZEOF_VOID_P)
 TEST_BIG_ENDIAN(IS_BIG_ENDIAN)
 
+# Slam some defines to override the values set in rtc_base/system/arch.h
+# FIXME - What platforms does this need to be set on?  Let's not do this
+#         unless we are on a platform not currently handled.
 # endian and cpu detect : for ppc64le and s390x, else
-if(IS_BIG_ENDIAN)
-  if(CMAKE_SIZEOF_VOID_P EQUAL 8)
-    FILE(WRITE ${webrtc_SOURCE_DIR}/rtc_base/system/arch.h
-        "#pragma once\n#define WEBRTC_ARCH_BIG_ENDIAN\n#define WEBRTC_ARCH_64_BITS\n"
-    )
-  elseif(CMAKE_SIZEOF_VOID_P EQUAL 4)
-    FILE(WRITE ${webrtc_SOURCE_DIR}/rtc_base/system/arch.h
-        "#pragma once\n#define WEBRTC_ARCH_BIG_ENDIAN\n#define WEBRTC_ARCH_32_BITS\n"
-    )
-  endif()
-else()
-  if(CMAKE_SIZEOF_VOID_P EQUAL 8)
-    FILE(WRITE ${webrtc_SOURCE_DIR}/rtc_base/system/arch.h
-        "#pragma once\n#define WEBRTC_ARCH_LITTLE_ENDIAN\n#define WEBRTC_ARCH_64_BITS\n"
-    )
-  elseif(CMAKE_SIZEOF_VOID_P EQUAL 4)
-    FILE(WRITE ${webrtc_SOURCE_DIR}/rtc_base/system/arch.h
-        "#pragma once\n#define WEBRTC_ARCH_LITTLE_ENDIAN\n#define WEBRTC_ARCH_32_BITS\n"
-    )
-  endif()
-endif()
+#add_definitions( -DRTC_BASE_SYSTEM_ARCH_H_ )
+#if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+#	add_definitions( -DWEBRTC_ARCH_64_BITS )
+#elseif(CMAKE_SIZEOF_VOID_P EQUAL 4)
+#	add_definitions( -DWEBRTC_ARCH_32_BITS )
+#endif()
+#if(IS_BIG_ENDIAN)
+#	# This is actually not a thing used in WebRTC code, but I suppose
+#	# it cannot hurt to define it.
+#	add_definitions( -DWEBRTC_ARCH_BIG_ENDIAN )
+#else()
+#	add_definitions( -DWEBRTC_ARCH_LITTLE_ENDIAN )
+#endif()
 
 if(WIN32)
     add_definitions(
@@ -708,17 +703,7 @@ else(WIN32)
 	target_compile_options(webrtc-lite PRIVATE -Wno-attributes)
 endif(WIN32)
 
-
-protobuf_generate_cpp(WEBRTC_LITE_PROTO_SRCS WEBRTC_LITE_PROTO_HDRS 
-   ${webrtc_SOURCE_DIR}/logging/rtc_event_log/rtc_event_log.proto
-   ${webrtc_SOURCE_DIR}/logging/rtc_event_log/rtc_event_log2.proto
-)
-
-target_compile_definitions(webrtc-lite PUBLIC WEBRTC_ENABLE_RTC_EVENT_LOG)
 target_sources(webrtc-lite PRIVATE
-   ${webrtc_SOURCE_DIR}/logging/rtc_event_log/rtc_event_log.proto
-   ${webrtc_SOURCE_DIR}/logging/rtc_event_log/rtc_event_log2.proto
-   ${WEBRTC_LITE_PROTO_SRCS} ${WEBRTC_LITE_PROTO_HDRS}
    ${webrtc_SOURCE_DIR}/logging/rtc_event_log/encoder/blob_encoding.cc
    ${webrtc_SOURCE_DIR}/logging/rtc_event_log/encoder/blob_encoding.h
    ${webrtc_SOURCE_DIR}/logging/rtc_event_log/encoder/delta_encoding.cc
@@ -735,17 +720,26 @@ target_sources(webrtc-lite PRIVATE
    ${webrtc_SOURCE_DIR}/logging/rtc_event_log/encoder/rtc_event_log_encoder_new_format.cc
 )
 
-file(RELATIVE_PATH _rel_dir ${CMAKE_CURRENT_SOURCE_DIR} ${webrtc_SOURCE_DIR})
-file(WRITE "${webrtc_SOURCE_DIR}/logging/rtc_event_log/rtc_event_log.pb.h"
-    "#pragma once\n#include \"steamwebrtc/rtc_event_log.pb.h\"\n"
-)
-file(WRITE "${webrtc_SOURCE_DIR}/logging/rtc_event_log/rtc_event_log2.pb.h"
-    "#pragma once\n#include \"steamwebrtc/rtc_event_log2.pb.h\"\n"
-)
-#file(COPY "${CMAKE_CURRENT_BINARY_DIR}/rtc_event_log.pb.h" DESTINATION "${webrtc_SOURCE_DIR}/logging/rtc_event_log")
-#file(COPY "${CMAKE_CURRENT_BINARY_DIR}/rtc_event_log2.pb.h" DESTINATION "${webrtc_SOURCE_DIR}/logging/rtc_event_log")
+function( compile_webrtc_proto SRCPROTO OUTDIR )
+    get_filename_component(ABS_FIL ${SRCPROTO} ABSOLUTE)
+	get_filename_component(ABS_PATH ${ABS_FIL} PATH)
+    get_filename_component(FIL_WE ${SRCPROTO} NAME_WE)
+	set(OUT_CC "${OUTDIR}/${FIL_WE}.pb.cc")
+	set(OUT_H "${OUTDIR}/${FIL_WE}.pb.h")
+	add_custom_command(
+		OUTPUT ${OUT_CC} ${OUT_H}
+		COMMAND ${PROTOBUF_PROTOC_EXECUTABLE}
+		ARGS --cpp_out ${OUTDIR} -I ${ABS_PATH} ${ABS_FIL}
+		DEPENDS ${SRCPROTO} ${PROTOBUF_PROTOC_EXECUTABLE}
+		COMMENT "Running C++ protocol buffer compiler on ${SRCPROTO}"
+		VERBATIM )
+	target_sources(webrtc-lite PRIVATE ${OUT_CC} ${OUT_H})
+	set_source_files_properties(${OUT_CC} ${OUT_H} PROPERTIES GENERATED TRUE)
+endfunction( compile_webrtc_proto )
 
-set_source_files_properties(${WEBRTC_LITE_PROTO_SRCS} ${WEBRTC_LITE_PROTO_HDRS} PROPERTIES GENERATED TRUE)
+compile_webrtc_proto( ${webrtc_SOURCE_DIR}/logging/rtc_event_log/rtc_event_log.proto ${CMAKE_CURRENT_BINARY_DIR}/logging/rtc_event_log/ )
+compile_webrtc_proto( ${webrtc_SOURCE_DIR}/logging/rtc_event_log/rtc_event_log2.proto ${CMAKE_CURRENT_BINARY_DIR}/logging/rtc_event_log/ )
+target_compile_definitions(webrtc-lite PUBLIC WEBRTC_ENABLE_RTC_EVENT_LOG)
 
 # webrtc can't build as shared library.
 #target_compile_definitions(webrtc-lite PUBLIC WEBRTC_ENABLE_SYMBOL_EXPORT)
@@ -758,7 +752,7 @@ set_source_files_properties(${WEBRTC_LITE_PROTO_SRCS} ${WEBRTC_LITE_PROTO_HDRS} 
 
 target_include_directories(webrtc-lite PUBLIC
     ${webrtc_SOURCE_DIR}
-    ${webrtc_BUILD_DIR}
+    #${webrtc_BUILD_DIR}  # ???
 	${Protobuf_INCLUDE_DIRS}
     ${CMAKE_CURRENT_BINARY_DIR}/..
     ${CMAKE_CURRENT_BINARY_DIR}
