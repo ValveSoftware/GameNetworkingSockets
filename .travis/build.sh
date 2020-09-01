@@ -52,8 +52,8 @@ fi
 
 msg "Image is $IMAGE:$IMAGE_TAG, sanitizers enabled: $BUILD_SANITIZERS"
 
-# We need at least one build system available
-has cmake || has meson || die "No build system available"
+# Make sure cmake is installed
+has cmake || die "cmake required"
 
 # We also need at least one compiler
 has_clang || has_gcc || die "No compiler available"
@@ -63,16 +63,16 @@ ccache -M4G
 
 if has_clang; then
 	msg "Beginning build tests with Clang"
-	export CC="ccache clang" CXX="ccache clang++"
-	has meson && bash .travis/build-meson.sh
+	#export CC="ccache clang" CXX="ccache clang++"
+	#has meson && bash .travis/build-meson.sh
 	export CC=clang CXX=clang++
 	has cmake && bash .travis/build-cmake.sh
 fi
 
 if has_gcc; then
 	msg "Beginning build tests with GCC"
-	export CC="ccache gcc" CXX="ccache g++"
-	has meson && bash .travis/build-meson.sh
+	#export CC="ccache gcc" CXX="ccache g++"
+	#has meson && bash .travis/build-meson.sh
 	export CC=gcc CXX=g++
 	has cmake && bash .travis/build-cmake.sh
 fi
