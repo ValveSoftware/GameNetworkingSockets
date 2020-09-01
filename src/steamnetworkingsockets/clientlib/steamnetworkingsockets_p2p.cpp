@@ -187,6 +187,22 @@ bool CSteamNetworkConnectionP2P::BInitConnect(
 	// Check if we should try ICE.
 	CheckInitICE();
 
+	// No available transports?
+	Assert( GetState() == k_ESteamNetworkingConnectionState_None );
+	if ( m_vecAvailableTransports.empty() )
+	{
+		#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+			ESteamNetConnectionEnd ignoreReason;
+			ConnectionEndDebugMsg closeDebugMsg;
+			GuessICEFailureReason( ignoreReason, closeDebugMsg, usecNow );
+			V_strcpy_safe( errMsg, closeDebugMsg );
+		#else
+			Assert( false ); // We shouldn't compile if we don't have either SDR or ICE transport enabled.  And if SDR fails, we fail above
+			V_strcpy_safe( errMsg, "No available P2P transports" );
+		#endif
+		return false;
+	}
+
 	// Start the connection state machine
 	return BConnectionState_Connecting( usecNow, errMsg );
 }
@@ -851,6 +867,9 @@ EResult CSteamNetworkConnectionP2P::AcceptConnection( SteamNetworkingMicrosecond
 
 	// Check for enabling ICE
 	CheckInitICE();
+
+	// FIXME.  If ICE fails, and is the only transport, we really ought to
+	// terminate the connection here.
 
 	// Send them a reply, and include whatever info we have right now
 	SendConnectOKSignal( usecNow );
