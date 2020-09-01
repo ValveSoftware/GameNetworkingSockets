@@ -2449,7 +2449,8 @@ void CSteamNetworkConnectionBase::ConnectionState_ProblemDetectedLocally( ESteam
 		case k_ESteamNetworkingConnectionState_Dead:
 		case k_ESteamNetworkingConnectionState_None:
 		default:
-			Assert( false );
+			AssertMsg( false, "[%s] problem (%d) %s, but connection already dead (%d %d %s)",
+				GetDescription(), (int)eReason, pszFmt, GetState(), (int)m_eEndReason, m_szEndDebug );
 			return;
 
 		case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
