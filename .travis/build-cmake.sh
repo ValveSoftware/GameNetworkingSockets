@@ -99,20 +99,22 @@ if [[ $BUILD_SANITIZERS -ne 0 ]]; then
 fi
 
 # Run basic tests
-build-cmake-ref/tests/test_crypto
-[[ $BUILD_LIBSODIUM -ne 0 ]] && build-cmake-sodium/tests/test_crypto
-build-cmake-sodium25519/tests/test_crypto
-build-cmake/tests/test_crypto
-build-cmake/tests/test_connection
+build-cmake-ref/bin/test_crypto
+[[ $BUILD_LIBSODIUM -ne 0 ]] && build-cmake-sodium/bin/test_crypto
+build-cmake-sodium25519/bin/test_crypto
+build-cmake/bin/test_crypto
+build-cmake/bin/test_connection
 
 # Run sanitized builds
 if [[ $BUILD_SANITIZERS -ne 0 ]]; then
 	for SANITIZER in asan ubsan tsan; do
 		[[ -d build-${SANITIZER} ]] || continue
-		build-${SANITIZER}/tests/test_crypto
-		build-${SANITIZER}/tests/test_connection
+		build-${SANITIZER}/bin/test_crypto
+		build-${SANITIZER}/bin/test_connection
 	done
 fi
+
+# FIXME Run P2P tests?
 
 set +x
 
