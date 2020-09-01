@@ -1967,19 +1967,14 @@ HSteamListenSocket CSteamNetworkingSockets::CreateListenSocketP2P( int nLocalVir
 		return k_HSteamListenSocket_Invalid;
 	}
 
-#ifdef STEAMNETWORKINGSOCKETS_HAS_DEFAULT_P2P_SIGNALING
 	SteamDatagramTransportLock scopeLock( "CreateListenSocketP2P" );
 
 	CSteamNetworkListenSocketP2P *pSock = InternalCreateListenSocketP2P( nLocalVirtualPort, nOptions, pOptions );
 	if ( pSock )
 		return pSock->m_hListenSocketSelf;
-#else
-	AssertMsg( false, "Not supported" );
-#endif
 	return k_HSteamListenSocket_Invalid;
 }
 
-#ifdef STEAMNETWORKINGSOCKETS_HAS_DEFAULT_P2P_SIGNALING
 CSteamNetworkListenSocketP2P *CSteamNetworkingSockets::InternalCreateListenSocketP2P( int nLocalVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions )
 {
 	SteamDatagramErrMsg errMsg;
@@ -2001,7 +1996,6 @@ CSteamNetworkListenSocketP2P *CSteamNetworkingSockets::InternalCreateListenSocke
 
 	return pSock;
 }
-#endif
 
 HSteamNetConnection CSteamNetworkingSockets::ConnectP2P( const SteamNetworkingIdentity &identityRemote, int nRemoteVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions )
 {
@@ -2366,9 +2360,7 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const void *pMsg, int c
 			}
 
 			// Make sure we have a recent cert.  Start requesting another if needed.
-			#ifdef STEAMNETWORKINGSOCKETS_CAN_REQUEST_CERT
-				AuthenticationNeeded();
-			#endif
+			AuthenticationNeeded();
 
 			// If we don't have a signed cert now, then we cannot accept this connection!
 			// P2P connections always require certs issued by Steam!
@@ -2481,18 +2473,16 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const void *pMsg, int c
 			Assert( pConn->m_nSupressStateChangeCallbacks == 0 );
 			pConn->m_nSupressStateChangeCallbacks = 1;
 
-			// Add it to the listen socket or messages session, if any
-			#ifdef STEAMNETWORKINGSOCKETS_HAS_DEFAULT_P2P_SIGNALING
-				if ( pListenSock )
+			// Add it to the listen socket, if any
+			if ( pListenSock )
+			{
+				if ( !pListenSock->BAddChildConnection( pConn, errMsg ) )
 				{
-					if ( !pListenSock->BAddChildConnection( pConn, errMsg ) )
-					{
-						SpewDebug( "Ignoring P2P CMsgSteamDatagramConnectRequest from %s on virtual port %d; %s\n", SteamNetworkingIdentityRender( pConn->m_identityRemote ).c_str(), nLocalVirtualPort, errMsg );
-						pConn->ConnectionDestroySelfNow();
-						return false;
-					}
+					SpewDebug( "Ignoring P2P connect request from %s on virtual port %d; %s\n", SteamNetworkingIdentityRender( pConn->m_identityRemote ).c_str(), nLocalVirtualPort, errMsg );
+					pConn->ConnectionDestroySelfNow();
+					return false;
 				}
-			#endif
+			}
 
 			// OK, start setting up the connection
 			if ( !pConn->BBeginAccept( 

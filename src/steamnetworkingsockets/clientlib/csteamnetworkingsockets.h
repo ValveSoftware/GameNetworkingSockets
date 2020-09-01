@@ -121,7 +121,9 @@ public:
 	/// use a loopback connection.
 	static std::vector<CSteamNetworkingSockets *> s_vecSteamNetworkingSocketsInstances;
 
+	// P2P listen sockets
 	CUtlHashMap<int,CSteamNetworkListenSocketP2P *,std::equal_to<int>,std::hash<int>> m_mapListenSocketsByVirtualPort;
+	CSteamNetworkListenSocketP2P *InternalCreateListenSocketP2P( int nLocalVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions );
 
 	//
 	// Authentication
@@ -158,7 +160,6 @@ public:
 	// Rendezvous will depend on the platform
 	virtual ISteamNetworkingConnectionCustomSignaling *CreateDefaultP2PSignaling( const SteamNetworkingIdentity &identityRemote, SteamNetworkingErrMsg &errMsg ) = 0;
 
-	CSteamNetworkListenSocketP2P *InternalCreateListenSocketP2P( int nLocalVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions );
 	CSteamNetworkConnectionBase *InternalConnectP2PDefaultSignaling( const SteamNetworkingIdentity &identityRemote, int nRemoteVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions );
 
 
