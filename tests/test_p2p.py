@@ -8,6 +8,7 @@
 
 import subprocess
 import threading
+import os
 
 def RunProcess( tag, cmdline, **popen_kwargs ):
 
@@ -17,8 +18,18 @@ def RunProcess( tag, cmdline, **popen_kwargs ):
             print( "%s> %s" % (tag, ln ) )
             log.write( "%s\n" % ln )
 
+        # Make a copy of the environment
+        env = dict( os.environ )
+
+        # Set LD_LIBRARY_PATH
+        if os.name == 'posix':
+            LD_LIBRARY_PATH = env.get( 'LD_LIBRARY_PATH', '' )
+            if LD_LIBRARY_PATH: LD_LIBRARY_PATH += ';'
+            env['LD_LIBRARY_PATH'] = LD_LIBRARY_PATH + "."
+            WriteLn( "LD_LIBRARY_PATH = '%s'" % env['LD_LIBRARY_PATH'])
+
         WriteLn( "Executing: " + ' '.join( cmdline ) )
-        process = subprocess.Popen( cmdline, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.STDOUT, **popen_kwargs )
+        process = subprocess.Popen( cmdline, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.STDOUT, env=env, **popen_kwargs )
         process.stdin.close()
         while True:
             sOutput = process.stdout.readline()
