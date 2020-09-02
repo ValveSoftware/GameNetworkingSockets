@@ -94,10 +94,13 @@ client2 = StartClientInThread( "client", "peer_client", "peer_server" )
 client1.join( timeout=20 )
 client2.join( timeout=20 )
 
-# Shutdown signaling server gracefully
+# Ignore any "failure" detected in signaling server shutdown.
+really_failed = g_failed
+
+# Shutdown signaling
 signaling.term()
 
-if g_failed:
+if really_failed:
     print( "TEST FAILED" )
     sys.exit(1)
 
