@@ -20,6 +20,25 @@ implementations.  In particular, we'd like to have an implementation that
 uses [PCP](https://tools.ietf.org/html/rfc6887), which is not used by
 the current google WebRTC code.)
 
+## Symmetric connect mode
+
+SteamNetworkingSockets offers a unique feature known as *symmetric
+connect mode*, which really puts the "peer" in "peer-to-peer connection".
+This feature is useful in the following common use case:
+
+* Two hosts wish to establish a *single* connection between them.
+* Either host may initiate the connection.
+* The hosts may initiate the connection at the same time.
+
+This situation involves race conditions that arecan be tricky to get
+right, especially when authentication, encryption, ICE roles, etc
+are involved.  With symmetric connect mode, sorting out these race
+conditions and producing a single connection is handled by the API.
+
+See the ``k_ESteamNetworkingConfig_SymmetricConnect``
+connection flag in [steamnetworkingtypes.h](include/steam/steamnetworkingtypes.h)
+for more info.
+
 ## Requirements
 
 Peer-to-peer connections require more than just working code.  In addition

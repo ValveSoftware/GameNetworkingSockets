@@ -20,10 +20,13 @@ GameNetworkingSockets is a basic transport layer for games.  The features are:
   key exchange and cert signatures. The details for shared key derivation and
   per-packet IV are based on the [design](https://docs.google.com/document/d/1g5nIXAIkN_Y-7XJW5K45IblHd_L2f5LTaDUDwvZ5L6g/edit?usp=sharing)
   used by Google's QUIC protocol.
-* Tools for simulating loss and detailed stats measurement
-* IPv6
-* Peer-to-peer connections.  Read [this](README_P2P.md) for more info
-  about what's required.
+* Tools for simulating packet latency/loss, and detailed stats measurement
+* IPv6 support
+* Peer-to-peer networking:
+  * NAT traversal through google WebRTC's ICE implementation.
+  * Plug in your own signaling service.
+  * Unique "symmetric connect" mode.
+  * See [README_P2P.md](README_P2P.md) for more info
 
 What it does *not* do:
 
@@ -74,26 +77,3 @@ Third party language bindings:
   * <https://github.com/Facepunch/Facepunch.Steamworks>
 * Go:
   * <https://github.com/nielsAD/gns/>
-
-## Roadmap
-
-Here are some large features that we expect to add to a future release:
-
-### Bandwidth estimation
-
-An earlier version of this code implemented TCP-friendly rate control (RFC
-5348).  But as part of the reliability layer rewrite, bandwidth estimation has
-been temporarily broken, and a fixed (configurable) rate is used.  It's not
-clear if it's worth the complexity of implementation and testing to get
-sender-calculated TCP-friendly rate control implemented, or a simpler method
-would do just as good.  Whatever method we use, needs to work even if the app
-code inspects the state and decides not to send a message.  In this case, the
-bandwidth estimation logic might perceive that the channel is not
-"data-limited", when it essentially is.  We could add an entry point to allow
-the application to express this, but this is getting complicated, making it more
-difficult for app code to do the right thing.  It'd be better if it mostly
-"just worked" when app code does the simple thing.
-
-### P2P improvements
-
-The [peer-to-peer](README_P2P.md) support needs several improvements.
