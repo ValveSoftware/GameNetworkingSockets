@@ -1,56 +1,117 @@
 # About that P2P support....
 
-### Deploy some infrastructure
+SteamNetworkingSockets supports peer-to-peer connections.  A "peer-to-peer"
+connection in this context means that the hosts do not (initially) know
+each other's IP address.  Furthermore, they may be behind NAT, and so they
+may not know their *own* public IP address.  They may not even have a public
+IP that other hosts can use to send them inbound traffic.  [Here](https://tailscale.com/blog/how-nat-traversal-works/)
+is a good article about the problem of NAT traversal.
 
-Peer-to-peer connections require more than just working code.  You need to
-actually deploy some infrastructure.  There are three basic needs:
+[ICE](https://en.wikipedia.org/wiki/Interactive_Connectivity_Establishment)
+is an internet standard protocol for discovering and sharing IP addresses,
+negotiating NAT, and establishing a direct connection or fallback to relaying
+the connection if necessary.
 
-* **Signaling service**  A side channel, capable of relaying small rendezvous
-  messages from one peer to another.  This means peers must have a constant
-  connection to your service, so that you can push messages to them.
-  SteamNetworkiongSockets imposes little requirements on the service.
-  Rendezvous messages are relatively small (maybe bigger than IP MTU, but never
-  more than a few KB), and only datagram best-effort delivery is required.
-  The end-to-end protocol is tolerant of dropped, duplicated, or reordered
-  signals.  Usually there is a burst of a handful of exchanges when a
-  connection is created, followed by silence, unless something changes with
-  the connection.
+The opensource version of the code can compile with google webrtc's ICE
+implementation.  We interface with the WebRTC code at a reletaively low level
+and only use it for datagram transport.  We don't use DTLS or WebRTC data
+channels.  (In the future, we may offer alternate NAT traversal
+implementations.  In particular, we'd like to have an implementation that
+uses [PCP](https://tools.ietf.org/html/rfc6887), which is not used by
+the current google WebRTC code.)
 
-* **STUN server**  A STUN server is used to help peers discover the appropate
-  IP addresses to use for communication, including piercing NAT and opening up
-  firewalls.  This is the ICE protocol.  STUN servers are relatively low
-  bandwidth, and there are publicly availableones.
+## Requirements
 
-* **Relay fallback**  NAT piercing is not always successful.  In this situation,
-  the traffic must be relayed.  In the ICE protocol, this is done using TURN
-  servers.  (Any TURN server also doubles as a STUN server.)  Because the TURN
-  server is relaying every packet, is is a relatively costly service, so you
-  probably need to run your own.
+Peer-to-peer connections require more than just working code.  In addition
+to the code in this library, there are several other prerequisites.
+(Note that the Steamworks API provides all of these services for Steam games.)
 
-The Steamworks API provides all of these services for Steam games.  On Steam
-we use a custom protocol known as SDR, for relaying packets through our network
-of relays and on our backbone.   (You may see this mentioned in the opensource
-code here, but the SDR support code is not opensource.)
+### Signaling service
 
-### You have matchmaking, right?
+A side channel, capable of relaying small rendezvous
+messages from one host to another.  This means hosts must have a constant
+connection to your service, once that enables you to *push* messages to them.
 
-The above requirements are just what is needed to make a connection to a peer,
+SteamNetworkingSockets supports a pluggable signaling service.  The requirements
+placed on your signaling service are relatively minimal:
+
+* Individual rendezvous messages are small.  (Perhaps bigger than IP MTU,
+  but never more than a few KB.
+* Only datagram "best-effort" delivery is required. We are tolerant
+  protocol is tolerant of dropped, duplicated, or reordered messages.
+  These anomolies may cause negotiation to take longer, but not fail.
+  This means, for example that there doesn't need to be a mechanism to
+  inform the system when your connection to the signaling service is
+  disrupted.
+* The channel can be relatively low bandwidth and high latency.  Usually
+  there is a burst of a handful of exchanges when a connection is created,
+  followed by silence, unless something changes with the connection.
+
+
+### STUN server
+
+A [STUN](https://en.wikipedia.org/wiki/STUN) server is used to help peers
+discover the appropate IP addresses to use for communication, including
+piercing NAT and opening up firewalls.  This is the ICE protocol.  STUN
+servers are relatively low bandwidth, and there are publicly-available ones.
+
+### Relay fallback
+
+Unfortunatley, for some pairs of hosts, NAT piercing is not successful.
+In this situation, the traffic must be relayed.  In the ICE protocol, this is
+done using [TURN](https://en.wikipedia.org/wiki/Traversal_Using_Relays_around_NAT)
+servers.  (NOTE: TURN server also doubles as a STUN server.)  Because the TURN
+server is relaying every packet, is is a relatively costly service, so you probably
+will need to run your own, or just fail connections that cannot pierce NAT.
+
+On Steam we use a custom protocol known as SDR, for relaying packets through
+our network of relays and on our backbone.   (You may see this mentioned in
+the opensource code here, but the SDR support code is not opensource.)  Also,
+on Steam we always relay traffic and do not share IP addresses between
+untrusted peers, so that malicious players cannot DoS attack.
+
+### Naming hosts and matchmaking
+
+The above requirements are just what is needed to make a connection to a hosts,
 once you know who to connect to.  But before that, you need a way to assign an
-identity to a peer, authenticate them, matchmaking them, etc.  Those services are
+identity to a host, authenticate them, matchmaking them, etc.  Those services are
 also included with Steam, but outside the scope of a transport library like this.
 
-However, assuming you have all of those requirements, you can use
-SteamNetworkingSockets to make P2P connections!
+## Using P2P
 
-### Roadmap
+Assuming you have all of those requirements, you can use SteamNetworkingSockets
+to make P2P connections!
+
+To compile with ICE support, set USE_WEBRTC when building the project files:
+```
+cmake -DUSE_WEBRTC=ON (etc...)
+```
+
+You'll also need to active two git submodules to pull down the google WebRTC code.
+(Just run ``cmake`` and follow the instructions.)
+
+Take a look at these files for more information:
+
+* [steamnetworkingcustomsignaling.h](include/steam/steamnetworkingcustomsignaling.h)
+  contains the interfaces you'll need to implement for your signaling service.
+* An example of a really trivial signaling protocol:
+  * [trivial_signaling_server.go](examples/trivial_signaling_server.go) server
+  * [trivial_signaling_client.cpp](examples/trivial_signaling_client.cpp) client
+* A test case that puts everything together.  It starts up an example trivial
+  signaling protocol server and two peers, and has them connect to each other
+  and exchange a few messages.  We use the publicly-available google STUN servers.
+  (No TURN servers for relay fallback in this example.)
+  * [test_p2p.py](tests/test_p2p.py) Executive test script that starts all the processes.
+  * [test_p2p.cpp](tests/test_p2p.cpp) Code for the process each peer runs.
+
+## Roadmap
 
 Here are some things we have in mind to make P2P support better:
 
-* Write a dummy P2P signaling server, and a test/example.  This will make it
-  possible for others to write plugins for their own signaling service.
-  (Issue #133)
-* Write plugins for some standard signaling services.  [XMPP](https://xmpp.org/)
-  is a logical choice.  This would be a great project for somebody else to
-  do.
-* LAN beacon support, so that P2P connections can be made when signaling
-  is down.  (Issue #82)
+* Get plugins written for standard, opensource protocols that could be used for
+signaling, such as [XMPP](https://xmpp.org/).  This would be a great project for
+  somebody else to do!  We would welcome contributions to this repository, or
+  happily link to your own project.  (See issue #136)
+* Allow setting the "default" signaling protocol.  (See issue #137)
+* LAN beacon support, so that P2P connections can be made even when signaling
+  is down or the hosts do not have Internet connectivity.  (See issue #82)
