@@ -163,6 +163,16 @@ int main( int argc, const char **argv )
 	// Initialize library, with the desired local identity
 	TEST_Init( &identityLocal );
 
+	// Hardcode STUN servers
+	SteamNetworkingUtils()->SetGlobalConfigValueString( k_ESteamNetworkingConfig_P2P_STUN_ServerList, "stun.l.google.com:19302" );
+
+	// Allow sharing of any kind of ICE address.
+	// We don't have any method of relaying (TURN) in this example, so we are essentially
+	// forced to disclose our public address if we want to pierce NAT.  But if we
+	// had relay fallback, or if we only wanted to connect on the LAN, we could restrict
+	// to only sharing private addresses.
+	SteamNetworkingUtils()->SetGlobalConfigValueInt32(k_ESteamNetworkingConfig_P2P_Transport_ICE_Enable, k_nSteamNetworkingConfig_P2P_Transport_ICE_Enable_All );
+
 	// Create the signaling service
 	SteamNetworkingErrMsg errMsg;
 	ITrivialSignalingClient *pSignaling = CreateTrivialSignalingClient( pszTrivialSignalingService, SteamNetworkingSockets(), errMsg );
