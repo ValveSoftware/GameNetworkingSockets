@@ -3,7 +3,7 @@
 SteamNetworkingSockets supports peer-to-peer connections.  A "peer-to-peer"
 connection in this context means that the hosts do not (initially) know
 each other's IP address.  Furthermore, they may be behind NAT, and so they
-may not know their *own* public IP address.  They may not even have a public
+may not know their *own* public IP address.  They may not even *have* a public
 IP that other hosts can use to send them inbound traffic.  [Here](https://tailscale.com/blog/how-nat-traversal-works/)
 is a good article about the problem of NAT traversal.
 
@@ -12,7 +12,7 @@ is an internet standard protocol for discovering and sharing IP addresses,
 negotiating NAT, and establishing a direct connection or fallback to relaying
 the connection if necessary.
 
-The opensource version of the code can compile with google webrtc's ICE
+The opensource version of the code can compile with [google webrtc](https://webrtc.googlesource.com/src)'s ICE
 implementation.  We interface with the WebRTC code at a reletaively low level
 and only use it for datagram transport.  We don't use DTLS or WebRTC data
 channels.  (In the future, we may offer alternate NAT traversal
@@ -30,7 +30,7 @@ This feature is useful in the following common use case:
 * Either host may initiate the connection.
 * The hosts may initiate the connection at the same time.
 
-This situation involves race conditions that arecan be tricky to get
+This situation involves race conditions that can be tricky to get
 right, especially when authentication, encryption, ICE roles, etc
 are involved.  With symmetric connect mode, sorting out these race
 conditions and producing a single connection is handled by the API.
@@ -55,7 +55,7 @@ SteamNetworkingSockets supports a pluggable signaling service.  The requirements
 placed on your signaling service are relatively minimal:
 
 * Individual rendezvous messages are small.  (Perhaps bigger than IP MTU,
-  but never more than a few KB.
+  but never more than a few KB.)
 * Only datagram "best-effort" delivery is required. We are tolerant
   protocol is tolerant of dropped, duplicated, or reordered messages.
   These anomolies may cause negotiation to take longer, but not fail.
@@ -67,11 +67,10 @@ placed on your signaling service are relatively minimal:
   followed by silence, unless something changes with the connection.
 
 
-### STUN server
+### STUN server(s)
 
 A [STUN](https://en.wikipedia.org/wiki/STUN) server is used to help peers
-discover the appropate IP addresses to use for communication, including
-piercing NAT and opening up firewalls.  This is the ICE protocol.  STUN
+discover their own public IP address and open up firewalls.  STUN
 servers are relatively low bandwidth, and there are publicly-available ones.
 
 ### Relay fallback
@@ -79,20 +78,21 @@ servers are relatively low bandwidth, and there are publicly-available ones.
 Unfortunatley, for some pairs of hosts, NAT piercing is not successful.
 In this situation, the traffic must be relayed.  In the ICE protocol, this is
 done using [TURN](https://en.wikipedia.org/wiki/Traversal_Using_Relays_around_NAT)
-servers.  (NOTE: TURN server also doubles as a STUN server.)  Because the TURN
+servers.  (NOTE: Any TURN server also doubles as a STUN server.)  Because the TURN
 server is relaying every packet, is is a relatively costly service, so you probably
 will need to run your own, or just fail connections that cannot pierce NAT.
 
-On Steam we use a custom protocol known as SDR, for relaying packets through
-our network of relays and on our backbone.   (You may see this mentioned in
-the opensource code here, but the SDR support code is not opensource.)  Also,
-on Steam we always relay traffic and do not share IP addresses between
-untrusted peers, so that malicious players cannot DoS attack.
+On Steam we use a custom relay service known as [Steam Datgaram Relay](https://partner.steamgames.com/doc/features/multiplayer/steamdatagramrelay)
+-- SDR for short -- carrying packets through our network of relays and
+on our backbone.   (You may see this mentioned in the opensource code here,
+but the SDR support code is not opensource.)  Also, on Steam we always
+relay traffic and do not share IP addresses between untrusted peers, so
+that malicious players cannot DoS attack.
 
 ### Naming hosts and matchmaking
 
-The above requirements are just what is needed to make a connection to a hosts,
-once you know who to connect to.  But before that, you need a way to assign an
+The above requirements are just what is needed to make a connection between two
+hosts, once you know who to connect to.  But before that, you need a way to assign an
 identity to a host, authenticate them, matchmaking them, etc.  Those services are
 also included with Steam, but outside the scope of a transport library like this.
 
@@ -106,7 +106,7 @@ To compile with ICE support, set USE_WEBRTC when building the project files:
 cmake -DUSE_WEBRTC=ON (etc...)
 ```
 
-You'll also need to active two git submodules to pull down the google WebRTC code.
+You'll also need to activate two git submodules to pull down the google WebRTC code.
 (Just run ``cmake`` and follow the instructions.)
 
 Take a look at these files for more information:
