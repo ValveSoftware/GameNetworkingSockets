@@ -465,54 +465,52 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 	// No ICE factory?
 	if ( !g_SteamNetworkingSockets_CreateICESessionFunc )
 	{
-		// !HACK! Just try to load up the dll directly
-		#ifdef STEAMNETWORKINGSOCKETS_PARTNER
-			static bool tried;
-			if ( !tried )
-			{
-				tried = true;
-				SteamDatagramTransportLock::SetLongLockWarningThresholdMS( "LoadICEDll", 500 );
+		// Just try to load up the dll directly
+		static bool tried;
+		if ( !tried )
+		{
+			SteamNetworkingErrMsg errMsg;
+			tried = true;
+			SteamDatagramTransportLock::SetLongLockWarningThresholdMS( "LoadICEDll", 500 );
+			static const char pszExportFunc[] = "CreateWebRTCICESession";
 
-				#if defined( _WINDOWS )
-					HMODULE h = ::LoadLibraryA( "steamwebrtc.dll" );
-					if ( h != NULL )
-					{
-						g_SteamNetworkingSockets_CreateICESessionFunc = (CreateICESession_t)::GetProcAddress( h, "CreateWebRTCICESession" );
-					}
-				#elif defined( OSX ) || defined( IOS ) || defined( TVOS )
-					const char* pszModule = "libsteamwebrtc.dylib";
-					void* h = dlopen(pszModule, RTLD_LAZY);
-					if ( h != NULL )
-					{
-						g_SteamNetworkingSockets_CreateICESessionFunc = (CreateICESession_t)dlsym( h, "CreateWebRTCICESession" );
-					}
-					if ( h == NULL )
-					{
-						SteamNetworkingErrMsg errMsg;
-						V_sprintf_safe( errMsg, "ICE not enabled. Failed to open shared object : %s", dlerror() );
-						ICEFailed( k_nICECloseCode_Local_NotCompiled, errMsg );
-					}
-				#elif defined( LINUX ) || defined( ANDROID )
-					const char* pszModule = "libsteamwebrtc.so";
-					void* h = dlopen(pszModule, RTLD_LAZY);
-					if ( h != NULL )
-					{
-						g_SteamNetworkingSockets_CreateICESessionFunc = (CreateICESession_t)dlsym( h, "CreateWebRTCICESession" );
-					}
-					if ( h == NULL )
-					{
-						SteamNetworkingErrMsg errMsg;
-						V_sprintf_safe( errMsg, "ICE not enabled. Failed to open shared object : %s", dlerror() );
-						ICEFailed( k_nICECloseCode_Local_NotCompiled, errMsg );
-					}
+			#if defined( _WINDOWS )
+				static const char pszModule[] = "steamwebrtc.dll";
+				HMODULE h = ::LoadLibraryA( pszModule );
+				if ( h == NULL )
+				{
+					V_sprintf_safe( errMsg, "Failed to load %s.", pszModule ); // FIXME - error code?  Debugging DLL issues is so busted on Windows
+					ICEFailed( k_nICECloseCode_Local_NotCompiled, errMsg );
+					return;
+				}
+				g_SteamNetworkingSockets_CreateICESessionFunc = (CreateICESession_t)::GetProcAddress( h, pszExportFunc );
+			#elif defined( POSIX )
+				#if defined( OSX ) || defined( IOS ) || defined( TVOS )
+					static const char pszModule[] = "libsteamwebrtc.dylib";
 				#else
-					#error Need steamwebrtc for this platform
+					static const char pszModule[] = "libsteamwebrtc.so";
 				#endif
+				void* h = dlopen(pszModule, RTLD_LAZY);
+				if ( h == NULL )
+				{
+					V_sprintf_safe( errMsg, "Failed to dlopen %s.  %s", pszModule, dlerror() );
+					ICEFailed( k_nICECloseCode_Local_NotCompiled, errMsg );
+					return;
+				}
+				g_SteamNetworkingSockets_CreateICESessionFunc = (CreateICESession_t)dlsym( h, pszExportFunc );
+			#else
+				#error Need steamwebrtc for this platform
+			#endif
+			if ( !g_SteamNetworkingSockets_CreateICESessionFunc )
+			{
+				V_sprintf_safe( errMsg, "%s not found in %s.", pszExportFunc, pszModule );
+				ICEFailed( k_nICECloseCode_Local_NotCompiled, errMsg );
+				return;
 			}
-		#endif
+		}
 		if ( !g_SteamNetworkingSockets_CreateICESessionFunc )
 		{
-			ICEFailed( k_ESteamNetConnectionEnd_Misc_InternalError, "No ICE session factory" );
+			ICEFailed( k_nICECloseCode_Local_NotCompiled, "No ICE session factory" );
 			return;
 		}
 	}
