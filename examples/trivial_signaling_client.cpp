@@ -316,7 +316,7 @@ public:
 			}
 
 next_message:
-			m_sBufferedData.erase( 0, l );
+			m_sBufferedData.erase( 0, l+1 );
 		}
 	}
 
