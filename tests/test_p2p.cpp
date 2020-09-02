@@ -93,6 +93,7 @@ void OnSteamNetConnectionStatusChanged( SteamNetConnectionStatusChangedCallback_
 			// Note that we will get notification when our own connection that
 			// we initiate enters this state.
 			assert( g_hConnection == pInfo->m_hConn );
+			TEST_Printf( "[%s] Entered connecting state\n", pInfo->m_info.m_szConnectionDescription );
 		}
 		break;
 

@@ -2511,7 +2511,7 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const void *pMsg, int c
 			{
 				if ( !pListenSock->BAddChildConnection( pConn, errMsg ) )
 				{
-					SpewDebug( "Ignoring P2P connect request from %s on vport %d; %s\n",
+					SpewWarning( "Failed to start accepting P2P connect request from %s on vport %d; %s\n",
 						SteamNetworkingIdentityRender( pConn->m_identityRemote ).c_str(), nLocalVirtualPort, errMsg );
 					pConn->ConnectionDestroySelfNow();
 					return false;
@@ -2524,6 +2524,8 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const void *pMsg, int c
 				errMsg,
 				usecNow
 			) ) {
+				SpewWarning( "Failed to start accepting P2P connect request from %s on vport %d; %s\n",
+					SteamNetworkingIdentityRender( pConn->m_identityRemote ).c_str(), nLocalVirtualPort, errMsg );
 				pConn->ConnectionDestroySelfNow();
 				SendP2PRejection( pContext, identityRemote, msg, k_ESteamNetConnectionEnd_Misc_Generic, "Internal error accepting connection.  %s", errMsg );
 				return false;
