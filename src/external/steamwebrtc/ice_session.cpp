@@ -588,11 +588,8 @@ bool CICESession::GetRoute( EICECandidateType &eLocalCandidate, EICECandidateTyp
 	eLocalCandidate = GetICECandidateType( conn->local_candidate() );
 	eRemoteCandidate = GetICECandidateType( conn->remote_candidate() );
 	std::string remote_addr = conn->remote_candidate().address().ToString();
-#ifdef HAVE_STRCPY_S
-	strcpy_s( szRemoteAddress, sizeof(CandidateAddressString), remote_addr.c_str() );
-#else
-	strncpy( szRemoteAddress, remote_addr.c_str(), std::min(sizeof(CandidateAddressString) -1, remote_addr.size()) );
-#endif
+	strncpy( szRemoteAddress, remote_addr.c_str(), sizeof(CandidateAddressString) - 1 );
+	szRemoteAddress[ sizeof(CandidateAddressString)-1 ] = '\0';
 
 	return eLocalCandidate != k_EICECandidate_Invalid && eRemoteCandidate != k_EICECandidate_Invalid && szRemoteAddress[0] != '\0';
 }

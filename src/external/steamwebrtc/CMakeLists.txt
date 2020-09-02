@@ -826,10 +826,4 @@ set_target_properties(steamwebrtc PROPERTIES
     CXX_STANDARD 14
 )
 
-check_symbol_exists(strcpy_s "string.h" HAVE_STRCPY_S)
-
-if(HAVE_STRCPY_S)
-    target_compile_definitions(steamwebrtc PRIVATE HAVE_STRCPY_S=1)
-endif()
-
 set_property(TARGET steamwebrtc PROPERTY POSITION_INDEPENDENT_CODE ON)
