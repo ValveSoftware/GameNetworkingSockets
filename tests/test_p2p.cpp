@@ -30,10 +30,37 @@ int g_nVirtualPortRemote = 0; // Only used when connecting
 
 void Quit( int rc )
 {
+	if ( rc == 0 )
+	{
+		// OK, we cannot just exit the process, because we need to give
+		// the connection time to actually send the last message and clean up.
+		// If this were a TCP connection, we could just bail, because the OS
+		// would handle it.  But this is an application protocol over UDP.
+		// So give a little bit of time for good cleanup.  (Also note that
+		// we really ought to continue pumping the signaling service, but
+		// in this exampple we'll assume that no more signals need to be
+		// exchanged, since we've gotten this far.)  If we just terminated
+		// the program here, our peer could very likely timeout.  (Although
+		// it's possible that the cleanup packets have already been placed
+		// on the wire, and if they don't drop, things will get cleaned up
+		// properly.)
+		TEST_Printf( "Waiting for any last cleanup packets.\n" );
+		std::this_thread::sleep_for( std::chrono::milliseconds( 1000 ) );
+	}
+
 	TEST_Kill();
 	exit(rc);
 }
 
+// Send a simple string message to out peer, using reliable transport.
+void SendMessageToPeer( const char *pszMsg )
+{
+	EResult r = SteamNetworkingSockets()->SendMessageToConnection(
+		g_hConnection, pszMsg, strlen(pszMsg)+1, k_nSteamNetworkingSend_Reliable, nullptr );
+	assert( r == k_EREsultOK );
+}
+
+// Called when a connection undergoes a state transition.
 void OnSteamNetConnectionStatusChanged( SteamNetConnectionStatusChangedCallback_t *pInfo )
 {
 	// What's the state of the connection?
@@ -56,10 +83,11 @@ void OnSteamNetConnectionStatusChanged( SteamNetConnectionStatusChangedCallback_
 		{
 			g_hConnection = k_HSteamNetConnection_Invalid;
 
-			// Go ahead and bail whenever this happens
-			int rc = 0; // Normal
-			if ( rc == k_ESteamNetworkingConnectionState_ProblemDetectedLocally )
-				rc = 1;
+			// In this example, we will bail the test whenever this happens.
+			// Was this a normal termination?
+			int rc = 0;
+			if ( rc == k_ESteamNetworkingConnectionState_ProblemDetectedLocally || pInfo->m_info.m_eEndReason != k_ESteamNetConnectionEnd_App_Generic )
+				rc = 1; // failure
 			Quit( rc );
 		}
 		else
@@ -114,7 +142,6 @@ void OnSteamNetConnectionStatusChanged( SteamNetConnectionStatusChangedCallback_
 		break;
 	}
 }
-
 
 int main( int argc, const char **argv )
 {
@@ -181,7 +208,9 @@ int main( int argc, const char **argv )
 		TEST_Fatal( "Failed to initializing signaling client.  %s", errMsg );
 
 	SteamNetworkingUtils()->SetGlobalCallback_SteamNetConnectionStatusChanged( OnSteamNetConnectionStatusChanged );
-	SteamNetworkingUtils()->SetGlobalConfigValueInt32( k_ESteamNetworkingConfig_LogLevel_P2PRendezvous, k_ESteamNetworkingSocketsDebugOutputType_Verbose );
+
+	// Comment this line in for more detailed spew about signals, route finding, ICE, etc
+	//SteamNetworkingUtils()->SetGlobalConfigValueInt32( k_ESteamNetworkingConfig_LogLevel_P2PRendezvous, k_ESteamNetworkingSocketsDebugOutputType_Verbose );
 
 	// Create listen socket to receive connections on, unless we are the client
 	if ( g_eTestRole == k_ETestRole_Server )
@@ -265,6 +294,11 @@ int main( int argc, const char **argv )
 		);
 		assert( pConnSignaling );
 		g_hConnection = SteamNetworkingSockets()->ConnectP2PCustomSignaling( pConnSignaling, &identityRemote, g_nVirtualPortRemote, (int)vecOpts.size(), vecOpts.data() );
+		assert( g_hConnection != k_HSteamNetConnection_Invalid );
+
+		// Go ahead and send a message now.  The message will be queued until route finding
+		// completes.
+		SendMessageToPeer( "Greetings!" );
 	}
 
 	// Main test loop
@@ -275,6 +309,42 @@ int main( int argc, const char **argv )
 
 		// Check callbacks
 		TEST_PumpCallbacks();
+
+		// If we have a connection, then poll it for messages
+		if ( g_hConnection != k_HSteamNetConnection_Invalid )
+		{
+			SteamNetworkingMessage_t *pMessage;
+			int r = SteamNetworkingSockets()->ReceiveMessagesOnConnection( g_hConnection, &pMessage, 1 );
+			assert( r == 0 || r == 1 ); // <0 indicates an error
+			if ( r == 1 )
+			{
+				// In this example code we will assume all messages are '\0'-terminated strings.
+				// Obviously, this is not secure.
+				TEST_Printf( "Received message '%s'\n", pMessage->GetData() );
+
+				// Free message struct and buffer.
+				pMessage->Release();
+
+				// If we're the client, go ahead and shut down.  In this example we just
+				// wanted to establish a connection and exchange a message, and we've done that.
+				// Note that we use "linger" functionality.  This flushes out any remaining
+				// messages that we have queued.  Essentially to us, the connection is closed,
+				// but on thew wire, we will not actually close it until all reliable messages
+				// have been confirmed as received by the client.  (Or the connection is closed
+				// by the peer or drops.)  If we are the "client" role, then we know that no such
+				// messages are in the pipeline in this test.  But in symmetric mode, it is
+				// possible that we need to flush out our message that we sent.
+				if ( g_eTestRole != k_ETestRole_Server )
+				{
+					TEST_Printf( "Closing connection and shutting down.\n" );
+					SteamNetworkingSockets()->CloseConnection( g_hConnection, 0, "Test completed OK", true );
+					Quit(0);
+				}
+
+				// We're the server.  Send a reply.
+				SendMessageToPeer( "I got your message" );
+			}
+		}
 	}
 
 	return 0;
