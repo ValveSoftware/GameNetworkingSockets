@@ -9,14 +9,26 @@
 import subprocess
 import threading
 import os
+import sys
 
-def RunProcess( tag, cmdline, **popen_kwargs ):
+g_failed = False
 
-    with open( tag + ".log", "wt" ) as log:
+# Thread class that runs a process and captures its output
+class RunProcessInThread(threading.Thread):
 
-        def WriteLn( ln ):
-            print( "%s> %s" % (tag, ln ) )
-            log.write( "%s\n" % ln )
+    def __init__( self, tag, cmdline, **popen_kwargs ):
+        threading.Thread.__init__( self, name=tag )
+        self.tag = tag
+        self.cmdline = cmdline
+        self.popen_kwargs = popen_kwargs
+        self.log = open( self.tag + ".log", "wt" )
+
+    def WriteLn( self, ln ):
+        print( "%s> %s" % (self.tag, ln ) )
+        self.log.write( "%s\n" % ln )
+        self.log.flush()
+
+    def run( self ):
 
         # Make a copy of the environment
         env = dict( os.environ )
@@ -26,25 +38,40 @@ def RunProcess( tag, cmdline, **popen_kwargs ):
             LD_LIBRARY_PATH = env.get( 'LD_LIBRARY_PATH', '' )
             if LD_LIBRARY_PATH: LD_LIBRARY_PATH += ';'
             env['LD_LIBRARY_PATH'] = LD_LIBRARY_PATH + "."
-            WriteLn( "LD_LIBRARY_PATH = '%s'" % env['LD_LIBRARY_PATH'])
+            self.WriteLn( "LD_LIBRARY_PATH = '%s'" % env['LD_LIBRARY_PATH'])
 
-        WriteLn( "Executing: " + ' '.join( cmdline ) )
-        process = subprocess.Popen( cmdline, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.STDOUT, env=env, **popen_kwargs )
-        process.stdin.close()
+        self.WriteLn( "Executing: " + ' '.join( self.cmdline ) )
+        self.process = subprocess.Popen( self.cmdline, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.STDOUT, env=env, **self.popen_kwargs )
+        self.process.stdin.close()
         while True:
-            sOutput = process.stdout.readline()
+            sOutput = self.process.stdout.readline()
             if sOutput:
                 sOutput = str(sOutput, 'utf-8', 'ignore')
-                WriteLn( sOutput.rstrip() )
-            elif process.poll() is not None:
+                self.WriteLn( sOutput.rstrip() )
+            elif self.process.poll() is not None:
                 break
-        process.wait()
-        WriteLn( "Exitted with %d" % process.returncode )
+        self.process.wait()
+        self.WriteLn( "Exitted with %d" % self.process.returncode )
+        if self.process.returncode != 0:
+            global g_failed
+            g_failed = True
+
+    # Wait for thread to shutdown.  Nuke process if we don't exit in time
+    def join( self, timeout ):
+        threading.Thread.join( self, timeout )
+        if self.isAlive():
+            self.WriteLn( "Still running after %d seconds.  Killing" % timeout )
+            g_failed = True
+            self.process.kill()
+
+    # Attempt graceful shutdown
+    def term( self ):
+        self.WriteLn( "Attempting graceful shutdown" )
+        self.process.terminate()
+        self.join( 5 )
 
 def StartProcessInThread( tag, cmdline, **popen_kwargs ):
-    def ThreadProc():
-        RunProcess( tag, cmdline, **popen_kwargs )
-    thread = threading.Thread( target=ThreadProc, name=tag )
+    thread = RunProcessInThread( tag, cmdline, **popen_kwargs )
     thread.start()
     return thread
 
@@ -63,7 +90,16 @@ signaling = StartProcessInThread( "signaling", [ './trivial_signaling_server' ] 
 client1 = StartClientInThread( "server", "peer_server", "peer_client" )
 client2 = StartClientInThread( "client", "peer_client", "peer_server" )
 
-client1.join()
-client2.join()
-signaling.join()
+# Wait for clients to shutdown.  Nuke them if necessary
+client1.join( timeout=20 )
+client2.join( timeout=20 )
+
+# Shutdown signaling server gracefully
+signaling.term()
+
+if g_failed:
+    print( "TEST FAILED" )
+    sys.exit(1)
+
+print( "TEST SUCCEEDED" )
 
