@@ -123,6 +123,12 @@ def main():
 
     options = docopt(__doc__)
 
+    # We do a shallow "git submodule update --init" in a real travis build, but
+    # that's not useful for local development purposes. We should do a real
+    # update before a container can make shallow clones.
+    log.info("Updating submodules")
+    subprocess.run(['git', 'submodule', 'update', '--init'])
+
     log.info("Parsing Travis configuration file")
     travis = read_travis_yml()
 
