@@ -840,9 +840,9 @@ void CConnectionTransportUDPBase::Received_Data( const uint8 *pPkt, int cbPkt, S
 			ReportBadUDPPacketFromConnectionPeer( "DataPacket", "Failed to varint decode size of stats blob" );
 			return;
 		}
-		if ( pIn + cbStatsMsgIn > pPktEnd )
+		if ( cbStatsMsgIn > pPktEnd - pIn )
 		{
-			ReportBadUDPPacketFromConnectionPeer( "DataPacket", "stats message size doesn't make sense.  Stats message size %d, packet size %d", cbStatsMsgIn, cbPkt );
+			ReportBadUDPPacketFromConnectionPeer( "DataPacket", "stats message size doesn't make sense.  Stats message size %u, packet size %d", cbStatsMsgIn, cbPkt );
 			return;
 		}
 
