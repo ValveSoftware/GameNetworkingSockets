@@ -8,8 +8,8 @@
 #include <openssl/evp.h>
 
 #if OPENSSL_VERSION_NUMBER < 0x10101000
-	// https://www.openssl.org/docs/man1.1.1/man3/EVP_PKEY_get_raw_private_key.html
-	#error "Raw access to 25519 keys requires OpenSSL 1.1.1"
+// https://www.openssl.org/docs/man1.1.1/man3/EVP_PKEY_get_raw_private_key.html
+#error "Raw access to 25519 keys requires OpenSSL 1.1.1"
 #endif
 
 CEC25519KeyBase::~CEC25519KeyBase()

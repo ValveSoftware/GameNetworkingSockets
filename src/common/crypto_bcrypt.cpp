@@ -50,25 +50,25 @@ typedef struct _BCryptContext {
 void CCrypto::Init()
 {
 	BCryptOpenAlgorithmProvider(
-		&hAlgRandom,
-		BCRYPT_RNG_ALGORITHM,
-		nullptr,
-		0
-	);
+			&hAlgRandom,
+			BCRYPT_RNG_ALGORITHM,
+			nullptr,
+			0
+			);
 	AssertFatal( hAlgRandom != INVALID_HANDLE_VALUE );
 	BCryptOpenAlgorithmProvider(
-		&hAlgSHA256,
-		BCRYPT_SHA256_ALGORITHM,
-		nullptr,
-		0
-	);
+			&hAlgSHA256,
+			BCRYPT_SHA256_ALGORITHM,
+			nullptr,
+			0
+			);
 	AssertFatal( hAlgSHA256 != INVALID_HANDLE_VALUE );
 	BCryptOpenAlgorithmProvider(
-		&hAlgHMACSHA256,
-		BCRYPT_SHA256_ALGORITHM,
-		nullptr,
-		BCRYPT_ALG_HANDLE_HMAC_FLAG
-	);
+			&hAlgHMACSHA256,
+			BCRYPT_SHA256_ALGORITHM,
+			nullptr,
+			BCRYPT_ALG_HANDLE_HMAC_FLAG
+			);
 	AssertFatal( hAlgHMACSHA256 != INVALID_HANDLE_VALUE );
 }
 
@@ -122,11 +122,11 @@ bool AES_GCM_CipherContext::InitCipher( const void *pKey, size_t cbKey, size_t c
 }
 
 bool AES_GCM_EncryptContext::Encrypt(
-	const void *pPlaintextData, size_t cbPlaintextData,
-	const void *pIV,
-	void *pEncryptedDataAndTag, uint32 *pcbEncryptedDataAndTag,
-	const void *pAdditionalAuthenticationData, size_t cbAuthenticationData // Optional additional authentication data.  Not encrypted, but will be included in the tag, so it can be authenticated.
-)
+		const void *pPlaintextData, size_t cbPlaintextData,
+		const void *pIV,
+		void *pEncryptedDataAndTag, uint32 *pcbEncryptedDataAndTag,
+		const void *pAdditionalAuthenticationData, size_t cbAuthenticationData // Optional additional authentication data.  Not encrypted, but will be included in the tag, so it can be authenticated.
+		)
 {
 	BCryptContext *ctx = (BCryptContext *)(this->m_ctx);
 	BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO paddingInfo;
@@ -141,13 +141,13 @@ bool AES_GCM_EncryptContext::Encrypt(
 	paddingInfo.pbAuthData = cbAuthenticationData ? (PUCHAR)pAdditionalAuthenticationData : NULL;
 	ULONG ct_size;
 	NTSTATUS status = BCryptEncrypt(
-		ctx->hKey,
-		( PUCHAR )pPlaintextData, (ULONG)cbPlaintextData,
-		&paddingInfo,
-		NULL, 0,
-		( PUCHAR )pEncryptedDataAndTag, *pcbEncryptedDataAndTag,
-		&ct_size,
-		0 );
+			ctx->hKey,
+			( PUCHAR )pPlaintextData, (ULONG)cbPlaintextData,
+			&paddingInfo,
+			NULL, 0,
+			( PUCHAR )pEncryptedDataAndTag, *pcbEncryptedDataAndTag,
+			&ct_size,
+			0 );
 	AssertFatal( ( ct_size + m_cbTag ) < *pcbEncryptedDataAndTag );
 	memcpy( ( PUCHAR )( pEncryptedDataAndTag ) + ct_size, buffer, m_cbTag );
 	ct_size += m_cbTag;
@@ -156,11 +156,11 @@ bool AES_GCM_EncryptContext::Encrypt(
 }
 
 bool AES_GCM_DecryptContext::Decrypt(
-	const void *pEncryptedDataAndTag, size_t cbEncryptedDataAndTag,
-	const void *pIV,
-	void *pPlaintextData, uint32 *pcbPlaintextData,
-	const void *pAdditionalAuthenticationData, size_t cbAuthenticationData
-)
+		const void *pEncryptedDataAndTag, size_t cbEncryptedDataAndTag,
+		const void *pIV,
+		void *pPlaintextData, uint32 *pcbPlaintextData,
+		const void *pAdditionalAuthenticationData, size_t cbAuthenticationData
+		)
 {
 	BCryptContext *ctx = (BCryptContext *)(this->m_ctx);
 	BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO paddingInfo;
@@ -178,13 +178,13 @@ bool AES_GCM_DecryptContext::Decrypt(
 	paddingInfo.pbAuthData = cbAuthenticationData ? (PUCHAR)pAdditionalAuthenticationData : NULL;
 	ULONG pt_size;
 	NTSTATUS status = BCryptDecrypt(
-		ctx->hKey,
-		( PUCHAR )pEncryptedDataAndTag, (ULONG)cbEncryptedDataAndTag,
-		&paddingInfo,
-		NULL, 0,
-		( PUCHAR )pPlaintextData, *pcbPlaintextData,
-		&pt_size,
-		0 );
+			ctx->hKey,
+			( PUCHAR )pEncryptedDataAndTag, (ULONG)cbEncryptedDataAndTag,
+			&paddingInfo,
+			NULL, 0,
+			( PUCHAR )pPlaintextData, *pcbPlaintextData,
+			&pt_size,
+			0 );
 	*pcbPlaintextData = pt_size;
 	return NT_SUCCESS(status);
 }
@@ -232,11 +232,11 @@ void CCrypto::GenerateRandomBlock( void *pvDest, int cubDest )
 	AssertFatal( cubDest >= 0 );
 
 	NTSTATUS status = BCryptGenRandom(
-		hAlgRandom,
-		(PUCHAR)pvDest,
-		(ULONG)cubDest,
-		0
-	);
+			hAlgRandom,
+			(PUCHAR)pvDest,
+			(ULONG)cubDest,
+			0
+			);
 	AssertFatal( NT_SUCCESS( status) );
 }
 

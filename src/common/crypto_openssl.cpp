@@ -54,12 +54,12 @@ void CCrypto::Init()
 template < typename CTXType, void(*CleanupFunc)(CTXType)>
 class EVPCTXPointer
 {
-public:
-	CTXType ctx;
+	public:
+		CTXType ctx;
 
-	EVPCTXPointer() { this->ctx = NULL; }
-	EVPCTXPointer(CTXType ctx) { this->ctx = ctx; }
-	~EVPCTXPointer() { CleanupFunc(ctx); }
+		EVPCTXPointer() { this->ctx = NULL; }
+		EVPCTXPointer(CTXType ctx) { this->ctx = ctx; }
+		~EVPCTXPointer() { CleanupFunc(ctx); }
 };
 
 SymmetricCryptContextBase::SymmetricCryptContextBase()
@@ -74,12 +74,12 @@ void SymmetricCryptContextBase::Wipe()
 	if ( m_ctx )
 	{
 		EVP_CIPHER_CTX *ctx = (EVP_CIPHER_CTX*)m_ctx;
-		#if OPENSSL_VERSION_NUMBER < 0x10100000
-			EVP_CIPHER_CTX_cleanup( ctx );
-			delete ctx;
-		#else
-			EVP_CIPHER_CTX_free( ctx );
-		#endif
+#if OPENSSL_VERSION_NUMBER < 0x10100000
+		EVP_CIPHER_CTX_cleanup( ctx );
+		delete ctx;
+#else
+		EVP_CIPHER_CTX_free( ctx );
+#endif
 		m_ctx = nullptr;
 	}
 	m_cbIV = 0;
@@ -91,25 +91,25 @@ bool AES_GCM_CipherContext::InitCipher( const void *pKey, size_t cbKey, size_t c
 	EVP_CIPHER_CTX *ctx = (EVP_CIPHER_CTX*)m_ctx;
 	if ( ctx )
 	{
-		#if OPENSSL_VERSION_NUMBER < 0x10100000
-			EVP_CIPHER_CTX_cleanup( ctx );
-			EVP_CIPHER_CTX_init( ctx );
-		#else
-			EVP_CIPHER_CTX_reset( ctx );
-		#endif
+#if OPENSSL_VERSION_NUMBER < 0x10100000
+		EVP_CIPHER_CTX_cleanup( ctx );
+		EVP_CIPHER_CTX_init( ctx );
+#else
+		EVP_CIPHER_CTX_reset( ctx );
+#endif
 	}
 	else
 	{
-		#if OPENSSL_VERSION_NUMBER < 0x10100000
-			ctx = new EVP_CIPHER_CTX;
-			if ( !ctx )
-				return false;
-			EVP_CIPHER_CTX_init( ctx );
-		#else
-			ctx = EVP_CIPHER_CTX_new();
-			if ( !ctx )
-				return false;
-		#endif
+#if OPENSSL_VERSION_NUMBER < 0x10100000
+		ctx = new EVP_CIPHER_CTX;
+		if ( !ctx )
+			return false;
+		EVP_CIPHER_CTX_init( ctx );
+#else
+		ctx = EVP_CIPHER_CTX_new();
+		if ( !ctx )
+			return false;
+#endif
 		m_ctx = ctx;
 	}
 
@@ -150,11 +150,11 @@ bool AES_GCM_CipherContext::InitCipher( const void *pKey, size_t cbKey, size_t c
 }
 
 bool AES_GCM_EncryptContext::Encrypt(
-	const void *pPlaintextData, size_t cbPlaintextData,
-	const void *pIV,
-	void *pEncryptedDataAndTag, uint32 *pcbEncryptedDataAndTag,
-	const void *pAdditionalAuthenticationData, size_t cbAuthenticationData // Optional additional authentication data.  Not encrypted, but will be included in the tag, so it can be authenticated.
-)
+		const void *pPlaintextData, size_t cbPlaintextData,
+		const void *pIV,
+		void *pEncryptedDataAndTag, uint32 *pcbEncryptedDataAndTag,
+		const void *pAdditionalAuthenticationData, size_t cbAuthenticationData // Optional additional authentication data.  Not encrypted, but will be included in the tag, so it can be authenticated.
+		)
 {
 	EVP_CIPHER_CTX *ctx = (EVP_CIPHER_CTX*)m_ctx;
 	if ( !ctx )
@@ -222,11 +222,11 @@ bool AES_GCM_EncryptContext::Encrypt(
 }
 
 bool AES_GCM_DecryptContext::Decrypt(
-	const void *pEncryptedDataAndTag, size_t cbEncryptedDataAndTag,
-	const void *pIV,
-	void *pPlaintextData, uint32 *pcbPlaintextData,
-	const void *pAdditionalAuthenticationData, size_t cbAuthenticationData
-)
+		const void *pEncryptedDataAndTag, size_t cbEncryptedDataAndTag,
+		const void *pIV,
+		void *pPlaintextData, uint32 *pcbPlaintextData,
+		const void *pAdditionalAuthenticationData, size_t cbAuthenticationData
+		)
 {
 
 	EVP_CIPHER_CTX *ctx = (EVP_CIPHER_CTX*)m_ctx;
@@ -312,13 +312,14 @@ bool AES_GCM_DecryptContext::Decrypt(
 
 //-----------------------------------------------------------------------------
 bool CCrypto::SymmetricAuthEncryptWithIV(
-	const void *pPlaintextData, size_t cbPlaintextData,
-	const void *pIV, size_t cbIV,
-	void *pEncryptedDataAndTag, uint32 *pcbEncryptedDataAndTag,
-	const void *pKey, size_t cbKey,
-	const void *pAdditionalAuthenticationData, size_t cbAuthenticationData,
-	size_t cbTag
-) {
+		const void *pPlaintextData, size_t cbPlaintextData,
+		const void *pIV, size_t cbIV,
+		void *pEncryptedDataAndTag, uint32 *pcbEncryptedDataAndTag,
+		const void *pKey, size_t cbKey,
+		const void *pAdditionalAuthenticationData, size_t cbAuthenticationData,
+		size_t cbTag
+		)
+{
 
 	// Setup a context.  If you are going to be encrypting many buffers with the same parameters,
 	// you should create a context and reuse it, to avoid this setup cost
@@ -332,13 +333,14 @@ bool CCrypto::SymmetricAuthEncryptWithIV(
 
 //-----------------------------------------------------------------------------
 bool CCrypto::SymmetricAuthDecryptWithIV(
-	const void *pEncryptedDataAndTag, size_t cbEncryptedDataAndTag,
-	const void *pIV, size_t cbIV,
-	void *pPlaintextData, uint32 *pcbPlaintextData,
-	const void *pKey, size_t cbKey,
-	const void *pAdditionalAuthenticationData, size_t cbAuthenticationData,
-	size_t cbTag
-) {
+		const void *pEncryptedDataAndTag, size_t cbEncryptedDataAndTag,
+		const void *pIV, size_t cbIV,
+		void *pPlaintextData, uint32 *pcbPlaintextData,
+		const void *pKey, size_t cbKey,
+		const void *pAdditionalAuthenticationData, size_t cbAuthenticationData,
+		size_t cbTag
+		)
+{
 	// Setup a context.  If you are going to be decrypting many buffers with the same parameters,
 	// you should create a context and reuse it, to avoid this setup cost
 	AES_GCM_DecryptContext ctx;

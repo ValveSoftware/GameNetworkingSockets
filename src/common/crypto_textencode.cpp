@@ -186,14 +186,14 @@ bool CCrypto::Base64Encode( const void *pubData, uint32 cubData, char *pchEncode
 bool CCrypto::Base64Encode( const void *pData, uint32 cubData, char *pchEncodedData, uint32* pcchEncodedData, const char *pszLineBreak )
 {
 	VPROF_BUDGET( "CCrypto::Base64Encode", VPROF_BUDGETGROUP_ENCRYPTION );
-	
+
 	if ( pchEncodedData == NULL )
 	{
 		AssertMsg( *pcchEncodedData == 0, "NULL output buffer with non-zero size passed to Base64Encode" );
 		*pcchEncodedData = Base64EncodeMaxOutput( cubData, pszLineBreak );
 		return true;
 	}
-	
+
 	const uint8 *pubData = (const uint8 *)pData;
 	const uint8 *pubDataEnd = pubData + cubData;
 	char *pchEncodedDataStart = pchEncodedData;
@@ -213,7 +213,7 @@ bool CCrypto::Base64Encode( const void *pData, uint32 cubData, char *pchEncodedD
 	{
 		if ( cchEncodedData < 4 + unLineBreakLen )
 			goto out_of_space;
-		
+
 		if ( nNextLineBreak == 0 )
 		{
 			memcpy( pchEncodedData, pszLineBreak, unLineBreakLen );
@@ -316,7 +316,7 @@ bool CCrypto::Base64Decode( const char *pchData, void *pubDecodedData, uint32 *p
 bool CCrypto::Base64Decode( const char *pchData, uint32 cchDataMax, void *pDecodedData, uint32 *pcubDecodedData, bool bIgnoreInvalidCharacters )
 {
 	VPROF_BUDGET( "CCrypto::Base64Decode", VPROF_BUDGETGROUP_ENCRYPTION );
-	
+
 	uint8 *pubDecodedData = (uint8 *)pDecodedData;
 	uint32 cubDecodedData = *pcubDecodedData;
 	uint32 cubDecodedDataOrig = cubDecodedData;
@@ -326,13 +326,13 @@ bool CCrypto::Base64Decode( const char *pchData, uint32 cchDataMax, void *pDecod
 		AssertMsg( *pcubDecodedData == 0, "NULL output buffer with non-zero size passed to Base64Decode" );
 		cubDecodedDataOrig = cubDecodedData = ~0u;
 	}
-	
+
 	// valid base64 character range: '+' (0x2B) to 'z' (0x7A)
 	// table entries are 0-63, -1 for invalid entries, -2 for '='
 	static const signed char rgchInvBase64[] = {
 		62, -1, -1, -1, 63, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61,
 		-1, -1, -1, -2, -1, -1, -1,  0,  1,  2,  3,  4,  5,  6,  7,
-		 8,  9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
+		8,  9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
 		23, 24, 25, -1, -1, -1, -1, -1, -1, 26, 27, 28, 29, 30, 31,
 		32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46,
 		47, 48, 49, 50, 51
@@ -412,7 +412,7 @@ bool CCrypto::Base64Decode( const char *pchData, uint32 cchDataMax, void *pDecod
 			un24BitsWithSentinel <<= 8;
 		}
 	}
-	
+
 	*pcubDecodedData = cubDecodedDataOrig - cubDecodedData;
 	return true;
 
