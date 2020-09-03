@@ -34,8 +34,13 @@ CMAKE_ARGS=(
 	-DWERROR=ON
 )
 
+# Default build matrix options. Any exceptions should be spelled out after this
+# block.
 BUILD_SANITIZERS=${BUILD_SANITIZERS:-0}
+BUILD_LIBSODIUM=${BUILD_LIBSODIUM:-1}
+BUILD_WEBRTC=${BUILD_WEBRTC:-1}
 
+# Sanitizers aren't supported on MinGW
 [[ $(uname -s) == MINGW* ]] && BUILD_SANITIZERS=0
 
 # Noticed that Clang's tsan and asan don't behave well on non-x86_64 Travis
@@ -48,8 +53,6 @@ BUILD_SANITIZERS=${BUILD_SANITIZERS:-0}
 
 # Foreign architecture docker containers don't support sanitizers.
 [[ $(uname -m) != x86_64 ]] && grep -q -e AuthenticAMD -e GenuineIntel /proc/cpuinfo && BUILD_SANITIZERS=0
-
-BUILD_LIBSODIUM=1
 
 # libsodium's AES implementation only works on x86_64
 [[ $(uname -m) != x86_64 ]] && BUILD_LIBSODIUM=0
