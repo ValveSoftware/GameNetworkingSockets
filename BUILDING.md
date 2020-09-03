@@ -21,6 +21,11 @@ Building
   NAT piercing (ICE) for P2P connections.  The relevant code is linked in as a
   git submodule.  You'll need to initialize that submodule to compile.
 
+## Known Issues
+* The build may have link errors when building with LLVM 10+:
+  [LLVM bug #46313](https://bugs.llvm.org/show_bug.cgi?id=46313). As
+  a workaround, consider building the library with GCC instead.
+
 ## Linux
 
 ### OpenSSL and protobuf
