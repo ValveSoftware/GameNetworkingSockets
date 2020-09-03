@@ -41,6 +41,13 @@ TEST_BIG_ENDIAN(IS_BIG_ENDIAN)
 #	add_definitions( -DWEBRTC_ARCH_LITTLE_ENDIAN )
 #endif()
 
+if(IS_BIG_ENDIAN)
+	# There are no big endian architectures defined in WebRTC's arch.h file, so
+	# let's just error out early because the user would need to do some work to
+	# add the platform or verify it even works on there.
+	message(FATAL_ERROR "WebRTC does not have your architecture defined in arch.h")
+endif()
+
 if(WIN32)
     add_definitions(
         -DWEBRTC_WIN
