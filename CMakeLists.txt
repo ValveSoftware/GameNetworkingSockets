@@ -1,5 +1,12 @@
 cmake_minimum_required(VERSION 3.5)
 
+# If vcpkg present as submodule, bring in the toolchain
+if( EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/vcpkg/scripts/buildsystems/vcpkg.cmake )
+	message(STATUS "Found ${CMAKE_CURRENT_SOURCE_DIR}/vcpkg/scripts/buildsystems/vcpkg.cmake; using it!")
+	set(CMAKE_TOOLCHAIN_FILE ${CMAKE_CURRENT_SOURCE_DIR}/vcpkg/scripts/buildsystems/vcpkg.cmake
+		CACHE STRING "Vcpkg toolchain file")
+endif()
+
 include(CMakeDependentOption)
 include(CMakePushCheckState)
 include(CheckSymbolExists)
