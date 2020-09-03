@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.5)
 project(gns_example C CXX)
 
-find_library(golang REQUIRED)
+find_program(GO go)
 
 #
 # Trivial signaling server, written in go
@@ -17,7 +17,7 @@ if( NOT WIN32 )
 		DEPENDS ${SIGNAL_SERVER_SRCS}
 		WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
 		COMMENT "Building GO Trivial signaling server"
-		COMMAND env go build -o "${SIGNAL_SERVER_OUTPUT}" ${CMAKE_GO_FLAGS} ${SIGNAL_SERVER_SRCS}
+		COMMAND ${GO} build -o "${SIGNAL_SERVER_OUTPUT}" ${CMAKE_GO_FLAGS} ${SIGNAL_SERVER_SRCS}
 	)
 	add_custom_target(${SIGNAL_SERVER_TARGET} ALL DEPENDS ${SIGNAL_SERVER_OUTPUT})
 endif()
