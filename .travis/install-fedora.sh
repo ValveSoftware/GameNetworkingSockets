@@ -12,7 +12,7 @@ PACKAGES=(
 	ccache
 	clang
 	cmake
-	meson
+	ninja-build
 	pkgconf-pkg-config
 	git
 	make

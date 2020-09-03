@@ -14,7 +14,7 @@ PACKAGES=(
 	g++
 	ccache
 	cmake
-	meson
+	ninja
 	pkgconf
 	git
 	linux-headers

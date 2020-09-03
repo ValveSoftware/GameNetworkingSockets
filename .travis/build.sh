@@ -63,16 +63,12 @@ ccache -M4G
 
 if has_clang; then
 	msg "Beginning build tests with Clang"
-	#export CC="ccache clang" CXX="ccache clang++"
-	#has meson && bash .travis/build-meson.sh
 	export CC=clang CXX=clang++
 	has cmake && bash .travis/build-cmake.sh
 fi
 
 if has_gcc; then
 	msg "Beginning build tests with GCC"
-	#export CC="ccache gcc" CXX="ccache g++"
-	#has meson && bash .travis/build-meson.sh
 	export CC=gcc CXX=g++
 	has cmake && bash .travis/build-cmake.sh
 fi
