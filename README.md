@@ -34,6 +34,44 @@ What it does *not* do:
   variables, etc
 * Compression
 
+## Quick API overview
+
+To get an idea of what the API is like, here are a few things to check out:
+
+* The [include/steam](include/steam) folder has the public API headers.
+  * [``ISteamNetworkingSockets``](include/steam/isteamnetworkingsockets.h) is the
+    most important interface.
+  * [``steamnetworkingtypes.h``](include/steam/steamnetworkingtypes.h) has misc
+    types and declarations.
+* The
+  [Steamworks SDK documentation](https://partner.steamgames.com/doc/api/ISteamNetworkingSockets)
+  offers web-based documentation for these APIs.  Note that some features
+  are only available on Steam, such as Steam's authentication service,
+  signaling service, and the SDR relay service.
+* Look at these examples:
+  * [example_chat.cpp](examples/example_chat.cpp).  Very simple client/server
+    program using all reliable messages over ordinary IPv4.
+  * [test_p2p.cpp](tests/test_p2p.cpp).  Shows how to get two hosts to connect
+    to each other using P2P connectivity.  Also an example of how to write a
+    signaling service plugin.
+
+## Building
+
+See [BUILDING](BUILDING.md) for more information.
+
+## Language bindings
+
+The library was written in C++, but there is also a plain C interface
+to facilitate binding to other languages.
+
+Third party language bindings:
+
+* C#:
+  * <https://github.com/nxrighthere/ValveSockets-CSharp>
+  * <https://github.com/Facepunch/Facepunch.Steamworks>
+* Go:
+  * <https://github.com/nielsAD/gns/>
+
 ## Why do I see "Steam" everywhere?
 
 The main interface class is named SteamNetworkingSockets, and many files have
@@ -61,19 +99,3 @@ trauma.  Also if you see code that appears to have unnecessary layers of
 abstraction, it's probably because those layers are needed to support relayed
 connection types or some part of the Steamworks SDK.
 
-## Building
-
-See [BUILDING](BUILDING.md) for more information.
-
-## Language bindings
-
-The library was written in C++, but there is also a plain C interface
-to facilitate binding to other languages.
-
-Third party language bindings:
-
-* C#:
-  * <https://github.com/nxrighthere/ValveSockets-CSharp>
-  * <https://github.com/Facepunch/Facepunch.Steamworks>
-* Go:
-  * <https://github.com/nielsAD/gns/>
