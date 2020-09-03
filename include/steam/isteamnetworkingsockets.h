@@ -1,16 +1,4 @@
 //====== Copyright Valve Corporation, All rights reserved. ====================
-//
-// Networking API similar to Berkeley sockets, but for games.
-// - connection-oriented API (like TCP, not UDP)
-// - but unlike TCP, it's message-oriented, not stream-oriented
-// - mix of reliable and unreliable messages
-// - fragmentation and reassembly
-// - Supports connectivity over plain UDPv4
-// - Also supports SDR ("Steam Datagram Relay") connections, which are
-//   addressed by SteamID.  There is a "P2P" use case and also a "hosted
-//   dedicated server" use case.
-//
-//=============================================================================
 
 #ifndef ISTEAMNETWORKINGSOCKETS
 #define ISTEAMNETWORKINGSOCKETS
@@ -25,13 +13,28 @@ class ISteamNetworkingConnectionCustomSignaling;
 class ISteamNetworkingCustomSignalingRecvContext;
 
 //-----------------------------------------------------------------------------
-/// Lower level networking interface that more closely mirrors the standard
-/// Berkeley sockets model.
+/// Lower level networking API.
+///
+/// - Connection-oriented API (like TCP, not UDP).  When sending and receiving
+///   messages, a connection handle is used.  (For a UDP-style interface, see
+///   ISteamNetworkingMessages.)  In this TCP-style interface, the "server" will
+///   "listen" on a "listen socket."  A "client" will "connect" to the server,
+///   and the server will "accept" the connection.
+/// - But unlike TCP, it's message-oriented, not stream-oriented.
+/// - Mix of reliable and unreliable messages
+/// - Fragmentation and reassembly
+/// - Supports connectivity over plain UDP
+/// - Also supports SDR ("Steam Datagram Relay") connections, which are
+///   addressed by the identity of the peer.  There is a "P2P" use case and
+///   a "hosted dedicated server" use case.
 ///
 /// Note that neither of the terms "connection" nor "socket" necessarily correspond
 /// one-to-one with an underlying UDP socket.  An attempt has been made to
 /// keep the semantics as similar to the standard socket model when appropriate,
 /// but some deviations do exist.
+///
+/// See also: ISteamNetworkingMessages, the UDP-style interface.  This API might be
+/// easier to use, especially when porting existing UDP code.
 class ISteamNetworkingSockets
 {
 public:
