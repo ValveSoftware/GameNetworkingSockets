@@ -56,6 +56,9 @@ BUILD_LIBSODIUM=1
 
 set -x
 
+# Use shallow clones of submodules for space/time efficiency.
+git submodule update --init --depth=1
+
 # Build some tests with sanitizers
 if [[ $BUILD_SANITIZERS -ne 0 ]]; then
 	cmake_configure build-asan ${CMAKE_ARGS[@]} -DSANITIZE_ADDRESS:BOOL=ON
