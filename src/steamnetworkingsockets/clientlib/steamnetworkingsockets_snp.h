@@ -45,6 +45,53 @@ struct P2PSessionState_t;
 
 namespace SteamNetworkingSocketsLib {
 
+// Acks may be delayed.  This controls the precision used on the wire to encode the delay time.
+constexpr int k_nAckDelayPrecisionShift = 5;
+constexpr SteamNetworkingMicroseconds k_usecAckDelayPrecision = (1 << k_nAckDelayPrecisionShift );
+
+// When a receiver detects a dropped packet, wait a bit before NACKing it, to give it time
+// to arrive out of order.  This is really important for many different types of connections
+// that send on different channels, e.g. DSL, Wifi.
+// Here we really could be smarter, by tracking how often dropped
+// packets really do arrive out of order.  If the rate is low, then it's
+// probably best to go ahead and send a NACK now, rather than waiting.
+// But if dropped packets do often arrive out of order, then waiting
+// to NACK will probably save some retransmits.  In fact, instead
+// of learning the rate, we should probably try to learn the delay.
+// E.g. a probability distribution P(t), which describes the odds
+// that a dropped packet will have arrived at time t.  Then you
+// adjust the NACK delay such that P(nack_delay) gives the best
+// balance between false positive and false negative rates.
+constexpr SteamNetworkingMicroseconds k_usecNackFlush = 3*1000;
+
+// Max size of a message that we are wiling to *receive*.
+constexpr int k_cbMaxMessageSizeRecv = k_cbMaxSteamNetworkingSocketsMessageSizeSend*2;
+
+// The max we will look ahead and allocate data, ahead of the reliable
+// messages we have been able to decode.  We limit this to make sure that
+// a malicious sender cannot exploit us.
+constexpr int k_cbMaxBufferedReceiveReliableData = k_cbMaxMessageSizeRecv + 64*1024;
+constexpr int k_nMaxReliableStreamGaps_Extend = 30; // Discard reliable data past the end of the stream, if it would cause us to get too many gaps
+constexpr int k_nMaxReliableStreamGaps_Fragment = 20; // Discard reliable data that is filling in the middle of a hole, if it would cause the number of gaps to exceed this number
+constexpr int k_nMaxPacketGaps = 62; // Don't bother tracking more than N gaps.  Instead, we will end up NACKing some packets that we actually did receive.  This should not break the protocol, but it protects us from malicious sender
+
+// Hang on to at most N unreliable segments.  When packets are dropping
+// and unreliable messages being fragmented, we will accumulate old pieces
+// of unreliable messages that we retain in hopes that we will get the
+// missing piece and reassemble the whole message.  At a certain point we
+// must give up and discard them.  We use a simple strategy of just limiting
+// the max total number.  In reality large unreliable messages are just a very bad
+// idea, since the odds of the message dropping increase exponentially with the
+// number of packets.  With 20 packets, even 1% packet loss becomes ~80% message
+// loss.  (Assuming naive fragmentation and reassembly and no forward
+// error correction.)
+constexpr int k_nMaxBufferedUnreliableSegments = 20;
+
+// If app tries to send a message larger than N bytes unreliably,
+// complain about it, and automatically convert to reliable.
+// About 15 segments.
+constexpr int k_cbMaxUnreliableMsgSize = 15*1100;
+
 class CSteamNetworkConnectionBase;
 class CConnectionTransport;
 struct SteamNetworkingMessageQueue;
