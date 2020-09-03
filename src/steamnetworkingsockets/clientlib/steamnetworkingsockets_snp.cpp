@@ -2331,9 +2331,8 @@ void CSteamNetworkConnectionBase::SNP_ReceiveUnreliableSegment( int64 nMsgNum, i
 		return;
 	}
 
-	// Limit number of unreliable segments
-	// We store.  We just use a fixed limit, rather than
-	// trying to be smart by expiring based on time or whatever.
+	// Limit number of unreliable segments we store.  We just use a fixed
+	// limit, rather than trying to be smart by expiring based on time or whatever.
 	if ( len( m_receiverState.m_mapUnreliableSegments ) > k_nMaxBufferedUnreliableSegments )
 	{
 		auto itDelete = m_receiverState.m_mapUnreliableSegments.begin();
@@ -2351,8 +2350,8 @@ void CSteamNetworkConnectionBase::SNP_ReceiveUnreliableSegment( int64 nMsgNum, i
 		if ( nDeleteMsgNum >= nMsgNum )
 		{
 			// Spew, but rate limit in case of malicious sender
-			SpewWarningRateLimited( usecNow, "SNP expiring unreliable segments for msg %lld, while receiving unreliable segments for msg %lld\n",
-				(long long)nDeleteMsgNum, (long long)nMsgNum );
+			SpewWarningRateLimited( usecNow, "[%s] SNP expiring unreliable segments for msg %lld, while receiving unreliable segments for msg %lld\n",
+				GetDescription(), (long long)nDeleteMsgNum, (long long)nMsgNum );
 		}
 	}
 
@@ -2364,25 +2363,23 @@ void CSteamNetworkConnectionBase::SNP_ReceiveUnreliableSegment( int64 nMsgNum, i
 	SSNPRecvUnreliableSegmentData &data = m_receiverState.m_mapUnreliableSegments[ key ];
 	if ( data.m_cbSegSize >= 0 )
 	{
+		// We got another segment starting at the same offset.  This is weird, since they shouldn't
+		// be doing.  But remember that we're working on top of UDP, which could deliver packets
+		// multiple times.  We'll spew about it, just in case it indicates a bug in this code or the sender.
+		SpewWarningRateLimited( usecNow, "[%s] Received unreliable msg %lld segment offset %d twice.  Sizes %d,%d, last=%d,%d\n",
+			GetDescription(), nMsgNum, nOffset, data.m_cbSegSize, cbSegmentSize, (int)data.m_bLast, (int)bLastSegmentInMessage );
 
-		// We got the same segment twice (weird, since they shouldn't be doing
-		// retry -- but remember that we're working on top of UDP, which could deliver packets
-		// multiple times).  Duplicate packet delivery is actually really rare, let's spew about it.
-		SpewMsg( "Received unreliable msg %lld offset %d twice.  Sizes %d,%d\n", nMsgNum, nOffset, data.m_cbSegSize, cbSegmentSize );
-	}
-
-	if ( data.m_cbSegSize >= cbSegmentSize )
-	{
-
-		// The data we already have is either a duplicate, or a superset.
-		// So ignore this incoming segment.
+		// Just drop the segment.  Note that the sender might have sent a longer segment from the previous
+		// one, in which case this segment contains new data, and is not therefore redundant.  That seems
+		// "legal", but very weird, and not worth handling.  If senders do retransmit unreliable segments
+		// (perhaps FEC?) then they need to retransmit the exact same segments.
 		return;
 	}
 
 	// Segment in the map either just got inserted, or is a subset of the segment
 	// we just received.  Replace it.
 	data.m_cbSegSize = cbSegmentSize;
-	Assert( !data.m_bLast ); // sender is doing weird stuff or we have a bug
+	Assert( !data.m_bLast );
 	data.m_bLast = bLastSegmentInMessage;
 	memcpy( data.m_buf, pSegmentData, cbSegmentSize );
 
