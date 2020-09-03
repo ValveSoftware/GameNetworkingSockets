@@ -33,6 +33,9 @@ cmake_install.cmake
 perf.data
 perf.data.old
 
+# Default/recommended install directory for vcpkg
+/vcpkg
+
 *.VC.*
 /.vscode
 /build
