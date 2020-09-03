@@ -2,6 +2,8 @@
 // Serves as an example of you how to hook up signaling server
 // to SteamNetworkingSockets P2P connections
 
+#include "../tests/test_common.h"
+
 #include <string>
 #include <mutex>
 #include <assert.h>
@@ -9,8 +11,6 @@
 #include "trivial_signaling_client.h"
 #include <steam/isteamnetworkingsockets.h>
 #include <steam/isteamnetworkingutils.h>
-
-#include "../tests/test_common.h"
 
 #ifdef POSIX
 	#include <unistd.h>
@@ -24,6 +24,10 @@
 	inline int GetSocketError() { return errno; }
 #endif
 #ifdef _WIN32
+	#include <winsock2.h>
+	#include <ws2tcpip.h>
+	typedef int socklen_t;
+	inline int GetSocketError() { return WSAGetLastError(); }
 #endif
 
 inline int HexDigitVal( char c )
@@ -124,8 +128,8 @@ class CTrivialSignalingClient : public ITrivialSignalingClient
 			return;
 		}
 		#ifdef _WIN32
-			opt = 1;
-			if ( ioctlsocket( sock, FIONBIO, (unsigned long*)&opt ) == -1 )
+			unsigned long opt = 1;
+			if ( ioctlsocket( m_sock, FIONBIO, &opt ) == -1 )
 			{
 				CloseSocket();
 				TEST_Printf( "ioctlsocket() failed, error=%d\n", GetSocketError() );
@@ -169,7 +173,7 @@ public:
 		if ( m_sock != INVALID_SOCKET )
 		{
 			int l = s.length();
-			int r = ::send( m_sock, s.c_str(), s.length(), 0 );
+			int r = ::send( m_sock, s.c_str(), l, 0 );
 			if ( r != l && r != 0 )
 			{
 				// Socket hosed, or we sent a partial signal.
@@ -312,7 +316,7 @@ public:
 				// To process this call, SteamnetworkingSockets will need take its own internal lock.
 				// That lock may be held by another thread that is asking you to send a signal!  So
 				// be warned that deadlocks are a possibility here.
-				m_pSteamNetworkingSockets->ReceivedP2PCustomSignal( data.c_str(), data.length(), &context );
+				m_pSteamNetworkingSockets->ReceivedP2PCustomSignal( data.c_str(), (int)data.length(), &context );
 			}
 
 next_message:

@@ -1,6 +1,13 @@
 // Misc stuff used in the tests
 #pragma once
 
+// Force asserts to be enabled, even in release build
+#undef NDEBUG
+#ifndef _DEBUG
+	#define _DEBUG
+#endif
+#include <assert.h>
+
 struct SteamNetworkingIdentity;
 
 extern void TEST_Init();

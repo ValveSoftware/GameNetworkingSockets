@@ -1,4 +1,5 @@
-#include <assert.h>
+#include "test_common.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
@@ -7,8 +8,6 @@
 #include <random>
 #include <chrono>
 #include <thread>
-
-#include "test_common.h"
 
 #include <steam/steamnetworkingsockets.h>
 #include <steam/isteamnetworkingutils.h>

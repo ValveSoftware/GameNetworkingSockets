@@ -1,4 +1,4 @@
-#include <assert.h>
+#include "test_common.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
@@ -8,7 +8,6 @@
 #include <chrono>
 #include <thread>
 
-#include "test_common.h"
 
 #include <steam/steamnetworkingsockets.h>
 #include <steam/isteamnetworkingutils.h>
@@ -56,8 +55,8 @@ void Quit( int rc )
 void SendMessageToPeer( const char *pszMsg )
 {
 	EResult r = SteamNetworkingSockets()->SendMessageToConnection(
-		g_hConnection, pszMsg, strlen(pszMsg)+1, k_nSteamNetworkingSend_Reliable, nullptr );
-	assert( r == k_EREsultOK );
+		g_hConnection, pszMsg, (int)strlen(pszMsg)+1, k_nSteamNetworkingSend_Reliable, nullptr );
+	assert( r == k_EResultOK );
 }
 
 // Called when a connection undergoes a state transition.
@@ -217,7 +216,7 @@ int main( int argc, const char **argv )
 	{
 		TEST_Printf( "Creating listen socket, local virtual port %d\n", g_nVirtualPortLocal );
 		g_hListenSock = SteamNetworkingSockets()->CreateListenSocketP2P( g_nVirtualPortLocal, 0, nullptr );
-		assert( g_hListenSock != k_HSteamListemSocket_Invalid );
+		assert( g_hListenSock != k_HSteamListenSocket_Invalid  );
 	}
 	else if ( g_eTestRole == k_ETestRole_Symmetric )
 	{
@@ -239,7 +238,7 @@ int main( int argc, const char **argv )
 		SteamNetworkingConfigValue_t opt;
 		opt.SetInt32( k_ESteamNetworkingConfig_SymmetricConnect, 1 ); // << Note we set symmetric mode on the listen socket
 		g_hListenSock = SteamNetworkingSockets()->CreateListenSocketP2P( g_nVirtualPortLocal, 1, &opt );
-		assert( g_hListenSock != k_HSteamListemSocket_Invalid );
+		assert( g_hListenSock != k_HSteamListenSocket_Invalid  );
 	}
 
 	// Begin connecting to peer, unless we are the server
