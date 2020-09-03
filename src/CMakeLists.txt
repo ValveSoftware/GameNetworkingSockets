@@ -11,7 +11,7 @@ set(GNS_PROTOS
 	"common/steamnetworkingsockets_messages_certs.proto"
 	"common/steamnetworkingsockets_messages.proto"
 	"common/steamnetworkingsockets_messages_udp.proto"
-)
+	)
 
 set(GNS_SRCS
 	"common/crypto_textencode.cpp"
@@ -38,21 +38,21 @@ set(GNS_SRCS
 	"tier1/utlmemory.cpp"
 	"tier1/ipv6text.c"
 	"vstdlib/strtools.cpp"
-)
+	)
 
 if(USE_CRYPTO STREQUAL "BCrypt")
-    set(GNS_CRYPTO_DEFINES ${GNS_CRYPTO_DEFINES} STEAMNETWORKINGSOCKETS_CRYPTO_BCRYPT ED25519_HASH_BCRYPT)
-    set(GNS_SRCS ${GNS_SRCS}
-        "common/crypto_bcrypt.cpp"
-    )
+	set(GNS_CRYPTO_DEFINES ${GNS_CRYPTO_DEFINES} STEAMNETWORKINGSOCKETS_CRYPTO_BCRYPT ED25519_HASH_BCRYPT)
+	set(GNS_SRCS ${GNS_SRCS}
+		"common/crypto_bcrypt.cpp"
+		)
 endif()
 
 if(USE_CRYPTO STREQUAL "OpenSSL")
-    set(GNS_CRYPTO_DEFINES ${GNS_CRYPTO_DEFINES} STEAMNETWORKINGSOCKETS_CRYPTO_VALVEOPENSSL)
+	set(GNS_CRYPTO_DEFINES ${GNS_CRYPTO_DEFINES} STEAMNETWORKINGSOCKETS_CRYPTO_VALVEOPENSSL)
 	set(GNS_SRCS ${GNS_SRCS}
 		"common/crypto_openssl.cpp"
 		"common/opensslwrapper.cpp"
-	)
+		)
 endif()
 
 if(USE_CRYPTO STREQUAL "libsodium")
@@ -66,14 +66,14 @@ if(USE_CRYPTO25519 STREQUAL "OpenSSL")
 	set(GNS_CRYPTO_DEFINES  ${GNS_CRYPTO_DEFINES} STEAMNETWORKINGSOCKETS_CRYPTO_25519_OPENSSL)
 	set(GNS_SRCS ${GNS_SRCS}
 		"common/crypto_25519_openssl.cpp"
-	)
+		)
 endif()
 
 if(USE_CRYPTO25519 STREQUAL "libsodium")
 	set(GNS_CRYPTO_DEFINES ${GNS_CRYPTO_DEFINES} STEAMNETWORKINGSOCKETS_CRYPTO_25519_LIBSODIUM)
 	set(GNS_SRCS ${GNS_SRCS}
 		"common/crypto_25519_libsodium.cpp"
-	)
+		)
 endif()
 
 # Use reference 25519 crypto implementation?
@@ -85,7 +85,7 @@ if(USE_CRYPTO25519 STREQUAL "Reference")
 		"external/curve25519-donna/curve25519_VALVE_sse2.c"
 		"external/ed25519-donna/ed25519_VALVE.c"
 		"external/ed25519-donna/ed25519_VALVE_sse2.c"
-	)
+		)
 endif()
 
 # If WebRTC enabled, build the thin wrapper library
@@ -111,7 +111,7 @@ set(GNS_COMMON_FLAGS
 	-Wno-unused-const-variable
 	-Wno-nested-anon-types
 	-Wno-format-truncation
-)
+	)
 
 if(USE_CRYPTO25519 STREQUAL "Reference")
 	# We don't use some of the 25519 functions with static linkage. Silence
@@ -128,7 +128,7 @@ endif()
 
 set(GNS_C_FLAGS
 	-Wstrict-prototypes
-)
+	)
 
 set(GNS_CXX_FLAGS
 	-fvisibility-inlines-hidden
@@ -136,13 +136,13 @@ set(GNS_CXX_FLAGS
 	-Wno-non-virtual-dtor
 	-Wno-zero-as-null-pointer-constant
 	-fno-exceptions
-)
+	)
 
 if(NOT SANITIZE_UNDEFINED)
 	set(GNS_CXX_FLAGS
 		${GNS_CXX_FLAGS}
 		-fno-rtti
-	)
+		)
 endif()
 
 protobuf_generate_cpp(GNS_PROTO_SRCS GNS_PROTO_HDRS ${GNS_PROTOS})
@@ -155,7 +155,7 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 	target_include_directories(${GNS_TARGET} PUBLIC
 		"$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>"
 		"$<INSTALL_INTERFACE:$<INSTALL_PREFIX>/${CMAKE_INSTALL_INCLUDEDIR}/GameNetworkingSockets>"
-	)
+		)
 
 	target_include_directories(${GNS_TARGET} PRIVATE
 		"common"
@@ -165,13 +165,13 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 		# Only necessary if we're not using protobuf::libprotobuf
 		# But that's not supported until CMake 3.9
 		${Protobuf_INCLUDE_DIRS}
-	)
+		)
 
 	target_link_libraries(${GNS_TARGET} PUBLIC
 		# protobuf::libprotobuf
 		${PROTOBUF_LIBRARIES}
 		Threads::Threads
-	)
+		)
 
 	# Enable ICE?
 	if(USE_STEAMWEBRTC)
@@ -184,29 +184,29 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 		if(STEAMWEBRTC_USE_STATIC_LIBS)
 			target_compile_definitions(${GNS_TARGET} PRIVATE
 				STEAMWEBRTC_USE_STATIC_LIBS
-			)
+				)
 			target_link_libraries(${GNS_TARGET} PUBLIC
 				steamwebrtc
-			)
+				)
 		endif()
 	endif()
 
 	if(USE_CRYPTO STREQUAL "OpenSSL" OR USE_CRYPTO25519 STREQUAL "OpenSSL")
 		target_link_libraries(${GNS_TARGET} PUBLIC
 			OpenSSL::Crypto
-		)
+			)
 		if(WIN32 AND OPENSSL_USE_STATIC_LIBS)
 			target_link_libraries(${GNS_TARGET} PUBLIC
 				ws2_32
 				crypt32
-			)
+				)
 		endif()
 	endif()
 
 	if(USE_CRYPTO STREQUAL "libsodium" OR USE_CRYPTO25519 STREQUAL "libsodium")
 		target_link_libraries(${GNS_TARGET} PUBLIC
 			sodium
-		)
+			)
 	endif()
 
 	target_compile_definitions(${GNS_TARGET} PRIVATE
@@ -215,7 +215,7 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 		CRYPTO_DISABLE_ENCRYPT_WITH_PASSWORD
 		GOOGLE_PROTOBUF_NO_RTTI
 		${GNS_CRYPTO_DEFINES}
-	)
+		)
 
 	if(SANITIZE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 		target_compile_definitions(${GNS_TARGET} PRIVATE ED25519_NO_INLINE_ASM)
@@ -304,7 +304,7 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 
 	set_target_properties(${GNS_TARGET} PROPERTIES
 		CXX_STANDARD 11
-	)
+		)
 
 	add_sanitizers(${GNS_TARGET})
 
@@ -328,7 +328,7 @@ install(
 	LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
 	ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
 	RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-)
+	)
 
 install(DIRECTORY ../include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/GameNetworkingSockets)
 
@@ -336,7 +336,7 @@ install(
 	EXPORT GameNetworkingSockets
 	DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/GameNetworkingSockets
 	NAMESPACE GameNetworkingSockets::
-)
+	)
 
 include(CMakePackageConfigHelpers)
 
@@ -344,11 +344,11 @@ configure_package_config_file(../cmake/GameNetworkingSocketsConfig.cmake.in
 	${CMAKE_CURRENT_BINARY_DIR}/GameNetworkingSocketsConfig.cmake
 	INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/GameNetworkingSockets
 	PATH_VARS CMAKE_INSTALL_FULL_INCLUDEDIR
-)
+	)
 
 install(FILES 
 	${CMAKE_CURRENT_BINARY_DIR}/GameNetworkingSocketsConfig.cmake
 	DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/GameNetworkingSockets
-)
+	)
 
 # vim: set ts=4 sts=4 sw=4 noet:
