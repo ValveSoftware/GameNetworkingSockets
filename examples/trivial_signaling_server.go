@@ -40,12 +40,12 @@
 package main
 
 import (
-	"strings"
-	"fmt"
-	"net"
-	"flag"
 	"bufio"
+	"flag"
+	"fmt"
 	"log"
+	"net"
+	"strings"
 )
 
 const DEFAULT_LISTEN_PORT = 10000
@@ -64,9 +64,9 @@ func ServiceConnection(conn net.Conn) {
 
 	// In our trivial protocol, the first line contains the client identity
 	// on a line by itself
-	intro,err := in.ReadString('\n')
+	intro, err := in.ReadString('\n')
 	if err != nil {
-		log.Printf( "[%s] Aborting connection before we ever received client identity", addr )
+		log.Printf("[%s] Aborting connection before we ever received client identity", addr)
 		conn.Close()
 	}
 	identity := strings.TrimSpace(intro)
@@ -81,26 +81,26 @@ func ServiceConnection(conn net.Conn) {
 
 	// Now handle existing entry
 	if existingConn != nil {
-		log.Printf( "[%s@%s] Closing connection to make room for new connection from '%s'", identity, existingConn.RemoteAddr().String(), addr )
+		log.Printf("[%s@%s] Closing connection to make room for new connection from '%s'", identity, existingConn.RemoteAddr().String(), addr)
 		existingConn.Close()
 	}
-	log.Printf( "[%s@%s] Added connection", identity, addr )
+	log.Printf("[%s@%s] Added connection", identity, addr)
 
 	// Keep reading until connection is closed
 	for {
-		line,err := in.ReadString('\n')
+		line, err := in.ReadString('\n')
 		if err != nil {
 			conn.Close()
 
 			// Are we stil in the map?
 			if g_mapClientConnections[identity] == conn {
-				log.Printf( "[%s@%s] Connecton closed. %s", identity, addr, err )
+				log.Printf("[%s@%s] Connecton closed. %s", identity, addr, err)
 				delete(g_mapClientConnections, identity)
 			} else {
 				// Assume it's because we got replaced by another connection.
 				// The other connection already logged, so don't do anything here
 			}
-			break;
+			break
 		}
 
 		// Our protocol is just [destination peer identity] [payload]
@@ -110,7 +110,7 @@ func ServiceConnection(conn net.Conn) {
 			log.Printf("[%s@%s] Ignoring weird input '%s' (maybe truncated?)", identity, addr, line)
 			continue
 		}
-		dest_identity := strings.TrimSpace(dest_and_msg[0]);
+		dest_identity := strings.TrimSpace(dest_and_msg[0])
 		payload := dest_and_msg[1]
 
 		// Locate the destination peer's connection.
@@ -135,9 +135,9 @@ func ServiceConnection(conn net.Conn) {
 // Main entry point
 func main() {
 
-    // Parse command line flags
+	// Parse command line flags
 	port := flag.Int("port", DEFAULT_LISTEN_PORT, "Port to listen on")
-    flag.Parse()
+	flag.Parse()
 	listen_addr := fmt.Sprintf("0.0.0.0:%d", *port)
 
 	// Start listening
@@ -151,7 +151,7 @@ func main() {
 	for {
 
 		// Wait for the next incoming connection
-		conn,err := listener.Accept()
+		conn, err := listener.Accept()
 		if err != nil {
 			log.Panic(err)
 		}
@@ -161,4 +161,3 @@ func main() {
 	}
 
 }
-
