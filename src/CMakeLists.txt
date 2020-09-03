@@ -89,9 +89,9 @@ if(USE_CRYPTO25519 STREQUAL "Reference")
 endif()
 
 # If WebRTC enabled, build the thin wrapper library
-if(USE_WEBRTC)
+if(USE_STEAMWEBRTC)
 	add_subdirectory(external/steamwebrtc)
-endif(USE_WEBRTC)
+endif(USE_STEAMWEBRTC)
 
 set(C99_FEATURES
 	c_restrict
@@ -174,7 +174,7 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 	)
 
 	# Enable ICE?
-	if(USE_WEBRTC)
+	if(USE_STEAMWEBRTC)
 
 		# Enable ICE
 		target_compile_definitions(${GNS_TARGET} PRIVATE

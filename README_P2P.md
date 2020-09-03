@@ -101,9 +101,9 @@ also included with Steam, but outside the scope of a transport library like this
 Assuming you have all of those requirements, you can use SteamNetworkingSockets
 to make P2P connections!
 
-To compile with ICE support, set USE_WEBRTC when building the project files:
+To compile with ICE support, set USE_STEAMWEBRTC when building the project files:
 ```
-cmake -DUSE_WEBRTC=ON (etc...)
+cmake -DUSE_STEAMWEBRTC=ON (etc...)
 ```
 
 You'll also need to activate two git submodules to pull down the google WebRTC code.
