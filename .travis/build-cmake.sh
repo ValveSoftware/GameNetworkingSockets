@@ -20,7 +20,7 @@ cmake_build() {
 
 cleanup() {
 	echo "Cleaning up CMake build directories" >&2
-	rm -rf build-{a,ub,t}san build-cmake{,-ref,-sodium{,25519}}
+	rm -rf build-{a,ub,t}san build-cmake{,-webrtc,-ref,-sodium{,25519}}
 }
 
 trap cleanup EXIT
