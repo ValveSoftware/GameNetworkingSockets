@@ -40,6 +40,7 @@ perf.data.old
 /.vscode
 /build
 /build-*
+/log.txt
 /src/.vs/*
 /src/steamnetworkingsockets/Messageswin64Debug/*
 /src/steamnetworkingsockets/certtool/win64/*
