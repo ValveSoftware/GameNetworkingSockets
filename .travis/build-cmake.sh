@@ -51,6 +51,11 @@ BUILD_WEBRTC=${BUILD_WEBRTC:-1}
 # builder, and it fails to link properly.
 [[ $(uname -m) == s390x ]] && BUILD_SANITIZERS=0
 
+# Big-endian platforms can't build with WebRTC out-of-the-box.
+[[ $(uname -m) == s390x ]] && BUILD_WEBRTC=0
+[[ $(uname -m) == powerpc ]] && BUILD_WEBRTC=0
+[[ $(uname -m) == ppc64 ]] && BUILD_WEBRTC=0
+
 # Foreign architecture docker containers don't support sanitizers.
 [[ $(uname -m) != x86_64 ]] && grep -q -e AuthenticAMD -e GenuineIntel /proc/cpuinfo && BUILD_SANITIZERS=0
 
