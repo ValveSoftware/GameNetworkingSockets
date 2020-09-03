@@ -142,6 +142,51 @@ if(USE_CRYPTO STREQUAL "libsodium")
 	endif()
 endif()
 
+
+function(set_target_common_gns_properties TGT)
+	target_compile_definitions( ${TGT} PRIVATE GOOGLE_PROTOBUF_NO_RTTI )
+
+	if(CMAKE_SYSTEM_NAME MATCHES Linux)
+		target_compile_definitions(${TGT} PUBLIC POSIX LINUX)
+	elseif(CMAKE_SYSTEM_NAME MATCHES Darwin)
+		target_compile_definitions(${TGT} PUBLIC POSIX OSX)
+	elseif(CMAKE_SYSTEM_NAME MATCHES Windows)
+		#target_compile_definitions(${TGT} PUBLIC WIN32)
+		if(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
+			if(NOT Protobuf_USE_STATIC_LIBS)
+				target_compile_definitions(${TGT} PRIVATE PROTOBUF_USE_DLLS)
+			endif()
+			target_compile_options(${TGT} PRIVATE
+				/EHs-c-   # Disable C++ exceptions
+				/GR-      # Disable RTTI
+
+				# Below are warnings we can't fix and don't want to see (mostly from protobuf, some from MSVC standard library)
+				/wd4146   # include/google/protobuf/wire_format_lite.h(863): warning C4146: unary minus operator applied to unsigned type, result still unsigned
+				/wd4530   # .../xlocale(319): warning C4530: C++ exception handler used, but unwind semantics are not enabled. Specify /EHsc
+				/wd4244   # google/protobuf/wire_format_lite.h(935): warning C4244: 'argument': conversion from 'google::protobuf::uint64' to 'google::protobuf::uint32', possible loss of data
+				/wd4251   # 'google::protobuf::io::CodedOutputStream::default_serialization_deterministic_': struct 'std::atomic<bool>' needs to have dll-interface to be used by clients of class 
+				/wd4267   # google/protobuf/has_bits.h(73): warning C4267: 'argument': conversion from 'size_t' to 'int', possible loss of data
+				)
+		else()
+			target_compile_definitions(${TGT} PRIVATE
+				__STDC_FORMAT_MACROS=1
+				__USE_MINGW_ANSI_STDIO=0
+				)
+			target_compile_options(${TGT} PRIVATE -fno-stack-protector)
+		endif()
+	else()
+		message(FATAL_ERROR "Could not identify your target operating system")
+	endif()
+
+	if(NOT CMAKE_SYSTEM_NAME MATCHES Windows)
+		target_compile_options(${TGT} PRIVATE -fstack-protector-strong)
+	endif()
+
+	set_target_properties(${TGT} PROPERTIES
+		CXX_STANDARD 11
+	)
+endfunction()
+
 if(GAMENETWORKINGSOCKETS_BUILD_EXAMPLES)
 	add_subdirectory(examples)
 endif()

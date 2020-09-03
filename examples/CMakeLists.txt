@@ -30,6 +30,8 @@ add_executable(
 	example_chat
 	example_chat.cpp)
 
+set_target_common_gns_properties( example_chat )
+
 # If building the example as a standalone project, need to find GameNetworkingSockets
 if(${CMAKE_PROJECT_NAME} STREQUAL "gns_example")
 	find_package(GameNetworkingSockets CONFIG REQUIRED)

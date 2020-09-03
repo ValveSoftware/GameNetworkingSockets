@@ -152,6 +152,8 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 	target_sources(${GNS_TARGET} PRIVATE ${GNS_SRCS})
 	target_sources(${GNS_TARGET} PRIVATE ${GNS_PROTO_SRCS})
 
+	set_target_common_gns_properties( ${GNS_TARGET} )
+
 	target_include_directories(${GNS_TARGET} PUBLIC
 		"$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>"
 		"$<INSTALL_INTERFACE:$<INSTALL_PREFIX>/${CMAKE_INSTALL_INCLUDEDIR}/GameNetworkingSockets>"
@@ -213,7 +215,6 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 		STEAMNETWORKINGSOCKETS_FOREXPORT
 		ENABLE_OPENSSLCONNECTION
 		CRYPTO_DISABLE_ENCRYPT_WITH_PASSWORD
-		GOOGLE_PROTOBUF_NO_RTTI
 		${GNS_CRYPTO_DEFINES}
 		)
 
@@ -253,42 +254,19 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 		if(USE_STEAMWEBRTC AND NOT STEAMWEBRTC_USE_STATIC_LIBS)
 			target_link_libraries(${GNS_TARGET} PRIVATE dl)
 		endif()
-		target_compile_definitions(${GNS_TARGET} PUBLIC POSIX LINUX)
 	elseif(CMAKE_SYSTEM_NAME MATCHES Darwin)
 		if(USE_STEAMWEBRTC AND NOT STEAMWEBRTC_USE_STATIC_LIBS)
 			target_link_libraries(${GNS_TARGET} PRIVATE dl)
 		endif()
-		target_compile_definitions(${GNS_TARGET} PUBLIC POSIX OSX)
 	elseif(CMAKE_SYSTEM_NAME MATCHES Windows)
-		target_compile_definitions(${GNS_TARGET} PUBLIC WIN32)
 		if(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
-			if(NOT Protobuf_USE_STATIC_LIBS)
-				target_compile_definitions(${GNS_TARGET} PRIVATE
-					PROTOBUF_USE_DLLS)
-			endif()
 			get_target_property(TARGET_TYPE ${GNS_TARGET} TYPE)
-			target_compile_options(${GNS_TARGET} PRIVATE
-				/EHs-c-   # Disable C++ exceptions
-				/GR-      # Disable RTTI
-
-				# Below are warnings we can't fix and don't want to see (mostly from protobuf, some from MSVC standard library)
-				/wd4146   # include/google/protobuf/wire_format_lite.h(863): warning C4146: unary minus operator applied to unsigned type, result still unsigned
-				/wd4530   # .../xlocale(319): warning C4530: C++ exception handler used, but unwind semantics are not enabled. Specify /EHsc
-				/wd4244   # google/protobuf/wire_format_lite.h(935): warning C4244: 'argument': conversion from 'google::protobuf::uint64' to 'google::protobuf::uint32', possible loss of data
-				/wd4251   # 'google::protobuf::io::CodedOutputStream::default_serialization_deterministic_': struct 'std::atomic<bool>' needs to have dll-interface to be used by clients of class 
-				)
 			if(NOT TARGET_TYPE STREQUAL STATIC_LIBRARY)
 				target_compile_options(${GNS_TARGET} PRIVATE
 					/GL       # Enable link-time code generation
 					)
 				set_target_properties(${GNS_TARGET} PROPERTIES LINK_FLAGS "/LTCG /SUBSYSTEM:WINDOWS")
 			endif()
-		else()
-			target_compile_definitions(${GNS_TARGET} PRIVATE
-				__STDC_FORMAT_MACROS=1
-				__USE_MINGW_ANSI_STDIO=0
-				)
-			target_compile_options(${GNS_TARGET} PRIVATE -fno-stack-protector)
 		endif()
 		target_link_libraries(${GNS_TARGET} PUBLIC ws2_32 crypt32)
 		if(USE_CRYPTO STREQUAL "BCrypt")
@@ -297,14 +275,6 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 	else()
 		message(FATAL_ERROR "Could not identify your target operating system")
 	endif()
-
-	if(NOT CMAKE_SYSTEM_NAME MATCHES Windows)
-		target_compile_options(${GNS_TARGET} PRIVATE -fstack-protector-strong)
-	endif()
-
-	set_target_properties(${GNS_TARGET} PROPERTIES
-		CXX_STANDARD 11
-		)
 
 	add_sanitizers(${GNS_TARGET})
 
