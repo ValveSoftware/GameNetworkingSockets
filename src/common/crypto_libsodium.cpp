@@ -50,10 +50,17 @@ bool AES_GCM_EncryptContext::Encrypt(
 	void *pEncryptedDataAndTag, uint32 *pcbEncryptedDataAndTag,
 	const void *pAdditionalAuthenticationData, size_t cbAuthenticationData
 ) {
-    unsigned long long pcbEncryptedDataAndTag_longlong = *pcbEncryptedDataAndTag;
 
+	// Make sure caller's buffer is big enough to hold the result.
+	if ( cbPlaintextData + crypto_aead_aes256gcm_ABYTES > *pcbEncryptedDataAndTag )
+	{
+		*pcbEncryptedDataAndTag = 0;
+		return false;
+	}
+
+    unsigned long long cbEncryptedDataAndTag_longlong;
     crypto_aead_aes256gcm_encrypt_afternm(
-		static_cast<unsigned char*>( pEncryptedDataAndTag ), &pcbEncryptedDataAndTag_longlong,
+		static_cast<unsigned char*>( pEncryptedDataAndTag ), &cbEncryptedDataAndTag_longlong,
 		static_cast<const unsigned char*>( pPlaintextData ), cbPlaintextData,
 		static_cast<const unsigned char*>(pAdditionalAuthenticationData), cbAuthenticationData,
 		nullptr,
@@ -61,7 +68,7 @@ bool AES_GCM_EncryptContext::Encrypt(
 		static_cast<const crypto_aead_aes256gcm_state*>( m_ctx )
 	);
 
-    *pcbEncryptedDataAndTag = pcbEncryptedDataAndTag_longlong;
+    *pcbEncryptedDataAndTag = cbEncryptedDataAndTag_longlong;
 
     return true;
 }
@@ -72,17 +79,23 @@ bool AES_GCM_DecryptContext::Decrypt(
 	void *pPlaintextData, uint32 *pcbPlaintextData,
 	const void *pAdditionalAuthenticationData, size_t cbAuthenticationData
 ) {
-    unsigned long long pcbPlaintextData_longlong;
+	// Make sure caller's buffer is big enough to hold the result
+	if ( cbEncryptedDataAndTag > *pcbPlaintextData + crypto_aead_aes256gcm_ABYTES )
+	{
+		*pcbPlaintextData = 0;
+		return false;
+	}
 
+    unsigned long long cbPlaintextData_longlong;
     const int nDecryptResult = crypto_aead_aes256gcm_decrypt_afternm(
-		static_cast<unsigned char*>( pPlaintextData ), &pcbPlaintextData_longlong,
+		static_cast<unsigned char*>( pPlaintextData ), &cbPlaintextData_longlong,
 		nullptr,
 		static_cast<const unsigned char*>( pEncryptedDataAndTag ), cbEncryptedDataAndTag,
 		static_cast<const unsigned char*>( pAdditionalAuthenticationData ), cbAuthenticationData,
 		static_cast<const unsigned char*>( pIV ), static_cast<const crypto_aead_aes256gcm_state*>( m_ctx )
 	);
 
-    *pcbPlaintextData = pcbPlaintextData_longlong;
+    *pcbPlaintextData = cbPlaintextData_longlong;
 
     return nDecryptResult == 0;
 }
