@@ -234,7 +234,7 @@ int64 CSteamNetworkConnectionBase::SNP_SendMessage( CSteamNetworkingMessage *pSe
 	}
 
 	// Check if they try to send a really large message
-	if ( cbData > k_cbMaxUnreliableMsgSize && !( pSendMessage->m_nFlags & k_nSteamNetworkingSend_Reliable )  )
+	if ( cbData > k_cbMaxUnreliableMsgSizeSend && !( pSendMessage->m_nFlags & k_nSteamNetworkingSend_Reliable )  )
 	{
 		SpewWarningRateLimited( usecNow, "Trying to send a very large (%d bytes) unreliable message.  Sending as reliable instead.\n", cbData );
 		pSendMessage->m_nFlags |= k_nSteamNetworkingSend_Reliable;
@@ -577,11 +577,23 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLa
 			// Decode size, locate segment data
 			//
 			READ_SEGMENT_DATA_SIZE( unreliable )
-			Assert( cbSegmentSize > 0 ); // !TEST! Bogus assert, zero byte messages are OK.  Remove after testing
 
-			// Receive the segment
-			bool bLastSegmentInMessage = ( nFrameType & 0x20 ) != 0;
-			SNP_ReceiveUnreliableSegment( nCurMsgNum, nOffset, pSegmentData, cbSegmentSize, bLastSegmentInMessage, usecNow );
+			// Check if offset+size indicates a message larger than what we support.  (Also,
+			// protect against malicious sender sending *extremely* large offset causing overflow.)
+			if ( (int64)nOffset + cbSegmentSize > k_cbMaxUnreliableMsgSizeRecv || cbSegmentSize > k_cbMaxUnreliableSegmentSizeRecv )
+			{
+
+				// Since this is unreliable data, we can just ignore the segment.
+				SpewWarningRateLimited( usecNow, "[%s] Ignoring unreliable segment with invalid offset %u size %d\n",
+					GetDescription(), nOffset, cbSegmentSize );
+			}
+			else
+			{
+
+				// Receive the segment
+				bool bLastSegmentInMessage = ( nFrameType & 0x20 ) != 0;
+				SNP_ReceiveUnreliableSegment( nCurMsgNum, nOffset, pSegmentData, cbSegmentSize, bLastSegmentInMessage, usecNow );
+			}
 		}
 		else if ( ( nFrameType & 0xe0 ) == 0x40 )
 		{

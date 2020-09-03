@@ -90,7 +90,14 @@ constexpr int k_nMaxBufferedUnreliableSegments = 20;
 // If app tries to send a message larger than N bytes unreliably,
 // complain about it, and automatically convert to reliable.
 // About 15 segments.
-constexpr int k_cbMaxUnreliableMsgSize = 15*1100;
+constexpr int k_cbMaxUnreliableMsgSizeSend = 15*1100;
+
+// Max possible size of an unreliable segment we could receive.
+constexpr int k_cbMaxUnreliableSegmentSizeRecv = k_cbSteamNetworkingSocketsMaxPlaintextPayloadRecv;
+
+// Largest possible total unreliable message we can receive, based on the constraints above
+constexpr int k_cbMaxUnreliableMsgSizeRecv = k_nMaxBufferedUnreliableSegments*k_cbMaxUnreliableSegmentSizeRecv;
+COMPILE_TIME_ASSERT( k_cbMaxUnreliableMsgSizeRecv > k_cbMaxUnreliableMsgSizeSend + 4096 ); // Postel's law; confirm how much slack we have here
 
 class CSteamNetworkConnectionBase;
 class CConnectionTransport;
@@ -468,7 +475,7 @@ struct SSNPRecvUnreliableSegmentData
 {
 	int m_cbSegSize = -1;
 	bool m_bLast = false;
-	char m_buf[ k_cbSteamNetworkingSocketsMaxPlaintextPayloadRecv ];
+	char m_buf[ k_cbMaxUnreliableSegmentSizeRecv ];
 };
 
 struct SSNPPacketGap
