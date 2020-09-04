@@ -26,6 +26,17 @@ def docker_arch(travis_arch):
         return 'arm64v8'
     return travis_arch
 
+def image_name(image, tag, arch):
+    # e.g. ubuntu:latest
+    image = '%s:%s' % (image, tag)
+
+    if arch != 'amd64':
+        image_prefix = docker_arch(arch) + '/'
+        os.environ['IMAGE_PREFIX'] = image_prefix
+        return image_prefix + image
+
+    return image
+
 def env_parse(env, arch):
     kv_str = env.split()
     kv = { k: v for k, v in [ s.split('=') for s in kv_str ] }
@@ -49,29 +60,36 @@ def env_parse(env, arch):
     if options['--image-tag'] != 'any' and kv['IMAGE_TAG'] != options['--image-tag']:
         return None
 
-    # e.g. ubuntu:latest
-    image = '%s:%s' % (kv['IMAGE'], kv['IMAGE_TAG'])
-
-    if arch != 'amd64':
-        image_prefix = docker_arch(arch) + '/'
-        os.environ['IMAGE_PREFIX'] = image_prefix
-        return image_prefix + image
-
-    return image
+    return image_name(kv['IMAGE'], kv['IMAGE_TAG'], arch)
 
 def get_images(travis):
+    match_found = False
+
     for env in travis['env']['global']:
         env_parse(env, travis['arch'])
 
     for env in travis['env']['jobs']:
         image = env_parse(env, travis['arch'])
         if image is not None:
+            match_found = True
             yield image
 
     for job in travis['jobs']['include']:
         image = env_parse(job['env'], job['arch'])
         if image is not None:
+            match_found = True
             yield image
+
+    # If we didn't find a match with our constraints, maybe the user wanted to
+    # test a specific image not listed in .travis.yml.
+    if not match_found:
+        if 'any' not in [options['--image'], options['--image-tag'], options['--arch']]:
+            image = env_parse(
+                'IMAGE=%s IMAGE_TAG=%s' % (options['--image'], options['--image-tag']),
+                options['--arch']
+            )
+            if image is not None:
+                yield image
 
 def docker_pull(image):
     subprocess.run(['docker', 'pull', image], check=True)
