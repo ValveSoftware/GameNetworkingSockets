@@ -54,6 +54,9 @@ BUILD_WEBRTC=${BUILD_WEBRTC:-1}
 # builder, and it fails to link properly.
 [[ $(uname -m) == s390x ]] && BUILD_SANITIZERS=0
 
+# clang with sanitizers results in link errors on i686 Ubuntu at any rate
+[[ ${CXX} == *clang* ]] && [[ "$(${CXX} -dumpmachine)" == i686-* ]] && BUILD_SANITIZERS=0
+
 # Big-endian platforms can't build with WebRTC out-of-the-box.
 [[ $(uname -m) == s390x ]] && BUILD_WEBRTC=0
 [[ $(uname -m) == powerpc ]] && BUILD_WEBRTC=0
