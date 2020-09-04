@@ -60,22 +60,29 @@ $ ninja
 ## Windows / Visual Studio
 
 On Windows, you can use the [vcpkg](https://github.com/microsoft/vcpkg/) package manager.
+The following instructions assume that you will follow the vcpkg recommendations and install
+vcpkg as a subfolder.  If you want to install vcpkg somewhere else, you're on your own.
+See the [quick start](https://github.com/microsoft/vcpkg/#quick-start-windows) for more info.
 
-### vcpkg
-
-Follow the [quick start](https://github.com/microsoft/vcpkg/#quick-start-windows) instructions to set up vcpkg, 
-and to integrate it with Visual Studio.
-
-To build GameNetworking sockets:
+First, bootstrap vcpkg.  From the root folder of your GameNetworkingSockets workspace:
 
 ```
-> .\vcpkg\vcpkg --overlay-ports=path\to\GameNetworkingSockets\vcpkg_ports install gamenetworkingsockets
+> git clone https://github.com/microsoft/vcpkg
+> .\vcpkg\bootstrap-vcpkg.bat
 ```
-You can use the vcpkg option `--triplet x64-windows` or `--triplet x86-windows` to force the choice of a 
-particular target architecture. The library should be immediately available in Visual Studio projects if 
-the vcpkg integration is installed, or the vcpkg CMake toolchain file can be used for CMake-based projects. 
 
-To use libsodium as the crypto backend rather than OpenSSL, install `gamenetworkingsockets[core,libsodium]`.
+The following command will build the prerequisites and GameNetworkingSockets.
+You can use the vcpkg option `--triplet x64-windows` or `--triplet x86-windows` to force
+the hoice of a particular target architecture.  To use libsodium as the crypto backend
+rather than OpenSSL, install `gamenetworkingsockets[core,libsodium]`.
+
+```
+> .\vcpkg\vcpkg --overlay-ports=vcpkg_ports install gamenetworkingsockets
+```
+
+The library should be immediately available in Visual Studio projects if
+the vcpkg integration is installed, or the vcpkg CMake toolchain file can
+be used for CMake-based projects.
 
 ### Manual setup
 
