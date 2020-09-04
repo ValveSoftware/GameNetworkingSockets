@@ -34,6 +34,9 @@ CMAKE_ARGS=(
 	-DWERROR=ON
 )
 
+uname_S="$(uname -s)"
+uname_M="$(uname -m)"
+
 # Default build matrix options. Any exceptions should be spelled out after this
 # block.
 BUILD_SANITIZERS=${BUILD_SANITIZERS:-0}
@@ -41,32 +44,32 @@ BUILD_LIBSODIUM=${BUILD_LIBSODIUM:-1}
 BUILD_WEBRTC=${BUILD_WEBRTC:-1}
 
 # Sanitizers aren't supported on MinGW
-[[ $(uname -s) == MINGW* ]] && BUILD_SANITIZERS=0
+[[ "${uname_S}" == MINGW* ]] && BUILD_SANITIZERS=0
 
 # Noticed that Clang's tsan and asan don't behave well on non-x86_64 Travis
 # builders, so let's just disable them on there.
-[[ $(uname -m) != x86_64 ]] && [[ ${CXX} == *clang* ]] && BUILD_SANITIZERS=0
+[[ "${uname_M}" != x86_64 ]] && [[ ${CXX} == *clang* ]] && BUILD_SANITIZERS=0
 
 # Sanitizers don't link properly with clang on Fedora Rawhide
 [[ "${IMAGE}" == "fedora" ]] && [[ "${IMAGE_TAG}" == "rawhide" ]] && [[ ${CXX} == *clang* ]] && BUILD_SANITIZERS=0
 
 # Something's wrong with the GCC -fsanitize=address build on the s390x Travis
 # builder, and it fails to link properly.
-[[ $(uname -m) == s390x ]] && BUILD_SANITIZERS=0
+[[ ${uname_M} == s390x ]] && BUILD_SANITIZERS=0
 
 # clang with sanitizers results in link errors on i686 Ubuntu at any rate
 [[ ${CXX} == *clang* ]] && [[ "$(${CXX} -dumpmachine)" == i686-* ]] && BUILD_SANITIZERS=0
 
 # Big-endian platforms can't build with WebRTC out-of-the-box.
-[[ $(uname -m) == s390x ]] && BUILD_WEBRTC=0
-[[ $(uname -m) == powerpc ]] && BUILD_WEBRTC=0
-[[ $(uname -m) == ppc64* ]] && BUILD_WEBRTC=0
+[[ ${uname_M} == s390x ]] && BUILD_WEBRTC=0
+[[ ${uname_M} == powerpc ]] && BUILD_WEBRTC=0
+[[ ${uname_M} == ppc64* ]] && BUILD_WEBRTC=0
 
 # Foreign architecture docker containers don't support sanitizers.
-[[ $(uname -m) != x86_64 ]] && grep -q -e AuthenticAMD -e GenuineIntel /proc/cpuinfo && BUILD_SANITIZERS=0
+[[ ${uname_M} != x86_64 ]] && grep -q -e AuthenticAMD -e GenuineIntel /proc/cpuinfo && BUILD_SANITIZERS=0
 
 # libsodium's AES implementation only works on x86_64
-[[ $(uname -m) != x86_64 ]] && BUILD_LIBSODIUM=0
+[[ ${uname_M} != x86_64 ]] && BUILD_LIBSODIUM=0
 
 set -x
 
@@ -75,34 +78,34 @@ git submodule update --init --depth=1
 
 # Build some tests with sanitizers
 if [[ $BUILD_SANITIZERS -ne 0 ]]; then
-	cmake_configure build-asan ${CMAKE_ARGS[@]} -DSANITIZE_ADDRESS:BOOL=ON
-	cmake_configure build-ubsan ${CMAKE_ARGS[@]} -DSANITIZE_UNDEFINED:BOOL=ON
+	cmake_configure build-asan "${CMAKE_ARGS[@]}" -DSANITIZE_ADDRESS:BOOL=ON
+	cmake_configure build-ubsan "${CMAKE_ARGS[@]}" -DSANITIZE_UNDEFINED:BOOL=ON
 	if [[ ${CXX} == *clang* ]]; then
-		cmake_configure build-tsan ${CMAKE_ARGS[@]} -DSANITIZE_THREAD:BOOL=ON
+		cmake_configure build-tsan "${CMAKE_ARGS[@]}" -DSANITIZE_THREAD:BOOL=ON
 	fi
 fi
 
 # Build normal unsanitized binaries
-cmake_configure build-cmake ${CMAKE_ARGS[@]} -DCMAKE_BUILD_TYPE=RelWithDebInfo
+cmake_configure build-cmake "${CMAKE_ARGS[@]}" -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake_build build-cmake
 
 # Build binaries with webrtc
 if [[ $BUILD_WEBRTC -ne 0 ]]; then
-	cmake_configure build-cmake-webrtc ${CMAKE_ARGS[@]} -DCMAKE_BUILD_TYPE=RelWithDebInfo -DUSE_STEAMWEBRTC=ON -DSTEAMWEBRTC_USE_STATIC_LIBS=OFF
+	cmake_configure build-cmake-webrtc "${CMAKE_ARGS[@]}" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DUSE_STEAMWEBRTC=ON -DSTEAMWEBRTC_USE_STATIC_LIBS=OFF
 	cmake_build build-cmake-webrtc
 fi
 
 # Build binaries with reference ed25519/curve25519
-cmake_configure build-cmake-ref ${CMAKE_ARGS[@]} -DCMAKE_BUILD_TYPE=RelWithDebInfo -DUSE_CRYPTO25519=Reference
+cmake_configure build-cmake-ref "${CMAKE_ARGS[@]}" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DUSE_CRYPTO25519=Reference
 cmake_build build-cmake-ref
 
 # Build binaries with libsodium for ed25519/curve25519 only
-cmake_configure build-cmake-sodium25519 ${CMAKE_ARGS[@]} -DCMAKE_BUILD_TYPE=RelWithDebInfo -DUSE_CRYPTO25519=libsodium
+cmake_configure build-cmake-sodium25519 "${CMAKE_ARGS[@]}" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DUSE_CRYPTO25519=libsodium
 cmake_build build-cmake-sodium25519
 
 # Build binaries with libsodium
 if [[ $BUILD_LIBSODIUM -ne 0 ]]; then
-	cmake_configure build-cmake-sodium ${CMAKE_ARGS[@]} -DCMAKE_BUILD_TYPE=RelWithDebInfo -DUSE_CRYPTO=libsodium -DUSE_CRYPTO25519=libsodium
+	cmake_configure build-cmake-sodium "${CMAKE_ARGS[@]}" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DUSE_CRYPTO=libsodium -DUSE_CRYPTO25519=libsodium
 	cmake_build build-cmake-sodium
 fi
 

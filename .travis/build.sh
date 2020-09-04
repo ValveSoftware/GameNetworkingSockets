@@ -30,10 +30,6 @@ die() {
 	exit 1
 }
 
-
-FOUND_CLANG=0
-FOUND_GCC=0
-
 TRAVIS_BUILD=${TRAVIS_BUILD:-0}
 export BUILD_SANITIZERS=0
 
