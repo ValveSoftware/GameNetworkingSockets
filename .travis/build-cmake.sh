@@ -47,6 +47,9 @@ BUILD_WEBRTC=${BUILD_WEBRTC:-1}
 # builders, so let's just disable them on there.
 [[ $(uname -m) != x86_64 ]] && [[ ${CXX} == *clang* ]] && BUILD_SANITIZERS=0
 
+# Sanitizers don't link properly with clang on Fedora Rawhide
+[[ "${IMAGE}" == "fedora" ]] && [[ "${IMAGE_TAG}" == "rawhide" ]] && [[ ${CXX} == *clang* ]] && BUILD_SANITIZERS=0
+
 # Something's wrong with the GCC -fsanitize=address build on the s390x Travis
 # builder, and it fails to link properly.
 [[ $(uname -m) == s390x ]] && BUILD_SANITIZERS=0
