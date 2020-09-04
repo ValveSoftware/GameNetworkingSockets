@@ -74,6 +74,30 @@ BUILD_WEBRTC=${BUILD_WEBRTC:-1}
 # libsodium's AES implementation only works on x86_64
 [[ ${uname_M} != x86_64 ]] && BUILD_LIBSODIUM=0
 
+cat << EOF
+
+=======================================================
+Platform
+
+uname -s         = ${uname_S}
+uname -m         = ${uname_M}
+
+=======================================================
+Compiler
+
+CC               = ${CC}
+CXX              = ${CXX}
+
+=======================================================
+Platform permits the following optional build configs:
+
+BUILD_SANITIZERS = ${BUILD_SANITIZERS}
+BUILD_LIBSODIUM  = ${BUILD_LIBSODIUM}
+BUILD_WEBRTC     = ${BUILD_WEBRTC}
+
+=======================================================
+EOF
+
 set -x
 
 # Use shallow clones of submodules for space/time efficiency.
