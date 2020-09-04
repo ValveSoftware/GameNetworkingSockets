@@ -23,6 +23,8 @@ env:
 
 jobs:
   include:
+    - arch: i386
+      env: IMAGE=debian IMAGE_TAG=stable
     - arch: arm64
       env: IMAGE=ubuntu IMAGE_TAG=rolling
     # Disabled - the docker is failing to boot ver early with this output:
