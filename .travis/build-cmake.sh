@@ -5,9 +5,13 @@
 
 set -e
 
+CMAKE_BUILD_DIRS=()
+
 cmake_configure() {
 	BUILD_DIR="$1"
 	shift
+	CMAKE_BUILD_DIRS+=("$BUILD_DIR")
+	rm -rf "$BUILD_DIR"
 	mkdir -p "$BUILD_DIR"
 	(cd "$BUILD_DIR"; cmake "$@" ..)
 }
@@ -20,11 +24,10 @@ cmake_build() {
 
 cleanup() {
 	echo "Cleaning up CMake build directories" >&2
-	rm -rf build-{a,ub,t}san build-cmake{,-webrtc,-ref,-sodium{,25519}}
+	rm -rf "${CMAKE_BUILD_DIRS[@]}"
 }
 
 trap cleanup EXIT
-cleanup
 
 CMAKE_ARGS=(
 	-G Ninja
