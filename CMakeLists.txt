@@ -142,6 +142,10 @@ if(USE_CRYPTO STREQUAL "libsodium")
 	endif()
 endif()
 
+# We always need at least sse2 on x86
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "amd64.*|x86_64.*|AMD64.*|i686.*|i386.*|x86.*")
+       set(TARGET_ARCH_FLAGS "-msse2")
+endif()
 
 function(set_target_common_gns_properties TGT)
 	target_compile_definitions( ${TGT} PRIVATE GOOGLE_PROTOBUF_NO_RTTI )
@@ -181,6 +185,8 @@ function(set_target_common_gns_properties TGT)
 	if(NOT CMAKE_SYSTEM_NAME MATCHES Windows)
 		target_compile_options(${TGT} PRIVATE -fstack-protector-strong)
 	endif()
+
+	target_compile_options(${TGT} PRIVATE ${TARGET_ARCH_FLAGS})
 
 	set_target_properties(${TGT} PROPERTIES
 		CXX_STANDARD 11
