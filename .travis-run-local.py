@@ -152,12 +152,12 @@ def main():
 
     # Pull the images down first
     log.info("Pulling Docker images")
-    docker_pull('multiarch/qemu-user-static')
+    docker_pull('aptman/qus')
     pull_images(travis)
 
     # Initialize system environment
     log.info("Preparing system to run foreign architecture containers")
-    subprocess.run(['docker', 'run', '--rm', '--privileged', 'multiarch/qemu-user-static', '--reset', '-p', 'yes'], check=True)
+    subprocess.run(['docker', 'run', '--rm', '--privileged', 'aptman/qus', '-s', '--', '--reset', '-p'], check=True)
 
     # Run native tests first
     kill_and_wait()
