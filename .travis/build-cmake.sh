@@ -118,7 +118,7 @@ cmake_build build-cmake
 
 # Build binaries with webrtc
 if [[ $BUILD_WEBRTC -ne 0 ]]; then
-	cmake_configure build-cmake-webrtc "${CMAKE_ARGS[@]}" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DUSE_STEAMWEBRTC=ON -DSTEAMWEBRTC_USE_STATIC_LIBS=OFF
+	cmake_configure build-cmake-webrtc "${CMAKE_ARGS[@]}" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DUSE_STEAMWEBRTC=ON
 	cmake_build build-cmake-webrtc
 fi
 

@@ -813,13 +813,7 @@ include_directories(
 	${webrtc_SOURCE_DIR}/include/webrtc
 	)
 
-set(STEAMWEBRTC_BUILD_TYPE SHARED)
-
-if(STEAMWEBRTC_USE_STATIC_LIBS)
-	set(STEAMWEBRTC_BUILD_TYPE STATIC)
-endif()
-
-add_library(steamwebrtc ${STEAMWEBRTC_BUILD_TYPE}
+add_library(steamwebrtc STATIC
 	"ice_session.h"
 	"steamwebrtc_internal.h"
 	"ice_session.cpp"

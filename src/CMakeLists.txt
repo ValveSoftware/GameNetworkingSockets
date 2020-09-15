@@ -182,15 +182,14 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 		target_compile_definitions(${GNS_TARGET} PRIVATE
 			STEAMNETWORKINGSOCKETS_ENABLE_ICE )
 
-		# Wrapper lib linked statically?
-		if(STEAMWEBRTC_USE_STATIC_LIBS)
-			target_compile_definitions(${GNS_TARGET} PRIVATE
-				STEAMWEBRTC_USE_STATIC_LIBS
-				)
-			target_link_libraries(${GNS_TARGET} PUBLIC
-				steamwebrtc
-				)
-		endif()
+		# Wrapper lib is always linked statically in the opensource code.
+		# We might link dynamically in other environments.
+		target_compile_definitions(${GNS_TARGET} PRIVATE
+			STEAMWEBRTC_USE_STATIC_LIBS
+			)
+		target_link_libraries(${GNS_TARGET} PUBLIC
+			steamwebrtc
+			)
 	endif()
 
 	if(USE_CRYPTO STREQUAL "OpenSSL" OR USE_CRYPTO25519 STREQUAL "OpenSSL")
@@ -251,13 +250,13 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 	endif()
 
 	if(CMAKE_SYSTEM_NAME MATCHES Linux)
-		if(USE_STEAMWEBRTC AND NOT STEAMWEBRTC_USE_STATIC_LIBS)
-			target_link_libraries(${GNS_TARGET} PRIVATE dl)
-		endif()
+		#if(USE_STEAMWEBRTC AND NOT STEAMWEBRTC_USE_STATIC_LIBS)
+		#	target_link_libraries(${GNS_TARGET} PRIVATE dl)
+		#endif()
 	elseif(CMAKE_SYSTEM_NAME MATCHES Darwin)
-		if(USE_STEAMWEBRTC AND NOT STEAMWEBRTC_USE_STATIC_LIBS)
-			target_link_libraries(${GNS_TARGET} PRIVATE dl)
-		endif()
+		#if(USE_STEAMWEBRTC AND NOT STEAMWEBRTC_USE_STATIC_LIBS)
+		#	target_link_libraries(${GNS_TARGET} PRIVATE dl)
+		#endif()
 	elseif(CMAKE_SYSTEM_NAME MATCHES Windows)
 		if(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
 			get_target_property(TARGET_TYPE ${GNS_TARGET} TYPE)
@@ -291,6 +290,12 @@ add_library(GameNetworkingSockets::static ALIAS GameNetworkingSockets_s)
 target_compile_definitions(GameNetworkingSockets_s INTERFACE STEAMNETWORKINGSOCKETS_STATIC_LINK)
 gamenetworkingsockets_common(GameNetworkingSockets_s)
 
+# HELP Should not need this if() here
+#CMake Error: install(EXPORT "GameNetworkingSockets" ...) includes target "GameNetworkingSockets" which requires target "steamwebrtc" that is not in the export set.
+#CMake Error: install(EXPORT "GameNetworkingSockets" ...) includes target "GameNetworkingSockets_s" which requires target "steamwebrtc" that is not in the export set.
+if( NOT USE_STEAMWEBRTC ) # HALP
+
+
 # Install rules
 install(
 	TARGETS GameNetworkingSockets GameNetworkingSockets_s
@@ -320,5 +325,7 @@ install(FILES
 	${CMAKE_CURRENT_BINARY_DIR}/GameNetworkingSocketsConfig.cmake
 	DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/GameNetworkingSockets
 	)
+
+endif() # END HALP
 
 # vim: set ts=4 sts=4 sw=4 noet:

@@ -14,6 +14,9 @@
 
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
 	#include "steamnetworkingsockets_p2p_ice.h"
+	#ifdef STEAMWEBRTC_USE_STATIC_LIBS
+		extern "C" IICESession *CreateWebRTCICESession( const ICESessionConfig &cfg, IICESessionDelegate *pDelegate, int nInterfaceVersion );
+	#endif
 #endif
 
 // memdbgon must be the last include file in a .cpp file!!!
