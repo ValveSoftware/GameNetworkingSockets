@@ -1,13 +1,16 @@
 cmake_minimum_required(VERSION 3.5)
 project(gns_example C CXX)
 
-find_program(GO go)
+
 
 #
 # Trivial signaling server, written in go
 #
-if( NOT WIN32 )
+if( NOT WIN32 AND USE_STEAMWEBRTC )
+	find_program( GO go )
+
 	set(SIGNAL_SERVER_TARGET trivial_signaling_server)
+
 	set(SIGNAL_SERVER_OUTPUT ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/trivial_signaling_server)
 	set(SIGNAL_SERVER_SRCS
 		trivial_signaling_server.go
