@@ -8,21 +8,24 @@ project(gns_example C CXX)
 #
 if( NOT WIN32 AND USE_STEAMWEBRTC )
 	find_program( GO go )
+	if ( NOT GO )
+		message(WARNING "Could not find 'go' binary, will not build signaling server example program")
+	else()
+		set(SIGNAL_SERVER_TARGET trivial_signaling_server)
 
-	set(SIGNAL_SERVER_TARGET trivial_signaling_server)
-
-	set(SIGNAL_SERVER_OUTPUT ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/trivial_signaling_server)
-	set(SIGNAL_SERVER_SRCS
-		trivial_signaling_server.go
-		)
-	add_custom_command(
-		OUTPUT ${SIGNAL_SERVER_OUTPUT}
-		DEPENDS ${SIGNAL_SERVER_SRCS}
-		WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-		COMMENT "Building GO Trivial signaling server"
-		COMMAND ${GO} build -o "${SIGNAL_SERVER_OUTPUT}" ${CMAKE_GO_FLAGS} ${SIGNAL_SERVER_SRCS}
-		)
-	add_custom_target(${SIGNAL_SERVER_TARGET} ALL DEPENDS ${SIGNAL_SERVER_OUTPUT})
+		set(SIGNAL_SERVER_OUTPUT ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/trivial_signaling_server)
+		set(SIGNAL_SERVER_SRCS
+			trivial_signaling_server.go
+			)
+		add_custom_command(
+			OUTPUT ${SIGNAL_SERVER_OUTPUT}
+			DEPENDS ${SIGNAL_SERVER_SRCS}
+			WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+			COMMENT "Building GO Trivial signaling server"
+			COMMAND ${GO} build -o "${SIGNAL_SERVER_OUTPUT}" ${CMAKE_GO_FLAGS} ${SIGNAL_SERVER_SRCS}
+			)
+		add_custom_target(${SIGNAL_SERVER_TARGET} ALL DEPENDS ${SIGNAL_SERVER_OUTPUT})
+	endif()
 endif()
 
 #
