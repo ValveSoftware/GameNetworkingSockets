@@ -21,6 +21,7 @@ class ThinkerSetIndex;
 class IThinker
 {
 public:
+	STEAMNETWORKINGSOCKETS_DECLARE_CLASS_OPERATOR_NEW
 	virtual ~IThinker();
 
 	/// Callback to do whatever periodic processing you need.  If you don't

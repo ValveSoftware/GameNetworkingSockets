@@ -120,8 +120,8 @@ void CConnectionTransportP2PICE::Init()
 		m_nAllowedCandidateTypes |= k_EICECandidate_Any_HostPrivate;
 
 	// Get the STUN server list
-	std::vector<std::string> vecStunServers;
-	std::vector<const char *> vecStunServersPsz;
+	std_vector<std::string> vecStunServers;
+	std_vector<const char *> vecStunServersPsz;
 	if ( P2P_Transport_ICE_Enable & k_nSteamNetworkingConfig_P2P_Transport_ICE_Enable_Public )
 	{
 		m_nAllowedCandidateTypes |= k_EICECandidate_Any_HostPublic|k_EICECandidate_Any_Reflexive;

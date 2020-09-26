@@ -245,7 +245,7 @@ public:
 
 		// When we receive a connection from peer, we need to wait for the app
 		// to accept it.  During that time we may need to pend any ICE messages
-		std::vector<CMsgICERendezvous> m_vecPendingICEMessages;
+		std_vector<CMsgICERendezvous> m_vecPendingICEMessages;
 
 		// Summary of connection.  Note in particular that the failure reason (if any)
 		// is here.
@@ -332,7 +332,7 @@ private:
 		SteamNetworkingMicroseconds m_usecRTO; // Retry timeout
 		CMsgSteamNetworkingP2PRendezvous_ReliableMessage m_msg;
 	};
-	std::vector< OutboundMessage > m_vecUnackedOutboundMessages; // outbound messages that have not been acked
+	std_vector< OutboundMessage > m_vecUnackedOutboundMessages; // outbound messages that have not been acked
 
 	const char *m_pszNeedToSendSignalReason;
 	SteamNetworkingMicroseconds m_usecSendSignalDeadline;

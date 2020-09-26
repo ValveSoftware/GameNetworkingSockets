@@ -829,6 +829,61 @@ inline bool RandomBoolWithOdds( float odds )
 
 } // namespace SteamNetworkingSocketsLib
 
+#include <tier0/memdbgon.h>
+
+// Set paranoia level, if not already set:
+// 0 = disabled
+// 1 = sometimes
+// 2 = max
+#ifndef STEAMNETWORKINGSOCKETS_SNP_PARANOIA
+	#ifdef _DEBUG
+		#define STEAMNETWORKINGSOCKETS_SNP_PARANOIA 2
+	#else
+		#define STEAMNETWORKINGSOCKETS_SNP_PARANOIA 0
+	#endif
+#endif
+
+#if ( STEAMNETWORKINGSOCKETS_SNP_PARANOIA > 0 ) && ( defined(__GNUC__ ) && defined( __linux__ ) && !defined( __ANDROID__ ) )
+	#define STEAMNETWORKINGSOCKETS_USE_GNU_DEBUG_MAP
+	#include <debug/map>
+#endif
+
+// Declare std_vector and std_map in our namespace.  They use debug versions when available,
+// a custom allocator
+namespace SteamNetworkingSocketsLib
+{
+
+	// Custom allocator that use malloc/free (and right now, those are #defines
+	// that go to our own functions if we are overriding memory allocation.)
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_MEM_OVERRIDE
+		template <typename T>
+		struct Allocator
+		{
+			using value_type = T;
+			Allocator() noexcept = default;
+			template<class U> Allocator(const Allocator<U>&) noexcept {}
+			template<class U> bool operator==(const Allocator<U>&) const noexcept { return true; }
+			template<class U> bool operator!=(const Allocator<U>&) const noexcept { return false; }
+			static T* allocate( size_t n ) { return (T*)malloc( n *sizeof(T) ); }
+			static void deallocate( T *p, size_t n ) { free( p ); }
+		};
+	#else
+		template <typename T> using Allocator = std::allocator<T>;
+	#endif
+
+	#ifdef STEAMNETWORKINGSOCKETS_USE_GNU_DEBUG_MAP
+		// Use debug version of std::map
+		template< typename K, typename V, typename L = std::less<K> >
+		using std_map = __gnu_debug::map<K,V,L, Allocator< std::pair<const K, V> > >;
+	#else
+		template< typename K, typename V, typename L = std::less<K> >
+		using std_map = std::map<K,V,L,Allocator< std::pair<const K, V> >>;
+	#endif
+
+	template< typename T >
+	using std_vector = std::vector<T, Allocator<T> >;
+}
+
 //
 // Some misc tools for using std::vector that our CUtlVector class had
 //
@@ -926,6 +981,14 @@ inline int len( const std::map<K,V,L,A> &map )
 {
 	return (int)map.size();
 }
+
+#ifdef STEAMNETWORKINGSOCKETS_USE_GNU_DEBUG_MAP
+	template <typename K, typename V, typename L, typename A>
+	inline int len( const __gnu_debug::map<K,V,L,A> &map )
+	{
+		return (int)map.size();
+	}
+#endif
 
 template <typename T, typename L, typename A>
 inline int len( const std::set<T,L,A> &map )
@@ -1267,8 +1330,5 @@ namespace vstd
 	struct LikeStdVectorTraits< small_vector<T,N> > { enum { yes = 1 }; typedef T ElemType; };
 
 } // namespace vstd
-
-
-#include <tier0/memdbgon.h>
 
 #endif // STEAMNETWORKINGSOCKETS_INTERNAL_H

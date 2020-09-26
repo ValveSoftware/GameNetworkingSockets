@@ -175,6 +175,7 @@ extern bool CreateBoundSocketPair( CRecvPacketCallback callback1, CRecvPacketCal
 class CSharedSocket
 {
 public:
+	STEAMNETWORKINGSOCKETS_DECLARE_CLASS_OPERATOR_NEW
 	CSharedSocket();
 	~CSharedSocket();
 
@@ -220,6 +221,7 @@ private:
 		friend class CSharedSocket;
 		inline virtual ~RemoteHost() {}
 	public:
+		STEAMNETWORKINGSOCKETS_DECLARE_CLASS_OPERATOR_NEW
 		inline RemoteHost( IRawUDPSocket *pRawSock, const netadr_t &adr ) : IBoundUDPSocket( pRawSock, adr ) {}
 		CRecvPacketCallback m_callback;
 		CSharedSocket *m_pOwner;

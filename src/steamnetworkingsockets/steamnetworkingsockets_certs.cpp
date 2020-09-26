@@ -299,7 +299,7 @@ bool BCheckSignature( const std::string &signed_data, CMsgSteamDatagramCertifica
 bool ParseCertFromBase64( const char *pBase64Data, size_t cbBase64Data, CMsgSteamDatagramCertificateSigned &outMsgSignedCert, SteamNetworkingErrMsg &errMsg )
 {
 
-	std::vector<uint8> buf;
+	std_vector<uint8> buf;
 	uint32 cbDecoded = CCrypto::Base64DecodeMaxOutput( (uint32)cbBase64Data );
 	buf.resize( cbDecoded );
 	if ( !CCrypto::Base64Decode( pBase64Data, (uint32)cbBase64Data, &buf[0], &cbDecoded, false ) )

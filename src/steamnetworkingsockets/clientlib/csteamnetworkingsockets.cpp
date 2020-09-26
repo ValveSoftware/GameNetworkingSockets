@@ -1288,7 +1288,7 @@ void CSteamNetworkingSockets::RunCallbacks()
 {
 
 	// Only hold lock for a brief period
-	std::vector<QueuedCallback> listTemp;
+	std_vector<QueuedCallback> listTemp;
 	{
 		SteamDatagramTransportLock scopeLock;
 

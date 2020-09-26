@@ -233,7 +233,7 @@ struct PublicKey
 	ETrust m_eTrust = k_ETrust_Unknown;
 	CECSigningPublicKey m_keyPublic;
 	std::string m_status_msg; // If it's not trusted, why?
-	std::vector<Cert> m_vecCerts;
+	std_vector<Cert> m_vecCerts;
 	CertAuthScope m_effectiveAuthScope;
 	int m_idxNewestValidCert = -1;
 

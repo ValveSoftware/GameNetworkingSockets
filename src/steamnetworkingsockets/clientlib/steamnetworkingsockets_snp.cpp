@@ -1350,7 +1350,7 @@ struct EncodedSegment
 };
 
 template <typename T, typename L>
-inline bool HasOverlappingRange( const SNPRange_t &range, const std::map<SNPRange_t,T,L> &map )
+inline bool HasOverlappingRange( const SNPRange_t &range, const std_map<SNPRange_t,T,L> &map )
 {
 	auto l = map.lower_bound( range );
 	if ( l != map.end() )

@@ -764,15 +764,15 @@ private:
 		int m_nSegmentsSent;
 		int m_cbSent;
 	};
-	std::vector<PacketSendLog> m_vecSendLog;
+	std_vector<PacketSendLog> m_vecSendLog;
 	#endif
 };
 
 /// Abstract base class for sending end-to-end data for a connection.
 ///
-/// NOTE: Eventually, a connection may have more than one transport,
-/// and dynamically switch between them.  (E.g. it will try local LAN,
-/// NAT piercing, then fallback to relay)
+/// Many connection classes only have one transport, but some may
+/// may have more than one transport, and dynamically switch between
+/// them.  (E.g. it will try local LAN, NAT piercing, then fallback to relay)
 class CConnectionTransport
 {
 public:

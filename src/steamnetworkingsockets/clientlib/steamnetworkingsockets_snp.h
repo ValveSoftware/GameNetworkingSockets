@@ -7,40 +7,6 @@
 #include <map>
 #include <set>
 
-// Set paranoia level, if not already set:
-// 0 = disabled
-// 1 = sometimes
-// 2 = max
-#ifndef STEAMNETWORKINGSOCKETS_SNP_PARANOIA
-	#ifdef _DEBUG
-		#define STEAMNETWORKINGSOCKETS_SNP_PARANOIA 2
-	#else
-		#define STEAMNETWORKINGSOCKETS_SNP_PARANOIA 0
-	#endif
-#endif
-
-#if STEAMNETWORKINGSOCKETS_SNP_PARANOIA > 0
-	#if defined(__GNUC__ ) && defined( __linux__ ) && !defined( __ANDROID__ )
-		#include <debug/map>
-		// FIXME use debug versions
-		template< typename K, typename V, typename L = std::less<K> >
-		using std_map = __gnu_debug::map<K,V,L>;
-
-		template <typename K, typename V, typename L>
-		inline int len( const std_map<K,V,L> &map )
-		{
-			return (int)map.size();
-		}
-
-	#else
-		template< typename K, typename V, typename L = std::less<K> >
-		using std_map = std::map<K,V,L>;
-	#endif
-#else
-	template< typename K, typename V, typename L = std::less<K> >
-	using std_map = std::map<K,V,L>;
-#endif
-
 struct P2PSessionState_t;
 
 namespace SteamNetworkingSocketsLib {
@@ -109,6 +75,7 @@ struct SteamNetworkingMessageQueue;
 class CSteamNetworkingMessage : public SteamNetworkingMessage_t
 {
 public:
+	STEAMNETWORKINGSOCKETS_DECLARE_CLASS_OPERATOR_NEW
 	static CSteamNetworkingMessage *New( CSteamNetworkConnectionBase *pParent, uint32 cbSize, int64 nMsgNum, int nFlags, SteamNetworkingMicroseconds usecNow );
 	static CSteamNetworkingMessage *New( uint32 cbSize );
 	static void DefaultFreeData( SteamNetworkingMessage_t *pMsg );
@@ -511,7 +478,7 @@ struct SSNPReceiverState
 	int64 m_nLastRecvReliableMsgNum = 0;
 
 	/// Reliable data stream that we have received.  This might have gaps in it!
-	std::vector<byte> m_bufReliableStream;
+	std_vector<byte> m_bufReliableStream;
 
 	/// Gaps in the reliable data.  These are created when we receive reliable data that
 	/// is beyond what we expect next.  Since these must never overlap, we store them

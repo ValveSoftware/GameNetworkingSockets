@@ -28,6 +28,8 @@
 #include <tier1/utllinkedlist.h>
 #include "crypto.h"
 
+#include <tier0/memdbgoff.h>
+
 // Ugggggggggg MSVC VS2013 STL bug: try_lock_for doesn't actually respect the timeout, it always ends up using an infinite timeout.
 // And even in 2015, the code is calling the timer to get current time, to convert a relative time to an absolute time, and then
 // waiting until that absolute time, which then calls the timer again....and subtracts it back off....It's really bad. Just go
@@ -44,8 +46,7 @@
 // Time low level send/recv calls and packet processing
 //#define STEAMNETWORKINGSOCKETS_LOWLEVEL_TIME_SOCKET_CALLS
 
-// memdbgon must be the last include file in a .cpp file!!!
-#include "tier0/memdbgon.h"
+#include <tier0/memdbgon.h>
 
 namespace SteamNetworkingSocketsLib {
 
@@ -383,6 +384,8 @@ inline IRawUDPSocket::~IRawUDPSocket() {}
 class CRawUDPSocketImpl : public IRawUDPSocket
 {
 public:
+	STEAMNETWORKINGSOCKETS_DECLARE_CLASS_OPERATOR_NEW
+
 	~CRawUDPSocketImpl()
 	{
 		closesocket( m_socket );
@@ -2167,3 +2170,50 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetLockHeldCallback
 {
 	s_fLockHeldCallback = callback;
 }
+
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// memory override
+//
+/////////////////////////////////////////////////////////////////////////////
+
+#include <tier0/memdbgoff.h>
+
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_MEM_OVERRIDE
+
+static bool s_bHasAllocatedMemory = false;
+
+static void* (*s_pfn_malloc)( size_t s ) = malloc;
+static void (*s_pfn_free)( void *p ) = free;
+static void* (*s_pfn_realloc)( void *p, size_t s ) = realloc;
+
+void *SteamNetworkingSockets_Malloc( size_t s )
+{
+	s_bHasAllocatedMemory = true;
+	return (*s_pfn_malloc)( s );
+}
+
+void *SteamNetworkingSockets_Realloc( void *p, size_t s )
+{
+	s_bHasAllocatedMemory = true;
+	return (*s_pfn_realloc)( p, s );
+}
+
+void SteamNetworkingSockets_Free( void *p )
+{
+	(*s_pfn_free)( p );
+}
+
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetCustomMemoryAllocator(
+	void* (*pfn_malloc)( size_t s ),
+	void (*pfn_free)( void *p ),
+	void* (*pfn_realloc)( void *p, size_t s )
+) {
+	Assert( !s_bHasAllocatedMemory ); // Too late!
+
+	s_pfn_malloc = pfn_malloc;
+	s_pfn_free = pfn_free;
+	s_pfn_realloc = pfn_realloc;
+}
+#endif

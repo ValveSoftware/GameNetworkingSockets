@@ -34,6 +34,7 @@ class CSteamNetworkListenSocketP2P;
 class CSteamNetworkingSockets : public IClientNetworkingSockets
 {
 public:
+	STEAMNETWORKINGSOCKETS_DECLARE_CLASS_OPERATOR_NEW
 	CSteamNetworkingSockets( CSteamNetworkingUtils *pSteamNetworkingUtils );
 
 	CSteamNetworkingUtils *const m_pSteamNetworkingUtils;
@@ -201,7 +202,7 @@ protected:
 		void *fnCallback;
 		char data[ sizeof(SteamNetConnectionStatusChangedCallback_t) ]; // whatever the biggest callback struct we have is
 	};
-	std::vector<QueuedCallback> m_vecPendingCallbacks;
+	std_vector<QueuedCallback> m_vecPendingCallbacks;
 	virtual void InternalQueueCallback( int nCallback, int cbCallback, const void *pvCallback, void *fnRegisteredFunctionPtr );
 
 	bool m_bHaveLowLevelRef;
@@ -217,6 +218,7 @@ protected:
 class CSteamNetworkingUtils : public IClientNetworkingUtils
 {
 public:
+	STEAMNETWORKINGSOCKETS_DECLARE_CLASS_OPERATOR_NEW
 	virtual ~CSteamNetworkingUtils();
 
 	virtual SteamNetworkingMessage_t *AllocateMessage( int cbAllocateBuffer ) override;
