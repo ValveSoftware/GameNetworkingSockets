@@ -1,6 +1,15 @@
 // Misc stuff used in the tests
 #pragma once
 
+// Include a bunch of common headers, especially the ones that will configure
+// Visual Studio memory allocation and check the _DEBUG flag.  We are
+// about to slam that flag to force assert to be enabled below.
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdarg.h>
+#include <string.h>
+#include <string>
+
 // Force asserts to be enabled, even in release build
 #undef NDEBUG
 #ifndef _DEBUG
