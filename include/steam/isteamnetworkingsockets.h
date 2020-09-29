@@ -669,10 +669,11 @@ protected:
 
 	// Standalone lib.  Use different symbol name, so that we can dynamically switch between steamclient.dll
 	// and the standalone lib
-	STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets *SteamNetworkingSockets_Lib();
-	STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets *SteamGameServerNetworkingSockets_Lib();
-	inline ISteamNetworkingSockets *SteamNetworkingSockets() { return SteamNetworkingSockets_Lib(); }
-	inline ISteamNetworkingSockets *SteamGameServerNetworkingSockets() { return SteamGameServerNetworkingSockets_Lib(); }
+	static_assert( STEAMNETWORKINGSOCKETS_INTERFACE_VERSION[24] == '9', "Version mismatch" );
+	STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets *SteamNetworkingSockets_LibV9();
+	STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets *SteamGameServerNetworkingSockets_LibV9();
+	inline ISteamNetworkingSockets *SteamNetworkingSockets() { return SteamNetworkingSockets_LibV9(); }
+	inline ISteamNetworkingSockets *SteamGameServerNetworkingSockets() { return SteamGameServerNetworkingSockets_LibV9(); }
 
 #elif defined( STEAMNETWORKINGSOCKETS_OPENSOURCE ) || defined( STEAMNETWORKINGSOCKETS_STREAMINGCLIENT )
 
