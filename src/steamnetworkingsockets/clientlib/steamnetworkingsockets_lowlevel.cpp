@@ -1740,46 +1740,14 @@ SteamNetworkingMicroseconds g_usecLastRateLimitSpew;
 int g_nRateLimitSpewCount;
 ESteamNetworkingSocketsDebugOutputType g_eDefaultGroupSpewLevel;
 static FSteamNetworkingSocketsDebugOutput s_pfnDebugOutput = nullptr;
+void (*g_pfnPreFormatSpewHandler)( ESteamNetworkingSocketsDebugOutputType eType, bool bFmt, const char* pstrFile, int nLine, const char *pMsg, va_list ap ) = SteamNetworkingSockets_DefaultPreFormatSpewHandler;
 
-void VReallySpewType( int eType, bool bFmt, const char* pstrFile, unsigned int nLine, const char *pMsg, va_list ap )
-{
-	// Save callback.  Paranoia for unlikely but possible race condition,
-	// if we spew from more than one place in our code and stuff changes
-	// while we are formatting.
-	FSteamNetworkingSocketsDebugOutput pfnDebugOutput = s_pfnDebugOutput;
-
-	// Make sure we don't crash.
-	if ( !pfnDebugOutput )
-		return;
-
-	// Do the formatting
-	char buf[ 2048 ];
-	int szBuf = sizeof(buf);
-	char *msgDest = buf;
-	if ( pstrFile )
-	{
-		int l = V_sprintf_safe( buf, "%s(d): ", pstrFile, nLine );
-		szBuf -= l;
-		msgDest += l;
-	}
-
-	if ( bFmt )
-		V_vsnprintf( msgDest, szBuf, pMsg, ap );
-	else
-		V_strncpy( msgDest, pMsg, szBuf );
-
-	// Gah, some, but not all, of our code has newlines on the end
-	V_StripTrailingWhitespaceASCII( buf );
-
-	// Invoke callback
-	pfnDebugOutput( ESteamNetworkingSocketsDebugOutputType(eType), buf );
-}
 
 void ReallySpewTypeFmt( int eType, const char *pMsg, ... )
 {
 	va_list ap;
 	va_start( ap, pMsg );
-	VReallySpewType( eType, true, nullptr, 0, pMsg, ap );
+	(*g_pfnPreFormatSpewHandler)( ESteamNetworkingSocketsDebugOutputType(eType), true, nullptr, 0, pMsg, ap );
 	va_end( ap );
 }
 
@@ -2130,6 +2098,49 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetLockAcquiredCall
 STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetLockHeldCallback( void (*callback)( const char *tags, SteamNetworkingMicroseconds usecWaited ) )
 {
 	s_fLockHeldCallback = callback;
+}
+
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetPreFormatSpewHandler(
+	ESteamNetworkingSocketsDebugOutputType eDetailLevel,
+	void (*pfn_Handler)( ESteamNetworkingSocketsDebugOutputType eType, bool bFmt, const char* pstrFile, int nLine, const char *pMsg, va_list ap )
+)
+{
+	g_eDefaultGroupSpewLevel = eDetailLevel;
+	g_pfnPreFormatSpewHandler = pfn_Handler;
+}
+
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_DefaultPreFormatSpewHandler( ESteamNetworkingSocketsDebugOutputType eType, bool bFmt, const char* pstrFile, int nLine, const char *pMsg, va_list ap )
+{
+	// Save callback.  Paranoia for unlikely but possible race condition,
+	// if we spew from more than one place in our code and stuff changes
+	// while we are formatting.
+	FSteamNetworkingSocketsDebugOutput pfnDebugOutput = s_pfnDebugOutput;
+
+	// Make sure we don't crash.
+	if ( !pfnDebugOutput )
+		return;
+
+	// Do the formatting
+	char buf[ 2048 ];
+	int szBuf = sizeof(buf);
+	char *msgDest = buf;
+	if ( pstrFile )
+	{
+		int l = V_sprintf_safe( buf, "%s(d): ", pstrFile, nLine );
+		szBuf -= l;
+		msgDest += l;
+	}
+
+	if ( bFmt )
+		V_vsnprintf( msgDest, szBuf, pMsg, ap );
+	else
+		V_strncpy( msgDest, pMsg, szBuf );
+
+	// Gah, some, but not all, of our code has newlines on the end
+	V_StripTrailingWhitespaceASCII( buf );
+
+	// Invoke callback
+	pfnDebugOutput( eType, buf );
 }
 
 

@@ -110,7 +110,7 @@ void AssertMsgImplementationV( bool _bFatal, bool bFmt, const char* pstrFile, un
 	++s_ThreadLocalAssertMsgGuardStatic;
 
 	#ifdef STEAMNETWORKINGSOCKETS_FOREXPORT
-		VReallySpewType( k_ESteamNetworkingSocketsDebugOutputType_Bug, bFmt, pstrFile, nLine, pMsg, ap );
+		(*g_pfnPreFormatSpewHandler)( k_ESteamNetworkingSocketsDebugOutputType_Bug, bFmt, pstrFile, nLine, pMsg, ap );
 	#else
 		fflush(stdout);
 		if ( pstrFile )
