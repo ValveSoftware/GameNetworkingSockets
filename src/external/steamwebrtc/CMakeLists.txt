@@ -11,7 +11,10 @@ set(abseil_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../abseil)
 if(NOT EXISTS ${abseil_SOURCE_DIR}/CMakeLists.txt)
 	message(FATAL_ERROR "abeil submodule not initialized.\n(Try 'git submodule update src/external/abseil')" )
 endif()
-add_subdirectory(${abseil_SOURCE_DIR} ${CMAKE_BINARY_DIR}/abseil)
+add_subdirectory(${abseil_SOURCE_DIR} ${CMAKE_BINARY_DIR}/abseil EXCLUDE_FROM_ALL)
+if(LTO)
+	set_property(DIRECTORY ${abseil_SOURCE_DIR} PROPERTY INTERPROCEDURAL_OPTIMIZATION ON)
+endif()
 
 set(webrtc_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../webrtc)
 #FIXME set(webrtc_BUILD_DIR ????? )
@@ -714,9 +717,7 @@ target_include_directories(webrtc-lite PUBLIC
 	${CMAKE_CURRENT_BINARY_DIR}
 	)
 
-target_link_libraries(webrtc-lite
-	OpenSSL::Crypto
-	OpenSSL::SSL
+set(ABSEIL_DEPENDENCIES
 	absl_time_zone
 	absl_time
 	absl_throw_delegate
@@ -774,6 +775,20 @@ target_link_libraries(webrtc-lite
 	absl_bad_any_cast_impl
 	)
 
+if(LTO)
+	foreach(TGT IN LISTS ABSEIL_DEPENDENCIES)
+		set_target_common_gns_properties(${TGT})
+	endforeach()
+endif()
+
+target_link_libraries(webrtc-lite
+	OpenSSL::Crypto
+	OpenSSL::SSL
+	${ABSEIL_DEPENDENCIES}
+	)
+
+set_target_common_gns_properties(webrtc-lite)
+
 set_target_properties(webrtc-lite PROPERTIES
 	CXX_STANDARD 14
 	)
@@ -789,6 +804,8 @@ add_library(steamwebrtc STATIC
 	"steamwebrtc_internal.h"
 	"ice_session.cpp"
 	)
+
+set_target_common_gns_properties(steamwebrtc)
 
 target_link_libraries(steamwebrtc
 	webrtc-lite

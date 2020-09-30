@@ -1,7 +1,4 @@
-cmake_minimum_required(VERSION 3.5)
 project(gns_example C CXX)
-
-
 
 #
 # Trivial signaling server, written in go

@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.9)
 
 # If vcpkg present as submodule, bring in the toolchain
 if( EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/vcpkg/scripts/buildsystems/vcpkg.cmake )
@@ -7,9 +7,15 @@ if( EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/vcpkg/scripts/buildsystems/vcpkg.cmake )
 		CACHE STRING "Vcpkg toolchain file")
 endif()
 
+include(CheckIPOSupported)
 include(CMakeDependentOption)
 include(CMakePushCheckState)
 include(CheckSymbolExists)
+
+# CMP0069: INTERPROCEDURAL_OPTIMIZATION is enforced when enabled.
+# This variable is needed for abseil, which has a different
+# cmake_minimum_required version set (3.5).
+set(CMAKE_POLICY_DEFAULT_CMP0069 NEW)
 
 # Put all the output from all projects into the same folder
 #set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
@@ -40,6 +46,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
 		)
 endif()
 
+option(LTO "Enable Link-Time Optimization" OFF)
 option(USE_STEAMWEBRTC "Build Google's WebRTC library to get ICE support for P2P" OFF)
 option(Protobuf_USE_STATIC_LIBS "Link with protobuf statically" OFF)
 option(LIGHT_TESTS "Use smaller/shorter tests for simple integration testing (e.g. Travis)" OFF)
@@ -59,6 +66,10 @@ if(useCryptoIndex EQUAL -1)
 endif()
 if(USE_CRYPTO STREQUAL "BCrypt" AND NOT WIN32)
 	message(FATAL_ERROR "USE_CRYPTO=\"BCrypt\" is only valid on Windows")
+endif()
+
+if(LTO)
+	check_ipo_supported()
 endif()
 
 if (WIN32)
@@ -149,6 +160,11 @@ endif()
 function(set_target_common_gns_properties TGT)
 	target_compile_definitions( ${TGT} PRIVATE GOOGLE_PROTOBUF_NO_RTTI )
 
+	if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+		# Reduce binary size by allowing for a pseudo-"function-level linking" analog
+		target_compile_options(${TGT} PRIVATE -ffunction-sections -fdata-sections)
+	endif()
+
 	if(CMAKE_SYSTEM_NAME MATCHES Linux)
 		target_compile_definitions(${TGT} PUBLIC POSIX LINUX)
 	elseif(CMAKE_SYSTEM_NAME MATCHES Darwin)
@@ -187,6 +203,10 @@ function(set_target_common_gns_properties TGT)
 
 	target_compile_options(${TGT} PRIVATE ${TARGET_ARCH_FLAGS})
 
+	if(LTO)
+		set_target_properties(${TGT} PROPERTIES INTERPROCEDURAL_OPTIMIZATION TRUE)
+	endif()
+
 	set_target_properties(${TGT} PROPERTIES
 		CXX_STANDARD 11
 	)
@@ -205,4 +225,5 @@ add_subdirectory(src)
 #message(STATUS "---------------------------------------------------------")
 message(STATUS "Crypto library for AES/SHA256: ${USE_CRYPTO}")
 message(STATUS "Crypto library for ed25519/curve25519: ${USE_CRYPTO25519}")
+message(STATUS "Link-time optimization: ${LTO}")
 #message(STATUS "---------------------------------------------------------")
