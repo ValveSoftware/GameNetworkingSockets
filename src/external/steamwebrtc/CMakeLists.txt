@@ -68,30 +68,30 @@ add_library(webrtc-lite STATIC
 	${webrtc_SOURCE_DIR}/api/adaptation/resource.h
 	${webrtc_SOURCE_DIR}/api/array_view.h
 	${webrtc_SOURCE_DIR}/api/async_resolver_factory.h
-	${webrtc_SOURCE_DIR}/api/audio_codecs/audio_codec_pair_id.cc
-	${webrtc_SOURCE_DIR}/api/audio_codecs/audio_codec_pair_id.h
-	${webrtc_SOURCE_DIR}/api/audio_codecs/audio_decoder_factory.h
-	${webrtc_SOURCE_DIR}/api/audio_codecs/audio_decoder.cc
-	${webrtc_SOURCE_DIR}/api/audio_codecs/audio_decoder.h
-	${webrtc_SOURCE_DIR}/api/audio_codecs/audio_encoder_factory.h
-	${webrtc_SOURCE_DIR}/api/audio_codecs/audio_encoder.cc
-	${webrtc_SOURCE_DIR}/api/audio_codecs/audio_encoder.h
-	${webrtc_SOURCE_DIR}/api/audio_codecs/audio_format.cc
-	${webrtc_SOURCE_DIR}/api/audio_codecs/audio_format.h
-	${webrtc_SOURCE_DIR}/api/audio_options.cc
-	${webrtc_SOURCE_DIR}/api/audio_options.h
-	${webrtc_SOURCE_DIR}/api/audio/audio_frame.cc
-	${webrtc_SOURCE_DIR}/api/audio/audio_frame.h
-	${webrtc_SOURCE_DIR}/api/audio/audio_mixer.h
-	${webrtc_SOURCE_DIR}/api/audio/channel_layout.cc
-	${webrtc_SOURCE_DIR}/api/audio/channel_layout.h
-	${webrtc_SOURCE_DIR}/api/audio/echo_canceller3_config.cc
-	${webrtc_SOURCE_DIR}/api/audio/echo_canceller3_config.h
-	${webrtc_SOURCE_DIR}/api/audio/echo_control.h
-	${webrtc_SOURCE_DIR}/api/call/audio_sink.h
-	${webrtc_SOURCE_DIR}/api/call/bitrate_allocation.h
-	${webrtc_SOURCE_DIR}/api/call/transport.cc
-	${webrtc_SOURCE_DIR}/api/call/transport.h
+	#${webrtc_SOURCE_DIR}/api/audio_codecs/audio_codec_pair_id.cc
+	#${webrtc_SOURCE_DIR}/api/audio_codecs/audio_codec_pair_id.h
+	#${webrtc_SOURCE_DIR}/api/audio_codecs/audio_decoder_factory.h
+	#${webrtc_SOURCE_DIR}/api/audio_codecs/audio_decoder.cc
+	#${webrtc_SOURCE_DIR}/api/audio_codecs/audio_decoder.h
+	#${webrtc_SOURCE_DIR}/api/audio_codecs/audio_encoder_factory.h
+	#${webrtc_SOURCE_DIR}/api/audio_codecs/audio_encoder.cc
+	#${webrtc_SOURCE_DIR}/api/audio_codecs/audio_encoder.h
+	#${webrtc_SOURCE_DIR}/api/audio_codecs/audio_format.cc
+	#${webrtc_SOURCE_DIR}/api/audio_codecs/audio_format.h
+	#${webrtc_SOURCE_DIR}/api/audio_options.cc
+	#${webrtc_SOURCE_DIR}/api/audio_options.h
+	#${webrtc_SOURCE_DIR}/api/audio/audio_frame.cc
+	#${webrtc_SOURCE_DIR}/api/audio/audio_frame.h
+	#${webrtc_SOURCE_DIR}/api/audio/audio_mixer.h
+	#${webrtc_SOURCE_DIR}/api/audio/channel_layout.cc
+	#${webrtc_SOURCE_DIR}/api/audio/channel_layout.h
+	#${webrtc_SOURCE_DIR}/api/audio/echo_canceller3_config.cc
+	#${webrtc_SOURCE_DIR}/api/audio/echo_canceller3_config.h
+	#${webrtc_SOURCE_DIR}/api/audio/echo_control.h
+	#${webrtc_SOURCE_DIR}/api/call/audio_sink.h
+	#${webrtc_SOURCE_DIR}/api/call/bitrate_allocation.h
+	#${webrtc_SOURCE_DIR}/api/call/transport.cc
+	#${webrtc_SOURCE_DIR}/api/call/transport.h
 	${webrtc_SOURCE_DIR}/api/candidate.cc
 	${webrtc_SOURCE_DIR}/api/candidate.h
 	${webrtc_SOURCE_DIR}/api/crypto_params.h
@@ -107,16 +107,16 @@ add_library(webrtc-lite STATIC
 	${webrtc_SOURCE_DIR}/api/frame_transformer_interface.h
 	${webrtc_SOURCE_DIR}/api/function_view.h
 	${webrtc_SOURCE_DIR}/api/ice_transport_interface.h
-	${webrtc_SOURCE_DIR}/api/jsep_ice_candidate.cc
-	${webrtc_SOURCE_DIR}/api/jsep_ice_candidate.cc
-	${webrtc_SOURCE_DIR}/api/jsep_ice_candidate.h
-	${webrtc_SOURCE_DIR}/api/jsep_session_description.h
-	${webrtc_SOURCE_DIR}/api/jsep.cc
-	${webrtc_SOURCE_DIR}/api/jsep.h
-	${webrtc_SOURCE_DIR}/api/media_stream_interface.cc
-	${webrtc_SOURCE_DIR}/api/media_stream_interface.h
-	${webrtc_SOURCE_DIR}/api/media_types.cc
-	${webrtc_SOURCE_DIR}/api/media_types.h
+	#${webrtc_SOURCE_DIR}/api/jsep_ice_candidate.cc
+	#${webrtc_SOURCE_DIR}/api/jsep_ice_candidate.cc
+	#${webrtc_SOURCE_DIR}/api/jsep_ice_candidate.h
+	#${webrtc_SOURCE_DIR}/api/jsep_session_description.h
+	#${webrtc_SOURCE_DIR}/api/jsep.cc
+	#${webrtc_SOURCE_DIR}/api/jsep.h
+	#${webrtc_SOURCE_DIR}/api/media_stream_interface.cc
+	#${webrtc_SOURCE_DIR}/api/media_stream_interface.h
+	#${webrtc_SOURCE_DIR}/api/media_types.cc
+	#${webrtc_SOURCE_DIR}/api/media_types.h
 	${webrtc_SOURCE_DIR}/api/neteq/neteq_factory.h
 	${webrtc_SOURCE_DIR}/api/neteq/neteq.cc
 	${webrtc_SOURCE_DIR}/api/neteq/neteq.h
@@ -128,29 +128,29 @@ add_library(webrtc-lite STATIC
 	${webrtc_SOURCE_DIR}/api/ref_counted_base.h
 	${webrtc_SOURCE_DIR}/api/rtc_error.cc
 	${webrtc_SOURCE_DIR}/api/rtc_error.h
-	${webrtc_SOURCE_DIR}/api/rtc_event_log_output.h
-	${webrtc_SOURCE_DIR}/api/rtc_event_log/rtc_event_log_factory_interface.h
-	${webrtc_SOURCE_DIR}/api/rtc_event_log/rtc_event_log_factory.cc
-	${webrtc_SOURCE_DIR}/api/rtc_event_log/rtc_event_log_factory.cc
-	${webrtc_SOURCE_DIR}/api/rtc_event_log/rtc_event_log_factory.h
-	${webrtc_SOURCE_DIR}/api/rtc_event_log/rtc_event_log.cc
-	${webrtc_SOURCE_DIR}/api/rtc_event_log/rtc_event_log.h
+	#${webrtc_SOURCE_DIR}/api/rtc_event_log_output.h
+	#${webrtc_SOURCE_DIR}/api/rtc_event_log/rtc_event_log_factory_interface.h
+	#${webrtc_SOURCE_DIR}/api/rtc_event_log/rtc_event_log_factory.cc
+	#${webrtc_SOURCE_DIR}/api/rtc_event_log/rtc_event_log_factory.cc
+	#${webrtc_SOURCE_DIR}/api/rtc_event_log/rtc_event_log_factory.h
+	#${webrtc_SOURCE_DIR}/api/rtc_event_log/rtc_event_log.cc
+	#${webrtc_SOURCE_DIR}/api/rtc_event_log/rtc_event_log.h
 	${webrtc_SOURCE_DIR}/api/rtc_event_log/rtc_event.cc
 	${webrtc_SOURCE_DIR}/api/rtc_event_log/rtc_event.h
-	${webrtc_SOURCE_DIR}/api/rtp_headers.cc
-	${webrtc_SOURCE_DIR}/api/rtp_headers.h
-	${webrtc_SOURCE_DIR}/api/rtp_packet_info.cc
-	${webrtc_SOURCE_DIR}/api/rtp_packet_info.h
-	${webrtc_SOURCE_DIR}/api/rtp_packet_infos.h
-	${webrtc_SOURCE_DIR}/api/rtp_parameters.cc
-	${webrtc_SOURCE_DIR}/api/rtp_parameters.h
-	${webrtc_SOURCE_DIR}/api/rtp_receiver_interface.cc
-	${webrtc_SOURCE_DIR}/api/rtp_receiver_interface.h
-	${webrtc_SOURCE_DIR}/api/rtp_sender_interface.cc
-	${webrtc_SOURCE_DIR}/api/rtp_sender_interface.h
-	${webrtc_SOURCE_DIR}/api/rtp_transceiver_direction.h
-	${webrtc_SOURCE_DIR}/api/rtp_transceiver_interface.cc
-	${webrtc_SOURCE_DIR}/api/rtp_transceiver_interface.h
+	#${webrtc_SOURCE_DIR}/api/rtp_headers.cc
+	#${webrtc_SOURCE_DIR}/api/rtp_headers.h
+	#${webrtc_SOURCE_DIR}/api/rtp_packet_info.cc
+	#${webrtc_SOURCE_DIR}/api/rtp_packet_info.h
+	#${webrtc_SOURCE_DIR}/api/rtp_packet_infos.h
+	#${webrtc_SOURCE_DIR}/api/rtp_parameters.cc
+	#${webrtc_SOURCE_DIR}/api/rtp_parameters.h
+	#${webrtc_SOURCE_DIR}/api/rtp_receiver_interface.cc
+	#${webrtc_SOURCE_DIR}/api/rtp_receiver_interface.h
+	#${webrtc_SOURCE_DIR}/api/rtp_sender_interface.cc
+	#${webrtc_SOURCE_DIR}/api/rtp_sender_interface.h
+	#${webrtc_SOURCE_DIR}/api/rtp_transceiver_direction.h
+	#${webrtc_SOURCE_DIR}/api/rtp_transceiver_interface.cc
+	#${webrtc_SOURCE_DIR}/api/rtp_transceiver_interface.h
 	${webrtc_SOURCE_DIR}/api/scoped_refptr.h
 	${webrtc_SOURCE_DIR}/api/task_queue/default_task_queue_factory.h
 	${webrtc_SOURCE_DIR}/api/task_queue/queued_task.h
@@ -181,80 +181,80 @@ add_library(webrtc-lite STATIC
 	${webrtc_SOURCE_DIR}/api/units/time_delta.h
 	${webrtc_SOURCE_DIR}/api/units/timestamp.cc
 	${webrtc_SOURCE_DIR}/api/units/timestamp.h
-	${webrtc_SOURCE_DIR}/api/video_codecs/sdp_video_format.cc
-	${webrtc_SOURCE_DIR}/api/video_codecs/sdp_video_format.h
-	${webrtc_SOURCE_DIR}/api/video_codecs/video_codec.cc
-	${webrtc_SOURCE_DIR}/api/video_codecs/video_codec.h
-	${webrtc_SOURCE_DIR}/api/video_codecs/video_decoder.cc
-	${webrtc_SOURCE_DIR}/api/video_codecs/video_decoder.h
-	${webrtc_SOURCE_DIR}/api/video_codecs/video_encoder_config.cc
-	${webrtc_SOURCE_DIR}/api/video_codecs/video_encoder_config.h
-	${webrtc_SOURCE_DIR}/api/video_codecs/video_encoder_factory.h
-	${webrtc_SOURCE_DIR}/api/video_codecs/video_encoder.cc
-	${webrtc_SOURCE_DIR}/api/video_codecs/video_encoder.h
-	${webrtc_SOURCE_DIR}/api/video/color_space.cc
-	${webrtc_SOURCE_DIR}/api/video/color_space.h
-	${webrtc_SOURCE_DIR}/api/video/encoded_frame.cc
-	${webrtc_SOURCE_DIR}/api/video/encoded_frame.h
-	${webrtc_SOURCE_DIR}/api/video/encoded_image.cc
-	${webrtc_SOURCE_DIR}/api/video/encoded_image.h
-	${webrtc_SOURCE_DIR}/api/video/hdr_metadata.cc
-	${webrtc_SOURCE_DIR}/api/video/hdr_metadata.h
-	${webrtc_SOURCE_DIR}/api/video/recordable_encoded_frame.h
-	${webrtc_SOURCE_DIR}/api/video/video_bitrate_allocation.cc
-	${webrtc_SOURCE_DIR}/api/video/video_bitrate_allocation.h
-	${webrtc_SOURCE_DIR}/api/video/video_bitrate_allocator_factory.h
-	${webrtc_SOURCE_DIR}/api/video/video_bitrate_allocator.cc
-	${webrtc_SOURCE_DIR}/api/video/video_bitrate_allocator.h
-	${webrtc_SOURCE_DIR}/api/video/video_codec_constants.h
-	${webrtc_SOURCE_DIR}/api/video/video_codec_type.h
-	${webrtc_SOURCE_DIR}/api/video/video_content_type.cc
-	${webrtc_SOURCE_DIR}/api/video/video_content_type.h
-	${webrtc_SOURCE_DIR}/api/video/video_frame_buffer.cc
-	${webrtc_SOURCE_DIR}/api/video/video_frame_buffer.h
-	${webrtc_SOURCE_DIR}/api/video/video_frame_metadata.cc
-	${webrtc_SOURCE_DIR}/api/video/video_frame_metadata.h
-	${webrtc_SOURCE_DIR}/api/video/video_frame_type.h
-	${webrtc_SOURCE_DIR}/api/video/video_frame.cc
-	${webrtc_SOURCE_DIR}/api/video/video_frame.h
-	${webrtc_SOURCE_DIR}/api/video/video_rotation.h
-	${webrtc_SOURCE_DIR}/api/video/video_sink_interface.h
-	${webrtc_SOURCE_DIR}/api/video/video_source_interface.cc
-	${webrtc_SOURCE_DIR}/api/video/video_source_interface.h
-	${webrtc_SOURCE_DIR}/api/video/video_stream_encoder_settings.h
-	${webrtc_SOURCE_DIR}/api/video/video_timing.cc
-	${webrtc_SOURCE_DIR}/api/video/video_timing.h
-	${webrtc_SOURCE_DIR}/call/audio_receive_stream.cc
-	${webrtc_SOURCE_DIR}/call/audio_receive_stream.h
+	#${webrtc_SOURCE_DIR}/api/video_codecs/sdp_video_format.cc
+	#${webrtc_SOURCE_DIR}/api/video_codecs/sdp_video_format.h
+	#${webrtc_SOURCE_DIR}/api/video_codecs/video_codec.cc
+	#${webrtc_SOURCE_DIR}/api/video_codecs/video_codec.h
+	#${webrtc_SOURCE_DIR}/api/video_codecs/video_decoder.cc
+	#${webrtc_SOURCE_DIR}/api/video_codecs/video_decoder.h
+	#${webrtc_SOURCE_DIR}/api/video_codecs/video_encoder_config.cc
+	#${webrtc_SOURCE_DIR}/api/video_codecs/video_encoder_config.h
+	#${webrtc_SOURCE_DIR}/api/video_codecs/video_encoder_factory.h
+	#${webrtc_SOURCE_DIR}/api/video_codecs/video_encoder.cc
+	#${webrtc_SOURCE_DIR}/api/video_codecs/video_encoder.h
+	#${webrtc_SOURCE_DIR}/api/video/color_space.cc
+	#${webrtc_SOURCE_DIR}/api/video/color_space.h
+	#${webrtc_SOURCE_DIR}/api/video/encoded_frame.cc
+	#${webrtc_SOURCE_DIR}/api/video/encoded_frame.h
+	#${webrtc_SOURCE_DIR}/api/video/encoded_image.cc
+	#${webrtc_SOURCE_DIR}/api/video/encoded_image.h
+	#${webrtc_SOURCE_DIR}/api/video/hdr_metadata.cc
+	#${webrtc_SOURCE_DIR}/api/video/hdr_metadata.h
+	#${webrtc_SOURCE_DIR}/api/video/recordable_encoded_frame.h
+	#${webrtc_SOURCE_DIR}/api/video/video_bitrate_allocation.cc
+	#${webrtc_SOURCE_DIR}/api/video/video_bitrate_allocation.h
+	#${webrtc_SOURCE_DIR}/api/video/video_bitrate_allocator_factory.h
+	#${webrtc_SOURCE_DIR}/api/video/video_bitrate_allocator.cc
+	#${webrtc_SOURCE_DIR}/api/video/video_bitrate_allocator.h
+	#${webrtc_SOURCE_DIR}/api/video/video_codec_constants.h
+	#${webrtc_SOURCE_DIR}/api/video/video_codec_type.h
+	#${webrtc_SOURCE_DIR}/api/video/video_content_type.cc
+	#${webrtc_SOURCE_DIR}/api/video/video_content_type.h
+	#${webrtc_SOURCE_DIR}/api/video/video_frame_buffer.cc
+	#${webrtc_SOURCE_DIR}/api/video/video_frame_buffer.h
+	#${webrtc_SOURCE_DIR}/api/video/video_frame_metadata.cc
+	#${webrtc_SOURCE_DIR}/api/video/video_frame_metadata.h
+	#${webrtc_SOURCE_DIR}/api/video/video_frame_type.h
+	#${webrtc_SOURCE_DIR}/api/video/video_frame.cc
+	#${webrtc_SOURCE_DIR}/api/video/video_frame.h
+	#${webrtc_SOURCE_DIR}/api/video/video_rotation.h
+	#${webrtc_SOURCE_DIR}/api/video/video_sink_interface.h
+	#${webrtc_SOURCE_DIR}/api/video/video_source_interface.cc
+	#${webrtc_SOURCE_DIR}/api/video/video_source_interface.h
+	#${webrtc_SOURCE_DIR}/api/video/video_stream_encoder_settings.h
+	#${webrtc_SOURCE_DIR}/api/video/video_timing.cc
+	#${webrtc_SOURCE_DIR}/api/video/video_timing.h
+	#${webrtc_SOURCE_DIR}/call/audio_receive_stream.cc
+	#${webrtc_SOURCE_DIR}/call/audio_receive_stream.h
 	#${webrtc_SOURCE_DIR}/call/audio_send_stream.cc
 	#${webrtc_SOURCE_DIR}/call/audio_send_stream.h
-	${webrtc_SOURCE_DIR}/call/audio_sender.h
-	${webrtc_SOURCE_DIR}/call/audio_state.cc
-	${webrtc_SOURCE_DIR}/call/audio_state.h
+	#${webrtc_SOURCE_DIR}/call/audio_sender.h
+	#${webrtc_SOURCE_DIR}/call/audio_state.cc
+	#${webrtc_SOURCE_DIR}/call/audio_state.h
 	#${webrtc_SOURCE_DIR}/call/call_config.cc
 	#${webrtc_SOURCE_DIR}/call/call_config.h
 	#${webrtc_SOURCE_DIR}/call/call.cc
 	#${webrtc_SOURCE_DIR}/call/call.h
-	${webrtc_SOURCE_DIR}/call/flexfec_receive_stream.cc
-	${webrtc_SOURCE_DIR}/call/flexfec_receive_stream.h
-	${webrtc_SOURCE_DIR}/call/packet_receiver.h
-	${webrtc_SOURCE_DIR}/call/rtp_config.cc
-	${webrtc_SOURCE_DIR}/call/rtp_config.h
-	${webrtc_SOURCE_DIR}/call/rtp_demuxer.cc
-	${webrtc_SOURCE_DIR}/call/rtp_demuxer.h
-	${webrtc_SOURCE_DIR}/call/rtp_packet_sink_interface.h
-	${webrtc_SOURCE_DIR}/call/rtp_rtcp_demuxer_helper.cc
-	${webrtc_SOURCE_DIR}/call/rtp_rtcp_demuxer_helper.h
-	${webrtc_SOURCE_DIR}/call/rtp_transport_controller_send_interface.h
-	${webrtc_SOURCE_DIR}/call/ssrc_binding_observer.h
-	${webrtc_SOURCE_DIR}/call/video_receive_stream.cc
-	${webrtc_SOURCE_DIR}/call/video_receive_stream.h
-	${webrtc_SOURCE_DIR}/call/video_send_stream.cc
-	${webrtc_SOURCE_DIR}/call/video_send_stream.h
+	#${webrtc_SOURCE_DIR}/call/flexfec_receive_stream.cc
+	#${webrtc_SOURCE_DIR}/call/flexfec_receive_stream.h
+	#${webrtc_SOURCE_DIR}/call/packet_receiver.h
+	#${webrtc_SOURCE_DIR}/call/rtp_config.cc
+	#${webrtc_SOURCE_DIR}/call/rtp_config.h
+	#${webrtc_SOURCE_DIR}/call/rtp_demuxer.cc
+	#${webrtc_SOURCE_DIR}/call/rtp_demuxer.h
+	#${webrtc_SOURCE_DIR}/call/rtp_packet_sink_interface.h
+	#${webrtc_SOURCE_DIR}/call/rtp_rtcp_demuxer_helper.cc
+	#${webrtc_SOURCE_DIR}/call/rtp_rtcp_demuxer_helper.h
+	#${webrtc_SOURCE_DIR}/call/rtp_transport_controller_send_interface.h
+	#${webrtc_SOURCE_DIR}/call/ssrc_binding_observer.h
+	#${webrtc_SOURCE_DIR}/call/video_receive_stream.cc
+	#${webrtc_SOURCE_DIR}/call/video_receive_stream.h
+	#${webrtc_SOURCE_DIR}/call/video_send_stream.cc
+	#${webrtc_SOURCE_DIR}/call/video_send_stream.h
 	${webrtc_SOURCE_DIR}/common_types.h
-	${webrtc_SOURCE_DIR}/common_video/generic_frame_descriptor/generic_frame_info.cc
-	${webrtc_SOURCE_DIR}/common_video/generic_frame_descriptor/generic_frame_info.h
-	${webrtc_SOURCE_DIR}/common_video/include/quality_limitation_reason.h
+	#${webrtc_SOURCE_DIR}/common_video/generic_frame_descriptor/generic_frame_info.cc
+	#${webrtc_SOURCE_DIR}/common_video/generic_frame_descriptor/generic_frame_info.h
+	#${webrtc_SOURCE_DIR}/common_video/include/quality_limitation_reason.h
 	${webrtc_SOURCE_DIR}/logging/rtc_event_log/events/rtc_event_dtls_transport_state.cc
 	${webrtc_SOURCE_DIR}/logging/rtc_event_log/events/rtc_event_dtls_transport_state.h
 	${webrtc_SOURCE_DIR}/logging/rtc_event_log/events/rtc_event_dtls_writable_state.cc
@@ -265,89 +265,89 @@ add_library(webrtc-lite STATIC
 	${webrtc_SOURCE_DIR}/logging/rtc_event_log/events/rtc_event_ice_candidate_pair.h
 	${webrtc_SOURCE_DIR}/logging/rtc_event_log/ice_logger.cc
 	${webrtc_SOURCE_DIR}/logging/rtc_event_log/ice_logger.h
-	${webrtc_SOURCE_DIR}/media/base/codec.cc
-	${webrtc_SOURCE_DIR}/media/base/codec.h
-	${webrtc_SOURCE_DIR}/media/base/delayable.h
-	${webrtc_SOURCE_DIR}/media/base/h264_profile_level_id.cc
-	${webrtc_SOURCE_DIR}/media/base/h264_profile_level_id.h
-	${webrtc_SOURCE_DIR}/media/base/media_channel.cc
-	${webrtc_SOURCE_DIR}/media/base/media_channel.h
-	${webrtc_SOURCE_DIR}/media/base/media_config.h
-	${webrtc_SOURCE_DIR}/media/base/media_constants.cc
-	${webrtc_SOURCE_DIR}/media/base/media_constants.h
-	${webrtc_SOURCE_DIR}/media/base/media_engine.cc
-	${webrtc_SOURCE_DIR}/media/base/media_engine.h
-	${webrtc_SOURCE_DIR}/media/base/rid_description.cc
-	${webrtc_SOURCE_DIR}/media/base/rid_description.cc
-	${webrtc_SOURCE_DIR}/media/base/rid_description.h
-	${webrtc_SOURCE_DIR}/media/base/rtp_utils.cc
-	${webrtc_SOURCE_DIR}/media/base/rtp_utils.h
-	${webrtc_SOURCE_DIR}/media/base/stream_params.cc
-	${webrtc_SOURCE_DIR}/media/base/stream_params.h
-	${webrtc_SOURCE_DIR}/media/base/turn_utils.cc
-	${webrtc_SOURCE_DIR}/media/base/turn_utils.cc
-	${webrtc_SOURCE_DIR}/media/base/turn_utils.h
-	${webrtc_SOURCE_DIR}/media/base/video_common.cc
-	${webrtc_SOURCE_DIR}/media/base/video_common.h
-	${webrtc_SOURCE_DIR}/media/base/vp9_profile.cc
-	${webrtc_SOURCE_DIR}/media/base/vp9_profile.h
-	${webrtc_SOURCE_DIR}/modules/audio_device/include/audio_device_defines.h
-	${webrtc_SOURCE_DIR}/modules/audio_device/include/audio_device.h
-	${webrtc_SOURCE_DIR}/modules/audio_processing/include/audio_processing_statistics.cc
-	${webrtc_SOURCE_DIR}/modules/audio_processing/include/audio_processing_statistics.h
-	${webrtc_SOURCE_DIR}/modules/audio_processing/include/audio_processing.cc
-	${webrtc_SOURCE_DIR}/modules/audio_processing/include/audio_processing.h
-	${webrtc_SOURCE_DIR}/modules/audio_processing/include/config.cc
-	${webrtc_SOURCE_DIR}/modules/audio_processing/include/config.h
-	${webrtc_SOURCE_DIR}/modules/include/module_common_types.cc
-	${webrtc_SOURCE_DIR}/modules/include/module_common_types.h
-	${webrtc_SOURCE_DIR}/modules/include/module_fec_types.h
-	${webrtc_SOURCE_DIR}/modules/rtp_rtcp/include/report_block_data.cc
-	${webrtc_SOURCE_DIR}/modules/rtp_rtcp/include/report_block_data.h
-	${webrtc_SOURCE_DIR}/modules/rtp_rtcp/include/rtcp_statistics.h
-	${webrtc_SOURCE_DIR}/modules/rtp_rtcp/include/rtp_header_extension_map.h
-	${webrtc_SOURCE_DIR}/modules/rtp_rtcp/include/rtp_packet_sender.h
-	${webrtc_SOURCE_DIR}/modules/rtp_rtcp/include/rtp_rtcp_defines.cc
-	${webrtc_SOURCE_DIR}/modules/rtp_rtcp/include/rtp_rtcp_defines.h
-	${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/byte_io.h
-	${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtcp_packet.cc
-	${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtcp_packet.h
-	${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtcp_packet/app.cc
-	${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtcp_packet/app.h
-	${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtcp_packet/common_header.cc
-	${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtcp_packet/common_header.h
-	${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtcp_packet/remote_estimate.cc
-	${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtcp_packet/remote_estimate.h
-	${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtp_dependency_descriptor_writer.cc
-	${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtp_dependency_descriptor_reader.cc
-	${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtp_dependency_descriptor_extension.cc
-	${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtp_dependency_descriptor_extension.h
-	${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtp_generic_frame_descriptor_extension.cc
-	${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtp_generic_frame_descriptor_extension.h
-	${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtp_generic_frame_descriptor.cc
-	${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtp_generic_frame_descriptor.h
-	${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtp_header_extension_map.cc
-	${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtp_header_extensions.cc
-	${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtp_header_extensions.h
-	${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtp_packet_received.cc
-	${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtp_packet_received.h
-	${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtp_packet_to_send.cc
-	${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtp_packet_to_send.h
-	${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtp_packet.cc
-	${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtp_packet.h
-	${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtp_video_header.cc
-	${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtp_video_header.h
+	#${webrtc_SOURCE_DIR}/media/base/codec.cc
+	#${webrtc_SOURCE_DIR}/media/base/codec.h
+	#${webrtc_SOURCE_DIR}/media/base/delayable.h
+	#${webrtc_SOURCE_DIR}/media/base/h264_profile_level_id.cc
+	#${webrtc_SOURCE_DIR}/media/base/h264_profile_level_id.h
+	#${webrtc_SOURCE_DIR}/media/base/media_channel.cc
+	#${webrtc_SOURCE_DIR}/media/base/media_channel.h
+	#${webrtc_SOURCE_DIR}/media/base/media_config.h
+	#${webrtc_SOURCE_DIR}/media/base/media_constants.cc
+	#${webrtc_SOURCE_DIR}/media/base/media_constants.h
+	#${webrtc_SOURCE_DIR}/media/base/media_engine.cc
+	#${webrtc_SOURCE_DIR}/media/base/media_engine.h
+	#${webrtc_SOURCE_DIR}/media/base/rid_description.cc
+	#${webrtc_SOURCE_DIR}/media/base/rid_description.cc
+	#${webrtc_SOURCE_DIR}/media/base/rid_description.h
+	#${webrtc_SOURCE_DIR}/media/base/rtp_utils.cc
+	#${webrtc_SOURCE_DIR}/media/base/rtp_utils.h
+	#${webrtc_SOURCE_DIR}/media/base/stream_params.cc
+	#${webrtc_SOURCE_DIR}/media/base/stream_params.h
+	#${webrtc_SOURCE_DIR}/media/base/turn_utils.cc
+	#${webrtc_SOURCE_DIR}/media/base/turn_utils.cc
+	#${webrtc_SOURCE_DIR}/media/base/turn_utils.h
+	#${webrtc_SOURCE_DIR}/media/base/video_common.cc
+	#${webrtc_SOURCE_DIR}/media/base/video_common.h
+	#${webrtc_SOURCE_DIR}/media/base/vp9_profile.cc
+	#${webrtc_SOURCE_DIR}/media/base/vp9_profile.h
+	#${webrtc_SOURCE_DIR}/modules/audio_device/include/audio_device_defines.h
+	#${webrtc_SOURCE_DIR}/modules/audio_device/include/audio_device.h
+	#${webrtc_SOURCE_DIR}/modules/audio_processing/include/audio_processing_statistics.cc
+	#${webrtc_SOURCE_DIR}/modules/audio_processing/include/audio_processing_statistics.h
+	#${webrtc_SOURCE_DIR}/modules/audio_processing/include/audio_processing.cc
+	#${webrtc_SOURCE_DIR}/modules/audio_processing/include/audio_processing.h
+	#${webrtc_SOURCE_DIR}/modules/audio_processing/include/config.cc
+	#${webrtc_SOURCE_DIR}/modules/audio_processing/include/config.h
+	#${webrtc_SOURCE_DIR}/modules/include/module_common_types.cc
+	#${webrtc_SOURCE_DIR}/modules/include/module_common_types.h
+	#${webrtc_SOURCE_DIR}/modules/include/module_fec_types.h
+	#${webrtc_SOURCE_DIR}/modules/rtp_rtcp/include/report_block_data.cc
+	#${webrtc_SOURCE_DIR}/modules/rtp_rtcp/include/report_block_data.h
+	#${webrtc_SOURCE_DIR}/modules/rtp_rtcp/include/rtcp_statistics.h
+	#${webrtc_SOURCE_DIR}/modules/rtp_rtcp/include/rtp_header_extension_map.h
+	#${webrtc_SOURCE_DIR}/modules/rtp_rtcp/include/rtp_packet_sender.h
+	#${webrtc_SOURCE_DIR}/modules/rtp_rtcp/include/rtp_rtcp_defines.cc
+	#${webrtc_SOURCE_DIR}/modules/rtp_rtcp/include/rtp_rtcp_defines.h
+	#${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/byte_io.h
+	#${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtcp_packet.cc
+	#${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtcp_packet.h
+	#${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtcp_packet/app.cc
+	#${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtcp_packet/app.h
+	#${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtcp_packet/common_header.cc
+	#${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtcp_packet/common_header.h
+	#${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtcp_packet/remote_estimate.cc
+	#${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtcp_packet/remote_estimate.h
+	#${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtp_dependency_descriptor_writer.cc
+	#${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtp_dependency_descriptor_reader.cc
+	#${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtp_dependency_descriptor_extension.cc
+	#${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtp_dependency_descriptor_extension.h
+	#${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtp_generic_frame_descriptor_extension.cc
+	#${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtp_generic_frame_descriptor_extension.h
+	#${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtp_generic_frame_descriptor.cc
+	#${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtp_generic_frame_descriptor.h
+	#${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtp_header_extension_map.cc
+	#${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtp_header_extensions.cc
+	#${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtp_header_extensions.h
+	#${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtp_packet_received.cc
+	#${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtp_packet_received.h
+	#${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtp_packet_to_send.cc
+	#${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtp_packet_to_send.h
+	#${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtp_packet.cc
+	#${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtp_packet.h
+	#${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtp_video_header.cc
+	#${webrtc_SOURCE_DIR}/modules/rtp_rtcp/source/rtp_video_header.h
 	${webrtc_SOURCE_DIR}/modules/utility/include/process_thread.h
-	${webrtc_SOURCE_DIR}/modules/video_coding/codecs/h264/include/h264_globals.h
-	${webrtc_SOURCE_DIR}/modules/video_coding/codecs/interface/common_constants.h
-	${webrtc_SOURCE_DIR}/modules/video_coding/codecs/vp8/include/vp8_globals.h
-	${webrtc_SOURCE_DIR}/modules/video_coding/codecs/vp9/include/vp9_globals.h
-	${webrtc_SOURCE_DIR}/modules/video_coding/encoded_frame.cc
-	${webrtc_SOURCE_DIR}/modules/video_coding/encoded_frame.h
-	${webrtc_SOURCE_DIR}/modules/video_coding/include/video_codec_interface.cc
-	${webrtc_SOURCE_DIR}/modules/video_coding/include/video_codec_interface.h
-	${webrtc_SOURCE_DIR}/modules/video_coding/include/video_coding_defines.h
-	${webrtc_SOURCE_DIR}/modules/video_coding/include/video_error_codes.h
+	#${webrtc_SOURCE_DIR}/modules/video_coding/codecs/h264/include/h264_globals.h
+	#${webrtc_SOURCE_DIR}/modules/video_coding/codecs/interface/common_constants.h
+	#${webrtc_SOURCE_DIR}/modules/video_coding/codecs/vp8/include/vp8_globals.h
+	#${webrtc_SOURCE_DIR}/modules/video_coding/codecs/vp9/include/vp9_globals.h
+	#${webrtc_SOURCE_DIR}/modules/video_coding/encoded_frame.cc
+	#${webrtc_SOURCE_DIR}/modules/video_coding/encoded_frame.h
+	#${webrtc_SOURCE_DIR}/modules/video_coding/include/video_codec_interface.cc
+	#${webrtc_SOURCE_DIR}/modules/video_coding/include/video_codec_interface.h
+	#${webrtc_SOURCE_DIR}/modules/video_coding/include/video_coding_defines.h
+	#${webrtc_SOURCE_DIR}/modules/video_coding/include/video_error_codes.h
 	${webrtc_SOURCE_DIR}/p2p/base/async_stun_tcp_socket.cc
 	${webrtc_SOURCE_DIR}/p2p/base/async_stun_tcp_socket.h
 	${webrtc_SOURCE_DIR}/p2p/base/basic_ice_controller.cc
@@ -413,27 +413,27 @@ add_library(webrtc-lite STATIC
 	${webrtc_SOURCE_DIR}/pc/channel_manager.h
 	${webrtc_SOURCE_DIR}/pc/channel.cc
 	${webrtc_SOURCE_DIR}/pc/channel.h
-	${webrtc_SOURCE_DIR}/pc/composite_data_channel_transport.cc
-	${webrtc_SOURCE_DIR}/pc/composite_data_channel_transport.h
-	${webrtc_SOURCE_DIR}/pc/composite_rtp_transport.cc
-	${webrtc_SOURCE_DIR}/pc/composite_rtp_transport.h
+	#${webrtc_SOURCE_DIR}/pc/composite_data_channel_transport.cc
+	#${webrtc_SOURCE_DIR}/pc/composite_data_channel_transport.h
+	#${webrtc_SOURCE_DIR}/pc/composite_rtp_transport.cc
+	#${webrtc_SOURCE_DIR}/pc/composite_rtp_transport.h
 	${webrtc_SOURCE_DIR}/pc/dtls_transport.cc
 	${webrtc_SOURCE_DIR}/pc/dtls_transport.h
 	${webrtc_SOURCE_DIR}/pc/ice_transport.cc
 	${webrtc_SOURCE_DIR}/pc/ice_transport.h
-	${webrtc_SOURCE_DIR}/pc/jsep_ice_candidate.cc
-	${webrtc_SOURCE_DIR}/pc/jsep_session_description.cc
+	#${webrtc_SOURCE_DIR}/pc/jsep_ice_candidate.cc
+	#${webrtc_SOURCE_DIR}/pc/jsep_session_description.cc
 	#${webrtc_SOURCE_DIR}/pc/jsep_transport.cc
 	#${webrtc_SOURCE_DIR}/pc/jsep_transport.h
-	${webrtc_SOURCE_DIR}/pc/media_protocol_names.cc
-	${webrtc_SOURCE_DIR}/pc/media_protocol_names.h
-	${webrtc_SOURCE_DIR}/pc/media_session.cc
-	${webrtc_SOURCE_DIR}/pc/media_session.h
-	${webrtc_SOURCE_DIR}/pc/rtp_media_utils.cc
-	${webrtc_SOURCE_DIR}/pc/rtp_media_utils.h
-	${webrtc_SOURCE_DIR}/pc/rtp_transport_internal.h
-	${webrtc_SOURCE_DIR}/pc/rtp_transport.cc
-	${webrtc_SOURCE_DIR}/pc/rtp_transport.h
+	#${webrtc_SOURCE_DIR}/pc/media_protocol_names.cc
+	#${webrtc_SOURCE_DIR}/pc/media_protocol_names.h
+	#${webrtc_SOURCE_DIR}/pc/media_session.cc
+	#${webrtc_SOURCE_DIR}/pc/media_session.h
+	#${webrtc_SOURCE_DIR}/pc/rtp_media_utils.cc
+	#${webrtc_SOURCE_DIR}/pc/rtp_media_utils.h
+	#${webrtc_SOURCE_DIR}/pc/rtp_transport_internal.h
+	#${webrtc_SOURCE_DIR}/pc/rtp_transport.cc
+	#${webrtc_SOURCE_DIR}/pc/rtp_transport.h
 	#${webrtc_SOURCE_DIR}/pc/sctp_data_channel_transport.cc
 	#${webrtc_SOURCE_DIR}/pc/sctp_data_channel_transport.h
 	${webrtc_SOURCE_DIR}/pc/sdp_serializer.cc
@@ -445,7 +445,8 @@ add_library(webrtc-lite STATIC
 	${webrtc_SOURCE_DIR}/pc/transport_stats.cc
 	${webrtc_SOURCE_DIR}/pc/transport_stats.h
 	${webrtc_SOURCE_DIR}/pc/used_ids.h
-	${webrtc_SOURCE_DIR}/pc/webrtc_sdp.cc
+	#${webrtc_SOURCE_DIR}/pc/webrtc_sdp.cc
+	webrtc_sdp.cc  # NOTE: This is a file that we had to hack.  See the comments at the top of the file for more info.
 	${webrtc_SOURCE_DIR}/pc/webrtc_sdp.h
 	${webrtc_SOURCE_DIR}/rtc_base/arraysize.h
 	${webrtc_SOURCE_DIR}/rtc_base/async_invoker_inl.h
