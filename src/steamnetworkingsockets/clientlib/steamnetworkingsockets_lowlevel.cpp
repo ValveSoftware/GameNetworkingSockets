@@ -1741,7 +1741,7 @@ int g_nRateLimitSpewCount;
 ESteamNetworkingSocketsDebugOutputType g_eDefaultGroupSpewLevel;
 static FSteamNetworkingSocketsDebugOutput s_pfnDebugOutput = nullptr;
 
-void VReallySpewType( int eType, const char *pMsg, va_list ap )
+void VReallySpewType( int eType, bool bFmt, const char* pstrFile, unsigned int nLine, const char *pMsg, va_list ap )
 {
 	// Save callback.  Paranoia for unlikely but possible race condition,
 	// if we spew from more than one place in our code and stuff changes
@@ -1754,7 +1754,19 @@ void VReallySpewType( int eType, const char *pMsg, va_list ap )
 
 	// Do the formatting
 	char buf[ 2048 ];
-	V_vsprintf_safe( buf, pMsg, ap );
+	int szBuf = sizeof(buf);
+	char *msgDest = buf;
+	if ( pstrFile )
+	{
+		int l = V_sprintf_safe( buf, "%s(d): ", pstrFile, nLine );
+		szBuf -= l;
+		msgDest += l;
+	}
+
+	if ( bFmt )
+		V_vsnprintf( msgDest, szBuf, pMsg, ap );
+	else
+		V_strncpy( msgDest, pMsg, szBuf );
 
 	// Gah, some, but not all, of our code has newlines on the end
 	V_StripTrailingWhitespaceASCII( buf );
@@ -1763,59 +1775,13 @@ void VReallySpewType( int eType, const char *pMsg, va_list ap )
 	pfnDebugOutput( ESteamNetworkingSocketsDebugOutputType(eType), buf );
 }
 
-void ReallySpewType( int eType, const char *pMsg, ... )
+void ReallySpewTypeFmt( int eType, const char *pMsg, ... )
 {
 	va_list ap;
 	va_start( ap, pMsg );
-	VReallySpewType( eType, pMsg, ap );
+	VReallySpewType( eType, true, nullptr, 0, pMsg, ap );
 	va_end( ap );
 }
-
-#if defined( STEAMNETWORKINGSOCKETS_STANDALONELIB ) && !defined( STEAMNETWORKINGSOCKETS_STREAMINGCLIENT )
-static SpewRetval_t SDRSpewFunc( SpewType_t type, char const *pMsg )
-{
-	V_StripTrailingWhitespaceASCII( const_cast<char*>( pMsg ) );
-
-	switch ( type )
-	{
-		case SPEW_LOG:
-		case SPEW_INPUT:
-			// No idea what these are, so....
-			// |
-			// V
-		case SPEW_MESSAGE:
-			if ( s_pfnDebugOutput && g_eDefaultGroupSpewLevel >= k_ESteamNetworkingSocketsDebugOutputType_Msg )
-				s_pfnDebugOutput( k_ESteamNetworkingSocketsDebugOutputType_Msg, pMsg );
-			break;
-
-		case SPEW_WARNING:
-			if ( s_pfnDebugOutput && g_eDefaultGroupSpewLevel >= k_ESteamNetworkingSocketsDebugOutputType_Warning )
-				s_pfnDebugOutput( k_ESteamNetworkingSocketsDebugOutputType_Warning, pMsg );
-			break;
-
-		case SPEW_ASSERT:
-			if ( s_pfnDebugOutput && g_eDefaultGroupSpewLevel >= k_ESteamNetworkingSocketsDebugOutputType_Error )
-				s_pfnDebugOutput( k_ESteamNetworkingSocketsDebugOutputType_Bug, pMsg );
-
-			// Ug, for some reason this is crashing, because it's trying to generate a breakpoint
-			// even when it's not being run under the debugger.  Probably the best thing to do is just rely
-			// on the app hook asserting on an error condition.
-			//return SPEW_DEBUGGER;
-			break;
-
-		case SPEW_ERROR:
-			if ( s_pfnDebugOutput && g_eDefaultGroupSpewLevel >= k_ESteamNetworkingSocketsDebugOutputType_Error )
-				s_pfnDebugOutput( k_ESteamNetworkingSocketsDebugOutputType_Error, pMsg );
-			return SPEW_ABORT;
-
-		case SPEW_BOLD_MESSAGE:
-			if ( s_pfnDebugOutput && g_eDefaultGroupSpewLevel >= k_ESteamNetworkingSocketsDebugOutputType_Important )
-				s_pfnDebugOutput( k_ESteamNetworkingSocketsDebugOutputType_Important, pMsg );
-	}
-	
-	return SPEW_CONTINUE;
-}
-#endif
 
 bool BSteamNetworkingSocketsLowLevelAddRef( SteamDatagramErrMsg &errMsg )
 {
@@ -1865,11 +1831,6 @@ bool BSteamNetworkingSocketsLowLevelAddRef( SteamDatagramErrMsg &errMsg )
 				return false;
 			}
 		}
-		#endif
-
-		// Latch Steam codebase's logging system so we get spew and asserts
-		#if defined( STEAMNETWORKINGSOCKETS_STANDALONELIB ) && !defined( STEAMNETWORKINGSOCKETS_STREAMINGCLIENT )
-			SpewOutputFunc( SDRSpewFunc );
 		#endif
 
 		// Make sure random number generator is seeded

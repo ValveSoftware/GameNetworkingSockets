@@ -1,12 +1,17 @@
 //========= Copyright 1996-2005, Valve Corporation, All rights reserved. ============//
 //
-// Purpose: 
-//
-// $NoKeywords: $
+// This is a custom version of dbg.cpp for the standalone version of
+// SteamnetworkingSockets.  It was taken from the Steam code and then
+// stripped to the bare essentials.
 //
 //=============================================================================//
 
 #include "tier0/dbg.h"
+
+#ifdef STEAMNETWORKINGSOCKETS_FOREXPORT
+#include "../../steamnetworkingsockets/clientlib/steamnetworkingsockets_lowlevel.h"
+using namespace SteamNetworkingSocketsLib;
+#endif
 
 #if defined(_WIN32) && !defined(_XBOX)
 #include "winlite.h"
@@ -35,8 +40,6 @@
 #endif
 #include "tier0/valgrind.h"
 #endif
-
-static SpewRetval_t  _SpewMessageType( SpewType_t spewType, char const* pMsgFormat, va_list args );
 
 bool Plat_IsInDebugSession()
 {
@@ -94,171 +97,10 @@ bool Plat_IsInDebugSession()
 #endif
 }
 
-SpewRetval_t DefaultSpewFunc( SpewType_t type, char const *pMsg )
-{
-#if defined (POSIX) && !defined( _PS3 ) && !defined( NN_NINTENDO_SDK )
-	static bool s_bSetSigHandler = false;
-	if ( ! s_bSetSigHandler )
-	{
-		signal( SIGTRAP, SIG_IGN );
-		signal( SIGALRM, SIG_IGN );
-		s_bSetSigHandler = true;
-	}
-#endif
-	printf( "%s", pMsg );
-	if( type == SPEW_ASSERT )
-		return SPEW_DEBUGGER;
-	else if( type == SPEW_ERROR )
-		return SPEW_ABORT;
-	else
-		return SPEW_CONTINUE;
-}
-
-static SpewOutputFunc_t   s_SpewOutputFunc = DefaultSpewFunc;
-
-static char const*	s_pFileName;
-static int			s_Line;
-static SpewType_t	s_SpewType;
-
-void   SpewOutputFunc( SpewOutputFunc_t func )
-{
-	s_SpewOutputFunc = func;
-}
-
-static void _ExitFatal()
-{
-#ifdef _WIN32
-	TerminateProcess( GetCurrentProcess(), EXIT_FAILURE ); // die, die RIGHT NOW! (don't call exit() so destructors will not get run)
-#elif defined( _PS3 )
-	sys_process_exit( EXIT_FAILURE );
-#elif defined( __clang__ )
-	abort();
-#else
-	std::quick_exit( EXIT_FAILURE );
-#endif
-}
-
-//-----------------------------------------------------------------------------
-// Spew functions
-//-----------------------------------------------------------------------------
-
-
-//-----------------------------------------------------------------------------
-// Purpose: Lightly clean up a source path (skip to \src\ if we can)
-//-----------------------------------------------------------------------------
-static char const * CleanupAssertPath( char const* pFile )
-{
-#if defined(WIN32)
-	for ( char const *s = pFile; *s; ++s )
-	{
-		if ( !V_strnicmp( s, "\\src\\", 5) )
-		{
-			return s;
-		}
-	}
-#endif // no cleanup on other platforms
-
-	return pFile;
-}
-
-
-static void  _SpewInfo( SpewType_t type, char const* pFile, int line )
-{
-	//
-	//	We want full(ish) paths, not just leaf names, for better diagnostics
-	//
-	s_pFileName = CleanupAssertPath( pFile );
-
-	s_Line = line;
-	s_SpewType = type;
-}
-
-
-static SpewRetval_t  _SpewMessageType( SpewType_t spewType, char const* pMsgFormat, va_list args )
-{
-	char pTempBuffer[1024];
-
-	/* Printf the file and line for warning + assert only... */
-	int len = 0;
-	if ( spewType == SPEW_ASSERT )
-	{
-		len = V_sprintf_safe( pTempBuffer, "%s(%d): ", s_pFileName, s_Line );
-	}
-	if ( len == -1 )
-	{
-		return SPEW_ABORT;
-	}
-	
-	/* Create the message.... */
-	int val= V_vsnprintf( &pTempBuffer[len], sizeof( pTempBuffer ) - len - 1, pMsgFormat, args );
-	if ( val == -1 )
-	{
-		return SPEW_ABORT;
-	}
-	len += val;
-
-	// Add \n for assert
-	if ( spewType == SPEW_ASSERT )
-	{
-		if ( len+1 < sizeof(pTempBuffer) )
-		{
-			pTempBuffer[len++] = '\n';
-			pTempBuffer[len] = '\0';
-		}
-	}
-	
-	/* direct it to the appropriate target(s) */
-	SpewRetval_t ret = s_SpewOutputFunc( spewType, pTempBuffer );
-	switch (ret)
-	{
-// Asserts put the break into the macro so it occurs in the right place
-	case SPEW_DEBUGGER:
-		if ( spewType != SPEW_ASSERT )
-		{
-			DebuggerBreak();
-		}
-		break;
-		
-	case SPEW_ABORT:
-		_ExitFatal();
-
-	default:
-		break;
-	}
-
-	return ret;
-}
-
-SpewRetval_t  _SpewMessage( char const* pMsgFormat, ... )
-{
-	va_list args;
-	va_start( args, pMsgFormat );
-	SpewRetval_t ret = _SpewMessageType( s_SpewType, pMsgFormat, args );
-	va_end(args);
-	return ret;
-}
-
-
-void Error( char const *pMsgFormat, ... )
-{
-	va_list args;
-	va_start( args, pMsgFormat );
-	_SpewMessageType( SPEW_ERROR, pMsgFormat, args );
-	va_end(args);
-}
-
-//-----------------------------------------------------------------------------
-// Implementation helper for assertion messages. The AssergMsg() macro has become
-// very big, so when possible this function moves the work it does out-of-line.
-// This helps the size of debug builds overall, and is an absolute must for Steam,
-// which builds with assertions turned on in release mode.
-//-----------------------------------------------------------------------------
-
-
-void AssertMsgImplementation( const char* _msg, bool _bFatal, const char* pstrFile, unsigned int nLine, bool bFullDump )
+void AssertMsgImplementationV( bool _bFatal, bool bFmt, const char* pstrFile, unsigned int nLine, PRINTF_FORMAT_STRING const char *pMsg, va_list ap )
 {
 	static intp s_ThreadLocalAssertMsgGuardStatic; // Really should be thread-local
-	if ( s_ThreadLocalAssertMsgGuardStatic > 0 )
+	if ( !_bFatal && s_ThreadLocalAssertMsgGuardStatic > 0 )
 	{
 		//
 		// No need to re-enter.
@@ -267,40 +109,73 @@ void AssertMsgImplementation( const char* _msg, bool _bFatal, const char* pstrFi
 	}
 	++s_ThreadLocalAssertMsgGuardStatic;
 
-#if defined(_PS3)
-	SetInAssert( true );
-	_SpewInfo( SPEW_ASSERT, pstrFile, nLine );
-	_SpewMessage( "%s", _msg);
+	#ifdef STEAMNETWORKINGSOCKETS_FOREXPORT
+		VReallySpewType( k_ESteamNetworkingSocketsDebugOutputType_Bug, bFmt, pstrFile, nLine, pMsg, ap );
+	#else
+		fflush(stdout);
+		if ( pstrFile )
+			fprintf( stderr, "%s(%d): ", pstrFile, nLine );
+		if ( bFmt )
+			vfprintf( stderr, pMsg, ap );
+		else
+;			fprintf( stderr, "%s", pMsg );
+		fflush(stderr);
+	#endif
 
-	if ( _bFatal )
-	{
-		_SpewMessage( _T("Fatal assert failed: %s, line %d.  Application exiting.\n"), pstrFile, nLine );
-		DebuggerBreak();
-		sys_process_exit( EXIT_FAILURE );
-	}
+	va_end( ap );
 
-	SetInAssert( false );
-#else
-
-	//
-	// Always spew, even if we aren't going to dump.
-	//
-	_SpewInfo( SPEW_ASSERT, pstrFile, nLine );
-	SpewRetval_t ret = _SpewMessage( "%s", _msg);
-
-	if ( ret == SPEW_DEBUGGER && Plat_IsInDebugSession() )
+	if ( Plat_IsInDebugSession() )
 	{
 		// HELLO DEVELOPER: Set this to true if you are getting fed up with the DebuggerBreak().
 		static volatile bool s_bDisableDebuggerBreak = false;
 		if ( !s_bDisableDebuggerBreak )
 			DebuggerBreak();
 	}
-	else
+
+	if ( _bFatal )
 	{
-		if ( _bFatal )
-			_ExitFatal();
+		#ifdef _WIN32
+			TerminateProcess( GetCurrentProcess(), EXIT_FAILURE ); // die, die RIGHT NOW! (don't call exit() so destructors will not get run)
+		#elif defined( _PS3 )
+			sys_process_exit( EXIT_FAILURE );
+		#elif defined( __clang__ )
+			abort();
+		#else
+			std::quick_exit( EXIT_FAILURE );
+		#endif
 	}
-#endif
 
 	--s_ThreadLocalAssertMsgGuardStatic;
 }
+
+void AssertMsgHelper<true,true>::AssertFailed( const char* pstrFile, unsigned int nLine, const char *pMsg )
+{
+	va_list dummy;
+	memset( &dummy, 0, sizeof(dummy) ); // not needed, but might shut up a warning
+	AssertMsgImplementationV( true, false, pstrFile, nLine, pMsg, dummy );
+}
+
+void AssertMsgHelper<false,true>::AssertFailed( const char* pstrFile, unsigned int nLine, const char *pMsg )
+{
+	va_list dummy;
+	memset( &dummy, 0, sizeof(dummy) ); // not needed, but might shut up a warning
+	AssertMsgImplementationV( false, false, pstrFile, nLine, pMsg, dummy );
+}
+
+void AssertMsgHelper<true,false>::AssertFailed( const char* pstrFile, unsigned int nLine, const char *pFmt, ... )
+{
+	va_list ap;
+	va_start( ap, pFmt );
+	AssertMsgImplementationV( true, true, pstrFile, nLine, pFmt, ap );
+	va_end( ap );
+}
+
+void AssertMsgHelper<false,false>::AssertFailed( const char* pstrFile, unsigned int nLine, const char *pFmt, ... )
+{
+	va_list ap;
+	va_start( ap, pFmt );
+	AssertMsgImplementationV( false, true, pstrFile, nLine, pFmt, ap );
+	va_end( ap );
+}
+
+

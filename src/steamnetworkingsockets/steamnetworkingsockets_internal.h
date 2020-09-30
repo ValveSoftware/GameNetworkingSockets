@@ -44,7 +44,7 @@
 #include <tier0/basetypes.h>
 #include <tier0/t0constants.h>
 #include <tier0/platform.h>
-#include <tier0/dbgflag.h>
+#include <tier0/dbg.h>
 #ifdef STEAMNETWORKINGSOCKETS_STEAMCLIENT
 	#include <tier0/validator.h>
 #endif

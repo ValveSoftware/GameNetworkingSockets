@@ -592,7 +592,7 @@ void CConnectionTransportP2PICE::Log( IICESessionDelegate::ELogPriority ePriorit
 	va_end( ap );
 
 	//ReallySpewType( eType, "[%s] ICE: %s", ConnectionDescription(), buf );
-	ReallySpewType( eType, "ICE: %s", buf ); // FIXME would like to get the connection description, but that's not threadsafe
+	ReallySpewTypeFmt( eType, "ICE: %s", buf ); // FIXME would like to get the connection description, but that's not threadsafe
 }
 
 void CConnectionTransportP2PICE::OnLocalCandidateGathered( EICECandidateType eType, const char *pszCandidate )
