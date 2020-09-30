@@ -617,8 +617,8 @@ add_library(webrtc-lite STATIC
 	${webrtc_SOURCE_DIR}/rtc_base/system/rtc_export.h
 	${webrtc_SOURCE_DIR}/rtc_base/system/unused.h
 	${webrtc_SOURCE_DIR}/rtc_base/system/warn_current_thread_is_deadlocked.h
-	${webrtc_SOURCE_DIR}/rtc_base/task_queue.cc
-	${webrtc_SOURCE_DIR}/rtc_base/task_queue.h
+#	${webrtc_SOURCE_DIR}/rtc_base/task_queue.cc
+#	${webrtc_SOURCE_DIR}/rtc_base/task_queue.h
 	${webrtc_SOURCE_DIR}/rtc_base/task_utils/pending_task_safety_flag.cc
 	${webrtc_SOURCE_DIR}/rtc_base/task_utils/pending_task_safety_flag.h
 	${webrtc_SOURCE_DIR}/rtc_base/task_utils/to_queued_task.h
@@ -653,9 +653,6 @@ add_library(webrtc-lite STATIC
 
 if(WIN32)
 	target_sources(webrtc-lite PRIVATE
-		${webrtc_SOURCE_DIR}/api/task_queue/default_task_queue_factory_stdlib.cc
-		${webrtc_SOURCE_DIR}/rtc_base/task_queue_stdlib.cc
-		${webrtc_SOURCE_DIR}/rtc_base/task_queue_stdlib.h
 		${webrtc_SOURCE_DIR}/rtc_base/win32.cc
 		${webrtc_SOURCE_DIR}/rtc_base/win32.h
 		${webrtc_SOURCE_DIR}/rtc_base/synchronization/rw_lock_win.cc
@@ -673,9 +670,6 @@ if(WIN32)
 		)
 else(WIN32)
 	target_sources(webrtc-lite PRIVATE
-		${webrtc_SOURCE_DIR}/api/task_queue/default_task_queue_factory_stdlib.cc
-		${webrtc_SOURCE_DIR}/rtc_base/task_queue_stdlib.cc
-		${webrtc_SOURCE_DIR}/rtc_base/task_queue_stdlib.h
 		${webrtc_SOURCE_DIR}/rtc_base/synchronization/rw_lock_posix.cc
 		${webrtc_SOURCE_DIR}/rtc_base/synchronization/rw_lock_posix.h
 		${webrtc_SOURCE_DIR}/rtc_base/ifaddrs_converter.cc
@@ -685,23 +679,6 @@ else(WIN32)
 		)
 	target_compile_options(webrtc-lite PRIVATE -Wno-attributes)
 endif(WIN32)
-
-target_sources(webrtc-lite PRIVATE
-	${webrtc_SOURCE_DIR}/logging/rtc_event_log/encoder/blob_encoding.cc
-	${webrtc_SOURCE_DIR}/logging/rtc_event_log/encoder/blob_encoding.h
-	${webrtc_SOURCE_DIR}/logging/rtc_event_log/encoder/delta_encoding.cc
-	${webrtc_SOURCE_DIR}/logging/rtc_event_log/encoder/delta_encoding.h
-	${webrtc_SOURCE_DIR}/logging/rtc_event_log/encoder/var_int.cc
-	${webrtc_SOURCE_DIR}/logging/rtc_event_log/encoder/var_int.h
-	${webrtc_SOURCE_DIR}/logging/rtc_event_log/encoder/rtc_event_log_encoder_common.cc
-	${webrtc_SOURCE_DIR}/logging/rtc_event_log/encoder/rtc_event_log_encoder_common.h
-	${webrtc_SOURCE_DIR}/logging/rtc_event_log/rtc_event_log_impl.cc
-	${webrtc_SOURCE_DIR}/logging/rtc_event_log/rtc_event_log_impl.h
-	${webrtc_SOURCE_DIR}/logging/rtc_event_log/encoder/rtc_event_log_encoder_legacy.h
-	${webrtc_SOURCE_DIR}/logging/rtc_event_log/encoder/rtc_event_log_encoder_legacy.cc
-	${webrtc_SOURCE_DIR}/logging/rtc_event_log/encoder/rtc_event_log_encoder_new_format.h
-	${webrtc_SOURCE_DIR}/logging/rtc_event_log/encoder/rtc_event_log_encoder_new_format.cc
-	)
 
 function( compile_webrtc_proto SRCPROTO OUTDIR )
 	get_filename_component(ABS_FIL ${SRCPROTO} ABSOLUTE)
@@ -720,10 +697,6 @@ function( compile_webrtc_proto SRCPROTO OUTDIR )
 	set_source_files_properties(${OUT_CC} ${OUT_H} PROPERTIES GENERATED TRUE)
 endfunction( compile_webrtc_proto )
 
-compile_webrtc_proto( ${webrtc_SOURCE_DIR}/logging/rtc_event_log/rtc_event_log.proto ${CMAKE_CURRENT_BINARY_DIR}/logging/rtc_event_log/ )
-compile_webrtc_proto( ${webrtc_SOURCE_DIR}/logging/rtc_event_log/rtc_event_log2.proto ${CMAKE_CURRENT_BINARY_DIR}/logging/rtc_event_log/ )
-target_compile_definitions(webrtc-lite PUBLIC WEBRTC_ENABLE_RTC_EVENT_LOG)
-
 # webrtc can't build as shared library.
 #target_compile_definitions(webrtc-lite PUBLIC WEBRTC_ENABLE_SYMBOL_EXPORT)
 #target_compile_definitions(webrtc-lite PRIVATE WEBRTC_LIBRARY_IMPL)
@@ -736,14 +709,11 @@ target_compile_definitions(webrtc-lite PUBLIC WEBRTC_ENABLE_RTC_EVENT_LOG)
 target_include_directories(webrtc-lite PUBLIC
 	${webrtc_SOURCE_DIR}
 	#${webrtc_BUILD_DIR}  # ???
-	${Protobuf_INCLUDE_DIRS}
 	${CMAKE_CURRENT_BINARY_DIR}/..
 	${CMAKE_CURRENT_BINARY_DIR}
 	)
 
 target_link_libraries(webrtc-lite
-	#protobuf::libprotobuf
-	${PROTOBUF_LIBRARIES}
 	OpenSSL::Crypto
 	OpenSSL::SSL
 	absl_time_zone

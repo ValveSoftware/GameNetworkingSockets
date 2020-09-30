@@ -9,12 +9,9 @@
 
 #include <absl/types/optional.h>
 #include <absl/memory/memory.h>
-#include <api/task_queue/default_task_queue_factory.h>
-#include <api/task_queue/task_queue_factory.h>
 #include <api/async_resolver_factory.h>
 #include <api/turn_customizer.h>
 #include <rtc_base/network_route.h>
-#include <api/rtc_event_log/rtc_event_log_factory.h>
 #include <rtc_base/bind.h>
 #include <rtc_base/physical_socket_server.h>
 #include <rtc_base/ssl_adapter.h>
@@ -93,9 +90,6 @@ private:
 	bool m_bShuttingDown = false;
 	IICESessionDelegate *m_pDelegate = nullptr;
 	std::unique_ptr<cricket::P2PTransportChannel> ice_transport_;
-	std::unique_ptr<webrtc::TaskQueueFactory> task_queue_factory;
-	std::unique_ptr<webrtc::RtcEventLogFactoryInterface> event_log_factory_;
-	std::unique_ptr<webrtc::RtcEventLog> event_log_;
 	std::unique_ptr<rtc::BasicNetworkManager> default_network_manager_;
 	std::unique_ptr<rtc::BasicPacketSocketFactory> default_socket_factory_;
 	std::unique_ptr< cricket::BasicPortAllocator > port_allocator_;
@@ -148,8 +142,7 @@ rtc::PhysicalSocketServer *CICESession::s_pSocketServer = nullptr;
 // Constructor
 //-----------------------------------------------------------------------------
 CICESession::CICESession( IICESessionDelegate *pDelegate ) :
-	m_pDelegate( pDelegate ),
-	task_queue_factory(webrtc::CreateDefaultTaskQueueFactory())
+	m_pDelegate( pDelegate )
 {
 	s_mutex.lock();
 	if ( ++s_nInstaneCount == 1 )
@@ -217,16 +210,6 @@ bool CICESession::BInitializeOnSocketThread( const ICESessionConfig &cfg )
 	#endif
 
 	m_nAllowedCandidateTypes = cfg.m_nCandidateTypes;
-
-	event_log_factory_ = absl::make_unique<webrtc::RtcEventLogFactory>(task_queue_factory.get());
-
-	// Uhhhhhhh
-	auto encoding_type = webrtc::RtcEventLog::EncodingType::Legacy;
-	//if (field_trial::IsEnabled("WebRTC-RtcEventLogNewFormat"))
-	//  encoding_type = RtcEventLog::EncodingType::NewFormat;
-	event_log_ = event_log_factory_
-				? event_log_factory_->CreateRtcEventLog(encoding_type)
-				: absl::make_unique<webrtc::RtcEventLogNull>();
 
 	default_network_manager_.reset(new rtc::BasicNetworkManager());
 	default_socket_factory_.reset(
@@ -363,7 +346,7 @@ bool CICESession::BInitializeOnSocketThread( const ICESessionConfig &cfg )
 
 	ice_transport_ = absl::make_unique<cricket::P2PTransportChannel>(
 		transport_name, component, port_allocator_.get(), async_resolver_factory_.get(),
-		event_log_.get() );
+		nullptr );
 
 	if ( !ice_transport_ )
 	{
@@ -433,8 +416,6 @@ void CICESession::DestroyOnSocketThread()
 	port_allocator_.reset();
 	default_socket_factory_.reset();
 	default_network_manager_.reset();
-	event_log_.reset();
-	event_log_factory_.reset();
 }
 
 //-----------------------------------------------------------------------------
