@@ -400,10 +400,7 @@ inline I CUtlLinkedList<T,I>::AllocInternal( bool multilist )
 		elem = (I)m_TotalElements;
 		++m_TotalElements;
 
-		if ( elem == InvalidIndex() )
-		{
-			Error("CUtlLinkedList overflow!\n");
-		}
+		AssertFatalMsg( elem != InvalidIndex(), "CUtlLinkedList overflow!\n" );
 	} 
 	else
 	{
