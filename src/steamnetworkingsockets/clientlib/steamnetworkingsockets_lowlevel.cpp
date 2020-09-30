@@ -1740,7 +1740,7 @@ SteamNetworkingMicroseconds g_usecLastRateLimitSpew;
 int g_nRateLimitSpewCount;
 ESteamNetworkingSocketsDebugOutputType g_eDefaultGroupSpewLevel;
 static FSteamNetworkingSocketsDebugOutput s_pfnDebugOutput = nullptr;
-void (*g_pfnPreFormatSpewHandler)( ESteamNetworkingSocketsDebugOutputType eType, bool bFmt, const char* pstrFile, int nLine, const char *pMsg, va_list ap ) = SteamNetworkingSockets_DefaultPreFormatSpewHandler;
+void (*g_pfnPreFormatSpewHandler)( ESteamNetworkingSocketsDebugOutputType eType, bool bFmt, const char* pstrFile, int nLine, const char *pMsg, va_list ap ) = SteamNetworkingSockets_DefaultPreFormatDebugOutputHandler;
 
 
 void ReallySpewTypeFmt( int eType, const char *pMsg, ... )
@@ -2100,7 +2100,7 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetLockHeldCallback
 	s_fLockHeldCallback = callback;
 }
 
-STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetPreFormatSpewHandler(
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetPreFormatDebugOutputHandler(
 	ESteamNetworkingSocketsDebugOutputType eDetailLevel,
 	void (*pfn_Handler)( ESteamNetworkingSocketsDebugOutputType eType, bool bFmt, const char* pstrFile, int nLine, const char *pMsg, va_list ap )
 )
@@ -2109,7 +2109,7 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetPreFormatSpewHan
 	g_pfnPreFormatSpewHandler = pfn_Handler;
 }
 
-STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_DefaultPreFormatSpewHandler( ESteamNetworkingSocketsDebugOutputType eType, bool bFmt, const char* pstrFile, int nLine, const char *pMsg, va_list ap )
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_DefaultPreFormatDebugOutputHandler( ESteamNetworkingSocketsDebugOutputType eType, bool bFmt, const char* pstrFile, int nLine, const char *pMsg, va_list ap )
 {
 	// Save callback.  Paranoia for unlikely but possible race condition,
 	// if we spew from more than one place in our code and stuff changes
