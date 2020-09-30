@@ -156,6 +156,5 @@ inline DEST_POINTER_TYPE assert_cast(SOURCE_POINTER_TYPE* pSource)
 #endif
 
 #define Plat_FatalError( ... ) AssertFatalMsg( false, __VA_ARGS__ )
-#define Error( ... ) AssertFatalMsg( false, __VA_ARGS__ )
 
 #endif /* DBG_H */
