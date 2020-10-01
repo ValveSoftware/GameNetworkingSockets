@@ -116,6 +116,17 @@ fi
 cmake_configure build-cmake "${CMAKE_ARGS[@]}" -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake_build build-cmake
 
+# Build binaries with LTO
+# Optional, some compilers don't support LTO. We only try this build if it
+# succeeds cmake_configure.
+LTO_BUILT=0
+if cmake_configure build-cmake-lto "${CMAKE_ARGS[@]}" -DCMAKE_BUILD_TYPE=Release -DLTO=ON; then
+	cmake_build build-cmake-lto
+	LTO_BUILT=1
+else
+	echo "CMake configure failed, likely because the compiler does not support LTO. Continuing anyway!" >&2
+fi
+
 # Build binaries with webrtc
 if [[ $BUILD_WEBRTC -ne 0 ]]; then
 	cmake_configure build-cmake-webrtc "${CMAKE_ARGS[@]}" -DCMAKE_BUILD_TYPE=RelWithDebInfo -DUSE_STEAMWEBRTC=ON
@@ -159,6 +170,12 @@ if [[ $BUILD_SANITIZERS -ne 0 ]]; then
 		build-${SANITIZER}/bin/test_crypto
 		build-${SANITIZER}/bin/test_connection
 	done
+fi
+
+# Run LTO binaries to ensure they work
+if [[ $LTO_BUILT -ne 0 ]]; then
+	build-cmake-lto/bin/test_crypto
+	build-cmake-lto/bin/test_connection
 fi
 
 # FIXME Run P2P tests?
