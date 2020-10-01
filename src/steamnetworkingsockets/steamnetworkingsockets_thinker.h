@@ -4,7 +4,7 @@
 #define STEAMNETWORKINGSOCKETS_THINKER_H
 #pragma once
 
-#include <steam/steamnetworkingtypes.h>
+#include "steamnetworkingsockets_internal.h"
 
 namespace SteamNetworkingSocketsLib {
 

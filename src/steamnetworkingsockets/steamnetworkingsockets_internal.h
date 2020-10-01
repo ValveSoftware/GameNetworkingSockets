@@ -59,6 +59,18 @@
 #include <steamnetworkingsockets_messages_certs.pb.h>
 #include <steam/isteamnetworkingutils.h> // for the rendering helpers
 
+#include <tier0/memdbgon.h>
+
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_MEM_OVERRIDE
+	#define STEAMNETWORKINGSOCKETS_DECLARE_CLASS_OPERATOR_NEW \
+		static void* operator new( size_t s ) noexcept { return malloc( s ); } \
+		static void* operator new[]( size_t ) = delete; \
+		static void operator delete( void *p ) noexcept { free( p ); } \
+		static void operator delete[]( void * ) = delete;
+#else
+	#define STEAMNETWORKINGSOCKETS_DECLARE_CLASS_OPERATOR_NEW
+#endif
+
 // Running against Steam?  Then we have some default signaling.
 // Otherwise, we don't
 #ifdef STEAMNETWORKINGSOCKETS_STEAM

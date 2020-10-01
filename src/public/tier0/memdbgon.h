@@ -24,13 +24,6 @@
 		extern void *SteamNetworkingSockets_Realloc( void *p, size_t s );
 		extern void SteamNetworkingSockets_Free( void *p );
 	#endif
-
-	#define STEAMNETWORKINGSOCKETS_DECLARE_CLASS_OPERATOR_NEW \
-		static void* operator new( size_t s ) noexcept { return malloc( s ); } \
-		static void* operator new[]( size_t ) = delete; \
-		static void operator delete( void *p ) noexcept { free( p ); } \
-		static void operator delete[]( void * ) = delete; \
-
 #endif
 
 // Misc Steam codebase compatibility stuff.  Not used in the standalone library
