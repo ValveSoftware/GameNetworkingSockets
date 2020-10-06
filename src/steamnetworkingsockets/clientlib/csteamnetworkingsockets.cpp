@@ -1935,7 +1935,7 @@ STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets *SteamNetworkingSockets
 	return s_pSteamNetworkingSockets;
 }
 
-STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingUtils *SteamNetworkingUtils()
+STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingUtils *SteamNetworkingUtils_LibV3()
 {
 	static CSteamNetworkingUtils s_utils;
 	return &s_utils;
