@@ -78,9 +78,17 @@
 	#define STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
 #endif
 
-#ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
+#if !defined( STEAMNETWORKINGSOCKETS_OPENSOURCE ) && !defined( STEAMNETWORKINGSOCKETS_STREAMINGCLIENT )
 	// STEAMNETWORKINGSOCKETS_CAN_REQUEST_CERT means we know how to make a cert request from some sort of certificate authority
 	#define STEAMNETWORKINGSOCKETS_CAN_REQUEST_CERT
+#endif
+
+// Always #define STEAMNETWORKINGSOCKETS_ENABLE_ICE, except in the opensource build.
+// There, it must go on the command line
+#ifndef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+	#ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
+		#define STEAMNETWORKINGSOCKETS_ENABLE_ICE
+	#endif
 #endif
 
 // Redefine the macros for byte-swapping, to sure the correct
