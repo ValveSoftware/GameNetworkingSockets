@@ -7,13 +7,21 @@ find_package(Protobuf REQUIRED)
 
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-set(abseil_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../abseil)
-if(NOT EXISTS ${abseil_SOURCE_DIR}/CMakeLists.txt)
-	message(FATAL_ERROR "abeil submodule not initialized.\n(Try 'git submodule update src/external/abseil')" )
-endif()
-add_subdirectory(${abseil_SOURCE_DIR} ${CMAKE_BINARY_DIR}/abseil EXCLUDE_FROM_ALL)
-if(LTO)
-	set_property(DIRECTORY ${abseil_SOURCE_DIR} PROPERTY INTERPROCEDURAL_OPTIMIZATION ON)
+find_package(absl QUIET)
+
+if(NOT absl_FOUND)
+	set(STEAMWEBRTC_ABSL_SOURCE submodule PARENT_SCOPE)
+
+	set(abseil_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../abseil)
+	if(NOT EXISTS ${abseil_SOURCE_DIR}/CMakeLists.txt)
+		message(FATAL_ERROR "abeil submodule not initialized.\n(Try 'git submodule update src/external/abseil')" )
+	endif()
+	add_subdirectory(${abseil_SOURCE_DIR} ${CMAKE_BINARY_DIR}/abseil EXCLUDE_FROM_ALL)
+	if(LTO)
+		set_property(DIRECTORY ${abseil_SOURCE_DIR} PROPERTY INTERPROCEDURAL_OPTIMIZATION ON)
+	endif()
+else()
+	set(STEAMWEBRTC_ABSL_SOURCE package PARENT_SCOPE)
 endif()
 
 set(webrtc_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../webrtc)
@@ -710,69 +718,17 @@ endfunction( compile_webrtc_proto )
 #    ${CONAN_ABSEIL_ROOT}/lib
 #)
 
-target_include_directories(webrtc-lite PUBLIC
+target_include_directories(webrtc-lite PRIVATE
 	${webrtc_SOURCE_DIR}
 	#${webrtc_BUILD_DIR}  # ???
 	${CMAKE_CURRENT_BINARY_DIR}/..
 	${CMAKE_CURRENT_BINARY_DIR}
 	)
 
-set(ABSEIL_DEPENDENCIES
-	absl_time_zone
-	absl_time
-	absl_throw_delegate
-	absl_synchronization
-	absl_symbolize
-	absl_strings_internal
-	absl_strings
-	absl_str_format_internal
-	absl_status
-	absl_stacktrace
-	absl_spinlock_wait
-	absl_scoped_set_env
-	absl_raw_logging_internal
-	absl_raw_hash_set
-	absl_random_seed_sequences
-	absl_random_seed_gen_exception
-	absl_random_internal_seed_material
-	absl_random_internal_randen_slow
-	absl_random_internal_randen_hwaes_impl
-	absl_random_internal_randen_hwaes
-	absl_random_internal_randen
-	absl_random_internal_pool_urbg
-	absl_random_internal_distribution_test_util
-	absl_random_distributions
-	absl_periodic_sampler
-	absl_malloc_internal
-	absl_log_severity
-	absl_leak_check_disable
-	absl_leak_check
-	absl_int128
-	absl_hashtablez_sampler
-	absl_hash
-	absl_graphcycles_internal
-	absl_flags_usage_internal
-	absl_flags_usage
-	absl_flags_registry
-	absl_flags_program_name
-	absl_flags_parse
-	absl_flags_marshalling
-	absl_flags_internal
-	absl_flags_config
-	absl_flags
-	absl_failure_signal_handler
-	absl_exponential_biased
-	absl_examine_stack
-	absl_dynamic_annotations
-	absl_demangle_internal
-	absl_debugging_internal
-	absl_cord
-	absl_civil_time
-	absl_city
-	absl_base
-	absl_bad_variant_access
-	absl_bad_optional_access
-	absl_bad_any_cast_impl
+set(ABSEIL_DEPENDENCIES 
+	absl::meta
+	absl::optional
+	absl::strings
 	)
 
 if(LTO)
@@ -795,14 +751,15 @@ set_target_properties(webrtc-lite PROPERTIES
 
 set_property(TARGET webrtc-lite PROPERTY POSITION_INDEPENDENT_CODE ON)
 
-include_directories(
-	${webrtc_SOURCE_DIR}/include/webrtc
-	)
-
 add_library(steamwebrtc STATIC
 	"ice_session.h"
 	"steamwebrtc_internal.h"
 	"ice_session.cpp"
+	)
+
+target_include_directories(steamwebrtc PRIVATE
+	${webrtc_SOURCE_DIR}/include/webrtc
+	${webrtc_SOURCE_DIR}
 	)
 
 set_target_common_gns_properties(steamwebrtc)

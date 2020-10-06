@@ -8,6 +8,12 @@ if(libsodium IN_LIST FEATURES)
     set(CRYPTO_BACKEND libsodium)
 endif()
 
+vcpkg_check_features(
+    OUT_FEATURE_OPTIONS FEATURE_OPTIONS
+    FEATURES
+      webrtc USE_STEAMWEBRTC
+)
+
 vcpkg_configure_cmake(
     SOURCE_PATH ${SOURCE_PATH}
     PREFER_NINJA
@@ -16,6 +22,7 @@ vcpkg_configure_cmake(
     -DGAMENETWORKINGSOCKETS_BUILD_EXAMPLES=OFF
     -DUSE_CRYPTO=${CRYPTO_BACKEND}
     -DUSE_CRYPTO25519=${CRYPTO_BACKEND}
+    ${FEATURE_OPTIONS}
 )
 
 vcpkg_install_cmake()
