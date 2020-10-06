@@ -290,15 +290,17 @@ add_library(GameNetworkingSockets::static ALIAS GameNetworkingSockets_s)
 target_compile_definitions(GameNetworkingSockets_s INTERFACE STEAMNETWORKINGSOCKETS_STATIC_LINK)
 gamenetworkingsockets_common(GameNetworkingSockets_s)
 
-# HELP Should not need this if() here
-#CMake Error: install(EXPORT "GameNetworkingSockets" ...) includes target "GameNetworkingSockets" which requires target "steamwebrtc" that is not in the export set.
-#CMake Error: install(EXPORT "GameNetworkingSockets" ...) includes target "GameNetworkingSockets_s" which requires target "steamwebrtc" that is not in the export set.
-if( NOT USE_STEAMWEBRTC ) # HALP
-
-
 # Install rules
+
+if(USE_STEAMWEBRTC)
+	set(CONDITIONAL_WEBRTC_TARGET steamwebrtc webrtc-lite)
+endif()
+
 install(
-	TARGETS GameNetworkingSockets GameNetworkingSockets_s
+	TARGETS 
+		GameNetworkingSockets
+		GameNetworkingSockets_s
+		${CONDITIONAL_WEBRTC_TARGET}
 	EXPORT GameNetworkingSockets
 	LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
 	ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
@@ -307,25 +309,26 @@ install(
 
 install(DIRECTORY ../include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/GameNetworkingSockets)
 
-install(
-	EXPORT GameNetworkingSockets
-	DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/GameNetworkingSockets
-	NAMESPACE GameNetworkingSockets::
-	)
+# Export doesn't work if we're using WebRTC and the Abseil dependency came from the submodule
+if(NOT (USE_STEAMWEBRTC AND STEAMWEBRTC_ABSL_SOURCE STREQUAL submodule))
+	install(
+		EXPORT GameNetworkingSockets
+		DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/GameNetworkingSockets
+		NAMESPACE GameNetworkingSockets::
+		)
 
-include(CMakePackageConfigHelpers)
+	include(CMakePackageConfigHelpers)
 
-configure_package_config_file(../cmake/GameNetworkingSocketsConfig.cmake.in
-	${CMAKE_CURRENT_BINARY_DIR}/GameNetworkingSocketsConfig.cmake
-	INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/GameNetworkingSockets
-	PATH_VARS CMAKE_INSTALL_FULL_INCLUDEDIR
-	)
+	configure_package_config_file(../cmake/GameNetworkingSocketsConfig.cmake.in
+		${CMAKE_CURRENT_BINARY_DIR}/GameNetworkingSocketsConfig.cmake
+		INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/GameNetworkingSockets
+		PATH_VARS CMAKE_INSTALL_FULL_INCLUDEDIR
+		)
 
-install(FILES 
-	${CMAKE_CURRENT_BINARY_DIR}/GameNetworkingSocketsConfig.cmake
-	DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/GameNetworkingSockets
-	)
-
-endif() # END HALP
+	install(FILES 
+		${CMAKE_CURRENT_BINARY_DIR}/GameNetworkingSocketsConfig.cmake
+		DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/GameNetworkingSockets
+		)
+endif()
 
 # vim: set ts=4 sts=4 sw=4 noet:

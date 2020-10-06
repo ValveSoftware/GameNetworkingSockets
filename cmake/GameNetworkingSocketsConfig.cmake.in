@@ -12,6 +12,10 @@ if(@USE_CRYPTO@ STREQUAL "libsodium" OR @USE_CRYPTO25519@ STREQUAL "libsodium")
     find_dependency(sodium)
 endif()
 
+if(@STEAMWEBRTC_ABSL_SOURCE@ STREQUAL "package")
+    find_dependency(absl REQUIRED)
+endif()
+
 include(${CMAKE_CURRENT_LIST_DIR}/GameNetworkingSockets.cmake)
 
 set_target_properties(
