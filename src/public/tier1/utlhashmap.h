@@ -476,7 +476,7 @@ inline int CUtlHashMap<K,T,L,H>::InsertUnconstructed( KeyType_universal_ref &&ke
 	// make an item
 	int iNewNode = AllocNode();
 	m_memNodes[iNewNode].m_iNextNode = kInvalidIndex;
-	CopyConstruct( &m_memNodes[iNewNode].m_key, std::forward<KeyType_universal_ref>( key ) );
+	Construct( &m_memNodes[iNewNode].m_key, std::forward<KeyType_universal_ref>( key ) );
 	// Note: m_elem remains intentionally unconstructed here
 	// Note: key may have been moved depending on which constructor was called.
 
@@ -534,11 +534,11 @@ inline int CUtlHashMap<K,T,L,H>::FindOrInsert_Internal( pf_key &&key, pf_elem &&
 	if ( bReplace && iNodeExisting != kInvalidIndex )
 	{
 		Destruct( &m_memNodes[ iNodeExisting ].m_elem );
-		CopyConstruct( &m_memNodes[ iNodeExisting ].m_elem, std::forward<pf_elem>( elem ) );
+		Construct( &m_memNodes[ iNodeExisting ].m_elem, std::forward<pf_elem>( elem ) );
 	}
 	else if ( iNodeInserted != kInvalidIndex )
 	{
-		CopyConstruct( &m_memNodes[ iNodeInserted ].m_elem, std::forward<pf_elem>( elem ) );
+		Construct( &m_memNodes[ iNodeInserted ].m_elem, std::forward<pf_elem>( elem ) );
 		return iNodeInserted;
 	}
 	return iNodeExisting;
@@ -554,7 +554,7 @@ inline int CUtlHashMap<K,T,L,H>::InsertWithDupes_Internal( pf_key &&key, pf_elem
 	int iNodeInserted = InsertUnconstructed( std::forward<pf_key>( key ), NULL, true /*duplicates allowed!*/ ); // copies key
 	if ( iNodeInserted != kInvalidIndex )
 	{
-		CopyConstruct( &m_memNodes[ iNodeInserted ].m_elem, std::forward<pf_elem>( insert ) );
+		Construct( &m_memNodes[ iNodeInserted ].m_elem, std::forward<pf_elem>( insert ) );
 	}
 	return iNodeInserted;
 }

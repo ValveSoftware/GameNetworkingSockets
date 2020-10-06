@@ -596,7 +596,7 @@ inline int CUtlVector<T, A>::SortedInsert( const T& src, bool (__cdecl *pfnLessF
 	int pos = SortedFindLessOrEqual( src, pfnLessFunc, pLessContext ) + 1;
 	GrowVector();
 	ShiftElementsRight(pos);
-	CopyConstruct<T>( &Element(pos), src );
+	Construct<T>( &Element(pos), src );
 	return pos;
 }
 
@@ -746,7 +746,7 @@ inline int CUtlVector<T, A>::SortedInsert( const T& src, bool (__cdecl *pfnLessF
 	int pos = SortedFindLessOrEqual( src, pfnLessFunc ) + 1;
 	GrowVector();
 	ShiftElementsRight(pos);
-	CopyConstruct<T>( &Element(pos), src );
+	Construct<T>( &Element(pos), src );
 	return pos;
 }
 
@@ -1046,7 +1046,7 @@ inline int CUtlVector<T, A>::InsertBefore( int elem, const T& src )
 
 	GrowVector();
 	ShiftElementsRight(elem);
-	CopyConstruct( &Element(elem), src );
+	Construct( &Element(elem), src );
 	return elem;
 }
 
@@ -1059,7 +1059,7 @@ inline int CUtlVector<T, A>::AddToTail( T&& src )
 	Assert( (&src < Base()) || (&src >= (Base() + Count())) );
 	int elem = m_Size;
 	GrowVector();
-	CopyConstruct( &Element( elem ), std::forward<T>( src ) );
+	Construct( &Element( elem ), std::forward<T>( src ) );
 	return elem;
 }
 #endif
