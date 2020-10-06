@@ -2126,7 +2126,7 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_DefaultPreFormatDeb
 	char *msgDest = buf;
 	if ( pstrFile )
 	{
-		int l = V_sprintf_safe( buf, "%s(d): ", pstrFile, nLine );
+		int l = V_sprintf_safe( buf, "%s(%d): ", pstrFile, nLine );
 		szBuf -= l;
 		msgDest += l;
 	}
