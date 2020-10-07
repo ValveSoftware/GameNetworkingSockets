@@ -4,22 +4,14 @@
 //
 //=============================================================================
 
-#include "stdafx.h"
+#include <tier0/dbg.h>
 #include "opensslwrapper.h"
-#include "winlite.h"
-//SDR_PUBLIC 	#include <openssl/bio.h>
-//SDR_PUBLIC 	#include <openssl/ssl.h>
-//SDR_PUBLIC 	#include <openssl/err.h>
 #include <openssl/crypto.h>
 #include <openssl/rand.h>
+#include "crypto.h"
 
 #include <mutex>
 #include <thread>
-
-// Applink is not relevant to us any more because we statically link OpenSSL
-//#ifdef _WIN32
-//#include <openssl/applink.c> 
-//#endif
 
 // Statics - all automatically zero-init
 int COpenSSLWrapper::m_nInstances;
@@ -49,15 +41,7 @@ struct CRYPTO_dynlock_value
 // (RtlGenRandom is also faster, at less than 1 microsecond per 16 byte output.)
 //-----------------------------------------------------------------------------
 static int RAND_Win32CryptoGenRandom_bytes( unsigned char *buf, int num ) {
-	typedef BYTE ( __stdcall *PfnRtlGenRandom_t )( PVOID, ULONG );
-	static PfnRtlGenRandom_t s_pfnRtlGenRandom = nullptr;
-	static bool once;
-	if ( !once )
-	{
-		once = true;
-		s_pfnRtlGenRandom = (PfnRtlGenRandom_t)(void*)GetProcAddress( LoadLibraryA( "advapi32.dll" ), "SystemFunction036" );
-	}
-	AssertFatal( s_pfnRtlGenRandom && s_pfnRtlGenRandom( buf, num ) );
+	CCrypto::GenerateRandomBlock( buf, num );
 	return 1;
 }
 static int RAND_Win32CryptoGenRandom_status() { return 1; }
@@ -88,19 +72,6 @@ void COpenSSLWrapper::Initialize()
 	// If this is the first instance then we need to do some one time initialization of the OpenSSL library
 	if ( m_nInstances++ == 0 )
 	{
-//#ifdef _DEBUG
-//		// OpenSSL internal leak tracking should be used in debug
-//		CRYPTO_malloc_debug_init();
-//		CRYPTO_set_mem_ex_functions( &VALVE_CRYPTO_dbg_malloc, &VALVE_CRYPTO_dbg_realloc, &VALVE_CRYPTO_dbg_free );
-//		CRYPTO_dbg_set_options( V_CRYPTO_MDEBUG_ALL );
-//		CRYPTO_mem_ctrl( CRYPTO_MEM_CHECK_ON );
-//#else	
-//		CRYPTO_set_mem_ex_functions( &VALVE_CRYPTO_dbg_malloc, &VALVE_CRYPTO_dbg_realloc, &VALVE_CRYPTO_dbg_free );
-//#endif
-//SDR_PUBLIC 			SSL_library_init();
-//SDR_PUBLIC 			SSL_load_error_strings();
-//SDR_PUBLIC 			ERR_load_BIO_strings();
-
 		s_pMutexArray = new std::recursive_mutex[CRYPTO_num_locks()];
 		CRYPTO_set_locking_callback( COpenSSLWrapper::OpenSSLLockingCallback );
 		CRYPTO_set_id_callback( COpenSSLWrapper::OpenSSLThreadIDCallback );
@@ -108,11 +79,6 @@ void COpenSSLWrapper::Initialize()
 		CRYPTO_set_dynlock_create_callback( COpenSSLWrapper::OpenSSLDynLockCreateCallback );
 		CRYPTO_set_dynlock_destroy_callback( COpenSSLWrapper::OpenSSLDynLockDestroyCallback );
 		CRYPTO_set_dynlock_lock_callback( COpenSSLWrapper::OpenSSLDynLockLockCallback );
-
-//SDR_PUBLIC		OpenSSL_add_all_algorithms();
-//SDR_PUBLIC
-//SDR_PUBLIC		COpenSSLWrapper::s_nContextDataIndex = SSL_get_ex_new_index(0, (void*)"COpenSSLContext", NULL, NULL, NULL);
-//SDR_PUBLIC		COpenSSLWrapper::s_nConnectionDataIndex = SSL_get_ex_new_index(0, (void*)"COpenSSLConnection", NULL, NULL, NULL);
 
 #ifdef _WIN32
 		RAND_set_rand_method( &RAND_Win32CryptoGenRandom );
@@ -146,15 +112,6 @@ void COpenSSLWrapper::Shutdown()
 //SDR_PUBLIC		ERR_free_strings();
 //SDR_PUBLIC		ERR_remove_state(0);
 		CRYPTO_cleanup_all_ex_data();
-
-//#ifdef _DEBUG
-//		// This isn't great right now, as it will report leaks on unload of steamclient.dll in the server, due to server.dll still
-//		// using shared resources from the shared OpenSSL lib.
-//		COpenSSLWrapper::m_nBytesLeaked = 0;
-//		CRYPTO_mem_leaks_cb( COpenSSLWrapper::OpenSSLMemLeakCallback );
-//		//if ( COpenSSLWrapper::m_nBytesLeaked > 0 )
-//		//	Msg( CFmtStr1024( "OpenSSL memory still used: %s\n", V_pretifymem( (float)m_nBytesLeaked, 2 ) ).Access() );
-//#endif
 
 		CRYPTO_set_locking_callback( NULL );
 		CRYPTO_set_id_callback( NULL );
