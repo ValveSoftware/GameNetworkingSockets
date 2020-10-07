@@ -292,15 +292,10 @@ gamenetworkingsockets_common(GameNetworkingSockets_s)
 
 # Install rules
 
-if(USE_STEAMWEBRTC)
-	set(CONDITIONAL_WEBRTC_TARGET steamwebrtc webrtc-lite)
-endif()
-
 install(
 	TARGETS 
 		GameNetworkingSockets
 		GameNetworkingSockets_s
-		${CONDITIONAL_WEBRTC_TARGET}
 	EXPORT GameNetworkingSockets
 	LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
 	ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
