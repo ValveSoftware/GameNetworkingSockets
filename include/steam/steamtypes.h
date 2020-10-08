@@ -28,9 +28,14 @@ typedef unsigned char uint8;
 #define X64BITS
 #endif
 
+#if !defined(VALVE_BIG_ENDIAN)
+#if defined(_PS3)
 // Make sure VALVE_BIG_ENDIAN gets set on PS3, may already be set previously in Valve internal code.
-#if !defined(VALVE_BIG_ENDIAN) && defined(_PS3)
-#define VALVE_BIG_ENDIAN
+#define VALVE_BIG_ENDIAN 1
+#endif
+#if defined( __GNUC__ ) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+#define VALVE_BIG_ENDIAN 1
+#endif
 #endif
 
 typedef unsigned char uint8;
