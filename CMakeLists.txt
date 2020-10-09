@@ -162,7 +162,7 @@ function(set_target_common_gns_properties TGT)
 
 	if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
 		# Reduce binary size by allowing for a pseudo-"function-level linking" analog
-		target_compile_options(${TGT} PRIVATE -ffunction-sections -fdata-sections)
+		target_compile_options(${TGT} PRIVATE -ffunction-sections -fdata-sections ${TARGET_ARCH_FLAGS})
 	endif()
 
 	if(CMAKE_SYSTEM_NAME MATCHES Linux)
@@ -200,8 +200,6 @@ function(set_target_common_gns_properties TGT)
 	if(NOT CMAKE_SYSTEM_NAME MATCHES Windows)
 		target_compile_options(${TGT} PRIVATE -fstack-protector-strong)
 	endif()
-
-	target_compile_options(${TGT} PRIVATE ${TARGET_ARCH_FLAGS})
 
 	if(LTO)
 		set_target_properties(${TGT} PROPERTIES INTERPROCEDURAL_OPTIMIZATION TRUE)
