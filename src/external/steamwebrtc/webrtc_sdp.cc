@@ -367,9 +367,11 @@ STEAMNETWORKINGSOCKETSHACK */
 static bool ParseIceOptions(const std::string& line,
                             std::vector<std::string>* transport_options,
                             SdpParseError* error);
+/* STEAMNETWORKINGSOCKETSHACK
 static bool ParseExtmap(const std::string& line,
                         RtpExtension* extmap,
                         SdpParseError* error);
+STEAMNETWORKINGSOCKETSHACK */
 static bool ParseFingerprintAttribute(
     const std::string& line,
     std::unique_ptr<rtc::SSLFingerprint>* fingerprint,
@@ -654,6 +656,8 @@ static bool GetValueFromString(const std::string& line,
   return true;
 }
 
+/* STEAMNETWORKINGSOCKETSHACK
+
 static bool GetPayloadTypeFromString(const std::string& line,
                                      const std::string& s,
                                      int* payload_type,
@@ -661,8 +665,6 @@ static bool GetPayloadTypeFromString(const std::string& line,
   return GetValueFromString(line, s, payload_type, error) &&
          cricket::IsValidRtpPayloadType(*payload_type);
 }
-
-/* STEAMNETWORKINGSOCKETSHACK
 
 // Creates a StreamParams track in the case when no SSRC lines are signaled.
 // This is a track that does not contain SSRCs and only contains
@@ -1294,6 +1296,7 @@ bool ParseSctpMaxMessageSize(const std::string& line,
   return true;
 }
 
+/* STEAMNETWORKINGSOCKETSHACK
 bool ParseExtmap(const std::string& line,
                  RtpExtension* extmap,
                  SdpParseError* error) {
@@ -1366,8 +1369,6 @@ static void BuildSctpContentAttributes(
     }
   }
 }
-
-/* STEAMNETWORKINGSOCKETSHACK
 
 void BuildMediaDescription(const ContentInfo* content_info,
                            const TransportInfo* transport_info,
