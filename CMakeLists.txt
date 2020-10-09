@@ -7,6 +7,9 @@ if( EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/vcpkg/scripts/buildsystems/vcpkg.cmake )
 		CACHE STRING "Vcpkg toolchain file")
 endif()
 
+# Dump the build configuration, because the default config is not obvious
+message(STATUS "CMAKE_BUILD_TYPE = ${CMAKE_BUILD_TYPE}")
+
 include(CheckIPOSupported)
 include(CMakeDependentOption)
 include(CMakePushCheckState)
