@@ -177,7 +177,6 @@ function(set_target_common_gns_properties TGT)
 			endif()
 			target_compile_options(${TGT} PRIVATE
 				/EHs-c-   # Disable C++ exceptions
-				/GR-      # Disable RTTI
 
 				# Below are warnings we can't fix and don't want to see (mostly from protobuf, some from MSVC standard library)
 				/wd4146   # include/google/protobuf/wire_format_lite.h(863): warning C4146: unary minus operator applied to unsigned type, result still unsigned
@@ -186,6 +185,11 @@ function(set_target_common_gns_properties TGT)
 				/wd4251   # 'google::protobuf::io::CodedOutputStream::default_serialization_deterministic_': struct 'std::atomic<bool>' needs to have dll-interface to be used by clients of class 
 				/wd4267   # google/protobuf/has_bits.h(73): warning C4267: 'argument': conversion from 'size_t' to 'int', possible loss of data
 				)
+
+				# Disable RTTI.  Escept in debug, because we use it in assert_cast
+				if(NOT CMAKE_BUILD_TYPE STREQUAL Debug)
+					target_compile_options(${TGT} PRIVATE /GR- )
+				endif()
 		else()
 			target_compile_definitions(${TGT} PRIVATE
 				__STDC_FORMAT_MACROS=1
