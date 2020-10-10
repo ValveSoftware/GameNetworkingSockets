@@ -533,7 +533,8 @@ bool CICESession::BSendData( const void *pData, size_t nSize )
 	new ( pkt ) SendPacktetInGoogleThread();
 	pkt->nSize = nSize;
 	memcpy( pkt->data, pData, nSize );
-	s_pSocketThread->Post( RTC_FROM_HERE, this, SEND_PACKET_IN_GOOGLE_THREAD, pkt, true );
+	bool time_sensitive = false; // Actually, this is really time sensitive.  But passing "true" triggers an assert for some reason.
+	s_pSocketThread->Post( RTC_FROM_HERE, this, SEND_PACKET_IN_GOOGLE_THREAD, pkt, time_sensitive );
 	return true;
 }
 
