@@ -96,7 +96,7 @@ class CTrivialSignalingClient : public ITrivialSignalingClient
 	ISteamNetworkingSockets *const m_pSteamNetworkingSockets;
 	std::string m_sGreeting;
 
-	std::mutex sockMutex;
+	std::recursive_mutex sockMutex;
 	SOCKET m_sock;
 	std::string m_sBufferedData;
 
