@@ -23,12 +23,21 @@
 	constexpr SOCKET INVALID_SOCKET = -1;
 	inline void closesocket( SOCKET s ) { close(s); }
 	inline int GetSocketError() { return errno; }
+	inline bool IgnoreSocketError( int e )
+	{
+		return e == EAGAIN || e == ENOTCONN || e == EWOULDBLOCK;
+	}
+
 #endif
 #ifdef _WIN32
 	#include <winsock2.h>
 	#include <ws2tcpip.h>
 	typedef int socklen_t;
 	inline int GetSocketError() { return WSAGetLastError(); }
+	inline bool IgnoreSocketError( int e )
+	{
+		return e == WSAEWOULDBLOCK || e == WSAENOTCONN;
+	}
 #endif
 
 inline int HexDigitVal( char c )
@@ -224,12 +233,8 @@ public:
 				if ( r < 0 )
 				{
 					int e = GetSocketError();
-					if (
-						e != EAGAIN && e != EWOULDBLOCK && e != ENOTCONN
-						#ifdef _WIN32
-							&& e != WSAEWOULDBLOCK && e != WSAENOTCONN
-						#endif
-					) {
+					if ( !IgnoreSocketError( e ) )
+					{
 						TEST_Printf( "Failed to recv from trivial signaling server.  recv() returned %d, errno=%d.  Closing and restarting connection\n", r, e );
 						CloseSocket();
 					}
@@ -248,17 +253,8 @@ public:
 				const std::string &s = m_queueSend.front();
 				int l = s.length();
 				int r = ::send( m_sock, s.c_str(), l, 0 );
-				if ( r < 0 )
-				{
-					int e = GetSocketError();
-					if (
-						e == ENOTCONN
-						#ifdef _WIN32
-							|| e == WSAENOTCONN
-						#endif
-					)
-						break;
-				}
+				if ( r < 0 && IgnoreSocketError( GetSocketError() ) )
+					break;
 
 				if ( r == l )
 				{
