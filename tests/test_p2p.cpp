@@ -54,6 +54,7 @@ void Quit( int rc )
 // Send a simple string message to out peer, using reliable transport.
 void SendMessageToPeer( const char *pszMsg )
 {
+	TEST_Printf( "Sending msg '%s'\n", pszMsg );
 	EResult r = SteamNetworkingSockets()->SendMessageToConnection(
 		g_hConnection, pszMsg, (int)strlen(pszMsg)+1, k_nSteamNetworkingSend_Reliable, nullptr );
 	assert( r == k_EResultOK );

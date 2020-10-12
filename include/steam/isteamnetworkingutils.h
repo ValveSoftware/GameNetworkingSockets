@@ -325,17 +325,12 @@ protected:
 #define STEAMNETWORKINGUTILS_INTERFACE_VERSION "SteamNetworkingUtils003"
 
 // Global accessor.
-#ifdef STEAMNETWORKINGSOCKETS_PARTNER
+#ifdef STEAMNETWORKINGSOCKETS_STANDALONELIB
 
 	// Standalone lib
 	static_assert( STEAMNETWORKINGUTILS_INTERFACE_VERSION[22] == '3', "Version mismatch" );
 	STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingUtils *SteamNetworkingUtils_LibV3();
 	inline ISteamNetworkingUtils *SteamNetworkingUtils() { return SteamNetworkingUtils_LibV3(); }
-
-#elif defined( STEAMNETWORKINGSOCKETS_OPENSOURCE ) || defined( STEAMNETWORKINGSOCKETS_STREAMINGCLIENT )
-
-	// Opensource GameNetworkingSockets
-	STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingUtils *SteamNetworkingUtils();
 
 #else
 

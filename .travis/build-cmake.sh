@@ -116,6 +116,10 @@ fi
 cmake_configure build-cmake "${CMAKE_ARGS[@]}" -DCMAKE_BUILD_TYPE=RelWithDebInfo
 cmake_build build-cmake
 
+# Build debug build
+cmake_configure build-cmake-debug "${CMAKE_ARGS[@]}" -DCMAKE_BUILD_TYPE=Debug
+cmake_build build-cmake-debug
+
 # Build binaries with LTO
 # Optional, some compilers don't support LTO. We only try this build if it
 # succeeds cmake_configure.
@@ -162,6 +166,8 @@ build-cmake-ref/bin/test_crypto
 build-cmake-sodium25519/bin/test_crypto
 build-cmake/bin/test_crypto
 build-cmake/bin/test_connection
+build-cmake-debug/bin/test_crypto
+build-cmake-debug/bin/test_connection
 
 # Run sanitized builds
 if [[ $BUILD_SANITIZERS -ne 0 ]]; then

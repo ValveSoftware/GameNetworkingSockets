@@ -89,6 +89,7 @@ private:
 
 	bool m_bShuttingDown = false;
 	IICESessionDelegate *m_pDelegate = nullptr;
+	bool writable_ = false;
 	std::unique_ptr<cricket::P2PTransportChannel> ice_transport_;
 	std::unique_ptr<rtc::BasicNetworkManager> default_network_manager_;
 	std::unique_ptr<rtc::BasicPacketSocketFactory> default_socket_factory_;
@@ -412,6 +413,7 @@ void CICESession::DestroyOnSocketThread()
 	// destroy like this, but we really want to control the teardown order.
 	// and we need it to happen in a particular thread, so being "subtle"
 	// would be counter productive.
+	writable_ = false;
 	ice_transport_.reset();
 	port_allocator_.reset();
 	default_socket_factory_.reset();
@@ -521,7 +523,7 @@ void CICESession::OnMessage( rtc::Message* msg )
 
 bool CICESession::BSendData( const void *pData, size_t nSize )
 {
-	if ( !ice_transport_ || !ice_transport_->writable() )
+	if ( !ice_transport_ || !writable_ )
 		return false;
 
 	// Create a message to send it in the other thread.  I hate all this payload
@@ -531,7 +533,8 @@ bool CICESession::BSendData( const void *pData, size_t nSize )
 	new ( pkt ) SendPacktetInGoogleThread();
 	pkt->nSize = nSize;
 	memcpy( pkt->data, pData, nSize );
-	s_pSocketThread->Post( RTC_FROM_HERE, this, SEND_PACKET_IN_GOOGLE_THREAD, pkt, true );
+	bool time_sensitive = false; // Actually, this is really time sensitive.  But passing "true" triggers an assert for some reason.
+	s_pSocketThread->Post( RTC_FROM_HERE, this, SEND_PACKET_IN_GOOGLE_THREAD, pkt, time_sensitive );
 	return true;
 }
 
@@ -547,7 +550,7 @@ void CICESession::SetRemoteAuth( const char *pszUserFrag, const char *pszPwd )
 
 bool CICESession::GetWritableState()
 {
-	return ice_transport_ && ice_transport_->writable();
+	return ice_transport_ && writable_;
 }
 
 int CICESession::GetPing()
@@ -615,7 +618,8 @@ void CICESession::OnTransportStateChanged_n(cricket::IceTransportInternal* trans
 
 void CICESession::OnWritableState(rtc::PacketTransportInternal* transport)
 {
-	m_pDelegate->Log( IICESessionDelegate::k_ELogPriorityInfo, "ICE OnWritableState now %d\n", ice_transport_->writable() );
+	writable_ = ice_transport_->writable();
+	m_pDelegate->Log( IICESessionDelegate::k_ELogPriorityInfo, "ICE OnWritableState now %d\n", (int)writable_ );
 	m_pDelegate->OnWritableStateChanged();
 }
 

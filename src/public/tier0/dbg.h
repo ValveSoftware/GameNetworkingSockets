@@ -19,9 +19,15 @@
 #include "platform.h"
 #include <vstdlib/strtools.h>
 
-#define DBGFLAG_MEMORY
-#define DBGFLAG_MEMORY_NEWDEL	
+// DBGFLAG_ASSERT is defined when we want Assert to do something.  By default,
+// we write our code so that most asserts can be compiled in without negatively
+// impacting performance, and so this is defined, even in release.  However,
+// no load-bearing code should appear in an Assert(), and so it *should* be legal
+// to turn this off if you wish.
 #define DBGFLAG_ASSERT
+
+// DBGFLAG_ASSERTFLAT is defined when AssertFatal should do something.  This
+// really must always be defined.
 #define DBGFLAG_ASSERTFATAL
 
 // Helper function declaration to encode variadic argument count >= 1 as size of return type
@@ -90,7 +96,6 @@ public:
 #define  AssertFatal( _exp )									_AssertMsgSmall( _exp, true, "Fatal Assertion Failed: " #_exp )
 #define  AssertFatalMsg( _exp, ... )							_AssertMsgSmall( _exp, true, __VA_ARGS__ )
 #define  VerifyFatal( _exp )									AssertFatal( _exp )
-#define  DbgVerifyFatal( _exp )									AssertFatal( _exp )
 
 // Assert is used to detect an important but survivable error.
 // It's only turned on when DBGFLAG_ASSERT is true.
@@ -101,30 +106,27 @@ public:
 	#define  AssertOnce( _exp )       							_AssertMsgOnce( _exp, false, "Assertion Failed: " #_exp )
 	#define  AssertMsgOnce( _exp, ... )  						_AssertMsgOnce( _exp, false, __VA_ARGS__ )
 
-	#ifdef _DEBUG
-	#define DbgVerify( _exp )			Assert( _exp )
-	#else
-	#define DbgVerify( _exp )			( (void)( _exp ) )
-	#endif
-
 #else // DBGFLAG_ASSERT
 
+	// Stubs
 	#define  Assert( _exp )										((void)0)
 	#define  AssertOnce( _exp )									((void)0)
 	#define  AssertMsg( _exp, _msg )							((void)0)
 	#define  AssertMsgOnce( _exp, _msg )						((void)0)
-	#define  DbgVerify( _exp )			  (_exp)
-	#define	 DbgAssert( _exp )									((void)0)
 
 #endif // DBGFLAG_ASSERT
 
 // DbgAssert is an assert that is only compiled into _DEBUG builds.
-#if defined(_DEBUG)
+// DbgVerify will always evaluate the expression.  In a _DEBUG build,
+// it will also Assert that the expression is true.
+#if defined(_DEBUG) && defined( DBGFLAG_ASSERT )
 	#define DbgAssert( _exp )			Assert( _exp )
 	#define DbgAssertMsg( _exp, ... )	AssertMsg( _exp, __VA_ARGS__ )
+	#define DbgVerify( _exp )			Assert( _exp )
 #else
 	#define DbgAssert( _exp )			( (void)0 )
 	#define DbgAssertMsg( _exp, ... )	( (void)0 )
+	#define DbgVerify( _exp )			(void)(_exp)
 #endif
 
 // Some legacy code uses macros named with the number of arguments
@@ -142,18 +144,14 @@ public:
 #define DbgAssertMsg2( _exp, _msg, a1, a2 )								DbgAssertMsg( _exp, _msg, a1, a2 )
 #define DbgAssertMsg3( _exp, _msg, a1, a2, a3 )							DbgAssertMsg( _exp, _msg, a1, a2, a3 )
 
-// assert_cast is a static_cast in release.  In debug, it does a dynamic_cast to make sure
+// assert_cast is a static_cast in release.  If _DEBUG, it does a dynamic_cast to make sure
 // that the static cast is appropriate.
-#if defined( _DEBUG ) && !defined( STEAMNETWORKINGSOCKETS_OPENSOURCE )
 template<typename DEST_POINTER_TYPE, typename SOURCE_POINTER_TYPE>
 inline DEST_POINTER_TYPE assert_cast(SOURCE_POINTER_TYPE* pSource)
 {
-    Assert( static_cast<DEST_POINTER_TYPE>(pSource) == dynamic_cast<DEST_POINTER_TYPE>(pSource) );
+    DbgAssert( static_cast<DEST_POINTER_TYPE>(pSource) == dynamic_cast<DEST_POINTER_TYPE>(pSource) );
     return static_cast<DEST_POINTER_TYPE>(pSource);
 }
-#else
-#define assert_cast static_cast
-#endif
 
 #define Plat_FatalError( ... ) AssertFatalMsg( false, __VA_ARGS__ )
 

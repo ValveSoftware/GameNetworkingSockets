@@ -78,9 +78,17 @@
 	#define STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
 #endif
 
-#ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
+#if !defined( STEAMNETWORKINGSOCKETS_OPENSOURCE ) && !defined( STEAMNETWORKINGSOCKETS_STREAMINGCLIENT )
 	// STEAMNETWORKINGSOCKETS_CAN_REQUEST_CERT means we know how to make a cert request from some sort of certificate authority
 	#define STEAMNETWORKINGSOCKETS_CAN_REQUEST_CERT
+#endif
+
+// Always #define STEAMNETWORKINGSOCKETS_ENABLE_ICE, except in the opensource build.
+// There, it must go on the command line
+#ifndef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+	#ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
+		#define STEAMNETWORKINGSOCKETS_ENABLE_ICE
+	#endif
 #endif
 
 // Redefine the macros for byte-swapping, to sure the correct
@@ -1050,7 +1058,7 @@ namespace vstd
 		{
 			T *dest_end = dest+n;
 			while ( dest < dest_end )
-				new (dest++) T( *(src++) );
+				Construct<T>( dest++, *(src++) );
 		}
 	}
 
@@ -1065,7 +1073,7 @@ namespace vstd
 		{
 			T *dest_end = dest+n;
 			while ( dest < dest_end )
-				new (dest++) T( std::move( *(src++) ) );
+				Construct( dest++, std::move( *(src++) ) );
 		}
 	}
 
@@ -1172,7 +1180,7 @@ namespace vstd
 	{
 		if ( size_ >= capacity_ )
 			reserve( size_*2  +  (63+sizeof(T))/sizeof(T) );
-		new ( begin() + size_ ) T ( value );
+		Construct<T>( begin() + size_, value );
 		++size_;
 	}
 
@@ -1226,7 +1234,7 @@ namespace vstd
 			T *d = new_dynamic;
 			while ( s < e )
 			{
-				new ( d ) T ( std::move( *s ) );
+				Construct<T>( d, std::move( *s ) );
 				s->~T();
 				++s;
 				++d;
@@ -1247,7 +1255,7 @@ namespace vstd
 			T *b = begin();
 			while ( size_ < n )
 			{
-				new ( b ) T;
+				Construct<T>( b ); // NOTE: Does not use value initializer, so PODs are *not* initialized
 				++b;
 				++size_;
 			}
@@ -1333,7 +1341,7 @@ namespace vstd
 
 			// Use copy constructor for any remaining items
 			while ( s < srcEnd )
-				new (d++) T( *(s++) );
+				Construct<T>( d++, *(s++) );
 		}
 		size_ = n;
 	}

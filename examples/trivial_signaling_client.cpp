@@ -6,6 +6,7 @@
 
 #include <string>
 #include <mutex>
+#include <deque>
 #include <assert.h>
 
 #include "trivial_signaling_client.h"
@@ -22,12 +23,21 @@
 	constexpr SOCKET INVALID_SOCKET = -1;
 	inline void closesocket( SOCKET s ) { close(s); }
 	inline int GetSocketError() { return errno; }
+	inline bool IgnoreSocketError( int e )
+	{
+		return e == EAGAIN || e == ENOTCONN || e == EWOULDBLOCK;
+	}
+
 #endif
 #ifdef _WIN32
 	#include <winsock2.h>
 	#include <ws2tcpip.h>
 	typedef int socklen_t;
 	inline int GetSocketError() { return WSAGetLastError(); }
+	inline bool IgnoreSocketError( int e )
+	{
+		return e == WSAEWOULDBLOCK || e == WSAENOTCONN;
+	}
 #endif
 
 inline int HexDigitVal( char c )
@@ -95,8 +105,9 @@ class CTrivialSignalingClient : public ITrivialSignalingClient
 	size_t const m_adrServerSize;
 	ISteamNetworkingSockets *const m_pSteamNetworkingSockets;
 	std::string m_sGreeting;
+	std::deque< std::string > m_queueSend;
 
-	std::mutex sockMutex;
+	std::recursive_mutex sockMutex;
 	SOCKET m_sock;
 	std::string m_sBufferedData;
 
@@ -108,6 +119,7 @@ class CTrivialSignalingClient : public ITrivialSignalingClient
 			m_sock = INVALID_SOCKET;
 		}
 		m_sBufferedData.clear();
+		m_queueSend.clear();
 	}
 
 	void Connect()
@@ -170,19 +182,18 @@ public:
 		assert( s.length() > 0 && s[ s.length()-1 ] == '\n' ); // All of our signals are '\n'-terminated
 
 		sockMutex.lock();
-		if ( m_sock != INVALID_SOCKET )
+
+		// If we're getting backed up, delete the oldest entries.  Remember,
+		// we are only required to do best-effort delivery.  And old signals are the
+		// most likely to be out of date (either old data, or the client has already
+		// timed them out and queued a retry).
+		while ( m_queueSend.size() > 32 )
 		{
-			int l = s.length();
-			int r = ::send( m_sock, s.c_str(), l, 0 );
-			if ( r != l && r != 0 )
-			{
-				// Socket hosed, or we sent a partial signal.
-				// We need to restart connection
-				TEST_Printf( "Failed to send %d bytes to trivial signaling server.  send() returned %d, errno=%d.  Closing and restarting connection.\n",
-					l, r, GetSocketError() );
-				CloseSocket();
-			}
+			TEST_Printf( "Signaling send queue is backed up.  Discarding oldest signals\n" );
+			m_queueSend.pop_front();
 		}
+
+		m_queueSend.push_back( s );
 		sockMutex.unlock();
 	}
 
@@ -222,7 +233,7 @@ public:
 				if ( r < 0 )
 				{
 					int e = GetSocketError();
-					if ( e != EAGAIN && e != EWOULDBLOCK )
+					if ( !IgnoreSocketError( e ) )
 					{
 						TEST_Printf( "Failed to recv from trivial signaling server.  recv() returned %d, errno=%d.  Closing and restarting connection\n", r, e );
 						CloseSocket();
@@ -231,6 +242,33 @@ public:
 				}
 
 				m_sBufferedData.append( buf, r );
+			}
+		}
+
+		// Flush send queue
+		if ( m_sock != INVALID_SOCKET )
+		{
+			while ( !m_queueSend.empty() )
+			{
+				const std::string &s = m_queueSend.front();
+				int l = s.length();
+				int r = ::send( m_sock, s.c_str(), l, 0 );
+				if ( r < 0 && IgnoreSocketError( GetSocketError() ) )
+					break;
+
+				if ( r == l )
+				{
+					m_queueSend.pop_front();
+				}
+				else if ( r != 0 )
+				{
+					// Socket hosed, or we sent a partial signal.
+					// We need to restart connection
+					TEST_Printf( "Failed to send %d bytes to trivial signaling server.  send() returned %d, errno=%d.  Closing and restarting connection.\n",
+						l, r, GetSocketError() );
+					CloseSocket();
+					break;
+				}
 			}
 		}
 

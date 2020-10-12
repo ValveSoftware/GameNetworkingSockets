@@ -99,48 +99,11 @@ inline T* ValueInitializeConstruct( T* pMemory )
 	return ::new( pMemory ) T{};
 }
 
-template <class T> 
-inline void CopyConstruct( T* pMemory, T const& src )
+template <class T, typename... ConstructorArgs>
+inline T* Construct( T* pMemory, ConstructorArgs&&... args )
 {
 	HINT( pMemory != 0 );
-	::new( pMemory ) T(src);
-}
-
-#ifdef VALVE_RVALUE_REFS
-template <class T>
-inline void CopyConstruct( T* pMemory, T&& src )
-{
-	HINT( pMemory != 0 );
-	::new(pMemory)T( std::forward<T>(src) );
-}
-#endif
-
-template <class T, class P>
-inline void ConstructOneArg( T* pMemory, P const& arg)
-{
-	HINT( pMemory != 0 );
-	::new( pMemory ) T(arg);
-}
-
-template <class T, class P, class P2 >
-inline void ConstructTwoArg( T* pMemory, P const& arg1, P2 const &arg2 )
-{
-	HINT( pMemory != 0 );
-	::new( pMemory ) T(arg1, arg2);
-}
-
-template <class T, class P, class P2 >
-inline void ConstructTwoArgNoConst( T* pMemory, P& arg1, P2& arg2 )
-{
-	HINT( pMemory != 0 );
-	::new( pMemory ) T( arg1, arg2 );
-}
-
-template <class T, class P, class P2, class P3, class P4, class P5, class P6, class P7 >
-inline void ConstructSevenArg( T* pMemory, P const& arg1, P2 const &arg2, P3 const &arg3, P4 const &arg4, P5 const &arg5, P6 const &arg6, P7 const &arg7 )
-{
-	HINT( pMemory != 0 );
-	::new( pMemory ) T(arg1, arg2, arg3, arg4, arg5, arg6, arg7);
+	return ::new( pMemory ) T( std::forward<ConstructorArgs>(args)... );
 }
 
 template <class T> 

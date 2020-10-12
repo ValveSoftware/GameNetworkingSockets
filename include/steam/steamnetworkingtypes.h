@@ -22,8 +22,6 @@
 #endif
 #define STEAMNETWORKINGSOCKETS_STANDALONELIB
 
-#include <minbase/minbase_identify.h>
-#include <minbase/minbase_decls.h>
 #include "steamtypes.h"
 #include "steamclientpublic.h"
 
@@ -33,9 +31,17 @@
 #if defined( STEAMNETWORKINGSOCKETS_STATIC_LINK )
 	#define STEAMNETWORKINGSOCKETS_INTERFACE extern "C"
 #elif defined( STEAMNETWORKINGSOCKETS_FOREXPORT )
-	#define STEAMNETWORKINGSOCKETS_INTERFACE DLL_EXPORT
+	#ifdef _WIN32
+		#define STEAMNETWORKINGSOCKETS_INTERFACE extern "C" __declspec( dllexport )
+	#else
+		#define STEAMNETWORKINGSOCKETS_INTERFACE extern "C" __attribute__((visibility("default")))
+	#endif
 #else
-	#define STEAMNETWORKINGSOCKETS_INTERFACE DLL_IMPORT
+	#ifdef _WIN32
+		#define STEAMNETWORKINGSOCKETS_INTERFACE extern "C" __declspec( dllimport )
+	#else
+		#define STEAMNETWORKINGSOCKETS_INTERFACE extern "C"
+	#endif
 #endif
 
 // Doesn't really matter what these values are, but they need

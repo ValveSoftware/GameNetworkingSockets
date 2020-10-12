@@ -1596,7 +1596,28 @@ bool CSteamNetworkConnectionP2P::ProcessSignal( const CMsgSteamNetworkingP2PRend
 
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
 		if ( !msg.ice_enabled() )
+		{
 			ICEFailed( k_nICECloseCode_Remote_NotEnabled, "Peer sent signal without ice_enabled set" );
+
+			// An old peer doesn't understand how to ack our messages, so nuke them.
+			// note that for a newer peer, we keep them in the queue, even though this is
+			// useless.  That's because they are "reliable" messages, and we don't want
+			// to add a complication of trying to remove "reliable" messages that cannot
+			// be acked.  (Although we could make the optimization to empty them, since we
+			// know the peer would discard them.)  At the time of this writing, old peers
+			// do not even understand the concept of this reliable message queue, and
+			// ICE messages are the only thing that uses it, and so clearing this makes sense.
+			// For protocol version 10, we know that this field is ALWAYS set in every signal
+			// other than ConnectionClosed.  But we don't want to make any commitments beyond
+			// version 10.  (Maybe we want to be able to stop acking after a certain point.)
+			if ( !msg.has_ack_reliable_msg() && m_statsEndToEnd.m_nPeerProtocolVersion < 10 )
+			{
+				Assert( m_nLastRecvRendesvousMessageID == 0 );
+				Assert( m_nLastSendRendesvousMessageID == m_vecUnackedOutboundMessages.size() );
+				m_vecUnackedOutboundMessages.clear();
+				m_nLastSendRendesvousMessageID = 0;
+			}
+		}
 	#endif
 
 	// Closing the connection through rendezvous?
