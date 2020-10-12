@@ -2476,14 +2476,26 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 	}
 
 	// Ignore data segments when we are not going to process them (e.g. linger)
-	if ( GetState() != k_ESteamNetworkingConnectionState_Connected )
+	switch ( GetState() )
 	{
-		SpewVerboseGroup( nLogLevelPacketDecode, "[%s]   discarding pkt %lld [%lld,%lld) as connection is in state %d\n",
-			GetDescription(),
-			(long long)nPktNum,
-			(long long)nSegBegin, (long long)nSegEnd,
-			(int)GetState() );
-		return true;
+		case k_ESteamNetworkingConnectionState_Connected:
+		case k_ESteamNetworkingConnectionState_FindingRoute: // Go ahead and process it here.  The higher level code should change the state soon enough.
+			break;
+
+		case k_ESteamNetworkingConnectionState_Linger:
+		case k_ESteamNetworkingConnectionState_FinWait:
+			// Discard data, but continue processing packet
+			SpewVerboseGroup( nLogLevelPacketDecode, "[%s]   discarding pkt %lld [%lld,%lld) as connection is in state %d\n",
+				GetDescription(),
+				(long long)nPktNum,
+				(long long)nSegBegin, (long long)nSegEnd,
+				(int)GetState() );
+			return true;
+
+		default:
+			// Higher level code should probably not call this in these states
+			AssertMsg( false, "Unexpected state %d", GetState() );
+			return false;
 	}
 
 	// Check if the entire thing is stuff we have already received, then
