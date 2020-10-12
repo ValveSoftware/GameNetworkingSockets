@@ -186,10 +186,8 @@ function(set_target_common_gns_properties TGT)
 				/wd4267   # google/protobuf/has_bits.h(73): warning C4267: 'argument': conversion from 'size_t' to 'int', possible loss of data
 				)
 
-				# Disable RTTI.  Escept in debug, because we use it in assert_cast
-				if(NOT CMAKE_BUILD_TYPE STREQUAL Debug)
-					target_compile_options(${TGT} PRIVATE /GR- )
-				endif()
+			# Disable RTTI except in Debug, because we use dynamic_cast in assert_cast
+			target_compile_options(${TGT} PRIVATE $<IF:$<CONFIG:Debug>,/GR,/GR->)
 		else()
 			target_compile_definitions(${TGT} PRIVATE
 				__STDC_FORMAT_MACROS=1
