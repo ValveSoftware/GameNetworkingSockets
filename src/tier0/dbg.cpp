@@ -120,17 +120,15 @@ void AssertMsgImplementationV( bool _bFatal, bool bFmt, const char* pstrFile, un
 		else
 ;			fprintf( stderr, "%s", pMsg );
 		fflush(stderr);
+
+		if ( Plat_IsInDebugSession() )
+		{
+			// HELLO DEVELOPER: Set this to true if you are getting fed up with the DebuggerBreak().
+			static volatile bool s_bDisableDebuggerBreak = false;
+			if ( !s_bDisableDebuggerBreak )
+				DebuggerBreak();
+		}
 	#endif
-
-	va_end( ap );
-
-	if ( Plat_IsInDebugSession() )
-	{
-		// HELLO DEVELOPER: Set this to true if you are getting fed up with the DebuggerBreak().
-		static volatile bool s_bDisableDebuggerBreak = false;
-		if ( !s_bDisableDebuggerBreak )
-			DebuggerBreak();
-	}
 
 	if ( _bFatal )
 	{
