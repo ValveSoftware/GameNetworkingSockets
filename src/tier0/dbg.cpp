@@ -33,14 +33,6 @@ using namespace SteamNetworkingSocketsLib;
 #include <sys/sysctl.h>
 #endif
 
-#ifdef LINUX
-// valgrind.h doesn't compile on s390x right now for some reason. Disable it.
-#if defined( __s390x__ )
-#define NVALGRIND
-#endif
-#include "tier0/valgrind.h"
-#endif
-
 bool Plat_IsInDebugSession()
 {
 #ifdef _WIN32
@@ -58,10 +50,6 @@ bool Plat_IsInDebugSession()
 	sysctl(mib,4,&info,&size,NULL,0);
 	return ((info.kp_proc.p_flag & P_TRACED) == P_TRACED);
 #elif defined(LINUX)
-	if ( RUNNING_ON_VALGRIND )
-	{
-		return true;
-	}
 	static FILE *fp;
 	if ( !fp )
 	{
