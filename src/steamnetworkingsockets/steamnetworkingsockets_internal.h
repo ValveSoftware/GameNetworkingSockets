@@ -71,6 +71,11 @@
 	#define STEAMNETWORKINGSOCKETS_DECLARE_CLASS_OPERATOR_NEW
 #endif
 
+// Enable SDR, except in opensource build
+#ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
+	#define STEAMNETWORKINGSOCKETS_ENABLE_SDR
+#endif
+
 // Running against Steam?  Then we have some default signaling.
 // Otherwise, we don't
 #ifdef STEAMNETWORKINGSOCKETS_STEAM

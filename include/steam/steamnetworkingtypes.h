@@ -6,12 +6,12 @@
 
 #ifndef STEAMNETWORKINGTYPES
 #define STEAMNETWORKINGTYPES
-#ifdef _WIN32
 #pragma once
-#endif
 
 #include <string.h>
 #include <stdint.h>
+#include "steamtypes.h"
+#include "steamclientpublic.h"
 
 //----------------------------------------
 // SteamNetworkingSockets library config
@@ -21,10 +21,13 @@
 #define STEAMNETWORKINGSOCKETS_OPENSOURCE
 #endif
 #define STEAMNETWORKINGSOCKETS_STANDALONELIB
+//#define STEAMNETWORKINGSOCKETS_STEAMAPI // Comment this in to support linking with steam_api.h as well
+// End SteamNetworkingSockets config.
+//-----------------------------------------------------------------------------
 
-#include "steamtypes.h"
-#include "steamclientpublic.h"
-
+#if !defined( STEAMNETWORKINGSOCKETS_OPENSOURCE ) && !defined( STEAMNETWORKINGSOCKETS_STREAMINGCLIENT )
+	#define STEAMNETWORKINGSOCKETS_STEAM
+#endif
 #ifdef NN_NINTENDO_SDK // We always static link on Nintendo
 	#define STEAMNETWORKINGSOCKETS_STATIC_LINK
 #endif
@@ -43,16 +46,6 @@
 		#define STEAMNETWORKINGSOCKETS_INTERFACE extern "C"
 	#endif
 #endif
-
-// Doesn't really matter what these values are, but they need
-// to be defined, and we might as well use the same values as Steam.
-enum { k_iSteamNetworkingSocketsCallbacks = 1220 };
-enum { k_iSteamNetworkingMessagesCallbacks = 1250 };
-enum { k_iSteamNetworkingUtilsCallbacks = 1280 };
-
-// 
-//----------------------------------------
-
 
 #if defined( VALVE_CALLBACK_PACK_SMALL )
 #pragma pack( push, 4 )
@@ -1647,17 +1640,6 @@ inline const uint8 *SteamNetworkingIdentity::GetGenericBytes( int &cbLen ) const
 	cbLen = m_cbSize; return m_genericBytes; }
 inline bool SteamNetworkingIdentity::operator==(const SteamNetworkingIdentity &x ) const { return m_eType == x.m_eType && m_cbSize == x.m_cbSize && memcmp( m_genericBytes, x.m_genericBytes, m_cbSize ) == 0; }
 inline void SteamNetworkingMessage_t::Release() { (*m_pfnRelease)( this ); }
-
-#if defined( STEAMNETWORKINGSOCKETS_STATIC_LINK ) || !defined( STEAMNETWORKINGSOCKETS_STEAMCLIENT )
-STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingIPAddr_ToString( const SteamNetworkingIPAddr *pAddr, char *buf, size_t cbBuf, bool bWithPort );
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamNetworkingIPAddr_ParseString( SteamNetworkingIPAddr *pAddr, const char *pszStr );
-STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingIdentity_ToString( const SteamNetworkingIdentity *pIdentity, char *buf, size_t cbBuf );
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamNetworkingIdentity_ParseString( SteamNetworkingIdentity *pIdentity, size_t sizeofIdentity, const char *pszStr );
-inline void SteamNetworkingIPAddr::ToString( char *buf, size_t cbBuf, bool bWithPort ) const { SteamNetworkingIPAddr_ToString( this, buf, cbBuf, bWithPort ); }
-inline bool SteamNetworkingIPAddr::ParseString( const char *pszStr ) { return SteamNetworkingIPAddr_ParseString( this, pszStr ); }
-inline void SteamNetworkingIdentity::ToString( char *buf, size_t cbBuf ) const { SteamNetworkingIdentity_ToString( this, buf, cbBuf ); }
-inline bool SteamNetworkingIdentity::ParseString( const char *pszStr ) { return SteamNetworkingIdentity_ParseString( this, sizeof(*this), pszStr ); }
-#endif
 
 #endif // #ifndef API_GEN
 

@@ -6,13 +6,11 @@
 
 #ifndef ISTEAMNETWORKINGUTILS
 #define ISTEAMNETWORKINGUTILS
-#ifdef _WIN32
 #pragma once
-#endif
-
-#include <stdint.h>
 
 #include "steamnetworkingtypes.h"
+#include "steam_api_common.h"
+
 struct SteamDatagramRelayAuthTicket;
 struct SteamRelayNetworkStatus_t;
 
@@ -45,8 +43,6 @@ public:
 	//
 	// Access to Steam Datagram Relay (SDR) network
 	//
-
-#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 
 	//
 	// Initialization and status check
@@ -196,7 +192,6 @@ public:
 	/// Get list of all POP IDs.  Returns the number of entries that were filled into
 	/// your list.
 	virtual int GetPOPList( SteamNetworkingPOPID *list, int nListSz ) = 0;
-#endif // #ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 
 	//
 	// Misc
@@ -324,19 +319,23 @@ protected:
 };
 #define STEAMNETWORKINGUTILS_INTERFACE_VERSION "SteamNetworkingUtils003"
 
-// Global accessor.
+// Global accessors
+// Using standalone lib
 #ifdef STEAMNETWORKINGSOCKETS_STANDALONELIB
 
 	// Standalone lib
 	static_assert( STEAMNETWORKINGUTILS_INTERFACE_VERSION[22] == '3', "Version mismatch" );
 	STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingUtils *SteamNetworkingUtils_LibV3();
-	inline ISteamNetworkingUtils *SteamNetworkingUtils() { return SteamNetworkingUtils_LibV3(); }
+	inline ISteamNetworkingUtils *SteamNetworkingUtils_Lib() { return SteamNetworkingUtils_LibV3(); }
 
-#else
+	#ifndef STEAMNETWORKINGSOCKETS_STEAMAPI
+		inline ISteamNetworkingUtils *SteamNetworkingUtils() { return SteamNetworkingUtils_LibV3(); }
+	#endif
+#endif
 
-	// Steamworks SDK
-	inline ISteamNetworkingUtils *SteamNetworkingUtils();
-	STEAM_DEFINE_INTERFACE_ACCESSOR( ISteamNetworkingUtils *, SteamNetworkingUtils,
+// Using Steamworks SDK
+#ifdef STEAMNETWORKINGSOCKETS_STEAMAPI
+	STEAM_DEFINE_INTERFACE_ACCESSOR( ISteamNetworkingUtils *, SteamNetworkingUtils_SteamAPI,
 		/* Prefer user version of the interface.  But if it isn't found, then use
 		gameserver one.  Yes, this is a completely terrible hack */
 		SteamInternal_FindOrCreateUserInterface( 0, STEAMNETWORKINGUTILS_INTERFACE_VERSION ) ?
@@ -345,6 +344,10 @@ protected:
 		"global",
 		STEAMNETWORKINGUTILS_INTERFACE_VERSION
 	)
+
+	#ifndef STEAMNETWORKINGSOCKETS_STANDALONELIB
+		inline ISteamNetworkingUtils *SteamNetworkingUtils() { return SteamNetworkingUtils_SteamAPI(); }
+	#endif
 #endif
 
 /// A struct used to describe our readiness to use the relay network.
@@ -405,10 +408,7 @@ private:
 //
 // Internal stuff
 
-#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 inline void ISteamNetworkingUtils::InitRelayNetworkAccess() { CheckPingDataUpToDate( 1e10f ); }
-#endif
-
 inline bool ISteamNetworkingUtils::SetGlobalConfigValueInt32( ESteamNetworkingConfigValue eValue, int32 val ) { return SetConfigValue( eValue, k_ESteamNetworkingConfig_Global, 0, k_ESteamNetworkingConfig_Int32, &val ); }
 inline bool ISteamNetworkingUtils::SetGlobalConfigValueFloat( ESteamNetworkingConfigValue eValue, float val ) { return SetConfigValue( eValue, k_ESteamNetworkingConfig_Global, 0, k_ESteamNetworkingConfig_Float, &val ); }
 inline bool ISteamNetworkingUtils::SetGlobalConfigValueString( ESteamNetworkingConfigValue eValue, const char *val ) { return SetConfigValue( eValue, k_ESteamNetworkingConfig_Global, 0, k_ESteamNetworkingConfig_String, val ); }
@@ -432,11 +432,27 @@ inline bool ISteamNetworkingUtils::SetConfigValueStruct( const SteamNetworkingCo
 	return SetConfigValue( opt.m_eValue, eScopeType, scopeObj, opt.m_eDataType, pVal );
 }
 
-#if !defined( STEAMNETWORKINGSOCKETS_STATIC_LINK ) && defined( STEAMNETWORKINGSOCKETS_STEAMCLIENT )
-inline void SteamNetworkingIPAddr::ToString( char *buf, size_t cbBuf, bool bWithPort ) const { SteamNetworkingUtils()->SteamNetworkingIPAddr_ToString( *this, buf, cbBuf, bWithPort ); }
-inline bool SteamNetworkingIPAddr::ParseString( const char *pszStr ) { return SteamNetworkingUtils()->SteamNetworkingIPAddr_ParseString( this, pszStr ); }
-inline void SteamNetworkingIdentity::ToString( char *buf, size_t cbBuf ) const { SteamNetworkingUtils()->SteamNetworkingIdentity_ToString( *this, buf, cbBuf ); }
-inline bool SteamNetworkingIdentity::ParseString( const char *pszStr ) { return SteamNetworkingUtils()->SteamNetworkingIdentity_ParseString( this, pszStr ); }
+// How to get helper functions.
+#if defined( STEAMNETWORKINGSOCKETS_STATIC_LINK ) || defined( STEAMNETWORKINGSOCKETS_STANDALONELIB )
+
+	// Call direct to static functions
+	STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingIPAddr_ToString( const SteamNetworkingIPAddr *pAddr, char *buf, size_t cbBuf, bool bWithPort );
+	STEAMNETWORKINGSOCKETS_INTERFACE bool SteamNetworkingIPAddr_ParseString( SteamNetworkingIPAddr *pAddr, const char *pszStr );
+	STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingIdentity_ToString( const SteamNetworkingIdentity *pIdentity, char *buf, size_t cbBuf );
+	STEAMNETWORKINGSOCKETS_INTERFACE bool SteamNetworkingIdentity_ParseString( SteamNetworkingIdentity *pIdentity, size_t sizeofIdentity, const char *pszStr );
+	inline void SteamNetworkingIPAddr::ToString( char *buf, size_t cbBuf, bool bWithPort ) const { SteamNetworkingIPAddr_ToString( this, buf, cbBuf, bWithPort ); }
+	inline bool SteamNetworkingIPAddr::ParseString( const char *pszStr ) { return SteamNetworkingIPAddr_ParseString( this, pszStr ); }
+	inline void SteamNetworkingIdentity::ToString( char *buf, size_t cbBuf ) const { SteamNetworkingIdentity_ToString( this, buf, cbBuf ); }
+	inline bool SteamNetworkingIdentity::ParseString( const char *pszStr ) { return SteamNetworkingIdentity_ParseString( this, sizeof(*this), pszStr ); }
+
+#elif defined( STEAMNETWORKINGSOCKETS_STEAMAPI )
+	// Using steamworks SDK - go through SteamNetworkingUtils()
+	inline void SteamNetworkingIPAddr::ToString( char *buf, size_t cbBuf, bool bWithPort ) const { SteamNetworkingUtils()->SteamNetworkingIPAddr_ToString( *this, buf, cbBuf, bWithPort ); }
+	inline bool SteamNetworkingIPAddr::ParseString( const char *pszStr ) { return SteamNetworkingUtils()->SteamNetworkingIPAddr_ParseString( this, pszStr ); }
+	inline void SteamNetworkingIdentity::ToString( char *buf, size_t cbBuf ) const { SteamNetworkingUtils()->SteamNetworkingIdentity_ToString( *this, buf, cbBuf ); }
+	inline bool SteamNetworkingIdentity::ParseString( const char *pszStr ) { return SteamNetworkingUtils()->SteamNetworkingIdentity_ParseString( this, pszStr ); }
+#else
+	#error "Invalid config"
 #endif
 
 #endif // ISTEAMNETWORKINGUTILS

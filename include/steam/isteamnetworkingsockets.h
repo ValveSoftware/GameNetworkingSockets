@@ -2,11 +2,10 @@
 
 #ifndef ISTEAMNETWORKINGSOCKETS
 #define ISTEAMNETWORKINGSOCKETS
-#ifdef _WIN32
 #pragma once
-#endif
 
 #include "steamnetworkingtypes.h"
+#include "steam_api_common.h"
 
 struct SteamNetAuthenticationStatus_t;
 class ISteamNetworkingConnectionCustomSignaling;
@@ -437,8 +436,6 @@ public:
 	/// other connections.)
 	virtual int ReceiveMessagesOnPollGroup( HSteamNetPollGroup hPollGroup, SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages ) = 0; 
 
-#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
-
 	//
 	// Clients connecting to dedicated servers hosted in a data center,
 	// using central-authority-granted tickets.
@@ -560,7 +557,6 @@ public:
 	/// NOTE: The routing blob returned here is not encrypted.  Send it to your backend
 	///       and don't share it directly with clients.
 	virtual EResult GetGameCoordinatorServerLogin( SteamDatagramGameCoordinatorServerLogin *pLoginInfo, int *pcbSignedBlob, void *pBlob ) = 0;
-#endif // #ifndef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 
 
 	//
@@ -664,28 +660,40 @@ protected:
 };
 #define STEAMNETWORKINGSOCKETS_INTERFACE_VERSION "SteamNetworkingSockets009"
 
-// Global accessor.
-#if defined( STEAMNETWORKINGSOCKETS_STANDALONELIB )
+// Global accessors
+// Using standalone lib
+#ifdef STEAMNETWORKINGSOCKETS_STANDALONELIB
 
-	// Standalone lib.  Use different symbol name, so that we can dynamically switch between steamclient.dll
-	// and the standalone lib
+	// Standalone lib.
 	static_assert( STEAMNETWORKINGSOCKETS_INTERFACE_VERSION[24] == '9', "Version mismatch" );
 	STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets *SteamNetworkingSockets_LibV9();
-	inline ISteamNetworkingSockets *SteamNetworkingSockets() { return SteamNetworkingSockets_LibV9(); }
+	inline ISteamNetworkingSockets *SteamNetworkingSockets_Lib() { return SteamNetworkingSockets_LibV9(); }
 
-	// In Partner lib, we also define a gameserver instance.
-	#ifdef STEAMNETWORKINGSOCKETS_PARTNER
+	// If running in context of steam, we also define a gameserver instance.
+	#ifdef STEAMNETWORKINGSOCKETS_STEAM
 		STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets *SteamGameServerNetworkingSockets_LibV9();
-		inline ISteamNetworkingSockets *SteamGameServerNetworkingSockets() { return SteamGameServerNetworkingSockets_LibV9(); }
+		inline ISteamNetworkingSockets *SteamGameServerNetworkingSockets_Lib() { return SteamGameServerNetworkingSockets_LibV9(); }
 	#endif
 
-#else
+	#ifndef STEAMNETWORKINGSOCKETS_STEAMAPI
+		inline ISteamNetworkingSockets *SteamNetworkingSockets() { return SteamNetworkingSockets_LibV9(); }
+		#ifdef STEAMNETWORKINGSOCKETS_STEAM
+			inline ISteamNetworkingSockets *SteamGameServerNetworkingSockets() { return SteamGameServerNetworkingSockets_LibV9(); }
+		#endif
+	#endif
+#endif
+
+// Using Steamworks SDK
+#ifdef STEAMNETWORKINGSOCKETS_STEAMAPI
 
 	// Steamworks SDK
-	inline ISteamNetworkingSockets *SteamNetworkingSockets();
-	STEAM_DEFINE_USER_INTERFACE_ACCESSOR( ISteamNetworkingSockets *, SteamNetworkingSockets, STEAMNETWORKINGSOCKETS_INTERFACE_VERSION );
-	inline ISteamNetworkingSockets *SteamGameServerNetworkingSockets();
-	STEAM_DEFINE_GAMESERVER_INTERFACE_ACCESSOR( ISteamNetworkingSockets *, SteamGameServerNetworkingSockets, STEAMNETWORKINGSOCKETS_INTERFACE_VERSION );
+	STEAM_DEFINE_USER_INTERFACE_ACCESSOR( ISteamNetworkingSockets *, SteamNetworkingSockets_SteamAPI, STEAMNETWORKINGSOCKETS_INTERFACE_VERSION );
+	STEAM_DEFINE_GAMESERVER_INTERFACE_ACCESSOR( ISteamNetworkingSockets *, SteamGameServerNetworkingSockets_SteamAPI, STEAMNETWORKINGSOCKETS_INTERFACE_VERSION );
+
+	#ifndef STEAMNETWORKINGSOCKETS_STANDALONELIB
+		inline ISteamNetworkingSockets *SteamNetworkingSockets() { return SteamNetworkingSockets_SteamAPI(); }
+		inline ISteamNetworkingSockets *SteamGameServerNetworkingSockets() { return SteamGameServerNetworkingSockets_SteamAPI(); }
+	#endif
 #endif
 
 /// Callback struct used to notify when a connection has changed state

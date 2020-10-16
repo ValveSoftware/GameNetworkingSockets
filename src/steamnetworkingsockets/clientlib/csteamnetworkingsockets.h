@@ -167,6 +167,18 @@ public:
 #endif // #ifdef STEAMNETWORKINGSOCKETS_HAS_DEFAULT_P2P_SIGNALING
 	CSteamNetworkingMessages *m_pSteamNetworkingMessages;
 
+// Stubs if SDR not enabled
+#ifndef STEAMNETWORKINGSOCKETS_ENABLE_SDR
+	virtual int FindRelayAuthTicketForServer( const SteamNetworkingIdentity &identityGameServer, int nRemoteVirtualPort, SteamDatagramRelayAuthTicket *pOutParsedTicket ) override { return 0; }
+	virtual HSteamNetConnection ConnectToHostedDedicatedServer( const SteamNetworkingIdentity &identityTarget, int nRemoteVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions ) override { return k_HSteamNetConnection_Invalid; }
+	virtual uint16 GetHostedDedicatedServerPort() override { return 0; }
+	virtual SteamNetworkingPOPID GetHostedDedicatedServerPOPID() override { return 0; }
+	virtual EResult GetHostedDedicatedServerAddress( SteamDatagramHostedAddress *pRouting ) override { return k_EResultFail; }
+	virtual HSteamListenSocket CreateHostedDedicatedServerListenSocket( int nLocalVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions ) override { return k_HSteamNetConnection_Invalid; }
+	virtual bool ReceivedRelayAuthTicket( const void *pvTicket, int cbTicket, SteamDatagramRelayAuthTicket *pOutParsedTicket ) override { return false; }
+	virtual EResult GetGameCoordinatorServerLogin( SteamDatagramGameCoordinatorServerLogin *pLogin, int *pcbSignedBlob, void *pBlob ) override { return k_EResultFail; }
+#endif
+
 protected:
 
 	/// Overall authentication status.  Depends on the status of our cert, and the ability
@@ -257,6 +269,31 @@ public:
 	// Get current time of day, ideally from a source that
 	// doesn't depend on the user setting their local clock properly
 	virtual time_t GetTimeSecure();
+
+	// Stubs if SDR not enabled
+#ifndef STEAMNETWORKINGSOCKETS_ENABLE_SDR
+	virtual ESteamNetworkingAvailability GetRelayNetworkStatus( SteamRelayNetworkStatus_t *pDetails ) override
+	{
+		if ( pDetails )
+		{
+			memset( pDetails, 0, sizeof(*pDetails) );
+			pDetails->m_eAvail = k_ESteamNetworkingAvailability_CannotTry;
+			pDetails->m_eAvailAnyRelay = k_ESteamNetworkingAvailability_CannotTry;
+			pDetails->m_eAvailNetworkConfig = k_ESteamNetworkingAvailability_CannotTry;
+		}
+		return k_ESteamNetworkingAvailability_CannotTry;
+	}
+	virtual bool CheckPingDataUpToDate( float flMaxAgeSeconds ) override { return false; }
+	virtual float GetLocalPingLocation( SteamNetworkPingLocation_t &result ) override { return -1.0f; }
+	virtual int EstimatePingTimeBetweenTwoLocations( const SteamNetworkPingLocation_t &location1, const SteamNetworkPingLocation_t &location2 ) override { return k_nSteamNetworkingPing_Unknown; }
+	virtual int EstimatePingTimeFromLocalHost( const SteamNetworkPingLocation_t &remoteLocation ) override { return k_nSteamNetworkingPing_Unknown; }
+	virtual void ConvertPingLocationToString( const SteamNetworkPingLocation_t &location, char *pszBuf, int cchBufSize ) override { if ( pszBuf ) *pszBuf = '\0'; }
+	virtual bool ParsePingLocationString( const char *pszString, SteamNetworkPingLocation_t &result ) override { return false; }
+	virtual int GetPingToDataCenter( SteamNetworkingPOPID popID, SteamNetworkingPOPID *pViaRelayPoP ) override { return k_nSteamNetworkingPing_Unknown; }
+	virtual int GetDirectPingToPOP( SteamNetworkingPOPID popID ) override { return k_nSteamNetworkingPing_Unknown; }
+	virtual int GetPOPCount() override { return 0; }
+	virtual int GetPOPList( SteamNetworkingPOPID *list, int nListSz ) override { return 0; }
+#endif
 
 protected:
 	AppId_t m_nAppID = 0;
