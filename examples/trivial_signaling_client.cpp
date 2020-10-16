@@ -12,6 +12,7 @@
 #include "trivial_signaling_client.h"
 #include <steam/isteamnetworkingsockets.h>
 #include <steam/isteamnetworkingutils.h>
+#include <steam/steamnetworkingcustomsignaling.h>
 
 #ifdef POSIX
 	#include <unistd.h>
@@ -57,7 +58,7 @@ class CTrivialSignalingClient : public ITrivialSignalingClient
 
 	// This is the thing we'll actually create to send signals for a particular
 	// connection.
-	struct ConnectionSignaling : ISteamNetworkingConnectionCustomSignaling
+	struct ConnectionSignaling : ISteamNetworkingConnectionSignaling
 	{
 		CTrivialSignalingClient *const m_pOwner;
 		std::string const m_sPeerIdentity; // Save off the string encoding of the identity we're talking to
@@ -69,7 +70,7 @@ class CTrivialSignalingClient : public ITrivialSignalingClient
 		}
 
 		//
-		// Implements ISteamNetworkingConnectionCustomSignaling
+		// Implements ISteamNetworkingConnectionSignaling
 		//
 
 		// This is called from SteamNetworkingSockets to send a signal.  This could be called from any thread,
@@ -197,12 +198,8 @@ public:
 		sockMutex.unlock();
 	}
 
-	//
-	// Implements ISteamNetworkingCustomSignalingService
-	//
-	virtual ISteamNetworkingConnectionCustomSignaling *CreateSignalingForConnection(
+	ISteamNetworkingConnectionSignaling *CreateSignalingForConnection(
 		const SteamNetworkingIdentity &identityPeer,
-		const char *pszRoutingInfo,
 		SteamNetworkingErrMsg &errMsg
 	) override {
 		SteamNetworkingIdentityRender sIdentityPeer( identityPeer );
@@ -310,11 +307,11 @@ public:
 				}
 
 				// Setup a context object that can respond if this signal is a connection request.
-				struct Context : ISteamNetworkingCustomSignalingRecvContext
+				struct Context : ISteamNetworkingSignalingRecvContext
 				{
 					CTrivialSignalingClient *m_pOwner;
 
-					virtual ISteamNetworkingConnectionCustomSignaling *OnConnectRequest(
+					virtual ISteamNetworkingConnectionSignaling *OnConnectRequest(
 						HSteamNetConnection hConn,
 						const SteamNetworkingIdentity &identityPeer,
 						int nLocalVirtualPort
@@ -328,7 +325,7 @@ public:
 						// our envelope that we know how to parse, and we should save it off in this
 						// context object.
 						SteamNetworkingErrMsg ignoreErrMsg;
-						return m_pOwner->CreateSignalingForConnection( identityPeer, nullptr, ignoreErrMsg );
+						return m_pOwner->CreateSignalingForConnection( identityPeer, ignoreErrMsg );
 					}
 
 					virtual void SendRejectionSignal(

@@ -76,12 +76,9 @@
 	#define STEAMNETWORKINGSOCKETS_ENABLE_SDR
 #endif
 
-// Running against Steam?  Then we have some default signaling.
-// Otherwise, we don't
-#ifdef STEAMNETWORKINGSOCKETS_STEAM
-	#define STEAMNETWORKINGSOCKETS_HAS_DEFAULT_P2P_SIGNALING
-	#define STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
-#endif
+// Let's always enable ISteamNetworkingMessages for now.
+// Later we might provide a way to remove this code.
+#define STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
 
 #if !defined( STEAMNETWORKINGSOCKETS_OPENSOURCE ) && !defined( STEAMNETWORKINGSOCKETS_STREAMINGCLIENT )
 	// STEAMNETWORKINGSOCKETS_CAN_REQUEST_CERT means we know how to make a cert request from some sort of certificate authority
@@ -814,6 +811,7 @@ extern GlobalConfigValue<float> g_Config_FakePacketDup_Send;
 extern GlobalConfigValue<float> g_Config_FakePacketDup_Recv;
 extern GlobalConfigValue<int32> g_Config_FakePacketDup_TimeMax;
 extern GlobalConfigValue<int32> g_Config_EnumerateDevVars;
+extern GlobalConfigValue<void*> g_Config_Callback_CreateConnectionSignaling;
 
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
 extern GlobalConfigValue<void*> g_Config_Callback_MessagesSessionRequest;

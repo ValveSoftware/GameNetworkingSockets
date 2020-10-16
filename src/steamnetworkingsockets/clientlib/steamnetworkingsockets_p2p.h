@@ -42,11 +42,13 @@ class CConnectionTransportP2PSDR;
 class CConnectionTransportP2PICE;
 
 //-----------------------------------------------------------------------------
-/// Listen socket for peer-to-peer connections relayed through through SDR network
-/// We can only do this on platforms where this is some sort of "default" signaling
-/// mechanism
+/// Base class for listen sockets where the client will connect to us using
+/// our identity and a "virtual port".
+///
+/// Current derived classes are true "P2P" connections, and connections to
+/// servers hosted in known data centers.
 
-class CSteamNetworkListenSocketP2P final : public CSteamNetworkListenSocketBase
+class CSteamNetworkListenSocketP2P : public CSteamNetworkListenSocketBase
 {
 public:
 	CSteamNetworkListenSocketP2P( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface );
@@ -55,7 +57,7 @@ public:
 	virtual bool BSupportsSymmetricMode() override { return true; }
 
 	/// Setup
-	bool BInit( int nLocalVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions, SteamDatagramErrMsg &errMsg );
+	virtual bool BInit( int nLocalVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions, SteamDatagramErrMsg &errMsg );
 
 	inline int LocalVirtualPort() const
 	{
@@ -63,8 +65,8 @@ public:
 		return m_connectionConfig.m_LocalVirtualPort.m_data;
 	}
 
-private:
-	virtual ~CSteamNetworkListenSocketP2P(); // hidden destructor, don't call directly.  Use Destroy()
+protected:
+	virtual ~CSteamNetworkListenSocketP2P();
 };
 
 /// Mixin base class for different P2P transports.
@@ -152,7 +154,7 @@ public:
 
 	/// Start connecting to a remote peer at the specified virtual port
 	bool BInitConnect(
-		ISteamNetworkingConnectionCustomSignaling *pSignaling,
+		ISteamNetworkingConnectionSignaling *pSignaling,
 		const SteamNetworkingIdentity *pIdentityRemote, int nRemoteVirtualPort,
 		int nOptions, const SteamNetworkingConfigValue_t *pOptions,
 		CSteamNetworkConnectionP2P **pOutMatchingSymmetricConnection,
@@ -221,7 +223,7 @@ public:
 	int m_idxMapP2PConnectionsByRemoteInfo;
 
 	/// How to send signals to the remote host for this
-	ISteamNetworkingConnectionCustomSignaling *m_pSignaling;
+	ISteamNetworkingConnectionSignaling *m_pSignaling;
 
 	//
 	// Different transports

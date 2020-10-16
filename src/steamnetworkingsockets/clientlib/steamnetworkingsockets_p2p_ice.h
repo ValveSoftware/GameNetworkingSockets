@@ -33,7 +33,7 @@ public:
 	virtual ~CConnectionTransportP2PICE();
 
 	inline CSteamNetworkConnectionP2P &Connection() const { return *assert_cast< CSteamNetworkConnectionP2P *>( &m_connection ); }
-	inline ISteamNetworkingConnectionCustomSignaling *Signaling() const { return Connection().m_pSignaling; }
+	inline ISteamNetworkingConnectionSignaling *Signaling() const { return Connection().m_pSignaling; }
 
 	void Init();
 

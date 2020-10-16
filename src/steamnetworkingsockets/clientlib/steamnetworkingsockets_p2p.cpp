@@ -10,6 +10,9 @@
 
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 	#include "steamnetworkingsockets_sdr_p2p.h"
+	#ifdef SDR_ENABLE_HOSTED_SERVER
+		#include "steamnetworkingsockets_sdr_hostedserver.h"
+	#endif
 #endif
 
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
@@ -61,13 +64,6 @@ CSteamNetworkListenSocketP2P::~CSteamNetworkListenSocketP2P()
 bool CSteamNetworkListenSocketP2P::BInit( int nLocalVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions, SteamDatagramErrMsg &errMsg )
 {
 	Assert( nLocalVirtualPort >= 0 );
-
-	// We need SDR functionality in order to support P2P
-	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
-		CSteamNetworkingSocketsSDR *pSteamNetworkingSocketsSDR = assert_cast< CSteamNetworkingSocketsSDR *>( m_pSteamNetworkingSocketsInterface );
-		if ( !pSteamNetworkingSocketsSDR->BSDRClientInit( errMsg ) )
-			return false;
-	#endif
 
 	if ( m_pSteamNetworkingSocketsInterface->m_mapListenSocketsByVirtualPort.HasElement( nLocalVirtualPort ) )
 	{
@@ -134,7 +130,7 @@ void CSteamNetworkConnectionP2P::GetConnectionTypeDescription( ConnectionTypeDes
 }
 
 bool CSteamNetworkConnectionP2P::BInitConnect(
-	ISteamNetworkingConnectionCustomSignaling *pSignaling,
+	ISteamNetworkingConnectionSignaling *pSignaling,
 	const SteamNetworkingIdentity *pIdentityRemote, int nRemoteVirtualPort,
 	int nOptions, const SteamNetworkingConfigValue_t *pOptions,
 	CSteamNetworkConnectionP2P **pOutMatchingSymmetricConnection,
@@ -2027,10 +2023,44 @@ CSteamNetworkListenSocketP2P *CSteamNetworkingSockets::InternalCreateListenSocke
 	// progress (or try again if we tried earlier and failed)
 	AuthenticationNeeded();
 
-	// Create listen socket
-	CSteamNetworkListenSocketP2P *pSock = new CSteamNetworkListenSocketP2P( this );
+	// Figure out what kind of socket to create.
+	// Hosted dedicated server?
+	CSteamNetworkListenSocketP2P *pSock = nullptr;
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
+		CSteamNetworkingSocketsSDR *pSteamNetworkingSocketsSDR = assert_cast< CSteamNetworkingSocketsSDR *>( this );
+
+		#ifdef SDR_ENABLE_HOSTED_SERVER
+			if ( pSteamNetworkingSocketsSDR->GetHostedDedicatedServerPort() != 0 )
+			{
+				if ( !pSteamNetworkingSocketsSDR->m_bGameServer )
+				{
+					// It's totally possible that this works fine.  But it's weird and untested, and
+					// almost certainly a bug somewhere, so let's just disallow it until we know what
+					// the use case is.
+					AssertMsg( false, "Can't create a P2P listen socket on a 'user' interface in a hosted dedicated server" );
+					return nullptr;
+				}
+				pSock = new CSteamNetworkListenSocketSDRServer( pSteamNetworkingSocketsSDR );
+			}
+		#endif
+
+		if ( !pSock )
+		{
+			// We're not in a hosted dedicated server, so it's the usual P2P stuff.
+			if ( !pSteamNetworkingSocketsSDR->BSDRClientInit( errMsg ) )
+				return nullptr;
+		}
+	#endif
+
+	// Ordinary case where we are not at known data center?
 	if ( !pSock )
-		return nullptr;
+	{
+		pSock = new CSteamNetworkListenSocketP2P( this );
+		if ( !pSock )
+			return nullptr;
+	}
+
+	// Create listen socket
 	if ( !pSock->BInit( nLocalVirtualPort, nOptions, pOptions, errMsg ) )
 	{
 		SpewError( "Cannot create listen socket.  %s", errMsg );
@@ -2051,18 +2081,13 @@ HSteamNetConnection CSteamNetworkingSockets::ConnectP2P( const SteamNetworkingId
 		return k_HSteamNetConnection_Invalid;
 	}
 
-#ifdef STEAMNETWORKINGSOCKETS_HAS_DEFAULT_P2P_SIGNALING
 	SteamDatagramTransportLock scopeLock( "ConnectP2P" );
 	CSteamNetworkConnectionBase *pConn = InternalConnectP2PDefaultSignaling( identityRemote, nRemoteVirtualPort, nOptions, pOptions );
 	if ( pConn )
 		return pConn->m_hConnectionSelf;
-#else
-	AssertMsg( false, "Not supported" );
-#endif
 	return k_HSteamNetConnection_Invalid;
 }
 
-#ifdef STEAMNETWORKINGSOCKETS_HAS_DEFAULT_P2P_SIGNALING
 CSteamNetworkConnectionBase *CSteamNetworkingSockets::InternalConnectP2PDefaultSignaling( const SteamNetworkingIdentity &identityRemote, int nRemoteVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions )
 {
 	if ( identityRemote.IsInvalid() )
@@ -2105,19 +2130,46 @@ CSteamNetworkConnectionBase *CSteamNetworkingSockets::InternalConnectP2PDefaultS
 		}
 	}
 
-	ISteamNetworkingConnectionCustomSignaling *pSignaling = CreateDefaultP2PSignaling( identityRemote, errMsg );
-	if ( !pSignaling )
+	// What local virtual port will be used?
+	int nLocalVirtualPort = nRemoteVirtualPort;
+	for ( int idxOpt = 0 ; idxOpt < nOptions ; ++idxOpt )
 	{
-		SpewError( "Cannot create P2P connection to %s.  %s", SteamNetworkingIdentityRender( identityRemote ).c_str(), errMsg );
-		return nullptr;
+		if ( pOptions[idxOpt].m_eValue == k_ESteamNetworkingConfig_LocalVirtualPort )
+		{
+			if ( pOptions[idxOpt].m_eDataType == k_ESteamNetworkingConfig_Int32 )
+			{
+				nLocalVirtualPort = pOptions[idxOpt].m_val.m_int32;
+			}
+			else
+			{
+				SpewBug( "LocalVirtualPort must be Int32" );
+				return nullptr;
+			}
+		}
 	}
 
-	// Use the generic path
-	return InternalConnectP2P( pSignaling, &identityRemote, nRemoteVirtualPort, nOptions, pOptions );
-}
-#endif
+	// Create signaling
+	FnSteamNetworkingSocketsCreateConnectionSignaling fnCreateConnectionSignaling = (FnSteamNetworkingSocketsCreateConnectionSignaling)g_Config_Callback_CreateConnectionSignaling.Get();
+	if ( fnCreateConnectionSignaling == nullptr )
+	{
+		SpewBug( "Cannot use P2P connectivity.  CreateConnectionSignaling callback not set" );
+		return nullptr;
+	}
+	ISteamNetworkingConnectionSignaling *pSignaling = (*fnCreateConnectionSignaling)( this, identityRemote, nLocalVirtualPort, nRemoteVirtualPort );
+	if ( !pSignaling )
+		return nullptr;
 
-HSteamNetConnection CSteamNetworkingSockets::ConnectP2PCustomSignaling( ISteamNetworkingConnectionCustomSignaling *pSignaling, const SteamNetworkingIdentity *pPeerIdentity, int nRemoteVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions )
+	// Use the generic path
+	CSteamNetworkConnectionBase *pResult = InternalConnectP2P( pSignaling, &identityRemote, nRemoteVirtualPort, nOptions, pOptions );
+
+	// Confirm that we properly knew what the local virtual port would be
+	Assert( !pResult || pResult->m_connectionConfig.m_LocalVirtualPort.Get() == nLocalVirtualPort );
+
+	// Done
+	return pResult;
+}
+
+HSteamNetConnection CSteamNetworkingSockets::ConnectP2PCustomSignaling( ISteamNetworkingConnectionSignaling *pSignaling, const SteamNetworkingIdentity *pPeerIdentity, int nRemoteVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions )
 {
 	if ( !pSignaling )
 		return k_HSteamNetConnection_Invalid;
@@ -2129,7 +2181,7 @@ HSteamNetConnection CSteamNetworkingSockets::ConnectP2PCustomSignaling( ISteamNe
 	return k_HSteamNetConnection_Invalid;
 }
 
-CSteamNetworkConnectionBase *CSteamNetworkingSockets::InternalConnectP2P( ISteamNetworkingConnectionCustomSignaling *pSignaling, const SteamNetworkingIdentity *pPeerIdentity, int nRemoteVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions )
+CSteamNetworkConnectionBase *CSteamNetworkingSockets::InternalConnectP2P( ISteamNetworkingConnectionSignaling *pSignaling, const SteamNetworkingIdentity *pPeerIdentity, int nRemoteVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions )
 {
 	CSteamNetworkConnectionP2P *pConn = new CSteamNetworkConnectionP2P( this );
 	if ( !pConn )
@@ -2206,7 +2258,7 @@ CSteamNetworkConnectionBase *CSteamNetworkingSockets::InternalConnectP2P( ISteam
 	return nullptr;
 }
 
-static void SendP2PRejection( ISteamNetworkingCustomSignalingRecvContext *pContext, SteamNetworkingIdentity &identityPeer, const CMsgSteamNetworkingP2PRendezvous &msg, int nEndReason, const char *fmt, ... )
+static void SendP2PRejection( ISteamNetworkingSignalingRecvContext *pContext, SteamNetworkingIdentity &identityPeer, const CMsgSteamNetworkingP2PRendezvous &msg, int nEndReason, const char *fmt, ... )
 {
 	if ( !msg.from_connection_id() || msg.from_identity().empty() )
 		return;
@@ -2229,7 +2281,7 @@ static void SendP2PRejection( ISteamNetworkingCustomSignalingRecvContext *pConte
 	pContext->SendRejectionSignal( identityPeer, pReply, cbReply );
 }
 
-bool CSteamNetworkingSockets::ReceivedP2PCustomSignal( const void *pMsg, int cbMsg, ISteamNetworkingCustomSignalingRecvContext *pContext )
+bool CSteamNetworkingSockets::ReceivedP2PCustomSignal( const void *pMsg, int cbMsg, ISteamNetworkingSignalingRecvContext *pContext )
 {
 	return InternalReceivedP2PSignal( pMsg, cbMsg, pContext, false );
 }
@@ -2275,7 +2327,7 @@ static int CompareSymmetricConnections( uint32 nConnectionIDA, const std::string
 	return result;
 }
 
-bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const void *pMsg, int cbMsg, ISteamNetworkingCustomSignalingRecvContext *pContext, bool bDefaultSignaling )
+bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const void *pMsg, int cbMsg, ISteamNetworkingSignalingRecvContext *pContext, bool bDefaultSignaling )
 {
 	SteamDatagramErrMsg errMsg;
 
@@ -2448,18 +2500,24 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const void *pMsg, int c
 				else
 					nRemoteVirtualPort = nLocalVirtualPort;
 
-				#ifdef STEAMNETWORKINGSOCKETS_HAS_DEFAULT_P2P_SIGNALING
-					if ( bDefaultSignaling && nLocalVirtualPort == k_nVirtualPort_Messages )
-					{
+				// Connection for ISteamNetworkingMessages system
+				if ( nLocalVirtualPort == k_nVirtualPort_Messages )
+				{
+					#ifdef STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
+
 						// Make sure messages system is initialized
 						if ( !GetSteamNetworkingMessages() )
 						{
-							AssertMsg1( false, "Ignoring P2P CMsgSteamDatagramConnectRequest from %s; can't get NetworkingMessages interface!", SteamNetworkingIdentityRender( identityRemote ).c_str() );
-							SendP2PRejection( pContext, identityRemote, msg, k_ESteamNetConnectionEnd_Misc_Generic, "Internal error accepting connection.  Can't get NetworkingMessages interface" );
+							SpewBug( "Ignoring P2P CMsgSteamDatagramConnectRequest from %s; can't get ISteamNetworkingNetworkingMessages interface!", SteamNetworkingIdentityRender( identityRemote ).c_str() );
+							//SendP2PRejection( pContext, identityRemote, msg, k_ESteamNetConnectionEnd_Misc_Generic, "Internal error accepting connection.  Can't get NetworkingMessages interface" );
 							return false;
 						}
-					}
-				#endif
+					#else
+						SpewWarning( "Ignoring P2P CMsgSteamDatagramConnectRequest from %s; ISteamNetworkingNetworkingMessages not supported", SteamNetworkingIdentityRender( identityRemote ).c_str() );
+						//SendP2PRejection( pContext, identityRemote, msg, k_ESteamNetConnectionEnd_Misc_Generic, "Internal error accepting connection.  Can't get NetworkingMessages interface" );
+						return false;
+					#endif
+				}
 
 				// Locate the listen socket
 				int idxListenSock = m_mapListenSocketsByVirtualPort.Find( nLocalVirtualPort );

@@ -287,9 +287,8 @@ int main( int argc, const char **argv )
 		// knows how to talk to the peer) and then the peer identity
 		// will be confirmed via rendezvous.
 		SteamNetworkingErrMsg errMsg;
-		ISteamNetworkingConnectionCustomSignaling *pConnSignaling = pSignaling->CreateSignalingForConnection(
+		ISteamNetworkingConnectionSignaling *pConnSignaling = pSignaling->CreateSignalingForConnection(
 			identityRemote,
-			nullptr,
 			errMsg
 		);
 		assert( pConnSignaling );

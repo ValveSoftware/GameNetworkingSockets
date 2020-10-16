@@ -8,8 +8,8 @@
 #include "steam_api_common.h"
 
 struct SteamNetAuthenticationStatus_t;
-class ISteamNetworkingConnectionCustomSignaling;
-class ISteamNetworkingCustomSignalingRecvContext;
+class ISteamNetworkingConnectionSignaling;
+class ISteamNetworkingSignalingRecvContext;
 
 //-----------------------------------------------------------------------------
 /// Lower level networking API.
@@ -106,6 +106,10 @@ public:
 	/// If you need to set any initial config options, pass them here.  See
 	/// SteamNetworkingConfigValue_t for more about why this is preferable to
 	/// setting the options "immediately" after creation.
+	///
+	/// To use your own signaling service, see:
+	/// - ConnectP2PCustomSignaling
+	/// - k_ESteamNetworkingConfig_Callback_CreateConnectionSignaling
 	virtual HSteamNetConnection ConnectP2P( const SteamNetworkingIdentity &identityRemote, int nRemoteVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions ) = 0;
 
 	/// Accept an incoming connection that has been received on a listen socket.
@@ -581,10 +585,10 @@ public:
 	/// This function will immediately construct a connection in the "connecting"
 	/// state.  Soon after (perhaps before this function returns, perhaps in another thread),
 	/// the connection will begin sending signaling messages by calling
-	/// ISteamNetworkingConnectionCustomSignaling::SendSignal.
+	/// ISteamNetworkingConnectionSignaling::SendSignal.
 	///
 	/// When the remote peer accepts the connection (See
-	/// ISteamNetworkingCustomSignalingRecvContext::OnConnectRequest),
+	/// ISteamNetworkingSignalingRecvContext::OnConnectRequest),
 	/// it will begin sending signaling messages.  When these messages are received,
 	/// you can pass them to the connection using ReceivedP2PCustomSignal.
 	///
@@ -599,7 +603,7 @@ public:
 	/// If you need to set any initial config options, pass them here.  See
 	/// SteamNetworkingConfigValue_t for more about why this is preferable to
 	/// setting the options "immediately" after creation.
-	virtual HSteamNetConnection ConnectP2PCustomSignaling( ISteamNetworkingConnectionCustomSignaling *pSignaling, const SteamNetworkingIdentity *pPeerIdentity, int nRemoteVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions ) = 0;
+	virtual HSteamNetConnection ConnectP2PCustomSignaling( ISteamNetworkingConnectionSignaling *pSignaling, const SteamNetworkingIdentity *pPeerIdentity, int nRemoteVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions ) = 0;
 
 	/// Called when custom signaling has received a message.  When your
 	/// signaling channel receives a message, it should save off whatever
@@ -610,7 +614,7 @@ public:
 	///
 	/// - If the signal is associated with existing connection, it is dealt
 	///   with immediately.  If any replies need to be sent, they will be
-	///   dispatched using the ISteamNetworkingConnectionCustomSignaling
+	///   dispatched using the ISteamNetworkingConnectionSignaling
 	///   associated with the connection.
 	/// - If the message represents a connection request (and the request
 	///   is not redundant for an existing connection), a new connection
@@ -630,7 +634,7 @@ public:
 	///
 	/// If you expect to be using relayed connections, then you probably want
 	/// to call ISteamNetworkingUtils::InitRelayNetworkAccess() when your app initializes
-	virtual bool ReceivedP2PCustomSignal( const void *pMsg, int cbMsg, ISteamNetworkingCustomSignalingRecvContext *pContext ) = 0;
+	virtual bool ReceivedP2PCustomSignal( const void *pMsg, int cbMsg, ISteamNetworkingSignalingRecvContext *pContext ) = 0;
 
 //
 // Certificate provision by the application.  On Steam, we normally handle all this automatically

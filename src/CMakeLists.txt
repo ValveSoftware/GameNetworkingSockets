@@ -18,6 +18,7 @@ set(GNS_SRCS
 	"common/keypair.cpp"
 	"common/steamid.cpp"
 	"steamnetworkingsockets/clientlib/csteamnetworkingsockets.cpp"
+	"steamnetworkingsockets/clientlib/csteamnetworkingmessages.cpp"
 	"steamnetworkingsockets/clientlib/steamnetworkingsockets_flat.cpp"
 	"steamnetworkingsockets/clientlib/steamnetworkingsockets_connections.cpp"
 	"steamnetworkingsockets/clientlib/steamnetworkingsockets_lowlevel.cpp"

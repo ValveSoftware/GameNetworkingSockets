@@ -13,13 +13,15 @@
 
 #include "steamnetworkingtypes.h"
 
+class ISteamNetworkingSockets;
+
 /// Interface used to send signaling messages for a particular connection.
 ///
 /// - For connections initiated locally, you will construct it and pass
 ///   it to ISteamNetworkingSockets::ConnectP2PCustomSignaling.
 /// - For connections initiated remotely and "accepted" locally, you
-///   will return it from ISteamNetworkingCustomSignalingRecvContext::OnConnectRequest
-class ISteamNetworkingConnectionCustomSignaling
+///   will return it from ISteamNetworkingSignalingRecvContext::OnConnectRequest
+class ISteamNetworkingConnectionSignaling
 {
 public:
 	/// Called to send a rendezvous message to the remote peer.  This may be called
@@ -44,12 +46,18 @@ public:
 	/// Note that this happens eventually (but not immediately) after
 	/// the connection is closed.  Signals may need to be sent for a brief
 	/// time after the connection is closed, to clean up the connection.
+	///
+	/// If you do not need to save any additional per-connection information
+	/// and can handle SendSignal() using only the arguments supplied, you do
+	/// not need to actually create different objects per connection.  In that
+	/// case, it is valid for all connections to use the same global object, and
+	/// for this function to do nothing.
 	virtual void Release() = 0;
 };
 
 /// Interface used when a custom signal is received.
 /// See ISteamNetworkingSockets::ReceivedP2PCustomSignal
-class ISteamNetworkingCustomSignalingRecvContext
+class ISteamNetworkingSignalingRecvContext
 {
 public:
 
@@ -79,7 +87,7 @@ public:
 	///
 	/// After accepting a connection (through either means), the connection
 	/// will transition into the "finding route" state.
-	virtual ISteamNetworkingConnectionCustomSignaling *OnConnectRequest( HSteamNetConnection hConn, const SteamNetworkingIdentity &identityPeer, int nLocalVirtualPort ) = 0;
+	virtual ISteamNetworkingConnectionSignaling *OnConnectRequest( HSteamNetConnection hConn, const SteamNetworkingIdentity &identityPeer, int nLocalVirtualPort ) = 0;
 
 	/// This is called to actively communicate rejection or failure
 	/// to the incoming message.  If you intend to ignore all incoming requests
@@ -87,6 +95,14 @@ public:
 	/// implement this.
 	virtual void SendRejectionSignal( const SteamNetworkingIdentity &identityPeer, const void *pMsg, int cbMsg ) = 0;
 };
+
+/// The function signature of the callback used to obtain a signaling object
+/// for connections initiated locally.  These are used for
+/// ISteamNetworkingSockets::ConnectP2P, and when using the
+/// ISteamNetworkingMessages interface.  To install the callback for all
+/// interfaces, do something like this:
+/// SteamNetworkingUtils()->SetGlobalConfigValuePtr( k_ESteamNetworkingConfig_Callback_CreateConnectionSignaling, (void*)fnCallback );
+typedef ISteamNetworkingConnectionSignaling * (*FnSteamNetworkingSocketsCreateConnectionSignaling)( ISteamNetworkingSockets *pLocalInterface, const SteamNetworkingIdentity &identityPeer, int nLocalVirtualPort, int nRemoteVirtualPort );
 
 #endif // STEAMNETWORKINGCUSTOMSIGNALING
 

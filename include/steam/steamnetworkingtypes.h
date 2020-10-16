@@ -1338,6 +1338,12 @@ enum ESteamNetworkingConfigValue
 	/// See: ISteamNetworkingUtils::SetGlobalCallback_MessagesSessionFailed
 	k_ESteamNetworkingConfig_Callback_MessagesSessionFailed = 205,
 
+	/// [global FnSteamNetworkingSocketsCreateConnectionSignaling] Callback that will
+	/// be invoked when we need to create a signaling object for a connection
+	/// initiated locally.  See: ISteamNetworkingSockets::ConnectP2P,
+	/// ISteamNetworkingMessages.
+	k_ESteamNetworkingConfig_Callback_CreateConnectionSignaling = 206,
+
 	//
 	// P2P settings
 	//
