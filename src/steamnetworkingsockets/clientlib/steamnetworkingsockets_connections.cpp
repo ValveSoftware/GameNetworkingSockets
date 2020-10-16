@@ -1412,6 +1412,19 @@ bool CSteamNetworkConnectionBase::BRecvCryptoHandshake( const CMsgSteamDatagramC
 	}
 	m_statsEndToEnd.m_nPeerProtocolVersion = m_msgCryptRemote.protocol_version();
 
+	// Starting with protocol 10, the connect request/OK packets always implicitly
+	// have a packet number of 1, and thus the next packet (often the first data packet)
+	// is assigned a sequence number of 2, at a minimum.
+	Assert( m_statsEndToEnd.m_nNextSendSequenceNumber >= 1 );
+	Assert( m_statsEndToEnd.m_nMaxRecvPktNum >= 0 );
+	if ( m_statsEndToEnd.m_nPeerProtocolVersion >= 10 )
+	{
+		if ( m_statsEndToEnd.m_nNextSendSequenceNumber == 1 )
+			m_statsEndToEnd.m_nNextSendSequenceNumber = 2;
+		if ( m_statsEndToEnd.m_nMaxRecvPktNum == 0 )
+			m_statsEndToEnd.InitMaxRecvPktNum( 1 );
+	}
+
 	// Check for legacy client that didn't send a list of ciphers
 	if ( m_msgCryptRemote.ciphers_size() == 0 )
 		m_msgCryptRemote.add_ciphers( k_ESteamNetworkingSocketsCipher_AES_256_GCM );
