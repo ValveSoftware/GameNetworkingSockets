@@ -56,6 +56,9 @@ BUILD_WEBRTC=${BUILD_WEBRTC:-1}
 # Sanitizers don't link properly with clang on Fedora Rawhide
 [[ "${IMAGE}" == "fedora" ]] && [[ "${IMAGE_TAG}" == "rawhide" ]] && [[ ${CXX} == *clang* ]] && BUILD_SANITIZERS=0
 
+# Sanitizers don't link properly with clang on Ubuntu Rolling
+[[ "${IMAGE}" == "ubuntu" ]] && [[ "${IMAGE_TAG}" == "rolling" ]] && [[ ${CXX} == *clang* ]] && BUILD_SANITIZERS=0
+
 # Something's wrong with the GCC -fsanitize=address build on the s390x Travis
 # builder, and it fails to link properly.
 [[ ${uname_M} == s390x ]] && BUILD_SANITIZERS=0
