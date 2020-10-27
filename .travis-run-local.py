@@ -157,7 +157,8 @@ def main():
 
     # Initialize system environment
     log.info("Preparing system to run foreign architecture containers")
-    subprocess.run(['docker', 'run', '--rm', '--privileged', 'aptman/qus', '-s', '--', '--reset', '-p'], check=True)
+    subprocess.run(['docker', 'run', '--rm', '--privileged', 'aptman/qus', '-s', '--', '-r'], check=True)
+    subprocess.run(['docker', 'run', '--rm', '--privileged', 'aptman/qus', '-s', '--', '-p'], check=True)
 
     # Run native tests first
     kill_and_wait()
