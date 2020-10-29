@@ -85,6 +85,11 @@ class CECKeyExchangePublicKey : public CEC25519PublicKeyBase
 {
 public:
 	CECKeyExchangePublicKey() : CEC25519PublicKeyBase( k_ECryptoKeyTypeKeyExchangePublic ) { }
+
+	// Allow copying of public keys without a bunch of paranoia.
+	CECKeyExchangePublicKey( const CECKeyExchangePublicKey &x ) : CEC25519PublicKeyBase( k_ECryptoKeyTypeKeyExchangePublic ) { SetRawDataWithoutWipingInput( x.GetRawDataPtr(), x.GetRawDataSize() ); }
+	CECKeyExchangePublicKey & operator=(const CECKeyExchangePublicKey &x) { if ( this != &x ) SetRawDataWithoutWipingInput( x.GetRawDataPtr(), x.GetRawDataSize() ); return *this; }
+
 	virtual ~CECKeyExchangePublicKey();
 };
 
@@ -124,6 +129,10 @@ class CECSigningPublicKey : public CEC25519PublicKeyBase
 {
 public:
 	CECSigningPublicKey() : CEC25519PublicKeyBase( k_ECryptoKeyTypeSigningPublic ) { }
+
+	// Allow copying of public keys without a bunch of paranoia.
+	CECSigningPublicKey( const CECSigningPublicKey &x ) : CEC25519PublicKeyBase( k_ECryptoKeyTypeSigningPublic ) { SetRawDataWithoutWipingInput( x.GetRawDataPtr(), x.GetRawDataSize() ); }
+	CECSigningPublicKey & operator=(const CECSigningPublicKey &x) { if ( this != &x ) SetRawDataWithoutWipingInput( x.GetRawDataPtr(), x.GetRawDataSize() ); return *this; }
 
 	virtual bool LoadFromAndWipeBuffer( void *pBuffer, size_t cBytes ) override;
 
