@@ -1646,9 +1646,7 @@ EUnsignedCert CSteamNetworkConnectionBase::AllowLocalUnsignedCert()
 		// We don't have a cert authority.  We probably ought to make this customizable
 		return k_EUnsignedCert_Allow;
 	#else
-		// FIXME - We should probably lock this down and change the default.
-		//         For now we'll try to continue, but warn
-		return k_EUnsignedCert_AllowWarn;
+		return k_EUnsignedCert_Disallow;
 	#endif
 }
 
@@ -1658,8 +1656,7 @@ EUnsignedCert CSteamNetworkConnectionBase::AllowRemoteUnsignedCert()
 		// We don't have a cert authority.  We probably ought to make this customizable
 		return k_EUnsignedCert_Allow;
 	#else
-		// !KLUDGE! For now, assume this is OK, but warn about it.  We need to make this configurable and lock it down
-		return k_EUnsignedCert_AllowWarn;
+		return k_EUnsignedCert_Disallow;
 	#endif
 }
 
