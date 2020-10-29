@@ -31,6 +31,7 @@ const SteamNetworkingMicroseconds k_usecConnectRetryInterval = k_nMillion/2;
 const SteamNetworkingMicroseconds k_usecFinWaitTimeout = 5*k_nMillion;
 
 typedef char ConnectionEndDebugMsg[ k_cchSteamNetworkingMaxConnectionCloseReason ];
+typedef char ConnectionTypeDescription_t[64];
 
 class CSteamNetworkingSockets;
 class CSteamNetworkingMessages;
@@ -583,7 +584,6 @@ protected:
 	char m_szDescription[ k_cchSteamNetworkingMaxConnectionDescription ];
 
 	/// Set the connection description.  Should include the connection type and peer address.
-	typedef char ConnectionTypeDescription_t[64];
 	virtual void GetConnectionTypeDescription( ConnectionTypeDescription_t &szDescription ) const = 0;
 
 	// Implements IThinker.
