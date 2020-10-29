@@ -615,9 +615,9 @@ protected:
 	/// Called when a timeout is detected
 	void ConnectionTimedOut( SteamNetworkingMicroseconds usecNow );
 
-	/// Called when a timeout is detected.  Derived connection types can inspect this
-	/// to provide a more specific explanation.  Base class just uses the generic reason codes.
-	virtual void GuessTimeoutReason( ESteamNetConnectionEnd &nReasonCode, ConnectionEndDebugMsg &msg, SteamNetworkingMicroseconds usecNow );
+	/// Called when a timeout is detected to tried to provide a more specific error
+	/// message.
+	virtual void ConnectionGuessTimeoutReason( ESteamNetConnectionEnd &nReasonCode, ConnectionEndDebugMsg &msg, SteamNetworkingMicroseconds usecNow );
 
 	/// Called when we receive a complete message.  Should allocate a message object and put it into the proper queues
 	bool ReceivedMessage( const void *pData, int cbData, int64 nMsgNum, int nFlags, SteamNetworkingMicroseconds usecNow );
@@ -817,6 +817,10 @@ public:
 
 	/// Called when the connection state changes.  Some transports need to do stuff
 	virtual void TransportConnectionStateChanged( ESteamNetworkingConnectionState eOldState );
+
+	/// Called when a timeout is detected to tried to provide a more specific error
+	/// message
+	virtual void TransportGuessTimeoutReason( ESteamNetConnectionEnd &nReasonCode, ConnectionEndDebugMsg &msg, SteamNetworkingMicroseconds usecNow );
 
 	// Some accessors for commonly needed info
 	inline ESteamNetworkingConnectionState ConnectionState() const { return m_connection.GetState(); }

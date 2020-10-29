@@ -3054,13 +3054,20 @@ void CSteamNetworkConnectionBase::ConnectionTimedOut( SteamNetworkingMicrosecond
 	}
 
 	// Check if connection has a more enlightened understanding of what's wrong
-	GuessTimeoutReason( nReasonCode, msg, usecNow );
+	ConnectionGuessTimeoutReason( nReasonCode, msg, usecNow );
 
 	// Switch connection state
 	ConnectionState_ProblemDetectedLocally( nReasonCode, "%s", msg );
 }
 
-void CSteamNetworkConnectionBase::GuessTimeoutReason( ESteamNetConnectionEnd &nReasonCode, ConnectionEndDebugMsg &msg, SteamNetworkingMicroseconds usecNow )
+void CSteamNetworkConnectionBase::ConnectionGuessTimeoutReason( ESteamNetConnectionEnd &nReasonCode, ConnectionEndDebugMsg &msg, SteamNetworkingMicroseconds usecNow )
+{
+	// Base class, just delegate to active transport
+	if ( m_pTransport )
+		m_pTransport->TransportGuessTimeoutReason( nReasonCode, msg, usecNow );
+}
+
+void CConnectionTransport::TransportGuessTimeoutReason( ESteamNetConnectionEnd &nReasonCode, ConnectionEndDebugMsg &msg, SteamNetworkingMicroseconds usecNow )
 {
 	// No enlightenments at base class
 }
