@@ -84,7 +84,6 @@ void CConnectionTransportP2PICE::TransportFreeResources()
 		m_pICESession->Destroy();
 		m_pICESession = nullptr;
 	}
-	find_and_remove_element( Connection().m_vecAvailableTransports, this );
 
 	CConnectionTransport::TransportFreeResources();
 }

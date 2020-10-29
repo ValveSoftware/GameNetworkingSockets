@@ -35,11 +35,16 @@ constexpr int k_nP2P_TransportOverride_ICE = 2;
 
 constexpr int k_nICECloseCode_Local_NotCompiled = k_ESteamNetConnectionEnd_Local_Max;
 constexpr int k_nICECloseCode_Local_UserNotEnabled = k_ESteamNetConnectionEnd_Local_Max-1;
+constexpr int k_nICECloseCode_Local_Special = k_ESteamNetConnectionEnd_Local_Max-2; // Not enabled because we are forcing a particular transport that isn't ICE
 constexpr int k_nICECloseCode_Aborted = k_ESteamNetConnectionEnd_Local_Max-2;
 constexpr int k_nICECloseCode_Remote_NotEnabled = k_ESteamNetConnectionEnd_Remote_Max;
 
 class CConnectionTransportP2PSDR;
+class CConnectionTransportToSDRServer;
+class CConnectionTransportFromSDRClient;
 class CConnectionTransportP2PICE;
+class CSteamNetworkListenSocketSDRServer;
+struct CachedRelayAuthTicket;
 
 //-----------------------------------------------------------------------------
 /// Base class for listen sockets where the client will connect to us using
@@ -64,6 +69,18 @@ public:
 		Assert( m_connectionConfig.m_LocalVirtualPort.IsLocked() );
 		return m_connectionConfig.m_LocalVirtualPort.m_data;
 	}
+
+	// Listen sockets for hosted dedicated server connections derive from this class.
+	// This enum tells what methods we will allow clients to connect to us.
+	#ifdef SDR_ENABLE_HOSTED_SERVER
+	enum EHostedDedicatedServer
+	{
+		k_EHostedDedicatedServer_Not, // We're an ordinary P2P listen socket
+		k_EHostedDedicatedServer_Auto, // We're hosted dedicated server, and we allow "P2P" connections thorugh signaling.  We'll issue tickets to clients signed with our cert.
+		k_EHostedDedicatedServer_TicketsOnly, // We're hosted dedicated server, and clients must have a ticket.  We won't issue them.
+	};
+	EHostedDedicatedServer m_eHostedDedicatedServer = k_EHostedDedicatedServer_Not;
+	#endif
 
 protected:
 	virtual ~CSteamNetworkListenSocketP2P();
@@ -144,6 +161,7 @@ public:
 
 protected:
 	CConnectionTransportP2PBase( const char *pszDebugName, CConnectionTransport *pSelfBase );
+	virtual ~CConnectionTransportP2PBase();
 
 	// Shortcut to get connection and upcast
 	CSteamNetworkConnectionP2P &Connection() const;
@@ -153,7 +171,7 @@ protected:
 };
 
 /// A peer-to-peer connection that can use different types of underlying transport
-class CSteamNetworkConnectionP2P final : public CSteamNetworkConnectionBase
+class CSteamNetworkConnectionP2P : public CSteamNetworkConnectionBase
 {
 public:
 	CSteamNetworkConnectionP2P( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface );
@@ -168,7 +186,7 @@ public:
 	);
 
 	/// Begin accepting a P2P connection
-	bool BBeginAccept(
+	virtual bool BBeginAcceptFromSignal(
 		const CMsgSteamNetworkingP2PRendezvous_ConnectRequest &msgConnectRequest,
 		SteamDatagramErrMsg &errMsg,
 		SteamNetworkingMicroseconds usecNow
@@ -189,6 +207,7 @@ public:
 	virtual void ConnectionStateChanged( ESteamNetworkingConnectionState eOldState ) override;
 	virtual void ProcessSNPPing( int msPing, RecvPacketContext_t &ctx ) override;
 	virtual bool BSupportsSymmetricMode() override;
+	ESteamNetConnectionEnd CheckRemoteCert( const CertAuthScope *pCACertAuthScope, SteamNetworkingErrMsg &errMsg ) override;
 
 	void SendConnectOKSignal( SteamNetworkingMicroseconds usecNow );
 	void SendConnectionClosedSignal( SteamNetworkingMicroseconds usecNow );
@@ -209,6 +228,13 @@ public:
 	// controlled agent accepting whatever routing decisions are made, when possible.
 	inline bool IsControllingAgent() const
 	{
+
+		// Special SDR client connection?
+		if ( IsSDRHostedServerClient() )
+			return true;
+
+		// Ordinary true peer-to-peer connection.
+		//
 		// For now, the "server" will always be the controlling agent.
 		// This is the opposite of the ICE convention, but we had some
 		// reasons for the initial use case to do it this way.  We can
@@ -237,8 +263,51 @@ public:
 
 	// Steam datagram relay
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
+
+		// Peer to peer, over SDR
 		CConnectionTransportP2PSDR *m_pTransportP2PSDR;
 		CMsgSteamNetworkingP2PSDRRoutingSummary m_msgSDRRoutingSummary;
+
+		// Client connecting to hosted dedicated server over SDR.  These are not really
+		// "Peer to peer" connections.  In a previous iteration of the code these were
+		// a totally separate connection class, because we always knew when initiating
+		// the connection that it was going to be this type.  However, now these connections
+		// may begin their life as an ordinary P2P connection, and only discover from a signal
+		// from the peer that it is a server in a hosted data center.  Then they will switch to
+		// use the special-case optimized transport.
+		CConnectionTransportToSDRServer *m_pTransportToSDRServer;
+		bool BInitConnectToSDRServer( const SteamNetworkingIdentity &identityTarget, int nRemoteVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions, SteamNetworkingErrMsg &errMsg );
+		bool BSelectTransportToSDRServerFromSignal( const CMsgSteamNetworkingP2PRendezvous &msg );
+		void InternalCreateTransportToSDRServer( const CachedRelayAuthTicket &authTicket );
+		inline bool IsSDRHostedServerClient() const
+		{
+			if ( m_pTransportToSDRServer )
+			{
+				Assert( m_vecAvailableTransports.empty() );
+				return true;
+			}
+			return false;
+		}
+
+		// We are the server in special hosted data center
+		#ifdef SDR_ENABLE_HOSTED_SERVER
+			CConnectionTransportFromSDRClient *m_pTransportFromSDRClient;
+			inline bool IsSDRHostedServer() const
+			{
+				if ( m_pTransportFromSDRClient )
+				{
+					Assert( m_vecAvailableTransports.empty() );
+					return true;
+				}
+				return false;
+			}
+		#else
+			inline bool IsSDRHostedServer() const { return false; }
+		#endif
+
+	#else
+		inline bool IsSDRHostedServerClient() const { return false; }
+		inline bool IsSDRHostedServer() const { return false; }
 	#endif
 
 	// ICE (direct NAT punch)
@@ -269,11 +338,15 @@ public:
 		inline int GetICEFailureCode() const { return k_nICECloseCode_Local_NotCompiled; }
 	#endif
 
-	/// Sometimes it's nice to have all existing options in a list
+	/// Sometimes it's nice to have all existing options in a list.
+	/// This list might be empty!  If we are in a special situation where
+	/// the current transport is not really a "P2P" transport
 	vstd::small_vector< CConnectionTransportP2PBase *, 3 > m_vecAvailableTransports;
 
-	/// Currently selected transport.
+	/// Currently selected transport, as a P2P transport.
 	/// Always the same as m_pTransport, but as CConnectionTransportP2PBase
+	/// Will be NULL if no transport is selected, or if we're in a special
+	/// case where the transport isn't really "P2P"
 	CConnectionTransportP2PBase *m_pCurrentTransportP2P;
 
 	/// Which transport does it look like our peer is using?
@@ -287,7 +360,8 @@ public:
 		}
 	}
 
-	bool BInitSDR( SteamNetworkingErrMsg &errMsg );
+	/// Initialize SDR transport, as appropriate
+	virtual bool BInitSDRTransport( SteamNetworkingErrMsg &errMsg );
 
 	// Check if user permissions for the remote host are allowed, then
 	// create ICE.  Also, if the connection was initiated remotely,
@@ -327,11 +401,15 @@ public:
 
 	bool BEnsureInP2PConnectionMapByRemoteInfo( SteamDatagramErrMsg &errMsg );
 
-private:
-	virtual ~CSteamNetworkConnectionP2P(); // hidden destructor, don't call directly.  Use ConnectionDestroySelfNow
+protected:
+	virtual ~CSteamNetworkConnectionP2P();
 
 	/// Shared init
 	bool BInitP2PConnectionCommon( SteamNetworkingMicroseconds usecNow, int nOptions, const SteamNetworkingConfigValue_t *pOptions, SteamDatagramErrMsg &errMsg );
+
+	virtual void PopulateRendezvousMsgWithTransportInfo( CMsgSteamNetworkingP2PRendezvous &msg, SteamNetworkingMicroseconds usecNow );
+
+private:
 
 	struct OutboundMessage
 	{

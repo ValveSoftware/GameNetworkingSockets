@@ -2,6 +2,7 @@
 
 #include "steamnetworkingsockets_p2p.h"
 #include "csteamnetworkingsockets.h"
+#include "../steamnetworkingsockets_certstore.h"
 #include "crypto.h"
 
 #ifdef POSIX
@@ -10,6 +11,7 @@
 
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 	#include "steamnetworkingsockets_sdr_p2p.h"
+	#include "steamnetworkingsockets_sdr_client.h"
 	#ifdef SDR_ENABLE_HOSTED_SERVER
 		#include "steamnetworkingsockets_sdr_hostedserver.h"
 	#endif
@@ -108,6 +110,10 @@ CSteamNetworkConnectionP2P::CSteamNetworkConnectionP2P( CSteamNetworkingSockets 
 	m_pCurrentTransportP2P = nullptr;
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 		m_pTransportP2PSDR = nullptr;
+		m_pTransportToSDRServer = nullptr;
+		#ifdef SDR_ENABLE_HOSTED_SERVER
+			m_pTransportFromSDRClient = nullptr;
+		#endif
 	#endif
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
 		m_pTransportICE = nullptr;
@@ -123,7 +129,9 @@ CSteamNetworkConnectionP2P::~CSteamNetworkConnectionP2P()
 
 void CSteamNetworkConnectionP2P::GetConnectionTypeDescription( ConnectionTypeDescription_t &szDescription ) const
 {
-	if ( m_pCurrentTransportP2P )
+	if ( IsSDRHostedServerClient() )
+		V_sprintf_safe( szDescription, "SDR server %s vport %d", SteamNetworkingIdentityRender( m_identityRemote ).c_str(), m_nRemoteVirtualPort );
+	else if ( m_pCurrentTransportP2P )
 		V_sprintf_safe( szDescription, "P2P %s %s", m_pCurrentTransportP2P->m_pszP2PTransportDebugName, SteamNetworkingIdentityRender( m_identityRemote ).c_str() );
 	else
 		V_sprintf_safe( szDescription, "P2P %s", SteamNetworkingIdentityRender( m_identityRemote ).c_str() );
@@ -180,7 +188,7 @@ bool CSteamNetworkConnectionP2P::BInitConnect(
 		}
 	}
 
-	if ( !BInitSDR( errMsg ) )
+	if ( !BInitSDRTransport( errMsg ) )
 		return false;
 
 	// Check if we should try ICE.
@@ -188,7 +196,7 @@ bool CSteamNetworkConnectionP2P::BInitConnect(
 
 	// No available transports?
 	Assert( GetState() == k_ESteamNetworkingConnectionState_None );
-	if ( m_vecAvailableTransports.empty() )
+	if ( m_pTransport == nullptr && m_vecAvailableTransports.empty() )
 	{
 		#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
 			ESteamNetConnectionEnd ignoreReason;
@@ -265,6 +273,13 @@ bool CSteamNetworkConnectionP2P::BInitP2PConnectionCommon( SteamNetworkingMicros
 		SpewWarning( "Connecting P2P socket to self (%s).  Traffic will be relayed over the network", SteamNetworkingIdentityRender( m_identityRemote ).c_str() );
 	}
 
+	// If we know the remote connection ID already, then  put us in the map
+	if ( m_unConnectionIDRemote )
+	{
+		if ( !BEnsureInP2PConnectionMapByRemoteInfo( errMsg ) )
+			return false;
+	}
+
 	return true;
 }
 
@@ -294,7 +309,7 @@ bool CSteamNetworkConnectionP2P::BEnsureInP2PConnectionMapByRemoteInfo( SteamDat
 	return true;
 }
 
-bool CSteamNetworkConnectionP2P::BBeginAccept(
+bool CSteamNetworkConnectionP2P::BBeginAcceptFromSignal(
 	const CMsgSteamNetworkingP2PRendezvous_ConnectRequest &msgConnectRequest,
 	SteamDatagramErrMsg &errMsg,
 	SteamNetworkingMicroseconds usecNow
@@ -306,7 +321,7 @@ bool CSteamNetworkConnectionP2P::BBeginAccept(
 		return false;
 
 	// Initialize SDR transport
-	if ( !BInitSDR( errMsg ) )
+	if ( !BInitSDRTransport( errMsg ) )
 		return false;
 
 	// Process crypto handshake now
@@ -403,7 +418,7 @@ CSteamNetworkConnectionP2P *CSteamNetworkConnectionP2P::AsSteamNetworkConnection
 	return this;
 }
 
-bool CSteamNetworkConnectionP2P::BInitSDR( SteamNetworkingErrMsg &errMsg )
+bool CSteamNetworkConnectionP2P::BInitSDRTransport( SteamNetworkingErrMsg &errMsg )
 {
 	// Create SDR transport, if SDR is enabled
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
@@ -437,6 +452,13 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 		return;
 	Assert( !m_pTransportICEPendingDelete );
 	CheckCleanupICE();
+
+	if ( IsSDRHostedServerClient() || IsSDRHostedServer() )
+	{
+		// Don't use ICEFailed() here.  We don't we don't want to spew and don't need anything else it does
+		m_msgICESessionSummary.set_failure_reason_code( k_nICECloseCode_Local_Special );
+		return;
+	}
 
 	// Fetch enabled option
 	int P2P_Transport_ICE_Enable = m_connectionConfig.m_P2P_Transport_ICE_Enable.Get();
@@ -775,18 +797,35 @@ void CSteamNetworkConnectionP2P::DestroyTransport()
 	// We're about to nuke all of our transports, don't point at any of them.
 	m_pTransport = nullptr;
 	m_pCurrentTransportP2P = nullptr;
-	m_vecAvailableTransports.clear();
 
-	// Nuke all known transports.
-	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
-		if ( m_pTransportP2PSDR )
-		{
-			m_pTransportP2PSDR->TransportDestroySelfNow();
-			m_pTransportP2PSDR = nullptr;
-		}
-	#endif
+	// Destroy ICE first
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
 		DestroyICENow();
+	#endif
+
+	// Nuke all other P2P transports
+	for ( int i = len( m_vecAvailableTransports )-1 ; i >= 0 ; --i )
+	{
+		m_vecAvailableTransports[i]->m_pSelfAsConnectionTransport->TransportDestroySelfNow();
+		Assert( len( m_vecAvailableTransports ) == i );
+	}
+
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
+		Assert( m_pTransportP2PSDR == nullptr ); // Should have been nuked above
+
+		if ( m_pTransportToSDRServer )
+		{
+			m_pTransportToSDRServer->TransportDestroySelfNow();
+			m_pTransportToSDRServer = nullptr;
+		}
+
+		#ifdef SDR_ENABLE_HOSTED_SERVER
+			if ( m_pTransportFromSDRClient )
+			{
+				m_pTransportFromSDRClient->TransportDestroySelfNow();
+				m_pTransportFromSDRClient = nullptr;
+			}
+		#endif
 	#endif
 }
 
@@ -847,6 +886,7 @@ EResult CSteamNetworkConnectionP2P::AcceptConnection( SteamNetworkingMicrosecond
 	// Calling code shouldn't call us unless this is true
 	Assert( m_bConnectionInitiatedRemotely );
 	Assert( GetState() == k_ESteamNetworkingConnectionState_Connecting );
+	Assert( !IsSDRHostedServer() ); // Those connections use a derived class that overrides this function
 
 	// Check symmetric mode.  Note that if they are using the API properly, we should
 	// have already detected this earlier!
@@ -865,8 +905,22 @@ EResult CSteamNetworkConnectionP2P::AcceptConnection( SteamNetworkingMicrosecond
 	// Check for enabling ICE
 	CheckInitICE();
 
-	// FIXME.  If ICE fails, and is the only transport, we really ought to
-	// terminate the connection here.
+	// At this point, we should have at least one possible transport.  If not, we are sunk.
+	if ( m_vecAvailableTransports.empty() && m_pTransport == nullptr )
+	{
+
+		// The only way we should be able to get here is if ICE is
+		// the only transport that is enabled in this configuration,
+		// and it has failed.
+		#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+			Assert( GetICEFailureCode() != 0 );
+			ConnectionState_ProblemDetectedLocally( (ESteamNetConnectionEnd)GetICEFailureCode(), "%s", m_szICECloseMsg );
+		#else
+			Assert( false );
+			ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_Generic, "No available transports?" );
+		#endif
+		return k_EResultFail;
+	}
 
 	// Send them a reply, and include whatever info we have right now
 	SendConnectOKSignal( usecNow );
@@ -902,17 +956,23 @@ bool CSteamNetworkConnectionP2P::BSupportsSymmetricMode()
 
 void CSteamNetworkConnectionP2P::TransportEndToEndConnectivityChanged( CConnectionTransportP2PBase *pTransport, SteamNetworkingMicroseconds usecNow )
 {
-	// A major event has happened.  Don't be sticky to current transport.
-	m_bTransportSticky = false;
-
-	// Schedule us to wake up immediately and deal with it.
-	m_usecNextEvaluateTransport = k_nThinkTime_ASAP;
-	SetNextThinkTimeASAP();
+	if ( pTransport->m_bNeedToConfirmEndToEndConnectivity == ( pTransport == m_pCurrentTransportP2P ) )
+	{
+		// Connectivity was lost on the current transport, gained on a transport not currently selected.
+		// This is an event that should cause us to take action
+		// Clear any stickiness to current transport, and schedule us to wake up
+		// immediately and re-evaluate the situation
+		m_bTransportSticky = false;
+		m_usecNextEvaluateTransport = k_nThinkTime_ASAP;
+	}
 
 	// Reset counter to make sure we collect a few more, either immediately if we can, or when
 	// we come back alive.  Also, this makes sure that as soon as we get confirmed connectivity,
 	// that we send something to the peer so they can get confirmation, too.
 	pTransport->m_nKeepTryingToPingCounter = std::max( pTransport->m_nKeepTryingToPingCounter, 5 );
+
+	// Wake up the connection immediately, either to evaluate transports, or to send packets
+	SetNextThinkTimeASAP();
 
 	// Check for recording the time when a transport first became available
 	if ( !pTransport->m_bNeedToConfirmEndToEndConnectivity && BStateIsActive() )
@@ -1064,6 +1124,15 @@ void CSteamNetworkConnectionP2P::ThinkConnection( SteamNetworkingMicroseconds us
 void CSteamNetworkConnectionP2P::ThinkSelectTransport( SteamNetworkingMicroseconds usecNow )
 {
 
+	// If no available transports, then nothing to think about.
+	// (This will be the case if we are using a special transport type that isn't P2P.)
+	if ( m_vecAvailableTransports.empty() )
+	{
+		m_usecNextEvaluateTransport = k_nThinkTime_Never;
+		m_bTransportSticky = true;
+		return;
+	}
+
 	// Time to evaluate which transport to use?
 	if ( usecNow < m_usecNextEvaluateTransport )
 	{
@@ -1096,6 +1165,10 @@ void CSteamNetworkConnectionP2P::ThinkSelectTransport( SteamNetworkingMicrosecon
 
 	bool bEvaluateFrequently = false;
 
+	// Make sure extreme penalty numbers make sense
+	constexpr int k_nMaxReasonableScore = k_nRoutePenaltyNeedToConfirmConnectivity + k_nRoutePenaltyNotNominated + k_nRoutePenaltyNotSelectedOverride + 2000;
+	COMPILE_TIME_ASSERT( k_nMaxReasonableScore >= 0 && k_nMaxReasonableScore*2 < k_nRouteScoreHuge/2 );
+
 	// Scan all the options
 	int nCurrentTransportScore = k_nRouteScoreHuge;
 	int nBestTransportScore = k_nRouteScoreHuge;
@@ -1122,6 +1195,10 @@ void CSteamNetworkConnectionP2P::ThinkSelectTransport( SteamNetworkingMicrosecon
 			nBestTransportScore = nScore;
 			pBestTransport = t;
 		}
+
+		// Should not be using the special "force select this transport" score
+		// if we have more than one transport
+		Assert( nScore >= 0 || m_vecAvailableTransports.size() == 1 );
 	}
 
 	if ( pBestTransport == nullptr )
@@ -1291,7 +1368,7 @@ void CSteamNetworkConnectionP2P::SelectTransport( CConnectionTransportP2PBase *p
 		}
 		else
 		{
-			ReallySpewTypeFmt( nLogLevel, "[%s] Switched to '%s' transport (ping=%d, score=%d=%d) from '%s' (ping=%d, score=%d+%d)\n", GetDescription(),
+			ReallySpewTypeFmt( nLogLevel, "[%s] Switched to '%s' transport (ping=%d, score=%d+%d) from '%s' (ping=%d, score=%d+%d)\n", GetDescription(),
 				pTransportP2P->m_pszP2PTransportDebugName, pTransportP2P->m_pingEndToEnd.m_nSmoothedPing, pTransportP2P->m_routeMetrics.m_nScoreCurrent, pTransportP2P->m_routeMetrics.m_nTotalPenalty,
 				m_pCurrentTransportP2P->m_pszP2PTransportDebugName, m_pCurrentTransportP2P->m_pingEndToEnd.m_nSmoothedPing, m_pCurrentTransportP2P->m_routeMetrics.m_nScoreCurrent, m_pCurrentTransportP2P->m_routeMetrics.m_nTotalPenalty
 			);
@@ -1312,8 +1389,19 @@ void CSteamNetworkConnectionP2P::SelectTransport( CConnectionTransportP2PBase *p
 
 	m_pCurrentTransportP2P = pTransportP2P;
 	m_pTransport = pTransport;
-	m_bTransportSticky = false; // Assume we won't be sticky for now
-	m_usecNextEvaluateTransport = k_nThinkTime_ASAP;
+	if ( m_pCurrentTransportP2P && len( m_vecAvailableTransports ) == 1 )
+	{
+		// Only one transport.  Might as well be sticky, and no use evaluating other transports
+		m_bTransportSticky = true;
+		m_usecNextEvaluateTransport = k_nThinkTime_Never;
+	}
+	else
+	{
+		// Assume we won't be sticky for now
+		m_bTransportSticky = false;
+		m_usecNextEvaluateTransport = k_nThinkTime_ASAP;
+	}
+
 	SetDescription();
 	SetNextThinkTimeASAP(); // we might want to send packets ASAP
 
@@ -1328,7 +1416,7 @@ void CSteamNetworkConnectionP2P::SelectTransport( CConnectionTransportP2PBase *p
 	UpdateTransportSummaries( usecNow );
 
 	// If we're the controlling agent, then send something on this transport ASAP
-	if ( m_pTransport && IsControllingAgent() )
+	if ( m_pTransport && IsControllingAgent() && !IsSDRHostedServerClient() )
 	{
 		m_pTransport->SendEndToEndStatsMsg( k_EStatsReplyRequest_NoReply, usecNow, "P2PNominate" );
 	}
@@ -1364,6 +1452,15 @@ SteamNetworkingMicroseconds CSteamNetworkConnectionP2P::ThinkConnection_ClientCo
 	// (Do we even need crypto ready for that, if we are gonna allow them to
 	// be unauthenticated anyway?)  If so, we will need to refactor the base
 	// class to call this even if crypt is not ready.
+
+	// SDR client to hosted dedicated server?  We don't use signaling to make these connect requests.
+	if ( IsSDRHostedServerClient() )
+	{
+
+		// Base class behaviour, which uses the transport to send end-to-end connect
+		// requests, is the right thing to do
+		return CSteamNetworkConnectionBase::ThinkConnection_ClientConnecting( usecNow );
+	}
 
 	// No signaling?  This should only be possible if we are attempting P2P though LAN
 	// broadcast only.
@@ -1492,14 +1589,8 @@ void CSteamNetworkConnectionP2P::SetRendezvousCommonFieldsAndSendSignal( CMsgSte
 	msg.set_from_identity( szTempIdentity );
 	msg.set_from_connection_id( m_unConnectionIDLocal );
 
-	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
-		if ( m_pTransportP2PSDR )
-			m_pTransportP2PSDR->PopulateRendezvousMsg( msg, usecNow );
-	#endif
-	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
-		if ( m_pTransportICE )
-			m_pTransportICE->PopulateRendezvousMsg( msg, usecNow );
-	#endif
+	// Asks transport(s) to put routing info into the message
+	PopulateRendezvousMsgWithTransportInfo( msg, usecNow );
 
 	m_pszNeedToSendSignalReason = nullptr;
 	m_usecSendSignalDeadline = INT64_MAX;
@@ -1577,11 +1668,37 @@ void CSteamNetworkConnectionP2P::SetRendezvousCommonFieldsAndSendSignal( CMsgSte
 	}
 }
 
+void CSteamNetworkConnectionP2P::PopulateRendezvousMsgWithTransportInfo( CMsgSteamNetworkingP2PRendezvous &msg, SteamNetworkingMicroseconds usecNow )
+{
+
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
+		if ( m_pTransportP2PSDR )
+			m_pTransportP2PSDR->PopulateRendezvousMsg( msg, usecNow );
+	#endif
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+		if ( m_pTransportICE )
+			m_pTransportICE->PopulateRendezvousMsg( msg, usecNow );
+	#endif
+}
+
 bool CSteamNetworkConnectionP2P::ProcessSignal( const CMsgSteamNetworkingP2PRendezvous &msg, SteamNetworkingMicroseconds usecNow )
 {
 
-	// Go ahead and process the SDR routes, if they are sending them
+	// SDR routing?
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
+
+		// Check for SDR hosted server telling us to contact them via the special protocol
+		if ( msg.has_hosted_server_ticket() )
+		{
+			if ( !IsSDRHostedServerClient() )
+			{
+				SpewMsgGroup( LogLevel_P2PRendezvous(), "[%s] Peer sent hosted_server_ticket.  Switching to SDR client transport\n", GetDescription() );
+				if ( !BSelectTransportToSDRServerFromSignal( msg ) )
+					return false;
+			}
+		}
+
+		// Go ahead and process the SDR P2P routes, if they are sending them
 		if ( m_pTransportP2PSDR )
 		{
 			if ( msg.has_sdr_routes() )
@@ -1784,6 +1901,30 @@ void CSteamNetworkConnectionP2P::ProcessSignal_ConnectOK( const CMsgSteamNetwork
 	ConnectionState_FindingRoute( usecNow );
 }
 
+ESteamNetConnectionEnd CSteamNetworkConnectionP2P::CheckRemoteCert( const CertAuthScope *pCACertAuthScope, SteamNetworkingErrMsg &errMsg )
+{
+	// Standard base class connection checks
+	ESteamNetConnectionEnd result = CSteamNetworkConnectionBase::CheckRemoteCert( pCACertAuthScope, errMsg );
+	if ( result != k_ESteamNetConnectionEnd_Invalid )
+		return result;
+
+	// If ticket was bound to a data center, then make sure the cert chain authorizes
+	// them to send us there.
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
+		if ( m_pTransportToSDRServer )
+		{
+			SteamNetworkingPOPID popIDTicket = m_pTransportToSDRServer->m_authTicket.m_ticket.m_routing.GetPopID();
+			if ( popIDTicket != 0 && popIDTicket != k_SteamDatagramPOPID_dev )
+			{
+				if ( !CheckCertPOPID( m_msgCertRemote, pCACertAuthScope, popIDTicket, errMsg ) )
+					return k_ESteamNetConnectionEnd_Remote_BadCert;
+			}
+		}
+	#endif
+
+	return k_ESteamNetConnectionEnd_Invalid;
+}
+
 void CSteamNetworkConnectionP2P::QueueSignalReliableMessage( CMsgSteamNetworkingP2PRendezvous_ReliableMessage &&msg, const char *pszDebug )
 {
 	SpewVerboseGroup( LogLevel_P2PRendezvous(), "[%s] Queue reliable signal message %s: { %s }\n", GetDescription(), pszDebug, msg.ShortDebugString().c_str() );
@@ -1839,6 +1980,36 @@ CConnectionTransportP2PBase::CConnectionTransportP2PBase( const char *pszDebugNa
 	m_usecTimeSelectedAccumulator = 0;
 	m_bNeedToConfirmEndToEndConnectivity = true;
 	m_routeMetrics.SetInvalid();
+}
+
+CConnectionTransportP2PBase::~CConnectionTransportP2PBase()
+{
+	CSteamNetworkConnectionP2P &conn = Connection();
+
+	// Detach from parent connection
+	find_and_remove_element( conn.m_vecAvailableTransports, this );
+
+	Assert( ( conn.m_pTransport == m_pSelfAsConnectionTransport ) == ( conn.m_pCurrentTransportP2P == this ) );
+	if ( conn.m_pTransport == m_pSelfAsConnectionTransport || conn.m_pCurrentTransportP2P == this )
+		conn.SelectTransport( nullptr, SteamNetworkingSockets_GetLocalTimestamp() );
+	if ( conn.m_pPeerSelectedTransport == this )
+		conn.m_pPeerSelectedTransport = nullptr;
+
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
+		if ( conn.m_pTransportP2PSDR == this )
+			conn.m_pTransportP2PSDR = nullptr;
+	#endif
+
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+		if ( conn.m_pTransportICE == this )
+			conn.m_pTransportICE = nullptr;
+		if ( conn.m_pTransportICEPendingDelete == this )
+			conn.m_pTransportICEPendingDelete = nullptr;
+	#endif
+
+	// Make sure we re-evaluate transport
+	conn.m_usecNextEvaluateTransport = k_nThinkTime_ASAP;
+	conn.SetNextThinkTimeASAP();
 }
 
 void CConnectionTransportP2PBase::P2PTransportTrackSentEndToEndPingRequest( SteamNetworkingMicroseconds usecNow, bool bAllowDelayedReply )
@@ -2383,7 +2554,7 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const void *pMsg, int c
 		}
 
 		// Connection already shutdown?
-		if ( pConn->m_pSignaling == nullptr || pConn->GetState() == k_ESteamNetworkingConnectionState_Dead )
+		if ( pConn->GetState() == k_ESteamNetworkingConnectionState_Dead )
 		{
 			// How was the connection found by FindConnectionByLocalID then?
 			Assert( false );
@@ -2571,8 +2742,32 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const void *pMsg, int c
 				Assert( !bDefaultSignaling );
 			}
 
+			// Special case for servers in known POPs
+			#ifdef SDR_ENABLE_HOSTED_SERVER
+				switch ( pListenSock->m_eHostedDedicatedServer )
+				{
+					case CSteamNetworkListenSocketP2P::k_EHostedDedicatedServer_Not:
+						// Normal P2P connectivity
+						break;
+
+					case CSteamNetworkListenSocketP2P::k_EHostedDedicatedServer_TicketsOnly:
+						SpewMsgGroup( nLogLevel, "Ignoring P2P CMsgSteamDatagramConnectRequest from %s; we're listening on vport %d, but only for ticket-based connections, not for connections requiring P2P signaling\n", SteamNetworkingIdentityRender( identityRemote ).c_str(), nLocalVirtualPort );
+						return false;
+
+					case CSteamNetworkListenSocketP2P::k_EHostedDedicatedServer_Auto:
+						SpewMsgGroup( nLogLevel, "P2P CMsgSteamDatagramConnectRequest from %s; we're listening on vport %d, hosted server connection\n", SteamNetworkingIdentityRender( identityRemote ).c_str(), nLocalVirtualPort );
+						pConn = new CSteamNetworkAcceptedConnectionFromSDRClient( this );
+						break;
+
+					default:
+						Assert( false );
+						return false;
+				}
+			#endif
+
 			// Create a connection
-			pConn = new CSteamNetworkConnectionP2P( this );
+			if ( pConn == nullptr )
+				pConn = new CSteamNetworkConnectionP2P( this );
 			pConn->m_identityRemote = identityRemote;
 			pConn->m_unConnectionIDRemote = msg.from_connection_id();
 			pConn->m_nRemoteVirtualPort = nRemoteVirtualPort;
@@ -2600,7 +2795,7 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const void *pMsg, int c
 			}
 
 			// OK, start setting up the connection
-			if ( !pConn->BBeginAccept( 
+			if ( !pConn->BBeginAcceptFromSignal( 
 				msgConnectRequest,
 				errMsg,
 				usecNow
@@ -2611,6 +2806,11 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const void *pMsg, int c
 				SendP2PRejection( pContext, identityRemote, msg, k_ESteamNetConnectionEnd_Misc_Generic, "Internal error accepting connection.  %s", errMsg );
 				return false;
 			}
+
+			// Mark that we received something.  Even though it was through the
+			// signaling mechanism, not the channel used for data, and we ordinarily
+			// don't count that.
+			pConn->m_statsEndToEnd.m_usecTimeLastRecv = usecNow;
 
 			// Inform app about the incoming request, see what they want to do
 			pConn->m_pSignaling = pContext->OnConnectRequest( pConn->m_hConnectionSelf, identityRemote, nLocalVirtualPort );

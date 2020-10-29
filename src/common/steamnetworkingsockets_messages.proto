@@ -240,10 +240,17 @@ message CMsgSteamNetworkingP2PRendezvous
 	optional bytes sdr_routes = 2;
 
 	// This is the latest SDR route revision I have for you.
+	// On older clients this might not always be present, until they have
+	// received some SDR routes.  Newer clients always populate this, if
+	// they are willing to do SDR peer-to-peer routing.
 	optional uint32 ack_peer_routes_revision = 3;
 
 	// Is ICE enabled?
 	optional bool ice_enabled = 7;
+
+	// I'm a hosted dedicated server.  Please use
+	// the more optimal path to talk to me.
+	optional bytes hosted_server_ticket = 14; // CMsgSteamDatagramSignedRelayAuthTicket
 
 	// Connect request
 	message ConnectRequest
