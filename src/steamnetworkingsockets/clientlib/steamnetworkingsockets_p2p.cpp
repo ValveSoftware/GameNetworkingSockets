@@ -1001,7 +1001,7 @@ void CSteamNetworkConnectionP2P::ConnectionStateChanged( ESteamNetworkingConnect
 			m_usecNextEvaluateTransport = k_nThinkTime_ASAP;
 			SetNextThinkTimeASAP();
 			for ( CConnectionTransportP2PBase *pTransportP2P: m_vecAvailableTransports )
-				pTransportP2P->m_pSelfAsThinker->SetNextThinkTimeASAP();
+				pTransportP2P->EnsureP2PTransportThink( k_nThinkTime_ASAP );
 
 			break;
 	}
@@ -1827,10 +1827,9 @@ void CSteamNetworkConnectionP2P::PeerSelectedTransportChanged()
 //
 /////////////////////////////////////////////////////////////////////////////
 
-CConnectionTransportP2PBase::CConnectionTransportP2PBase( const char *pszDebugName, CConnectionTransport *pSelfBase, IThinker *pSelfThinker )
+CConnectionTransportP2PBase::CConnectionTransportP2PBase( const char *pszDebugName, CConnectionTransport *pSelfBase )
 : m_pszP2PTransportDebugName( pszDebugName )
 , m_pSelfAsConnectionTransport( pSelfBase )
-, m_pSelfAsThinker( pSelfThinker )
 {
 	m_pingEndToEnd.Reset();
 	m_usecEndToEndInFlightReplyTimeout = 0;
@@ -1853,7 +1852,7 @@ void CConnectionTransportP2PBase::P2PTransportTrackSentEndToEndPingRequest( Stea
 		if ( bAllowDelayedReply )
 			m_usecEndToEndInFlightReplyTimeout += k_usecSteamDatagramRouterPendClientPing; // Is this the appropriate constant to use?
 
-		m_pSelfAsThinker->EnsureMinThinkTime( m_usecEndToEndInFlightReplyTimeout );
+		EnsureP2PTransportThink( m_usecEndToEndInFlightReplyTimeout );
 	}
 }
 
@@ -1947,7 +1946,7 @@ void CConnectionTransportP2PBase::P2PTransportThink( SteamNetworkingMicroseconds
 
 	if ( m_usecEndToEndInFlightReplyTimeout )
 		usecNextThink = std::min( usecNextThink, m_usecEndToEndInFlightReplyTimeout );
-	m_pSelfAsThinker->EnsureMinThinkTime( usecNextThink );
+	EnsureP2PTransportThink( usecNextThink );
 }
 
 void CConnectionTransportP2PBase::P2PTransportEndToEndConnectivityNotConfirmed( SteamNetworkingMicroseconds usecNow )

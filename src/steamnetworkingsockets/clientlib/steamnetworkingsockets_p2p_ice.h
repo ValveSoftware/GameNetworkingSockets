@@ -25,7 +25,6 @@ struct UDPSendPacketContext_t;
 class CConnectionTransportP2PICE final
 : public CConnectionTransportUDPBase
 , public CConnectionTransportP2PBase
-, public IThinker
 , private IICESessionDelegate
 {
 public:
@@ -43,11 +42,9 @@ public:
 	virtual void TransportFreeResources() override;
 	virtual bool BCanSendEndToEndData() const override;
 
-	// IThinker
-	virtual void Think( SteamNetworkingMicroseconds usecNow ) override;
-
 	// CConnectionTransportP2PBase
 	virtual void P2PTransportUpdateRouteMetrics( SteamNetworkingMicroseconds usecNow ) override;
+	virtual void P2PTransportThink( SteamNetworkingMicroseconds usecNow ) override;
 
 	/// Fill in SDR-specific fields to signal
 	void PopulateRendezvousMsg( CMsgSteamNetworkingP2PRendezvous &msg, SteamNetworkingMicroseconds usecNow );

@@ -23,7 +23,7 @@ namespace SteamNetworkingSocketsLib {
 
 CConnectionTransportP2PICE::CConnectionTransportP2PICE( CSteamNetworkConnectionP2P &connection )
 : CConnectionTransportUDPBase( connection )
-, CConnectionTransportP2PBase( "ICE", this, this )
+, CConnectionTransportP2PBase( "ICE", this )
 , m_pICESession( nullptr )
 {
 	m_nAllowedCandidateTypes = 0;
@@ -84,7 +84,6 @@ void CConnectionTransportP2PICE::TransportFreeResources()
 		m_pICESession->Destroy();
 		m_pICESession = nullptr;
 	}
-	ClearNextThinkTime();
 	find_and_remove_element( Connection().m_vecAvailableTransports, this );
 
 	CConnectionTransport::TransportFreeResources();
@@ -235,7 +234,7 @@ void CConnectionTransportP2PICE::RecvRendezvous( const CMsgICERendezvous &msg, S
 	}
 }
 
-void CConnectionTransportP2PICE::Think( SteamNetworkingMicroseconds usecNow )
+void CConnectionTransportP2PICE::P2PTransportThink( SteamNetworkingMicroseconds usecNow )
 {
 	// Are we dead?
 	if ( !m_pICESession || Connection().m_pTransportICEPendingDelete )
@@ -245,7 +244,7 @@ void CConnectionTransportP2PICE::Think( SteamNetworkingMicroseconds usecNow )
 		return;
 	}
 
-	P2PTransportThink( usecNow );
+	CConnectionTransportP2PBase::P2PTransportThink( usecNow );
 }
 
 void CConnectionTransportP2PICE::P2PTransportUpdateRouteMetrics( SteamNetworkingMicroseconds usecNow )

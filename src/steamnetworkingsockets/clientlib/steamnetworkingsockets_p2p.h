@@ -76,7 +76,6 @@ public:
 	// Virtual base classes.  (We don't directly derive, since we are a mixin,
 	// but all classes that derive from us will derive from these base classes.)
 	CConnectionTransport *const m_pSelfAsConnectionTransport;
-	IThinker *const m_pSelfAsThinker;
 
 	const char *const m_pszP2PTransportDebugName;
 
@@ -132,18 +131,25 @@ public:
 		m_nReplyTimeoutsSinceLastRecv = 0;
 	}
 	void P2PTransportTrackSentEndToEndPingRequest( SteamNetworkingMicroseconds usecNow, bool bAllowDelayedReply );
-	void P2PTransportThink( SteamNetworkingMicroseconds usecNow );
 	void P2PTransportEndToEndConnectivityConfirmed( SteamNetworkingMicroseconds usecNow );
 	void P2PTransportEndToEndConnectivityNotConfirmed( SteamNetworkingMicroseconds usecNow );
 
 	// Populate m_routeMetrics.  If we're not really available, then the metrics should be set to a huge score
 	virtual void P2PTransportUpdateRouteMetrics( SteamNetworkingMicroseconds usecNow ) = 0;
 
+	inline void EnsureP2PTransportThink( SteamNetworkingMicroseconds usecWhen )
+	{
+		m_scheduleP2PTransportThink.EnsureMinScheduleTime( this, &CConnectionTransportP2PBase::P2PTransportThink, usecWhen );
+	}
+
 protected:
-	CConnectionTransportP2PBase( const char *pszDebugName, CConnectionTransport *pSelfBase, IThinker *pSelfThinker );
+	CConnectionTransportP2PBase( const char *pszDebugName, CConnectionTransport *pSelfBase );
 
 	// Shortcut to get connection and upcast
 	CSteamNetworkConnectionP2P &Connection() const;
+
+	virtual void P2PTransportThink( SteamNetworkingMicroseconds usecNow );
+	ScheduledMethodThinker<CConnectionTransportP2PBase> m_scheduleP2PTransportThink;
 };
 
 /// A peer-to-peer connection that can use different types of underlying transport
