@@ -95,9 +95,16 @@ public:
 	/// Schedule to invoke the method at the specified time.  You must have previously specified
 	/// the target object and method.
 	inline void Schedule( SteamNetworkingMicroseconds usecWhen ) { Assert( m_pOuter && m_method ); IThinker::SetNextThinkTime( usecWhen ); }
+	inline void ScheduleASAP() { Schedule( k_nThinkTime_ASAP ); }
 
 	/// Schedule to invoke the specified method on the specified object, at the specified time.
 	inline void Schedule( TOuter *pOuter, TMethod method, SteamNetworkingMicroseconds usecWhen ) { m_pOuter = pOuter; m_method = method; Schedule( usecWhen ); }
+	inline void ScheduleASAP( TOuter *pOuter, TMethod method ) { Schedule( pOuter, method, k_nThinkTime_ASAP ); }
+
+	/// Adjust schedule time to the earlier of the current schedule time,
+	/// or the given time.
+	inline void EnsureMinScheduleTime( SteamNetworkingMicroseconds usecWhen ) { Assert( m_pOuter && m_method ); EnsureMinThinkTime( usecWhen ); }
+	inline void EnsureMinScheduleTime( TOuter *pOuter, TMethod method, SteamNetworkingMicroseconds usecWhen ) { m_pOuter = pOuter; m_method = method; EnsureMinScheduleTime( usecWhen ); }
 
 	/// If currently scheduled, cancel it
 	inline void Cancel() { IThinker::SetNextThinkTime( k_nThinkTime_Never ); }
