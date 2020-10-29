@@ -24,8 +24,6 @@ namespace SteamNetworkingSocketsLib {
 class CSteamNetworkingSockets;
 class CSteamNetworkingMessage;
 class CSteamNetworkingMessages;
-class CSteamNetworkListenSocketP2P;
-class CSteamNetworkConnectionP2P;
 
 /////////////////////////////////////////////////////////////////////////////
 //
