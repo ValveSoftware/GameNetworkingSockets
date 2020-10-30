@@ -39,6 +39,28 @@ See the ``k_ESteamNetworkingConfig_SymmetricConnect``
 connection flag in [steamnetworkingtypes.h](include/steam/steamnetworkingtypes.h)
 for more info.
 
+## ISteamNetworkingMessages
+
+Most P2P libraries, such as google WebRTC, and indeed our own
+[ISteamNetworkingSockets](include/steam/isteamnetworkingsockets.h), are *connection
+oriented*.  To talk to a peer, you first establish a connection to the peer, and
+when you send and receive messages, the peer is identified by the connection handle.
+
+Much existing network code is based on UDP with a single socket, where
+ connection handles are not used.  Instead, packets are sent with the IP address
+ of the recipeient specified for each packet.   (E.g. ``sentto()`` and ``recvfrom()``).
+[ISteamNetworkingMessages](include/steam/isteamnetworkingmessages.h) was created
+to provide a more "ad-hoc" interface like UDP.  It can be useful when adding P2P
+support to existing code, depending on the abstraction you are working with.  If
+the code you are modifing already has the concept of a connection, then you might
+find it easier to use ISteamNetworkinSockets directly.  But if you are modifying code
+at a lower level, you may find that you need to maintain a table of active connections,
+and each time you send a packet, use the existing connection if one exists, or
+create a new connection if one does not exist.  This is exactly what
+ISteamNetworkingMessages does for you.  It creates symmetric-mode connections on
+demand the first time you communicate with a given peer, and idle connections are
+automatically closed when they are no longer needed.
+
 ## Requirements
 
 Peer-to-peer connections require more than just working code.  In addition
@@ -131,6 +153,5 @@ Here are some things we have in mind to make P2P support better:
 signaling, such as [XMPP](https://xmpp.org/).  This would be a great project for
   somebody else to do!  We would welcome contributions to this repository, or
   happily link to your own project.  (See issue #136)
-* Allow setting the "default" signaling protocol.  (See issue #137)
 * LAN beacon support, so that P2P connections can be made even when signaling
   is down or the hosts do not have Internet connectivity.  (See issue #82)

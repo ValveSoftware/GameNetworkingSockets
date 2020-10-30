@@ -26,6 +26,10 @@ GameNetworkingSockets is a basic transport layer for games.  The features are:
   * NAT traversal through google WebRTC's ICE implementation.
   * Plug in your own signaling service.
   * Unique "symmetric connect" mode.
+  * [``ISteamNetworkingMessages``](include/steam/isteamnetworkingmessages.h) is an
+    interface designed to make it easy to port UDP-based code to P2P use cases.  (By
+    UDP-based, we mean non-connection-oriented code, where each time you send a
+    packet, you specify the recipient's address.)
   * See [README_P2P.md](README_P2P.md) for more info
 
 What it does *not* do:
