@@ -3225,6 +3225,8 @@ failed:
 	// Client sends a "connect" packet
 	if ( !pClient->BConnectionState_Connecting( usecNow, errMsg ) )
 		goto failed;
+	Assert( pServer->m_statsEndToEnd.m_nMaxRecvPktNum == 1 );
+	pClient->m_statsEndToEnd.m_nNextSendSequenceNumber = pServer->m_statsEndToEnd.m_nMaxRecvPktNum+1;
 	pClient->FakeSendStats( usecNow, 0 );
 
 	// Now we wait for the app to accept the connection
