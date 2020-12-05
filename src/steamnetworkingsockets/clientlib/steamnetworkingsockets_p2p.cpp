@@ -110,7 +110,9 @@ CSteamNetworkConnectionP2P::CSteamNetworkConnectionP2P( CSteamNetworkingSockets 
 	m_pCurrentTransportP2P = nullptr;
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 		m_pTransportP2PSDR = nullptr;
-		m_pTransportToSDRServer = nullptr;
+		#ifdef SDR_ENABLE_HOSTED_CLIENT
+			m_pTransportToSDRServer = nullptr;
+		#endif
 		#ifdef SDR_ENABLE_HOSTED_SERVER
 			m_pTransportFromSDRClient = nullptr;
 		#endif
@@ -813,11 +815,13 @@ void CSteamNetworkConnectionP2P::DestroyTransport()
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 		Assert( m_pTransportP2PSDR == nullptr ); // Should have been nuked above
 
-		if ( m_pTransportToSDRServer )
-		{
-			m_pTransportToSDRServer->TransportDestroySelfNow();
-			m_pTransportToSDRServer = nullptr;
-		}
+		#ifdef SDR_ENABLE_HOSTED_CLIENT
+			if ( m_pTransportToSDRServer )
+			{
+				m_pTransportToSDRServer->TransportDestroySelfNow();
+				m_pTransportToSDRServer = nullptr;
+			}
+		#endif
 
 		#ifdef SDR_ENABLE_HOSTED_SERVER
 			if ( m_pTransportFromSDRClient )
@@ -1690,12 +1694,17 @@ bool CSteamNetworkConnectionP2P::ProcessSignal( const CMsgSteamNetworkingP2PRend
 		// Check for SDR hosted server telling us to contact them via the special protocol
 		if ( msg.has_hosted_server_ticket() )
 		{
-			if ( !IsSDRHostedServerClient() )
-			{
-				SpewMsgGroup( LogLevel_P2PRendezvous(), "[%s] Peer sent hosted_server_ticket.  Switching to SDR client transport\n", GetDescription() );
-				if ( !BSelectTransportToSDRServerFromSignal( msg ) )
-					return false;
-			}
+			#ifdef SDR_ENABLE_HOSTED_CLIENT
+				if ( !IsSDRHostedServerClient() )
+				{
+					SpewMsgGroup( LogLevel_P2PRendezvous(), "[%s] Peer sent hosted_server_ticket.  Switching to SDR client transport\n", GetDescription() );
+					if ( !BSelectTransportToSDRServerFromSignal( msg ) )
+						return false;
+				}
+			#else
+				ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_P2P_Rendezvous, "Peer is a hosted dedicated server.  Not supported." );
+				return false;
+			#endif
 		}
 
 		// Go ahead and process the SDR P2P routes, if they are sending them
@@ -1910,7 +1919,7 @@ ESteamNetConnectionEnd CSteamNetworkConnectionP2P::CheckRemoteCert( const CertAu
 
 	// If ticket was bound to a data center, then make sure the cert chain authorizes
 	// them to send us there.
-	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
+	#ifdef SDR_ENABLE_HOSTED_CLIENT
 		if ( m_pTransportToSDRServer )
 		{
 			SteamNetworkingPOPID popIDTicket = m_pTransportToSDRServer->m_authTicket.m_ticket.m_routing.GetPopID();

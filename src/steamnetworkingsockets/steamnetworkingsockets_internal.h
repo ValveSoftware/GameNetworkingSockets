@@ -85,10 +85,10 @@
 	#define STEAMNETWORKINGSOCKETS_CAN_REQUEST_CERT
 #endif
 
-// Always #define STEAMNETWORKINGSOCKETS_ENABLE_ICE, except in the opensource build.
-// There, it must go on the command line
+// Always #define STEAMNETWORKINGSOCKETS_ENABLE_ICE in a few places.
+// You can also define it on the command line
 #ifndef STEAMNETWORKINGSOCKETS_ENABLE_ICE
-	#ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
+	#if defined( STEAMNETWORKINGSOCKETS_STEAMCLIENT ) || defined( STEAMNETWORKINGSOCKETS_STREAMINGCLIENT )
 		#define STEAMNETWORKINGSOCKETS_ENABLE_ICE
 	#endif
 #endif

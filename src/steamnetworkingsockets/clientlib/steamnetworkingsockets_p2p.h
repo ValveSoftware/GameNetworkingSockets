@@ -267,14 +267,16 @@ public:
 		// Peer to peer, over SDR
 		CConnectionTransportP2PSDR *m_pTransportP2PSDR;
 		CMsgSteamNetworkingP2PSDRRoutingSummary m_msgSDRRoutingSummary;
+	#endif
 
-		// Client connecting to hosted dedicated server over SDR.  These are not really
-		// "Peer to peer" connections.  In a previous iteration of the code these were
-		// a totally separate connection class, because we always knew when initiating
-		// the connection that it was going to be this type.  However, now these connections
-		// may begin their life as an ordinary P2P connection, and only discover from a signal
-		// from the peer that it is a server in a hosted data center.  Then they will switch to
-		// use the special-case optimized transport.
+	// Client connecting to hosted dedicated server over SDR.  These are not really
+	// "Peer to peer" connections.  In a previous iteration of the code these were
+	// a totally separate connection class, because we always knew when initiating
+	// the connection that it was going to be this type.  However, now these connections
+	// may begin their life as an ordinary P2P connection, and only discover from a signal
+	// from the peer that it is a server in a hosted data center.  Then they will switch to
+	// use the special-case optimized transport.
+	#ifdef SDR_ENABLE_HOSTED_CLIENT
 		CConnectionTransportToSDRServer *m_pTransportToSDRServer;
 		bool BInitConnectToSDRServer( const SteamNetworkingIdentity &identityTarget, int nRemoteVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions, SteamNetworkingErrMsg &errMsg );
 		bool BSelectTransportToSDRServerFromSignal( const CMsgSteamNetworkingP2PRendezvous &msg );
@@ -288,25 +290,23 @@ public:
 			}
 			return false;
 		}
-
-		// We are the server in special hosted data center
-		#ifdef SDR_ENABLE_HOSTED_SERVER
-			CConnectionTransportFromSDRClient *m_pTransportFromSDRClient;
-			inline bool IsSDRHostedServer() const
-			{
-				if ( m_pTransportFromSDRClient )
-				{
-					Assert( m_vecAvailableTransports.empty() );
-					return true;
-				}
-				return false;
-			}
-		#else
-			inline bool IsSDRHostedServer() const { return false; }
-		#endif
-
 	#else
 		inline bool IsSDRHostedServerClient() const { return false; }
+	#endif
+
+	// We are the server in special hosted data center
+	#ifdef SDR_ENABLE_HOSTED_SERVER
+		CConnectionTransportFromSDRClient *m_pTransportFromSDRClient;
+		inline bool IsSDRHostedServer() const
+		{
+			if ( m_pTransportFromSDRClient )
+			{
+				Assert( m_vecAvailableTransports.empty() );
+				return true;
+			}
+			return false;
+		}
+	#else
 		inline bool IsSDRHostedServer() const { return false; }
 	#endif
 
