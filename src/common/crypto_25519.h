@@ -3,6 +3,7 @@
 #ifndef CRYPTO_25519_H
 #define CRYPTO_25519_H
 
+#include <tier0/dbg.h>
 #include "crypto_constants.h"
 #include "keypair.h"
 
@@ -87,8 +88,8 @@ public:
 	CECKeyExchangePublicKey() : CEC25519PublicKeyBase( k_ECryptoKeyTypeKeyExchangePublic ) { }
 
 	// Allow copying of public keys without a bunch of paranoia.
-	CECKeyExchangePublicKey( const CECKeyExchangePublicKey &x ) : CEC25519PublicKeyBase( k_ECryptoKeyTypeKeyExchangePublic ) { SetRawDataWithoutWipingInput( x.GetRawDataPtr(), x.GetRawDataSize() ); }
-	CECKeyExchangePublicKey & operator=(const CECKeyExchangePublicKey &x) { if ( this != &x ) SetRawDataWithoutWipingInput( x.GetRawDataPtr(), x.GetRawDataSize() ); return *this; }
+	CECKeyExchangePublicKey( const CECKeyExchangePublicKey &x ) : CEC25519PublicKeyBase( k_ECryptoKeyTypeKeyExchangePublic ) { VerifyFatal( CopyFrom( x ) ); }
+	CECKeyExchangePublicKey & operator=(const CECKeyExchangePublicKey &x) { if ( this != &x ) { VerifyFatal( CopyFrom( x ) ); } return *this; }
 
 	virtual ~CECKeyExchangePublicKey();
 };
@@ -131,8 +132,8 @@ public:
 	CECSigningPublicKey() : CEC25519PublicKeyBase( k_ECryptoKeyTypeSigningPublic ) { }
 
 	// Allow copying of public keys without a bunch of paranoia.
-	CECSigningPublicKey( const CECSigningPublicKey &x ) : CEC25519PublicKeyBase( k_ECryptoKeyTypeSigningPublic ) { SetRawDataWithoutWipingInput( x.GetRawDataPtr(), x.GetRawDataSize() ); }
-	CECSigningPublicKey & operator=(const CECSigningPublicKey &x) { if ( this != &x ) SetRawDataWithoutWipingInput( x.GetRawDataPtr(), x.GetRawDataSize() ); return *this; }
+	CECSigningPublicKey( const CECSigningPublicKey &x ) : CEC25519PublicKeyBase( k_ECryptoKeyTypeSigningPublic ) { VerifyFatal( CopyFrom( x ) ); }
+	CECSigningPublicKey& operator=(const CECSigningPublicKey &x) { if ( this != &x ) { VerifyFatal( CopyFrom( x ) ); } return *this; }
 
 	virtual bool LoadFromAndWipeBuffer( void *pBuffer, size_t cBytes ) override;
 
