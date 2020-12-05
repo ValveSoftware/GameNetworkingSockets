@@ -5,6 +5,12 @@
 #include "../steamnetworkingsockets_certstore.h"
 #include "crypto.h"
 
+#ifdef _WINDOWS
+	#define WIN32_LEAN_AND_MEAN
+	#include <windows.h>
+	#undef min
+	#undef max
+#endif
 #ifdef POSIX
 	#include <dlfcn.h>
 #endif

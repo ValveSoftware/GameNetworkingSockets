@@ -18,6 +18,12 @@
 
 #include <picojson.h>
 
+// Really?
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#endif
+
 // Must be the last include
 #include <tier0/memdbgon.h>
 

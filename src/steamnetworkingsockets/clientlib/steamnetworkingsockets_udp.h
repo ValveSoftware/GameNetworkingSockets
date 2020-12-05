@@ -70,8 +70,6 @@ extern void ReallyReportBadUDPPacket( const char *pszFrom, const char *pszMsgTyp
 #define ReportBadUDPPacketFromConnectionPeer( pszMsgType, /* fmt */ ... ) \
 	ReportBadUDPPacketFrom( ConnectionDescription(), pszMsgType, __VA_ARGS__ )
 
-extern bool IsRouteToAddressProbablyLocal( netadr_t addr );
-
 /////////////////////////////////////////////////////////////////////////////
 //
 // Listen socket used for direct IP connectivity

@@ -2,9 +2,7 @@
 
 #ifndef STEAMNETWORKINGSOCKETS_LOWLEVEL_H
 #define STEAMNETWORKINGSOCKETS_LOWLEVEL_H
-#ifdef _WIN32
 #pragma once
-#endif
 
 #include <atomic>
 #include <cstdint>
@@ -335,6 +333,9 @@ extern void SteamNetworkingSockets_SetDebugOutputFunction( ESteamNetworkingSocke
 /// Wake up the service thread ASAP.  Intended to be called from other threads,
 /// but is safe to call from the service thread as well.
 extern void WakeSteamDatagramThread();
+
+/// Return true if it looks like the address is a local address
+extern bool IsRouteToAddressProbablyLocal( netadr_t addr );
 
 /// Class used to take some action while we have the global thread locked,
 /// perhaps later and in another thread if necessary.  Intended to be used
