@@ -2744,24 +2744,27 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const void *pMsg, int c
 
 			// Special case for servers in known POPs
 			#ifdef SDR_ENABLE_HOSTED_SERVER
-				switch ( pListenSock->m_eHostedDedicatedServer )
+				if ( pListenSock )
 				{
-					case CSteamNetworkListenSocketP2P::k_EHostedDedicatedServer_Not:
-						// Normal P2P connectivity
-						break;
+					switch ( pListenSock->m_eHostedDedicatedServer )
+					{
+						case CSteamNetworkListenSocketP2P::k_EHostedDedicatedServer_Not:
+							// Normal P2P connectivity
+							break;
 
-					case CSteamNetworkListenSocketP2P::k_EHostedDedicatedServer_TicketsOnly:
-						SpewMsgGroup( nLogLevel, "Ignoring P2P CMsgSteamDatagramConnectRequest from %s; we're listening on vport %d, but only for ticket-based connections, not for connections requiring P2P signaling\n", SteamNetworkingIdentityRender( identityRemote ).c_str(), nLocalVirtualPort );
-						return false;
+						case CSteamNetworkListenSocketP2P::k_EHostedDedicatedServer_TicketsOnly:
+							SpewMsgGroup( nLogLevel, "Ignoring P2P CMsgSteamDatagramConnectRequest from %s; we're listening on vport %d, but only for ticket-based connections, not for connections requiring P2P signaling\n", SteamNetworkingIdentityRender( identityRemote ).c_str(), nLocalVirtualPort );
+							return false;
 
-					case CSteamNetworkListenSocketP2P::k_EHostedDedicatedServer_Auto:
-						SpewMsgGroup( nLogLevel, "P2P CMsgSteamDatagramConnectRequest from %s; we're listening on vport %d, hosted server connection\n", SteamNetworkingIdentityRender( identityRemote ).c_str(), nLocalVirtualPort );
-						pConn = new CSteamNetworkAcceptedConnectionFromSDRClient( this );
-						break;
+						case CSteamNetworkListenSocketP2P::k_EHostedDedicatedServer_Auto:
+							SpewMsgGroup( nLogLevel, "P2P CMsgSteamDatagramConnectRequest from %s; we're listening on vport %d, hosted server connection\n", SteamNetworkingIdentityRender( identityRemote ).c_str(), nLocalVirtualPort );
+							pConn = new CSteamNetworkAcceptedConnectionFromSDRClient( this );
+							break;
 
-					default:
-						Assert( false );
-						return false;
+						default:
+							Assert( false );
+							return false;
+					}
 				}
 			#endif
 
