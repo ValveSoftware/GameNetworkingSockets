@@ -215,18 +215,18 @@ struct SteamNetworkingIPAddr
 	/// (This means that you cannot tell if a zero port was explicitly specified.)
 	inline bool ParseString( const char *pszStr );
 
+	/// RFC4038, section 4.2
+	struct IPv4MappedAddress {
+		uint64 m_8zeros;
+		uint16 m_0000;
+		uint16 m_ffff;
+		uint8 m_ip[ 4 ]; // NOTE: As bytes, i.e. network byte order
+	};
+
 	union
 	{
 		uint8 m_ipv6[ 16 ];
-		#ifndef API_GEN // API generator doesn't understand this.  The bindings will just use the accessors
-		struct // IPv4 "mapped address" (rfc4038 section 4.2)
-		{
-			uint64 m_8zeros;
-			uint16 m_0000;
-			uint16 m_ffff;
-			uint8 m_ip[ 4 ]; // NOTE: As bytes, i.e. network byte order
-		} m_ipv4;
-		#endif
+		IPv4MappedAddress m_ipv4;
 	};
 	uint16 m_port; // Host byte order
 
