@@ -44,9 +44,11 @@
 	#define STEAMNETWORKINGSOCKETS_ENABLE_SDR
 #endif
 
-// Let's always enable ISteamNetworkingMessages for now.
-// Later we might provide a way to remove this code.
-#define STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
+// Always enable ISteamNetworkingMessages, unless it is specifically
+// disabled
+#ifndef STEAMNETWORKINGSOCKETS_DISABLE_STEAMNETWORKINGMESSAGES
+	#define STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
+#endif
 
 #if !defined( STEAMNETWORKINGSOCKETS_OPENSOURCE ) && !defined( STEAMNETWORKINGSOCKETS_STREAMINGCLIENT )
 	// STEAMNETWORKINGSOCKETS_CAN_REQUEST_CERT means we know how to make a cert request from some sort of certificate authority
