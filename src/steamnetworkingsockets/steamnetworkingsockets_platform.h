@@ -29,7 +29,9 @@
 	#include <errno.h>
 
 	#include <sys/types.h>
-	#include <ifaddrs.h>
+	#ifndef ANDROID
+		#include <ifaddrs.h>
+	#endif
 	#include <sys/ioctl.h>
 	#include <net/if.h>
 
