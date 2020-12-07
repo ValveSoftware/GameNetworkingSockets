@@ -21,7 +21,7 @@
 #endif
 
 #include "steamnetworkingsockets_lowlevel.h"
-#include "steamnetworkingsockets_platform.h"
+#include "../steamnetworkingsockets_platform.h"
 #include "../steamnetworkingsockets_internal.h"
 #include "../steamnetworkingsockets_thinker.h"
 #include <vstdlib/random.h>
