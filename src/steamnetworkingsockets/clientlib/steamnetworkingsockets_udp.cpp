@@ -241,7 +241,7 @@ uint64 CSteamNetworkListenSocketDirectUDP::GenerateChallenge( uint16 nTime, cons
 	data.nTime = nTime;
 	data.nPort = adr.GetPort();
 	adr.GetIPV6( data.ipv6 );
-	uint64 nChallenge = siphash( (const uint8_t *)&data, sizeof(data), m_argbChallengeSecret );
+	uint64 nChallenge = CCrypto::SipHash( &data, sizeof(data), m_argbChallengeSecret );
 	return ( nChallenge & 0xffffffffffff0000ull ) | nTime;
 }
 

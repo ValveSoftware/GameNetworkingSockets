@@ -422,9 +422,6 @@ private:
 	char m_buf[64];
 };
 
-/// Used for fast hashes that are reasonably secure
-extern uint64_t siphash( const uint8_t *in, uint64_t inlen, const uint8_t *k );
-
 /// Indent each line of a string
 extern std::string Indent( const char *s );
 inline std::string Indent( const std::string &s ) { return Indent( s.c_str() ); }

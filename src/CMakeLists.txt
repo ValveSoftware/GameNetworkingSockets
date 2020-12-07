@@ -14,6 +14,7 @@ set(GNS_PROTOS
 	)
 
 set(GNS_SRCS
+	"common/crypto.cpp"
 	"common/crypto_textencode.cpp"
 	"common/keypair.cpp"
 	"common/steamid.cpp"

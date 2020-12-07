@@ -138,6 +138,10 @@ namespace CCrypto
 
 	// GenerateHMAC256 is our implementation of HMAC-SHA256. Relatively future-proof. You should probably use this unless you have a very good reason not to.
 	void GenerateHMAC256( const uint8 *pubData, uint32 cubData, const uint8 *pubKey, uint32 cubKey, SHA256Digest_t *pOutputDigest );
+
+	/// Used for fast hashes that are reasonably secure
+	typedef uint64_t SipHashKey_t[2];
+	uint64_t SipHash( const void *data, size_t cbData, const SipHashKey_t &k );
 }
 
 #endif // CRYPTO_H

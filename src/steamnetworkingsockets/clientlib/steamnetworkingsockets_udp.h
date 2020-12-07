@@ -93,7 +93,7 @@ private:
 	CSharedSocket *m_pSock;
 
 	/// Secret used to generate challenges
-	uint8_t m_argbChallengeSecret[ 16 ];
+	uint64_t m_argbChallengeSecret[ 2 ];
 
 	/// Generate a challenge
 	uint64 GenerateChallenge( uint16 nTime, const netadr_t &adr ) const;
