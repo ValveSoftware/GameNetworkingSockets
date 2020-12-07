@@ -216,11 +216,10 @@ bool BSteamNetworkingIdentityToProtobufInternal( const SteamNetworkingIdentity &
 			msgIdentityLegacyBinary->set_generic_bytes( identity.m_genericBytes, identity.m_cbSize );
 			break;
 
-		// FIXME handle "unknown" type, which we can only handle in string format, but not the legacy format
-
 		default:
-			V_sprintf_safe( errMsg, "Unrecognized identity type %d", identity.m_eType );
-			return false;
+			// Any other format was added after we switched everything to the string format,
+			// and does not have a representation in the legacy format.
+			break;
 	}
 
 	// And return string format
