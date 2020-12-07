@@ -225,7 +225,7 @@ const int k_ESteamNetConnectionEnd_InternalRelay_ClientChangedTarget = 9002;
 /// Timeout value for pings.  This basically determines the retry rate for pings.
 /// If a ping is longer than this, then really, the server should not probably not be
 /// considered available.
-const SteamNetworkingMicroseconds k_usecSteamDatagramClientPingTimeout = 0.750f * k_nMillion;
+const SteamNetworkingMicroseconds k_usecSteamDatagramClientPingTimeout = 750000;
 
 /// Keepalive interval for currently selected router.  We send keepalive pings when
 /// we haven't heard anything from the router in a while, to see if we need
@@ -243,11 +243,11 @@ const SteamNetworkingMicroseconds k_usecSteamDatagramClientBackupRouterKeepalive
 const SteamNetworkingMicroseconds k_usecSteamDatagramClientServerKeepaliveInterval = 1 * k_nMillion;
 
 /// Timeout value for session request messages
-const SteamNetworkingMicroseconds k_usecSteamDatagramClientSessionRequestTimeout = 0.750f * k_nMillion;
+const SteamNetworkingMicroseconds k_usecSteamDatagramClientSessionRequestTimeout = 750000;
 
 /// Router will continue to pend a client ping request for N microseconds,
 /// hoping for an opportunity to send it inline.
-const SteamNetworkingMicroseconds k_usecSteamDatagramRouterPendClientPing = 0.200*k_nMillion;
+const SteamNetworkingMicroseconds k_usecSteamDatagramRouterPendClientPing = 200000;
 
 /// When serializing a "time since I last sent a packet" value into the packet,
 /// what precision is used?  (A serialized value of 1 = 2^N microseconds.)

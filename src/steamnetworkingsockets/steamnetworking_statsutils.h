@@ -170,7 +170,7 @@ struct PingTrackerDetailed : PingTracker
 	void ReceivedPing( int nPingMS, SteamNetworkingMicroseconds usecNow )
 	{
 		PingTracker::ReceivedPing( nPingMS, usecNow );
-		m_sample.AddSample( std::min( nPingMS, 0xffff ) );
+		m_sample.AddSample( uint16( std::min( nPingMS, 0xffff ) ) );
 		m_histogram.AddSample( nPingMS );
 	}
 
