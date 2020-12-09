@@ -262,6 +262,11 @@ public:
 	// doesn't depend on the user setting their local clock properly
 	virtual time_t GetTimeSecure();
 
+	/// Get a string that describes what version this code is that is running.
+	/// (What branch it is, when it was compiled, etc.)
+	virtual const char *GetBuildString();
+	virtual const char *GetPlatformString();
+
 	// Stubs if SDR not enabled
 #ifndef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 	virtual ESteamNetworkingAvailability GetRelayNetworkStatus( SteamRelayNetworkStatus_t *pDetails ) override

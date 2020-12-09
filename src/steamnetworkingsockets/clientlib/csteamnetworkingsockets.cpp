@@ -15,6 +15,12 @@
 #include "csteamnetworkingmessages.h"
 #endif
 
+// Needed for the platform checks below
+#if defined(__APPLE__)
+	#include "AvailabilityMacros.h"
+	#include "TargetConditionals.h"
+#endif
+
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
 
@@ -1883,6 +1889,74 @@ time_t CSteamNetworkingUtils::GetTimeSecure()
 {
 	// Trusting local user's clock!
 	return time(nullptr);
+}
+
+const char *CSteamNetworkingUtils::GetBuildString()
+{
+	#if defined( STEAMNETWORKINGSOCKETS_OPENSOURCE )
+		return "opensource " __DATE__ " " __TIME__;
+	#elif defined( STEAMNETWORKINGSOCKETS_PARTNER )
+		return "partner " __DATE__ " " __TIME__;
+	#elif defined( STEAMNETWORKINGSOCKETS_STANDALONELIB )
+		return "lib " __DATE__ " " __TIME__;
+	#elif defined( STEAMNETWORKINGSOCKETS_STEAMCLIENT )
+		return "steam "
+		#ifdef BRANCH_MAIN
+			"(main) "
+		#elif !defined( BRANCH_REL_CLIENT )
+			"(branch?) "
+		#endif
+		__DATE__ " " __TIME__;
+	#elif defined( STEAMNETWORKINGSOCKETS_STREAMINGCLIENT )
+		return "stream "
+		#ifdef BRANCH_MAIN
+			"(main) "
+		#elif !defined( BRANCH_REL_CLIENT )
+			"(branch?) "
+		#endif
+		__DATE__ " " __TIME__;
+	#else
+		#error "Huh?"
+	#endif
+}
+
+const char *CSteamNetworkingUtils::GetPlatformString()
+{
+	#if defined( NN_NINTENDO_SDK )
+		return "nswitch";
+	#elif defined( _GAMECORE )
+		// Is this right?  This might actually require a system call.
+		return "xboxx";
+	#elif defined( _STADIA )
+		// Not sure if this works.
+		return "stadia";
+	#elif defined( _XBOX_ONE )
+		return "xbone";
+	#elif defined( _PS4 )
+		return "ps4";
+	#elif defined( _PS5 )
+		return "ps5";
+	#elif defined( TVOS ) || defined( __TVOS__ )
+		return "tvos";
+	#elif defined( __APPLE__ )
+		#if TARGET_OS_TV
+			return "tvos";
+		#elif TARGET_OS_IPHONE
+			return "ios";
+		#else
+			return "osx";
+		#endif
+	#elif defined( OSX )
+		return "osx";
+	#elif defined( ANDROID ) || defined( __ANDROID__ )
+		return "android";
+	#elif defined( _WINDOWS )
+		return "windows";
+	#elif defined( LINUX ) || defined( __LINUX__ ) || defined(linux) || defined(__linux) || defined(__linux__)
+		return "linux";
+	#else
+		#error "Unknown platform"
+	#endif
 }
 
 } // namespace SteamNetworkingSocketsLib
