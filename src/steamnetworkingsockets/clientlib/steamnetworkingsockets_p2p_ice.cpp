@@ -165,6 +165,8 @@ void CConnectionTransportP2PICE::Init()
 	if ( cfg.m_nTurnServers == 0 )
 		cfg.m_nCandidateTypes &= ~k_EICECandidate_Any_Relay;
 
+	Connection().m_msgICESessionSummary.set_local_candidate_types_allowed( cfg.m_nCandidateTypes );
+
 	// No candidates possible?
 	if ( cfg.m_nCandidateTypes == 0 )
 	{

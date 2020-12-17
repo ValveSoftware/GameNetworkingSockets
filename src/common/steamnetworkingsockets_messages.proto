@@ -323,6 +323,17 @@ message CMsgSteamNetworkingICESessionSummary
 
 	// How long were we the selcted transport?
 	optional uint32 selected_seconds = 12;
+
+	// User options that were in effect, applied to this connection.
+	// (Meaning depends on platform.)
+	optional uint32 user_settings = 13;
+
+	// Value of the P2P_Transport_ICE_Enable connection configuration value that was set, or determined
+	// from user settings
+	optional uint32 ice_enable_var = 14;
+
+	// What sorts of candidates were we allowed to gather, based on user settings AND local configuration
+	optional uint32 local_candidate_types_allowed = 15; // // k_EICECandidate_xxx
 };
 
 // Do not remove this comment due to a bug on the Mac OS X protobuf compiler

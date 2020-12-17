@@ -474,7 +474,12 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 	{
 
 		// Ask platform if we should enable it for this peer
-		P2P_Transport_ICE_Enable = m_pSteamNetworkingSocketsInterface->GetP2P_Transport_ICE_Enable( m_identityRemote );
+		int nUserFlags = -1;
+		P2P_Transport_ICE_Enable = m_pSteamNetworkingSocketsInterface->GetP2P_Transport_ICE_Enable( m_identityRemote, &nUserFlags );
+		if ( nUserFlags >= 0 )
+		{
+			m_msgICESessionSummary.set_user_settings( nUserFlags );
+		}
 	}
 
 	// Burn it into the connection config, if we inherited it, since we cannot change it
@@ -488,6 +493,9 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 		ICEFailed( k_nICECloseCode_Local_UserNotEnabled, "ICE not enabled by local user options" );
 		return;
 	}
+
+	m_msgICESessionSummary.set_ice_enable_var( P2P_Transport_ICE_Enable );
+
 
 #ifdef STEAMWEBRTC_USE_STATIC_LIBS
 	g_SteamNetworkingSockets_CreateICESessionFunc = (CreateICESession_t)CreateWebRTCICESession;

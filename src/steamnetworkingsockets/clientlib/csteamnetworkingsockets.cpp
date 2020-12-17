@@ -1282,12 +1282,14 @@ bool CSteamNetworkingSockets::SetCertificateAndPrivateKey( const void *pCert, in
 	return true;
 }
 
-int CSteamNetworkingSockets::GetP2P_Transport_ICE_Enable( const SteamNetworkingIdentity &identityRemote )
+int CSteamNetworkingSockets::GetP2P_Transport_ICE_Enable( const SteamNetworkingIdentity &identityRemote, int *pOutUserFlags )
 {
 	// We really shouldn't get here, because this is only a question that makes sense
 	// to ask if we have also overridden this function in a derived class, or slammed
 	// it before making the connection
 	Assert( false );
+	if ( pOutUserFlags )
+		*pOutUserFlags = 0;
 	return k_nSteamNetworkingConfig_P2P_Transport_ICE_Enable_Disable;
 }
 
