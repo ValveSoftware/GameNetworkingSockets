@@ -547,15 +547,17 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 
 	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 
+	// Initialize ICE.
+	// WARNING: if this fails, it might set m_pTransportICE=NULL
 	m_pTransportICE = new CConnectionTransportP2PICE( *this );
 	m_pTransportICE->Init();
 
-	// Process rendezvous messages that were pended
+	// Process any rendezvous messages that were pended
 	for ( int i = 0 ; i < len( m_vecPendingICEMessages ) && m_pTransportICE ; ++i )
 		m_pTransportICE->RecvRendezvous( m_vecPendingICEMessages[i], usecNow );
 	m_vecPendingICEMessages.clear();
 
-	// If we failed, go ahead and cleanup now
+	// If we have failed here, go ahead and cleanup now
 	CheckCleanupICE();
 
 	// If we're still all good, then add it to the list of options
