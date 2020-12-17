@@ -1296,16 +1296,12 @@ int CSteamNetworkingSockets::GetP2P_Transport_ICE_Enable( const SteamNetworkingI
 void CSteamNetworkingSockets::RunCallbacks()
 {
 
-	// Only hold lock for a brief period
+	// Swap into a temp, so that we only hold lock for
+	// a brief period.
 	std_vector<QueuedCallback> listTemp;
-	{
-		SteamDatagramTransportLock scopeLock;
-
-		// Swap list with the temp one
-		listTemp.swap( m_vecPendingCallbacks );
-
-		// Release the lock
-	}
+	m_mutexPendingCallbacks.lock();
+	listTemp.swap( m_vecPendingCallbacks );
+	m_mutexPendingCallbacks.unlock();
 
 	// Dispatch the callbacks
 	for ( QueuedCallback &x: listTemp )
@@ -1353,10 +1349,12 @@ void CSteamNetworkingSockets::InternalQueueCallback( int nCallback, int cbCallba
 	}
 	AssertMsg( len( m_vecPendingCallbacks ) < 100, "Callbacks backing up and not being checked.  Need to check them more frequently!" );
 
+	m_mutexPendingCallbacks.lock();
 	QueuedCallback &q = *push_back_get_ptr( m_vecPendingCallbacks );
 	q.nCallback = nCallback;
 	q.fnCallback = fnRegisteredFunctionPtr;
 	memcpy( q.data, pvCallback, cbCallback );
+	m_mutexPendingCallbacks.unlock();
 }
 
 /////////////////////////////////////////////////////////////////////////////

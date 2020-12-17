@@ -5,6 +5,7 @@
 #pragma once
 
 #include <time.h>
+#include <mutex>
 #include <steam/isteamnetworkingsockets.h>
 #include <steam/isteamnetworkingutils.h>
 
@@ -207,6 +208,7 @@ protected:
 		char data[ sizeof(SteamNetConnectionStatusChangedCallback_t) ]; // whatever the biggest callback struct we have is
 	};
 	std_vector<QueuedCallback> m_vecPendingCallbacks;
+	std::mutex m_mutexPendingCallbacks;
 	virtual void InternalQueueCallback( int nCallback, int cbCallback, const void *pvCallback, void *fnRegisteredFunctionPtr );
 
 	bool m_bHaveLowLevelRef;
