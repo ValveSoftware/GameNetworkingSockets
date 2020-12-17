@@ -480,6 +480,7 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 	// Burn it into the connection config, if we inherited it, since we cannot change it
 	// after this point
 	m_connectionConfig.m_P2P_Transport_ICE_Enable.Set( P2P_Transport_ICE_Enable );
+	m_connectionConfig.m_P2P_Transport_ICE_Enable.Lock();
 
 	// Disabled?
 	if ( P2P_Transport_ICE_Enable <= 0 )
