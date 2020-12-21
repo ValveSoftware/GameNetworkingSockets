@@ -682,6 +682,8 @@ ESteamNetworkingAvailability CSteamNetworkingSockets::InitAuthentication()
 void CSteamNetworkingSockets::CheckAuthenticationPrerequisites( SteamNetworkingMicroseconds usecNow )
 {
 #ifdef STEAMNETWORKINGSOCKETS_CAN_REQUEST_CERT
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
+
 	// Check if we're in flight already.
 	bool bInFlight = BCertRequestInFlight();
 
@@ -783,6 +785,7 @@ void CSteamNetworkingSockets::DeduceAuthenticationStatus()
 
 void CSteamNetworkingSockets::SetAuthenticationStatus( const SteamNetAuthenticationStatus_t &newStatus )
 {
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
 
 	// No change?
 	bool bStatusChanged = newStatus.m_eAvail != m_AuthenticationStatus.m_eAvail;
@@ -811,6 +814,8 @@ void CSteamNetworkingSockets::SetAuthenticationStatus( const SteamNetAuthenticat
 #ifdef STEAMNETWORKINGSOCKETS_CAN_REQUEST_CERT
 void CSteamNetworkingSockets::AsyncCertRequestFinished()
 {
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "AsyncCertRequestFinished" );
+
 	Assert( m_msgSignedCert.has_cert() );
 	SetCertStatus( k_ESteamNetworkingAvailability_Current, "OK" );
 
@@ -824,6 +829,8 @@ void CSteamNetworkingSockets::AsyncCertRequestFinished()
 
 void CSteamNetworkingSockets::CertRequestFailed( ESteamNetworkingAvailability eCertAvail, ESteamNetConnectionEnd nConnectionEndReason, const char *pszMsg )
 {
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "CertRequestFailed" );
+
 	SpewWarning( "Cert request for %s failed with reason code %d.  %s\n", SteamNetworkingIdentityRender( InternalGetIdentity() ).c_str(), nConnectionEndReason, pszMsg );
 
 	// Schedule a retry.  Note that if we have active connections that need for a cert,

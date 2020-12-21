@@ -82,6 +82,8 @@ CSteamNetworkingMessages::CSteamNetworkingMessages( CSteamNetworkingSockets &ste
 
 bool CSteamNetworkingMessages::BInit()
 {
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
+
 	// Create listen socket
 	{
 		SteamNetworkingConfigValue_t opt[2];

@@ -315,10 +315,14 @@ CSteamNetworkPollGroup::CSteamNetworkPollGroup( CSteamNetworkingSockets *pInterf
 : m_pSteamNetworkingSocketsInterface( pInterface )
 , m_hPollGroupSelf( k_HSteamListenSocket_Invalid )
 {
+	// Object creation is rare; to keep things simple we require the global lock
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
 }
 
 CSteamNetworkPollGroup::~CSteamNetworkPollGroup()
 {
+	// Object deletion is rare; to keep things simple we require the global lock
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
 	FOR_EACH_VEC_BACK( m_vecConnections, i )
 	{
 		CSteamNetworkConnectionBase *pConn = m_vecConnections[i];
@@ -369,6 +373,9 @@ CSteamNetworkPollGroup::~CSteamNetworkPollGroup()
 
 void CSteamNetworkPollGroup::AssignHandleAndAddToGlobalTable()
 {
+	// Object creation is rare; to keep things simple we require the global lock
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
+
 	Assert( m_hPollGroupSelf == k_HSteamNetPollGroup_Invalid );
 
 	// We actually don't do map "lookups".  We assume the number of listen sockets
@@ -411,6 +418,7 @@ CSteamNetworkListenSocketBase::CSteamNetworkListenSocketBase( CSteamNetworkingSo
 
 CSteamNetworkListenSocketBase::~CSteamNetworkListenSocketBase()
 {
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
 	AssertMsg( m_mapChildConnections.Count() == 0, "Destroy() not used properly" );
 
 	// Remove us from global table, if we're in it
@@ -433,6 +441,8 @@ CSteamNetworkListenSocketBase::~CSteamNetworkListenSocketBase()
 
 bool CSteamNetworkListenSocketBase::BInitListenSocketCommon( int nOptions, const SteamNetworkingConfigValue_t *pOptions, SteamDatagramErrMsg &errMsg )
 {
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
+
 	Assert( m_hListenSocketSelf == k_HSteamListenSocket_Invalid );
 
 	// Assign us a handle, and add us to the global table
@@ -494,6 +504,7 @@ bool CSteamNetworkListenSocketBase::BInitListenSocketCommon( int nOptions, const
 
 void CSteamNetworkListenSocketBase::Destroy()
 {
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
 
 	// Destroy all child connections
 	FOR_EACH_HASHMAP( m_mapChildConnections, h )
