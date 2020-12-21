@@ -36,8 +36,8 @@
 // waiting until that absolute time, which then calls the timer again....and subtracts it back off....It's really bad. Just go
 // directly to the underlying Win32 primitives.  Looks like the Visual Studio 2017 STL implementation is sane, though.
 #if defined(_MSC_VER) && _MSC_VER < 1914
-	#define MSVC_STL_MUTEX_WORKAROUND
-	#include <Windows.h>
+	// NOTE - we could implement our own mutex here.
+	#error "std::recursive_timed_mutex doesn't work"
 #endif
 
 #ifdef _XBOX_ONE
@@ -57,11 +57,7 @@ constexpr SteamNetworkingMicroseconds k_usecDefaultLongLockHeldWarningThreshold 
 int g_nSteamDatagramSocketBufferSize = 256*1024;
 
 /// Global lock for all local data structures
-#ifdef MSVC_STL_MUTEX_WORKAROUND
-	HANDLE s_hSteamDatagramTransportMutex = INVALID_HANDLE_VALUE; 
-#else
-	static std::recursive_timed_mutex s_steamDatagramTransportMutex;
-#endif
+static RecursiveTimedMutex s_steamDatagramTransportMutex;
 int SteamNetworkingGlobalLock::s_nLocked;
 static SteamNetworkingMicroseconds s_usecWhenLocked;
 static std::thread::id s_threadIDLockOwner;
@@ -133,30 +129,16 @@ void SteamNetworkingGlobalLock::OnLocked( const char *pszTag, SteamNetworkingMic
 
 void SteamNetworkingGlobalLock::Lock( const char *pszTag )
 {
-	SteamNetworkingMicroseconds usecTimeStartedLocking;
-	#ifdef MSVC_STL_MUTEX_WORKAROUND
-		if ( s_hSteamDatagramTransportMutex == INVALID_HANDLE_VALUE ) // This is not actually threadsafe, but we assume that client code will call (and wait for the return of) some Init() call before invoking any API calls.
-			s_hSteamDatagramTransportMutex = ::CreateMutex( NULL, FALSE, NULL );
-		usecTimeStartedLocking = SteamNetworkingSockets_GetLocalTimestamp();
-		DWORD res = ::WaitForSingleObject( s_hSteamDatagramTransportMutex, INFINITE );
-		Assert( res == WAIT_OBJECT_0 );
-	#else
-		usecTimeStartedLocking = SteamNetworkingSockets_GetLocalTimestamp();
-		s_steamDatagramTransportMutex.lock();
-	#endif
+	SteamNetworkingMicroseconds usecTimeStartedLocking = SteamNetworkingSockets_GetLocalTimestamp();
+	s_steamDatagramTransportMutex.lock();
 	OnLocked( pszTag, usecTimeStartedLocking );
 }
 
 bool SteamNetworkingGlobalLock::TryLock( const char *pszTag, int msTimeout )
 {
 	SteamNetworkingMicroseconds usecTimeStartedLocking = SteamNetworkingSockets_GetLocalTimestamp();
-	#ifdef MSVC_STL_MUTEX_WORKAROUND
-		if ( ::WaitForSingleObject( s_hSteamDatagramTransportMutex, msTimeout ) != WAIT_OBJECT_0 )
-			return false;
-	#else
-		if ( !s_steamDatagramTransportMutex.try_lock_for( std::chrono::milliseconds( msTimeout ) ) )
-			return false;
-	#endif
+	if ( !s_steamDatagramTransportMutex.try_lock_for( std::chrono::milliseconds( msTimeout ) ) )
+		return false;
 	OnLocked( pszTag, usecTimeStartedLocking );
 	return true;
 }
@@ -295,7 +277,7 @@ static volatile bool s_bManualPollMode;
 // Note that we could use a lock-free queue for this.  But I suspect that this
 // won't get enough work or have enough contention for that to be an important
 // optimization
-static std::mutex s_mutexRunWithLockQueue;
+static Mutex s_mutexRunWithLockQueue;
 static std::vector< ISteamNetworkingSocketsRunWithLock * > s_vecRunWithLockQueue;
 
 ISteamNetworkingSocketsRunWithLock::~ISteamNetworkingSocketsRunWithLock() {}

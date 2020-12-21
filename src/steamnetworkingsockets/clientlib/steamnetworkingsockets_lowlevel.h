@@ -7,6 +7,7 @@
 #include <atomic>
 #include <cstdint>
 #include <functional>
+#include <mutex>
 #include <steam/steamnetworkingtypes.h>
 #include <tier1/netadr.h>
 #include <tier1/utlhashmap.h>
@@ -20,6 +21,12 @@
 struct iovec;
 
 namespace SteamNetworkingSocketsLib {
+
+// You can override these with more optimal platform-specific
+// versions if you want
+using Mutex = std::mutex; // Spinlock - no recursion, no timeout
+using RecursiveMutex = std::recursive_mutex; // Recursion, but no timeout
+using RecursiveTimedMutex = std::recursive_timed_mutex; // Recursion, but no timeout
 
 /////////////////////////////////////////////////////////////////////////////
 //

@@ -53,7 +53,7 @@ public:
 	inline int LogLevel_P2PRendezvous() const { return m_connection.m_connectionConfig.m_LogLevel_P2PRendezvous.Get(); }
 
 	// In certain circumstances we may need to buffer packets
-	std::mutex m_mutexPacketQueue;
+	Mutex m_mutexPacketQueue;
 	CUtlBuffer m_bufPacketQueue;
 
 	//EICECandidateType m_eCurrentRouteLocalCandidateType;
