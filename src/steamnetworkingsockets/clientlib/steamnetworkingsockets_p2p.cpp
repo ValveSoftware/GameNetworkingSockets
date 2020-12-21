@@ -509,7 +509,7 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 		{
 			SteamNetworkingErrMsg errMsg;
 			tried = true;
-			SteamDatagramTransportLock::SetLongLockWarningThresholdMS( "LoadICEDll", 500 );
+			SteamNetworkingGlobalLock::SetLongLockWarningThresholdMS( "LoadICEDll", 500 );
 			static const char pszExportFunc[] = "CreateWebRTCICESession";
 
 			#if defined( _WINDOWS )
@@ -761,7 +761,7 @@ void CSteamNetworkConnectionP2P::DestroyICENow()
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
 void CSteamNetworkConnectionP2P::ICEFailed( int nReasonCode, const char *pszReason )
 {
-	SteamDatagramTransportLock::AssertHeldByCurrentThread();
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
 
 	// Remember reason code, if we didn't already set one
 	if ( GetICEFailureCode() == 0 )
@@ -2203,7 +2203,7 @@ HSteamListenSocket CSteamNetworkingSockets::CreateListenSocketP2P( int nLocalVir
 		return k_HSteamListenSocket_Invalid;
 	}
 
-	SteamDatagramTransportLock scopeLock( "CreateListenSocketP2P" );
+	SteamNetworkingGlobalLock scopeLock( "CreateListenSocketP2P" );
 
 	CSteamNetworkListenSocketP2P *pSock = InternalCreateListenSocketP2P( nLocalVirtualPort, nOptions, pOptions );
 	if ( pSock )
@@ -2277,7 +2277,7 @@ HSteamNetConnection CSteamNetworkingSockets::ConnectP2P( const SteamNetworkingId
 		return k_HSteamNetConnection_Invalid;
 	}
 
-	SteamDatagramTransportLock scopeLock( "ConnectP2P" );
+	SteamNetworkingGlobalLock scopeLock( "ConnectP2P" );
 	CSteamNetworkConnectionBase *pConn = InternalConnectP2PDefaultSignaling( identityRemote, nRemoteVirtualPort, nOptions, pOptions );
 	if ( pConn )
 		return pConn->m_hConnectionSelf;
@@ -2370,7 +2370,7 @@ HSteamNetConnection CSteamNetworkingSockets::ConnectP2PCustomSignaling( ISteamNe
 	if ( !pSignaling )
 		return k_HSteamNetConnection_Invalid;
 
-	SteamDatagramTransportLock scopeLock( "ConnectP2PCustomSignaling" );
+	SteamNetworkingGlobalLock scopeLock( "ConnectP2PCustomSignaling" );
 	CSteamNetworkConnectionBase *pConn = InternalConnectP2P( pSignaling, pPeerIdentity, nRemoteVirtualPort, nOptions, pOptions );
 	if ( pConn )
 		return pConn->m_hConnectionSelf;
@@ -2551,7 +2551,7 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const void *pMsg, int c
 	int nLogLevel = m_connectionConfig.m_LogLevel_P2PRendezvous.Get();
 
 	// Grab the lock now.  (We might not have previously held it.)
-	SteamDatagramTransportLock lock( "ReceivedP2PSignal" );
+	SteamNetworkingGlobalLock lock( "ReceivedP2PSignal" );
 
 	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 

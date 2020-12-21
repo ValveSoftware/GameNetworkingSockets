@@ -62,7 +62,7 @@ int g_nSteamDatagramSocketBufferSize = 256*1024;
 #else
 	static std::recursive_timed_mutex s_steamDatagramTransportMutex;
 #endif
-int SteamDatagramTransportLock::s_nLocked;
+int SteamNetworkingGlobalLock::s_nLocked;
 static SteamNetworkingMicroseconds s_usecWhenLocked;
 static std::thread::id s_threadIDLockOwner;
 static SteamNetworkingMicroseconds s_usecLongLockWarningThreshold;
@@ -75,7 +75,7 @@ static void (*s_fLockAcquiredCallback)( const char *tags, SteamNetworkingMicrose
 static void (*s_fLockHeldCallback)( const char *tags, SteamNetworkingMicroseconds usecWaited );
 static SteamNetworkingMicroseconds s_usecLockWaitWarningThreshold = 2*1000;
 
-void SteamDatagramTransportLock::AddTag( const char *pszTag )
+void SteamNetworkingGlobalLock::AddTag( const char *pszTag )
 {
 	if ( !pszTag || s_nCurrentLockTags >= k_nMaxCurrentLockTags )
 		return;
@@ -94,7 +94,7 @@ void SteamDatagramTransportLock::AddTag( const char *pszTag )
 	++s_nCurrentLockTags;
 }
 
-void SteamDatagramTransportLock::OnLocked( const char *pszTag, SteamNetworkingMicroseconds usecTimeStartedLocking )
+void SteamNetworkingGlobalLock::OnLocked( const char *pszTag, SteamNetworkingMicroseconds usecTimeStartedLocking )
 {
 	++s_nLocked;
 	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
@@ -131,7 +131,7 @@ void SteamDatagramTransportLock::OnLocked( const char *pszTag, SteamNetworkingMi
 	AddTag( pszTag );
 }
 
-void SteamDatagramTransportLock::Lock( const char *pszTag )
+void SteamNetworkingGlobalLock::Lock( const char *pszTag )
 {
 	SteamNetworkingMicroseconds usecTimeStartedLocking;
 	#ifdef MSVC_STL_MUTEX_WORKAROUND
@@ -147,7 +147,7 @@ void SteamDatagramTransportLock::Lock( const char *pszTag )
 	OnLocked( pszTag, usecTimeStartedLocking );
 }
 
-bool SteamDatagramTransportLock::TryLock( const char *pszTag, int msTimeout )
+bool SteamNetworkingGlobalLock::TryLock( const char *pszTag, int msTimeout )
 {
 	SteamNetworkingMicroseconds usecTimeStartedLocking = SteamNetworkingSockets_GetLocalTimestamp();
 	#ifdef MSVC_STL_MUTEX_WORKAROUND
@@ -161,7 +161,7 @@ bool SteamDatagramTransportLock::TryLock( const char *pszTag, int msTimeout )
 	return true;
 }
 
-void SteamDatagramTransportLock::Unlock()
+void SteamNetworkingGlobalLock::Unlock()
 {
 	char tags[ 256 ];
 
@@ -232,7 +232,7 @@ void SteamDatagramTransportLock::Unlock()
 	}
 }
 
-void SteamDatagramTransportLock::SetLongLockWarningThresholdMS( const char *pszTag, int msWarningThreshold )
+void SteamNetworkingGlobalLock::SetLongLockWarningThresholdMS( const char *pszTag, int msWarningThreshold )
 {
 	AssertHeldByCurrentThread( pszTag );
 	SteamNetworkingMicroseconds usecWarningThreshold = SteamNetworkingMicroseconds{msWarningThreshold}*1000;
@@ -243,13 +243,13 @@ void SteamDatagramTransportLock::SetLongLockWarningThresholdMS( const char *pszT
 	}
 }
 
-void SteamDatagramTransportLock::AssertHeldByCurrentThread()
+void SteamNetworkingGlobalLock::AssertHeldByCurrentThread()
 {
 	Assert( s_nLocked > 0 ); // NOTE: This could succeed even if another thread has the lock
 	Assert( s_threadIDLockOwner == std::this_thread::get_id() );
 }
 
-void SteamDatagramTransportLock::AssertHeldByCurrentThread( const char *pszTag )
+void SteamNetworkingGlobalLock::AssertHeldByCurrentThread( const char *pszTag )
 {
 	Assert( s_nLocked > 0 ); // NOTE: This could succeed even if another thread has the lock
 	if ( s_threadIDLockOwner == std::this_thread::get_id() )
@@ -303,7 +303,7 @@ ISteamNetworkingSocketsRunWithLock::~ISteamNetworkingSocketsRunWithLock() {}
 bool ISteamNetworkingSocketsRunWithLock::RunOrQueue( const char *pszTag )
 {
 	// Check if lock is available immediately
-	if ( !SteamDatagramTransportLock::TryLock( pszTag, 0 ) )
+	if ( !SteamNetworkingGlobalLock::TryLock( pszTag, 0 ) )
 	{
 		Queue( pszTag );
 		return false;
@@ -316,7 +316,7 @@ bool ISteamNetworkingSocketsRunWithLock::RunOrQueue( const char *pszTag )
 	Run();
 
 	// Go ahead and unlock now
-	SteamDatagramTransportLock::Unlock();
+	SteamNetworkingGlobalLock::Unlock();
 
 	// Self destruct
 	delete this;
@@ -365,7 +365,7 @@ void ISteamNetworkingSocketsRunWithLock::ServiceQueue()
 	for ( ISteamNetworkingSocketsRunWithLock *pItem: vecTempQueue )
 	{
 		// Make sure we hold the lock, and also set the tag for debugging purposes
-		SteamDatagramTransportLock::AssertHeldByCurrentThread( pItem->m_pszTag );
+		SteamNetworkingGlobalLock::AssertHeldByCurrentThread( pItem->m_pszTag );
 
 		// Do the work and nuke
 		pItem->Run();
@@ -540,7 +540,7 @@ public:
 
 		// Add a tag.  If we end up holding the lock for a long time, this tag
 		// will tell us how many packets were sent
-		SteamDatagramTransportLock::AddTag( "SendUDPacket" );
+		SteamNetworkingGlobalLock::AddTag( "SendUDPacket" );
 
 		// Convert address to BSD interface
 		struct sockaddr_storage destAddress;
@@ -637,7 +637,7 @@ public:
 
 	void LagPacket( bool bSend, const CRawUDPSocketImpl *pSock, const netadr_t &adr, int msDelay, int nChunks, const iovec *pChunks )
 	{
-		SteamDatagramTransportLock::AssertHeldByCurrentThread( "LagPacket" );
+		SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "LagPacket" );
 
 		int cbPkt = 0;
 		for ( int i = 0 ; i < nChunks ; ++i )
@@ -835,7 +835,7 @@ bool IRawUDPSocket::BSendRawPacket( const void *pPkt, int cbPkt, const netadr_t 
 
 bool IRawUDPSocket::BSendRawPacketGather( int nChunks, const iovec *pChunks, const netadr_t &adrTo ) const
 {
-	SteamDatagramTransportLock::AssertHeldByCurrentThread();
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
 
 	// Silently ignore a request to send a packet anytime we're in the process of shutting down the system
 	if ( s_nLowLevelSupportRefCount.load(std::memory_order_acquire) <= 0 )
@@ -877,7 +877,7 @@ bool IRawUDPSocket::BSendRawPacketGather( int nChunks, const iovec *pChunks, con
 
 void IRawUDPSocket::Close()
 {
-	SteamDatagramTransportLock::AssertHeldByCurrentThread( "IRawUDPSocket::Close" );
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "IRawUDPSocket::Close" );
 	CRawUDPSocketImpl *self = static_cast<CRawUDPSocketImpl *>( this );
 
 	/// Clear the callback, to ensure that no further callbacks will be executed.
@@ -1008,7 +1008,7 @@ static CRawUDPSocketImpl *OpenRawUDPSocketInternal( CRecvPacketCallback callback
 {
 	// Creating a socket *should* be fast, but sometimes the OS might need to do some work.
 	// We shouldn't do this too often, give it a little extra time.
-	SteamDatagramTransportLock::SetLongLockWarningThresholdMS( "OpenRawUDPSocketInternal", 100 );
+	SteamNetworkingGlobalLock::SetLongLockWarningThresholdMS( "OpenRawUDPSocketInternal", 100 );
 
 	// Make sure have been initialized
 	if ( s_nLowLevelSupportRefCount.load(std::memory_order_acquire) <= 0 )
@@ -1185,8 +1185,8 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 {
 	// This should only ever be called from our one thread proc,
 	// and we assume that it will have locked the lock exactly once.
-	SteamDatagramTransportLock::AssertHeldByCurrentThread();
-	Assert( SteamDatagramTransportLock::s_nLocked == 1 );
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
+	Assert( SteamNetworkingGlobalLock::s_nLocked == 1 );
 
 	const int nSocketsToPoll = s_vecRawSockets.Count();
 
@@ -1238,7 +1238,7 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 	#endif
 
 	// Release lock while we're asleep
-	SteamDatagramTransportLock::Unlock();
+	SteamNetworkingGlobalLock::Unlock();
 
 	// Shutdown request?
 	if ( s_nLowLevelSupportRefCount.load(std::memory_order_acquire) <= 0 || s_bManualPollMode != bManualPoll )
@@ -1263,7 +1263,7 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 
 		// Try to acquire the lock.  But don't wait forever, in case the other thread has the lock
 		// and then makes a shutdown request while we're waiting on the lock here.
-		if ( SteamDatagramTransportLock::TryLock( "ServiceThread", 250 ) )
+		if ( SteamNetworkingGlobalLock::TryLock( "ServiceThread", 250 ) )
 			break;
 
 		// The only time this really should happen is a relatively rare race condition
@@ -1368,7 +1368,7 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 
 			// Add a tag.  If we end up holding the lock for a long time, this tag
 			// will tell us how many packets were processed
-			SteamDatagramTransportLock::AddTag( "RecvUDPPacket" );
+			SteamNetworkingGlobalLock::AddTag( "RecvUDPPacket" );
 
 			// Check for simulating random packet loss
 			if ( RandomBoolWithOdds( g_Config_FakePacketLoss_Recv.Get() ) )
@@ -1440,7 +1440,7 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 
 void ProcessPendingDestroyClosedRawUDPSockets()
 {
-	SteamDatagramTransportLock::AssertHeldByCurrentThread();
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
 
 	for ( CRawUDPSocketImpl *pSock: s_vecRawSocketsPendingDeletion )
 	{
@@ -1465,8 +1465,8 @@ void ProcessPendingDestroyClosedRawUDPSockets()
 //
 static bool SteamNetworkingSockets_InternalPoll( int msWait, bool bManualPoll )
 {
-	SteamDatagramTransportLock::AssertHeldByCurrentThread(); // We should own the lock
-	Assert( SteamDatagramTransportLock::s_nLocked == 1 ); // exactly once
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread(); // We should own the lock
+	Assert( SteamNetworkingGlobalLock::s_nLocked == 1 ); // exactly once
 
 	// Figure out how long to sleep
 	IThinker *pNextThinker = Thinker_GetNextScheduled();
@@ -1520,13 +1520,13 @@ static bool SteamNetworkingSockets_InternalPoll( int msWait, bool bManualPoll )
 		return false;
 	}
 
-	SteamDatagramTransportLock::AssertHeldByCurrentThread(); // We should own the lock
-	Assert( SteamDatagramTransportLock::s_nLocked == 1 ); // exactly once
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread(); // We should own the lock
+	Assert( SteamNetworkingGlobalLock::s_nLocked == 1 ); // exactly once
 
 	// Shutdown request?
 	if ( s_nLowLevelSupportRefCount.load(std::memory_order_acquire) <= 0 || s_bManualPollMode != bManualPoll )
 	{
-		SteamDatagramTransportLock::Unlock();
+		SteamNetworkingGlobalLock::Unlock();
 		return false; // Shutdown request, we have released the lock
 	}
 
@@ -1619,7 +1619,7 @@ static void SteamNetworkingThreadProc()
 	{
 		if ( s_nLowLevelSupportRefCount.load(std::memory_order_acquire) <= 0 || s_bManualPollMode )
 			return;
-	} while ( !SteamDatagramTransportLock::TryLock( "ServiceThread", 10 ) );
+	} while ( !SteamNetworkingGlobalLock::TryLock( "ServiceThread", 10 ) );
 
 	// Random number generator may be per thread!  Make sure and see it for
 	// this thread, if so
@@ -1633,7 +1633,7 @@ static void SteamNetworkingThreadProc()
 		// If they activate manual poll mode, then bail!
 		if ( s_bManualPollMode )
 		{
-			SteamDatagramTransportLock::Unlock();
+			SteamNetworkingGlobalLock::Unlock();
 			break;
 		}
 	}
@@ -1704,7 +1704,7 @@ static void DedicatedBoundSocketCallback( const void *pPkt, int cbPkt, const net
 
 IBoundUDPSocket *OpenUDPSocketBoundToHost( const netadr_t &adrRemote, CRecvPacketCallback callback, SteamDatagramErrMsg &errMsg )
 {
-	SteamDatagramTransportLock::AssertHeldByCurrentThread();
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
 
 	// Select local address to use.
 	// Since we know the remote host, let's just always use a single-stack socket
@@ -1727,7 +1727,7 @@ IBoundUDPSocket *OpenUDPSocketBoundToHost( const netadr_t &adrRemote, CRecvPacke
 
 bool CreateBoundSocketPair( CRecvPacketCallback callback1, CRecvPacketCallback callback2, IBoundUDPSocket **ppOutSockets, SteamDatagramErrMsg &errMsg )
 {
-	SteamDatagramTransportLock::AssertHeldByCurrentThread();
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
 
 	SteamNetworkingIPAddr localAddr;
 
@@ -1783,7 +1783,7 @@ void CSharedSocket::CallbackRecvPacket( const void *pPkt, int cbPkt, const netad
 
 bool CSharedSocket::BInit( const SteamNetworkingIPAddr &localAddr, CRecvPacketCallback callbackDefault, SteamDatagramErrMsg &errMsg )
 {
-	SteamDatagramTransportLock::AssertHeldByCurrentThread();
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
 
 	Kill();
 
@@ -1798,7 +1798,7 @@ bool CSharedSocket::BInit( const SteamNetworkingIPAddr &localAddr, CRecvPacketCa
 
 void CSharedSocket::Kill()
 {
-	SteamDatagramTransportLock::AssertHeldByCurrentThread();
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
 
 	m_callbackDefault.m_fnCallback = nullptr;
 	if ( m_pRawSock )
@@ -1814,7 +1814,7 @@ void CSharedSocket::Kill()
 
 void CSharedSocket::CloseRemoteHostByIndex( int idx )
 {
-	SteamDatagramTransportLock::AssertHeldByCurrentThread();
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
 
 	delete m_mapRemoteHosts[ idx ];
 	m_mapRemoteHosts[idx] = nullptr; // just for grins
@@ -1823,7 +1823,7 @@ void CSharedSocket::CloseRemoteHostByIndex( int idx )
 
 IBoundUDPSocket *CSharedSocket::AddRemoteHost( const netadr_t &adrRemote, CRecvPacketCallback callback )
 {
-	SteamDatagramTransportLock::AssertHeldByCurrentThread();
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
 
 	if ( m_mapRemoteHosts.HasElement( adrRemote ) )
 	{
@@ -1840,7 +1840,7 @@ IBoundUDPSocket *CSharedSocket::AddRemoteHost( const netadr_t &adrRemote, CRecvP
 
 void CSharedSocket::RemoteHost::Close()
 {
-	SteamDatagramTransportLock::AssertHeldByCurrentThread();
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
 
 	int idx = m_pOwner->m_mapRemoteHosts.Find( m_adr );
 	if ( idx == m_pOwner->m_mapRemoteHosts.InvalidIndex() || m_pOwner->m_mapRemoteHosts[idx] != this )
@@ -1877,7 +1877,7 @@ void ReallySpewTypeFmt( int eType, const char *pMsg, ... )
 
 bool BSteamNetworkingSocketsLowLevelAddRef( SteamDatagramErrMsg &errMsg )
 {
-	SteamDatagramTransportLock::AssertHeldByCurrentThread();
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
 
 	// Make sure and call time function at least once
 	// just before we start up our thread, so we don't lurch
@@ -1895,7 +1895,7 @@ bool BSteamNetworkingSocketsLowLevelAddRef( SteamDatagramErrMsg &errMsg )
 
 		// Give us a extra time here.  This is a one-time init function and the OS might
 		// need to load up libraries and stuff.
-		SteamDatagramTransportLock::SetLongLockWarningThresholdMS( "BSteamNetworkingSocketsLowLevelAddRef", 500 );
+		SteamNetworkingGlobalLock::SetLongLockWarningThresholdMS( "BSteamNetworkingSocketsLowLevelAddRef", 500 );
 
 		// Initialize COM
 		#ifdef _XBOX_ONE
@@ -1993,7 +1993,7 @@ bool BSteamNetworkingSocketsLowLevelAddRef( SteamDatagramErrMsg &errMsg )
 	{
 		s_bInstalledAtExitHandler = true;
 		atexit( []{
-			SteamDatagramTransportLock scopeLock( "atexit" );
+			SteamNetworkingGlobalLock scopeLock( "atexit" );
 
 			// Static destruction is about to happen.  If we have a thread,
 			// we need to nuke it
@@ -2008,7 +2008,7 @@ bool BSteamNetworkingSocketsLowLevelAddRef( SteamDatagramErrMsg &errMsg )
 
 void SteamNetworkingSocketsLowLevelDecRef()
 {
-	SteamDatagramTransportLock::AssertHeldByCurrentThread();
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
 
 	// Last user is now done?
 	int nLastRefCount = s_nLowLevelSupportRefCount.fetch_sub(1, std::memory_order_acq_rel);
@@ -2022,7 +2022,7 @@ void SteamNetworkingSocketsLowLevelDecRef()
 	// There is a potential race condition / deadlock with the service thread,
 	// that might cause us to have to wait for it to timeout.  And the OS
 	// might need to do stuff when we close a bunch of sockets (and WSACleanup)
-	SteamDatagramTransportLock::SetLongLockWarningThresholdMS( "SteamNetworkingSocketsLowLevelDecRef", 500 );
+	SteamNetworkingGlobalLock::SetLongLockWarningThresholdMS( "SteamNetworkingSocketsLowLevelDecRef", 500 );
 
 	if ( s_vecRawSockets.IsEmpty() )
 	{
@@ -2165,7 +2165,7 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetManualPollMode( 
 {
 	if ( s_bManualPollMode == bFlag )
 		return;
-	SteamDatagramTransportLock scopeLock( "SteamNetworkingSockets_SetManualPollMode" );
+	SteamNetworkingGlobalLock scopeLock( "SteamNetworkingSockets_SetManualPollMode" );
 	s_bManualPollMode = bFlag;
 
 	// Check for starting/stopping the thread
@@ -2198,7 +2198,7 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_Poll( int msMaxWait
 	}
 	Assert( s_nLowLevelSupportRefCount.load(std::memory_order_acquire) > 0 );
 
-	while ( !SteamDatagramTransportLock::TryLock( "SteamNetworkingSockets_Poll", 1 ) )
+	while ( !SteamNetworkingGlobalLock::TryLock( "SteamNetworkingSockets_Poll", 1 ) )
 	{
 		if ( --msMaxWaitTime <= 0 )
 			return;
@@ -2206,7 +2206,7 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_Poll( int msMaxWait
 
 	bool bStillLocked = SteamNetworkingSockets_InternalPoll( msMaxWaitTime, true );
 	if ( bStillLocked )
-		SteamDatagramTransportLock::Unlock();
+		SteamNetworkingGlobalLock::Unlock();
 }
 
 STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetLockWaitWarningThreshold( SteamNetworkingMicroseconds usecTheshold )

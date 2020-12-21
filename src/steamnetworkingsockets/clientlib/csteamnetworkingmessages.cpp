@@ -47,8 +47,8 @@ CSteamNetworkingMessages *CSteamNetworkingSockets::GetSteamNetworkingMessages()
 	// Already exist?
 	if ( !m_pSteamNetworkingMessages )
 	{
-		SteamDatagramTransportLock scopeLock;
-		SteamDatagramTransportLock::SetLongLockWarningThresholdMS( "CreateSteamNetworkingMessages", 10 );
+		SteamNetworkingGlobalLock scopeLock;
+		SteamNetworkingGlobalLock::SetLongLockWarningThresholdMS( "CreateSteamNetworkingMessages", 10 );
 		m_pSteamNetworkingMessages = new CSteamNetworkingMessages( *this );
 		if ( !m_pSteamNetworkingMessages->BInit() )
 		{
@@ -109,7 +109,7 @@ bool CSteamNetworkingMessages::BInit()
 
 void CSteamNetworkingMessages::FreeResources()
 {
-	SteamDatagramTransportLock::AssertHeldByCurrentThread( "CSteamNetworkingMessages::FreeResources" );
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "CSteamNetworkingMessages::FreeResources" );
 
 	// Destroy all of our sessions.  This will detach all of our connections
 	FOR_EACH_HASHMAP( m_mapSessions, i )
@@ -156,7 +156,7 @@ void CSteamNetworkingMessages::FreeResources()
 
 CSteamNetworkingMessages::~CSteamNetworkingMessages()
 {
-	SteamDatagramTransportLock scopeLock;
+	SteamNetworkingGlobalLock scopeLock;
 
 	FreeResources();
 
@@ -175,7 +175,7 @@ CSteamNetworkingMessages::~CSteamNetworkingMessages()
 void CSteamNetworkingMessages::ConnectionStatusChangedCallback( SteamNetConnectionStatusChangedCallback_t *pInfo )
 {
 	// These callbacks should happen synchronously, while we have the lock
-	SteamDatagramTransportLock::AssertHeldByCurrentThread( "CSteamNetworkingMessages::ConnectionStatusChangedCallback" );
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "CSteamNetworkingMessages::ConnectionStatusChangedCallback" );
 
 	// New connection?
 	if ( pInfo->m_eOldState == k_ESteamNetworkingConnectionState_None )
@@ -235,7 +235,7 @@ EResult CSteamNetworkingMessages::SendMessageToUser( const SteamNetworkingIdenti
 		return k_EResultInvalidSteamID;
 	}
 
-	SteamDatagramTransportLock scopeLock( "SendMessageToUser" );
+	SteamNetworkingGlobalLock scopeLock( "SendMessageToUser" );
 	SteamNetworkingMessagesSession *pSess = FindOrCreateSession( identityRemote );
 	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 
@@ -324,7 +324,7 @@ EResult CSteamNetworkingMessages::SendMessageToUser( const SteamNetworkingIdenti
 
 int CSteamNetworkingMessages::ReceiveMessagesOnChannel( int nLocalChannel, SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages )
 {
-	SteamDatagramTransportLock scopeLock( "ReceiveMessagesOnChannel" );
+	SteamNetworkingGlobalLock scopeLock( "ReceiveMessagesOnChannel" );
 
 	// Pull out all messages from the poll group into per-channel queues
 	if ( m_pPollGroup )
@@ -356,7 +356,7 @@ int CSteamNetworkingMessages::ReceiveMessagesOnChannel( int nLocalChannel, Steam
 
 bool CSteamNetworkingMessages::AcceptSessionWithUser( const SteamNetworkingIdentity &identityRemote )
 {
-	SteamDatagramTransportLock scopeLock( "AcceptSessionWithUser" );
+	SteamNetworkingGlobalLock scopeLock( "AcceptSessionWithUser" );
 	SteamNetworkingMessagesSession *pSession = FindSession( identityRemote );
 	if ( !pSession )
 		return false;
@@ -375,7 +375,7 @@ bool CSteamNetworkingMessages::AcceptSessionWithUser( const SteamNetworkingIdent
 
 bool CSteamNetworkingMessages::CloseSessionWithUser( const SteamNetworkingIdentity &identityRemote )
 {
-	SteamDatagramTransportLock scopeLock( "CloseSessionWithUser" );
+	SteamNetworkingGlobalLock scopeLock( "CloseSessionWithUser" );
 	SteamNetworkingMessagesSession *pSession = FindSession( identityRemote );
 	if ( !pSession )
 		return false;
@@ -388,7 +388,7 @@ bool CSteamNetworkingMessages::CloseSessionWithUser( const SteamNetworkingIdenti
 
 bool CSteamNetworkingMessages::CloseChannelWithUser( const SteamNetworkingIdentity &identityRemote, int nChannel )
 {
-	SteamDatagramTransportLock scopeLock( "CloseChannelWithUser" );
+	SteamNetworkingGlobalLock scopeLock( "CloseChannelWithUser" );
 	SteamNetworkingMessagesSession *pSession = FindSession( identityRemote );
 	if ( !pSession )
 		return false;
@@ -427,7 +427,7 @@ bool CSteamNetworkingMessages::CloseChannelWithUser( const SteamNetworkingIdenti
 
 ESteamNetworkingConnectionState CSteamNetworkingMessages::GetSessionConnectionInfo( const SteamNetworkingIdentity &identityRemote, SteamNetConnectionInfo_t *pConnectionInfo, SteamNetworkingQuickConnectionStatus *pQuickStatus )
 {
-	SteamDatagramTransportLock scopeLock( "GetSessionConnectionInfo" );
+	SteamNetworkingGlobalLock scopeLock( "GetSessionConnectionInfo" );
 	if ( pConnectionInfo )
 		memset( pConnectionInfo, 0, sizeof(*pConnectionInfo) );
 	if ( pQuickStatus )
@@ -449,7 +449,7 @@ ESteamNetworkingConnectionState CSteamNetworkingMessages::GetSessionConnectionIn
 
 SteamNetworkingMessagesSession *CSteamNetworkingMessages::FindSession( const SteamNetworkingIdentity &identityRemote )
 {
-	SteamDatagramTransportLock::AssertHeldByCurrentThread();
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
 	int h = m_mapSessions.Find( identityRemote );
 	if ( h == m_mapSessions.InvalidIndex() )
 		return nullptr;
@@ -483,7 +483,7 @@ CSteamNetworkingMessages::Channel *CSteamNetworkingMessages::FindOrCreateChannel
 
 void CSteamNetworkingMessages::DestroySession( const SteamNetworkingIdentity &identityRemote )
 {
-	SteamDatagramTransportLock::AssertHeldByCurrentThread( "CSteamNetworkingMessages::DestroySession" );
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "CSteamNetworkingMessages::DestroySession" );
 	int h = m_mapSessions.Find( identityRemote );
 	if ( h == m_mapSessions.InvalidIndex() )
 		return;

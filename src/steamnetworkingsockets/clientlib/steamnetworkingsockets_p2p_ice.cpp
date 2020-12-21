@@ -96,7 +96,7 @@ void CConnectionTransportP2PICE::Init()
 		return;
 	}
 
-	SteamDatagramTransportLock::SetLongLockWarningThresholdMS( "CConnectionTransportP2PICE::Init", 50 );
+	SteamNetworkingGlobalLock::SetLongLockWarningThresholdMS( "CConnectionTransportP2PICE::Init", 50 );
 
 	ICESessionConfig cfg;
 
@@ -717,7 +717,7 @@ void CConnectionTransportP2PICE::OnData( const void *pPkt, size_t nSize )
 
 	// See if we can process this packet (and anything queued before us)
 	// immediately
-	if ( SteamDatagramTransportLock::TryLock( "ICE Data", 0 ) )
+	if ( SteamNetworkingGlobalLock::TryLock( "ICE Data", 0 ) )
 	{
 		// We can process the data now!
 		//SpewMsg( "CConnectionTransportP2PICE::OnData %d bytes, process immediate\n", (int)nSize );
@@ -733,7 +733,7 @@ void CConnectionTransportP2PICE::OnData( const void *pPkt, size_t nSize )
 
 		// And now process this packet
 		ProcessPacket( (const uint8_t*)pPkt, cbPkt, usecNow );
-		SteamDatagramTransportLock::Unlock();
+		SteamNetworkingGlobalLock::Unlock();
 		return;
 	}
 

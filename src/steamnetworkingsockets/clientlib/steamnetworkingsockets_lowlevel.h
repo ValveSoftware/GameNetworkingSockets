@@ -304,10 +304,10 @@ extern void SteamNetworkingSocketsLowLevelDecRef();
 /// Scope lock object used to synchronize access to internal data structures.  We use a global lock,
 /// even though in some cases it might not be necessary, to simplify the code, since in most cases
 /// there will be very little contention and the should be held only for a short amount of time.
-struct SteamDatagramTransportLock
+struct SteamNetworkingGlobalLock
 {
-	inline SteamDatagramTransportLock( const char *pszTag = nullptr ) { Lock( pszTag ); }
-	inline ~SteamDatagramTransportLock() { Unlock(); }
+	inline SteamNetworkingGlobalLock( const char *pszTag = nullptr ) { Lock( pszTag ); }
+	inline ~SteamNetworkingGlobalLock() { Unlock(); }
 	static void Lock( const char *pszTag );
 	static bool TryLock( const char *pszTag, int msTimeout );
 	static void Unlock();

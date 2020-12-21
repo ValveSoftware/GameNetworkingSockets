@@ -1272,7 +1272,7 @@ void CSteamNetworkConnectionBase::CertRequestFailed( ESteamNetConnectionEnd nCon
 
 bool CSteamNetworkConnectionBase::BRecvCryptoHandshake( const CMsgSteamDatagramCertificateSigned &msgCert, const CMsgSteamDatagramSessionCryptInfoSigned &msgSessionInfo, bool bServer )
 {
-	SteamDatagramTransportLock::AssertHeldByCurrentThread( "BRecvCryptoHandshake" );
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "BRecvCryptoHandshake" );
 	SteamNetworkingErrMsg errMsg;
 
 	// Have we already done key exchange?

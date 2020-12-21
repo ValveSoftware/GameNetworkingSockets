@@ -40,7 +40,7 @@ static void DebugOutput( ESteamNetworkingSocketsDebugOutputType eType, const cha
 		// is occasionally triggering this assert.  Just ignroe that one
 		// error for now.
 		// Yes, this is a kludge.
-		if ( strstr( pszMsg, "SteamDatagramTransportLock held for" ) )
+		if ( strstr( pszMsg, "SteamNetworkingGlobalLock held for" ) )
 			return;
 
 		assert( !"TEST FAILED" );
