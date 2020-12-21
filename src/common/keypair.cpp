@@ -364,21 +364,17 @@ bool CCryptoKeyBase::operator==( const CCryptoKeyBase &rhs ) const
 	return memcmp( bufLHS.Base(), bufRHS.Base(), cbRawData ) == 0;
 }
 
-
-bool CCryptoKeyBase::CopyFrom( const CCryptoKeyBase &x )
+void CCryptoKeyBase::CopyFrom( const CCryptoKeyBase &x )
 {
 	Assert( m_eKeyType == x.m_eKeyType );
 	Wipe();
 
 	uint32 cbData = x.GetRawData( nullptr );
 	if ( cbData == 0 )
-	{
-		Assert( false );
-		return false;
-	}
+		return;
 	void *tmp = alloca( cbData );
 	VerifyFatal( x.GetRawData( tmp ) == cbData );
-	return SetRawDataAndWipeInput( tmp, cbData );
+	VerifyFatal( SetRawDataAndWipeInput( tmp, cbData ) );
 }
 
 bool CCryptoKeyBase::LoadFromAndWipeBuffer( void *pBuffer, size_t cBytes )

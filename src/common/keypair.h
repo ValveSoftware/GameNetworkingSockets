@@ -84,7 +84,7 @@ public:
 	bool operator!=( const CCryptoKeyBase &rhs ) const { return !operator==( rhs ); }
 
 	// Make a copy of the key, by using the raw data functions
-	bool CopyFrom( const CCryptoKeyBase &x );
+	void CopyFrom( const CCryptoKeyBase &x );
 
 #ifdef DBGFLAG_VALIDATE
 	virtual void Validate( CValidator &validator, const char *pchName ) const = 0;		// Validate our internal structures

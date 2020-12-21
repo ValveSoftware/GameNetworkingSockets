@@ -1134,7 +1134,7 @@ void CSteamNetworkConnectionBase::SetLocalCert( const CMsgSteamDatagramCertifica
 	// but we'll only keep this around for a brief time.  It's possible for the
 	// interface to get a new cert (with a new private key) while we are starting this
 	// connection.  We'll keep using the old one, which may be totally valid.
-	DbgVerify( m_keyPrivate.CopyFrom( keyPrivate ) );
+	m_keyPrivate.CopyFrom( keyPrivate );
 
 	// Save off the signed certificate
 	m_msgSignedCertLocal = msgSignedCert;
