@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <functional>
 #include <mutex>
+#include <thread>
 #include <steam/steamnetworkingtypes.h>
 #include <tier1/netadr.h>
 #include <tier1/utlhashmap.h>
@@ -24,9 +25,49 @@ namespace SteamNetworkingSocketsLib {
 
 // You can override these with more optimal platform-specific
 // versions if you want
-using Mutex = std::mutex; // Spinlock - no recursion, no timeout
-using RecursiveMutex = std::recursive_mutex; // Recursion, but no timeout
-using RecursiveTimedMutex = std::recursive_timed_mutex; // Recursion, but no timeout
+using MutexImpl = std::mutex; // Spinlock - no recursion, no timeout
+using RecursiveMutexImpl = std::recursive_mutex; // Recursion, but no timeout
+using RecursiveTimedMutexImpl = std::recursive_timed_mutex; // Recursion, but no timeout
+
+/// Wrapper for locks to make them somewhat debuggable.
+template<typename TMutexImpl>
+struct DebugMutex
+{
+	inline void lock()
+	{
+		m_impl.lock();
+		OnLocked();
+	}
+	inline void unlock() { AssertHeldByCurrentThread(); --m_nLockCount; m_impl.unlock(); }
+	inline bool try_lock() { if ( !m_impl.try_lock() ) return false; OnLocked(); return true; }
+	inline bool try_lock_for( int msTimeout ) { if ( !m_impl.try_lock_for( std::chrono::milliseconds( msTimeout ) ) ) return false; OnLocked(); return true; }
+
+	inline void AssertHeldByCurrentThread()
+	{
+		Assert( m_nLockCount > 0 ); // Super fast, but subject to false negative (Won't properly fail if another thread has the lock).  Should catch most mistakes though, because often no thread has the lock.
+		DbgAssert( m_threadIDLockOwner == std::this_thread::get_id() ); // Doesn't catch as many bugs, only run in debug
+	}
+	volatile int m_nLockCount = 0;
+	std::thread::id m_threadIDLockOwner;
+private:
+	void OnLocked()
+	{
+		++m_nLockCount;
+		if ( m_nLockCount == 1 )
+		{
+			m_threadIDLockOwner = std::this_thread::get_id();
+		}
+		else
+		{
+			DbgAssert( m_threadIDLockOwner == std::this_thread::get_id() );
+		}
+	}
+	TMutexImpl m_impl;
+};
+
+using Mutex = DebugMutex<MutexImpl>;
+using RecursiveMutex = DebugMutex<RecursiveMutexImpl>;
+using RecursiveTimedMutex = DebugMutex<RecursiveTimedMutexImpl>;
 
 /////////////////////////////////////////////////////////////////////////////
 //
@@ -322,7 +363,6 @@ struct SteamNetworkingGlobalLock
 	static void AssertHeldByCurrentThread( const char *pszTag );
 	static void SetLongLockWarningThresholdMS( const char *pszTag, int msWarningThreshold );
 	static void AddTag( const char *pszTag );
-	static int s_nLocked;
 private:
 	static void OnLocked( const char *pszTag, SteamNetworkingMicroseconds usecTimeStartedLocking );
 };
