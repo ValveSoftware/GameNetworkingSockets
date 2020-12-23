@@ -25,6 +25,7 @@ CConnectionTransportP2PICE::CConnectionTransportP2PICE( CSteamNetworkConnectionP
 : CConnectionTransportUDPBase( connection )
 , CConnectionTransportP2PBase( "ICE", this )
 , m_pICESession( nullptr )
+, m_mutexPacketQueue( "ice_packet_queue" )
 {
 	m_nAllowedCandidateTypes = 0;
 	m_eCurrentRouteKind = k_ESteamNetTransport_Unknown;

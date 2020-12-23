@@ -56,49 +56,142 @@ constexpr SteamNetworkingMicroseconds k_usecDefaultLongLockHeldWarningThreshold 
 
 int g_nSteamDatagramSocketBufferSize = 256*1024;
 
+// Debug the locks active on the cu
+struct ThreadLockDebugInfo
+{
+	static constexpr int k_nMaxHeldLocks = 8;
+	static constexpr int k_nMaxTags = 32;
+
+	SteamNetworkingMicroseconds m_usecLongLockWarningThreshold;
+	SteamNetworkingMicroseconds m_usecIgnoreLongLockWaitTimeUntil;
+	SteamNetworkingMicroseconds m_usecOuterLockStartTime; // Time when we started waiting on outermost lock (if we don't have it yet), or when we aquired the lock (if we have it)
+
+	int m_nHeldLocks;
+	const LockDebugInfo *m_arHeldLocks[ k_nMaxHeldLocks ];
+
+	int m_nTags;
+	struct Tag_t
+	{
+		const char *m_pszTag;
+		int m_nCount;
+	};
+	Tag_t m_arTags[ k_nMaxTags ];
+};
+
 /// Global lock for all local data structures
-static DebugMutex<RecursiveTimedMutexImpl> s_mutexGlobalLock;
-static SteamNetworkingMicroseconds s_usecWhenLocked;
-static SteamNetworkingMicroseconds s_usecLongLockWarningThreshold;
-static SteamNetworkingMicroseconds s_usecIgnoreLongLockWaitTimeUntil;
-static int s_nCurrentLockTags;
-constexpr int k_nMaxCurrentLockTags = 8;
-static const char *s_pszCurrentLockTags[k_nMaxCurrentLockTags];
-static int s_nCurrentLockTagCounts[k_nMaxCurrentLockTags];
+static Lock<RecursiveTimedMutexImpl> s_mutexGlobalLock( "global", 0 );
 static void (*s_fLockAcquiredCallback)( const char *tags, SteamNetworkingMicroseconds usecWaited );
 static void (*s_fLockHeldCallback)( const char *tags, SteamNetworkingMicroseconds usecWaited );
 static SteamNetworkingMicroseconds s_usecLockWaitWarningThreshold = 2*1000;
 
-void SteamNetworkingGlobalLock::AddTag( const char *pszTag )
+/// Get the per-thread debug info
+static ThreadLockDebugInfo &GetThreadDebugInfo()
 {
-	if ( !pszTag || s_nCurrentLockTags >= k_nMaxCurrentLockTags )
+	// Apple seems to hate thread_local.  Is there some sort of feature
+	// define a can check here?  It's a shame because it's really very
+	// efficient on MSVC, gcc, and clang on Windows and linux.
+	#ifdef __APPLE__
+
+		static pthread_key_t key;
+		static pthread_once_t key_once = PTHREAD_ONCE_INIT;
+
+		// One time init the TLS key
+		pthread_once( &key_once,
+			[](){ // Initialization code to run once
+				pthread_key_create(
+					&key,
+					[](void *ptr) { free(ptr); } // Destructor function
+				);
+			}
+		);
+
+		// Get current object
+		void *result = pthread_getspecific(key);
+		if ( unlikely( result == nullptr ) )
+		{
+			result = malloc( sizeof(ThreadLockDebugInfo) );
+			memset( result, 0, sizeof(result) );
+			pthread_setspecific(key, result);
+		}
+		return *static_cast<ThreadLockDebugInfo *>( result );
+	#else
+
+		// Use thread_local
+		thread_local ThreadLockDebugInfo tls_lockDebugInfo;
+		return tls_lockDebugInfo;
+	#endif
+}
+
+/// If non-NULL, add a "tag" to the lock journal for the current thread.
+/// This is useful so that if we hold a lock for a long time, we can get
+/// an idea what sorts of operations were taking a long time.
+static void AddThreadLockTag( const char *pszTag )
+{
+	if ( !pszTag )
 		return;
 
-	for ( int i = 0 ; i < s_nCurrentLockTags ; ++i )
+	ThreadLockDebugInfo &t = GetThreadDebugInfo();
+	Assert( t.m_nHeldLocks > 0 ); // Can't add a tag unless we are locked!
+
+	for ( int i = 0 ; i < t.m_nTags ; ++i )
 	{
-		if ( s_pszCurrentLockTags[i] == pszTag )
+		if ( t.m_arTags[i].m_pszTag == pszTag )
 		{
-			++s_nCurrentLockTagCounts[ i ];
+			++t.m_arTags[i].m_nCount;
 			return;
 		}
 	}
 
-	s_pszCurrentLockTags[ s_nCurrentLockTags ] = pszTag;
-	s_nCurrentLockTagCounts[ s_nCurrentLockTags ] = 1;
-	++s_nCurrentLockTags;
+	if ( t.m_nTags >= ThreadLockDebugInfo::k_nMaxTags )
+		return;
+
+	t.m_arTags[ t.m_nTags ].m_pszTag = pszTag;
+	t.m_arTags[ t.m_nTags ].m_nCount = 1;
+	++t.m_nTags;
 }
 
-void SteamNetworkingGlobalLock::OnLocked( const char *pszTag, SteamNetworkingMicroseconds usecTimeStartedLocking )
+void LockDebugInfo::AboutToLock( bool bTry )
 {
-	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
-	SteamNetworkingMicroseconds usecTimeSpentWaitingOnLock = usecNow - usecTimeStartedLocking;
-	if ( s_mutexGlobalLock.m_nLockCount == 1 )
-	{
-		s_usecWhenLocked = usecNow;
-		s_usecLongLockWarningThreshold = k_usecDefaultLongLockHeldWarningThreshold;
-		s_nCurrentLockTags = 0;
+	ThreadLockDebugInfo &t = GetThreadDebugInfo();
 
-		if ( usecTimeSpentWaitingOnLock > s_usecLockWaitWarningThreshold && usecNow > s_usecIgnoreLongLockWaitTimeUntil )
+	// First lock held by this thread?
+	if ( t.m_nHeldLocks == 0 )
+	{
+		// Remember when we started trying to lock
+		t.m_usecOuterLockStartTime = SteamNetworkingSockets_GetLocalTimestamp();
+	}
+	else
+	{
+
+		// We already hold a lock.  Make sure it's legal for us to take another!
+
+		// Global lock *must* always be the outermost lock.  (It is legal to take other locks in
+		// between and then lock the global lock recursively.
+		AssertMsg(
+			this != &s_mutexGlobalLock || t.m_arHeldLocks[ 0 ] == &s_mutexGlobalLock,
+			"Taking global lock while already holding lock '%s'", t.m_arHeldLocks[ 0 ]->m_pszName
+		);
+
+		const LockDebugInfo *pTopLock = t.m_arHeldLocks[ t.m_nHeldLocks-1 ];
+		AssertMsg( !( pTopLock->m_nFlags & LockDebugInfo::k_nFlag_ShortDuration ), "Taking lock '%s' while already holding lock '%s'", m_pszName, pTopLock->m_pszName );
+	}
+}
+
+void LockDebugInfo::OnLocked( const char *pszTag )
+{
+	ThreadLockDebugInfo &t = GetThreadDebugInfo();
+
+	Assert( t.m_nHeldLocks < ThreadLockDebugInfo::k_nMaxHeldLocks );
+	t.m_arHeldLocks[ t.m_nHeldLocks++ ] = this;
+
+	if ( t.m_nHeldLocks == 1 )
+	{
+		SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
+		SteamNetworkingMicroseconds usecTimeSpentWaitingOnLock = usecNow - t.m_usecOuterLockStartTime;
+		t.m_usecLongLockWarningThreshold = k_usecDefaultLongLockHeldWarningThreshold;
+		t.m_nTags = 0;
+
+		if ( usecTimeSpentWaitingOnLock > s_usecLockWaitWarningThreshold && usecNow > t.m_usecIgnoreLongLockWaitTimeUntil )
 		{
 			if ( pszTag )
 				SpewWarning( "Waited %.1fms for SteamNetworkingSockets lock [%s]", usecTimeSpentWaitingOnLock*1e-3, pszTag );
@@ -110,52 +203,35 @@ void SteamNetworkingGlobalLock::OnLocked( const char *pszTag, SteamNetworkingMic
 		auto callback = s_fLockAcquiredCallback; // save to temp, to prevent very narrow race condition where variable is cleared after we null check it, and we call null
 		if ( callback )
 			callback( pszTag, usecTimeSpentWaitingOnLock );
+
+		t.m_usecOuterLockStartTime = usecNow;
 	}
-	else
-	{
-		// Getting it again had better be nearly instantaneous!
-		// FIXME I don't know why this is firing with a lower threshold.  What is it doing?
-		AssertMsg1( usecTimeSpentWaitingOnLock < 2000, "Waited %lldusec to take second lock on the same thread??", (long long)usecTimeSpentWaitingOnLock );
-	}
-	AddTag( pszTag );
+
+	AddThreadLockTag( pszTag );
 }
 
-void SteamNetworkingGlobalLock::Lock( const char *pszTag )
-{
-	SteamNetworkingMicroseconds usecTimeStartedLocking = SteamNetworkingSockets_GetLocalTimestamp();
-	s_mutexGlobalLock.lock();
-	OnLocked( pszTag, usecTimeStartedLocking );
-}
-
-bool SteamNetworkingGlobalLock::TryLock( const char *pszTag, int msTimeout )
-{
-	SteamNetworkingMicroseconds usecTimeStartedLocking = SteamNetworkingSockets_GetLocalTimestamp();
-	if ( !s_mutexGlobalLock.try_lock_for( msTimeout ) )
-		return false;
-	OnLocked( pszTag, usecTimeStartedLocking );
-	return true;
-}
-
-void SteamNetworkingGlobalLock::Unlock()
+void LockDebugInfo::AboutToUnlock()
 {
 	char tags[ 256 ];
 
-	AssertHeldByCurrentThread();
 	SteamNetworkingMicroseconds usecElapsed = 0;
 	SteamNetworkingMicroseconds usecElapsedTooLong = 0;
 	auto lockHeldCallback = s_fLockHeldCallback;
 
-	if ( s_mutexGlobalLock.m_nLockCount == 1 )
+	ThreadLockDebugInfo &t = GetThreadDebugInfo();
+	Assert( t.m_nHeldLocks > 0 && t.m_arHeldLocks[t.m_nHeldLocks-1] == this );
+
+	if ( t.m_nHeldLocks == 1 )
 	{
 
 		// We're about to do the final release.  How long did we hold the lock?
-		usecElapsed = SteamNetworkingSockets_GetLocalTimestamp() - s_usecWhenLocked;
+		usecElapsed = SteamNetworkingSockets_GetLocalTimestamp() - t.m_usecOuterLockStartTime;
 
 		// Too long?  We need to check the threshold here because the threshold could
 		// change by another thread immediately after we release the lock.  Also, if
 		// we're debugging, all bets are off.  They could have hit a breakpoint, and
 		// we don't want to create a bunch of confusing spew with spurious asserts
-		if ( usecElapsed >= s_usecLongLockWarningThreshold && !Plat_IsInDebugSession() )
+		if ( usecElapsed >= t.m_usecLongLockWarningThreshold && !Plat_IsInDebugSession() )
 		{
 			usecElapsedTooLong = usecElapsed;
 		}
@@ -164,30 +240,30 @@ void SteamNetworkingGlobalLock::Unlock()
 		{
 			char *p = tags;
 			char *end = tags + sizeof(tags) - 1;
-			for ( int i = 0 ; i < s_nCurrentLockTags && p+5 < end ; ++i )
+			for ( int i = 0 ; i < t.m_nTags && p+5 < end ; ++i )
 			{
 				if ( p > tags )
 					*(p++) = ',';
 
-				const char *tag = s_pszCurrentLockTags[ i ];
-				int taglen = std::min( int(end-p), (int)V_strlen( tag ) );
-				memcpy( p, tag, taglen );
+				const ThreadLockDebugInfo::Tag_t &tag = t.m_arTags[i];
+				int taglen = std::min( int(end-p), (int)V_strlen( tag.m_pszTag ) );
+				memcpy( p, tag.m_pszTag, taglen );
 				p += taglen;
 
-				if ( s_nCurrentLockTagCounts[i] > 1 )
+				if ( tag.m_nCount > 1 )
 				{
 					int l = end-p;
 					if ( l <= 5 )
 						break;
-					p += V_snprintf( p, l, "(x%d)", s_nCurrentLockTagCounts[i] );
+					p += V_snprintf( p, l, "(x%d)", tag.m_nCount );
 				}
 			}
 			*p = '\0';
 		}
 
-		s_nCurrentLockTags = 0;
+		t.m_nTags = 0;
+		t.m_usecOuterLockStartTime = 0; // Just for grins.
 	}
-	s_mutexGlobalLock.unlock();
 
 	if ( usecElapsed > 0 && lockHeldCallback )
 	{
@@ -200,16 +276,48 @@ void SteamNetworkingGlobalLock::Unlock()
 		SpewWarning( "SteamNetworkingSockets lock held for %.1fms.  (Performance warning).  %s", usecElapsedTooLong*1e-3, tags );
 		ETW_LongOp( "lock held", usecElapsedTooLong, tags );
 	}
+
+	--t.m_nHeldLocks;
+	t.m_arHeldLocks[t.m_nHeldLocks] = nullptr; // Just for grins
+}
+
+void LockDebugInfo::AssertHeldByCurrentThread()
+{
+	ThreadLockDebugInfo &t = GetThreadDebugInfo();
+	for ( int i = t.m_nHeldLocks-1 ; i >= 0 ; --i )
+	{
+		if ( t.m_arHeldLocks[i] == this )
+			return;
+	}
+
+	AssertMsg( false, "Lock '%s' not held", m_pszName );
+}
+
+
+void SteamNetworkingGlobalLock::Lock( const char *pszTag )
+{
+	s_mutexGlobalLock.lock( pszTag );
+}
+
+bool SteamNetworkingGlobalLock::TryLock( const char *pszTag, int msTimeout )
+{
+	return s_mutexGlobalLock.try_lock_for( msTimeout, pszTag );
+}
+
+void SteamNetworkingGlobalLock::Unlock()
+{
+	s_mutexGlobalLock.unlock();
 }
 
 void SteamNetworkingGlobalLock::SetLongLockWarningThresholdMS( const char *pszTag, int msWarningThreshold )
 {
 	AssertHeldByCurrentThread( pszTag );
 	SteamNetworkingMicroseconds usecWarningThreshold = SteamNetworkingMicroseconds{msWarningThreshold}*1000;
-	if ( s_usecLongLockWarningThreshold < usecWarningThreshold )
+	ThreadLockDebugInfo &t = GetThreadDebugInfo();
+	if ( t.m_usecLongLockWarningThreshold < usecWarningThreshold )
 	{
-		s_usecLongLockWarningThreshold = usecWarningThreshold;
-		s_usecIgnoreLongLockWaitTimeUntil = SteamNetworkingSockets_GetLocalTimestamp() + s_usecLongLockWarningThreshold;
+		t.m_usecLongLockWarningThreshold = usecWarningThreshold;
+		t.m_usecIgnoreLongLockWaitTimeUntil = SteamNetworkingSockets_GetLocalTimestamp() + t.m_usecLongLockWarningThreshold;
 	}
 }
 
@@ -220,15 +328,8 @@ void SteamNetworkingGlobalLock::AssertHeldByCurrentThread()
 
 void SteamNetworkingGlobalLock::AssertHeldByCurrentThread( const char *pszTag )
 {
-	Assert( s_mutexGlobalLock.m_nLockCount > 0 ); // NOTE: This could succeed even if another thread has the lock
-	if ( s_mutexGlobalLock.m_threadIDLockOwner == std::this_thread::get_id() )
-	{
-		AddTag( pszTag );
-	}
-	else
-	{
-		AssertMsg1( false, "Lock not held.  %s", pszTag );
-	}
+	s_mutexGlobalLock.AssertHeldByCurrentThread();
+	AddThreadLockTag( pszTag );
 }
 
 static void SeedWeakRandomGenerator()
@@ -264,7 +365,7 @@ static volatile bool s_bManualPollMode;
 // Note that we could use a lock-free queue for this.  But I suspect that this
 // won't get enough work or have enough contention for that to be an important
 // optimization
-static Mutex s_mutexRunWithLockQueue;
+static ShortDurationLock s_mutexRunWithLockQueue( "run_with_lock_queue" );
 static std::vector< ISteamNetworkingSocketsRunWithLock * > s_vecRunWithLockQueue;
 
 ISteamNetworkingSocketsRunWithLock::~ISteamNetworkingSocketsRunWithLock() {}
@@ -509,7 +610,7 @@ public:
 
 		// Add a tag.  If we end up holding the lock for a long time, this tag
 		// will tell us how many packets were sent
-		SteamNetworkingGlobalLock::AddTag( "SendUDPacket" );
+		SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "SendUDPacket" );
 
 		// Convert address to BSD interface
 		struct sockaddr_storage destAddress;
@@ -1147,6 +1248,12 @@ IRawUDPSocket *OpenRawUDPSocket( CRecvPacketCallback callback, SteamDatagramErrM
 	return OpenRawUDPSocketInternal( callback, errMsg, pAddrLocal, pnAddressFamilies );
 }
 
+static inline void AssertGlobalLockHeldExactlyOnce()
+{
+	ThreadLockDebugInfo &t = GetThreadDebugInfo();
+	Assert( t.m_nHeldLocks == 1 && t.m_arHeldLocks[0] == &s_mutexGlobalLock );
+}
+
 /// Poll all of our sockets, and dispatch the packets received.
 /// This will return true if we own the lock, or false if we detected
 /// a shutdown request and bailed without re-squiring the lock.
@@ -1154,8 +1261,7 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 {
 	// This should only ever be called from our one thread proc,
 	// and we assume that it will have locked the lock exactly once.
-	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
-	Assert( s_mutexGlobalLock.m_nLockCount == 1 );
+	AssertGlobalLockHeldExactlyOnce();
 
 	const int nSocketsToPoll = s_vecRawSockets.Count();
 
@@ -1337,7 +1443,7 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 
 			// Add a tag.  If we end up holding the lock for a long time, this tag
 			// will tell us how many packets were processed
-			SteamNetworkingGlobalLock::AddTag( "RecvUDPPacket" );
+			SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "RecvUDPPacket" );
 
 			// Check for simulating random packet loss
 			if ( RandomBoolWithOdds( g_Config_FakePacketLoss_Recv.Get() ) )
@@ -1434,8 +1540,7 @@ void ProcessPendingDestroyClosedRawUDPSockets()
 //
 static bool SteamNetworkingSockets_InternalPoll( int msWait, bool bManualPoll )
 {
-	SteamNetworkingGlobalLock::AssertHeldByCurrentThread(); // We should own the lock
-	Assert( s_mutexGlobalLock.m_nLockCount == 1 ); // exactly once
+	AssertGlobalLockHeldExactlyOnce();
 
 	// Figure out how long to sleep
 	SteamNetworkingMicroseconds usecNextWakeTime = IThinker::Thinker_GetNextScheduledThinkTime();
@@ -1488,8 +1593,7 @@ static bool SteamNetworkingSockets_InternalPoll( int msWait, bool bManualPoll )
 		return false;
 	}
 
-	SteamNetworkingGlobalLock::AssertHeldByCurrentThread(); // We should own the lock
-	Assert( s_mutexGlobalLock.m_nLockCount == 1 ); // exactly once
+	AssertGlobalLockHeldExactlyOnce();
 
 	// Shutdown request?
 	if ( s_nLowLevelSupportRefCount.load(std::memory_order_acquire) <= 0 || s_bManualPollMode != bManualPoll )

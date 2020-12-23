@@ -25,49 +25,78 @@ namespace SteamNetworkingSocketsLib {
 
 // You can override these with more optimal platform-specific
 // versions if you want
-using MutexImpl = std::mutex; // Spinlock - no recursion, no timeout
-using RecursiveMutexImpl = std::recursive_mutex; // Recursion, but no timeout
-using RecursiveTimedMutexImpl = std::recursive_timed_mutex; // Recursion, but no timeout
+using ShortDurationMutexImpl = std::mutex; // No recursion, no timeout, should only be held for a short time, so expect low contention.  Good candidate for spinlock.
+using RecursiveMutexImpl = std::recursive_mutex; // Need to able to lock recursively, but don't need to be able to wait with timeout.
+using RecursiveTimedMutexImpl = std::recursive_timed_mutex; // Recursion, and need to be able to wait with timeout.  (Does this ability actually add any extra work on any OS we care about?)
+
+struct LockDebugInfo
+{
+	static constexpr int k_nFlag_ShortDuration = (1<<0);
+	static constexpr int k_nFlag_Connection = (1<<1);
+	static constexpr int k_nFlag_PollGroup = (1<<2);
+
+	const char *const m_pszName;
+	const int m_nFlags;
+
+	void AssertHeldByCurrentThread();
+
+protected:
+	LockDebugInfo( const char *pszName, int nFlags ) : m_pszName( pszName ), m_nFlags( nFlags ) {}
+
+	void AboutToLock( bool bTry );
+	void OnLocked( const char *pszTag );
+	void AboutToUnlock();
+
+	//volatile int m_nLockCount = 0;
+	//std::thread::id m_threadIDLockOwner;
+
+};
 
 /// Wrapper for locks to make them somewhat debuggable.
-template<typename TMutexImpl>
-struct DebugMutex
+template<typename TMutexImpl >
+struct Lock : LockDebugInfo
 {
-	inline void lock()
+	inline Lock( const char *pszName, int nFlags ) : LockDebugInfo( pszName, nFlags ) {}
+	inline void lock( const char *pszTag = nullptr )
 	{
+		LockDebugInfo::AboutToLock( false );
 		m_impl.lock();
-		OnLocked();
+		LockDebugInfo::OnLocked( pszTag );
 	}
-	inline void unlock() { AssertHeldByCurrentThread(); --m_nLockCount; m_impl.unlock(); }
-	inline bool try_lock() { if ( !m_impl.try_lock() ) return false; OnLocked(); return true; }
-	inline bool try_lock_for( int msTimeout ) { if ( !m_impl.try_lock_for( std::chrono::milliseconds( msTimeout ) ) ) return false; OnLocked(); return true; }
+	inline void unlock()
+	{
+		LockDebugInfo::AboutToUnlock();
+		m_impl.unlock();
+	}
+	inline bool try_lock( const char *pszTag = nullptr ) {
+		LockDebugInfo::AboutToLock( true );
+		if ( !m_impl.try_lock() )
+			return false;
+		LockDebugInfo::OnLocked( pszTag );
+		return true;
+	}
+	inline bool try_lock_for( int msTimeout, const char *pszTag = nullptr )
+	{
+		LockDebugInfo::AboutToLock( true );
+		if ( !m_impl.try_lock_for( std::chrono::milliseconds( msTimeout ) ) )
+			return false;
+		LockDebugInfo::OnLocked( pszTag );
+		return true;
+	}
 
-	inline void AssertHeldByCurrentThread()
-	{
-		Assert( m_nLockCount > 0 ); // Super fast, but subject to false negative (Won't properly fail if another thread has the lock).  Should catch most mistakes though, because often no thread has the lock.
-		DbgAssert( m_threadIDLockOwner == std::this_thread::get_id() ); // Doesn't catch as many bugs, only run in debug
-	}
-	volatile int m_nLockCount = 0;
-	std::thread::id m_threadIDLockOwner;
 private:
-	void OnLocked()
-	{
-		++m_nLockCount;
-		if ( m_nLockCount == 1 )
-		{
-			m_threadIDLockOwner = std::this_thread::get_id();
-		}
-		else
-		{
-			DbgAssert( m_threadIDLockOwner == std::this_thread::get_id() );
-		}
-	}
 	TMutexImpl m_impl;
 };
 
-using Mutex = DebugMutex<MutexImpl>;
-using RecursiveMutex = DebugMutex<RecursiveMutexImpl>;
-using RecursiveTimedMutex = DebugMutex<RecursiveTimedMutexImpl>;
+// A very simple lock to protect short accesses to a small set of data.
+// Used when:
+// - We hold the lock for a brief period.
+// - We don't need to take any additional locks while already holding this one.
+//   (Including this lock -- e.g. we don't need to lock recursively.)
+struct ShortDurationLock : Lock<ShortDurationMutexImpl>
+{
+	ShortDurationLock( const char *pszName ) : Lock<ShortDurationMutexImpl>( pszName, k_nFlag_ShortDuration ) {}
+};
 
 /////////////////////////////////////////////////////////////////////////////
 //
@@ -362,9 +391,6 @@ struct SteamNetworkingGlobalLock
 	static void AssertHeldByCurrentThread();
 	static void AssertHeldByCurrentThread( const char *pszTag );
 	static void SetLongLockWarningThresholdMS( const char *pszTag, int msWarningThreshold );
-	static void AddTag( const char *pszTag );
-private:
-	static void OnLocked( const char *pszTag, SteamNetworkingMicroseconds usecTimeStartedLocking );
 };
 
 #ifdef DBGFLAG_VALIDATE

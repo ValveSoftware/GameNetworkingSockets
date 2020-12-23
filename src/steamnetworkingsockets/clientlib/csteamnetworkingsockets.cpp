@@ -314,6 +314,7 @@ CSteamNetworkingSockets::CSteamNetworkingSockets( CSteamNetworkingUtils *pSteamN
 #ifdef STEAMNETWORKINGSOCKETS_CAN_REQUEST_CERT
 , m_scheduleCheckRenewCert( this, &CSteamNetworkingSockets::CheckAuthenticationPrerequisites )
 #endif
+, m_mutexPendingCallbacks( "pending_callbacks" )
 {
 	m_connectionConfig.Init( nullptr );
 	m_identity.Clear();
