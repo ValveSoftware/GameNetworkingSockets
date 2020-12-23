@@ -159,6 +159,10 @@ public:
 		m_scheduleP2PTransportThink.EnsureMinScheduleTime( this, &CConnectionTransportP2PBase::P2PTransportThink, usecWhen );
 	}
 
+	// Try to take the connection lock.  Needed so we can use ScheduledMethodThinkerLockable
+	bool TryLock() { return m_pSelfAsConnectionTransport->m_connection.TryLock(); }
+	void Unlock() const { return m_pSelfAsConnectionTransport->m_connection.Unlock(); }
+
 protected:
 	CConnectionTransportP2PBase( const char *pszDebugName, CConnectionTransport *pSelfBase );
 	virtual ~CConnectionTransportP2PBase();
@@ -167,14 +171,14 @@ protected:
 	CSteamNetworkConnectionP2P &Connection() const;
 
 	virtual void P2PTransportThink( SteamNetworkingMicroseconds usecNow );
-	ScheduledMethodThinker<CConnectionTransportP2PBase> m_scheduleP2PTransportThink;
+	ScheduledMethodThinkerLockable<CConnectionTransportP2PBase> m_scheduleP2PTransportThink;
 };
 
 /// A peer-to-peer connection that can use different types of underlying transport
 class CSteamNetworkConnectionP2P : public CSteamNetworkConnectionBase
 {
 public:
-	CSteamNetworkConnectionP2P( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface );
+	CSteamNetworkConnectionP2P( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface, ConnectionScopeLock &scopeLock );
 
 	/// Start connecting to a remote peer at the specified virtual port
 	bool BInitConnect(

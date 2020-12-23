@@ -36,6 +36,7 @@
 // Put everything in a namespace, so we don't violate the one definition rule
 namespace SteamNetworkingSocketsLib {
 
+// This table is protected by the global lock
 CUtlHashMap<RemoteConnectionKey_t,CSteamNetworkConnectionP2P*, std::equal_to<RemoteConnectionKey_t>, RemoteConnectionKey_t::Hash > g_mapP2PConnectionsByRemoteInfo;
 
 constexpr SteamNetworkingMicroseconds k_usecWaitForControllingAgentBeforeSelectingNonNominatedTransport = 1*k_nMillion;
@@ -97,8 +98,8 @@ bool CSteamNetworkListenSocketP2P::BInit( int nLocalVirtualPort, int nOptions, c
 //
 /////////////////////////////////////////////////////////////////////////////
 
-CSteamNetworkConnectionP2P::CSteamNetworkConnectionP2P( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface )
-: CSteamNetworkConnectionBase( pSteamNetworkingSocketsInterface )
+CSteamNetworkConnectionP2P::CSteamNetworkConnectionP2P( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface, ConnectionScopeLock &scopeLock )
+: CSteamNetworkConnectionBase( pSteamNetworkingSocketsInterface, scopeLock )
 {
 	m_nRemoteVirtualPort = -1;
 	m_idxMapP2PConnectionsByRemoteInfo = -1;
@@ -2278,14 +2279,21 @@ HSteamNetConnection CSteamNetworkingSockets::ConnectP2P( const SteamNetworkingId
 	}
 
 	SteamNetworkingGlobalLock scopeLock( "ConnectP2P" );
-	CSteamNetworkConnectionBase *pConn = InternalConnectP2PDefaultSignaling( identityRemote, nRemoteVirtualPort, nOptions, pOptions );
+	ConnectionScopeLock connectionLock;
+	CSteamNetworkConnectionBase *pConn = InternalConnectP2PDefaultSignaling( identityRemote, nRemoteVirtualPort, nOptions, pOptions, connectionLock );
 	if ( pConn )
 		return pConn->m_hConnectionSelf;
 	return k_HSteamNetConnection_Invalid;
 }
 
-CSteamNetworkConnectionBase *CSteamNetworkingSockets::InternalConnectP2PDefaultSignaling( const SteamNetworkingIdentity &identityRemote, int nRemoteVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions )
+CSteamNetworkConnectionBase *CSteamNetworkingSockets::InternalConnectP2PDefaultSignaling(
+	const SteamNetworkingIdentity &identityRemote,
+	int nRemoteVirtualPort,
+	int nOptions, const SteamNetworkingConfigValue_t *pOptions,
+	ConnectionScopeLock &scopeLock
+)
 {
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
 	if ( identityRemote.IsInvalid() )
 	{
 		AssertMsg( false, "Invalid identity" );
@@ -2309,7 +2317,7 @@ CSteamNetworkConnectionBase *CSteamNetworkingSockets::InternalConnectP2PDefaultS
 			}
 
 			// Create a loopback connection
-			CSteamNetworkConnectionPipe *pConn = CSteamNetworkConnectionPipe::CreateLoopbackConnection( this, nOptions, pOptions, pLocalInstance->m_mapListenSocketsByVirtualPort[ idx ], errMsg );
+			CSteamNetworkConnectionPipe *pConn = CSteamNetworkConnectionPipe::CreateLoopbackConnection( this, nOptions, pOptions, pLocalInstance->m_mapListenSocketsByVirtualPort[ idx ], errMsg, scopeLock );
 			if ( pConn )
 			{
 				SpewVerbose( "[%s] Using loopback for P2P connection to local identity %s on vport %d.  Partner is [%s]\n",
@@ -2356,7 +2364,7 @@ CSteamNetworkConnectionBase *CSteamNetworkingSockets::InternalConnectP2PDefaultS
 		return nullptr;
 
 	// Use the generic path
-	CSteamNetworkConnectionBase *pResult = InternalConnectP2P( pSignaling, &identityRemote, nRemoteVirtualPort, nOptions, pOptions );
+	CSteamNetworkConnectionBase *pResult = InternalConnectP2P( pSignaling, &identityRemote, nRemoteVirtualPort, nOptions, pOptions, scopeLock );
 
 	// Confirm that we properly knew what the local virtual port would be
 	Assert( !pResult || pResult->m_connectionConfig.m_LocalVirtualPort.Get() == nLocalVirtualPort );
@@ -2371,15 +2379,22 @@ HSteamNetConnection CSteamNetworkingSockets::ConnectP2PCustomSignaling( ISteamNe
 		return k_HSteamNetConnection_Invalid;
 
 	SteamNetworkingGlobalLock scopeLock( "ConnectP2PCustomSignaling" );
-	CSteamNetworkConnectionBase *pConn = InternalConnectP2P( pSignaling, pPeerIdentity, nRemoteVirtualPort, nOptions, pOptions );
+	ConnectionScopeLock connectionLock;
+	CSteamNetworkConnectionBase *pConn = InternalConnectP2P( pSignaling, pPeerIdentity, nRemoteVirtualPort, nOptions, pOptions, connectionLock );
 	if ( pConn )
 		return pConn->m_hConnectionSelf;
 	return k_HSteamNetConnection_Invalid;
 }
 
-CSteamNetworkConnectionBase *CSteamNetworkingSockets::InternalConnectP2P( ISteamNetworkingConnectionSignaling *pSignaling, const SteamNetworkingIdentity *pPeerIdentity, int nRemoteVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions )
+CSteamNetworkConnectionBase *CSteamNetworkingSockets::InternalConnectP2P(
+	ISteamNetworkingConnectionSignaling *pSignaling,
+	const SteamNetworkingIdentity *pPeerIdentity,
+	int nRemoteVirtualPort,
+	int nOptions, const SteamNetworkingConfigValue_t *pOptions,
+	ConnectionScopeLock &scopeLock
+)
 {
-	CSteamNetworkConnectionP2P *pConn = new CSteamNetworkConnectionP2P( this );
+	CSteamNetworkConnectionP2P *pConn = new CSteamNetworkConnectionP2P( this, scopeLock );
 	if ( !pConn )
 	{
 		pSignaling->Release();
@@ -2392,12 +2407,14 @@ CSteamNetworkConnectionBase *CSteamNetworkingSockets::InternalConnectP2P( ISteam
 		return pConn;
 
 	// Failed.  Destroy the failed connection
-	pConn->ConnectionDestroySelfNow();
+	pConn->ConnectionQueueDestroy();
+	scopeLock.Unlock();
 	pConn = nullptr;
 
 	// Did we fail because we found an existing matching connection?
 	if ( pMatchingConnection )
 	{
+		scopeLock.Lock( *pMatchingConnection );
 
 		// If connection is inbound, then we can just implicitly accept it.
 		if ( !pMatchingConnection->m_bConnectionInitiatedRemotely || pMatchingConnection->GetState() != k_ESteamNetworkingConnectionState_Connecting )
@@ -2557,9 +2574,10 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const void *pMsg, int c
 
 	// Locate the connection, if we already have one
 	CSteamNetworkConnectionP2P *pConn = nullptr;
+	ConnectionScopeLock connectionLock;
 	if ( msg.has_to_connection_id() )
 	{
-		CSteamNetworkConnectionBase *pConnBase = FindConnectionByLocalID( msg.to_connection_id() );
+		CSteamNetworkConnectionBase *pConnBase = FindConnectionByLocalID( msg.to_connection_id(), connectionLock );
 
 		// Didn't find them?  Then just drop it.  Otherwise, we are susceptible to leaking the player's online state
 		// any time we receive random message.
@@ -2630,6 +2648,7 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const void *pMsg, int c
 		if ( idxMapP2P != g_mapP2PConnectionsByRemoteInfo.InvalidIndex() )
 		{
 			pConn = g_mapP2PConnectionsByRemoteInfo[ idxMapP2P ];
+			connectionLock.Lock( *pConn );
 			Assert( pConn->m_idxMapP2PConnectionsByRemoteInfo == idxMapP2P );
 			Assert( pConn->m_identityRemote == identityRemote );
 			Assert( pConn->m_unConnectionIDRemote == msg.from_connection_id() );
@@ -2744,6 +2763,7 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const void *pMsg, int c
 					CSteamNetworkConnectionP2P *pMatchingConnection = CSteamNetworkConnectionP2P::FindDuplicateConnection( this, nLocalVirtualPort, identityRemote, nRemoteVirtualPort, bOnlySymmetricConnections, nullptr );
 					if ( pMatchingConnection )
 					{
+						ConnectionScopeLock lockMatchingConnection( *pMatchingConnection );
 						Assert( pMatchingConnection->m_pParentListenSocket == nullptr ); // This conflict should only happen for connections we initiate!
 						int cmp = CompareSymmetricConnections( pMatchingConnection->m_unConnectionIDLocal, pMatchingConnection->GetSignedCertLocal().cert(), msg.from_connection_id(), msgConnectRequest.cert().cert() );
 
@@ -2784,7 +2804,7 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const void *pMsg, int c
 
 						case CSteamNetworkListenSocketP2P::k_EHostedDedicatedServer_Auto:
 							SpewMsgGroup( nLogLevel, "P2P CMsgSteamDatagramConnectRequest from %s; we're listening on vport %d, hosted server connection\n", SteamNetworkingIdentityRender( identityRemote ).c_str(), nLocalVirtualPort );
-							pConn = new CSteamNetworkAcceptedConnectionFromSDRClient( this );
+							pConn = new CSteamNetworkAcceptedConnectionFromSDRClient( this, connectionLock );
 							break;
 
 						default:
@@ -2796,7 +2816,7 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const void *pMsg, int c
 
 			// Create a connection
 			if ( pConn == nullptr )
-				pConn = new CSteamNetworkConnectionP2P( this );
+				pConn = new CSteamNetworkConnectionP2P( this, connectionLock );
 			pConn->m_identityRemote = identityRemote;
 			pConn->m_unConnectionIDRemote = msg.from_connection_id();
 			pConn->m_nRemoteVirtualPort = nRemoteVirtualPort;
@@ -2818,7 +2838,7 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const void *pMsg, int c
 				{
 					SpewWarning( "Failed to start accepting P2P connect request from %s on vport %d; %s\n",
 						SteamNetworkingIdentityRender( pConn->m_identityRemote ).c_str(), nLocalVirtualPort, errMsg );
-					pConn->ConnectionDestroySelfNow();
+					pConn->ConnectionQueueDestroy();
 					return false;
 				}
 			}
@@ -2831,7 +2851,7 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const void *pMsg, int c
 			) ) {
 				SpewWarning( "Failed to start accepting P2P connect request from %s on vport %d; %s\n",
 					SteamNetworkingIdentityRender( pConn->m_identityRemote ).c_str(), nLocalVirtualPort, errMsg );
-				pConn->ConnectionDestroySelfNow();
+				pConn->ConnectionQueueDestroy();
 				SendP2PRejection( pContext, identityRemote, msg, k_ESteamNetConnectionEnd_Misc_Generic, "Internal error accepting connection.  %s", errMsg );
 				return false;
 			}
@@ -2862,7 +2882,7 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const void *pMsg, int c
 					SpewVerboseGroup( nLogLevel, "[%s] P2P connect request actively rejected by app, sending rejection (%s)\n",
 						pConn->GetDescription(), pConn->GetConnectionEndDebugString() );
 					SendP2PRejection( pContext, identityRemote, msg, pConn->GetConnectionEndReason(), "%s", pConn->GetConnectionEndDebugString() );
-					pConn->ConnectionDestroySelfNow();
+					pConn->ConnectionQueueDestroy();
 					return true;
 
 				case k_ESteamNetworkingConnectionState_Connecting:
@@ -2873,7 +2893,7 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const void *pMsg, int c
 						// They decided to ignore it, by just returning null
 						SpewVerboseGroup( nLogLevel, "App ignored P2P connect request from %s on vport %d\n",
 							SteamNetworkingIdentityRender( pConn->m_identityRemote ).c_str(), nLocalVirtualPort );
-						pConn->ConnectionDestroySelfNow();
+						pConn->ConnectionQueueDestroy();
 						return true;
 					}
 

@@ -405,13 +405,14 @@ void CSteamNetworkListenSocketDirectUDP::Received_ConnectRequest( const CMsgStea
 		return;
 	}
 
-	CSteamNetworkConnectionUDP *pConn = new CSteamNetworkConnectionUDP( m_pSteamNetworkingSocketsInterface );
+	ConnectionScopeLock connectionLock;
+	CSteamNetworkConnectionUDP *pConn = new CSteamNetworkConnectionUDP( m_pSteamNetworkingSocketsInterface, connectionLock );
 
 	// OK, they have completed the handshake.  Accept the connection.
 	if ( !pConn->BBeginAccept( this, adrFrom, m_pSock, identityRemote, unClientConnectionID, msg.cert(), msg.crypt(), errMsg ) )
 	{
 		SpewWarning( "Failed to accept connection from %s.  %s\n", CUtlNetAdrRender( adrFrom ).String(), errMsg );
-		pConn->ConnectionDestroySelfNow();
+		pConn->ConnectionQueueDestroy();
 		return;
 	}
 
@@ -899,8 +900,8 @@ void CConnectionTransportUDPBase::Received_NoConnection( const CMsgSteamSockets_
 //
 /////////////////////////////////////////////////////////////////////////////
 
-CSteamNetworkConnectionUDP::CSteamNetworkConnectionUDP( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface )
-: CSteamNetworkConnectionBase( pSteamNetworkingSocketsInterface )
+CSteamNetworkConnectionUDP::CSteamNetworkConnectionUDP( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface, ConnectionScopeLock &scopeLock )
+: CSteamNetworkConnectionBase( pSteamNetworkingSocketsInterface, scopeLock )
 {
 }
 
@@ -1336,6 +1337,10 @@ void CConnectionTransportUDP::PacketReceived( const void *pvPkt, int cbPkt, cons
 		return;
 	}
 
+	// Lock the connection!  We hold the global lock, but we need to lock this
+	// connection
+	ConnectionScopeLock connectionLock( pSelf->m_connection );
+
 	// Data packet is the most common, check for it first.  Also, does stat tracking.
 	if ( *pPkt & 0x80 )
 	{
@@ -1761,8 +1766,8 @@ EUnsignedCert CSteamNetworkConnectionUDP::AllowLocalUnsignedCert()
 //
 /////////////////////////////////////////////////////////////////////////////
 
-CSteamNetworkConnectionlocalhostLoopback::CSteamNetworkConnectionlocalhostLoopback( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface, const SteamNetworkingIdentity &identity )
-: CSteamNetworkConnectionUDP( pSteamNetworkingSocketsInterface )
+CSteamNetworkConnectionlocalhostLoopback::CSteamNetworkConnectionlocalhostLoopback( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface, const SteamNetworkingIdentity &identity, ConnectionScopeLock &scopeLock )
+: CSteamNetworkConnectionUDP( pSteamNetworkingSocketsInterface, scopeLock )
 {
 	m_identityLocal = identity;
 }
@@ -1780,16 +1785,17 @@ EUnsignedCert CSteamNetworkConnectionlocalhostLoopback::AllowLocalUnsignedCert()
 bool CSteamNetworkConnectionlocalhostLoopback::APICreateSocketPair( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface, CSteamNetworkConnectionlocalhostLoopback *pConn[2], const SteamNetworkingIdentity pIdentity[2] )
 {
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
+	ConnectionScopeLock scopeLock[2];
 
 	SteamDatagramErrMsg errMsg;
 
-	pConn[1] = new CSteamNetworkConnectionlocalhostLoopback( pSteamNetworkingSocketsInterface, pIdentity[0] );
-	pConn[0] = new CSteamNetworkConnectionlocalhostLoopback( pSteamNetworkingSocketsInterface, pIdentity[1] );
+	pConn[1] = new CSteamNetworkConnectionlocalhostLoopback( pSteamNetworkingSocketsInterface, pIdentity[0], scopeLock[0] );
+	pConn[0] = new CSteamNetworkConnectionlocalhostLoopback( pSteamNetworkingSocketsInterface, pIdentity[1], scopeLock[1] );
 	if ( !pConn[0] || !pConn[1] )
 	{
 failed:
-		pConn[0]->ConnectionDestroySelfNow(); pConn[0] = nullptr;
-		pConn[1]->ConnectionDestroySelfNow(); pConn[1] = nullptr;
+		pConn[0]->ConnectionQueueDestroy(); pConn[0] = nullptr;
+		pConn[1]->ConnectionQueueDestroy(); pConn[1] = nullptr;
 		return false;
 	}
 

@@ -33,6 +33,7 @@ const SteamNetworkingMicroseconds k_usecSteamNetworkingP2PSessionIdleTimeout = 3
 const int k_ESteamNetConnectionEnd_P2P_SessionClosed = k_ESteamNetConnectionEnd_App_Min + 1;
 const int k_ESteamNetConnectionEnd_P2P_SessionIdleTimeout = k_ESteamNetConnectionEnd_App_Min + 2;
 
+// These tables are protected by global lock
 static CUtlHashMap<HSteamNetConnection,SteamNetworkingMessagesSession*,std::equal_to<HSteamNetConnection>,std::hash<HSteamNetConnection>> g_mapSessionsByConnection;
 static CUtlHashMap<HSteamListenSocket,CSteamNetworkingMessages*,std::equal_to<HSteamListenSocket>,std::hash<HSteamListenSocket>> g_mapMessagesInterfaceByListenSocket;
 
@@ -66,8 +67,16 @@ CSteamNetworkingMessages *CSteamNetworkingSockets::GetSteamNetworkingMessages()
 //
 /////////////////////////////////////////////////////////////////////////////
 
+CSteamNetworkingMessages::Channel::Channel()
+{
+	m_queueRecvMessages.m_pRequiredLock = &g_lockAllRecvMessageQueues;
+		
+}
+
 CSteamNetworkingMessages::Channel::~Channel()
 {
+	ShortDurationScopeLock scopeLock( g_lockAllRecvMessageQueues );
+
 	// Should be empty!
 	Assert( m_queueRecvMessages.empty() );
 
@@ -99,7 +108,8 @@ bool CSteamNetworkingMessages::BInit()
 	g_mapMessagesInterfaceByListenSocket.InsertOrReplace( m_pListenSocket->m_hListenSocketSelf, this );
 
 	// Create poll group
-	m_pPollGroup = GetPollGroupByHandle( m_steamNetworkingSockets.CreatePollGroup() );
+	PollGroupScopeLock pollGroupLock;
+	m_pPollGroup = m_steamNetworkingSockets.InternalCreatePollGroup( pollGroupLock );
 	if ( !m_pPollGroup )
 	{
 		AssertMsg( false, "Failed to create/find poll group" );
@@ -203,7 +213,8 @@ void CSteamNetworkingMessages::ConnectionStatusChangedCallback( SteamNetConnecti
 			// FIXME - if we hit this bug, we leak the connection.  Should we try to clean up better?
 			return;
 		}
-		CSteamNetworkConnectionBase *pConn = GetConnectionByHandle( pInfo->m_hConn );
+		ConnectionScopeLock connectionLock;
+		CSteamNetworkConnectionBase *pConn = GetConnectionByHandle( pInfo->m_hConn, connectionLock );
 		if ( !pConn )
 		{
 			AssertMsg( false, "Can't find connection by handle?" );
@@ -218,6 +229,7 @@ void CSteamNetworkingMessages::ConnectionStatusChangedCallback( SteamNetConnecti
 	int h = g_mapSessionsByConnection.Find( pInfo->m_hConn );
 	if ( h != g_mapSessionsByConnection.InvalidIndex() )
 	{
+		// FIXME - take lock?
 		g_mapSessionsByConnection[h]->ConnectionStateChanged( pInfo );
 		return;
 	}
@@ -244,9 +256,11 @@ EResult CSteamNetworkingMessages::SendMessageToUser( const SteamNetworkingIdenti
 	// Check on connection if needed
 	pSess->CheckConnection( usecNow );
 
+	ConnectionScopeLock connectionLock; // NOTE - These connections are protected by the global lock.  We have not optimized for more granular locking of the Messages interface
 	CSteamNetworkConnectionBase *pConn = pSess->m_pConnection;
 	if ( pConn )
 	{
+		connectionLock.Lock( *pConn );
 
 		// Implicit accept?
 		if ( pConn->m_bConnectionInitiatedRemotely && pConn->GetState() == k_ESteamNetworkingConnectionState_Connecting )
@@ -281,7 +295,7 @@ EResult CSteamNetworkingMessages::SendMessageToUser( const SteamNetworkingIdenti
 		SteamNetworkingConfigValue_t opt[2];
 		opt[0].SetPtr( k_ESteamNetworkingConfig_Callback_ConnectionStatusChanged, (void*)ConnectionStatusChangedCallback );
 		opt[1].SetInt32( k_ESteamNetworkingConfig_SymmetricConnect, 1 );
-		pConn = m_steamNetworkingSockets.InternalConnectP2PDefaultSignaling( identityRemote, k_nVirtualPort_Messages, 2, opt );
+		pConn = m_steamNetworkingSockets.InternalConnectP2PDefaultSignaling( identityRemote, k_nVirtualPort_Messages, 2, opt, connectionLock );
 		if ( !pConn )
 		{
 			AssertMsg( false, "Failed to create connection to '%s' for new messages session", SteamNetworkingIdentityRender( identityRemote ).c_str() );
@@ -328,6 +342,10 @@ int CSteamNetworkingMessages::ReceiveMessagesOnChannel( int nLocalChannel, Steam
 {
 	SteamNetworkingGlobalLock scopeLock( "ReceiveMessagesOnChannel" );
 
+	Channel *pChan = FindOrCreateChannel( nLocalChannel );
+
+	ShortDurationScopeLock lockMessageQueues( g_lockAllRecvMessageQueues );
+
 	// Pull out all messages from the poll group into per-channel queues
 	if ( m_pPollGroup )
 	{
@@ -352,7 +370,6 @@ int CSteamNetworkingMessages::ReceiveMessagesOnChannel( int nLocalChannel, Steam
 		}
 	}
 
-	Channel *pChan = FindOrCreateChannel( nLocalChannel );
 	return pChan->m_queueRecvMessages.RemoveMessages( ppOutMessages, nMaxMessages );
 }
 
@@ -510,7 +527,7 @@ void CSteamNetworkingMessages::NewConnection( CSteamNetworkConnectionBase *pConn
 	if ( pSess->m_pConnection )
 	{
 		AssertMsg( false, "Got incoming messages session connection request when we already had a connection.  This could happen legit, but we aren't handling it right now." );
-		pConn->QueueDestroy();
+		pConn->ConnectionQueueDestroy();
 		return;
 	}
 
@@ -550,13 +567,17 @@ SteamNetworkingMessagesSession::SteamNetworkingMessagesSession( const SteamNetwo
 	memset( &m_lastConnectionInfo, 0, sizeof(m_lastConnectionInfo) );
 	memset( &m_lastQuickStatus, 0, sizeof(m_lastQuickStatus) );
 
+	m_queueRecvMessages.m_pRequiredLock = &g_lockAllRecvMessageQueues;
+
 	MarkUsed( SteamNetworkingSockets_GetLocalTimestamp() );
 }
 
 SteamNetworkingMessagesSession::~SteamNetworkingMessagesSession()
 {
 	// Discard messages
+	g_lockAllRecvMessageQueues.lock();
 	m_queueRecvMessages.PurgeMessages();
+	g_lockAllRecvMessageQueues.unlock();
 
 	// If we have a connection, then nuke it now
 	CloseConnection( k_ESteamNetConnectionEnd_P2P_SessionClosed, "P2PSession destroyed" );
@@ -700,6 +721,8 @@ static void FreeMessageDataWithP2PMessageHeader( SteamNetworkingMessage_t *pMsg 
 
 void SteamNetworkingMessagesSession::ReceivedMessage( CSteamNetworkingMessage *pMsg )
 {
+	// Caller locks this
+	g_lockAllRecvMessageQueues.AssertHeldByCurrentThread();
 
 	// Make sure the message is big enough to contain a header
 	if ( pMsg->m_cbSize < sizeof(P2PMessageHeader) )

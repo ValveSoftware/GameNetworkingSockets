@@ -116,9 +116,10 @@ public:
 
 	struct Channel
 	{
-		SteamNetworkingMessageQueue m_queueRecvMessages;
-
+		Channel();
 		~Channel();
+
+		SteamNetworkingMessageQueue m_queueRecvMessages;
 	};
 
 	CSteamNetworkListenSocketBase *m_pListenSocket = nullptr;

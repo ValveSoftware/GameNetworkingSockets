@@ -127,6 +127,8 @@ public:
 	CUtlHashMap<int,CSteamNetworkListenSocketP2P *,std::equal_to<int>,std::hash<int>> m_mapListenSocketsByVirtualPort;
 	CSteamNetworkListenSocketP2P *InternalCreateListenSocketP2P( int nLocalVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions );
 
+	CSteamNetworkPollGroup *InternalCreatePollGroup( PollGroupScopeLock &scopeLock );
+
 	//
 	// Authentication
 	//
@@ -156,7 +158,12 @@ public:
 	// Default signaling
 	//
 
-	CSteamNetworkConnectionBase *InternalConnectP2PDefaultSignaling( const SteamNetworkingIdentity &identityRemote, int nRemoteVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions );
+	CSteamNetworkConnectionBase *InternalConnectP2PDefaultSignaling(
+		const SteamNetworkingIdentity &identityRemote,
+		int nRemoteVirtualPort,
+		int nOptions, const SteamNetworkingConfigValue_t *pOptions,
+		ConnectionScopeLock &scopeLock
+	);
 	CSteamNetworkingMessages *GetSteamNetworkingMessages();
 	CSteamNetworkingMessages *m_pSteamNetworkingMessages;
 
@@ -214,7 +221,13 @@ protected:
 	bool m_bHaveLowLevelRef;
 	bool BInitLowLevel( SteamNetworkingErrMsg &errMsg );
 
-	CSteamNetworkConnectionBase *InternalConnectP2P( ISteamNetworkingConnectionSignaling *pSignaling, const SteamNetworkingIdentity *pPeerIdentity, int nRemoteVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions );
+	CSteamNetworkConnectionBase *InternalConnectP2P(
+		ISteamNetworkingConnectionSignaling *pSignaling,
+		const SteamNetworkingIdentity *pPeerIdentity,
+		int nRemoteVirtualPort,
+		int nOptions, const SteamNetworkingConfigValue_t *pOptions,
+		ConnectionScopeLock &scopeLock
+	);
 	bool InternalReceivedP2PSignal( const void *pMsg, int cbMsg, ISteamNetworkingSignalingRecvContext *pContext, bool bDefaultPlatformSignaling );
 
 	// Protected - use Destroy()

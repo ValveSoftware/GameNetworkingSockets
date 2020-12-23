@@ -210,8 +210,12 @@ void ConnectionConfig::Init( ConnectionConfig *pInherit )
 /////////////////////////////////////////////////////////////////////////////
 
 CUtlHashMap<uint16, CSteamNetworkConnectionBase *, std::equal_to<uint16>, Identity<uint16> > g_mapConnections;
-CUtlHashMap<int, CSteamNetworkListenSocketBase *, std::equal_to<int>, Identity<int> > g_mapListenSockets;
 CUtlHashMap<int, CSteamNetworkPollGroup *, std::equal_to<int>, Identity<int> > g_mapPollGroups;
+TableLock g_tables_lock;
+
+// Table of active listen sockets.  Listen sockets and this table are protected
+// by the global lock.
+CUtlHashMap<int, CSteamNetworkListenSocketBase *, std::equal_to<int>, Identity<int> > g_mapListenSockets; 
 
 static bool BConnectionStateExistsToAPI( ESteamNetworkingConnectionState eState )
 {
@@ -236,36 +240,87 @@ static bool BConnectionStateExistsToAPI( ESteamNetworkingConnectionState eState 
 
 }
 
-CSteamNetworkConnectionBase *GetConnectionByHandle( HSteamNetConnection sock )
+static CSteamNetworkConnectionBase *InternalGetConnectionByHandle( HSteamNetConnection sock, ConnectionScopeLock &scopeLock, const char *pszLockTag, bool bForAPI )
 {
 	if ( sock == 0 )
 		return nullptr;
+	TableScopeLock tableScopeLock( g_tables_lock );
 	int idx = g_mapConnections.Find( uint16( sock ) );
 	if ( idx == g_mapConnections.InvalidIndex() )
 		return nullptr;
 	CSteamNetworkConnectionBase *pResult = g_mapConnections[ idx ];
-	if ( !pResult || uint16( pResult->m_hConnectionSelf ) != uint16( sock ) )
+	if ( !pResult )
 	{
 		AssertMsg( false, "g_mapConnections corruption!" );
 		return nullptr;
 	}
-	if ( pResult->m_hConnectionSelf != sock )
+	if ( uint16( pResult->m_hConnectionSelf ) != uint16( sock ) )
+	{
+		AssertMsg( false, "Connection map corruption!" );
 		return nullptr;
-	return pResult;
+	}
+
+	// Make sure connection is not in the process of being self-destructed
+	bool bLocked = false;
+	for (;;)
+	{
+
+		// Fetch the state of the connection.  This is OK to do
+		// even if we don't have the lock.
+		ESteamNetworkingConnectionState s = pResult->GetState();
+		if ( s == k_ESteamNetworkingConnectionState_Dead )
+			break;
+		if ( bForAPI )
+		{
+			if ( !BConnectionStateExistsToAPI( s ) )
+				break;
+		}
+		else
+		{
+			if ( s == k_ESteamNetworkingConnectionState_None )
+			{
+				Assert( false );
+				break;
+			}
+		}
+
+		// Have we locked already?  Then we're good
+		if ( bLocked )
+		{
+			// NOTE: We unlock the table lock here, OUT OF ORDER!
+			return pResult; 
+		}
+
+		// State looks good, try to lock the connection.
+		// NOTE: we still (briefly) hold the table lock!
+		// We *should* be able to totally block here
+		// without creating a deadlock, but looping here
+		// isn't so bad
+		bLocked = scopeLock.TryLock( *pResult->m_pLock, 5, pszLockTag );
+	}
+
+	// Connection found in table, but should not be returned to the caller.
+	// Unlock the connection, if we locked it
+	if ( bLocked )
+		scopeLock.Unlock();
+	
+	return nullptr;
 }
 
-static CSteamNetworkConnectionBase *GetConnectionByHandleForAPI( HSteamNetConnection sock )
+CSteamNetworkConnectionBase *GetConnectionByHandle( HSteamNetConnection sock, ConnectionScopeLock &scopeLock )
 {
-	CSteamNetworkConnectionBase *pResult = GetConnectionByHandle( sock );
-	if ( !pResult )
-		return nullptr;
-	if ( !BConnectionStateExistsToAPI( pResult->GetState() ) )
-		return nullptr;
-	return pResult;
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
+	return InternalGetConnectionByHandle( sock, scopeLock, nullptr, false );
+}
+
+inline CSteamNetworkConnectionBase *GetConnectionByHandleForAPI( HSteamNetConnection sock, ConnectionScopeLock &scopeLock, const char *pszLockTag )
+{
+	return InternalGetConnectionByHandle( sock, scopeLock, pszLockTag, true );
 }
 
 static CSteamNetworkListenSocketBase *GetListenSocketByHandle( HSteamListenSocket sock )
 {
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread(); // listen sockets are protected by the global lock!
 	if ( sock == k_HSteamListenSocket_Invalid )
 		return nullptr;
 	AssertMsg( !(sock & 0x80000000), "A poll group handle was used where a listen socket handle was expected" );
@@ -281,21 +336,28 @@ static CSteamNetworkListenSocketBase *GetListenSocketByHandle( HSteamListenSocke
 	return pResult;
 }
 
-CSteamNetworkPollGroup *GetPollGroupByHandle( HSteamNetPollGroup hPollGroup )
+CSteamNetworkPollGroup *GetPollGroupByHandle( HSteamNetPollGroup hPollGroup, PollGroupScopeLock &scopeLock, const char *pszLockTag )
 {
 	if ( hPollGroup == k_HSteamNetPollGroup_Invalid )
 		return nullptr;
 	AssertMsg( (hPollGroup & 0x80000000), "A listen socket handle was used where a poll group handle was expected" );
 	int idx = hPollGroup & 0xffff;
+	TableScopeLock tableScopeLock( g_tables_lock );
 	if ( !g_mapPollGroups.IsValidIndex( idx ) )
 		return nullptr;
 	CSteamNetworkPollGroup *pResult = g_mapPollGroups[ idx ];
-	if ( pResult->m_hPollGroupSelf != hPollGroup )
+
+	// Make sure poll group is the one they really asked for, and also
+	// handle deletion race condition
+	while ( pResult->m_hPollGroupSelf == hPollGroup )
 	{
-		// Slot was reused, but this handle is now invalid
-		return nullptr;
+		if ( scopeLock.TryLock( pResult->m_lock, 1, pszLockTag ) )
+			return pResult;
 	}
-	return pResult;
+
+	// Slot was reused, but this handle is now invalid,
+	// or poll group deleted race condition
+	return nullptr;
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -372,6 +434,7 @@ bool CSteamNetworkingSockets::BInitLowLevel( SteamNetworkingErrMsg &errMsg )
 void CSteamNetworkingSockets::KillConnections()
 {
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "CSteamNetworkingSockets::KillConnections" );
+	TableScopeLock tableScopeLock( g_tables_lock );
 
 	// Warn messages interface that it needs to clean up.  We need to do this
 	// because that class has pointers to objects that we are about to destroy.
@@ -381,15 +444,14 @@ void CSteamNetworkingSockets::KillConnections()
 	#endif
 
 	// Destroy all of my connections
+	CSteamNetworkConnectionBase::ProcessDeletionList();
 	FOR_EACH_HASHMAP( g_mapConnections, idx )
 	{
 		CSteamNetworkConnectionBase *pConn = g_mapConnections[idx];
 		if ( pConn->m_pSteamNetworkingSocketsInterface == this )
-		{
-			pConn->ConnectionDestroySelfNow();
-			Assert( !g_mapConnections.IsValidIndex( idx ) );
-		}
+			pConn->ConnectionQueueDestroy();
 	}
+	CSteamNetworkConnectionBase::ProcessDeletionList();
 
 	// Destroy all of my listen sockets
 	FOR_EACH_HASHMAP( g_mapListenSockets, idx )
@@ -412,7 +474,6 @@ void CSteamNetworkingSockets::KillConnections()
 			Assert( !g_mapPollGroups.IsValidIndex( idx ) );
 		}
 	}
-
 }
 
 void CSteamNetworkingSockets::Destroy()
@@ -459,6 +520,7 @@ void CSteamNetworkingSockets::FreeResources()
 
 bool CSteamNetworkingSockets::BHasAnyConnections() const
 {
+	TableScopeLock tableScopeLock( g_tables_lock );
 	for ( CSteamNetworkConnectionBase *pConn: g_mapConnections.IterValues() )
 	{
 		if ( pConn->m_pSteamNetworkingSocketsInterface == this )
@@ -469,6 +531,7 @@ bool CSteamNetworkingSockets::BHasAnyConnections() const
 
 bool CSteamNetworkingSockets::BHasAnyListenSockets() const
 {
+	TableScopeLock tableScopeLock( g_tables_lock );
 	for ( CSteamNetworkListenSocketBase *pSock: g_mapListenSockets.IterValues() )
 	{
 		if ( pSock->m_pSteamNetworkingSocketsInterface == this )
@@ -822,6 +885,7 @@ void CSteamNetworkingSockets::AsyncCertRequestFinished()
 	SetCertStatus( k_ESteamNetworkingAvailability_Current, "OK" );
 
 	// Check for any connections that we own that are waiting on a cert
+	TableScopeLock tableScopeLock( g_tables_lock );
 	for ( CSteamNetworkConnectionBase *pConn: g_mapConnections.IterValues() )
 	{
 		if ( pConn->m_pSteamNetworkingSocketsInterface == this )
@@ -851,6 +915,7 @@ void CSteamNetworkingSockets::CertRequestFailed( ESteamNetworkingAvailability eC
 	// Set generic cert status, so we will post a callback
 	SetCertStatus( eCertAvail, "%s", pszMsg );
 
+	TableScopeLock tableScopeLock( g_tables_lock );
 	for ( CSteamNetworkConnectionBase *pConn: g_mapConnections.IterValues() )
 	{
 		if ( pConn->m_pSteamNetworkingSocketsInterface == this )
@@ -863,7 +928,7 @@ void CSteamNetworkingSockets::CertRequestFailed( ESteamNetworkingAvailability eC
 
 ESteamNetworkingAvailability CSteamNetworkingSockets::GetAuthenticationStatus( SteamNetAuthenticationStatus_t *pDetails )
 {
-	SteamNetworkingGlobalLock scopeLock;
+	SteamNetworkingGlobalLock scopeLock; // !SPEED! We could protect this with a more tightly scoped lock, if we think this is eomthing people might be polling
 
 	// Return details, if requested
 	if ( pDetails )
@@ -894,14 +959,15 @@ HSteamListenSocket CSteamNetworkingSockets::CreateListenSocketIP( const SteamNet
 HSteamNetConnection CSteamNetworkingSockets::ConnectByIPAddress( const SteamNetworkingIPAddr &address, int nOptions, const SteamNetworkingConfigValue_t *pOptions )
 {
 	SteamNetworkingGlobalLock scopeLock( "ConnectByIPAddress" );
-	CSteamNetworkConnectionUDP *pConn = new CSteamNetworkConnectionUDP( this );
+	ConnectionScopeLock connectionLock;
+	CSteamNetworkConnectionUDP *pConn = new CSteamNetworkConnectionUDP( this, connectionLock );
 	if ( !pConn )
 		return k_HSteamNetConnection_Invalid;
 	SteamDatagramErrMsg errMsg;
 	if ( !pConn->BInitConnect( address, nOptions, pOptions, errMsg ) )
 	{
 		SpewError( "Cannot create IPv4 connection.  %s", errMsg );
-		pConn->ConnectionDestroySelfNow();
+		pConn->ConnectionQueueDestroy();
 		return k_HSteamNetConnection_Invalid;
 	}
 
@@ -911,8 +977,9 @@ HSteamNetConnection CSteamNetworkingSockets::ConnectByIPAddress( const SteamNetw
 
 EResult CSteamNetworkingSockets::AcceptConnection( HSteamNetConnection hConn )
 {
-	SteamNetworkingGlobalLock scopeLock( "AcceptConnection" );
-	CSteamNetworkConnectionBase *pConn = GetConnectionByHandleForAPI( hConn );
+	SteamNetworkingGlobalLock scopeLock( "AcceptConnection" ); // Take global lock, since this will lead to connection state transition
+	ConnectionScopeLock connectionLock;
+	CSteamNetworkConnectionBase *pConn = GetConnectionByHandleForAPI( hConn, connectionLock, nullptr );
 	if ( !pConn )
 	{
 		SpewError( "Cannot accept connection #%u; invalid connection handle", hConn );
@@ -925,8 +992,9 @@ EResult CSteamNetworkingSockets::AcceptConnection( HSteamNetConnection hConn )
 
 bool CSteamNetworkingSockets::CloseConnection( HSteamNetConnection hConn, int nReason, const char *pszDebug, bool bEnableLinger )
 {
-	SteamNetworkingGlobalLock scopeLock( "CloseConnection" );
-	CSteamNetworkConnectionBase *pConn = GetConnectionByHandleForAPI( hConn );
+	SteamNetworkingGlobalLock scopeLock( "CloseConnection" ); // Take global lock, we are going to change connection state and/or destroy objects
+	ConnectionScopeLock connectionLock;
+	CSteamNetworkConnectionBase *pConn = GetConnectionByHandleForAPI( hConn, connectionLock, nullptr );
 	if ( !pConn )
 		return false;
 
@@ -937,7 +1005,7 @@ bool CSteamNetworkingSockets::CloseConnection( HSteamNetConnection hConn, int nR
 
 bool CSteamNetworkingSockets::CloseListenSocket( HSteamListenSocket hSocket )
 {
-	SteamNetworkingGlobalLock scopeLock( "CloseListenSocket" );
+	SteamNetworkingGlobalLock scopeLock( "CloseListenSocket" ); // Take global lock, we are going to destroy objects
 	CSteamNetworkListenSocketBase *pSock = GetListenSocketByHandle( hSocket );
 	if ( !pSock )
 		return false;
@@ -950,8 +1018,9 @@ bool CSteamNetworkingSockets::CloseListenSocket( HSteamListenSocket hSocket )
 
 bool CSteamNetworkingSockets::SetConnectionUserData( HSteamNetConnection hPeer, int64 nUserData )
 {
-	SteamNetworkingGlobalLock scopeLock( "SetConnectionUserData" );
-	CSteamNetworkConnectionBase *pConn = GetConnectionByHandleForAPI( hPeer );
+	//SteamNetworkingGlobalLock scopeLock( "SetConnectionUserData" ); // NO, not necessary!
+	ConnectionScopeLock connectionLock;
+	CSteamNetworkConnectionBase *pConn = GetConnectionByHandleForAPI( hPeer, connectionLock, "SetConnectionUserData" );
 	if ( !pConn )
 		return false;
 	pConn->SetUserData( nUserData );
@@ -960,8 +1029,9 @@ bool CSteamNetworkingSockets::SetConnectionUserData( HSteamNetConnection hPeer, 
 
 int64 CSteamNetworkingSockets::GetConnectionUserData( HSteamNetConnection hPeer )
 {
-	SteamNetworkingGlobalLock scopeLock( "GetConnectionUserData" );
-	CSteamNetworkConnectionBase *pConn = GetConnectionByHandleForAPI( hPeer );
+	//SteamNetworkingGlobalLock scopeLock( "GetConnectionUserData" ); // NO, not necessary!
+	ConnectionScopeLock connectionLock;
+	CSteamNetworkConnectionBase *pConn = GetConnectionByHandleForAPI( hPeer, connectionLock, "GetConnectionUserData" );
 	if ( !pConn )
 		return -1;
 	return pConn->GetUserData();
@@ -969,8 +1039,9 @@ int64 CSteamNetworkingSockets::GetConnectionUserData( HSteamNetConnection hPeer 
 
 void CSteamNetworkingSockets::SetConnectionName( HSteamNetConnection hPeer, const char *pszName )
 {
-	SteamNetworkingGlobalLock scopeLock( "SetConnectionName" );
-	CSteamNetworkConnectionBase *pConn = GetConnectionByHandleForAPI( hPeer );
+	//SteamNetworkingGlobalLock scopeLock( "SetConnectionName" ); // NO, not necessary!
+	ConnectionScopeLock connectionLock;
+	CSteamNetworkConnectionBase *pConn = GetConnectionByHandleForAPI( hPeer, connectionLock, "SetConnectionName" );
 	if ( !pConn )
 		return;
 	pConn->SetAppName( pszName );
@@ -978,8 +1049,9 @@ void CSteamNetworkingSockets::SetConnectionName( HSteamNetConnection hPeer, cons
 
 bool CSteamNetworkingSockets::GetConnectionName( HSteamNetConnection hPeer, char *pszName, int nMaxLen )
 {
-	SteamNetworkingGlobalLock scopeLock( "GetConnectionName" );
-	CSteamNetworkConnectionBase *pConn = GetConnectionByHandleForAPI( hPeer );
+	//SteamNetworkingGlobalLock scopeLock( "GetConnectionName" ); // NO, not necessary!
+	ConnectionScopeLock connectionLock;
+	CSteamNetworkConnectionBase *pConn = GetConnectionByHandleForAPI( hPeer, connectionLock, "GetConnectionName" );
 	if ( !pConn )
 		return false;
 	V_strncpy( pszName, pConn->GetAppName(), nMaxLen );
@@ -988,8 +1060,9 @@ bool CSteamNetworkingSockets::GetConnectionName( HSteamNetConnection hPeer, char
 
 EResult CSteamNetworkingSockets::SendMessageToConnection( HSteamNetConnection hConn, const void *pData, uint32 cbData, int nSendFlags, int64 *pOutMessageNumber )
 {
-	SteamNetworkingGlobalLock scopeLock( "SendMessageToConnection" );
-	CSteamNetworkConnectionBase *pConn = GetConnectionByHandleForAPI( hConn );
+	//SteamNetworkingGlobalLock scopeLock( "SendMessageToConnection" ); // NO, not necessary!
+	ConnectionScopeLock connectionLock;
+	CSteamNetworkConnectionBase *pConn = GetConnectionByHandleForAPI( hConn, connectionLock, "SendMessageToConnection" );
 	if ( !pConn )
 		return k_EResultInvalidParam;
 	return pConn->APISendMessageToConnection( pData, cbData, nSendFlags, pOutMessageNumber );
@@ -997,10 +1070,23 @@ EResult CSteamNetworkingSockets::SendMessageToConnection( HSteamNetConnection hC
 
 void CSteamNetworkingSockets::SendMessages( int nMessages, SteamNetworkingMessage_t *const *pMessages, int64 *pOutMessageNumberOrResult )
 {
-	SteamNetworkingGlobalLock scopeLock( "SendMessages" );
-	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 
-	vstd::small_vector<CSteamNetworkConnectionBase *,64 > vecConnectionsToCheck;
+	// Get list of messages, grouped by connection.
+	// But within the connection, it is important that we
+	// keep them in the same order!
+	struct SortMsg_t
+	{
+		HSteamNetConnection m_hConn;
+		int m_idx;
+		inline bool operator<(const SortMsg_t &x ) const
+		{
+			if ( m_hConn < x.m_hConn ) return true;
+			if ( m_hConn > x.m_hConn ) return false;
+			return m_idx < x.m_idx;
+		}
+	};
+	SortMsg_t *pSortMessages = (SortMsg_t *)alloca( nMessages * sizeof(SortMsg_t) );
+	int nSortMessages = 0;
 
 	for ( int i = 0 ; i < nMessages ; ++i )
 	{
@@ -1014,9 +1100,7 @@ void CSteamNetworkingSockets::SendMessages( int nMessages, SteamNetworkingMessag
 			continue;
 		}
 
-		// Locate connection
-		CSteamNetworkConnectionBase *pConn = GetConnectionByHandleForAPI( pMsg->m_conn );
-		if ( !pConn )
+		if ( pMsg->m_conn == k_HSteamNetConnection_Invalid )
 		{
 			if ( pOutMessageNumberOrResult )
 				pOutMessageNumberOrResult[i] = -k_EResultInvalidParam;
@@ -1024,28 +1108,81 @@ void CSteamNetworkingSockets::SendMessages( int nMessages, SteamNetworkingMessag
 			continue;
 		}
 
-		// Attempt to send
-		bool bThinkImmediately = false;
-		int64 result = pConn->APISendMessageToConnection( pMsg, usecNow, &bThinkImmediately );
+		pSortMessages[ nSortMessages ].m_hConn = pMsg->m_conn;
+		pSortMessages[ nSortMessages ].m_idx = i;
+		++nSortMessages;
+	}
+
+	if ( nSortMessages < 1 )
+		return;
+
+	SortMsg_t *const pSortEnd = pSortMessages+nSortMessages;
+	std::sort( pSortMessages, pSortEnd );
+
+	// OK, we are ready to begin
+
+	// SteamNetworkingGlobalLock scopeLock( "SendMessages" ); // NO, not necessary!
+	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
+
+	CSteamNetworkConnectionBase *pConn = nullptr;
+	HSteamNetConnection hConn = k_HSteamNetConnection_Invalid;
+	ConnectionScopeLock connectionLock;
+	bool bConnectionThinkImmediately = false;
+	for ( SortMsg_t *pSort = pSortMessages ; pSort < pSortEnd ; ++pSort )
+	{
+
+		// Switched to a different connection?
+		if ( hConn != pSort->m_hConn )
+		{
+
+			// Flush out previous connection, if any
+			if ( pConn )
+			{
+				if ( bConnectionThinkImmediately )
+					pConn->CheckConnectionStateOrScheduleWakeUp( usecNow );
+				connectionLock.Unlock();
+				bConnectionThinkImmediately = false;
+			}
+
+			// Locate the connection
+			hConn = pSort->m_hConn;
+			pConn = GetConnectionByHandleForAPI( hConn, connectionLock, "SendMessages" );
+		}
+
+		CSteamNetworkingMessage *pMsg = static_cast<CSteamNetworkingMessage*>( pMessages[pSort->m_idx] );
+
+		// Current connection is valid?
+		int64 result;
+		if ( pConn )
+		{
+
+			// Attempt to send
+			bool bThinkImmediately = false;
+			result = pConn->APISendMessageToConnection( pMsg, usecNow, &bThinkImmediately );
+			if ( bThinkImmediately )
+				bConnectionThinkImmediately = true;
+		}
+		else
+		{
+			pMsg->Release();
+			result = -k_EResultInvalidParam;
+		}
 
 		// Return result for this message if they asked for it
 		if ( pOutMessageNumberOrResult )
-			pOutMessageNumberOrResult[i] = result;
-
-		if ( bThinkImmediately && !has_element( vecConnectionsToCheck, pConn ) )
-			vecConnectionsToCheck.push_back( pConn );
+			pOutMessageNumberOrResult[pSort->m_idx] = result;
 	}
 
-	// Now if any connections indicated that we should do the sending work immediately,
-	// give them a chance to send immediately
-	for ( CSteamNetworkConnectionBase *pConn: vecConnectionsToCheck )
-		pConn->CheckConnectionStateAndSetNextThinkTime( usecNow );
+	// Flush out last connection, if any
+	if ( bConnectionThinkImmediately )
+		pConn->CheckConnectionStateOrScheduleWakeUp( usecNow );
 }
 
 EResult CSteamNetworkingSockets::FlushMessagesOnConnection( HSteamNetConnection hConn )
 {
-	SteamNetworkingGlobalLock scopeLock( "FlushMessagesOnConnection" );
-	CSteamNetworkConnectionBase *pConn = GetConnectionByHandleForAPI( hConn );
+	//SteamNetworkingGlobalLock scopeLock( "FlushMessagesOnConnection" ); // NO, not necessary!
+	ConnectionScopeLock connectionLock;
+	CSteamNetworkConnectionBase *pConn = GetConnectionByHandleForAPI( hConn, connectionLock, "FlushMessagesOnConnection" );
 	if ( !pConn )
 		return k_EResultInvalidParam;
 	return pConn->APIFlushMessageOnConnection();
@@ -1053,8 +1190,9 @@ EResult CSteamNetworkingSockets::FlushMessagesOnConnection( HSteamNetConnection 
 
 int CSteamNetworkingSockets::ReceiveMessagesOnConnection( HSteamNetConnection hConn, SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages )
 {
-	SteamNetworkingGlobalLock scopeLock( "ReceiveMessagesOnConnection" );
-	CSteamNetworkConnectionBase *pConn = GetConnectionByHandleForAPI( hConn );
+	//SteamNetworkingGlobalLock scopeLock( "ReceiveMessagesOnConnection" ); // NO, not necessary!
+	ConnectionScopeLock connectionLock;
+	CSteamNetworkConnectionBase *pConn = GetConnectionByHandleForAPI( hConn, connectionLock, "ReceiveMessagesOnConnection" );
 	if ( !pConn )
 		return -1;
 	return pConn->APIReceiveMessages( ppOutMessages, nMaxMessages );
@@ -1062,28 +1200,45 @@ int CSteamNetworkingSockets::ReceiveMessagesOnConnection( HSteamNetConnection hC
 
 HSteamNetPollGroup CSteamNetworkingSockets::CreatePollGroup()
 {
-	SteamNetworkingGlobalLock scopeLock( "CreatePollGroup" );
-	CSteamNetworkPollGroup *pPollGroup = new CSteamNetworkPollGroup( this );
-	pPollGroup->AssignHandleAndAddToGlobalTable();
+	SteamNetworkingGlobalLock scopeLock( "CreatePollGroup" ); // Take global lock, because we will be creating objects
+	PollGroupScopeLock pollGroupScopeLock;
+	CSteamNetworkPollGroup *pPollGroup = InternalCreatePollGroup( pollGroupScopeLock );
 	return pPollGroup->m_hPollGroupSelf;
+}
+
+CSteamNetworkPollGroup *CSteamNetworkingSockets::InternalCreatePollGroup( PollGroupScopeLock &scopeLock )
+{
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
+	TableScopeLock tableScopeLock( g_tables_lock );
+	CSteamNetworkPollGroup *pPollGroup = new CSteamNetworkPollGroup( this );
+	scopeLock.Lock( pPollGroup->m_lock );
+	pPollGroup->AssignHandleAndAddToGlobalTable();
+	return pPollGroup;
 }
 
 bool CSteamNetworkingSockets::DestroyPollGroup( HSteamNetPollGroup hPollGroup )
 {
-	SteamNetworkingGlobalLock scopeLock( "DestroyPollGroup" );
-	CSteamNetworkPollGroup *pPollGroup = GetPollGroupByHandle( hPollGroup );
+	SteamNetworkingGlobalLock scopeLock( "DestroyPollGroup" ); // Take global lock, since we'll be destroying objects
+	TableScopeLock tableScopeLock( g_tables_lock ); // We'll need to be able to remove the poll group from the tables list
+	PollGroupScopeLock pollGroupLock;
+	CSteamNetworkPollGroup *pPollGroup = GetPollGroupByHandle( hPollGroup, pollGroupLock, nullptr );
 	if ( !pPollGroup )
 		return false;
+	pollGroupLock.Abandon(); // We're about to destroy the lock itself.  The Destructor will unlock -- we don't want to do it again.
 	delete pPollGroup;
 	return true;
 }
 
 bool CSteamNetworkingSockets::SetConnectionPollGroup( HSteamNetConnection hConn, HSteamNetPollGroup hPollGroup )
 {
-	SteamNetworkingGlobalLock scopeLock( "SetConnectionPollGroup" );
-	CSteamNetworkConnectionBase *pConn = GetConnectionByHandleForAPI( hConn );
+	SteamNetworkingGlobalLock scopeLock( "SetConnectionPollGroup" ); // Take global lock, since we'll need to take multiple object locks
+	ConnectionScopeLock connectionLock;
+	CSteamNetworkConnectionBase *pConn = GetConnectionByHandleForAPI( hConn, connectionLock, nullptr );
 	if ( !pConn )
 		return false;
+
+	// NOTE: We are allowed to take multiple locks here, in any order, because we have the global
+	// lock.  Code that does not hold the global lock may only lock one object at a time
 
 	// Special case for removing the poll group
 	if ( hPollGroup == k_HSteamNetPollGroup_Invalid )
@@ -1093,7 +1248,8 @@ bool CSteamNetworkingSockets::SetConnectionPollGroup( HSteamNetConnection hConn,
 	}
 
 
-	CSteamNetworkPollGroup *pPollGroup = GetPollGroupByHandle( hPollGroup );
+	PollGroupScopeLock pollGroupLock;
+	CSteamNetworkPollGroup *pPollGroup = GetPollGroupByHandle( hPollGroup, pollGroupLock, nullptr );
 	if ( !pPollGroup )
 		return false;
 
@@ -1104,11 +1260,15 @@ bool CSteamNetworkingSockets::SetConnectionPollGroup( HSteamNetConnection hConn,
 
 int CSteamNetworkingSockets::ReceiveMessagesOnPollGroup( HSteamNetPollGroup hPollGroup, SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages )
 {
-	SteamNetworkingGlobalLock scopeLock( "ReceiveMessagesOnPollGroup" );
-	CSteamNetworkPollGroup *pPollGroup = GetPollGroupByHandle( hPollGroup );
+	//SteamNetworkingGlobalLock scopeLock( "ReceiveMessagesOnPollGroup" ); // NO, not necessary!
+	PollGroupScopeLock pollGroupLock;
+	CSteamNetworkPollGroup *pPollGroup = GetPollGroupByHandle( hPollGroup, pollGroupLock, "ReceiveMessagesOnPollGroup" );
 	if ( !pPollGroup )
 		return -1;
-	return pPollGroup->m_queueRecvMessages.RemoveMessages( ppOutMessages, nMaxMessages );
+	g_lockAllRecvMessageQueues.lock();
+	int nMessagesReceived = pPollGroup->m_queueRecvMessages.RemoveMessages( ppOutMessages, nMaxMessages );
+	g_lockAllRecvMessageQueues.unlock();
+	return nMessagesReceived;
 }
 
 #ifdef STEAMNETWORKINGSOCKETS_STEAMCLIENT
@@ -1118,14 +1278,18 @@ int CSteamNetworkingSockets::ReceiveMessagesOnListenSocketLegacyPollGroup( HStea
 	CSteamNetworkListenSocketBase *pSock = GetListenSocketByHandle( hSocket );
 	if ( !pSock )
 		return -1;
-	return pSock->m_legacyPollGroup.m_queueRecvMessages.RemoveMessages( ppOutMessages, nMaxMessages );
+	g_lockAllRecvMessageQueues.lock();
+	int nMessagesReceived = pSock->m_legacyPollGroup.m_queueRecvMessages.RemoveMessages( ppOutMessages, nMaxMessages );
+	g_lockAllRecvMessageQueues.unlock();
+	return nMessagesReceived;
 }
 #endif
 
 bool CSteamNetworkingSockets::GetConnectionInfo( HSteamNetConnection hConn, SteamNetConnectionInfo_t *pInfo )
 {
-	SteamNetworkingGlobalLock scopeLock( "GetConnectionInfo" );
-	CSteamNetworkConnectionBase *pConn = GetConnectionByHandleForAPI( hConn );
+	//SteamNetworkingGlobalLock scopeLock( "GetConnectionInfo" ); // NO, not necessary!
+	ConnectionScopeLock connectionLock;
+	CSteamNetworkConnectionBase *pConn = GetConnectionByHandleForAPI( hConn, connectionLock, "GetConnectionInfo" );
 	if ( !pConn )
 		return false;
 	if ( pInfo )
@@ -1135,8 +1299,9 @@ bool CSteamNetworkingSockets::GetConnectionInfo( HSteamNetConnection hConn, Stea
 
 bool CSteamNetworkingSockets::GetQuickConnectionStatus( HSteamNetConnection hConn, SteamNetworkingQuickConnectionStatus *pStats )
 {
-	SteamNetworkingGlobalLock scopeLock( "GetQuickConnectionStatus" );
-	CSteamNetworkConnectionBase *pConn = GetConnectionByHandleForAPI( hConn );
+	//SteamNetworkingGlobalLock scopeLock( "GetQuickConnectionStatus" ); // NO, not necessary!
+	ConnectionScopeLock connectionLock;
+	CSteamNetworkConnectionBase *pConn = GetConnectionByHandleForAPI( hConn, connectionLock, "GetQuickConnectionStatus" );
 	if ( !pConn )
 		return false;
 	if ( pStats )
@@ -1150,8 +1315,9 @@ int CSteamNetworkingSockets::GetDetailedConnectionStatus( HSteamNetConnection hC
 
 	// Only hold the lock for as long as we need.
 	{
-		SteamNetworkingGlobalLock scopeLock( "GetDetailedConnectionStatus" );
-		CSteamNetworkConnectionBase *pConn = GetConnectionByHandleForAPI( hConn );
+		SteamNetworkingGlobalLock scopeLock( "GetDetailedConnectionStatus" ); // In some use cases (SDR), we need to touch some shared data structures.  It's easier to just protect this with the global lock than to try to sort that out
+		ConnectionScopeLock connectionLock;
+		CSteamNetworkConnectionBase *pConn = GetConnectionByHandleForAPI( hConn, connectionLock, nullptr );
 		if ( !pConn )
 			return -1;
 
@@ -1443,7 +1609,8 @@ static ConfigValue<T> *EvaluateScopeConfigValue( GlobalConfigValueEntry *pEntry,
 			// the "front door".  So this means if the app tries to set a config option on a
 			// connection that technically no longer exists, we will actually allow that, when
 			// we probably should fail the call.
-			CSteamNetworkConnectionBase *pConn = GetConnectionByHandle( HSteamNetConnection( scopeObj ) );
+			ConnectionScopeLock scopeLock; // FIXME We are releasing the lock too soon here!  This doesn't work
+			CSteamNetworkConnectionBase *pConn = GetConnectionByHandle( HSteamNetConnection( scopeObj ), scopeLock );
 			if ( pConn )
 			{
 				if ( pEntry->m_eScope == k_ESteamNetworkingConfig_Connection )
@@ -1757,7 +1924,8 @@ bool CSteamNetworkingUtils::SetConfigValue( ESteamNetworkingConfigValue eValue,
 				return false;
 
 			// Lookup the connection
-			CSteamNetworkConnectionBase *pConn = GetConnectionByHandle( HSteamNetConnection( scopeObj ) );
+			ConnectionScopeLock connectionLock;
+			CSteamNetworkConnectionBase *pConn = GetConnectionByHandle( HSteamNetConnection( scopeObj ), connectionLock );
 			if ( !pConn )
 				return false;
 

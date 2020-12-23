@@ -551,7 +551,8 @@ private:
 
 	virtual void Run()
 	{
-		CSteamNetworkConnectionBase *pConnBase = FindConnectionByLocalID( m_nConnectionIDLocal );
+		ConnectionScopeLock connectionLock;
+		CSteamNetworkConnectionBase *pConnBase = FindConnectionByLocalID( m_nConnectionIDLocal, connectionLock );
 		if ( !pConnBase )
 			return;
 

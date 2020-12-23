@@ -219,6 +219,9 @@ void CSteamNetworkConnectionBase::SNP_ShutdownConnection()
 //-----------------------------------------------------------------------------
 int64 CSteamNetworkConnectionBase::SNP_SendMessage( CSteamNetworkingMessage *pSendMessage, SteamNetworkingMicroseconds usecNow, bool *pbThinkImmediately )
 {
+	// Connection must be locked, but we don't require the global lock here!
+	m_pLock->AssertHeldByCurrentThread();
+
 	int cbData = (int)pSendMessage->m_cbSize;
 
 	// Assume we won't want to wake up immediately
@@ -376,8 +379,8 @@ int64 CSteamNetworkConnectionBase::SNP_SendMessage( CSteamNetworkingMessage *pSe
 				}
 				else
 				{
-					// Caller wants us to just do it here.
-					CheckConnectionStateAndSetNextThinkTime( usecNow );
+					// Caller wants us to just do it here, if we can
+					CheckConnectionStateOrScheduleWakeUp( usecNow );
 				}
 			}
 			else
@@ -393,6 +396,9 @@ int64 CSteamNetworkConnectionBase::SNP_SendMessage( CSteamNetworkingMessage *pSe
 
 EResult CSteamNetworkConnectionBase::SNP_FlushMessage( SteamNetworkingMicroseconds usecNow )
 {
+	// Connection must be locked, but we don't require the global lock here!
+	m_pLock->AssertHeldByCurrentThread();
+
 	// If we're not connected, then go ahead and mark the messages ready to send
 	// once we connect, but otherwise don't take any action
 	if ( GetState() != k_ESteamNetworkingConnectionState_Connected )
@@ -1148,6 +1154,9 @@ void CSteamNetworkConnectionBase::SNP_SenderProcessPacketNack( int64 nPktNum, SN
 
 SteamNetworkingMicroseconds CSteamNetworkConnectionBase::SNP_SenderCheckInFlightPackets( SteamNetworkingMicroseconds usecNow )
 {
+	// Connection must be locked, but we don't require the global lock here!
+	m_pLock->AssertHeldByCurrentThread();
+
 	// Fast path for nothing in flight.
 	m_senderState.MaybeCheckInFlightPacketMap();
 	if ( m_senderState.m_mapInFlightPacketsByPktNum.size() <= 1 )
@@ -1372,6 +1381,9 @@ inline bool HasOverlappingRange( const SNPRange_t &range, const std_map<SNPRange
 
 bool CSteamNetworkConnectionBase::SNP_SendPacket( CConnectionTransport *pTransport, SendPacketContext_t &ctx )
 {
+	// To send packets we need both the global lock and the connection lock
+	AssertLocksHeldByCurrentThread( "SNP_SendPacket" );
+
 	// Check calling conditions, and don't crash
 	if ( !BStateIsActive() || m_senderState.m_mapInFlightPacketsByPktNum.empty() || !pTransport )
 	{
@@ -3320,6 +3332,9 @@ void SSNPReceiverState::DebugCheckPackGapMap() const
 
 SteamNetworkingMicroseconds CSteamNetworkConnectionBase::SNP_TimeWhenWantToSendNextPacket() const
 {
+	// Connection must be locked, but we don't require the global lock here!
+	m_pLock->AssertHeldByCurrentThread();
+
 	// We really shouldn't be trying to do this when not connected
 	if ( !BStateIsConnectedForWirePurposes() )
 	{
@@ -3364,6 +3379,9 @@ SteamNetworkingMicroseconds CSteamNetworkConnectionBase::SNP_TimeWhenWantToSendN
 
 SteamNetworkingMicroseconds CSteamNetworkConnectionBase::SNP_GetNextThinkTime( SteamNetworkingMicroseconds usecNow )
 {
+	// Connection must be locked, but we don't require the global lock here!
+	m_pLock->AssertHeldByCurrentThread();
+
 	// We really shouldn't be trying to do this when not connected
 	if ( !BStateIsConnectedForWirePurposes() )
 	{

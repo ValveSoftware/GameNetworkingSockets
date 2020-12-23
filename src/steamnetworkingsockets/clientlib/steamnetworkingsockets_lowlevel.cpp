@@ -24,6 +24,7 @@
 #include "../steamnetworkingsockets_platform.h"
 #include "../steamnetworkingsockets_internal.h"
 #include "../steamnetworkingsockets_thinker.h"
+#include "steamnetworkingsockets_connections.h"
 #include <vstdlib/random.h>
 #include <tier1/utlpriorityqueue.h>
 #include <tier1/utllinkedlist.h>
@@ -62,14 +63,14 @@ struct ThreadLockDebugInfo
 	static constexpr int k_nMaxHeldLocks = 8;
 	static constexpr int k_nMaxTags = 32;
 
+	int m_nHeldLocks = 0;
+	int m_nTags = 0;
+
 	SteamNetworkingMicroseconds m_usecLongLockWarningThreshold;
 	SteamNetworkingMicroseconds m_usecIgnoreLongLockWaitTimeUntil;
 	SteamNetworkingMicroseconds m_usecOuterLockStartTime; // Time when we started waiting on outermost lock (if we don't have it yet), or when we aquired the lock (if we have it)
 
-	int m_nHeldLocks;
 	const LockDebugInfo *m_arHeldLocks[ k_nMaxHeldLocks ];
-
-	int m_nTags;
 	struct Tag_t
 	{
 		const char *m_pszTag;
@@ -152,6 +153,20 @@ static void AddThreadLockTag( const char *pszTag )
 	++t.m_nTags;
 }
 
+LockDebugInfo::~LockDebugInfo()
+{
+	// We should not be locked!  If we are, remove us
+	ThreadLockDebugInfo &t = GetThreadDebugInfo();
+	for ( int i = t.m_nHeldLocks-1 ; i >= 0 ; --i )
+	{
+		if ( t.m_arHeldLocks[i] == this )
+		{
+			AssertMsg( false, "Lock '%s' being destroyed while it is held!", m_pszName );
+			AboutToUnlock();
+		}
+	}
+}
+
 void LockDebugInfo::AboutToLock( bool bTry )
 {
 	ThreadLockDebugInfo &t = GetThreadDebugInfo();
@@ -168,14 +183,40 @@ void LockDebugInfo::AboutToLock( bool bTry )
 		// We already hold a lock.  Make sure it's legal for us to take another!
 
 		// Global lock *must* always be the outermost lock.  (It is legal to take other locks in
-		// between and then lock the global lock recursively.
+		// between and then lock the global lock recursively.)
+		const bool bHoldGlobalLock = t.m_arHeldLocks[ 0 ] == &s_mutexGlobalLock;
 		AssertMsg(
-			this != &s_mutexGlobalLock || t.m_arHeldLocks[ 0 ] == &s_mutexGlobalLock,
+			bHoldGlobalLock || this != &s_mutexGlobalLock,
 			"Taking global lock while already holding lock '%s'", t.m_arHeldLocks[ 0 ]->m_pszName
 		);
 
-		const LockDebugInfo *pTopLock = t.m_arHeldLocks[ t.m_nHeldLocks-1 ];
-		AssertMsg( !( pTopLock->m_nFlags & LockDebugInfo::k_nFlag_ShortDuration ), "Taking lock '%s' while already holding lock '%s'", m_pszName, pTopLock->m_pszName );
+		// Check for taking locks in such a way that might lead to deadlocks.
+		// If they are only "trying", then we do allow out of order behaviour.
+		if ( !bTry )
+		{
+			const LockDebugInfo *pTopLock = t.m_arHeldLocks[ t.m_nHeldLocks-1 ];
+
+			// Once we take a "short duration" lock, we must not
+			// take any additional locks!  (Including a recursive lock.)
+			AssertMsg( !( pTopLock->m_nFlags & LockDebugInfo::k_nFlag_ShortDuration ), "Taking lock '%s' while already holding lock '%s'", m_pszName, pTopLock->m_pszName );
+
+			// If the global lock isn't held, then no more than one
+			// object lock is allowed, since two different threads
+			// might take them in different order.
+			constexpr int k_nObjectFlags = LockDebugInfo::k_nFlag_Connection | LockDebugInfo::k_nFlag_PollGroup;
+			if (
+				( !bHoldGlobalLock && ( m_nFlags & k_nObjectFlags ) != 0 )
+				//|| ( m_nFlags & k_nFlag_Table ) // We actually do this in one place when we know it's OK.  Not wirth it right now to get this situation exempted from the checking.
+			) {
+				// We must not already hold any existing object locks (except perhaps this one)
+				for ( int i = 0 ; i < t.m_nHeldLocks ; ++i )
+				{
+					const LockDebugInfo *pOtherLock = t.m_arHeldLocks[ i ];
+					AssertMsg( pOtherLock == this || !( pOtherLock->m_nFlags & k_nObjectFlags ),
+						"Taking lock '%s' and then '%s', while not holding the global lock", pOtherLock->m_pszName, m_pszName );
+				}
+			}
+		}
 	}
 }
 
@@ -221,8 +262,9 @@ void LockDebugInfo::AboutToUnlock()
 	auto lockHeldCallback = s_fLockHeldCallback;
 
 	ThreadLockDebugInfo &t = GetThreadDebugInfo();
-	Assert( t.m_nHeldLocks > 0 && t.m_arHeldLocks[t.m_nHeldLocks-1] == this );
+	Assert( t.m_nHeldLocks > 0 );
 
+	// Unlocking the last lock?
 	if ( t.m_nHeldLocks == 1 )
 	{
 
@@ -279,17 +321,33 @@ void LockDebugInfo::AboutToUnlock()
 		ETW_LongOp( "lock held", usecElapsedTooLong, tags );
 	}
 
-	--t.m_nHeldLocks;
-	t.m_arHeldLocks[t.m_nHeldLocks] = nullptr; // Just for grins
+	// NOTE: We are allowed to unlock out of order!  We specifically
+	// do this with the table lock!
+	for ( int i = t.m_nHeldLocks-1 ; i >= 0 ; --i )
+	{
+		if ( t.m_arHeldLocks[i] == this )
+		{
+			--t.m_nHeldLocks;
+			if ( i < t.m_nHeldLocks ) // Don't do the memmove in the common case of stack pop
+				memmove( &t.m_arHeldLocks[i], &t.m_arHeldLocks[i+1], (t.m_nHeldLocks-i) * sizeof(t.m_arHeldLocks[0]) );
+			t.m_arHeldLocks[t.m_nHeldLocks] = nullptr; // Just for grins
+			return;
+		}
+	}
+
+	AssertMsg( false, "Unlocked a lock '%s' that wasn't held?", m_pszName );
 }
 
-void LockDebugInfo::AssertHeldByCurrentThread()
+void LockDebugInfo::AssertHeldByCurrentThread( const char *pszTag ) const
 {
 	ThreadLockDebugInfo &t = GetThreadDebugInfo();
 	for ( int i = t.m_nHeldLocks-1 ; i >= 0 ; --i )
 	{
 		if ( t.m_arHeldLocks[i] == this )
+		{
+			AddThreadLockTag( pszTag );
 			return;
+		}
 	}
 
 	AssertMsg( false, "Lock '%s' not held", m_pszName );
@@ -1528,6 +1586,22 @@ void ProcessPendingDestroyClosedRawUDPSockets()
 	s_vecRawSocketsPendingDeletion.RemoveAll();
 }
 
+static void ProcessDeferredOperations()
+{
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
+
+	// Tasks that were queued to be run while we hold the lock
+	ISteamNetworkingSocketsRunWithLock::ServiceQueue();
+
+	// Process any connections queued for delete
+	CSteamNetworkConnectionBase::ProcessDeletionList();
+
+	// Close any sockets pending delete, if we discarded a server
+	// We can close the sockets safely now, because we know we're
+	// not polling on them and we know we hold the lock
+	ProcessPendingDestroyClosedRawUDPSockets();
+}
+
 /////////////////////////////////////////////////////////////////////////////
 //
 // Service thread
@@ -1607,13 +1681,8 @@ static bool SteamNetworkingSockets_InternalPoll( int msWait, bool bManualPoll )
 	// Check for periodic processing
 	IThinker::Thinker_ProcessThinkers();
 
-	// Tasks that were queued to be run while we hold the lock
-	ISteamNetworkingSocketsRunWithLock::ServiceQueue();
-
-	// Close any sockets pending delete, if we discarded a server
-	// We can close the sockets safely now, because we know we're
-	// not polling on them and we know we hold the lock
-	ProcessPendingDestroyClosedRawUDPSockets();
+	// Check for various deferred operations
+	ProcessDeferredOperations();
 	return true;
 }
 
@@ -2135,10 +2204,7 @@ void SteamNetworkingSocketsLowLevelDecRef()
 	#endif
 
 	// Check for any leftover tasks that were queued to be run while we hold the lock
-	ISteamNetworkingSocketsRunWithLock::ServiceQueue();
-
-	// Make sure we actually destroy socket objects.  It's safe to do so now.
-	ProcessPendingDestroyClosedRawUDPSockets();
+	ProcessDeferredOperations();
 
 	Assert( s_vecRawSocketsPendingDeletion.IsEmpty() );
 	s_vecRawSocketsPendingDeletion.Purge();

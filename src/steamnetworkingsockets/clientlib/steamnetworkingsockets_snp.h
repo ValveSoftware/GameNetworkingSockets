@@ -11,6 +11,8 @@ struct P2PSessionState_t;
 
 namespace SteamNetworkingSocketsLib {
 
+struct LockDebugInfo;
+
 // Acks may be delayed.  This controls the precision used on the wire to encode the delay time.
 constexpr int k_nAckDelayPrecisionShift = 5;
 constexpr SteamNetworkingMicroseconds k_usecAckDelayPrecision = (1 << k_nAckDelayPrecisionShift );
@@ -150,6 +152,7 @@ struct SteamNetworkingMessageQueue
 {
 	CSteamNetworkingMessage *m_pFirst = nullptr;
 	CSteamNetworkingMessage *m_pLast = nullptr;
+	LockDebugInfo *m_pRequiredLock = nullptr; // Is there a lock that is required to be held while we access this queue?
 
 	inline bool empty() const
 	{
@@ -167,6 +170,9 @@ struct SteamNetworkingMessageQueue
 
 	/// Delete all queued messages
 	void PurgeMessages();
+
+	/// Check the lock is held, if appropriate
+	void AssertLockHeld() const;
 };
 
 /// Maximum number of packets we will send in one Think() call.

@@ -23,81 +23,6 @@ struct iovec;
 
 namespace SteamNetworkingSocketsLib {
 
-// You can override these with more optimal platform-specific
-// versions if you want
-using ShortDurationMutexImpl = std::mutex; // No recursion, no timeout, should only be held for a short time, so expect low contention.  Good candidate for spinlock.
-using RecursiveMutexImpl = std::recursive_mutex; // Need to able to lock recursively, but don't need to be able to wait with timeout.
-using RecursiveTimedMutexImpl = std::recursive_timed_mutex; // Recursion, and need to be able to wait with timeout.  (Does this ability actually add any extra work on any OS we care about?)
-
-struct LockDebugInfo
-{
-	static constexpr int k_nFlag_ShortDuration = (1<<0);
-	static constexpr int k_nFlag_Connection = (1<<1);
-	static constexpr int k_nFlag_PollGroup = (1<<2);
-
-	const char *const m_pszName;
-	const int m_nFlags;
-
-	void AssertHeldByCurrentThread();
-
-protected:
-	LockDebugInfo( const char *pszName, int nFlags ) : m_pszName( pszName ), m_nFlags( nFlags ) {}
-
-	void AboutToLock( bool bTry );
-	void OnLocked( const char *pszTag );
-	void AboutToUnlock();
-
-	//volatile int m_nLockCount = 0;
-	//std::thread::id m_threadIDLockOwner;
-
-};
-
-/// Wrapper for locks to make them somewhat debuggable.
-template<typename TMutexImpl >
-struct Lock : LockDebugInfo
-{
-	inline Lock( const char *pszName, int nFlags ) : LockDebugInfo( pszName, nFlags ) {}
-	inline void lock( const char *pszTag = nullptr )
-	{
-		LockDebugInfo::AboutToLock( false );
-		m_impl.lock();
-		LockDebugInfo::OnLocked( pszTag );
-	}
-	inline void unlock()
-	{
-		LockDebugInfo::AboutToUnlock();
-		m_impl.unlock();
-	}
-	inline bool try_lock( const char *pszTag = nullptr ) {
-		LockDebugInfo::AboutToLock( true );
-		if ( !m_impl.try_lock() )
-			return false;
-		LockDebugInfo::OnLocked( pszTag );
-		return true;
-	}
-	inline bool try_lock_for( int msTimeout, const char *pszTag = nullptr )
-	{
-		LockDebugInfo::AboutToLock( true );
-		if ( !m_impl.try_lock_for( std::chrono::milliseconds( msTimeout ) ) )
-			return false;
-		LockDebugInfo::OnLocked( pszTag );
-		return true;
-	}
-
-private:
-	TMutexImpl m_impl;
-};
-
-// A very simple lock to protect short accesses to a small set of data.
-// Used when:
-// - We hold the lock for a brief period.
-// - We don't need to take any additional locks while already holding this one.
-//   (Including this lock -- e.g. we don't need to lock recursively.)
-struct ShortDurationLock : Lock<ShortDurationMutexImpl>
-{
-	ShortDurationLock( const char *pszName ) : Lock<ShortDurationMutexImpl>( pszName, k_nFlag_ShortDuration ) {}
-};
-
 /////////////////////////////////////////////////////////////////////////////
 //
 // Low level sockets
@@ -378,9 +303,161 @@ extern bool BSteamNetworkingSocketsLowLevelAddRef( SteamDatagramErrMsg &errMsg )
 /// Nuke common stuff
 extern void SteamNetworkingSocketsLowLevelDecRef();
 
-/// Scope lock object used to synchronize access to internal data structures.  We use a global lock,
-/// even though in some cases it might not be necessary, to simplify the code, since in most cases
-/// there will be very little contention and the should be held only for a short amount of time.
+/////////////////////////////////////////////////////////////////////////////
+//
+// Locking
+//
+// Having fine-grained locks is utterly terrifying, frankly.  In order
+// to make this work, while avoiding deadlocks, we protect *most* things
+// with the global lock, and only certain frequently used API calls use more
+// fine-grained locks.
+//
+// In general, the global lock will be held while the background is doing its work,
+// and so we want to avoid API calls taking that lock when possible.  The most
+// important API calls that are likely to conflict are:
+//
+// - sending messages on a connection
+// - polling for incoming messages on a connection or poll group.
+// - polling connection state
+//
+// These are the calls most likely to be called often, maybe from multiple threads at
+// the same time.
+//
+// For less frequently-used API calls, we are less concerned about lock contention and
+// prefer to keep the code simple until we have a proven example of bad performance.
+//
+// Here are the locks that are used:
+// 
+// - Global lock.  You must hold this lock while:
+//   - Changing any data not specifically carved out below.
+//   - Creating or destroying objects
+//   - Changing connection state
+//   - Changing links between multiple objects.  (E.g. assigning connections to poll groups.)
+//   - Acquiring more than one "object" lock below at the same time.
+// - Per-connection locks.  You must hold this lock to modify any property of the connection.
+// - Per-poll-group locks.  You must hold this lock to modify any property of the poll group.
+// - g_tables_lock.  Protects the connection and poll group global handle lookup tables.
+//   You must hold the lock any time you want to read or write the connection or poll group
+//   tables.  This is a very special lock with custom handling.
+// - Other miscellaneous "leaf" locks that are only held very briefly to protect specific
+//   data structures, such as callback lists.  (ShortDurationLock's)
+//
+// The rules for acquiring locks are as follows:
+// - You may not acquire the global lock while already holding any other lock.  The global lock
+//   must always be acquired *first*.
+// - You may not acquire another lock while you already hold a ShortDurationLock.  These locks
+//   are intended for extremely simple use cases where the lock is expected to be held for a brief
+//   period of time and contention is expected to be low.
+// - You may not acquire more than object lock (connection or poll group) unless already holding
+//   the global lock.
+// - The table lock must always be acquired before any object or poll group locks.  This is the flow
+//   that happens for all API calls.  Also - note that API calls are special in that they release the
+//   table lock out of order, while retaining the object lock.  (It is not a stack lock/unlock pattern.)
+//   Object creation is special, and out-of-order locking is OK.  See the code for why.
+//
+// A sequence of lock acquisitions that violates the rules above *is* allowed, provided
+// that the out-of-order acquisition is a "try" acquisition, tolerant of failing due to
+// deadlock.
+//
+/////////////////////////////////////////////////////////////////////////////
+
+// You can override these with more optimal platform-specific
+// versions if you want
+using ShortDurationMutexImpl = std::mutex; // No recursion, no timeout, should only be held for a short time, so expect low contention.  Good candidate for spinlock.
+using RecursiveMutexImpl = std::recursive_mutex; // Need to able to lock recursively, but don't need to be able to wait with timeout.
+using RecursiveTimedMutexImpl = std::recursive_timed_mutex; // Recursion, and need to be able to wait with timeout.  (Does this ability actually add any extra work on any OS we care about?)
+
+/// Debug record for a lock.
+struct LockDebugInfo
+{
+	static constexpr int k_nFlag_ShortDuration = (1<<0);
+	static constexpr int k_nFlag_Connection = (1<<1);
+	static constexpr int k_nFlag_PollGroup = (1<<2);
+	static constexpr int k_nFlag_Table = (1<<4);
+
+	const char *const m_pszName;
+	const int m_nFlags;
+
+	void AssertHeldByCurrentThread( const char *pszTag = nullptr ) const;
+
+protected:
+	LockDebugInfo( const char *pszName, int nFlags ) : m_pszName( pszName ), m_nFlags( nFlags ) {}
+	~LockDebugInfo();
+
+	void AboutToLock( bool bTry );
+	void OnLocked( const char *pszTag );
+	void AboutToUnlock();
+
+	//volatile int m_nLockCount = 0;
+	//std::thread::id m_threadIDLockOwner;
+
+};
+
+/// Wrapper for locks to make them somewhat debuggable.
+template<typename TMutexImpl >
+struct Lock : LockDebugInfo
+{
+	inline Lock( const char *pszName, int nFlags ) : LockDebugInfo( pszName, nFlags ) {}
+	inline void lock( const char *pszTag = nullptr )
+	{
+		LockDebugInfo::AboutToLock( false );
+		m_impl.lock();
+		LockDebugInfo::OnLocked( pszTag );
+	}
+	inline void unlock()
+	{
+		LockDebugInfo::AboutToUnlock();
+		m_impl.unlock();
+	}
+	inline bool try_lock( const char *pszTag = nullptr ) {
+		LockDebugInfo::AboutToLock( true );
+		if ( !m_impl.try_lock() )
+			return false;
+		LockDebugInfo::OnLocked( pszTag );
+		return true;
+	}
+	inline bool try_lock_for( int msTimeout, const char *pszTag = nullptr )
+	{
+		LockDebugInfo::AboutToLock( true );
+		if ( !m_impl.try_lock_for( std::chrono::milliseconds( msTimeout ) ) )
+			return false;
+		LockDebugInfo::OnLocked( pszTag );
+		return true;
+	}
+
+private:
+	TMutexImpl m_impl;
+};
+
+/// Object that automatically unlocks a lock when it goes out of scope using RIAA
+template<typename TLock>
+struct ScopeLock
+{
+	ScopeLock() : m_pLock( nullptr ) {}
+	explicit ScopeLock( TLock &lock, const char *pszTag = nullptr ) : m_pLock(&lock) { lock.lock( pszTag ); }
+	~ScopeLock() { if ( m_pLock ) m_pLock->unlock(); }
+	void Lock( TLock &lock, const char *pszTag = nullptr ) { Assert( !m_pLock ); m_pLock = &lock; lock.lock( pszTag ); }
+	bool TryLock( TLock &lock, int msTimeout, const char *pszTag ) { Assert( !m_pLock ); if ( !lock.try_lock_for( msTimeout, pszTag ) ) return false; m_pLock = &lock; return true; }
+	void Unlock() { if ( !m_pLock ) return; m_pLock->unlock(); m_pLock = nullptr; }
+
+	// If we have a lock, forget about it
+	void Abandon() { m_pLock = nullptr; }
+private:
+	TLock *m_pLock;
+};
+
+// A very simple lock to protect short accesses to a small set of data.
+// Used when:
+// - We hold the lock for a brief period.
+// - We don't need to take any additional locks while already holding this one.
+//   (Including this lock -- e.g. we don't need to lock recursively.)
+struct ShortDurationLock : Lock<ShortDurationMutexImpl>
+{
+	ShortDurationLock( const char *pszName ) : Lock<ShortDurationMutexImpl>( pszName, k_nFlag_ShortDuration ) {}
+};
+using ShortDurationScopeLock = ScopeLock<ShortDurationLock>;
+
+/// Special utilities for acquiring the global lock
 struct SteamNetworkingGlobalLock
 {
 	inline SteamNetworkingGlobalLock( const char *pszTag = nullptr ) { Lock( pszTag ); }
@@ -397,18 +474,9 @@ struct SteamNetworkingGlobalLock
 extern void SteamNetworkingSocketsLowLevelValidate( CValidator &validator );
 #endif
 
-/// Fetch current time
-extern SteamNetworkingMicroseconds SteamNetworkingSockets_GetLocalTimestamp();
-
-/// Set debug output hook
-extern void SteamNetworkingSockets_SetDebugOutputFunction( ESteamNetworkingSocketsDebugOutputType eDetailLevel, FSteamNetworkingSocketsDebugOutput pfnFunc );
-
 /// Wake up the service thread ASAP.  Intended to be called from other threads,
 /// but is safe to call from the service thread as well.
 extern void WakeSteamDatagramThread();
-
-/// Return true if it looks like the address is a local address
-extern bool IsRouteToAddressProbablyLocal( netadr_t addr );
 
 /// Class used to take some action while we have the global thread locked,
 /// perhaps later and in another thread if necessary.  Intended to be used
@@ -433,6 +501,7 @@ public:
 	/// Called from service thread while we hold the lock
 	static void ServiceQueue();
 
+	inline const char *Tag() const { return m_pszTag; }
 private:
 	const char *m_pszTag = nullptr;
 
@@ -441,6 +510,21 @@ protected:
 
 	inline ISteamNetworkingSocketsRunWithLock() {};
 };
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Misc
+//
+/////////////////////////////////////////////////////////////////////////////
+
+/// Fetch current time
+extern SteamNetworkingMicroseconds SteamNetworkingSockets_GetLocalTimestamp();
+
+/// Set debug output hook
+extern void SteamNetworkingSockets_SetDebugOutputFunction( ESteamNetworkingSocketsDebugOutputType eDetailLevel, FSteamNetworkingSocketsDebugOutput pfnFunc );
+
+/// Return true if it looks like the address is a local address
+extern bool IsRouteToAddressProbablyLocal( netadr_t addr );
 
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_ETW
 	extern void ETW_Init();

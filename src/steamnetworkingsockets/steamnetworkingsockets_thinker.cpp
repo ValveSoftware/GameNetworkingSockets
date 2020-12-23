@@ -58,8 +58,32 @@ IThinker::~IThinker()
 	#pragma GCC diagnostic ignored "-Wstrict-overflow"
 #endif
 
+static ShortDurationLock s_mutexThinkerTable( "thinker" );
+
+// Base class isn't lockable
+bool IThinker::TryLock() const { return true; }
+
+void IThinker::InternalEnsureMinThinkTime( SteamNetworkingMicroseconds usecTargetThinkTime )
+{
+	s_mutexThinkerTable.lock();
+	if ( usecTargetThinkTime < m_usecNextThinkTime )
+		InternalSetNextThinkTime( usecTargetThinkTime );
+	s_mutexThinkerTable.unlock();
+}
+
 void IThinker::SetNextThinkTime( SteamNetworkingMicroseconds usecTargetThinkTime )
 {
+	if ( usecTargetThinkTime == m_usecNextThinkTime )
+		return;
+	s_mutexThinkerTable.lock();
+	InternalSetNextThinkTime( usecTargetThinkTime );
+	s_mutexThinkerTable.unlock();
+}
+
+void IThinker::InternalSetNextThinkTime( SteamNetworkingMicroseconds usecTargetThinkTime )
+{
+
+
 	// Protect against us blowing up because of an invalid think time.
 	// Zero is reserved (since it often means there is an uninitialized value),
 	// and our initial time value is effectively infinite compared to the
@@ -129,13 +153,17 @@ void IThinker::SetNextThinkTime( SteamNetworkingMicroseconds usecTargetThinkTime
 SteamNetworkingMicroseconds IThinker::Thinker_GetNextScheduledThinkTime()
 {
 	SteamNetworkingMicroseconds usecResult = k_nThinkTime_Never;
+	s_mutexThinkerTable.lock();
 	if ( s_queueThinkers.Count() )
-		usecResult = s_queueThinkers.ElementAtHead()->m_usecNextThinkTime;
+		usecResult = s_queueThinkers.ElementAtHead()->GetNextThinkTime();
+	s_mutexThinkerTable.unlock();
 	return usecResult;
 }
 
 void IThinker::Thinker_ProcessThinkers()
 {
+	// We need the lock to access the thinker queue
+	s_mutexThinkerTable.lock();
 
 	// Until the queue is empty
 	int nIterations = 0;
@@ -167,24 +195,47 @@ void IThinker::Thinker_ProcessThinkers()
 			break;
 		}
 
-		// Go ahead and clear his think time now and remove him
-		// from the heap.  He needs to schedule a new think time
-		// if heeds service again.  For thinkers that need frequent
-		// service, removing them and then re-inserting them when
-		// they reschedule is a bit of extra work that could be
-		// optimized by trying to not remove them now, but adjusting
-		// them once we know when they want to think.  But this
-		// is probably just a bit too complicated for the expected
-		// benefit.  If the number of total Thinkers is relatively
-		// small (which it probably will be), the heap operations
-		// are probably negligible.
-		pNextThinker->ClearNextThinkTime();
+		// Try to acquire the thinker's lock, if any
+		if ( pNextThinker->TryLock() )
+		{
 
-		// Execute callback.  (Note: this could result
-		// in self-destruction or essentially any change
-		// to the rest of the queue.)
-		pNextThinker->Think( usecNow );
+			// Go ahead and clear his think time now and remove him
+			// from the heap.  He needs to schedule a new think time
+			// if heeds service again.  For thinkers that need frequent
+			// service, removing them and then re-inserting them when
+			// they reschedule is a bit of extra work that could be
+			// optimized by trying to not remove them now, but adjusting
+			// them once we know when they want to think.  But this
+			// is probably just a bit too complicated for the expected
+			// benefit.  If the number of total Thinkers is relatively
+			// small (which it probably will be), the heap operations
+			// are probably negligible.
+			pNextThinker->InternalSetNextThinkTime( k_nThinkTime_Never );
+
+			// Release the global thinker table lock, so that other threads
+			// can schedule work while we are doing work here.
+			// (E.g. other connections can be accessed in the main thread,
+			// and can mark the connection to wake up.)
+			s_mutexThinkerTable.unlock();
+
+			// Execute callback.  (Note: this could result
+			// in self-destruction or essentially any change
+			// to the rest of the queue.)
+			pNextThinker->Think( usecNow );
+
+			// Re-acquire table lock for the next check
+			s_mutexThinkerTable.lock();
+		}
+		else
+		{
+			// Deadlock!  Should be extremely rare.  Reschedule him for 1ms in the
+			// future, and we'll try again.
+			pNextThinker->InternalSetNextThinkTime( usecNow + 1000 );
+		}
 	}
+
+	// Release table lock
+	s_mutexThinkerTable.unlock();
 }
 
 #ifdef DBGFLAG_VALIDATE

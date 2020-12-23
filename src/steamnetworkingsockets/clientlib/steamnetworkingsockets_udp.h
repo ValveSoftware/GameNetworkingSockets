@@ -193,7 +193,7 @@ protected:
 class CSteamNetworkConnectionUDP : public CSteamNetworkConnectionBase
 {
 public:
-	CSteamNetworkConnectionUDP( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface );
+	CSteamNetworkConnectionUDP( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface, ConnectionScopeLock &scopeLock );
 
 	/// Convenience wrapper to do the upcast, since we know what sort of
 	/// listen socket we were connected on.
@@ -221,14 +221,14 @@ public:
 		SteamDatagramErrMsg &errMsg
 	);
 protected:
-	virtual ~CSteamNetworkConnectionUDP(); // hidden destructor, don't call directly.  Use ConnectionDestroySelfNow
+	virtual ~CSteamNetworkConnectionUDP(); // hidden destructor, don't call directly.  Use ConnectionQueueDestroy()
 };
 
 /// A connection over loopback
 class CSteamNetworkConnectionlocalhostLoopback final : public CSteamNetworkConnectionUDP
 {
 public:
-	CSteamNetworkConnectionlocalhostLoopback( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface, const SteamNetworkingIdentity &identity );
+	CSteamNetworkConnectionlocalhostLoopback( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface, const SteamNetworkingIdentity &identity, ConnectionScopeLock &scopeLock );
 
 	/// Setup two connections to be talking to each other
 	static bool APICreateSocketPair( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface, CSteamNetworkConnectionlocalhostLoopback *pConn[2], const SteamNetworkingIdentity pIdentity[2] );

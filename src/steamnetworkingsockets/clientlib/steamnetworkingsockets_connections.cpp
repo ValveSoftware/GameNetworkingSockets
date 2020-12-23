@@ -173,6 +173,7 @@ void CSteamNetworkingMessage::LinkBefore( CSteamNetworkingMessage *pSuccessor, L
 	}
 
 	// Otherwise, the queue cannot be empty, since it at least contains the successor
+	pQueue->AssertLockHeld();
 	Assert( pQueue->m_pFirst );
 	Assert( pQueue->m_pLast );
 	Assert( (pSuccessor->*pMbrLinks).m_pQueue == pQueue );
@@ -202,6 +203,8 @@ void CSteamNetworkingMessage::LinkBefore( CSteamNetworkingMessage *pSuccessor, L
 
 void CSteamNetworkingMessage::LinkToQueueTail( Links CSteamNetworkingMessage::*pMbrLinks, SteamNetworkingMessageQueue *pQueue )
 {
+	pQueue->AssertLockHeld();
+
 	// Locate previous link that should point to us.
 	// Does the queue have anything in it?
 	if ( pQueue->m_pLast )
@@ -233,6 +236,7 @@ void CSteamNetworkingMessage::UnlinkFromQueue( Links CSteamNetworkingMessage::*p
 	if ( links.m_pQueue == nullptr )
 		return;
 	SteamNetworkingMessageQueue &q = *links.m_pQueue;
+	q.AssertLockHeld();
 
 	// Unlink from previous
 	if ( links.m_pPrev )
@@ -273,9 +277,18 @@ void CSteamNetworkingMessage::Unlink()
 	UnlinkFromQueue( &CSteamNetworkingMessage::m_linksSecondaryQueue );
 }
 
+ShortDurationLock g_lockAllRecvMessageQueues( "all_recv_msg_queue" );
+
+void SteamNetworkingMessageQueue::AssertLockHeld() const
+{
+	if ( m_pRequiredLock )
+		m_pRequiredLock->AssertHeldByCurrentThread();
+}
+
 void SteamNetworkingMessageQueue::PurgeMessages()
 {
 
+	AssertLockHeld();
 	while ( !empty() )
 	{
 		CSteamNetworkingMessage *pMsg = m_pFirst;
@@ -288,6 +301,7 @@ void SteamNetworkingMessageQueue::PurgeMessages()
 int SteamNetworkingMessageQueue::RemoveMessages( SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages )
 {
 	int nMessagesReturned = 0;
+	AssertLockHeld();
 
 	while ( !empty() && nMessagesReturned < nMaxMessages )
 	{
@@ -317,40 +331,49 @@ CSteamNetworkPollGroup::CSteamNetworkPollGroup( CSteamNetworkingSockets *pInterf
 {
 	// Object creation is rare; to keep things simple we require the global lock
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
+
+	m_queueRecvMessages.m_pRequiredLock = &g_lockAllRecvMessageQueues;
 }
 
 CSteamNetworkPollGroup::~CSteamNetworkPollGroup()
 {
 	// Object deletion is rare; to keep things simple we require the global lock
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
+	m_lock.AssertHeldByCurrentThread();
+	g_tables_lock.AssertHeldByCurrentThread();
+
 	FOR_EACH_VEC_BACK( m_vecConnections, i )
 	{
 		CSteamNetworkConnectionBase *pConn = m_vecConnections[i];
+		ConnectionScopeLock connectionLock( *pConn ); // NOTE: It's OK to take more than one lock here, because we hold the global lock
 		Assert( pConn->m_pPollGroup == this );
 		pConn->RemoveFromPollGroup();
 		Assert( m_vecConnections.Count() == i );
 	}
 
 	// We should not have any messages now!  but if we do, unlink them
-	Assert( m_queueRecvMessages.empty() );
-
-	// But if we do, unlink them but leave them in the main queue.
-	while ( !m_queueRecvMessages.empty() )
 	{
-		CSteamNetworkingMessage *pMsg = m_queueRecvMessages.m_pFirst;
+		ShortDurationScopeLock lockMessageQueues( g_lockAllRecvMessageQueues );
+		Assert( m_queueRecvMessages.empty() );
 
-		// The poll group queue is the "secondary queue"
-		Assert( pMsg->m_linksSecondaryQueue.m_pQueue == &m_queueRecvMessages );
+		// But if we do, unlink them but leave them in the main queue.
+		while ( !m_queueRecvMessages.empty() )
+		{
+			CSteamNetworkingMessage *pMsg = m_queueRecvMessages.m_pFirst;
 
-		// They should be in some other queue (for the connection) as the main queue.
-		// That owns them and make sure they get deleted!
-		Assert( pMsg->m_links.m_pQueue != nullptr );
+			// The poll group queue is the "secondary queue"
+			Assert( pMsg->m_linksSecondaryQueue.m_pQueue == &m_queueRecvMessages );
 
-		// OK, do the work
-		pMsg->UnlinkFromQueue( &CSteamNetworkingMessage::m_linksSecondaryQueue );
+			// They should be in some other queue (for the connection) as the main queue.
+			// That owns them and make sure they get deleted!
+			Assert( pMsg->m_links.m_pQueue != nullptr );
 
-		// Make sure it worked.
-		Assert( pMsg != m_queueRecvMessages.m_pFirst );
+			// OK, do the work
+			pMsg->UnlinkFromQueue( &CSteamNetworkingMessage::m_linksSecondaryQueue );
+
+			// Make sure it worked.
+			Assert( pMsg != m_queueRecvMessages.m_pFirst );
+		}
 	}
 
 	// Remove us from global table, if we're in it
@@ -369,12 +392,17 @@ CSteamNetworkPollGroup::~CSteamNetworkPollGroup()
 
 		m_hPollGroupSelf = k_HSteamNetPollGroup_Invalid;
 	}
+
+	// Unlock, so our lock debugging doesn't complain.
+	// Here we assume that we're only locked once
+	m_lock.unlock();
 }
 
 void CSteamNetworkPollGroup::AssignHandleAndAddToGlobalTable()
 {
 	// Object creation is rare; to keep things simple we require the global lock
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
+	g_tables_lock.AssertHeldByCurrentThread();
 
 	Assert( m_hPollGroupSelf == k_HSteamNetPollGroup_Invalid );
 
@@ -424,6 +452,8 @@ CSteamNetworkListenSocketBase::~CSteamNetworkListenSocketBase()
 	// Remove us from global table, if we're in it
 	if ( m_hListenSocketSelf != k_HSteamListenSocket_Invalid )
 	{
+		TableScopeLock tableScopeLock( g_tables_lock ); // NOTE: We can do this since listen sockets are protected by the global lock, not an object lock
+
 		int idx = m_hListenSocketSelf & 0xffff;
 		if ( g_mapListenSockets.IsValidIndex( idx ) && g_mapListenSockets[ idx ] == this )
 		{
@@ -447,6 +477,7 @@ bool CSteamNetworkListenSocketBase::BInitListenSocketCommon( int nOptions, const
 
 	// Assign us a handle, and add us to the global table
 	{
+
 		// We actually don't do map "lookups".  We assume the number of listen sockets
 		// is going to be reasonably small.
 		static int s_nDummy;
@@ -510,11 +541,12 @@ void CSteamNetworkListenSocketBase::Destroy()
 	FOR_EACH_HASHMAP( m_mapChildConnections, h )
 	{
 		CSteamNetworkConnectionBase *pChild = m_mapChildConnections[ h ];
+		ConnectionScopeLock connectionLock( *pChild );
 		Assert( pChild->m_pParentListenSocket == this );
 		Assert( pChild->m_hSelfInParentListenSocketMap == h );
 
 		int n = m_mapChildConnections.Count();
-		pChild->ConnectionDestroySelfNow();
+		pChild->ConnectionQueueDestroy();
 		Assert( m_mapChildConnections.Count() == n-1 );
 	}
 
@@ -535,6 +567,8 @@ bool CSteamNetworkListenSocketBase::BSupportsSymmetricMode()
 
 bool CSteamNetworkListenSocketBase::BAddChildConnection( CSteamNetworkConnectionBase *pConn, SteamNetworkingErrMsg &errMsg )
 {
+	pConn->AssertLocksHeldByCurrentThread();
+
 	// Safety check
 	if ( pConn->m_pParentListenSocket || pConn->m_hSelfInParentListenSocketMap != -1 || pConn->m_hConnectionSelf != k_HSteamNetConnection_Invalid )
 	{
@@ -611,8 +645,9 @@ void CSteamNetworkListenSocketBase::AboutToDestroyChildConnection( CSteamNetwork
 //
 /////////////////////////////////////////////////////////////////////////////
 
-CSteamNetworkConnectionBase::CSteamNetworkConnectionBase( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface )
-: m_pSteamNetworkingSocketsInterface( pSteamNetworkingSocketsInterface )
+CSteamNetworkConnectionBase::CSteamNetworkConnectionBase( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface, ConnectionScopeLock &scopeLock )
+: ILockableThinker( m_defaultLock )
+, m_pSteamNetworkingSocketsInterface( pSteamNetworkingSocketsInterface )
 {
 	m_hConnectionSelf = k_HSteamNetConnection_Invalid;
 	m_eConnectionState = k_ESteamNetworkingConnectionState_None;
@@ -641,66 +676,25 @@ CSteamNetworkConnectionBase::CSteamNetworkConnectionBase( CSteamNetworkingSocket
  
 	// Initialize configuration using parent interface for now.
 	m_connectionConfig.Init( &m_pSteamNetworkingSocketsInterface->m_connectionConfig );
+
+	// We should always hold the lock while initializing a connection
+	m_pLock = &m_defaultLock;
+	scopeLock.Lock( *m_pLock );
 }
 
 CSteamNetworkConnectionBase::~CSteamNetworkConnectionBase()
 {
-	Assert( m_hConnectionSelf == k_HSteamNetConnection_Invalid );
 	Assert( m_eConnectionState == k_ESteamNetworkingConnectionState_Dead );
 	Assert( m_eConnectionWireState == k_ESteamNetworkingConnectionState_Dead );
 	Assert( m_queueRecvMessages.empty() );
 	Assert( m_pParentListenSocket == nullptr );
-}
 
-void CSteamNetworkConnectionBase::ConnectionDestroySelfNow()
-{
-
-	// Make sure all resources have been freed, etc
-	FreeResources();
-
-	// Self destruct NOW
-	delete this;
-}
-
-void CConnectionTransport::TransportDestroySelfNow()
-{
-	// Call virtual functions while we still can
-	TransportFreeResources();
-
-	// Self destruct NOW
-	delete this;
-}
-
-void CConnectionTransport::TransportFreeResources()
-{
-}
-
-void CSteamNetworkConnectionBase::QueueDestroy()
-{
-	FreeResources();
-
-	// We'll delete ourselves from within Think();
-	SetNextThinkTime( SteamNetworkingSockets_GetLocalTimestamp() );
-}
-
-void CSteamNetworkConnectionBase::FreeResources()
-{
-	// Make sure we're marked in the dead state, and also if we were in an
-	// API-visible state, this will queue the state change notification
-	// while we still know who our listen socket is (if any).
-	SetState( k_ESteamNetworkingConnectionState_Dead, SteamNetworkingSockets_GetLocalTimestamp() );
-
-	// Discard any messages that weren't retrieved
-	m_queueRecvMessages.PurgeMessages();
-
-	// If we are in a poll group, remove us from the group
-	RemoveFromPollGroup();
-
-	// Detach from the listen socket that owns us, if any
-	if ( m_pParentListenSocket )
-		m_pParentListenSocket->AboutToDestroyChildConnection( this );
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
+	g_tables_lock.AssertHeldByCurrentThread();
 
 	// Remove from global connection list
+	// FIXME - This doesn't work!  We don't hold table lock,
+	// and we cannot take it here without potentially introducing deadlock
 	if ( m_hConnectionSelf != k_HSteamNetConnection_Invalid )
 	{
 		int idx = g_mapConnections.Find( uint16( m_hConnectionSelf ) );
@@ -722,9 +716,6 @@ void CSteamNetworkConnectionBase::FreeResources()
 		m_hConnectionSelf = k_HSteamNetConnection_Invalid;
 	}
 
-	// Make sure and clean out crypto keys and such now
-	ClearCrypto();
-
 	// Save connection ID so we avoid using the same thing in the very near future.
 	if ( m_unConnectionIDLocal )
 	{
@@ -739,6 +730,80 @@ void CSteamNetworkConnectionBase::FreeResources()
 		// Clear it, since this function should be idempotent
 		m_unConnectionIDLocal = 0;
 	}
+}
+
+static std_vector<CSteamNetworkConnectionBase *> s_vecPendingDeleteConnections;
+static ShortDurationLock s_lockPendingDeleteConnections( "connection_delete_queue" );
+
+void CSteamNetworkConnectionBase::ConnectionQueueDestroy()
+{
+
+	// Make sure all resources have been freed, etc
+	FreeResources();
+
+	// We don't need to be in the thinker list
+	IThinker::ClearNextThinkTime();
+
+	// Put into list
+	s_lockPendingDeleteConnections.lock();
+	s_vecPendingDeleteConnections.push_back(this);
+	s_lockPendingDeleteConnections.unlock();
+}
+
+void CSteamNetworkConnectionBase::ProcessDeletionList()
+{
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
+	if ( s_vecPendingDeleteConnections.empty() )
+		return;
+	TableScopeLock tablesLock( g_tables_lock );
+	s_lockPendingDeleteConnections.lock();
+	for ( CSteamNetworkConnectionBase *pConnection: s_vecPendingDeleteConnections )
+		delete pConnection;
+	s_vecPendingDeleteConnections.clear();
+	s_lockPendingDeleteConnections.unlock();
+}
+
+void CConnectionTransport::TransportDestroySelfNow()
+{
+	AssertLocksHeldByCurrentThread();
+
+	// Call virtual functions while we still can
+	TransportFreeResources();
+
+	// Self destruct NOW
+	delete this;
+}
+
+void CConnectionTransport::TransportFreeResources()
+{
+}
+
+void CSteamNetworkConnectionBase::FreeResources()
+{
+	AssertLocksHeldByCurrentThread();
+
+	// Make sure we're marked in the dead state, and also if we were in an
+	// API-visible state, this will queue the state change notification
+	// while we still know who our listen socket is (if any).
+	//
+	// NOTE: Once this happens, any table lookup that finds us will return NULL.
+	// So we basically don't exist to you if all you have is a handle
+	SetState( k_ESteamNetworkingConnectionState_Dead, SteamNetworkingSockets_GetLocalTimestamp() );
+
+	// Discard any messages that weren't retrieved
+	g_lockAllRecvMessageQueues.lock();
+	m_queueRecvMessages.PurgeMessages();
+	g_lockAllRecvMessageQueues.unlock();
+
+	// If we are in a poll group, remove us from the group
+	RemoveFromPollGroup();
+
+	// Detach from the listen socket that owns us, if any
+	if ( m_pParentListenSocket )
+		m_pParentListenSocket->AboutToDestroyChildConnection( this );
+
+	// Make sure and clean out crypto keys and such now
+	ClearCrypto();
 
 	// Clean up our transport
 	DestroyTransport();
@@ -746,6 +811,7 @@ void CSteamNetworkConnectionBase::FreeResources()
 
 void CSteamNetworkConnectionBase::DestroyTransport()
 {
+	AssertLocksHeldByCurrentThread( "DestroyTransport" );
 	if ( m_pTransport )
 	{
 		m_pTransport->TransportDestroySelfNow();
@@ -755,19 +821,24 @@ void CSteamNetworkConnectionBase::DestroyTransport()
 
 void CSteamNetworkConnectionBase::RemoveFromPollGroup()
 {
+	AssertLocksHeldByCurrentThread( "RemoveFromPollGroup" );
 	if ( !m_pPollGroup )
 		return;
+	PollGroupScopeLock pollGroupLock( m_pPollGroup->m_lock );
 
 	// Scan all of our messages, and make sure they are not in the secondary queue
-	for ( CSteamNetworkingMessage *pMsg = m_queueRecvMessages.m_pFirst ; pMsg ; pMsg = pMsg->m_linksSecondaryQueue.m_pNext )
 	{
-		Assert( pMsg->m_links.m_pQueue == &m_queueRecvMessages );
+		ShortDurationScopeLock lockMessageQueues( g_lockAllRecvMessageQueues );
+		for ( CSteamNetworkingMessage *pMsg = m_queueRecvMessages.m_pFirst ; pMsg ; pMsg = pMsg->m_linksSecondaryQueue.m_pNext )
+		{
+			Assert( pMsg->m_links.m_pQueue == &m_queueRecvMessages );
 
-		// It *should* be in the secondary queue of the poll group
-		Assert( pMsg->m_linksSecondaryQueue.m_pQueue == &m_pPollGroup->m_queueRecvMessages );
+			// It *should* be in the secondary queue of the poll group
+			Assert( pMsg->m_linksSecondaryQueue.m_pQueue == &m_pPollGroup->m_queueRecvMessages );
 
-		// OK, do the work
-		pMsg->UnlinkFromQueue( &CSteamNetworkingMessage::m_linksSecondaryQueue );
+			// OK, do the work
+			pMsg->UnlinkFromQueue( &CSteamNetworkingMessage::m_linksSecondaryQueue );
+		}
 	}
 
 	// Remove us from the poll group's list.  DbgVerify because we should be in the list!
@@ -779,6 +850,7 @@ void CSteamNetworkConnectionBase::RemoveFromPollGroup()
 
 void CSteamNetworkConnectionBase::SetPollGroup( CSteamNetworkPollGroup *pPollGroup )
 {
+	AssertLocksHeldByCurrentThread( "SetPollGroup" );
 
 	// Quick early-out for no change
 	if ( m_pPollGroup == pPollGroup )
@@ -791,6 +863,13 @@ void CSteamNetworkConnectionBase::SetPollGroup( CSteamNetworkPollGroup *pPollGro
 		return;
 	}
 
+	// Grab locks for old and new poll groups.  Remember, we can take multiple locks without
+	// worrying about deadlock because we hold the global lock
+	PollGroupScopeLock pollGroupLockNew( pPollGroup->m_lock );
+	PollGroupScopeLock pollGroupLockOld;
+	if ( m_pPollGroup )
+		pollGroupLockOld.Lock( m_pPollGroup->m_lock );
+
 	// Scan all messages that are already queued for this connection,
 	// and insert them into the poll groups queue in the (approximate)
 	// appropriate spot.  Using local timestamps should be really close
@@ -799,41 +878,44 @@ void CSteamNetworkConnectionBase::SetPollGroup( CSteamNetworkPollGroup *pPollGro
 	// regarding ordering of messages from different connections, and
 	// really anybody who is expecting or relying on such guarantees
 	// is probably doing something wrong.
-	CSteamNetworkingMessage *pInsertBefore = pPollGroup->m_queueRecvMessages.m_pFirst;
-	for ( CSteamNetworkingMessage *pMsg = m_queueRecvMessages.m_pFirst ; pMsg ; pMsg = pMsg->m_links.m_pNext )
 	{
-		Assert( pMsg->m_links.m_pQueue == &m_queueRecvMessages );
-
-		// Unlink it from existing poll group queue, if any
-		if ( pMsg->m_linksSecondaryQueue.m_pQueue )
+		ShortDurationScopeLock lockMessageQueues( g_lockAllRecvMessageQueues );
+		CSteamNetworkingMessage *pInsertBefore = pPollGroup->m_queueRecvMessages.m_pFirst;
+		for ( CSteamNetworkingMessage *pMsg = m_queueRecvMessages.m_pFirst ; pMsg ; pMsg = pMsg->m_links.m_pNext )
 		{
-			Assert( m_pPollGroup && pMsg->m_linksSecondaryQueue.m_pQueue == &m_pPollGroup->m_queueRecvMessages );
-			pMsg->UnlinkFromQueue( &CSteamNetworkingMessage::m_linksSecondaryQueue );
-		}
-		else
-		{
-			Assert( !m_pPollGroup );
-		}
+			Assert( pMsg->m_links.m_pQueue == &m_queueRecvMessages );
 
-		// Scan forward in the poll group message queue, until we find the insertion point
-		for (;;)
-		{
-
-			// End of queue?
-			if ( !pInsertBefore )
+			// Unlink it from existing poll group queue, if any
+			if ( pMsg->m_linksSecondaryQueue.m_pQueue )
 			{
-				pMsg->LinkToQueueTail( &CSteamNetworkingMessage::m_linksSecondaryQueue, &pPollGroup->m_queueRecvMessages );
-				break;
+				Assert( m_pPollGroup && pMsg->m_linksSecondaryQueue.m_pQueue == &m_pPollGroup->m_queueRecvMessages );
+				pMsg->UnlinkFromQueue( &CSteamNetworkingMessage::m_linksSecondaryQueue );
+			}
+			else
+			{
+				Assert( !m_pPollGroup );
 			}
 
-			Assert( pInsertBefore->m_linksSecondaryQueue.m_pQueue == &pPollGroup->m_queueRecvMessages );
-			if ( pInsertBefore->m_usecTimeReceived > pMsg->m_usecTimeReceived )
+			// Scan forward in the poll group message queue, until we find the insertion point
+			for (;;)
 			{
-				pMsg->LinkBefore( pInsertBefore, &CSteamNetworkingMessage::m_linksSecondaryQueue, &pPollGroup->m_queueRecvMessages );
-				break;
-			}
 
-			pInsertBefore = pInsertBefore->m_linksSecondaryQueue.m_pNext;
+				// End of queue?
+				if ( !pInsertBefore )
+				{
+					pMsg->LinkToQueueTail( &CSteamNetworkingMessage::m_linksSecondaryQueue, &pPollGroup->m_queueRecvMessages );
+					break;
+				}
+
+				Assert( pInsertBefore->m_linksSecondaryQueue.m_pQueue == &pPollGroup->m_queueRecvMessages );
+				if ( pInsertBefore->m_usecTimeReceived > pMsg->m_usecTimeReceived )
+				{
+					pMsg->LinkBefore( pInsertBefore, &CSteamNetworkingMessage::m_linksSecondaryQueue, &pPollGroup->m_queueRecvMessages );
+					break;
+				}
+
+				pInsertBefore = pInsertBefore->m_linksSecondaryQueue.m_pNext;
+			}
 		}
 	}
 
@@ -851,49 +933,13 @@ void CSteamNetworkConnectionBase::SetPollGroup( CSteamNetworkPollGroup *pPollGro
 
 bool CSteamNetworkConnectionBase::BInitConnection( SteamNetworkingMicroseconds usecNow, int nOptions, const SteamNetworkingConfigValue_t *pOptions, SteamDatagramErrMsg &errMsg )
 {
+	AssertLocksHeldByCurrentThread();
+
 	// Should only be called while we are in the initial state
 	Assert( GetState() == k_ESteamNetworkingConnectionState_None );
 
 	// Make sure MTU values are initialized
 	UpdateMTUFromConfig();
-
-	// We make sure the lower 16 bits are unique.  Make sure we don't have too many connections.
-	// This definitely could be relaxed, but honestly we don't expect this library to be used in situations
-	// where you need that many connections.
-	if ( g_mapConnections.Count() >= 0x1fff )
-	{
-		V_strcpy_safe( errMsg, "Too many connections." );
-		return false;
-	}
-
-	// Select random connection ID, and make sure it passes certain sanity checks
-	Assert( m_unConnectionIDLocal == 0 );
-	int tries = 0;
-	for (;;) {
-		if ( ++tries > 10000 )
-		{
-			V_strcpy_safe( errMsg, "Unable to find unique connection ID" );
-			return false;
-		}
-		CCrypto::GenerateRandomBlock( &m_unConnectionIDLocal, sizeof(m_unConnectionIDLocal) );
-
-		// Make sure neither half is zero
-		if ( ( m_unConnectionIDLocal & 0xffff ) == 0 )
-			continue;
-		if ( ( m_unConnectionIDLocal & 0xffff0000 ) == 0 )
-			continue;
-
-		// Check recent connections
-		if ( s_vecRecentLocalConnectionIDs.HasElement( (uint16)m_unConnectionIDLocal ) )
-			continue;
-
-		// Check active connections
-		if ( g_mapConnections.HasElement( (uint16)m_unConnectionIDLocal ) )
-			continue;
-
-		// This one's good
-		break;
-	}
 
 	Assert( m_hConnectionSelf == k_HSteamNetConnection_Invalid );
 
@@ -913,16 +959,67 @@ bool CSteamNetworkConnectionBase::BInitConnection( SteamNetworkingMicroseconds u
 	m_szEndDebug[0] = '\0';
 	m_statsEndToEnd.Init( usecNow, true ); // Until we go connected don't try to send acks, etc
 
-	// Let's use the the connection ID as the connection handle.  It's random, not reused
-	// within a short time interval, and we print it in our debugging in places, and you
-	// can see it on the wire for debugging.  In the past we has a "clever" method of
-	// assigning the handle that had some cute performance tricks for lookups and
-	// guaranteeing handles wouldn't be reused.  But making it be the same as the
-	// ConnectionID is probably just more useful and less confusing.
-	m_hConnectionSelf = m_unConnectionIDLocal;
+	// Select random connection ID, and make sure it passes certain sanity checks
+	{
+		Assert( m_unConnectionIDLocal == 0 );
 
-	// Add it to our table of active sockets.
-	g_mapConnections.Insert( int16( m_hConnectionSelf ), this );
+		// OK, even though *usually* we cannot take the table lock after holding
+		// a connection lock (since we often take them in the opposite order),
+		// in this case it's OK because:
+		//
+		// 1.) We hold the global lock AND
+		// 2.) This is a new connection, and not previously in the table so there is no way
+		//     for any other thread that might be holding the table lock at this time to
+		//     subsequently try to wait on any locks that we hold.
+		TableScopeLock tableLock( g_tables_lock );
+
+		// We make sure the lower 16 bits are unique.  Make sure we don't have too many connections.
+		// This definitely could be relaxed, but honestly we don't expect this library to be used in situations
+		// where you need that many connections.
+		if ( g_mapConnections.Count() >= 0x1fff )
+		{
+			V_strcpy_safe( errMsg, "Too many connections." );
+			return false;
+		}
+
+		int tries = 0;
+		for (;;) {
+			if ( ++tries > 10000 )
+			{
+				V_strcpy_safe( errMsg, "Unable to find unique connection ID" );
+				return false;
+			}
+			CCrypto::GenerateRandomBlock( &m_unConnectionIDLocal, sizeof(m_unConnectionIDLocal) );
+
+			// Make sure neither half is zero
+			if ( ( m_unConnectionIDLocal & 0xffff ) == 0 )
+				continue;
+			if ( ( m_unConnectionIDLocal & 0xffff0000 ) == 0 )
+				continue;
+
+			// Check recent connections
+			if ( s_vecRecentLocalConnectionIDs.HasElement( (uint16)m_unConnectionIDLocal ) )
+				continue;
+
+			// Check active connections
+			if ( g_mapConnections.HasElement( (uint16)m_unConnectionIDLocal ) )
+				continue;
+
+			// This one's good
+			break;
+		}
+
+		// Let's use the the connection ID as the connection handle.  It's random, not reused
+		// within a short time interval, and we print it in our debugging in places, and you
+		// can see it on the wire for debugging.  In the past we has a "clever" method of
+		// assigning the handle that had some cute performance tricks for lookups and
+		// guaranteeing handles wouldn't be reused.  But making it be the same as the
+		// ConnectionID is probably just more useful and less confusing.
+		m_hConnectionSelf = m_unConnectionIDLocal;
+
+		// Add it to our table of active sockets.
+		g_mapConnections.Insert( int16( m_hConnectionSelf ), this );
+	} // Release table scope lock
 
 	// Set options, if any
 	if ( pOptions )
@@ -973,6 +1070,7 @@ bool CSteamNetworkConnectionBase::BSupportsSymmetricMode()
 
 void CSteamNetworkConnectionBase::SetAppName( const char *pszName )
 {
+	m_pLock->AssertHeldByCurrentThread();
 	V_strcpy_safe( m_szAppName, pszName ? pszName : "" );
 
 	// Re-calculate description
@@ -981,6 +1079,8 @@ void CSteamNetworkConnectionBase::SetAppName( const char *pszName )
 
 void CSteamNetworkConnectionBase::SetDescription()
 {
+	m_pLock->AssertHeldByCurrentThread();
+
 	ConnectionTypeDescription_t szTypeDescription;
 	GetConnectionTypeDescription( szTypeDescription );
 
@@ -997,6 +1097,7 @@ void CSteamNetworkConnectionBase::InitConnectionCrypto( SteamNetworkingMicroseco
 
 void CSteamNetworkConnectionBase::ClearCrypto()
 {
+	AssertLocksHeldByCurrentThread();
 	m_msgCertRemote.Clear();
 	m_msgCryptRemote.Clear();
 	m_bCertHasIdentity = false;
@@ -1006,6 +1107,7 @@ void CSteamNetworkConnectionBase::ClearCrypto()
 
 void CSteamNetworkConnectionBase::ClearLocalCrypto()
 {
+	AssertLocksHeldByCurrentThread();
 	m_eNegotiatedCipher = k_ESteamNetworkingSocketsCipher_INVALID;
 	m_keyExchangePrivateKeyLocal.Wipe();
 	m_msgCryptLocal.Clear();
@@ -1033,6 +1135,7 @@ void CSteamNetworkConnectionBase::RecvNonDataSequencedPacket( int64 nPktNum, Ste
 bool CSteamNetworkConnectionBase::BThinkCryptoReady( SteamNetworkingMicroseconds usecNow )
 {
 	// Should only be called from initial states
+	AssertLocksHeldByCurrentThread();
 	Assert( GetState() == k_ESteamNetworkingConnectionState_None || GetState() == k_ESteamNetworkingConnectionState_Connecting );
 
 	// Do we already have a cert?
@@ -1125,6 +1228,9 @@ bool CSteamNetworkConnectionBase::BThinkCryptoReady( SteamNetworkingMicroseconds
 
 void CSteamNetworkConnectionBase::InterfaceGotCert()
 {
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
+	ConnectionScopeLock connectionLock( *this );
+
 	// Make sure we care about this
 	if ( GetState() != k_ESteamNetworkingConnectionState_Connecting )
 		return;
@@ -1140,6 +1246,8 @@ void CSteamNetworkConnectionBase::InterfaceGotCert()
 
 void CSteamNetworkConnectionBase::SetLocalCert( const CMsgSteamDatagramCertificateSigned &msgSignedCert, const CECSigningPrivateKey &keyPrivate, bool bCertHasIdentity )
 {
+	AssertLocksHeldByCurrentThread();
+
 	Assert( msgSignedCert.has_cert() );
 	Assert( keyPrivate.IsValid() );
 
@@ -1163,6 +1271,7 @@ void CSteamNetworkConnectionBase::SetLocalCert( const CMsgSteamDatagramCertifica
 
 void CSteamNetworkConnectionBase::SetCryptoCipherList()
 {
+	AssertLocksHeldByCurrentThread();
 	Assert( m_msgCryptLocal.ciphers_size() == 0 ); // Should only do this once
 
 	// Select the ciphers we want to use, in preference order.
@@ -1200,6 +1309,8 @@ void CSteamNetworkConnectionBase::SetCryptoCipherList()
 
 void CSteamNetworkConnectionBase::FinalizeLocalCrypto()
 {
+	AssertLocksHeldByCurrentThread( "FinalizeLocalCrypto" );
+
 	// Make sure we have what we need
 	Assert( m_msgCryptLocal.ciphers_size() > 0 );
 	Assert( m_keyPrivate.IsValid() );
@@ -1233,6 +1344,7 @@ void CSteamNetworkConnectionBase::FinalizeLocalCrypto()
 
 void CSteamNetworkConnectionBase::SetLocalCertUnsigned()
 {
+	AssertLocksHeldByCurrentThread();
 
 	// Generate a keypair
 	CECSigningPrivateKey keyPrivate;
@@ -1259,6 +1371,8 @@ void CSteamNetworkConnectionBase::SetLocalCertUnsigned()
 
 void CSteamNetworkConnectionBase::CertRequestFailed( ESteamNetConnectionEnd nConnectionEndReason, const char *pszMsg )
 {
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
+	ConnectionScopeLock connectionLock( *this );
 
 	// Make sure we care about this
 	if ( GetState() != k_ESteamNetworkingConnectionState_Connecting && GetState() != k_ESteamNetworkingConnectionState_None )
@@ -1285,7 +1399,7 @@ void CSteamNetworkConnectionBase::CertRequestFailed( ESteamNetConnectionEnd nCon
 
 bool CSteamNetworkConnectionBase::BRecvCryptoHandshake( const CMsgSteamDatagramCertificateSigned &msgCert, const CMsgSteamDatagramSessionCryptInfoSigned &msgSessionInfo, bool bServer )
 {
-	SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "BRecvCryptoHandshake" );
+	AssertLocksHeldByCurrentThread( "BRecvCryptoHandshake" );
 	SteamNetworkingErrMsg errMsg;
 
 	// Have we already done key exchange?
@@ -1483,6 +1597,7 @@ bool CSteamNetworkConnectionBase::BRecvCryptoHandshake( const CMsgSteamDatagramC
 
 bool CSteamNetworkConnectionBase::BFinishCryptoHandshake( bool bServer )
 {
+	AssertLocksHeldByCurrentThread( "BFinishCryptoHandshake" );
 
 	// On the server, we have been waiting to decide what ciphers we are willing to use.
 	// (Because we want to give the app to set any connection options).
@@ -1675,6 +1790,7 @@ EUnsignedCert CSteamNetworkConnectionBase::AllowRemoteUnsignedCert()
 
 ESteamNetConnectionEnd CSteamNetworkConnectionBase::CheckRemoteCert( const CertAuthScope *pCACertAuthScope, SteamNetworkingErrMsg &errMsg )
 {
+	AssertLocksHeldByCurrentThread( "BFinishCryptoHandshake" );
 
 	// Allowed for this app?
 	if ( !CheckCertAppID( m_msgCertRemote, pCACertAuthScope, m_pSteamNetworkingSocketsInterface->m_pSteamNetworkingUtils->GetAppID(), errMsg ) )
@@ -1700,17 +1816,20 @@ ESteamNetConnectionEnd CSteamNetworkConnectionBase::CheckRemoteCert( const CertA
 
 void CSteamNetworkConnectionBase::SetUserData( int64 nUserData )
 {
+	m_pLock->AssertHeldByCurrentThread();
 	m_connectionConfig.m_ConnectionUserData.Set( nUserData );
 
 	// Change user data on all messages that haven't been pulled out
 	// of the queue yet.  This way we don't expose the client to weird
 	// race conditions where they create a connection, and before they
 	// are able to install their user data, some messages come in
+	g_lockAllRecvMessageQueues.lock();
 	for ( CSteamNetworkingMessage *m = m_queueRecvMessages.m_pFirst ; m ; m = m->m_links.m_pNext )
 	{
 		Assert( m->m_conn == m_hConnectionSelf );
 		m->m_nConnUserData = nUserData;
 	}
+	g_lockAllRecvMessageQueues.unlock();
 }
 
 void CConnectionTransport::TransportConnectionStateChanged( ESteamNetworkingConnectionState eOldState )
@@ -1740,6 +1859,7 @@ void CConnectionTransport::GetDetailedConnectionStatus( SteamNetworkingDetailedC
 
 void CSteamNetworkConnectionBase::ConnectionPopulateInfo( SteamNetConnectionInfo_t &info ) const
 {
+	m_pLock->AssertHeldByCurrentThread();
 	memset( &info, 0, sizeof(info) );
 
 	info.m_eState = CollapseConnectionStateToAPIState( m_eConnectionState );
@@ -1756,6 +1876,7 @@ void CSteamNetworkConnectionBase::ConnectionPopulateInfo( SteamNetConnectionInfo
 
 void CSteamNetworkConnectionBase::APIGetQuickConnectionStatus( SteamNetworkingQuickConnectionStatus &stats )
 {
+	m_pLock->AssertHeldByCurrentThread();
 	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 
 	stats.m_eState = CollapseConnectionStateToAPIState( m_eConnectionState );
@@ -1793,6 +1914,9 @@ void CSteamNetworkConnectionBase::APIGetQuickConnectionStatus( SteamNetworkingQu
 
 void CSteamNetworkConnectionBase::APIGetDetailedConnectionStatus( SteamNetworkingDetailedConnectionStatus &stats, SteamNetworkingMicroseconds usecNow )
 {
+	// Connection must be locked, but we don't require the global lock here!
+	m_pLock->AssertHeldByCurrentThread();
+
 	stats.Clear();
 	ConnectionPopulateInfo( stats.m_info );
 
@@ -1808,6 +1932,9 @@ void CSteamNetworkConnectionBase::APIGetDetailedConnectionStatus( SteamNetworkin
 
 EResult CSteamNetworkConnectionBase::APISendMessageToConnection( const void *pData, uint32 cbData, int nSendFlags, int64 *pOutMessageNumber )
 {
+	// Connection must be locked, but we don't require the global lock here!
+	m_pLock->AssertHeldByCurrentThread();
+
 	if ( pOutMessageNumber )
 		*pOutMessageNumber = -1;
 
@@ -1860,6 +1987,7 @@ EResult CSteamNetworkConnectionBase::APISendMessageToConnection( const void *pDa
 
 int64 CSteamNetworkConnectionBase::APISendMessageToConnection( CSteamNetworkingMessage *pMsg, SteamNetworkingMicroseconds usecNow, bool *pbThinkImmediately )
 {
+	m_pLock->AssertHeldByCurrentThread();
 
 	// Check connection state
 	switch ( GetState() )
@@ -1912,6 +2040,7 @@ int64 CSteamNetworkConnectionBase::_APISendMessageToConnection( CSteamNetworking
 
 EResult CSteamNetworkConnectionBase::APIFlushMessageOnConnection()
 {
+	m_pLock->AssertHeldByCurrentThread();
 
 	// Check connection state
 	switch ( GetState() )
@@ -1940,11 +2069,20 @@ EResult CSteamNetworkConnectionBase::APIFlushMessageOnConnection()
 
 int CSteamNetworkConnectionBase::APIReceiveMessages( SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages )
 {
-	return m_queueRecvMessages.RemoveMessages( ppOutMessages, nMaxMessages );
+	// Connection must be locked, but we don't require the global lock here!
+	m_pLock->AssertHeldByCurrentThread();
+
+	g_lockAllRecvMessageQueues.lock();
+	int result = m_queueRecvMessages.RemoveMessages( ppOutMessages, nMaxMessages );
+	g_lockAllRecvMessageQueues.unlock();
+
+	return result;
 }
 
 bool CSteamNetworkConnectionBase::DecryptDataChunk( uint16 nWireSeqNum, int cbPacketSize, const void *pChunk, int cbChunk, RecvPacketContext_t &ctx )
 {
+	AssertLocksHeldByCurrentThread();
+
 	if ( !m_bCryptKeysValid || !BStateIsActive() )
 	{
 		Assert( m_bCryptKeysValid );
@@ -2060,6 +2198,8 @@ bool CSteamNetworkConnectionBase::DecryptDataChunk( uint16 nWireSeqNum, int cbPa
 
 EResult CSteamNetworkConnectionBase::APIAcceptConnection()
 {
+	AssertLocksHeldByCurrentThread();
+
 	// Must be in in state ready to be accepted
 	if ( GetState() != k_ESteamNetworkingConnectionState_Connecting )
 	{
@@ -2124,6 +2264,7 @@ EResult CSteamNetworkConnectionBase::AcceptConnection( SteamNetworkingMicrosecon
 
 void CSteamNetworkConnectionBase::APICloseConnection( int nReason, const char *pszDebug, bool bEnableLinger )
 {
+	AssertLocksHeldByCurrentThread();
 
 	// If we already know the reason for the problem, we should ignore theirs
 	if ( m_eEndReason == k_ESteamNetConnectionEnd_Invalid || GetState() == k_ESteamNetworkingConnectionState_Connecting || GetState() == k_ESteamNetworkingConnectionState_FindingRoute || GetState() == k_ESteamNetworkingConnectionState_Connected )
@@ -2192,6 +2333,9 @@ void CSteamNetworkConnectionBase::APICloseConnection( int nReason, const char *p
 
 void CSteamNetworkConnectionBase::SetState( ESteamNetworkingConnectionState eNewState, SteamNetworkingMicroseconds usecNow )
 {
+	// All connection state transitions require the global lock!
+	AssertLocksHeldByCurrentThread();
+
 	if ( eNewState == m_eConnectionState )
 		return;
 	const ESteamNetworkingConnectionState eOldState = m_eConnectionState;
@@ -2310,7 +2454,11 @@ void CSteamNetworkConnectionBase::SetState( ESteamNetworkingConnectionState eNew
 	// Any time we switch into a state that is closed from an API perspective,
 	// discard any unread received messages
 	if ( eNewAPIState == k_ESteamNetworkingConnectionState_None )
+	{
+		g_lockAllRecvMessageQueues.lock();
 		m_queueRecvMessages.PurgeMessages();
+		g_lockAllRecvMessageQueues.unlock();
+	}
 
 	// Slam some stuff when we are in various states
 	switch ( GetState() )
@@ -2417,11 +2565,16 @@ bool CSteamNetworkConnectionBase::ReceivedMessage( const void *pData, int cbData
 
 void CSteamNetworkConnectionBase::ReceivedMessage( CSteamNetworkingMessage *pMsg )
 {
+	m_pLock->AssertHeldByCurrentThread();
 
 	SpewVerboseGroup( m_connectionConfig.m_LogLevel_Message.Get(), "[%s] RecvMessage MsgNum=%lld sz=%d\n",
 		GetDescription(),
 		(long long)pMsg->m_nMessageNumber,
 		pMsg->m_cbSize );
+
+	// We use the same lock to protect *all* recv queues, for both connections and poll groups,
+	// which keeps this really simple.
+	g_lockAllRecvMessageQueues.lock();
 
 	// Add to end of my queue.
 	pMsg->LinkToQueueTail( &CSteamNetworkingMessage::m_links, &m_queueRecvMessages );
@@ -2429,6 +2582,8 @@ void CSteamNetworkConnectionBase::ReceivedMessage( CSteamNetworkingMessage *pMsg
 	// Add to the poll group, if we are in one
 	if ( m_pPollGroup )
 		pMsg->LinkToQueueTail( &CSteamNetworkingMessage::m_linksSecondaryQueue, &m_pPollGroup->m_queueRecvMessages );
+
+	g_lockAllRecvMessageQueues.unlock();
 }
 
 void CSteamNetworkConnectionBase::PostConnectionStateChangedCallback( ESteamNetworkingConnectionState eOldAPIState, ESteamNetworkingConnectionState eNewAPIState )
@@ -2707,13 +2862,7 @@ void CSteamNetworkConnectionBase::ConnectionState_FindingRoute( SteamNetworkingM
 
 void CSteamNetworkConnectionBase::Think( SteamNetworkingMicroseconds usecNow )
 {
-	// If we queued ourselves for deletion, now is a safe time to do it.
-	// Self destruct!
-	if ( m_eConnectionState == k_ESteamNetworkingConnectionState_Dead )
-	{
-		delete this;
-		return;
-	}
+	// NOTE: Lock has already been taken by ILockableThinker
 
 	// Safety check against leaving callbacks suppressed.  If this fires, there's a good chance
 	// we have already suppressed a callback that we should have posted, which is very bad
@@ -2724,10 +2873,23 @@ void CSteamNetworkConnectionBase::Think( SteamNetworkingMicroseconds usecNow )
 	// and deciding what to do.  But it should be safe to call at any time, whereas Think()
 	// has a fixed contract: it should only be called by the thinker framework.
 	CheckConnectionStateAndSetNextThinkTime( usecNow );
+
+	// Release lock
+	m_pLock->unlock();
+}
+
+void CSteamNetworkConnectionBase::CheckConnectionStateOrScheduleWakeUp( SteamNetworkingMicroseconds usecNow )
+{
+	m_pLock->AssertHeldByCurrentThread();
+
+	// FIXME - try to take global lock, and if we can take it, then take action immediately
+	SetNextThinkTimeASAP();
 }
 
 void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( SteamNetworkingMicroseconds usecNow )
 {
+	AssertLocksHeldByCurrentThread();
+
 	// Assume a default think interval just to make sure we check in periodically
 	SteamNetworkingMicroseconds usecMinNextThinkTime = usecNow + k_nMillion;
 
@@ -2750,13 +2912,6 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 	switch ( m_eConnectionState )
 	{
 		case k_ESteamNetworkingConnectionState_Dead:
-			// This really shouldn't happen.  But if it does....
-			// We can't be sure that it's safe to delete us now.
-			// Just queue us for deletion ASAP.
-			Assert( false );
-			SetNextThinkTime( usecNow );
-			return;
-
 		case k_ESteamNetworkingConnectionState_None:
 		default:
 			// WAT
@@ -2769,7 +2924,7 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 			SteamNetworkingMicroseconds usecTimeout = m_usecWhenEnteredConnectionState + k_usecFinWaitTimeout;
 			if ( usecNow >= usecTimeout )
 			{
-				QueueDestroy();
+				ConnectionQueueDestroy();
 				return;
 			}
 
@@ -3136,14 +3291,15 @@ bool CSteamNetworkConnectionPipe::APICreateSocketPair( CSteamNetworkingSockets *
 {
 	SteamDatagramErrMsg errMsg;
 	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
+	ConnectionScopeLock scopeLock[2];
 
-	pConn[1] = new CSteamNetworkConnectionPipe( pSteamNetworkingSocketsInterface, pIdentity[0] );
-	pConn[0] = new CSteamNetworkConnectionPipe( pSteamNetworkingSocketsInterface, pIdentity[1] );
+	pConn[1] = new CSteamNetworkConnectionPipe( pSteamNetworkingSocketsInterface, pIdentity[0], scopeLock[0] );
+	pConn[0] = new CSteamNetworkConnectionPipe( pSteamNetworkingSocketsInterface, pIdentity[1], scopeLock[1] );
 	if ( !pConn[0] || !pConn[1] )
 	{
 failed:
-		pConn[0]->ConnectionDestroySelfNow(); pConn[0] = nullptr;
-		pConn[1]->ConnectionDestroySelfNow(); pConn[1] = nullptr;
+		pConn[0]->ConnectionQueueDestroy(); pConn[0] = nullptr;
+		pConn[1]->ConnectionQueueDestroy(); pConn[1] = nullptr;
 		return false;
 	}
 
@@ -3203,22 +3359,24 @@ failed:
 CSteamNetworkConnectionPipe *CSteamNetworkConnectionPipe::CreateLoopbackConnection(
 	CSteamNetworkingSockets *pClientInstance, int nOptions, const SteamNetworkingConfigValue_t *pOptions,
 	CSteamNetworkListenSocketBase *pListenSocket,
-	SteamNetworkingErrMsg &errMsg
+	SteamNetworkingErrMsg &errMsg,
+	ConnectionScopeLock &scopeLock
 ) {
 	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 
 	CSteamNetworkingSockets *pServerInstance = pListenSocket->m_pSteamNetworkingSocketsInterface;
 
-	CSteamNetworkConnectionPipe *pClient = new CSteamNetworkConnectionPipe( pClientInstance, pClientInstance->InternalGetIdentity() );
-	CSteamNetworkConnectionPipe *pServer = new CSteamNetworkConnectionPipe( pServerInstance, pServerInstance->InternalGetIdentity() );
+	ConnectionScopeLock serverScopeLock;
+	CSteamNetworkConnectionPipe *pClient = new CSteamNetworkConnectionPipe( pClientInstance, pClientInstance->InternalGetIdentity(), scopeLock );
+	CSteamNetworkConnectionPipe *pServer = new CSteamNetworkConnectionPipe( pServerInstance, pServerInstance->InternalGetIdentity(), serverScopeLock );
 	if ( !pClient || !pServer )
 	{
 		V_strcpy_safe( errMsg, "new CSteamNetworkConnectionPipe failed" );
 failed:
 		if ( pClient )
-			pClient->ConnectionDestroySelfNow();
+			pClient->ConnectionQueueDestroy();
 		if ( pServer )
-			pServer->ConnectionDestroySelfNow();
+			pServer->ConnectionQueueDestroy();
 		return nullptr;
 	}
 
@@ -3246,13 +3404,24 @@ failed:
 	return pClient;
 }
 
-CSteamNetworkConnectionPipe::CSteamNetworkConnectionPipe( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface, const SteamNetworkingIdentity &identity )
-: CSteamNetworkConnectionBase( pSteamNetworkingSocketsInterface )
+// All pipe connections share the same lock!
+static ConnectionLock s_sharedPipeLock;
+
+CSteamNetworkConnectionPipe::CSteamNetworkConnectionPipe( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface, const SteamNetworkingIdentity &identity, ConnectionScopeLock &scopeLock )
+: CSteamNetworkConnectionBase( pSteamNetworkingSocketsInterface, scopeLock )
 , CConnectionTransport( *static_cast<CSteamNetworkConnectionBase*>( this ) ) // connection and transport object are the same
 , m_pPartner( nullptr )
 {
 	m_identityLocal = identity;
 	m_pTransport = this;
+
+	// All pipe connections use a shared, global lock.
+	// We could optimize this so that only pairs of connections share
+	// a lock, but this is easy and we don't expect the lock to be
+	// held for very long at a time
+	scopeLock.Unlock();
+	m_pLock = &s_sharedPipeLock;
+	scopeLock.Lock( *this );
 
 	// Encryption is not used for pipe connections.
 	// This is not strictly necessary, since we never even send packets or
@@ -3305,6 +3474,10 @@ int64 CSteamNetworkConnectionPipe::_APISendMessageToConnection( CSteamNetworking
 		return -k_EResultFail;
 	}
 
+	// We have partner pipes use the same lock, to keep this code simple
+	Assert( m_pPartner->m_pLock == m_pLock );
+	m_pLock->AssertHeldByCurrentThread();
+
 	// Fake a bunch of stats
 	FakeSendStats( usecNow, pMsg->m_cbSize );
 
@@ -3327,6 +3500,9 @@ int64 CSteamNetworkConnectionPipe::_APISendMessageToConnection( CSteamNetworking
 
 bool CSteamNetworkConnectionPipe::BBeginAccept( CSteamNetworkListenSocketBase *pListenSocket, SteamNetworkingMicroseconds usecNow, SteamDatagramErrMsg &errMsg )
 {
+	// We have partner pipes use the same lock, to keep this code simple
+	Assert( m_pPartner->m_pLock == m_pLock );
+	m_pLock->AssertHeldByCurrentThread();
 
 	// Ordinary connections usually learn the client identity and connection ID at this point
 	m_identityRemote = m_pPartner->m_identityLocal;
@@ -3360,6 +3536,10 @@ EResult CSteamNetworkConnectionPipe::AcceptConnection( SteamNetworkingMicrosecon
 		return k_EResultFail;
 	}
 
+	// We have partner pipes use the same lock, to keep this code simple
+	CSteamNetworkConnectionBase::AssertLocksHeldByCurrentThread();
+	Assert( m_pPartner->m_pLock == m_pLock );
+
 	// Mark server side connection as connected
 	ConnectionState_Connected( usecNow );
 
@@ -3381,6 +3561,11 @@ void CSteamNetworkConnectionPipe::FakeSendStats( SteamNetworkingMicroseconds use
 	if ( !m_pPartner )
 		return;
 
+	// We have partner pipes use the same lock, to keep this code simple.
+	// Note that we might not hold the global lock!
+	Assert( m_pPartner->m_pLock == m_pLock );
+	m_pLock->AssertHeldByCurrentThread();
+
 	// Get the next packet number we would have sent
 	uint16 nSeqNum = m_statsEndToEnd.ConsumeSendPacketNumberAndGetWireFmt( usecNow );
 
@@ -3400,6 +3585,7 @@ void CSteamNetworkConnectionPipe::SendEndToEndStatsMsg( EStatsReplyRequest eRequ
 {
 	NOTE_UNUSED( eRequest );
 	NOTE_UNUSED( pszReason );
+	CSteamNetworkConnectionBase::AssertLocksHeldByCurrentThread();
 
 	if ( !m_pPartner )
 	{
@@ -3482,6 +3668,10 @@ void CSteamNetworkConnectionPipe::ConnectionStateChanged( ESteamNetworkingConnec
 		case k_ESteamNetworkingConnectionState_Linger:
 			if ( m_pPartner )
 			{
+				// We have partner pipes use the same lock, to keep this code simple.
+				// Note that we might not hold the global lock!
+				Assert( m_pPartner->m_pLock == m_pLock );
+
 				CSteamNetworkConnectionPipe *pPartner = m_pPartner;
 				m_pPartner = nullptr; // clear pointer now, to prevent recursion
 				pPartner->ConnectionState_ClosedByPeer( m_eEndReason, m_szEndDebug );
@@ -3499,6 +3689,11 @@ void CSteamNetworkConnectionPipe::ConnectionStateChanged( ESteamNetworkingConnec
 			// (In the code directly above.)
 			if ( m_pPartner )
 			{
+
+				// We have partner pipes use the same lock, to keep this code simple.
+				// Note that we might not hold the global lock!
+				Assert( m_pPartner->m_pLock == m_pLock );
+
 				Assert( CollapseConnectionStateToAPIState( m_pPartner->GetState() ) == k_ESteamNetworkingConnectionState_None );
 				Assert( m_pPartner->m_pPartner == nullptr );
 				m_pPartner = nullptr;

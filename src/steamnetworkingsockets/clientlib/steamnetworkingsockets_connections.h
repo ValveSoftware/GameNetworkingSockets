@@ -184,17 +184,29 @@ inline ESteamNetworkingConnectionState CollapseConnectionStateToAPIState( ESteam
 	return eState;
 }
 
+/// We use one global lock to protect all queues of
+/// received messages.  (On connections and poll groups!)
+extern ShortDurationLock g_lockAllRecvMessageQueues;
+
 /////////////////////////////////////////////////////////////////////////////
 //
 // CSteamNetworkPollGroup
 //
 /////////////////////////////////////////////////////////////////////////////
 
+class CSteamNetworkPollGroup;
+struct PollGroupLock : Lock<RecursiveTimedMutexImpl> {
+	PollGroupLock() : Lock<RecursiveTimedMutexImpl>( "pollgroup", LockDebugInfo::k_nFlag_PollGroup ) {}
+};
+using PollGroupScopeLock = ScopeLock<PollGroupLock>;
+
 class CSteamNetworkPollGroup
 {
 public:
 	CSteamNetworkPollGroup( CSteamNetworkingSockets *pInterface );
 	~CSteamNetworkPollGroup();
+
+	PollGroupLock m_lock;
 
 	/// What interface is responsible for this listen socket?
 	CSteamNetworkingSockets *const m_pSteamNetworkingSocketsInterface;
@@ -267,11 +279,23 @@ protected:
 //
 /////////////////////////////////////////////////////////////////////////////
 
+struct ConnectionLock : Lock<RecursiveTimedMutexImpl> {
+	ConnectionLock() : Lock<RecursiveTimedMutexImpl>( "connection", LockDebugInfo::k_nFlag_Connection ) {}
+};
+struct ConnectionScopeLock : ScopeLock<ConnectionLock>
+{
+	ConnectionScopeLock() = default;
+	ConnectionScopeLock( ConnectionLock &lock, const char *pszTag = nullptr ) : ScopeLock<ConnectionLock>( lock, pszTag ) {}
+	ConnectionScopeLock( CSteamNetworkConnectionBase &conn, const char *pszTag = nullptr );
+	void Lock( ConnectionLock &lock, const char *pszTag = nullptr ) { ScopeLock<ConnectionLock>::Lock( lock, pszTag ); }
+	void Lock( CSteamNetworkConnectionBase &conn, const char *pszTag = nullptr );
+};
+
 /// Abstract interface for a connection to a remote host over any underlying
 /// transport.  Most of the common functionality for implementing reliable
 /// connections on top of unreliable datagrams, connection quality measurement,
 /// etc is implemented here. 
-class CSteamNetworkConnectionBase : public IThinker
+class CSteamNetworkConnectionBase : public ILockableThinker< ConnectionLock >
 {
 public:
 
@@ -365,17 +389,14 @@ public:
 //
 
 	/// Schedule destruction at the next possible opportunity
-	void QueueDestroy();
+	void ConnectionQueueDestroy();
+	static void ProcessDeletionList();
 
 	/// Free up all resources.  Close sockets, etc
 	virtual void FreeResources();
 
 	/// Nuke all transports
 	virtual void DestroyTransport();
-
-	/// Free resources and self-destruct NOW.  Call this
-	/// if you know it's safe.  If you don't, use QueueDestroy()
-	void ConnectionDestroySelfNow();
 
 //
 // Connection state machine
@@ -458,6 +479,16 @@ public:
 	int m_cbMaxReliableMessageSegment = 0;
 
 	void UpdateMTUFromConfig();
+
+	// Each connection is protected by a lock.  The actual lock to use is IThinker::m_pLock.
+	// Almost all connections use this default lock.  (A few special cases use a different lock
+	// so that they are locked at the same time as other objects.)
+	ConnectionLock m_defaultLock;
+	void AssertLocksHeldByCurrentThread( const char *pszTag = nullptr ) const
+	{
+		SteamNetworkingGlobalLock::AssertHeldByCurrentThread( pszTag );
+		m_pLock->AssertHeldByCurrentThread();
+	}
 
 	/// Expand the packet number, and decrypt the data chunk.
 	/// Returns true if everything is OK and we should continue
@@ -559,6 +590,12 @@ public:
 	/// should think next
 	void CheckConnectionStateAndSetNextThinkTime( SteamNetworkingMicroseconds usecNow );
 
+	/// Same as CheckConnectionStateAndSetNextThinkTime, but can be called when we don't
+	/// already have the global lock.  If we can take the necessary locks now, without
+	/// blocking, then we'll go ahead and take action now.  If we cannot, we will
+	/// just schedule a wakeup call
+	void CheckConnectionStateOrScheduleWakeUp( SteamNetworkingMicroseconds usecNow );
+
 	// Upcasts.  So we don't have to compile with RTTI
 	virtual CSteamNetworkConnectionP2P *AsSteamNetworkConnectionP2P();
 
@@ -570,8 +607,8 @@ public:
 	inline bool IsConnectionForMessagesSession() const { return m_connectionConfig.m_LocalVirtualPort.Get() == k_nVirtualPort_Messages; }
 
 protected:
-	CSteamNetworkConnectionBase( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface );
-	virtual ~CSteamNetworkConnectionBase(); // hidden destructor, don't call directly.  Use ConnectionDestroySelfNow()
+	CSteamNetworkConnectionBase( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface, ConnectionScopeLock &scopeLock );
+	virtual ~CSteamNetworkConnectionBase(); // hidden destructor, don't call directly.  Use ConnectionQueueDestroy()
 
 	/// Initialize connection bookkeeping
 	bool BInitConnection( SteamNetworkingMicroseconds usecNow, int nOptions, const SteamNetworkingConfigValue_t *pOptions, SteamDatagramErrMsg &errMsg );
@@ -587,10 +624,6 @@ protected:
 
 	/// Set the connection description.  Should include the connection type and peer address.
 	virtual void GetConnectionTypeDescription( ConnectionTypeDescription_t &szDescription ) const = 0;
-
-	// Implements IThinker.
-	// Connections do not override this.  Do any periodic work in ThinkConnection()
-	virtual void Think( SteamNetworkingMicroseconds usecNow ) OVERRIDE final;
 
 	/// Misc periodic processing.
 	/// Called from within CheckConnectionStateAndSetNextThinkTime.
@@ -768,6 +801,11 @@ private:
 	};
 	std_vector<PacketSendLog> m_vecSendLog;
 	#endif
+
+	// Implements IThinker.
+	// Connections must not override this, or call it directly.
+	// Do any periodic work in ThinkConnection()
+	virtual void Think( SteamNetworkingMicroseconds usecNow ) override final;
 };
 
 /// Abstract base class for sending end-to-end data for a connection.
@@ -834,11 +872,24 @@ public:
 	inline const SteamNetworkingIdentity &IdentityRemote() const { return m_connection.m_identityRemote; }
 	inline const char *ConnectionDescription() const { return m_connection.GetDescription(); }
 
+	void AssertLocksHeldByCurrentThread( const char *pszTag = nullptr ) const
+	{
+		m_connection.AssertLocksHeldByCurrentThread( pszTag );
+	}
+
+	// Useful so we can use ScheduledMethodThinkerLockable
+	bool TryLock() { return m_connection.TryLock(); }
+	void Unlock() { m_connection.Unlock(); }
+
 protected:
 
 	inline CConnectionTransport( CSteamNetworkConnectionBase &conn ) : m_connection( conn ) {}
 	virtual ~CConnectionTransport() {} // Destructor protected -- use TransportDestroySelfNow()
 };
+
+// Delayed inline
+inline ConnectionScopeLock::ConnectionScopeLock( CSteamNetworkConnectionBase &conn, const char *pszTag ) : ScopeLock<ConnectionLock>( *conn.m_pLock, pszTag ) {}
+inline void ConnectionScopeLock::Lock( CSteamNetworkConnectionBase &conn, const char *pszTag ) { ScopeLock<ConnectionLock>::Lock( *conn.m_pLock, pszTag ); }
 
 /// Dummy loopback/pipe connection that doesn't actually do any network work.
 /// For these types of connections, the distinction between connection and transport
@@ -859,7 +910,8 @@ public:
 	static CSteamNetworkConnectionPipe *CreateLoopbackConnection(
 		CSteamNetworkingSockets *pClientInstance, int nOptions, const SteamNetworkingConfigValue_t *pOptions,
 		CSteamNetworkListenSocketBase *pListenSocket,
-		SteamNetworkingErrMsg &errMsg );
+		SteamNetworkingErrMsg &errMsg,
+		ConnectionScopeLock &scopeLock );
 
 	/// The guy who is on the other end.
 	CSteamNetworkConnectionPipe *m_pPartner;
@@ -886,7 +938,7 @@ public:
 private:
 
 	// Use CreateSocketPair!
-	CSteamNetworkConnectionPipe( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface, const SteamNetworkingIdentity &identity );
+	CSteamNetworkConnectionPipe( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface, const SteamNetworkingIdentity &identity, ConnectionScopeLock &scopeLock );
 	virtual ~CSteamNetworkConnectionPipe();
 
 	/// Setup the server side of a loopback connection
@@ -912,18 +964,27 @@ inline void SendPacketContext<TStatsMsg>::CalcMaxEncryptedPayloadSize( size_t cb
 /////////////////////////////////////////////////////////////////////////////
 
 extern CUtlHashMap<uint16, CSteamNetworkConnectionBase *, std::equal_to<uint16>, Identity<uint16> > g_mapConnections;
-extern CUtlHashMap<int, CSteamNetworkListenSocketBase *, std::equal_to<int>, Identity<int> > g_mapListenSockets;
 extern CUtlHashMap<int, CSteamNetworkPollGroup *, std::equal_to<int>, Identity<int> > g_mapPollGroups;
 
-extern bool BCheckGlobalSpamReplyRateLimit( SteamNetworkingMicroseconds usecNow );
-extern CSteamNetworkConnectionBase *GetConnectionByHandle( HSteamNetConnection sock );
-extern CSteamNetworkPollGroup *GetPollGroupByHandle( HSteamNetPollGroup hPollGroup );
+// All of the tables above are projected by the same lock, since we expect to only access it briefly
+struct TableLock : Lock<RecursiveMutexImpl> {
+	TableLock() : Lock<RecursiveMutexImpl>( "table", LockDebugInfo::k_nFlag_Table ) {}
+}; 
+using TableScopeLock = ScopeLock<TableLock>;
+extern TableLock g_tables_lock;
 
-inline CSteamNetworkConnectionBase *FindConnectionByLocalID( uint32 nLocalConnectionID )
+// This table is protected by the global lock
+extern CUtlHashMap<int, CSteamNetworkListenSocketBase *, std::equal_to<int>, Identity<int> > g_mapListenSockets;
+
+extern bool BCheckGlobalSpamReplyRateLimit( SteamNetworkingMicroseconds usecNow );
+extern CSteamNetworkConnectionBase *GetConnectionByHandle( HSteamNetConnection sock, ConnectionScopeLock &scopeLock );
+extern CSteamNetworkPollGroup *GetPollGroupByHandle( HSteamNetPollGroup hPollGroup, PollGroupScopeLock &scopeLock, const char *pszLockTag );
+
+inline CSteamNetworkConnectionBase *FindConnectionByLocalID( uint32 nLocalConnectionID, ConnectionScopeLock &scopeLock )
 {
 	// We use the wire connection ID as the API handle, so these two operations
 	// are currently the same.
-	return GetConnectionByHandle( HSteamNetConnection( nLocalConnectionID ) );
+	return GetConnectionByHandle( HSteamNetConnection( nLocalConnectionID ), scopeLock );
 }
 
 } // namespace SteamNetworkingSocketsLib
