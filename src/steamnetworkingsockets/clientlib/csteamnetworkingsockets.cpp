@@ -1039,9 +1039,9 @@ int64 CSteamNetworkingSockets::GetConnectionUserData( HSteamNetConnection hPeer 
 
 void CSteamNetworkingSockets::SetConnectionName( HSteamNetConnection hPeer, const char *pszName )
 {
-	//SteamNetworkingGlobalLock scopeLock( "SetConnectionName" ); // NO, not necessary!
+	SteamNetworkingGlobalLock scopeLock( "SetConnectionName" ); // NOTE: Yes, we must take global lock for this.  See CSteamNetworkConnectionBase::SetDescription
 	ConnectionScopeLock connectionLock;
-	CSteamNetworkConnectionBase *pConn = GetConnectionByHandleForAPI( hPeer, connectionLock, "SetConnectionName" );
+	CSteamNetworkConnectionBase *pConn = GetConnectionByHandleForAPI( hPeer, connectionLock, nullptr );
 	if ( !pConn )
 		return;
 	pConn->SetAppName( pszName );
