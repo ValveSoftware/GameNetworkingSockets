@@ -732,6 +732,7 @@ void CSteamNetworkConnectionP2P::CheckCleanupICE()
 void CSteamNetworkConnectionP2P::DestroyICENow()
 {
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+	AssertLocksHeldByCurrentThread( "P2P DestroyICENow" );
 
 	// If transport was selected, then make sure and deselect, and force a re-evaluation ASAP
 	if ( m_pTransport && ( m_pTransport == m_pTransportICEPendingDelete || m_pTransport == m_pTransportICE ) )
@@ -762,7 +763,7 @@ void CSteamNetworkConnectionP2P::DestroyICENow()
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
 void CSteamNetworkConnectionP2P::ICEFailed( int nReasonCode, const char *pszReason )
 {
-	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
+	AssertLocksHeldByCurrentThread();
 
 	// Remember reason code, if we didn't already set one
 	if ( GetICEFailureCode() == 0 )
@@ -786,6 +787,8 @@ void CSteamNetworkConnectionP2P::ICEFailed( int nReasonCode, const char *pszReas
 
 void CSteamNetworkConnectionP2P::FreeResources()
 {
+	AssertLocksHeldByCurrentThread();
+
 	// Remove from global map, if we're in it
 	if ( m_idxMapP2PConnectionsByRemoteInfo >= 0 )
 	{
@@ -814,6 +817,8 @@ void CSteamNetworkConnectionP2P::FreeResources()
 
 void CSteamNetworkConnectionP2P::DestroyTransport()
 {
+	AssertLocksHeldByCurrentThread();
+
 	// We're about to nuke all of our transports, don't point at any of them.
 	m_pTransport = nullptr;
 	m_pCurrentTransportP2P = nullptr;
@@ -853,6 +858,8 @@ void CSteamNetworkConnectionP2P::DestroyTransport()
 
 CSteamNetworkConnectionP2P *CSteamNetworkConnectionP2P::FindDuplicateConnection( CSteamNetworkingSockets *pInterfaceLocal, int nLocalVirtualPort, const SteamNetworkingIdentity &identityRemote, int nRemoteVirtualPort, bool bOnlySymmetricConnections, CSteamNetworkConnectionP2P *pIgnore )
 {
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
+
 	for ( CSteamNetworkConnectionBase *pConn: g_mapConnections.IterValues() )
 	{
 		if ( pConn->m_pSteamNetworkingSocketsInterface != pInterfaceLocal )
@@ -905,6 +912,8 @@ CSteamNetworkConnectionP2P *CSteamNetworkConnectionP2P::FindDuplicateConnection(
 
 EResult CSteamNetworkConnectionP2P::AcceptConnection( SteamNetworkingMicroseconds usecNow )
 {
+	AssertLocksHeldByCurrentThread( "P2P::AcceptConnection" );
+
 	// Calling code shouldn't call us unless this is true
 	Assert( m_bConnectionInitiatedRemotely );
 	Assert( GetState() == k_ESteamNetworkingConnectionState_Connecting );
@@ -978,6 +987,8 @@ bool CSteamNetworkConnectionP2P::BSupportsSymmetricMode()
 
 void CSteamNetworkConnectionP2P::TransportEndToEndConnectivityChanged( CConnectionTransportP2PBase *pTransport, SteamNetworkingMicroseconds usecNow )
 {
+	AssertLocksHeldByCurrentThread( "P2P::TransportEndToEndConnectivityChanged" );
+
 	if ( pTransport->m_bNeedToConfirmEndToEndConnectivity == ( pTransport == m_pCurrentTransportP2P ) )
 	{
 		// Connectivity was lost on the current transport, gained on a transport not currently selected.
@@ -1161,6 +1172,8 @@ void CSteamNetworkConnectionP2P::ThinkSelectTransport( SteamNetworkingMicrosecon
 		EnsureMinThinkTime( m_usecNextEvaluateTransport );
 		return;
 	}
+
+	AssertLocksHeldByCurrentThread( "P2P::ThinkSelectTRansport" );
 
 	// Reset timer to evaluate transport at certain times
 	switch ( GetState() )
@@ -1373,6 +1386,8 @@ void CSteamNetworkConnectionP2P::SelectTransport( CConnectionTransportP2PBase *p
 	{
 		return;
 	}
+
+	AssertLocksHeldByCurrentThread( "P2P::SelectTransport" );
 
 	// Spew about this event
 	const int nLogLevel = LogLevel_P2PRendezvous();
@@ -1588,6 +1603,8 @@ void CSteamNetworkConnectionP2P::SetRendezvousCommonFieldsAndSendSignal( CMsgSte
 	if ( !m_pSignaling )
 		return;
 
+	AssertLocksHeldByCurrentThread( "P2P::SetRendezvousCommonFieldsAndSendSignal" );
+
 	Assert( !msg.has_to_connection_id() );
 	if ( !msg.has_connect_request() )
 	{
@@ -1705,6 +1722,7 @@ void CSteamNetworkConnectionP2P::PopulateRendezvousMsgWithTransportInfo( CMsgSte
 
 bool CSteamNetworkConnectionP2P::ProcessSignal( const CMsgSteamNetworkingP2PRendezvous &msg, SteamNetworkingMicroseconds usecNow )
 {
+	AssertLocksHeldByCurrentThread( "P2P::ProcessSignal" );
 
 	// SDR routing?
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
@@ -1954,6 +1972,8 @@ ESteamNetConnectionEnd CSteamNetworkConnectionP2P::CheckRemoteCert( const CertAu
 
 void CSteamNetworkConnectionP2P::QueueSignalReliableMessage( CMsgSteamNetworkingP2PRendezvous_ReliableMessage &&msg, const char *pszDebug )
 {
+	AssertLocksHeldByCurrentThread();
+
 	SpewVerboseGroup( LogLevel_P2PRendezvous(), "[%s] Queue reliable signal message %s: { %s }\n", GetDescription(), pszDebug, msg.ShortDebugString().c_str() );
 	OutboundMessage *p = push_back_get_ptr( m_vecUnackedOutboundMessages );
 	p->m_nID = ++m_nLastSendRendesvousMessageID;
@@ -1976,6 +1996,7 @@ void CSteamNetworkConnectionP2P::ScheduleSendSignal( const char *pszReason )
 
 void CSteamNetworkConnectionP2P::PeerSelectedTransportChanged()
 {
+	AssertLocksHeldByCurrentThread();
 
 	// If we are not the controlling agent, then we probably need to switch
 	if ( !IsControllingAgent() && m_pPeerSelectedTransport != m_pCurrentTransportP2P )
@@ -2012,6 +2033,7 @@ CConnectionTransportP2PBase::CConnectionTransportP2PBase( const char *pszDebugNa
 CConnectionTransportP2PBase::~CConnectionTransportP2PBase()
 {
 	CSteamNetworkConnectionP2P &conn = Connection();
+	conn.AssertLocksHeldByCurrentThread();
 
 	// Detach from parent connection
 	find_and_remove_element( conn.m_vecAvailableTransports, this );
@@ -2057,6 +2079,7 @@ void CConnectionTransportP2PBase::P2PTransportTrackSentEndToEndPingRequest( Stea
 void CConnectionTransportP2PBase::P2PTransportThink( SteamNetworkingMicroseconds usecNow )
 {
 	CSteamNetworkConnectionP2P &conn = Connection();
+	conn.AssertLocksHeldByCurrentThread( "P2PTransportThink" );
 
 	// We only need to take action while connecting, or trying to connect
 	switch ( conn.GetState() )
@@ -2214,6 +2237,8 @@ HSteamListenSocket CSteamNetworkingSockets::CreateListenSocketP2P( int nLocalVir
 
 CSteamNetworkListenSocketP2P *CSteamNetworkingSockets::InternalCreateListenSocketP2P( int nLocalVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions )
 {
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "InternalCreateListenSocketP2P" );
+
 	SteamDatagramErrMsg errMsg;
 
 	// We'll need a cert.  Start sure async process to get one is in
@@ -2293,7 +2318,7 @@ CSteamNetworkConnectionBase *CSteamNetworkingSockets::InternalConnectP2PDefaultS
 	ConnectionScopeLock &scopeLock
 )
 {
-	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "InternalConnectP2PDefaultSignaling" );
 	if ( identityRemote.IsInvalid() )
 	{
 		AssertMsg( false, "Invalid identity" );

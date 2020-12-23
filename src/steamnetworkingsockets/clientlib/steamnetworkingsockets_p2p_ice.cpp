@@ -91,6 +91,8 @@ void CConnectionTransportP2PICE::TransportFreeResources()
 
 void CConnectionTransportP2PICE::Init()
 {
+	AssertLocksHeldByCurrentThread( "P2PICE::Init" );
+
 	if ( !g_SteamNetworkingSockets_CreateICESessionFunc )
 	{
 		Connection().ICEFailed( k_ESteamNetConnectionEnd_Misc_InternalError, "CreateICESession factory not set" );
@@ -205,6 +207,8 @@ void CConnectionTransportP2PICE::PopulateRendezvousMsg( CMsgSteamNetworkingP2PRe
 
 void CConnectionTransportP2PICE::RecvRendezvous( const CMsgICERendezvous &msg, SteamNetworkingMicroseconds usecNow )
 {
+	AssertLocksHeldByCurrentThread( "P2PICE::RecvRendezvous" );
+
 	// Safety
 	if ( !m_pICESession )
 	{
@@ -441,6 +445,8 @@ void CConnectionTransportP2PICE::UpdateRoute()
 	if ( !m_pICESession )
 		return;
 
+	AssertLocksHeldByCurrentThread( "P2PICE::UpdateRoute" );
+
 	// Clear ping data, it is no longer accurate
 	m_pingEndToEnd.Reset();
 
@@ -515,10 +521,13 @@ void CConnectionTransportP2PICE::RouteOrWritableStateChanged()
 //
 /////////////////////////////////////////////////////////////////////////////
 
+/// A glue object used to take a callback from ICE, which might happen in
+/// any thread, and execute it with the proper locks.
 class IConnectionTransportP2PICERunWithLock : private ISteamNetworkingSocketsRunWithLock
 {
 public:
 
+	/// Execute the callback.  The global lock and connection locks will be held.
 	virtual void RunTransportP2PICE( CConnectionTransportP2PICE *pTransport ) = 0;
 
 	inline void Queue( CConnectionTransportP2PICE *pTransport, const char *pszTag )
