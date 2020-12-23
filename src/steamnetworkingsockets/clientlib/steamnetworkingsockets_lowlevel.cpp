@@ -1438,13 +1438,12 @@ static bool SteamNetworkingSockets_InternalPoll( int msWait, bool bManualPoll )
 	Assert( s_mutexGlobalLock.m_nLockCount == 1 ); // exactly once
 
 	// Figure out how long to sleep
-	IThinker *pNextThinker = Thinker_GetNextScheduled();
-	if ( pNextThinker )
+	SteamNetworkingMicroseconds usecNextWakeTime = IThinker::Thinker_GetNextScheduledThinkTime();
+	if ( usecNextWakeTime < k_nThinkTime_Never )
 	{
 
 		// Calc wait time to wake up as late as possible,
 		// rounded up to the nearest millisecond.
-		SteamNetworkingMicroseconds usecNextWakeTime = pNextThinker->GetNextThinkTime();
 		SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 		int64 usecUntilNextThinkTime = usecNextWakeTime - usecNow;
 
@@ -1500,7 +1499,7 @@ static bool SteamNetworkingSockets_InternalPoll( int msWait, bool bManualPoll )
 	}
 
 	// Check for periodic processing
-	Thinker_ProcessThinkers();
+	IThinker::Thinker_ProcessThinkers();
 
 	// Tasks that were queued to be run while we hold the lock
 	ISteamNetworkingSocketsRunWithLock::ServiceQueue();

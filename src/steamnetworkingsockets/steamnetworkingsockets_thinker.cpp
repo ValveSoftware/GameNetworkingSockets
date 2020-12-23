@@ -126,14 +126,15 @@ void IThinker::SetNextThinkTime( SteamNetworkingMicroseconds usecTargetThinkTime
 	#endif
 }
 
-IThinker *Thinker_GetNextScheduled()
+SteamNetworkingMicroseconds IThinker::Thinker_GetNextScheduledThinkTime()
 {
-	if ( s_queueThinkers.Count() == 0 )
-		return nullptr;
-	return s_queueThinkers.ElementAtHead();
+	SteamNetworkingMicroseconds usecResult = k_nThinkTime_Never;
+	if ( s_queueThinkers.Count() )
+		usecResult = s_queueThinkers.ElementAtHead()->m_usecNextThinkTime;
+	return usecResult;
 }
 
-void Thinker_ProcessThinkers()
+void IThinker::Thinker_ProcessThinkers()
 {
 
 	// Until the queue is empty

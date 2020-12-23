@@ -61,6 +61,8 @@ public:
 	/// Return true if we are scheduled to get our callback
 	inline bool IsScheduled() const { return m_usecNextThinkTime != k_nThinkTime_Never; }
 
+	static void Thinker_ProcessThinkers();
+	static SteamNetworkingMicroseconds Thinker_GetNextScheduledThinkTime();
 protected:
 	IThinker();
 
@@ -69,9 +71,6 @@ private:
 	int m_queueIndex;
 	friend class ThinkerSetIndex;
 };
-
-extern IThinker *Thinker_GetNextScheduled();
-extern void Thinker_ProcessThinkers();
 
 #ifdef DBGFLAG_VALIDATE
 extern void Thinker_ValidateStatics( CValidator &validator );
