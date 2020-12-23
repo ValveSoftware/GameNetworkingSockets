@@ -512,13 +512,14 @@ void CICESession::OnMessage( rtc::Message* msg )
 		return;
 	}
 
-	if ( !ice_transport_ )
-		return;
-
-	auto *pkt = static_cast<SendPacktetInGoogleThread *>( msg->pdata );
-	rtc::PacketOptions options;
-	int flags = 0;
-	ice_transport_->SendPacket( pkt->data, pkt->nSize, options, flags );
+	if ( ice_transport_ )
+	{
+		auto *pkt = static_cast<SendPacktetInGoogleThread *>( msg->pdata );
+		rtc::PacketOptions options;
+		int flags = 0;
+		ice_transport_->SendPacket( pkt->data, pkt->nSize, options, flags );
+	}
+	free( msg->pdata );
 }
 
 bool CICESession::BSendData( const void *pData, size_t nSize )
