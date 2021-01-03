@@ -315,6 +315,16 @@ if(NOT (USE_STEAMWEBRTC AND STEAMWEBRTC_ABSL_SOURCE STREQUAL submodule))
 
 	include(CMakePackageConfigHelpers)
 
+	# Ensure that variables used in GameNetworkingSocketsConfig.cmake.in have some value
+	# rather than an empty string.
+	if(NOT USE_CRYPTO)
+		set(USE_CRYPTO USE_CRYPTO-NOTFOUND)
+	endif()
+
+	if(NOT STEAMWEBRTC_ABSL_SOURCE)
+		set(STEAMWEBRTC_ABSL_SOURCE STEAMWEBRTC_ABSL_SOURCE-NOTFOUND)
+	endif()
+
 	configure_package_config_file(../cmake/GameNetworkingSocketsConfig.cmake.in
 		${CMAKE_CURRENT_BINARY_DIR}/GameNetworkingSocketsConfig.cmake
 		INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/GameNetworkingSockets
