@@ -9,6 +9,10 @@ jobs:
       matrix:
         build: [alpine-latest, archlinux-latest, ubuntu-bionic, ubuntu-latest, ubuntu-rolling, ubuntu-devel, fedora-latest]
         include:
+          - build: ubuntu-bionic
+            os: ubuntu-latest
+            docker_image: ubuntu
+            docker_tag: bionic
           - build: ubuntu-latest
             os: ubuntu-latest
             docker_image: ubuntu
