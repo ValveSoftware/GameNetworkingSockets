@@ -1,0 +1,48 @@
+name: CI
+on: [push, pull_request]
+
+jobs:
+  test:
+    name: BuildAndTest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        build: [alpine-latest, archlinux-latest, ubuntu-bionic, ubuntu-latest, ubuntu-rolling, ubuntu-devel, fedora-latest]
+        include:
+          - build: ubuntu-latest
+            os: ubuntu-latest
+            docker_image: ubuntu
+            docker_tag: latest
+          - build: ubuntu-rolling
+            os: ubuntu-latest
+            docker_image: ubuntu
+            docker_tag: rolling
+          - build: ubuntu-devel
+            os: ubuntu-latest
+            docker_image: ubuntu
+            docker_tag: devel
+          - build: fedora-latest
+            os: ubuntu-latest
+            docker_image: fedora
+            docker_tag: latest
+          - build: archlinux-latest
+            os: ubuntu-latest
+            docker_image: archlinux
+            docker_tag: latest
+          - build: alpine-latest
+            os: ubuntu-latest
+            docker_image: alpine
+            docker_tag: latest
+    steps:
+    - uses: actions/checkout@master
+    - name: Launch container
+      run: |
+        docker run -d --rm --name github-docker-builder -e LC_ALL="C" -e LANG="C" -v ${{ github.workspace }}:/build -w /build ${{ matrix.docker_image }}:${{ matrix.docker_tag }} tail -f /dev/null
+        docker ps
+    - name: Install dependencies
+      run: |
+        docker exec -e IMAGE=${{ matrix.docker_image }} -e IMAGE_TAG=${{ matrix.docker_tag }} -t github-docker-builder bash .github/install.sh
+        docker exec -e IMAGE=${{ matrix.docker_image }} -e IMAGE_TAG=${{ matrix.docker_tag }} -t github-docker-builder bash .github/install-post.sh
+    - name: Build and run project
+      run: |
+        docker exec -e IMAGE=${{ matrix.docker_image }} -e IMAGE_TAG=${{ matrix.docker_tag }} -t github-docker-builder bash .github/script.sh
