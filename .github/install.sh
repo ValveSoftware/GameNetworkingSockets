@@ -1,8 +1,8 @@
 #!/bin/bash
 
 INSTALL_SCRIPT_CANDIDATES=(
-	"$PWD/.travis/install-${IMAGE//\//-}.sh"
-	"$PWD/.travis/install-${IMAGE%/*}.sh"
+	"$PWD/.github/install-${IMAGE//\//-}.sh"
+	"$PWD/.github/install-${IMAGE%/*}.sh"
 )
 
 for INSTALL_SCRIPT in "${INSTALL_SCRIPT_CANDIDATES[@]}"; do
