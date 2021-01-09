@@ -50,4 +50,4 @@ jobs:
         docker exec -e CI_BUILD=1 -e IMAGE=${{ matrix.docker_image }} -e IMAGE_TAG=${{ matrix.docker_tag }} -t github-docker-builder bash .github/install-post.sh
     - name: Build and run project
       run: |
-        docker exec -e CI_BUILD=1 -e IMAGE=${{ matrix.docker_image }} -e IMAGE_TAG=${{ matrix.docker_tag }} -t github-docker-builder bash .github/script.sh
+        docker exec -e CI_BUILD=1 -e IMAGE=${{ matrix.docker_image }} -e IMAGE_TAG=${{ matrix.docker_tag }} -t github-docker-builder bash .github/build.sh
