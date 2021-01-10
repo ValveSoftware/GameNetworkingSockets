@@ -4,11 +4,13 @@
 #
 set -ex
 
+APT_FLAGS=(-q -oDpkg::Use-Pty=0)
+
 export DEBIAN_FRONTEND=noninteractive
 
-apt-get update
-apt-get dist-upgrade -y
-apt-get install -y locales
+apt-get ${APT_FLAGS[@]} update
+apt-get ${APT_FLAGS[@]} dist-upgrade -y
+apt-get ${APT_FLAGS[@]} install -y locales
 locale-gen en_US.UTF-8
 
 PACKAGES=(
@@ -26,6 +28,6 @@ PACKAGES+=(libprotobuf-dev protobuf-compiler)
 PACKAGES+=(libssl-dev)
 PACKAGES+=(libsodium-dev)
 
-apt-get install -y "${PACKAGES[@]}"
+apt-get ${APT_FLAGS[@]} install -y "${PACKAGES[@]}"
 
 exit 0
