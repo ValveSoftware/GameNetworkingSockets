@@ -1,5 +1,8 @@
 #!/bin/bash
 
+set -e
+set -o pipefail
+
 INSTALL_SCRIPT_CANDIDATES=(
 	"$PWD/.github/install-${IMAGE//\//-}.sh"
 	"$PWD/.github/install-${IMAGE%/*}.sh"
@@ -7,7 +10,7 @@ INSTALL_SCRIPT_CANDIDATES=(
 
 for INSTALL_SCRIPT in "${INSTALL_SCRIPT_CANDIDATES[@]}"; do
 	if [[ -f "${INSTALL_SCRIPT}" ]]; then
-		bash "${INSTALL_SCRIPT}"
+		bash "${INSTALL_SCRIPT}" | cat
 		exit $?
 	fi
 done
