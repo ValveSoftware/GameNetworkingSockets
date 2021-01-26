@@ -338,7 +338,7 @@ void LockDebugInfo::AboutToUnlock()
 	AssertMsg( false, "Unlocked a lock '%s' that wasn't held?", m_pszName );
 }
 
-void LockDebugInfo::AssertHeldByCurrentThread( const char *pszTag ) const
+void LockDebugInfo::_AssertHeldByCurrentThread( const char *pszFile, int line, const char *pszTag ) const
 {
 	ThreadLockDebugInfo &t = GetThreadDebugInfo();
 	for ( int i = t.m_nHeldLocks-1 ; i >= 0 ; --i )
@@ -350,7 +350,7 @@ void LockDebugInfo::AssertHeldByCurrentThread( const char *pszTag ) const
 		}
 	}
 
-	AssertMsg( false, "Lock '%s' not held", m_pszName );
+	AssertMsg( false, "%s(%d): Lock '%s' not held", pszFile, line, m_pszName );
 }
 
 
@@ -381,14 +381,14 @@ void SteamNetworkingGlobalLock::SetLongLockWarningThresholdMS( const char *pszTa
 	}
 }
 
-void SteamNetworkingGlobalLock::AssertHeldByCurrentThread()
+void SteamNetworkingGlobalLock::_AssertHeldByCurrentThread( const char *pszFile, int line )
 {
-	s_mutexGlobalLock.AssertHeldByCurrentThread();
+	s_mutexGlobalLock._AssertHeldByCurrentThread( pszFile, line );
 }
 
-void SteamNetworkingGlobalLock::AssertHeldByCurrentThread( const char *pszTag )
+void SteamNetworkingGlobalLock::_AssertHeldByCurrentThread( const char *pszFile, int line, const char *pszTag )
 {
-	s_mutexGlobalLock.AssertHeldByCurrentThread();
+	s_mutexGlobalLock._AssertHeldByCurrentThread( pszFile, line );
 	AddThreadLockTag( pszTag );
 }
 

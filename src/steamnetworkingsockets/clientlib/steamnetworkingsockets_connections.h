@@ -484,9 +484,9 @@ public:
 	// Almost all connections use this default lock.  (A few special cases use a different lock
 	// so that they are locked at the same time as other objects.)
 	ConnectionLock m_defaultLock;
-	void AssertLocksHeldByCurrentThread( const char *pszTag = nullptr ) const
+	void _AssertLocksHeldByCurrentThread( const char *pszFile, int line, const char *pszTag = nullptr ) const
 	{
-		SteamNetworkingGlobalLock::AssertHeldByCurrentThread( pszTag );
+		SteamNetworkingGlobalLock::_AssertHeldByCurrentThread( pszFile, line, pszTag );
 		m_pLock->AssertHeldByCurrentThread();
 	}
 
@@ -872,9 +872,9 @@ public:
 	inline const SteamNetworkingIdentity &IdentityRemote() const { return m_connection.m_identityRemote; }
 	inline const char *ConnectionDescription() const { return m_connection.GetDescription(); }
 
-	void AssertLocksHeldByCurrentThread( const char *pszTag = nullptr ) const
+	void _AssertLocksHeldByCurrentThread( const char *pszFile, int line, const char *pszTag = nullptr ) const
 	{
-		m_connection.AssertLocksHeldByCurrentThread( pszTag );
+		m_connection._AssertLocksHeldByCurrentThread( pszFile, line, pszTag );
 	}
 
 	// Useful so we can use ScheduledMethodThinkerLockable

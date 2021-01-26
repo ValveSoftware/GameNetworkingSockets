@@ -378,7 +378,7 @@ struct LockDebugInfo
 	const char *const m_pszName;
 	const int m_nFlags;
 
-	void AssertHeldByCurrentThread( const char *pszTag = nullptr ) const;
+	void _AssertHeldByCurrentThread( const char *pszFile, int line, const char *pszTag = nullptr ) const;
 
 protected:
 	LockDebugInfo( const char *pszName, int nFlags ) : m_pszName( pszName ), m_nFlags( nFlags ) {}
@@ -457,6 +457,14 @@ struct ShortDurationLock : Lock<ShortDurationMutexImpl>
 };
 using ShortDurationScopeLock = ScopeLock<ShortDurationLock>;
 
+#ifdef DBGFLAG_ASSERT
+	#define AssertHeldByCurrentThread( ... ) _AssertHeldByCurrentThread( __FILE__, __LINE__ ,## __VA_ARGS__ )
+	#define AssertLocksHeldByCurrentThread( ... ) _AssertLocksHeldByCurrentThread( __FILE__, __LINE__,## __VA_ARGS__ )
+#else
+	#define AssertHeldByCurrentThread( ... ) _AssertHeldByCurrentThread( nullptr, 0,## __VA_ARGS__ )
+	#define AssertLocksHeldByCurrentThread( ... ) _AssertLocksHeldByCurrentThread( nullptr, 0,## __VA_ARGS__ )
+#endif
+
 /// Special utilities for acquiring the global lock
 struct SteamNetworkingGlobalLock
 {
@@ -465,8 +473,8 @@ struct SteamNetworkingGlobalLock
 	static void Lock( const char *pszTag );
 	static bool TryLock( const char *pszTag, int msTimeout );
 	static void Unlock();
-	static void AssertHeldByCurrentThread();
-	static void AssertHeldByCurrentThread( const char *pszTag );
+	static void _AssertHeldByCurrentThread( const char *pszFile, int line );
+	static void _AssertHeldByCurrentThread( const char *pszFile, int line, const char *pszTag );
 	static void SetLongLockWarningThresholdMS( const char *pszTag, int msWarningThreshold );
 };
 
