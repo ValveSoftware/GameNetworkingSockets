@@ -487,7 +487,7 @@ public:
 	void _AssertLocksHeldByCurrentThread( const char *pszFile, int line, const char *pszTag = nullptr ) const
 	{
 		SteamNetworkingGlobalLock::_AssertHeldByCurrentThread( pszFile, line, pszTag );
-		m_pLock->AssertHeldByCurrentThread();
+		m_pLock->_AssertHeldByCurrentThread( pszFile, line );
 	}
 
 	/// Expand the packet number, and decrypt the data chunk.
