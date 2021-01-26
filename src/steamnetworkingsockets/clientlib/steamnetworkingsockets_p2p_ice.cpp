@@ -730,7 +730,10 @@ void CConnectionTransportP2PICE::OnData( const void *pPkt, size_t nSize )
 	// immediately
 	if ( SteamNetworkingGlobalLock::TryLock( "ICE Data", 0 ) )
 	{
-		// We can process the data now!
+
+		// We can process the data now!  Grab the connection lock.
+		ConnectionScopeLock connectionLock( m_connection );
+
 		//SpewMsg( "CConnectionTransportP2PICE::OnData %d bytes, process immediate\n", (int)nSize );
 
 		// Check if queue is empty.  Note that no race conditions here.  We hold the lock,
