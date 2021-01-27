@@ -168,7 +168,7 @@ public:
 		return !super::m_pOuter || super::m_pOuter->TryLock();
 	}
 
-	virtual void Think( SteamNetworkingMicroseconds usecNow )
+	virtual void Think( SteamNetworkingMicroseconds usecNow ) override
 	{
 		if ( super::m_pOuter )
 		{
