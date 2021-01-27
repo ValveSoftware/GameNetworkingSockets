@@ -300,7 +300,8 @@ size_t netadr_t::ToSockadr(void *addr, size_t addr_size) const
 			}
 			auto *s = (struct sockaddr_in*)addr;
 			s->sin_family = AF_INET;
-			s->sin_addr.s_addr = BigDWord( INADDR_LOOPBACK );
+			COMPILE_TIME_ASSERT( (uint32)INADDR_LOOPBACK == INADDR_LOOPBACK ); // Defined as a 64-bit value on some platforms.
+			s->sin_addr.s_addr = BigDWord( (uint32)INADDR_LOOPBACK );
 			s->sin_port = BigWord( port );
 			struct_size = sizeof(sockaddr_in);
 		}
@@ -315,7 +316,8 @@ size_t netadr_t::ToSockadr(void *addr, size_t addr_size) const
 			}
 			auto *s = (struct sockaddr_in*)addr;
 			s->sin_family = AF_INET;
-			s->sin_addr.s_addr = BigDWord( INADDR_BROADCAST );
+			COMPILE_TIME_ASSERT( (uint32)INADDR_BROADCAST == INADDR_BROADCAST ); // Defined as a 64-bit value on some platforms.
+			s->sin_addr.s_addr = BigDWord( (uint32)INADDR_BROADCAST );
 			s->sin_port = BigWord( port );
 			struct_size = sizeof(sockaddr_in);
 		}
