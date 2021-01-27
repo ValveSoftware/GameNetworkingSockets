@@ -95,6 +95,13 @@ private:
 	std::unique_ptr<rtc::BasicPacketSocketFactory> default_socket_factory_;
 	std::unique_ptr< cricket::BasicPortAllocator > port_allocator_;
 
+	void CacheRouteAndPing();
+	int m_nCachedPing = -1;
+	bool m_bCachedRouteValid = false;
+	EICECandidateType m_eCachedRouteLocalCandidate;
+	EICECandidateType m_eCachedRouteRemoteCandidate;
+	CandidateAddressString m_szCachedRouteRemoteAddress;
+
 	// ICE signals
 	void OnTransportGatheringState_n(cricket::IceTransportInternal* transport);
 	void OnTransportCandidateGathered_n(cricket::IceTransportInternal* transport, const cricket::Candidate& candidate);
@@ -557,26 +564,47 @@ bool CICESession::GetWritableState()
 int CICESession::GetPing()
 {
 	if ( !ice_transport_ )
-		return -1;
+		m_nCachedPing = -1;
+	return m_nCachedPing;
+}
+
+void CICESession::CacheRouteAndPing()
+{
+	m_bCachedRouteValid = false;
+	m_nCachedPing = -1;
+	if ( !ice_transport_ )
+		return;
 	absl::optional<int> rtt = ice_transport_->GetRttEstimate();
-	return ( rtt ) ? *rtt : -1;
+	if ( rtt )
+		m_nCachedPing = *rtt;
+	const cricket::Connection *conn = ice_transport_->selected_connection();
+	if ( !conn )
+		return;
+
+	m_eCachedRouteLocalCandidate = GetICECandidateType( conn->local_candidate() );
+	m_eCachedRouteRemoteCandidate = GetICECandidateType( conn->remote_candidate() );
+	std::string remote_addr = conn->remote_candidate().address().ToString();
+	strncpy( m_szCachedRouteRemoteAddress, remote_addr.c_str(), sizeof(m_szCachedRouteRemoteAddress) - 1 );
+	m_szCachedRouteRemoteAddress[ sizeof(m_szCachedRouteRemoteAddress)-1 ] = '\0';
+
+	m_bCachedRouteValid = ( m_eCachedRouteLocalCandidate != k_EICECandidate_Invalid
+		&& m_eCachedRouteRemoteCandidate != k_EICECandidate_Invalid
+		&& m_szCachedRouteRemoteAddress[0] != '\0'
+	);
 }
 
 bool CICESession::GetRoute( EICECandidateType &eLocalCandidate, EICECandidateType &eRemoteCandidate, CandidateAddressString &szRemoteAddress )
 {
 	if ( !ice_transport_ )
+		m_bCachedRouteValid = false;
+	if ( !m_bCachedRouteValid )
 		return false;
-	const cricket::Connection *conn = ice_transport_->selected_connection();
-	if ( !conn )
-		return false;
+	eLocalCandidate = m_eCachedRouteLocalCandidate;
+	eRemoteCandidate = m_eCachedRouteRemoteCandidate;
 
-	eLocalCandidate = GetICECandidateType( conn->local_candidate() );
-	eRemoteCandidate = GetICECandidateType( conn->remote_candidate() );
-	std::string remote_addr = conn->remote_candidate().address().ToString();
-	strncpy( szRemoteAddress, remote_addr.c_str(), sizeof(CandidateAddressString) - 1 );
-	szRemoteAddress[ sizeof(CandidateAddressString)-1 ] = '\0';
+	strcpy( szRemoteAddress, m_szCachedRouteRemoteAddress );
 
-	return eLocalCandidate != k_EICECandidate_Invalid && eRemoteCandidate != k_EICECandidate_Invalid && szRemoteAddress[0] != '\0';
+	return true;
 }
 
 void CICESession::OnTransportGatheringState_n(cricket::IceTransportInternal* transport)
@@ -605,6 +633,7 @@ void CICESession::OnTransportRoleConflict_n(cricket::IceTransportInternal* trans
 void CICESession::OnTransportStateChanged_n(cricket::IceTransportInternal* transport)
 {
 	cricket::IceTransportState state = ice_transport_->GetState();
+	CacheRouteAndPing();
 	if ( state == cricket::IceTransportState::STATE_COMPLETED )
 	{
 		m_pDelegate->Log( IICESessionDelegate::k_ELogPriorityInfo, "ICE completed\n" );
@@ -620,6 +649,7 @@ void CICESession::OnTransportStateChanged_n(cricket::IceTransportInternal* trans
 void CICESession::OnWritableState(rtc::PacketTransportInternal* transport)
 {
 	writable_ = ice_transport_->writable();
+	CacheRouteAndPing();
 	m_pDelegate->Log( IICESessionDelegate::k_ELogPriorityInfo, "ICE OnWritableState now %d\n", (int)writable_ );
 	m_pDelegate->OnWritableStateChanged();
 }
@@ -644,11 +674,13 @@ void CICESession::OnReadyToSend(rtc::PacketTransportInternal* transport)
 
 void CICESession::OnReceivingState(rtc::PacketTransportInternal* transport)
 {
+	CacheRouteAndPing();
 	m_pDelegate->Log( IICESessionDelegate::k_ELogPriorityInfo, "ICE OnReceivingState now %d\n", ice_transport_->receiving() );
 }
 
 void CICESession::OnNetworkRouteChanged(absl::optional<rtc::NetworkRoute> network_route)
 {
+	CacheRouteAndPing();
 	m_pDelegate->OnRouteChanged();
 	//m_pDelegate->Log( IICESessionDelegate::k_ELogPriorityInfo, "ICE OnNetworkRouteChanged %d\n", ice_transport_->receiving() );
 }
