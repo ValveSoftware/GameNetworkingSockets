@@ -12,7 +12,8 @@ cmake_configure() {
 	shift
 	CMAKE_BUILD_DIRS+=("$BUILD_DIR")
 	rm -rf "$BUILD_DIR"
-	cmake -S . -B "$BUILD_DIR" "$@"
+	mkdir -p "$BUILD_DIR"
+	(cd "$BUILD_DIR"; cmake "$@" ..)
 }
 
 cmake_build() {
