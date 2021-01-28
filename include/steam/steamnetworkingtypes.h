@@ -1344,6 +1344,10 @@ enum ESteamNetworkingConfigValue
 	/// ISteamNetworkingMessages.
 	k_ESteamNetworkingConfig_Callback_CreateConnectionSignaling = 206,
 
+	/// [connection void*] User data that will be passed to the 
+	/// FnSteamNetConnectionStatusChanged.
+	k_ESteamNetworkingConfig_Callback_UserData = 207,
+
 	//
 	// P2P settings
 	//

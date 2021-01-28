@@ -774,6 +774,9 @@ struct SteamNetConnectionStatusChangedCallback_t
 
 	/// Previous state.  (Current state is in m_info.m_eState)
 	ESteamNetworkingConnectionState m_eOldState;
+
+	/// Userdata
+	void* m_userdata;
 };
 
 /// A struct used to describe our readiness to participate in authenticated,

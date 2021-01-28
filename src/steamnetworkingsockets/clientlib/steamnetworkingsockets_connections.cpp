@@ -2435,6 +2435,7 @@ void CSteamNetworkConnectionBase::PostConnectionStateChangedCallback( ESteamNetw
 	ConnectionPopulateInfo( c.m_info );
 	c.m_eOldState = eOldAPIState;
 	c.m_hConn = m_hConnectionSelf;
+	c.m_userdata = m_connectionConfig.m_Callback_UserData.Get();
 
 	// !KLUDGE! For ISteamnetworkingMessages connections, we want to process the callback immediately.
 	void *fnCallback = m_connectionConfig.m_Callback_ConnectionStatusChanged.Get();
