@@ -110,7 +110,7 @@ static ThreadLockDebugInfo &GetThreadDebugInfo()
 		if ( unlikely( result == nullptr ) )
 		{
 			result = malloc( sizeof(ThreadLockDebugInfo) );
-			memset( result, 0, sizeof(result) );
+			memset( result, 0, sizeof(ThreadLockDebugInfo) );
 			pthread_setspecific(key, result);
 		}
 		return *static_cast<ThreadLockDebugInfo *>( result );
