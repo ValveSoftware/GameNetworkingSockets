@@ -55,8 +55,6 @@
 
 #if defined( POSIX )
 
-	#include <alloca.h>
-
 	// handle mapping windows names used in tier0 to posix names in one place
 	#define _snprintf snprintf //validator.cpp
 	#if !defined( stricmp )
