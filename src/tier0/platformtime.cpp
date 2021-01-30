@@ -61,7 +61,7 @@ static uint64 InitTicks()
 	g_TickFrequencyDouble = (double) TimebaseInfo.denom / (double) TimebaseInfo.numer * 1.0e9;
 	g_TickFrequency = (uint64)( g_TickFrequencyDouble + 0.5 );
 	g_TickBase = mach_absolute_time();
-#elif defined(LINUX) || defined(ANDROID) || defined(NN_NINTENDO_SDK)
+#elif defined(LINUX) || defined(ANDROID) || defined(NN_NINTENDO_SDK) || defined(FREEBSD)
 	// TickFrequency is constant since clock_gettime always returns nanoseconds
 	timespec TimeSpec;
 	clock_gettime( CLOCK_MONOTONIC, &TimeSpec );
@@ -99,7 +99,7 @@ uint64 Plat_RelativeTicks()
 	}
 #elif defined(OSX)
 	Ticks = mach_absolute_time();
-#elif defined(LINUX) || defined(ANDROID) || defined(NN_NINTENDO_SDK)
+#elif defined(LINUX) || defined(ANDROID) || defined(NN_NINTENDO_SDK) || defined(FREEBSD)
 	timespec TimeSpec;
 	clock_gettime( CLOCK_MONOTONIC, &TimeSpec );
 	Ticks = (uint64)TimeSpec.tv_sec * 1000000000 + TimeSpec.tv_nsec;

@@ -258,6 +258,8 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 		#if(USE_STEAMWEBRTC AND NOT STEAMWEBRTC_USE_STATIC_LIBS)
 		#	target_link_libraries(${GNS_TARGET} PRIVATE dl)
 		#endif()
+	elseif(CMAKE_SYSTEM_NAME MATCHES FreeBSD)
+
 	elseif(CMAKE_SYSTEM_NAME MATCHES Windows)
 		if(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
 			get_target_property(TARGET_TYPE ${GNS_TARGET} TYPE)
