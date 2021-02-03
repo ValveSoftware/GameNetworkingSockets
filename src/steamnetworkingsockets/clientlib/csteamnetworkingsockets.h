@@ -269,6 +269,9 @@ public:
 	virtual const char *GetBuildString();
 	virtual const char *GetPlatformString();
 
+	// Reset this utils instance for testing
+	virtual void TEST_ResetSelf();
+
 	// Stubs if SDR not enabled
 #ifndef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 	virtual ESteamNetworkingAvailability GetRelayNetworkStatus( SteamRelayNetworkStatus_t *pDetails ) override

@@ -1893,6 +1893,11 @@ AppId_t CSteamNetworkingUtils::GetAppID()
 	return m_nAppID;
 }
 
+void CSteamNetworkingUtils::TEST_ResetSelf()
+{
+	m_nAppID = 0;
+}
+
 time_t CSteamNetworkingUtils::GetTimeSecure()
 {
 	// Trusting local user's clock!

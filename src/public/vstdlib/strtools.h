@@ -49,6 +49,8 @@ extern const char*V_strnchr( const char* pStr, char c, int n );
 extern int V_strnicmp( const char *s1, const char *s2, int n );
 inline int V_stricmp( const char *s1, const char *s2 ) { return V_strnicmp( s1, s2, INT_MAX ); }
 const char* V_stristr( const char* pStr, const char* pSearch );
+extern char* V_strlower_fast( char *start );
+extern char* V_strupper_fast( char *start );
 
 extern void V_strncpy( OUT_Z_CAP(maxLen) char *pDest, const char *pSrc, size_t maxLen );
 template <size_t maxLenInChars> void V_strcpy_safe( OUT_Z_ARRAY char (&pDest)[maxLenInChars], const char *pSrc ) 

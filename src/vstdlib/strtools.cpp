@@ -200,6 +200,34 @@ char const* V_stristr( char const* pStr, char const* pSearch )
 }
 
 //-----------------------------------------------------------------------------
+// Purpose: Convert ASCII characters to lower case in-place
+//-----------------------------------------------------------------------------
+char *V_strlower_fast( char *pch )
+{
+	for ( char *pCurrent = pch; *pCurrent; ++pCurrent )
+	{
+		if ( (unsigned char)(*pCurrent - 'A') <= (unsigned char)('Z' - 'A') )
+			*pCurrent = *pCurrent - 'A' + 'a';
+	}
+	return pch;
+}
+
+
+//-----------------------------------------------------------------------------
+// Purpose: Convert ASCII characters to upper case in-place
+//-----------------------------------------------------------------------------
+char *V_strupper_fast( char *pch )
+{
+	for ( char *pCurrent = pch; *pCurrent; ++pCurrent )
+	{
+		if ( (unsigned char)(*pCurrent - 'a') <= (unsigned char)('z' - 'a') )
+			*pCurrent = *pCurrent - 'a' + 'A';
+	}
+	return pch;
+}
+
+
+//-----------------------------------------------------------------------------
 // Purpose: copy a string while observing the maximum length of the target buffer
 //
 // Inputs:	pDest	- pointer to the destination string
