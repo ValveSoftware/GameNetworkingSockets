@@ -90,7 +90,9 @@ static ThreadLockDebugInfo &GetThreadDebugInfo()
 	// Apple seems to hate thread_local.  Is there some sort of feature
 	// define a can check here?  It's a shame because it's really very
 	// efficient on MSVC, gcc, and clang on Windows and linux.
-	#ifdef __APPLE__
+    //
+    // Apple seems to support thread_local starting with Xcode 8.0
+	#if defined(__APPLE__) && __clang_major__ < 8
 
 		static pthread_key_t key;
 		static pthread_once_t key_once = PTHREAD_ONCE_INIT;
