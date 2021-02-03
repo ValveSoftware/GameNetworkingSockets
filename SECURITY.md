@@ -2,7 +2,7 @@
 
 If you believe you have found a security vulnerability, please do not file a
 public issue or pull request.  Instead, disclose it responsibly through
-[https://hackerone.com/valve](hacker one).
+[hacker one](https://hackerone.com/valve).
 
 Because most of the code in this library is used in the Steamworks SDK and our
 games, it is in scope for hackerone reports.  Note that to be eligible

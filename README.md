@@ -106,5 +106,5 @@ connection types or some part of the Steamworks SDK.
 ## Security
 
 Did you find a security vulnerability?  Please inform us responsibly; you may
-be eligible for a bug bounty.  See the [SECURITY.md](security policy) for more
+be eligible for a bug bounty.  See the [security policy](SECURITY.md) for more
 information.
