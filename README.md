@@ -103,3 +103,8 @@ trauma.  Also if you see code that appears to have unnecessary layers of
 abstraction, it's probably because those layers are needed to support relayed
 connection types or some part of the Steamworks SDK.
 
+## Security
+
+Did you find a security vulnerability?  Please inform us responsibly; you may
+be eligible for a bug bounty.  See the [SECURITY.md](security policy) for more
+information.
