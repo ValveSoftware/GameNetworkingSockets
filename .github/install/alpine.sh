@@ -4,8 +4,6 @@
 #
 set -ex
 
-apk update
-
 # Base build packages
 PACKAGES=(
 	clang

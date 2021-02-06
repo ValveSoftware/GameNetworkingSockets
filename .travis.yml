@@ -45,6 +45,7 @@ before_install:
   - docker run -d --rm --cap-add SYS_PTRACE --name $CONTAINER_NAME -e LC_ALL="C" -e LANG="C" -v $(pwd):/build -w /build $IMAGE_PREFIX$IMAGE:$IMAGE_TAG tail -f /dev/null
   - docker ps
   - docker exec -e CI_BUILD=1 -e IMAGE=$IMAGE -e IMAGE_TAG=$IMAGE_TAG -t $CONTAINER_NAME sh .github/preinstall.sh
+  - docker exec -e CI_BUILD=1 -e IMAGE=$IMAGE -e IMAGE_TAG=$IMAGE_TAG -t $CONTAINER_NAME bash .github/update-packages.sh
 
 install:
   - docker exec -e CI_BUILD=1 -e IMAGE=$IMAGE -e IMAGE_TAG=$IMAGE_TAG -t $CONTAINER_NAME bash .github/install.sh

@@ -21,7 +21,6 @@ PACKAGES+=(protobuf-devel)
 PACKAGES+=(libopenssl-devel)
 PACKAGES+=(libsodium-devel)
 
-zypper update -y
 zypper install -y "${PACKAGES[@]}"
 
 exit 0
