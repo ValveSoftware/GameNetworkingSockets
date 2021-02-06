@@ -52,10 +52,15 @@
 
 namespace SteamNetworkingSocketsLib {
 
+int g_nSteamDatagramSocketBufferSize = 256*1024;
+
+/// Global lock for all local data structures
+static Lock<RecursiveTimedMutexImpl> s_mutexGlobalLock( "global", 0 );
+
+#if STEAMNETWORKINGSOCKETS_LOCK_DEBUG_LEVEL > 0
+
 // By default, complain if we hold the lock for more than this long
 constexpr SteamNetworkingMicroseconds k_usecDefaultLongLockHeldWarningThreshold = 5*1000;
-
-int g_nSteamDatagramSocketBufferSize = 256*1024;
 
 // Debug the locks active on the cu
 struct ThreadLockDebugInfo
@@ -79,8 +84,6 @@ struct ThreadLockDebugInfo
 	Tag_t m_arTags[ k_nMaxTags ];
 };
 
-/// Global lock for all local data structures
-static Lock<RecursiveTimedMutexImpl> s_mutexGlobalLock( "global", 0 );
 static void (*s_fLockAcquiredCallback)( const char *tags, SteamNetworkingMicroseconds usecWaited );
 static void (*s_fLockHeldCallback)( const char *tags, SteamNetworkingMicroseconds usecWaited );
 static SteamNetworkingMicroseconds s_usecLockWaitWarningThreshold = 2*1000;
@@ -353,22 +356,6 @@ void LockDebugInfo::_AssertHeldByCurrentThread( const char *pszFile, int line, c
 	AssertMsg( false, "%s(%d): Lock '%s' not held", pszFile, line, m_pszName );
 }
 
-
-void SteamNetworkingGlobalLock::Lock( const char *pszTag )
-{
-	s_mutexGlobalLock.lock( pszTag );
-}
-
-bool SteamNetworkingGlobalLock::TryLock( const char *pszTag, int msTimeout )
-{
-	return s_mutexGlobalLock.try_lock_for( msTimeout, pszTag );
-}
-
-void SteamNetworkingGlobalLock::Unlock()
-{
-	s_mutexGlobalLock.unlock();
-}
-
 void SteamNetworkingGlobalLock::SetLongLockWarningThresholdMS( const char *pszTag, int msWarningThreshold )
 {
 	AssertHeldByCurrentThread( pszTag );
@@ -390,6 +377,23 @@ void SteamNetworkingGlobalLock::_AssertHeldByCurrentThread( const char *pszFile,
 {
 	s_mutexGlobalLock._AssertHeldByCurrentThread( pszFile, line );
 	AddThreadLockTag( pszTag );
+}
+
+#endif // #if STEAMNETWORKINGSOCKETS_LOCK_DEBUG_LEVEL > 0
+
+void SteamNetworkingGlobalLock::Lock( const char *pszTag )
+{
+	s_mutexGlobalLock.lock( pszTag );
+}
+
+bool SteamNetworkingGlobalLock::TryLock( const char *pszTag, int msTimeout )
+{
+	return s_mutexGlobalLock.try_lock_for( msTimeout, pszTag );
+}
+
+void SteamNetworkingGlobalLock::Unlock()
+{
+	s_mutexGlobalLock.unlock();
 }
 
 static void SeedWeakRandomGenerator()
@@ -1310,8 +1314,10 @@ IRawUDPSocket *OpenRawUDPSocket( CRecvPacketCallback callback, SteamDatagramErrM
 
 static inline void AssertGlobalLockHeldExactlyOnce()
 {
-	ThreadLockDebugInfo &t = GetThreadDebugInfo();
-	Assert( t.m_nHeldLocks == 1 && t.m_arHeldLocks[0] == &s_mutexGlobalLock );
+	#if STEAMNETWORKINGSOCKETS_LOCK_DEBUG_LEVEL > 0
+		ThreadLockDebugInfo &t = GetThreadDebugInfo();
+		Assert( t.m_nHeldLocks == 1 && t.m_arHeldLocks[0] == &s_mutexGlobalLock );
+	#endif
 }
 
 /// Poll all of our sockets, and dispatch the packets received.
@@ -2351,17 +2357,29 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_Poll( int msMaxWait
 
 STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetLockWaitWarningThreshold( SteamNetworkingMicroseconds usecTheshold )
 {
-	s_usecLockWaitWarningThreshold = usecTheshold;
+	#if STEAMNETWORKINGSOCKETS_LOCK_DEBUG_LEVEL > 0
+		s_usecLockWaitWarningThreshold = usecTheshold;
+	#else
+		// Should we assert here?
+	#endif
 }
 
 STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetLockAcquiredCallback( void (*callback)( const char *tags, SteamNetworkingMicroseconds usecWaited ) )
 {
-	s_fLockAcquiredCallback = callback;
+	#if STEAMNETWORKINGSOCKETS_LOCK_DEBUG_LEVEL > 0
+		s_fLockAcquiredCallback = callback;
+	#else
+		// Should we assert here?
+	#endif
 }
 
 STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetLockHeldCallback( void (*callback)( const char *tags, SteamNetworkingMicroseconds usecWaited ) )
 {
-	s_fLockHeldCallback = callback;
+	#if STEAMNETWORKINGSOCKETS_LOCK_DEBUG_LEVEL > 0
+		s_fLockHeldCallback = callback;
+	#else
+		// Should we assert here?
+	#endif
 }
 
 STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetPreFormatDebugOutputHandler(

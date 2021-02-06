@@ -19,6 +19,16 @@
 //	#define STEAMNETWORKINGSOCKETS_ENABLE_ETW
 //#endif
 
+// Set STEAMNETWORKINGSOCKETS_LOCK_DEBUG_LEVEL.
+// NOTE: Currently only 0 or 1 is allowed.  Later we might add more flexibility
+#ifndef STEAMNETWORKINGSOCKETS_LOCK_DEBUG_LEVEL
+	#ifdef DBGFLAG_ASSERT
+		#define STEAMNETWORKINGSOCKETS_LOCK_DEBUG_LEVEL 1
+	#else
+		#define STEAMNETWORKINGSOCKETS_LOCK_DEBUG_LEVEL 0
+	#endif
+#endif
+
 struct iovec;
 
 namespace SteamNetworkingSocketsLib {
@@ -378,19 +388,25 @@ struct LockDebugInfo
 	const char *const m_pszName;
 	const int m_nFlags;
 
-	void _AssertHeldByCurrentThread( const char *pszFile, int line, const char *pszTag = nullptr ) const;
+	#if STEAMNETWORKINGSOCKETS_LOCK_DEBUG_LEVEL > 0
+		void _AssertHeldByCurrentThread( const char *pszFile, int line, const char *pszTag = nullptr ) const;
+	#else
+		inline void _AssertHeldByCurrentThread( const char *pszFile, int line, const char *pszTag = nullptr ) const {}
+	#endif
 
 protected:
 	LockDebugInfo( const char *pszName, int nFlags ) : m_pszName( pszName ), m_nFlags( nFlags ) {}
-	~LockDebugInfo();
 
-	void AboutToLock( bool bTry );
-	void OnLocked( const char *pszTag );
-	void AboutToUnlock();
-
-	//volatile int m_nLockCount = 0;
-	//std::thread::id m_threadIDLockOwner;
-
+	#if STEAMNETWORKINGSOCKETS_LOCK_DEBUG_LEVEL > 0
+		void AboutToLock( bool bTry );
+		void OnLocked( const char *pszTag );
+		void AboutToUnlock();
+		~LockDebugInfo();
+	#else
+		void AboutToLock( bool bTry ) {}
+		void OnLocked( const char *pszTag ) {}
+		void AboutToUnlock() {}
+	#endif
 };
 
 /// Wrapper for locks to make them somewhat debuggable.
@@ -457,7 +473,7 @@ struct ShortDurationLock : Lock<ShortDurationMutexImpl>
 };
 using ShortDurationScopeLock = ScopeLock<ShortDurationLock>;
 
-#ifdef DBGFLAG_ASSERT
+#if STEAMNETWORKINGSOCKETS_LOCK_DEBUG_LEVEL > 0
 	#define AssertHeldByCurrentThread( ... ) _AssertHeldByCurrentThread( __FILE__, __LINE__ ,## __VA_ARGS__ )
 	#define AssertLocksHeldByCurrentThread( ... ) _AssertLocksHeldByCurrentThread( __FILE__, __LINE__,## __VA_ARGS__ )
 #else
@@ -473,9 +489,16 @@ struct SteamNetworkingGlobalLock
 	static void Lock( const char *pszTag );
 	static bool TryLock( const char *pszTag, int msTimeout );
 	static void Unlock();
-	static void _AssertHeldByCurrentThread( const char *pszFile, int line );
-	static void _AssertHeldByCurrentThread( const char *pszFile, int line, const char *pszTag );
-	static void SetLongLockWarningThresholdMS( const char *pszTag, int msWarningThreshold );
+
+	#if STEAMNETWORKINGSOCKETS_LOCK_DEBUG_LEVEL > 0
+		static void _AssertHeldByCurrentThread( const char *pszFile, int line );
+		static void _AssertHeldByCurrentThread( const char *pszFile, int line, const char *pszTag );
+		static void SetLongLockWarningThresholdMS( const char *pszTag, int msWarningThreshold );
+	#else
+		static void _AssertHeldByCurrentThread( const char *pszFile, int line ) {}
+		static void _AssertHeldByCurrentThread( const char *pszFile, int line, const char *pszTag ) {}
+		inline static void SetLongLockWarningThresholdMS( const char *pszTag, int msWarningThreshold ) {}
+	#endif
 };
 
 #ifdef DBGFLAG_VALIDATE
