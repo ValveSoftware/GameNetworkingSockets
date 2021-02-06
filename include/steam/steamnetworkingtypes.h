@@ -1129,6 +1129,41 @@ enum ESteamNetworkingConfigValue
 	/// Default is 512k (524288 bytes)
 	k_ESteamNetworkingConfig_SendBufferSize = 9,
 
+	/// [connection int64] Get/set userdata as a configuration option.
+	/// The default value is -1.   You may want to set the user data as
+	/// a config value, instead of using ISteamNetworkingSockets::SetConnectionUserData
+	/// in two specific instances:
+	///
+	/// - You wish to set the userdata atomically when creating
+	///   an outbound connection, so that the userdata is filled in properly
+	///   for any callbacks that happen.  However, note that this trick
+	///   only works for connections initiated locally!  For incoming
+	///   connections, multiple state transitions may happen and
+	///   callbacks be queued, before you are able to service the first
+	///   callback!  Be careful!
+	///
+	/// - You can set the default userdata for all newly created connections
+	///   by setting this value at a higher level (e.g. on the listen
+	///   socket or at the global level.)  Then this default
+	///   value will be inherited when the connection is created.
+	///   This is useful in case -1 is a valid userdata value, and you
+	///   wish to use something else as the default value so you can
+	///   tell if it has been set or not.
+	///
+	///   HOWEVER: once a connection is created, the effective value is
+	///   then bound to the connection.  Unlike other connection options,
+	///   if you change it again at a higher level, the new value will not
+	///   be inherited by connections.
+	///
+	/// Using the userdata field in callback structs is not advised because
+	/// of tricky race conditions.  Instead, you might try one of these methods:
+	///
+	/// - Use a separate map with the HSteamNetConnection as the key.
+	/// - Fetch the userdata from the connection in your callback
+	///   using ISteamNetworkingSockets::GetConnectionUserData, to
+	//    ensure you have the current value.
+	k_ESteamNetworkingConfig_ConnectionUserData = 40,
+
 	/// [connection int32] Minimum/maximum send rate clamp, 0 is no limit.
 	/// This value will control the min/max allowed sending rate that 
 	/// bandwidth estimation is allowed to reach.  Default is 0 (no-limit)

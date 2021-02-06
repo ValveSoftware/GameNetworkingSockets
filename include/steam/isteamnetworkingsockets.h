@@ -192,7 +192,23 @@ public:
 	/// Set connection user data.  the data is returned in the following places
 	/// - You can query it using GetConnectionUserData.
 	/// - The SteamNetworkingmessage_t structure.
-	/// - The SteamNetConnectionInfo_t structure.  (Which is a member of SteamNetConnectionStatusChangedCallback_t.)
+	/// - The SteamNetConnectionInfo_t structure.
+	///   (Which is a member of SteamNetConnectionStatusChangedCallback_t -- but see WARNINGS below!!!!)
+	///
+	/// Do you need to set this atomically when the connection is created?
+	/// See k_ESteamNetworkingConfig_ConnectionUserData.
+	///
+	/// WARNING: Be *very careful* when using the value provided in callbacks structs.
+	/// Callbacks are queued, and the value that you will receive in your
+	/// callback is the userdata that was effective at the time the callback
+	/// was queued.  There are subtle race conditions that can hapen if you
+	/// don't understand this!
+	///
+	/// If any incoming messages for this connection are queued, the userdata
+	/// field is updated, so that when when you receive messages (e.g. with
+	/// ReceiveMessagesOnConnection), they will always have the very latest
+	/// userdata.  So the tricky race conditions that can happen with callbacks
+	/// do not apply to retrieving messages.
 	///
 	/// Returns false if the handle is invalid.
 	virtual bool SetConnectionUserData( HSteamNetConnection hPeer, int64 nUserData ) = 0;

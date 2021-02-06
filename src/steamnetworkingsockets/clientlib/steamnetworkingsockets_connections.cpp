@@ -615,7 +615,6 @@ CSteamNetworkConnectionBase::CSteamNetworkConnectionBase( CSteamNetworkingSocket
 : m_pSteamNetworkingSocketsInterface( pSteamNetworkingSocketsInterface )
 {
 	m_hConnectionSelf = k_HSteamNetConnection_Invalid;
-	m_nUserData = -1;
 	m_eConnectionState = k_ESteamNetworkingConnectionState_None;
 	m_eConnectionWireState = k_ESteamNetworkingConnectionState_None;
 	m_usecWhenEnteredConnectionState = 0;
@@ -942,6 +941,9 @@ bool CSteamNetworkConnectionBase::BInitConnection( SteamNetworkingMicroseconds u
 		V_strcpy_safe( errMsg, "Options list is NULL, but nOptions != 0?" );
 		return false;
 	}
+
+	// Bind effective user data into the connection now.  It can no longer be inherited
+	m_connectionConfig.m_ConnectionUserData.Set( m_connectionConfig.m_ConnectionUserData.Get() );
 
 	// Make sure a description has been set for debugging purposes
 	SetDescription();
@@ -1698,7 +1700,7 @@ ESteamNetConnectionEnd CSteamNetworkConnectionBase::CheckRemoteCert( const CertA
 
 void CSteamNetworkConnectionBase::SetUserData( int64 nUserData )
 {
-	m_nUserData = nUserData;
+	m_connectionConfig.m_ConnectionUserData.Set( nUserData );
 
 	// Change user data on all messages that haven't been pulled out
 	// of the queue yet.  This way we don't expose the client to weird
@@ -1707,7 +1709,7 @@ void CSteamNetworkConnectionBase::SetUserData( int64 nUserData )
 	for ( CSteamNetworkingMessage *m = m_queueRecvMessages.m_pFirst ; m ; m = m->m_links.m_pNext )
 	{
 		Assert( m->m_conn == m_hConnectionSelf );
-		m->m_nConnUserData = m_nUserData;
+		m->m_nConnUserData = nUserData;
 	}
 }
 
@@ -1743,7 +1745,7 @@ void CSteamNetworkConnectionBase::ConnectionPopulateInfo( SteamNetConnectionInfo
 	info.m_eState = CollapseConnectionStateToAPIState( m_eConnectionState );
 	info.m_hListenSocket = m_pParentListenSocket ? m_pParentListenSocket->m_hListenSocketSelf : k_HSteamListenSocket_Invalid;
 	info.m_identityRemote = m_identityRemote;
-	info.m_nUserData = m_nUserData;
+	info.m_nUserData = GetUserData();
 	info.m_eEndReason = m_eEndReason;
 	V_strcpy_safe( info.m_szEndDebug, m_szEndDebug );
 	V_strcpy_safe( info.m_szConnectionDescription, m_szDescription );
@@ -3314,7 +3316,7 @@ int64 CSteamNetworkConnectionPipe::_APISendMessageToConnection( CSteamNetworking
 	pMsg->m_nMessageNumber = nMsgNum;
 	pMsg->m_conn = m_pPartner->m_hConnectionSelf;
 	pMsg->m_identityPeer = m_pPartner->m_identityRemote;
-	pMsg->m_nConnUserData = m_pPartner->m_nUserData;
+	pMsg->m_nConnUserData = m_pPartner->GetUserData();
 	pMsg->m_usecTimeReceived = usecNow;
 
 	// Pass directly to our partner

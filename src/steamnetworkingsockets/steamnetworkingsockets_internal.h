@@ -723,6 +723,7 @@ struct ConnectionConfig
 	ConfigValue<int32> m_Unencrypted;
 	ConfigValue<int32> m_SymmetricConnect;
 	ConfigValue<int32> m_LocalVirtualPort;
+	ConfigValue<int64> m_ConnectionUserData;
 
 	ConfigValue<int32> m_LogLevel_AckRTT;
 	ConfigValue<int32> m_LogLevel_PacketDecode;

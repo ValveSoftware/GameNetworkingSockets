@@ -315,7 +315,12 @@ public:
 //
 
 	// Get/set user data
-	inline int64 GetUserData() const { return m_nUserData; }
+	inline int64 GetUserData() const
+	{
+		// User data is locked when we create a connection!
+		Assert( m_connectionConfig.m_ConnectionUserData.IsSet() );
+		return m_connectionConfig.m_ConnectionUserData.m_data;
+	}
 	void SetUserData( int64 nUserData );
 
 	// Get/set name
@@ -573,9 +578,6 @@ protected:
 
 	/// Called from BInitConnection, to start obtaining certs, etc
 	virtual void InitConnectionCrypto( SteamNetworkingMicroseconds usecNow );
-
-	/// User data
-	int64 m_nUserData;
 
 	/// Name assigned by app (for debugging)
 	char m_szAppName[ k_cchSteamNetworkingMaxConnectionDescription ];

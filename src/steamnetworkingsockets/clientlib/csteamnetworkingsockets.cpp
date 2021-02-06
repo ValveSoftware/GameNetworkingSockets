@@ -58,6 +58,7 @@ DEFINE_GLOBAL_CONFIGVAL( void *, Callback_CreateConnectionSignaling, nullptr );
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, TimeoutInitial, 10000, 0, INT32_MAX );
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, TimeoutConnected, 10000, 0, INT32_MAX );
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, SendBufferSize, 512*1024, 0, 0x10000000 );
+DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int64, ConnectionUserData, -1 ); // no limits here
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, SendRateMin, 128*1024, 1024, 0x10000000 );
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, SendRateMax, 1024*1024, 1024, 0x10000000 );
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, NagleTime, 5000, 0, 20000 );
@@ -1459,12 +1460,12 @@ static ConfigValue<T> *EvaluateScopeConfigValue( GlobalConfigValueEntry *pEntry,
 	return nullptr;
 }
 
-static bool AssignConfigValueTyped( ConfigValue<int32> *pVal, ESteamNetworkingConfigDataType eDataType, const void *pArg )
+static bool AssignConfigValueTyped( int32 *pVal, ESteamNetworkingConfigDataType eDataType, const void *pArg )
 {
 	switch ( eDataType )
 	{
 		case k_ESteamNetworkingConfig_Int32:
-			pVal->m_data = *(int32*)pArg;
+			*pVal = *(int32*)pArg;
 			break;
 
 		case k_ESteamNetworkingConfig_Int64:
@@ -1472,12 +1473,12 @@ static bool AssignConfigValueTyped( ConfigValue<int32> *pVal, ESteamNetworkingCo
 			int64 arg = *(int64*)pArg;
 			if ( (int32)arg != arg )
 				return false; // Cannot truncate!
-			pVal->m_data = *(int32*)arg;
+			*pVal = *(int32*)arg;
 			break;
 		}
 
 		case k_ESteamNetworkingConfig_Float:
-			pVal->m_data = (int32)floor( *(float*)pArg + .5f );
+			*pVal = (int32)floor( *(float*)pArg + .5f );
 			break;
 
 		case k_ESteamNetworkingConfig_String:
@@ -1485,7 +1486,7 @@ static bool AssignConfigValueTyped( ConfigValue<int32> *pVal, ESteamNetworkingCo
 			int x;
 			if ( sscanf( (const char *)pArg, "%d", &x ) != 1 )
 				return false;
-			pVal->m_data = x;
+			*pVal = x;
 			break;
 		}
 
@@ -1496,22 +1497,22 @@ static bool AssignConfigValueTyped( ConfigValue<int32> *pVal, ESteamNetworkingCo
 	return true;
 }
 
-static bool AssignConfigValueTyped( ConfigValue<int64> *pVal, ESteamNetworkingConfigDataType eDataType, const void *pArg )
+static bool AssignConfigValueTyped( int64 *pVal, ESteamNetworkingConfigDataType eDataType, const void *pArg )
 {
 	switch ( eDataType )
 	{
 		case k_ESteamNetworkingConfig_Int32:
-			pVal->m_data = *(int32*)pArg;
+			*pVal = *(int32*)pArg;
 			break;
 
 		case k_ESteamNetworkingConfig_Int64:
 		{
-			pVal->m_data = *(int64*)pArg;
+			*pVal = *(int64*)pArg;
 			break;
 		}
 
 		case k_ESteamNetworkingConfig_Float:
-			pVal->m_data = (int64)floor( *(float*)pArg + .5f );
+			*pVal = (int64)floor( *(float*)pArg + .5f );
 			break;
 
 		case k_ESteamNetworkingConfig_String:
@@ -1519,7 +1520,7 @@ static bool AssignConfigValueTyped( ConfigValue<int64> *pVal, ESteamNetworkingCo
 			long long x;
 			if ( sscanf( (const char *)pArg, "%lld", &x ) != 1 )
 				return false;
-			pVal->m_data = (int64)x;
+			*pVal = (int64)x;
 			break;
 		}
 
@@ -1530,22 +1531,22 @@ static bool AssignConfigValueTyped( ConfigValue<int64> *pVal, ESteamNetworkingCo
 	return true;
 }
 
-static bool AssignConfigValueTyped( ConfigValue<float> *pVal, ESteamNetworkingConfigDataType eDataType, const void *pArg )
+static bool AssignConfigValueTyped( float *pVal, ESteamNetworkingConfigDataType eDataType, const void *pArg )
 {
 	switch ( eDataType )
 	{
 		case k_ESteamNetworkingConfig_Int32:
-			pVal->m_data = (float)( *(int32*)pArg );
+			*pVal = (float)( *(int32*)pArg );
 			break;
 
 		case k_ESteamNetworkingConfig_Int64:
 		{
-			pVal->m_data = (float)( *(int64*)pArg );
+			*pVal = (float)( *(int64*)pArg );
 			break;
 		}
 
 		case k_ESteamNetworkingConfig_Float:
-			pVal->m_data = *(float*)pArg;
+			*pVal = *(float*)pArg;
 			break;
 
 		case k_ESteamNetworkingConfig_String:
@@ -1553,7 +1554,7 @@ static bool AssignConfigValueTyped( ConfigValue<float> *pVal, ESteamNetworkingCo
 			float x;
 			if ( sscanf( (const char *)pArg, "%f", &x ) != 1 )
 				return false;
-			pVal->m_data = x;
+			*pVal = x;
 			break;
 		}
 
@@ -1564,7 +1565,7 @@ static bool AssignConfigValueTyped( ConfigValue<float> *pVal, ESteamNetworkingCo
 	return true;
 }
 
-static bool AssignConfigValueTyped( ConfigValue<std::string> *pVal, ESteamNetworkingConfigDataType eDataType, const void *pArg )
+static bool AssignConfigValueTyped( std::string *pVal, ESteamNetworkingConfigDataType eDataType, const void *pArg )
 {
 	char temp[64];
 
@@ -1572,21 +1573,21 @@ static bool AssignConfigValueTyped( ConfigValue<std::string> *pVal, ESteamNetwor
 	{
 		case k_ESteamNetworkingConfig_Int32:
 			V_sprintf_safe( temp, "%d", *(int32*)pArg );
-			pVal->m_data = temp;
+			*pVal = temp;
 			break;
 
 		case k_ESteamNetworkingConfig_Int64:
 			V_sprintf_safe( temp, "%lld", (long long)*(int64*)pArg );
-			pVal->m_data = temp;
+			*pVal = temp;
 			break;
 
 		case k_ESteamNetworkingConfig_Float:
 			V_sprintf_safe( temp, "%g", *(float*)pArg );
-			pVal->m_data = temp;
+			*pVal = temp;
 			break;
 
 		case k_ESteamNetworkingConfig_String:
-			pVal->m_data = (const char *)pArg;
+			*pVal = (const char *)pArg;
 			break;
 
 		default:
@@ -1596,12 +1597,12 @@ static bool AssignConfigValueTyped( ConfigValue<std::string> *pVal, ESteamNetwor
 	return true;
 }
 
-static bool AssignConfigValueTyped( ConfigValue<void *> *pVal, ESteamNetworkingConfigDataType eDataType, const void *pArg )
+static bool AssignConfigValueTyped( void **pVal, ESteamNetworkingConfigDataType eDataType, const void *pArg )
 {
 	switch ( eDataType )
 	{
 		case k_ESteamNetworkingConfig_Ptr:
-			pVal->m_data = *(void **)pArg;
+			*pVal = *(void **)pArg;
 			break;
 
 		default:
@@ -1637,6 +1638,12 @@ bool SetConfigValueTyped(
 			Assert( pGlobal->IsSet() );
 			pGlobal->m_data = pGlobal->m_defaultValue;
 		}
+		else if ( eScopeType == k_ESteamNetworkingConfig_Connection && pEntry->m_eValue == k_ESteamNetworkingConfig_ConnectionUserData )
+		{
+			// Once this is set, we cannot clear it or inherit it.
+			SpewError( "Cannot clear connection user data\n" );
+			return false;
+		}
 		else
 		{
 			Assert( pVal->m_pInherit );
@@ -1646,7 +1653,7 @@ bool SetConfigValueTyped(
 	}
 
 	// Call type-specific method to set it
-	if ( !AssignConfigValueTyped( pVal, eDataType, pArg ) )
+	if ( !AssignConfigValueTyped( &pVal->m_data, eDataType, pArg ) )
 		return false;
 
 	// Mark it as set
@@ -1736,6 +1743,29 @@ bool CSteamNetworkingUtils::SetConfigValue( ESteamNetworkingConfigValue eValue,
 		case k_ESteamNetworkingConfig_MTU_DataSize:
 			SpewWarning( "MTU_DataSize is readonly" );
 			return false;
+
+		case k_ESteamNetworkingConfig_ConnectionUserData:
+		{
+
+			// We only need special handling when modifying a connection
+			if ( eScopeType != k_ESteamNetworkingConfig_Connection )
+				break;
+
+			// Process the user argument, maybe performing type conversion
+			int64 newData;
+			if ( !AssignConfigValueTyped( &newData, eDataType, pValue ) )
+				return false;
+
+			// Lookup the connection
+			CSteamNetworkConnectionBase *pConn = GetConnectionByHandle( HSteamNetConnection( scopeObj ) );
+			if ( !pConn )
+				return false;
+
+			// Set the data, possibly fixing up existing queued messages, etc
+			pConn->SetUserData( pConn->m_connectionConfig.m_ConnectionUserData.m_data );
+			return true;
+		}
+
 	}
 
 	GlobalConfigValueEntry *pEntry = FindConfigValueEntry( eValue );
