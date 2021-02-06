@@ -7,7 +7,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        build: [alpine-latest, archlinux-latest, ubuntu-bionic, ubuntu-latest, ubuntu-rolling, ubuntu-devel, fedora-latest]
+        build: [alpine-latest, ubuntu-bionic, ubuntu-latest, ubuntu-rolling, ubuntu-devel, fedora-latest]
         include:
           - build: ubuntu-bionic
             os: ubuntu-latest
@@ -29,10 +29,10 @@ jobs:
             os: ubuntu-latest
             docker_image: fedora
             docker_tag: latest
-          - build: archlinux-latest
-            os: ubuntu-latest
-            docker_image: archlinux
-            docker_tag: latest
+          #- build: archlinux-latest
+          #  os: ubuntu-latest
+          #  docker_image: archlinux
+          #  docker_tag: latest
           - build: alpine-latest
             os: ubuntu-latest
             docker_image: alpine
