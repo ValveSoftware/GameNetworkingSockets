@@ -1081,6 +1081,13 @@ enum ESteamNetworkingConfigValue
 {
 	k_ESteamNetworkingConfig_Invalid = 0,
 
+//
+// Simulating packet lag/loss
+//
+// These are global (not per-connection) because they apply at
+// a relatively low UDP layer.
+//
+
 	/// [global float, 0--100] Randomly discard N pct of packets instead of sending/recv
 	/// This is a global option only, since it is applied at a low level
 	/// where we don't have much context
@@ -1106,6 +1113,10 @@ enum ESteamNetworkingConfigValue
 	/// [global int32] Amount of delay, in ms, to delay duplicated packets.
 	/// (We chose a random delay between 0 and this value)
 	k_ESteamNetworkingConfig_FakePacketDup_TimeMax = 28,
+
+//
+// Connection configuration
+//
 
 	/// [connection int32] Timeout value (in ms) to use when first connecting
 	k_ESteamNetworkingConfig_TimeoutInitial = 24,
@@ -1162,19 +1173,6 @@ enum ESteamNetworkingConfigValue
 	/// You should not let users modify it in production.  (But note that it requires
 	/// the peer to also modify their value in order for encryption to be disabled.)
 	k_ESteamNetworkingConfig_Unencrypted = 34,
-
-	/// [global int32] 0 or 1.  Some variables are "dev" variables.  They are useful
-	/// for debugging, but should not be adjusted in production.  When this flag is false (the default),
-	/// such variables will not be enumerated by the ISteamnetworkingUtils::GetFirstConfigValue
-	/// ISteamNetworkingUtils::GetConfigValueInfo functions.  The idea here is that you
-	/// can use those functions to provide a generic mechanism to set any configuration
-	/// value from a console or configuration file, looking up the variable by name.  Depending
-	/// on your game, modifying other configuration values may also have negative effects, and
-	/// you may wish to further lock down which variables are allowed to be modified by the user.
-	/// (Maybe no variables!)  Or maybe you use a whitelist or blacklist approach.
-	///
-	/// (This flag is itself a dev variable.)
-	k_ESteamNetworkingConfig_EnumerateDevVars = 35,
 
 	/// [connection int32] Set this to 1 on outbound connections and listen sockets,
 	/// to enable "symmetric connect mode", which is useful in the following
@@ -1277,9 +1275,9 @@ enum ESteamNetworkingConfigValue
 	/// This value should not be read or written in any other context.
 	k_ESteamNetworkingConfig_LocalVirtualPort = 38,
 
-	//
-	// Callbacks
-	//
+//
+// Callbacks
+//
 
 	// On Steam, you may use the default Steam callback dispatch mechanism.  If you prefer
 	// to not use this dispatch mechanism (or you are not running with Steam), or you want
@@ -1344,9 +1342,9 @@ enum ESteamNetworkingConfigValue
 	/// ISteamNetworkingMessages.
 	k_ESteamNetworkingConfig_Callback_CreateConnectionSignaling = 206,
 
-	//
-	// P2P settings
-	//
+//
+// P2P connection settings
+//
 
 //	/// [listen socket int32] When you create a P2P listen socket, we will automatically
 //	/// open up a UDP port to listen for LAN connections.  LAN connections can be made
@@ -1377,9 +1375,9 @@ enum ESteamNetworkingConfigValue
 	k_ESteamNetworkingConfig_P2P_Transport_SDR_Penalty = 106,
 	//k_ESteamNetworkingConfig_P2P_Transport_LANBeacon_Penalty = 107,
 
-	//
-	// Settings for SDR relayed connections
-	//
+//
+// Settings for SDR relayed connections
+//
 
 	/// [int32 global] If the first N pings to a port all fail, mark that port as unavailable for
 	/// a while, and try a different one.  Some ISPs and routers may drop the first
@@ -1426,14 +1424,31 @@ enum ESteamNetworkingConfigValue
 	/// in production.
 	k_ESteamNetworkingConfig_SDRClient_FakeClusterPing = 36,
 
-	//
-	// Log levels for debugging information of various subsystems.
-	// Higher numeric values will cause more stuff to be printed.
-	// See ISteamNetworkingUtils::SetDebugOutputFunction for more
-	// information
-	//
-	// The default for all values is k_ESteamNetworkingSocketsDebugOutputType_Warning.
-	//
+//
+// Misc
+//
+
+	/// [global int32] 0 or 1.  Some variables are "dev" variables.  They are useful
+	/// for debugging, but should not be adjusted in production.  When this flag is false (the default),
+	/// such variables will not be enumerated by the ISteamnetworkingUtils::GetFirstConfigValue
+	/// ISteamNetworkingUtils::GetConfigValueInfo functions.  The idea here is that you
+	/// can use those functions to provide a generic mechanism to set any configuration
+	/// value from a console or configuration file, looking up the variable by name.  Depending
+	/// on your game, modifying other configuration values may also have negative effects, and
+	/// you may wish to further lock down which variables are allowed to be modified by the user.
+	/// (Maybe no variables!)  Or maybe you use a whitelist or blacklist approach.
+	///
+	/// (This flag is itself a dev variable.)
+	k_ESteamNetworkingConfig_EnumerateDevVars = 35,
+
+//
+// Log levels for debugging information of various subsystems.
+// Higher numeric values will cause more stuff to be printed.
+// See ISteamNetworkingUtils::SetDebugOutputFunction for more
+// information
+//
+// The default for all values is k_ESteamNetworkingSocketsDebugOutputType_Warning.
+//
 	k_ESteamNetworkingConfig_LogLevel_AckRTT = 13, // [connection int32] RTT calculations for inline pings and replies
 	k_ESteamNetworkingConfig_LogLevel_PacketDecode = 14, // [connection int32] log SNP packets send/recv
 	k_ESteamNetworkingConfig_LogLevel_Message = 15, // [connection int32] log each message send/recv
