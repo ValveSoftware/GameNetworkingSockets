@@ -1570,7 +1570,9 @@ static ConfigValue<T> *GetConnectionVar( const GlobalConfigValueEntry *pEntry, C
 template<typename T>
 static ConfigValue<T> *EvaluateScopeConfigValue( GlobalConfigValueEntry *pEntry,
 	ESteamNetworkingConfigScope eScopeType,
-	intptr_t scopeObj )
+	intptr_t scopeObj,
+	ConnectionScopeLock &connectionLock // Lock this, if it's a connection
+)
 {
 	switch ( eScopeType )
 	{
@@ -1612,8 +1614,7 @@ static ConfigValue<T> *EvaluateScopeConfigValue( GlobalConfigValueEntry *pEntry,
 			// the "front door".  So this means if the app tries to set a config option on a
 			// connection that technically no longer exists, we will actually allow that, when
 			// we probably should fail the call.
-			ConnectionScopeLock scopeLock; // FIXME We are releasing the lock too soon here!  This doesn't work
-			CSteamNetworkConnectionBase *pConn = GetConnectionByHandle( HSteamNetConnection( scopeObj ), scopeLock );
+			CSteamNetworkConnectionBase *pConn = GetConnectionByHandle( HSteamNetConnection( scopeObj ), connectionLock );
 			if ( pConn )
 			{
 				if ( pEntry->m_eScope == k_ESteamNetworkingConfig_Connection )
@@ -1790,7 +1791,8 @@ bool SetConfigValueTyped(
 	ESteamNetworkingConfigDataType eDataType,
 	const void *pArg
 ) {
-	ConfigValue<T> *pVal = EvaluateScopeConfigValue<T>( pEntry, eScopeType, scopeObj );
+	ConnectionScopeLock connectionLock;
+	ConfigValue<T> *pVal = EvaluateScopeConfigValue<T>( pEntry, eScopeType, scopeObj, connectionLock );
 	if ( !pVal )
 		return false;
 
@@ -1878,7 +1880,8 @@ ESteamNetworkingGetConfigValueResult GetConfigValueTyped(
 	intptr_t scopeObj,
 	void *pResult, size_t *cbResult
 ) {
-	ConfigValue<T> *pVal = EvaluateScopeConfigValue<T>( pEntry, eScopeType, scopeObj );
+	ConnectionScopeLock connectionLock;
+	ConfigValue<T> *pVal = EvaluateScopeConfigValue<T>( pEntry, eScopeType, scopeObj, connectionLock );
 	if ( !pVal )
 	{
 		*cbResult = 0;
