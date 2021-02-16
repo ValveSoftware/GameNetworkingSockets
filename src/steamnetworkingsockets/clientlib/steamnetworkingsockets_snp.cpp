@@ -2935,16 +2935,16 @@ void CSteamNetworkConnectionBase::SNP_RecordReceivedPktNum( int64 nPktNum, Steam
 		auto itGap = m_receiverState.m_mapPacketGaps.upper_bound( nPktNum );
 		if ( itGap == m_receiverState.m_mapPacketGaps.end() )
 		{
-			AssertMsg( false, "[%s] Cannot locate gap, or processing packet %lld multiple times. %s | %s",
+			AssertMsg( false, "[%s] Cannot locate gap, or processing packet %lld multiple times. %s",
 				GetDescription(), (long long)nPktNum,
-				m_statsEndToEnd.RecvPktNumStateDebugString().c_str(), m_statsEndToEnd.HistoryRecvSeqNumDebugString(8).c_str() );
+				m_statsEndToEnd.RecvPktNumStateDebugString().c_str() );
 			return;
 		}
 		if ( itGap == m_receiverState.m_mapPacketGaps.begin() )
 		{
-			AssertMsg( false, "[%s] Cannot locate gap, or processing packet %lld multiple times. [%lld,%lld) %s | %s",
+			AssertMsg( false, "[%s] Cannot locate gap, or processing packet %lld multiple times. [%lld,%lld) %s",
 				GetDescription(), (long long)nPktNum, (long long)itGap->first, (long long)itGap->second.m_nEnd,
-				m_statsEndToEnd.RecvPktNumStateDebugString().c_str(), m_statsEndToEnd.HistoryRecvSeqNumDebugString(8).c_str() );
+				m_statsEndToEnd.RecvPktNumStateDebugString().c_str() );
 			return;
 		}
 		--itGap;
@@ -2952,9 +2952,9 @@ void CSteamNetworkConnectionBase::SNP_RecordReceivedPktNum( int64 nPktNum, Steam
 		{
 			// We already received this packet.  But this should be impossible now,
 			// we should be rejecting duplicate packet numbers earlier
-			AssertMsg( false, "[%s] Packet gap bug.  %lld [%lld,%lld) %s | %s",
+			AssertMsg( false, "[%s] Packet gap bug.  %lld [%lld,%lld) %s",
 				GetDescription(), (long long)nPktNum, (long long)itGap->first, (long long)itGap->second.m_nEnd,
-				m_statsEndToEnd.RecvPktNumStateDebugString().c_str(), m_statsEndToEnd.HistoryRecvSeqNumDebugString(8).c_str() );
+				m_statsEndToEnd.RecvPktNumStateDebugString().c_str() );
 			return;
 		}
 

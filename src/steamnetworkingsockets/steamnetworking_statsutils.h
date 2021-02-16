@@ -533,11 +533,10 @@ struct LinkStatsTrackerBase
 	/// Packet and data rate trackers for inbound flow
 	PacketRate_t m_recv;
 
-	// TEMP delete this once I track down the accounting bug
+	// Some additional debugging for sequence number accounting
 	int64 m_nDebugLastInitMaxRecvPktNum;
 	int64 m_nDebugPktsRecvInOrder;
-	int64 m_arDebugHistoryRecvSeqNum[ 256 ];
-	std::string HistoryRecvSeqNumDebugString( int nMaxPkts ) const;
+	int64 m_arDebugHistoryRecvSeqNum[ 8 ];
 
 	/// Setup state to expect the next packet to be nPktNum+1,
 	/// and discard all packets <= nPktNum
@@ -1123,7 +1122,9 @@ struct LinkStatsTracker final : public TLinkStatsTracker
 
 		// We've received a packet with a sequence number.
 		// Update stats
-		TLinkStatsTracker::m_arDebugHistoryRecvSeqNum[ TLinkStatsTracker::m_nPktsRecvSequenced & 255 ] = nPktNum;
+		constexpr int N = V_ARRAYSIZE(TLinkStatsTracker::m_arDebugHistoryRecvSeqNum);
+		COMPILE_TIME_ASSERT( ( N & (N-1) ) == 0 );
+		TLinkStatsTracker::m_arDebugHistoryRecvSeqNum[ TLinkStatsTracker::m_nPktsRecvSequenced & (N-1) ] = nPktNum;
 		TLinkStatsTracker::InternalProcessSequencedPacket_Count();
 
 		// Packet number is increasing?

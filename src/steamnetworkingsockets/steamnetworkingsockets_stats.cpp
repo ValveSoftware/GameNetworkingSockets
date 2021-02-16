@@ -324,22 +324,20 @@ std::string LinkStatsTrackerBase::RecvPktNumStateDebugString() const
 		"maxrecv=%lld, init=%lld, inorder=%lld, mask=%llx,%llx",
 		(long long)m_nMaxRecvPktNum, (long long)m_nDebugLastInitMaxRecvPktNum, (long long)m_nDebugPktsRecvInOrder,
 		(unsigned long long)m_recvPktNumberMask[0], (unsigned long long)m_recvPktNumberMask[1] );
-	return std::string(buf);
-}
+	std::string result( buf );
 
-std::string LinkStatsTrackerBase::HistoryRecvSeqNumDebugString( int nMaxPkts ) const
-{
 	constexpr int N = V_ARRAYSIZE( m_arDebugHistoryRecvSeqNum );
 	COMPILE_TIME_ASSERT( ( N & (N-1) ) == 0 );
-	nMaxPkts = std::min( nMaxPkts, N );
+	int nMaxPkts = (int)std::min( (int64)std::min( 8, N ), m_nPktsRecvSequenced );
 
-	std::string result;
 	int64 idx = m_nPktsRecvSequenced;
+	const char *pszLeader = " | ";
 	while ( --nMaxPkts >= 0 && --idx >= 0 )
 	{
-		char buf[32];
-		V_sprintf_safe( buf, "%s%lld", result.empty() ? "" : ",", (long long)m_arDebugHistoryRecvSeqNum[ idx & (N-1) ] );
-		result.append( buf );
+		char buf2[32];
+		V_sprintf_safe( buf2, "%s%lld", pszLeader, (long long)m_arDebugHistoryRecvSeqNum[ idx & (N-1) ] );
+		result.append( buf2 );
+		pszLeader = ",";
 	}
 
 	return result;
@@ -359,34 +357,14 @@ void LinkStatsTrackerBase::InternalProcessSequencedPacket_OutOfOrder( int64 nPkt
 		// marked the "drop" in.
 		if ( m_nPktsRecvSequenced < 256 && m_nPeerProtocolVersion >= 9 )
 		{
-			AssertMsg( false,
-				"No dropped packets, pkt num %lld, dup bit not set?  recvseq=%lld inorder=%lld, dup=%lld, lurch=%lld, ooo=%lld, %s.  (%s)",
-				(long long)nPktNum, (long long)m_nPktsRecvSequenced,
-				(long long)m_nDebugPktsRecvInOrder, (long long)PktsRecvDuplicate(),
-				(long long)PktsRecvLurch(), (long long)PktsRecvOutOfOrder(),
-				RecvPktNumStateDebugString().c_str(),
-				Describe().c_str()
-			);
-	#ifdef IS_STEAMDATAGRAMROUTER
-			int64 idx = m_nPktsRecvSequenced-1;
-			while ( idx >= 0 )
-			{
-				CUtlBuffer buf( 0, 1024, CUtlBuffer::TEXT_BUFFER );
-				switch ( idx )
-				{
-				default: buf.Printf( "%7lld", (long long)m_arDebugHistoryRecvSeqNum[ idx-- & 255 ] ); 
-				case  6: buf.Printf( "%7lld", (long long)m_arDebugHistoryRecvSeqNum[ idx-- & 255 ] ); 
-				case  5: buf.Printf( "%7lld", (long long)m_arDebugHistoryRecvSeqNum[ idx-- & 255 ] ); 
-				case  4: buf.Printf( "%7lld", (long long)m_arDebugHistoryRecvSeqNum[ idx-- & 255 ] ); 
-				case  3: buf.Printf( "%7lld", (long long)m_arDebugHistoryRecvSeqNum[ idx-- & 255 ] ); 
-				case  2: buf.Printf( "%7lld", (long long)m_arDebugHistoryRecvSeqNum[ idx-- & 255 ] ); 
-				case  1: buf.Printf( "%7lld", (long long)m_arDebugHistoryRecvSeqNum[ idx-- & 255 ] ); 
-				case  0: buf.Printf( "%7lld", (long long)m_arDebugHistoryRecvSeqNum[ idx-- & 255 ] );
-				}
-				buf.PutChar( '\n' );
-				g_pLogger->Write( buf.Base(), buf.TellPut() );
-			}
-	#endif
+				AssertMsg( false,
+					"No dropped packets, pkt num %lld, dup bit not set?  recvseq=%lld inorder=%lld, dup=%lld, lurch=%lld, ooo=%lld, %s.  (%s)",
+					(long long)nPktNum, (long long)m_nPktsRecvSequenced,
+					(long long)m_nDebugPktsRecvInOrder, (long long)PktsRecvDuplicate(),
+					(long long)PktsRecvLurch(), (long long)PktsRecvOutOfOrder(),
+					RecvPktNumStateDebugString().c_str(),
+					Describe().c_str()
+				);
 		}
 	}
 
