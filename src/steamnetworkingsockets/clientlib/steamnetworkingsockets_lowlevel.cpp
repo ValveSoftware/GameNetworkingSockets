@@ -703,7 +703,9 @@ public:
 		#endif
 
 		if ( g_Config_PacketTraceMaxBytes.Get() >= 0 )
+		{
 			TracePkt( true, adrTo, nChunks, pChunks );
+		}
 
 		#ifdef STEAMNETWORKINGSOCKETS_LOWLEVEL_TIME_SOCKET_CALLS
 			SteamNetworkingMicroseconds usecSendStart = SteamNetworkingSockets_GetLocalTimestamp();
