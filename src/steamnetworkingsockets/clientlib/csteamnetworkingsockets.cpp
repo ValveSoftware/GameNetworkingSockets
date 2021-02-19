@@ -2014,6 +2014,7 @@ static bool BEnumerateConfigValue( const GlobalConfigValueEntry *pVal )
 		// Never enumerate these
 		case k_ESteamNetworkingConfig_SymmetricConnect:
 		case k_ESteamNetworkingConfig_LocalVirtualPort:
+		case k_ESteamNetworkingConfig_ConnectionUserData:
 			return false;
 
 		// Dev var?
