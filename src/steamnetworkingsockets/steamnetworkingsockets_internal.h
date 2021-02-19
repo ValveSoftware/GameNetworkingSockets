@@ -766,6 +766,7 @@ extern GlobalConfigValue<int32> g_Config_FakePacketReorder_Time;
 extern GlobalConfigValue<float> g_Config_FakePacketDup_Send;
 extern GlobalConfigValue<float> g_Config_FakePacketDup_Recv;
 extern GlobalConfigValue<int32> g_Config_FakePacketDup_TimeMax;
+extern GlobalConfigValue<int32> g_Config_PacketTraceMaxBytes;
 extern GlobalConfigValue<int32> g_Config_EnumerateDevVars;
 extern GlobalConfigValue<void*> g_Config_Callback_CreateConnectionSignaling;
 

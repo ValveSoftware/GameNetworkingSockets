@@ -702,9 +702,8 @@ public:
 		}
 		#endif
 
-		//const uint8 *pbPkt = (const uint8 *)pPkt;
-		//Log_Detailed( LOG_STEAMDATAGRAM_CLIENT, "%4db -> %s %02x %02x %02x %02x %02x ...\n",
-		//	cbPkt, CUtlNetAdrRender( adrTo ).String(), pbPkt[0], pbPkt[1], pbPkt[2], pbPkt[3], pbPkt[4] );
+		if ( g_Config_PacketTraceMaxBytes.Get() >= 0 )
+			TracePkt( true, adrTo, nChunks, pChunks );
 
 		#ifdef STEAMNETWORKINGSOCKETS_LOWLEVEL_TIME_SOCKET_CALLS
 			SteamNetworkingMicroseconds usecSendStart = SteamNetworkingSockets_GetLocalTimestamp();
@@ -757,6 +756,58 @@ public:
 		#endif
 
 		return bResult;
+	}
+
+	void TracePkt( bool bSend, const netadr_t &adrRemote, int nChunks, const iovec *pChunks ) const
+	{
+		int cbTotal = 0;
+		for ( int i = 0 ; i < nChunks ; ++i )
+			cbTotal += pChunks[i].iov_len;
+		if ( bSend )
+		{
+			ReallySpewTypeFmt( k_ESteamNetworkingSocketsDebugOutputType_Msg, "[Trace Send] %s -> %s | %d bytes\n",
+				SteamNetworkingIPAddrRender( m_boundAddr ).c_str(), CUtlNetAdrRender( adrRemote ).String(), cbTotal );
+		}
+		else
+		{
+			ReallySpewTypeFmt( k_ESteamNetworkingSocketsDebugOutputType_Msg, "[Trace Recv] %s <- %s | %d bytes\n",
+				SteamNetworkingIPAddrRender( m_boundAddr ).c_str(), CUtlNetAdrRender( adrRemote ).String(), cbTotal );
+		}
+		int l = std::min( cbTotal, g_Config_PacketTraceMaxBytes.Get() );
+		const uint8 *p = (const uint8 *)pChunks->iov_base;
+		int cbChunkLeft = pChunks->iov_len;
+		while ( l > 0 )
+		{
+			// How many bytes to print on thie row?
+			int row = std::min( 16, l );
+			l -= row;
+
+			char buf[256], *d = buf;
+			do {
+
+				// Check for end of this chunk
+				while ( cbChunkLeft == 0 )
+				{
+					++pChunks;
+					p = (const uint8 *)pChunks->iov_base;
+					cbChunkLeft = pChunks->iov_len;
+				}
+
+				// print the byte
+				static const char hexdigit[] = "0123456789abcdef";
+				*(d++) = ' ';
+				*(d++) = hexdigit[ *p >> 4 ];
+				*(d++) = hexdigit[ *p & 0xf ];
+
+				// Advance to next byte
+				++p;
+				--cbChunkLeft;
+			} while (--row > 0 );
+			*d = '\0';
+
+			// Emit the row
+			ReallySpewTypeFmt( k_ESteamNetworkingSocketsDebugOutputType_Msg, "    %s\n", buf );
+		}
 	}
 
 private:
@@ -1518,6 +1569,15 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 			if ( pSock->m_nAddressFamilies == k_nAddressFamily_DualStack )
 				info.m_adrFrom.BConvertMappedToIPv4();
 
+			// Check for tracing
+			if ( g_Config_PacketTraceMaxBytes.Get() >= 0 )
+			{
+				iovec tmp;
+				tmp.iov_base = buf;
+				tmp.iov_len = ret;
+				pSock->TracePkt( false, info.m_adrFrom, 1, &tmp );
+			}
+
 			int32 nPacketFakeLagTotal = g_Config_FakePacketLag_Recv.Get();
 
 			// Check for simulating random packet reordering
@@ -1548,10 +1608,6 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 			else
 			{
 				ETW_UDPRecvPacket( info.m_adrFrom, ret );
-
-				//const uint8 *pbPkt = (const uint8 *)buf;
-				//Log_Detailed( LOG_STEAMDATAGRAM_CLIENT, "%s -> %4db %02x %02x %02x %02x %02x ...\n",
-				//	CUtlNetAdrRender( adr ).String(), ret, pbPkt[0], pbPkt[1], pbPkt[2], pbPkt[3], pbPkt[4] );
 
 				info.m_pPkt = buf;
 				info.m_cbPkt = ret;

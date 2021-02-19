@@ -1114,6 +1114,11 @@ enum ESteamNetworkingConfigValue
 	/// (We chose a random delay between 0 and this value)
 	k_ESteamNetworkingConfig_FakePacketDup_TimeMax = 28,
 
+	/// [global int32] Trace every UDP packet, similar to Wireshark or tcpdump.
+	/// Value is max number of bytes to dump.  -1 disables tracing.
+	// 0 only traces the info but no actual data bytes
+	k_ESteamNetworkingConfig_PacketTraceMaxBytes = 41,
+
 //
 // Connection configuration
 //
