@@ -639,7 +639,7 @@ bool IsRouteToAddressProbablyLocal( netadr_t addr )
 inline IRawUDPSocket::IRawUDPSocket() {}
 inline IRawUDPSocket::~IRawUDPSocket() {}
 
-class CRawUDPSocketImpl : public IRawUDPSocket
+class CRawUDPSocketImpl final : public IRawUDPSocket
 {
 public:
 	STEAMNETWORKINGSOCKETS_DECLARE_CLASS_OPERATOR_NEW
@@ -668,8 +668,7 @@ public:
 	#endif
 
 	// Implements IRawUDPSocket
-	virtual bool BSendRawPacket( const void *pPkt, int cbPkt, const netadr_t &adrTo ) const override final;
-	virtual bool BSendRawPacketGather( int nChunks, const iovec *pChunks, const netadr_t &adrTo ) const override final;
+	virtual bool BSendRawPacketGather( int nChunks, const iovec *pChunks, const netadr_t &adrTo ) const override;
 	virtual void Close() override;
 
 	//// Send a packet, for really realz right now.  (No checking for fake loss or lag.)
@@ -759,6 +758,10 @@ public:
 
 		return bResult;
 	}
+
+private:
+
+	void InternalAddToCleanupQueue();
 };
 
 /// We don't expect to have enough sockets, and open and close them frequently
@@ -774,7 +777,7 @@ class CPacketLagger : private IThinker
 public:
 	~CPacketLagger() { Clear(); }
 
-	void LagPacket( bool bSend, const CRawUDPSocketImpl *pSock, const netadr_t &adr, int msDelay, int nChunks, const iovec *pChunks )
+	void LagPacket( bool bSend, CRawUDPSocketImpl *pSock, const netadr_t &adr, int msDelay, int nChunks, const iovec *pChunks )
 	{
 		SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "LagPacket" );
 
@@ -850,7 +853,7 @@ public:
 				break;
 
 			// Make sure socket is still in good shape.
-			const CRawUDPSocketImpl *pSock = pkt.m_pSockOwner;
+			CRawUDPSocketImpl *pSock = pkt.m_pSockOwner;
 			if ( pSock->m_socket == INVALID_SOCKET || !pSock->m_callback.m_fnCallback )
 			{
 				AssertMsg( false, "Lagged packet remains in queue after socket destroyed or queued for destruction!" );
@@ -874,8 +877,7 @@ public:
 					// caller to dangle.
 					char temp[ k_cbSteamNetworkingSocketsMaxUDPMsgLen ];
 					memcpy( temp, pkt.m_pkt, pkt.m_cbPkt );
-					netadr_t adr( pkt.m_adrRemote );
-					pSock->m_callback( temp, pkt.m_cbPkt, adr );
+					pSock->m_callback( RecvPktInfo_t{ temp, pkt.m_cbPkt, pkt.m_adrRemote, pSock } );
 				}
 			}
 			m_list.RemoveFromHead();
@@ -923,7 +925,7 @@ private:
 	struct LaggedPacket
 	{
 		bool m_bSend; // true for outbound, false for inbound
-		const CRawUDPSocketImpl *m_pSockOwner;
+		CRawUDPSocketImpl *m_pSockOwner;
 		netadr_t m_adrRemote;
 		SteamNetworkingMicroseconds m_usecTime; /// Time when it should be sent or received
 		int m_cbPkt;
@@ -964,14 +966,6 @@ void WakeSteamDatagramThread()
 	#endif
 }
 
-bool CRawUDPSocketImpl::BSendRawPacket( const void *pPkt, int cbPkt, const netadr_t &adrTo ) const
-{
-	iovec temp;
-	temp.iov_len = cbPkt;
-	temp.iov_base = (void *)pPkt;
-	return BSendRawPacketGather( 1, &temp, adrTo );
-}
-
 bool CRawUDPSocketImpl::BSendRawPacketGather( int nChunks, const iovec *pChunks, const netadr_t &adrTo ) const
 {
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
@@ -998,13 +992,13 @@ bool CRawUDPSocketImpl::BSendRawPacketGather( int nChunks, const iovec *pChunks,
 	{
 		int32 nDupLag = nPacketFakeLagTotal + WeakRandomInt( 0, g_Config_FakePacketDup_TimeMax.Get() );
 		nDupLag = std::max( 1, nDupLag );
-		s_packetLagQueue.LagPacket( true, this, adrTo, nDupLag, nChunks, pChunks );
+		s_packetLagQueue.LagPacket( true, const_cast<CRawUDPSocketImpl *>( this ), adrTo, nDupLag, nChunks, pChunks );
 	}
 
 	// Lag the original packet?
 	if ( nPacketFakeLagTotal > 0 )
 	{
-		s_packetLagQueue.LagPacket( true, this, adrTo, nPacketFakeLagTotal, nChunks, pChunks );
+		s_packetLagQueue.LagPacket( true, const_cast<CRawUDPSocketImpl *>( this ), adrTo, nPacketFakeLagTotal, nChunks, pChunks );
 		return true;
 	}
 
@@ -1481,7 +1475,7 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 			int ret = ::recvfrom( pSock->m_socket, buf, sizeof( buf ), 0, (sockaddr *)&from, &fromlen );
 
 			#ifdef STEAMNETWORKINGSOCKETS_LOWLEVEL_TIME_SOCKET_CALLS
-				SteamNetworkingMicroseconds usecRecvFromEnd = SteamNetworkingSockets_GetLocalTimestamp();
+				SteamNetworkingMicroseconds usecRecvFromEnd = SteamNetworkingSockets_GetLocalTimestamp(); // FIXME - If we add a timestamp to RecvPktInfo_t this will be free
 				if ( usecRecvFromEnd > s_usecIgnoreLongLockWaitTimeUntil )
 				{
 					SteamNetworkingMicroseconds usecRecvFromElapsed = usecRecvFromEnd - usecRecvFromStart;
@@ -1517,12 +1511,12 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 			if ( RandomBoolWithOdds( g_Config_FakePacketLoss_Recv.Get() ) )
 				continue;
 
-			netadr_t adr;
-			adr.SetFromSockadr( &from );
+			RecvPktInfo_t info;
+			info.m_adrFrom.SetFromSockadr( &from );
 
 			// If we're dual stack, convert mapped IPv4 back to ordinary IPv4
 			if ( pSock->m_nAddressFamilies == k_nAddressFamily_DualStack )
-				adr.BConvertMappedToIPv4();
+				info.m_adrFrom.BConvertMappedToIPv4();
 
 			int32 nPacketFakeLagTotal = g_Config_FakePacketLag_Recv.Get();
 
@@ -1540,7 +1534,7 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 				iovec temp;
 				temp.iov_len = ret;
 				temp.iov_base = buf;
-				s_packetLagQueue.LagPacket( false, pSock, adr, nDupLag, 1, &temp );
+				s_packetLagQueue.LagPacket( false, pSock, info.m_adrFrom, nDupLag, 1, &temp );
 			}
 
 			// Check for simulating lag
@@ -1549,17 +1543,20 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 				iovec temp;
 				temp.iov_len = ret;
 				temp.iov_base = buf;
-				s_packetLagQueue.LagPacket( false, pSock, adr, nPacketFakeLagTotal, 1, &temp );
+				s_packetLagQueue.LagPacket( false, pSock, info.m_adrFrom, nPacketFakeLagTotal, 1, &temp );
 			}
 			else
 			{
-				ETW_UDPRecvPacket( adr, ret );
+				ETW_UDPRecvPacket( info.m_adrFrom, ret );
 
 				//const uint8 *pbPkt = (const uint8 *)buf;
 				//Log_Detailed( LOG_STEAMDATAGRAM_CLIENT, "%s -> %4db %02x %02x %02x %02x %02x ...\n",
 				//	CUtlNetAdrRender( adr ).String(), ret, pbPkt[0], pbPkt[1], pbPkt[2], pbPkt[3], pbPkt[4] );
 
-				pSock->m_callback( buf, ret, adr );
+				info.m_pPkt = buf;
+				info.m_cbPkt = ret;
+				info.m_pSock = pSock;
+				pSock->m_callback( info );
 			}
 
 			#ifdef STEAMNETWORKINGSOCKETS_LOWLEVEL_TIME_SOCKET_CALLS
@@ -1832,16 +1829,18 @@ public:
 	}
 };
 
-static void DedicatedBoundSocketCallback( const void *pPkt, int cbPkt, const netadr_t &adrFrom, CDedicatedBoundSocket *pSock )
+static void DedicatedBoundSocketCallback( const RecvPktInfo_t &info, CDedicatedBoundSocket *pSock )
 {
 
 	// Make sure that it's from the guy we are supposed to be talking to.
-	if ( adrFrom != pSock->GetRemoteHostAddr() )
+	if ( info.m_adrFrom != pSock->GetRemoteHostAddr() )
 	{
 		// Packets from random internet hosts happen all the time,
 		// especially on a LAN where all sorts of people have broadcast
 		// discovery protocols.  So this probably isn't a bug or a problem.
-		SpewVerbose( "Ignoring stray packet from %s received on port %d.  Should only be talking to %s on that port.\n", CUtlNetAdrRender( adrFrom ).String(), pSock->GetRawSock()->m_boundAddr.m_port, CUtlNetAdrRender( pSock->GetRemoteHostAddr() ).String() );
+		SpewVerbose( "Ignoring stray packet from %s received on port %d.  Should only be talking to %s on that port.\n",
+			CUtlNetAdrRender( info.m_adrFrom ).String(), pSock->GetRawSock()->m_boundAddr.m_port,
+			CUtlNetAdrRender( pSock->GetRemoteHostAddr() ).String() );
 		return;
 	}
 
@@ -1850,7 +1849,7 @@ static void DedicatedBoundSocketCallback( const void *pPkt, int cbPkt, const net
 	// Should we use a different signature here so that the user
 	// of our API doesn't write their own useless code to check
 	// the from address?
-	pSock->m_callback( pPkt, cbPkt, adrFrom );
+	pSock->m_callback( info );
 }
 
 IBoundUDPSocket *OpenUDPSocketBoundToHost( const netadr_t &adrRemote, CRecvPacketCallback callback, SteamDatagramErrMsg &errMsg )
@@ -1920,16 +1919,16 @@ CSharedSocket::~CSharedSocket()
 	Kill();
 }
 
-void CSharedSocket::CallbackRecvPacket( const void *pPkt, int cbPkt, const netadr_t &adrFrom, CSharedSocket *pSock )
+void CSharedSocket::CallbackRecvPacket( const RecvPktInfo_t &info, CSharedSocket *pSock )
 {
 	// Locate the client
-	int idx = pSock->m_mapRemoteHosts.Find( adrFrom );
+	int idx = pSock->m_mapRemoteHosts.Find( info.m_adrFrom );
 
 	// Select the callback to invoke, ether client-specific, or the default
 	const CRecvPacketCallback &callback = ( idx == pSock->m_mapRemoteHosts.InvalidIndex() ) ? pSock->m_callbackDefault : pSock->m_mapRemoteHosts[ idx ]->m_callback;
 
 	// Execute the callback
-	callback( pPkt, cbPkt, adrFrom );
+	callback( info );
 }
 
 bool CSharedSocket::BInit( const SteamNetworkingIPAddr &localAddr, CRecvPacketCallback callbackDefault, SteamDatagramErrMsg &errMsg )

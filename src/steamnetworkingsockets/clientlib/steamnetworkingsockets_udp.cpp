@@ -60,7 +60,7 @@ void ReallyReportBadUDPPacket( const char *pszFrom, const char *pszMsgType, cons
 			ReportBadPacket( # CMsgCls, "Packet is %d bytes, must be padded to at least %d bytes.", cbPkt, k_cbSteamNetworkingMinPaddedPacketSize ); \
 			return; \
 		} \
-		const UDPPaddedMessageHdr *hdr = static_cast< const UDPPaddedMessageHdr * >( pvPkt ); \
+		const UDPPaddedMessageHdr *hdr = (const UDPPaddedMessageHdr * )( pvPkt ); \
 		int nMsgLength = LittleWord( hdr->m_nMsgLength ); \
 		if ( nMsgLength <= 0 || int(nMsgLength+sizeof(UDPPaddedMessageHdr)) > cbPkt ) \
 		{ \
@@ -161,9 +161,11 @@ bool CSteamNetworkListenSocketDirectUDP::APIGetAddress( SteamNetworkingIPAddr *p
 //
 /////////////////////////////////////////////////////////////////////////////
 
-void CSteamNetworkListenSocketDirectUDP::ReceivedFromUnknownHost( const void *pvPkt, int cbPkt, const netadr_t &adrFrom, CSteamNetworkListenSocketDirectUDP *pSock )
+void CSteamNetworkListenSocketDirectUDP::ReceivedFromUnknownHost( const RecvPktInfo_t &info, CSteamNetworkListenSocketDirectUDP *pSock )
 {
-	const uint8 *pPkt = static_cast<const uint8 *>( pvPkt );
+	const uint8 *pPkt = static_cast<const uint8 *>( info.m_pPkt );
+	int cbPkt = info.m_cbPkt;
+	const netadr_t &adrFrom = info.m_adrFrom;
 
 	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 
@@ -194,7 +196,7 @@ void CSteamNetworkListenSocketDirectUDP::ReceivedFromUnknownHost( const void *pv
 	}
 	else if ( *pPkt == k_ESteamNetworkingUDPMsg_ChallengeRequest )
 	{
-		ParsePaddedPacket( pvPkt, cbPkt, CMsgSteamSockets_UDP_ChallengeRequest, msg )
+		ParsePaddedPacket( pPkt, cbPkt, CMsgSteamSockets_UDP_ChallengeRequest, msg )
 		pSock->Received_ChallengeRequest( msg, adrFrom, usecNow );
 	}
 	else if ( *pPkt == k_ESteamNetworkingUDPMsg_ConnectRequest )
@@ -204,7 +206,7 @@ void CSteamNetworkListenSocketDirectUDP::ReceivedFromUnknownHost( const void *pv
 	}
 	else if ( *pPkt == k_ESteamNetworkingUDPMsg_ConnectionClosed )
 	{
-		ParsePaddedPacket( pvPkt, cbPkt, CMsgSteamSockets_UDP_ConnectionClosed, msg )
+		ParsePaddedPacket( pPkt, cbPkt, CMsgSteamSockets_UDP_ConnectionClosed, msg )
 		pSock->Received_ConnectionClosed( msg, adrFrom, usecNow );
 	}
 	else if ( *pPkt == k_ESteamNetworkingUDPMsg_NoConnection )
@@ -1325,9 +1327,11 @@ void CConnectionTransportUDP::TransportPopulateConnectionInfo( SteamNetConnectio
 	}
 }
 
-void CConnectionTransportUDP::PacketReceived( const void *pvPkt, int cbPkt, const netadr_t &adrFrom, CConnectionTransportUDP *pSelf )
+void CConnectionTransportUDP::PacketReceived( const RecvPktInfo_t &info, CConnectionTransportUDP *pSelf )
 {
-	const uint8 *pPkt = static_cast<const uint8 *>( pvPkt );
+	const uint8 *pPkt = static_cast<const uint8 *>( info.m_pPkt );
+	int cbPkt = info.m_cbPkt;
+	const netadr_t &adrFrom = info.m_adrFrom;
 
 	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 
@@ -1363,7 +1367,7 @@ void CConnectionTransportUDP::PacketReceived( const void *pvPkt, int cbPkt, cons
 	}
 	else if ( *pPkt == k_ESteamNetworkingUDPMsg_ConnectionClosed )
 	{
-		ParsePaddedPacket( pvPkt, cbPkt, CMsgSteamSockets_UDP_ConnectionClosed, msg )
+		ParsePaddedPacket( pPkt, cbPkt, CMsgSteamSockets_UDP_ConnectionClosed, msg )
 		pSelf->Received_ConnectionClosed( msg, usecNow );
 	}
 	else if ( *pPkt == k_ESteamNetworkingUDPMsg_NoConnection )
@@ -1373,7 +1377,7 @@ void CConnectionTransportUDP::PacketReceived( const void *pvPkt, int cbPkt, cons
 	}
 	else if ( *pPkt == k_ESteamNetworkingUDPMsg_ChallengeRequest )
 	{
-		ParsePaddedPacket( pvPkt, cbPkt, CMsgSteamSockets_UDP_ChallengeRequest, msg )
+		ParsePaddedPacket( pPkt, cbPkt, CMsgSteamSockets_UDP_ChallengeRequest, msg )
 		pSelf->Received_ChallengeOrConnectRequest( "ChallengeRequest", msg.connection_id(), usecNow );
 	}
 	else if ( *pPkt == k_ESteamNetworkingUDPMsg_ConnectRequest )

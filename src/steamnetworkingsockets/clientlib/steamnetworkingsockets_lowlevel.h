@@ -33,25 +33,36 @@ struct iovec;
 
 namespace SteamNetworkingSocketsLib {
 
+class IRawUDPSocket;
+
 /////////////////////////////////////////////////////////////////////////////
 //
 // Low level sockets
 //
 /////////////////////////////////////////////////////////////////////////////
 
+/// Info about an incoming packet passed to the CRecvPacketCallback
+struct RecvPktInfo_t
+{
+	const void *m_pPkt;
+	int m_cbPkt;
+	netadr_t m_adrFrom;
+	IRawUDPSocket *m_pSock;
+};
+
 /// Store the callback and its context together
 class CRecvPacketCallback
 {
 public:
 	/// Prototype of the callback
-	typedef void (*FCallbackRecvPacket)( const void *pPkt, int cbPkt, const netadr_t &adrFrom, void *pContext );
+	typedef void (*FCallbackRecvPacket)( const RecvPktInfo_t &info, void *pContext );
 
 	/// Default constructor sets stuff to null
 	inline CRecvPacketCallback() : m_fnCallback( nullptr ), m_pContext( nullptr ) {}
 
 	/// A template constructor so you can use type safe context and avoid messy casting
 	template< typename T >
-	inline CRecvPacketCallback( void (*fnCallback)( const void *pPkt, int cbPkt, const netadr_t &adrFrom, T context ), T context )
+	inline CRecvPacketCallback( void (*fnCallback)( const RecvPktInfo_t &info, T context ), T context )
 	: m_fnCallback ( reinterpret_cast< FCallbackRecvPacket>( fnCallback ) )
 	, m_pContext( reinterpret_cast< void * >( context ) )
 	{
@@ -62,10 +73,10 @@ public:
 	void *m_pContext;
 
 	/// Shortcut notation to execute the callback
-	inline void operator()( const void *pPkt, int cbPkt, const netadr_t &adrFrom ) const
+	inline void operator()( const RecvPktInfo_t &info ) const
 	{
 		if ( m_fnCallback )
-			m_fnCallback( pPkt, cbPkt, adrFrom, m_pContext );
+			m_fnCallback( info, m_pContext );
 	}
 };
 
@@ -78,7 +89,13 @@ public:
 	/// Packets sent through this method are subject to fake loss (steamdatagram_fakepacketloss_send),
 	/// lag (steamdatagram_fakepacketlag_send and steamdatagram_fakepacketreorder_send), and
 	/// duplication (steamdatagram_fakepacketdup_send)
-	virtual bool BSendRawPacket( const void *pPkt, int cbPkt, const netadr_t &adrTo ) const = 0;
+	inline bool BSendRawPacket( const void *pPkt, int cbPkt, const netadr_t &adrTo ) const
+	{
+		iovec temp;
+		temp.iov_len = cbPkt;
+		temp.iov_base = (void *)pPkt;
+		return BSendRawPacketGather( 1, &temp, adrTo );
+	}
 	inline bool BSendRawPacket( const void *pPkt, int cbPkt, const SteamNetworkingIPAddr &adrTo ) const
 	{
 		netadr_t netadrTo;
@@ -251,7 +268,7 @@ private:
 
 	void CloseRemoteHostByIndex( int idx );
 
-	static void CallbackRecvPacket( const void *pPkt, int cbPkt, const netadr_t &adrFrom, CSharedSocket *pSock );
+	static void CallbackRecvPacket( const RecvPktInfo_t &info, CSharedSocket *pSock );
 };
 
 /////////////////////////////////////////////////////////////////////////////
