@@ -667,6 +667,11 @@ public:
 		WSAEVENT m_event = INVALID_HANDLE_VALUE;
 	#endif
 
+	// Implements IRawUDPSocket
+	virtual bool BSendRawPacket( const void *pPkt, int cbPkt, const netadr_t &adrTo ) const override final;
+	virtual bool BSendRawPacketGather( int nChunks, const iovec *pChunks, const netadr_t &adrTo ) const override final;
+	virtual void Close() override;
+
 	//// Send a packet, for really realz right now.  (No checking for fake loss or lag.)
 	inline bool BReallySendRawPacket( int nChunks, const iovec *pChunks, const netadr_t &adrTo ) const
 	{
@@ -959,7 +964,7 @@ void WakeSteamDatagramThread()
 	#endif
 }
 
-bool IRawUDPSocket::BSendRawPacket( const void *pPkt, int cbPkt, const netadr_t &adrTo ) const
+bool CRawUDPSocketImpl::BSendRawPacket( const void *pPkt, int cbPkt, const netadr_t &adrTo ) const
 {
 	iovec temp;
 	temp.iov_len = cbPkt;
@@ -967,7 +972,7 @@ bool IRawUDPSocket::BSendRawPacket( const void *pPkt, int cbPkt, const netadr_t 
 	return BSendRawPacketGather( 1, &temp, adrTo );
 }
 
-bool IRawUDPSocket::BSendRawPacketGather( int nChunks, const iovec *pChunks, const netadr_t &adrTo ) const
+bool CRawUDPSocketImpl::BSendRawPacketGather( int nChunks, const iovec *pChunks, const netadr_t &adrTo ) const
 {
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
 
@@ -978,8 +983,6 @@ bool IRawUDPSocket::BSendRawPacketGather( int nChunks, const iovec *pChunks, con
 	// Fake loss?
 	if ( RandomBoolWithOdds( g_Config_FakePacketLoss_Send.Get() ) )
 		return true;
-
-	const CRawUDPSocketImpl *self = static_cast<const CRawUDPSocketImpl *>( this );
 
 	// Fake lag?
 	int32 nPacketFakeLagTotal = g_Config_FakePacketLag_Send.Get();
@@ -995,37 +998,36 @@ bool IRawUDPSocket::BSendRawPacketGather( int nChunks, const iovec *pChunks, con
 	{
 		int32 nDupLag = nPacketFakeLagTotal + WeakRandomInt( 0, g_Config_FakePacketDup_TimeMax.Get() );
 		nDupLag = std::max( 1, nDupLag );
-		s_packetLagQueue.LagPacket( true, self, adrTo, nDupLag, nChunks, pChunks );
+		s_packetLagQueue.LagPacket( true, this, adrTo, nDupLag, nChunks, pChunks );
 	}
 
 	// Lag the original packet?
 	if ( nPacketFakeLagTotal > 0 )
 	{
-		s_packetLagQueue.LagPacket( true, self, adrTo, nPacketFakeLagTotal, nChunks, pChunks );
+		s_packetLagQueue.LagPacket( true, this, adrTo, nPacketFakeLagTotal, nChunks, pChunks );
 		return true;
 	}
 
 	// Now really send it
-	return self->BReallySendRawPacket( nChunks, pChunks, adrTo );
+	return BReallySendRawPacket( nChunks, pChunks, adrTo );
 }
 
-void IRawUDPSocket::Close()
+void CRawUDPSocketImpl::Close()
 {
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "IRawUDPSocket::Close" );
-	CRawUDPSocketImpl *self = static_cast<CRawUDPSocketImpl *>( this );
 
 	/// Clear the callback, to ensure that no further callbacks will be executed.
 	/// This marks the socket as pending destruction.
-	Assert( self->m_callback.m_fnCallback );
-	self->m_callback.m_fnCallback = nullptr;
-	Assert( self->m_socket != INVALID_SOCKET );
+	Assert( m_callback.m_fnCallback );
+	m_callback.m_fnCallback = nullptr;
+	Assert( m_socket != INVALID_SOCKET );
 
-	DbgVerify( s_vecRawSockets.FindAndFastRemove( self ) );
-	DbgVerify( !s_vecRawSocketsPendingDeletion.FindAndFastRemove( self ) );
-	s_vecRawSocketsPendingDeletion.AddToTail( self );
+	DbgVerify( s_vecRawSockets.FindAndFastRemove( this ) );
+	DbgVerify( !s_vecRawSocketsPendingDeletion.FindAndFastRemove( this ) );
+	s_vecRawSocketsPendingDeletion.AddToTail( this );
 
 	// Clean up lagged packets, if any
-	s_packetLagQueue.AboutToDestroySocket( self );
+	s_packetLagQueue.AboutToDestroySocket( this );
 
 	// Make sure we don't delay doing this too long
 	if ( s_bManualPollMode || ( s_pThreadSteamDatagram && s_pThreadSteamDatagram->get_id() != std::this_thread::get_id() ) )

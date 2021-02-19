@@ -78,7 +78,7 @@ public:
 	/// Packets sent through this method are subject to fake loss (steamdatagram_fakepacketloss_send),
 	/// lag (steamdatagram_fakepacketlag_send and steamdatagram_fakepacketreorder_send), and
 	/// duplication (steamdatagram_fakepacketdup_send)
-	bool BSendRawPacket( const void *pPkt, int cbPkt, const netadr_t &adrTo ) const;
+	virtual bool BSendRawPacket( const void *pPkt, int cbPkt, const netadr_t &adrTo ) const = 0;
 	inline bool BSendRawPacket( const void *pPkt, int cbPkt, const SteamNetworkingIPAddr &adrTo ) const
 	{
 		netadr_t netadrTo;
@@ -87,7 +87,7 @@ public:
 	}
 
 	/// Gather-based send.  Simulated lag, loss, etc are applied
-	bool BSendRawPacketGather( int nChunks, const iovec *pChunks, const netadr_t &adrTo ) const;
+	virtual bool BSendRawPacketGather( int nChunks, const iovec *pChunks, const netadr_t &adrTo ) const = 0;
 	inline bool BSendRawPacketGather( int nChunks, const iovec *pChunks, const SteamNetworkingIPAddr &adrTo ) const
 	{
 		netadr_t netadrTo;
@@ -98,14 +98,14 @@ public:
 	/// Logically close the socket.  This might not actually close the socket IMMEDIATELY,
 	/// there may be a slight delay.  (On the order of a few milliseconds.)  But you will not
 	/// get any further callbacks.
-	void Close();
+	virtual void Close() = 0;
 
 	/// The local address we ended up binding to
 	SteamNetworkingIPAddr m_boundAddr;
 
 protected:
 	IRawUDPSocket();
-	~IRawUDPSocket();
+	virtual ~IRawUDPSocket();
 };
 
 const int k_nAddressFamily_Auto = -1; // Will try to use IPv6 dual stack if possible.  Falls back to IPv4 if necessary (and possible for your requested bind address)
