@@ -769,6 +769,8 @@ extern GlobalConfigValue<int32> g_Config_FakePacketDup_TimeMax;
 extern GlobalConfigValue<int32> g_Config_PacketTraceMaxBytes;
 extern GlobalConfigValue<int32> g_Config_EnumerateDevVars;
 extern GlobalConfigValue<void*> g_Config_Callback_CreateConnectionSignaling;
+extern ConnectionConfigDefaultValue<int32> g_ConfigDefault_LogLevel_PacketGaps;
+extern ConnectionConfigDefaultValue<int32> g_ConfigDefault_LogLevel_P2PRendezvous;
 
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
 extern GlobalConfigValue<void*> g_Config_Callback_MessagesSessionRequest;

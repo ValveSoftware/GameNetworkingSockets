@@ -52,6 +52,8 @@
 
 namespace SteamNetworkingSocketsLib {
 
+static void FlushSpew();
+
 int g_nSteamDatagramSocketBufferSize = 256*1024;
 
 /// Global lock for all local data structures
@@ -1465,6 +1467,9 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 		AssertMsg1( usecElapsed < 50*1000 || s_nLowLevelSupportRefCount.load(std::memory_order_acquire) <= 0 || s_bManualPollMode != bManualPoll || Plat_IsInDebugSession(), "SDR service thread gave up on lock after waiting %dms.  This directly adds to delay of processing of network packets!", int( usecElapsed/1000 ) );
 	}
 
+	// If we have spewed, flush to disk
+	FlushSpew();
+
 	// Recv socket data from any sockets that might have data, and execute the callbacks.
 	char buf[ k_cbSteamNetworkingSocketsMaxUDPMsgLen + 1024 ];
 #ifdef _WIN32
@@ -2070,9 +2075,102 @@ void CSharedSocket::RemoteHost::Close()
 
 SteamNetworkingMicroseconds g_usecLastRateLimitSpew;
 int g_nRateLimitSpewCount;
-ESteamNetworkingSocketsDebugOutputType g_eDefaultGroupSpewLevel;
+ESteamNetworkingSocketsDebugOutputType g_eSystemSpewLevel = k_ESteamNetworkingSocketsDebugOutputType_None; // Option selected by the "system" (environment variable, etc)
+ESteamNetworkingSocketsDebugOutputType g_eAppSpewLevel = k_ESteamNetworkingSocketsDebugOutputType_Msg; // Option selected by app
+ESteamNetworkingSocketsDebugOutputType g_eDefaultGroupSpewLevel = k_ESteamNetworkingSocketsDebugOutputType_Msg; // Effective value
 static FSteamNetworkingSocketsDebugOutput s_pfnDebugOutput = nullptr;
 void (*g_pfnPreFormatSpewHandler)( ESteamNetworkingSocketsDebugOutputType eType, bool bFmt, const char* pstrFile, int nLine, const char *pMsg, va_list ap ) = SteamNetworkingSockets_DefaultPreFormatDebugOutputHandler;
+static bool s_bSpewInitted = false;
+
+static FILE *g_pFileSystemSpew;
+static SteamNetworkingMicroseconds g_usecSystemLogFileOpened;
+static bool s_bNeedToFlushSystemSpew = false;;
+
+// FIXME - probably need our own leaf lock for the spew
+
+static void InitSpew()
+{
+
+	// First time, check environment variables and set system spew level
+	if ( !s_bSpewInitted )
+	{
+		s_bSpewInitted = true;
+
+		const char *STEAMNETWORKINGSOCKETS_LOG_LEVEL = getenv( "STEAMNETWORKINGSOCKETS_LOG_LEVEL" );
+		if ( !V_isempty( STEAMNETWORKINGSOCKETS_LOG_LEVEL ) )
+		{
+			switch ( atoi( STEAMNETWORKINGSOCKETS_LOG_LEVEL ) )
+			{
+				case 0: g_eSystemSpewLevel = k_ESteamNetworkingSocketsDebugOutputType_None; break;
+				case 1: g_eSystemSpewLevel = k_ESteamNetworkingSocketsDebugOutputType_Warning; break;
+				case 2: g_eSystemSpewLevel = k_ESteamNetworkingSocketsDebugOutputType_Msg; break;
+				case 3: g_eSystemSpewLevel = k_ESteamNetworkingSocketsDebugOutputType_Verbose; break;
+				case 4: g_eSystemSpewLevel = k_ESteamNetworkingSocketsDebugOutputType_Debug; break;
+				case 5: g_eSystemSpewLevel = k_ESteamNetworkingSocketsDebugOutputType_Everything; break;
+			}
+
+			if ( g_eSystemSpewLevel > k_ESteamNetworkingSocketsDebugOutputType_None )
+			{
+
+				// What log file to use?
+				const char *pszLogFile = getenv( "STEAMNETWORKINGSOCKETS_LOG_FILE" );
+				if ( !pszLogFile )
+					pszLogFile = "steamnetworkingsockets.log" ;
+
+				// Try to open file.  Use binary mode, since we want to make sure we control
+				// when it is flushed to disk
+				g_pFileSystemSpew = fopen( pszLogFile, "wb" );
+				if ( g_pFileSystemSpew )
+				{
+					g_usecSystemLogFileOpened = SteamNetworkingSockets_GetLocalTimestamp();
+					time_t now = time(nullptr);
+					fprintf( g_pFileSystemSpew, "Log opened, time %lld %s", (long long)now, ctime( &now ) );
+
+					// if they ask for verbose, turn on some other groups, by default
+					if ( g_eSystemSpewLevel >= k_ESteamNetworkingSocketsDebugOutputType_Verbose )
+					{
+						g_ConfigDefault_LogLevel_P2PRendezvous.m_value.m_defaultValue = g_eSystemSpewLevel;
+						g_ConfigDefault_LogLevel_P2PRendezvous.m_value.Set( g_eSystemSpewLevel );
+
+						g_ConfigDefault_LogLevel_PacketGaps.m_value.m_defaultValue = g_eSystemSpewLevel-1;
+						g_ConfigDefault_LogLevel_PacketGaps.m_value.Set( g_eSystemSpewLevel-1 );
+					}
+				}
+				else
+				{
+					// Failed
+					g_eSystemSpewLevel = k_ESteamNetworkingSocketsDebugOutputType_None;
+				}
+			}
+		}
+	}
+
+	g_eDefaultGroupSpewLevel = std::max( g_eSystemSpewLevel, g_eAppSpewLevel );
+
+}
+
+static void KillSpew()
+{
+	g_eDefaultGroupSpewLevel = g_eSystemSpewLevel = g_eAppSpewLevel = k_ESteamNetworkingSocketsDebugOutputType_None;
+	s_pfnDebugOutput = nullptr;
+	s_bSpewInitted = false;
+	s_bNeedToFlushSystemSpew = false;
+	if ( g_pFileSystemSpew )
+	{
+		fclose( g_pFileSystemSpew );
+		g_pFileSystemSpew = nullptr;
+	}
+}
+
+static void FlushSpew()
+{
+	if ( s_bNeedToFlushSystemSpew )
+	{
+		if ( g_pFileSystemSpew )
+			fflush( g_pFileSystemSpew );
+		s_bNeedToFlushSystemSpew = false;
+	}
+}
 
 
 void ReallySpewTypeFmt( int eType, const char *pMsg, ... )
@@ -2096,6 +2194,8 @@ bool BSteamNetworkingSocketsLowLevelAddRef( SteamDatagramErrMsg &errMsg )
 	// First time init?
 	if ( s_nLowLevelSupportRefCount.load(std::memory_order_acquire) == 0 )
 	{
+		InitSpew();
+
 		CCrypto::Init();
 
 		// Initialize event tracing
@@ -2205,7 +2305,7 @@ bool BSteamNetworkingSocketsLowLevelAddRef( SteamDatagramErrMsg &errMsg )
 
 			// Static destruction is about to happen.  If we have a thread,
 			// we need to nuke it
-			s_pfnDebugOutput = nullptr;
+			KillSpew();
 			while ( s_nLowLevelSupportRefCount.load(std::memory_order_acquire) > 0 )
 				SteamNetworkingSocketsLowLevelDecRef();
 		} );
@@ -2284,6 +2384,8 @@ void SteamNetworkingSocketsLowLevelDecRef()
 	#ifdef _XBOX_ONE
 		::CoUninitialize();
 	#endif
+
+	KillSpew();
 }
 
 #ifdef DBGFLAG_VALIDATE
@@ -2298,13 +2400,15 @@ void SteamNetworkingSockets_SetDebugOutputFunction( ESteamNetworkingSocketsDebug
 	if ( pfnFunc && eDetailLevel > k_ESteamNetworkingSocketsDebugOutputType_None )
 	{
 		SteamNetworkingSocketsLib::s_pfnDebugOutput = pfnFunc;
-		SteamNetworkingSocketsLib::g_eDefaultGroupSpewLevel = ESteamNetworkingSocketsDebugOutputType( eDetailLevel );
+		SteamNetworkingSocketsLib::g_eAppSpewLevel = ESteamNetworkingSocketsDebugOutputType( eDetailLevel );
 	}
 	else
 	{
 		SteamNetworkingSocketsLib::s_pfnDebugOutput = nullptr;
-		SteamNetworkingSocketsLib::g_eDefaultGroupSpewLevel = k_ESteamNetworkingSocketsDebugOutputType_None;
+		SteamNetworkingSocketsLib::g_eAppSpewLevel = k_ESteamNetworkingSocketsDebugOutputType_None;
 	}
+
+	SteamNetworkingSocketsLib::InitSpew();
 }
 
 SteamNetworkingMicroseconds SteamNetworkingSockets_GetLocalTimestamp()
@@ -2452,15 +2556,6 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetPreFormatDebugOu
 
 STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_DefaultPreFormatDebugOutputHandler( ESteamNetworkingSocketsDebugOutputType eType, bool bFmt, const char* pstrFile, int nLine, const char *pMsg, va_list ap )
 {
-	// Save callback.  Paranoia for unlikely but possible race condition,
-	// if we spew from more than one place in our code and stuff changes
-	// while we are formatting.
-	FSteamNetworkingSocketsDebugOutput pfnDebugOutput = s_pfnDebugOutput;
-
-	// Make sure we don't crash.
-	if ( !pfnDebugOutput )
-		return;
-
 	// Do the formatting
 	char buf[ 2048 ];
 	int szBuf = sizeof(buf);
@@ -2480,8 +2575,26 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_DefaultPreFormatDeb
 	// Gah, some, but not all, of our code has newlines on the end
 	V_StripTrailingWhitespaceASCII( buf );
 
+	// Spew to log file?
+	if ( eType <= g_eSystemSpewLevel && g_pFileSystemSpew )
+	{
+
+		// Write
+		SteamNetworkingMicroseconds usecLogTime = SteamNetworkingSockets_GetLocalTimestamp() - g_usecSystemLogFileOpened;
+		fprintf( g_pFileSystemSpew, "%8.3f %s\n", usecLogTime*1e-6, buf );
+
+		// Queue to flush when we we think we can afford to hit the disk synchronously
+		s_bNeedToFlushSystemSpew = true;
+
+		// Flush certain critical messages things immediately
+		if ( eType <= k_ESteamNetworkingSocketsDebugOutputType_Error )
+			FlushSpew();
+	}
+
 	// Invoke callback
-	pfnDebugOutput( eType, buf );
+	FSteamNetworkingSocketsDebugOutput pfnDebugOutput = s_pfnDebugOutput;
+	if ( pfnDebugOutput )
+		pfnDebugOutput( eType, buf );
 }
 
 

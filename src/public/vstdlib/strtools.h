@@ -79,6 +79,9 @@ template <size_t cchDest> char *V_strcat_safe( INOUT_Z_ARRAY char (&pDest)[cchDe
 	return V_strncat( pDest, pSrc, cchDest, nMaxCharsToCopy ); 
 }
 
+// Return true if the string is "empty": Either null, or an empty string
+inline bool V_isempty( const char* pszString ) { return !pszString || !pszString[0]; }
+
 // is* helpers
 inline bool V_isspace(char c) { return isspace((unsigned char)c) != 0; }
 
