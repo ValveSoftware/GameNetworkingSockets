@@ -595,7 +595,7 @@ void CConnectionTransportUDPBase::RecvStats( const CMsgSteamSockets_UDP_Stats &m
 		m_connection.m_statsEndToEnd.ProcessMessage( msgStatsIn.stats(), usecNow );
 
 	// Spew appropriately
-	SpewVerbose( "[%s] Recv UDP stats:%s\n",
+	SpewDebug( "[%s] Recv UDP stats:%s\n",
 		ConnectionDescription(),
 		DescribeStatsContents( msgStatsIn ).c_str()
 	);
@@ -638,7 +638,7 @@ void CConnectionTransportUDPBase::TrackSentStats( UDPSendPacketContext_t &ctx )
 	}
 
 	// Spew appropriately
-	SpewVerbose( "[%s] Sent UDP stats (%s):%s\n",
+	SpewDebug( "[%s] Sent UDP stats (%s):%s\n",
 		ConnectionDescription(),
 		ctx.m_pszReason,
 		DescribeStatsContents( ctx.msg ).c_str()
