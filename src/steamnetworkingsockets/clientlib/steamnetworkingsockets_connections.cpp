@@ -2312,20 +2312,27 @@ void CSteamNetworkConnectionBase::APICloseConnection( int nReason, const char *p
 
 		case k_ESteamNetworkingConnectionState_ClosedByPeer:
 		case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
+			SpewVerbose( "[%s] cleaned up by app\n", GetDescription() );
+			ConnectionState_FinWait();
+			break;
+
 		case k_ESteamNetworkingConnectionState_Connecting:
 		case k_ESteamNetworkingConnectionState_FindingRoute:
+			SpewMsg( "[%s] closed by app before we got connected (%d) %s\n", GetDescription(), (int)m_eEndReason, m_szEndDebug );
 			ConnectionState_FinWait();
 			break;
 
 		case k_ESteamNetworkingConnectionState_Connected:
 			if ( bEnableLinger )
 			{
+				SpewMsg( "[%s] closed by app, entering linger state (%d) %s\n", GetDescription(), (int)m_eEndReason, m_szEndDebug );
 				SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 				SetState( k_ESteamNetworkingConnectionState_Linger, usecNow );
 				CheckConnectionStateAndSetNextThinkTime( usecNow );
 			}
 			else
 			{
+				SpewMsg( "[%s] closed by app (%d) %s\n", GetDescription(), (int)m_eEndReason, m_szEndDebug );
 				ConnectionState_FinWait();
 			}
 			break;
@@ -2743,7 +2750,7 @@ void CSteamNetworkConnectionBase::ConnectionState_ClosedByPeer( int nReason, con
 				V_strcpy_safe( m_szEndDebug, "The remote host closed the connection." );
 			m_eEndReason = ESteamNetConnectionEnd( nReason );
 
-			SpewMsg( "[%s] closed by peer\n", GetDescription() );
+			SpewMsg( "[%s] closed by peer (%d): %s\n", GetDescription(), (int)m_eEndReason, m_szEndDebug );
 
 			SetState( k_ESteamNetworkingConnectionState_ClosedByPeer, SteamNetworkingSockets_GetLocalTimestamp() );
 			break;
