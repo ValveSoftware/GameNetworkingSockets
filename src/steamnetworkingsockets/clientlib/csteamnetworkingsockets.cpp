@@ -276,14 +276,6 @@ static CSteamNetworkConnectionBase *InternalGetConnectionByHandle( HSteamNetConn
 			if ( !BConnectionStateExistsToAPI( s ) )
 				break;
 		}
-		else
-		{
-			if ( s == k_ESteamNetworkingConnectionState_None )
-			{
-				Assert( false );
-				break;
-			}
-		}
 
 		// Have we locked already?  Then we're good
 		if ( bLocked )
