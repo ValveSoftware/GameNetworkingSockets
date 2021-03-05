@@ -1211,7 +1211,26 @@ SteamNetworkingMicroseconds CSteamNetworkConnectionBase::SNP_SenderCheckInFlight
 	++inFlightPkt;
 
 	// Expire old packets (all of these should have been marked as nacked)
-	SteamNetworkingMicroseconds usecWhenExpiry = usecNow - usecRTO*2;
+	// Here we need to be careful when selecting an expiry.  If the actual RTT
+	// time suddenly increases, using the current RTT estimate may expire them
+	// too quickly.  This can actually be catastrophic, since if we forgot
+	// about these packets now, and then they later are acked, we won't be able
+	// to update our RTT, and so we will be stuck with an RTT estimate that
+	// is too small
+	SteamNetworkingMicroseconds usecExpiry = usecRTO*2;
+	if ( m_statsEndToEnd.m_ping.m_nValidPings < 1 )
+	{
+		usecExpiry += k_nMillion;
+	}
+	else
+	{
+		SteamNetworkingMicroseconds usecMostRecentPingAge = usecNow - m_statsEndToEnd.m_ping.TimeRecvMostRecentPing();
+		usecMostRecentPingAge = std::min( usecMostRecentPingAge, k_nMillion*3 );
+		if ( usecMostRecentPingAge > usecExpiry )
+			usecExpiry = usecMostRecentPingAge;
+	}
+
+	SteamNetworkingMicroseconds usecWhenExpiry = usecNow - usecExpiry;
 	for (;;)
 	{
 		if ( inFlightPkt->second.m_usecWhenSent > usecWhenExpiry )
