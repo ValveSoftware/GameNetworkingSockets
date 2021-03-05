@@ -820,17 +820,17 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLa
 				}
 			}
 
-			SpewDebugGroup( nLogLevelPacketDecode, "[%s]   decode pkt %lld latest recv %lld\n",
-				GetDescription(),
-				(long long)nPktNum, (long long)nLatestRecvSeqNum
-			);
-
 			// Locate our bookkeeping for this packet, or the latest one before it
 			// Remember, we have a sentinel with a low, invalid packet number
 			Assert( !m_senderState.m_mapInFlightPacketsByPktNum.empty() );
 			auto inFlightPkt = m_senderState.m_mapInFlightPacketsByPktNum.upper_bound( nLatestRecvSeqNum );
 			--inFlightPkt;
 			Assert( inFlightPkt->first <= nLatestRecvSeqNum );
+
+			SpewDebugGroup( nLogLevelPacketDecode, "[%s]   decode pkt %lld latest recv %lld, inflight=%lld\n",
+				GetDescription(),
+				(long long)nPktNum, (long long)nLatestRecvSeqNum, (long long)inFlightPkt->first
+			);
 
 			// Parse out delay, and process the ping
 			{
@@ -978,6 +978,7 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLa
 					// Scan reliable segments, and see if any are marked for retry or are in flight
 					for ( const SNPRange_t &relRange: inFlightPkt->second.m_vecReliableSegments )
 					{
+						int l = int( relRange.length() );
 
 						// If range is present, it should be in only one of these two tables.
 						if ( m_senderState.m_listInFlightReliableRange.erase( relRange ) == 0 )
@@ -987,8 +988,8 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLa
 
 								// When we put stuff into the reliable retry list, we mark it as pending again.
 								// But now it's acked, so it's no longer pending, even though we didn't send it.
-								m_senderState.m_cbPendingReliable -= int( relRange.length() );
-								Assert( m_senderState.m_cbPendingReliable >= 0 );
+								Assert( m_senderState.m_cbPendingReliable >= l );
+								m_senderState.m_cbPendingReliable -= l;
 
 								bAckedReliableRange = true;
 							}
@@ -997,6 +998,10 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLa
 						{
 							bAckedReliableRange = true;
 							Assert( m_senderState.m_listReadyRetryReliableRange.count( relRange ) == 0 );
+
+							// Less data waiting to be acked
+							Assert( m_senderState.m_cbSentUnackedReliable >= l );
+							m_senderState.m_cbSentUnackedReliable -= l;
 						}
 					}
 
@@ -1142,7 +1147,10 @@ void CSteamNetworkConnectionBase::SNP_SenderProcessPacketNack( int64 nPktNum, SN
 			relRange.m_nBegin, relRange.m_nEnd );
 
 		// The ready-to-retry list counts towards the "pending" stat
-		m_senderState.m_cbPendingReliable += int( relRange.length() );
+		int l = int( relRange.length() );
+		Assert( m_senderState.m_cbSentUnackedReliable >= l );
+		m_senderState.m_cbSentUnackedReliable -= l;
+		m_senderState.m_cbPendingReliable += l;
 
 		// Move it to the ready for retry list!
 		// if shouldn't already be there!
@@ -1804,6 +1812,9 @@ bool CSteamNetworkConnectionBase::SNP_SendPacket( CConnectionTransport *pTranspo
 			// Less reliable data pending
 			m_senderState.m_cbPendingReliable -= seg.m_cbSegSize;
 			Assert( m_senderState.m_cbPendingReliable >= 0 );
+
+			// More data waiting to be acked
+			m_senderState.m_cbSentUnackedReliable += seg.m_cbSegSize;
 		}
 		else
 		{
