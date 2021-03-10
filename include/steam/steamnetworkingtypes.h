@@ -1082,45 +1082,7 @@ enum ESteamNetworkingConfigValue
 	k_ESteamNetworkingConfig_Invalid = 0,
 
 //
-// Simulating packet lag/loss
-//
-// These are global (not per-connection) because they apply at
-// a relatively low UDP layer.
-//
-
-	/// [global float, 0--100] Randomly discard N pct of packets instead of sending/recv
-	/// This is a global option only, since it is applied at a low level
-	/// where we don't have much context
-	k_ESteamNetworkingConfig_FakePacketLoss_Send = 2,
-	k_ESteamNetworkingConfig_FakePacketLoss_Recv = 3,
-
-	/// [global int32].  Delay all outbound/inbound packets by N ms
-	k_ESteamNetworkingConfig_FakePacketLag_Send = 4,
-	k_ESteamNetworkingConfig_FakePacketLag_Recv = 5,
-
-	/// [global float] 0-100 Percentage of packets we will add additional delay
-	/// to (causing them to be reordered)
-	k_ESteamNetworkingConfig_FakePacketReorder_Send = 6,
-	k_ESteamNetworkingConfig_FakePacketReorder_Recv = 7,
-
-	/// [global int32] Extra delay, in ms, to apply to reordered packets.
-	k_ESteamNetworkingConfig_FakePacketReorder_Time = 8,
-
-	/// [global float 0--100] Globally duplicate some percentage of packets we send
-	k_ESteamNetworkingConfig_FakePacketDup_Send = 26,
-	k_ESteamNetworkingConfig_FakePacketDup_Recv = 27,
-
-	/// [global int32] Amount of delay, in ms, to delay duplicated packets.
-	/// (We chose a random delay between 0 and this value)
-	k_ESteamNetworkingConfig_FakePacketDup_TimeMax = 28,
-
-	/// [global int32] Trace every UDP packet, similar to Wireshark or tcpdump.
-	/// Value is max number of bytes to dump.  -1 disables tracing.
-	// 0 only traces the info but no actual data bytes
-	k_ESteamNetworkingConfig_PacketTraceMaxBytes = 41,
-
-//
-// Connection configuration
+// Connection options
 //
 
 	/// [connection int32] Timeout value (in ms) to use when first connecting
@@ -1316,6 +1278,45 @@ enum ESteamNetworkingConfigValue
 	k_ESteamNetworkingConfig_LocalVirtualPort = 38,
 
 //
+// Simulating network conditions
+//
+// These are global (not per-connection) because they apply at
+// a relatively low UDP layer.
+//
+
+	/// [global float, 0--100] Randomly discard N pct of packets instead of sending/recv
+	/// This is a global option only, since it is applied at a low level
+	/// where we don't have much context
+	k_ESteamNetworkingConfig_FakePacketLoss_Send = 2,
+	k_ESteamNetworkingConfig_FakePacketLoss_Recv = 3,
+
+	/// [global int32].  Delay all outbound/inbound packets by N ms
+	k_ESteamNetworkingConfig_FakePacketLag_Send = 4,
+	k_ESteamNetworkingConfig_FakePacketLag_Recv = 5,
+
+	/// [global float] 0-100 Percentage of packets we will add additional delay
+	/// to (causing them to be reordered)
+	k_ESteamNetworkingConfig_FakePacketReorder_Send = 6,
+	k_ESteamNetworkingConfig_FakePacketReorder_Recv = 7,
+
+	/// [global int32] Extra delay, in ms, to apply to reordered packets.
+	k_ESteamNetworkingConfig_FakePacketReorder_Time = 8,
+
+	/// [global float 0--100] Globally duplicate some percentage of packets we send
+	k_ESteamNetworkingConfig_FakePacketDup_Send = 26,
+	k_ESteamNetworkingConfig_FakePacketDup_Recv = 27,
+
+	/// [global int32] Amount of delay, in ms, to delay duplicated packets.
+	/// (We chose a random delay between 0 and this value)
+	k_ESteamNetworkingConfig_FakePacketDup_TimeMax = 28,
+
+	/// [global int32] Trace every UDP packet, similar to Wireshark or tcpdump.
+	/// Value is max number of bytes to dump.  -1 disables tracing.
+	// 0 only traces the info but no actual data bytes
+	k_ESteamNetworkingConfig_PacketTraceMaxBytes = 41,
+
+
+//
 // Callbacks
 //
 
@@ -1465,7 +1466,7 @@ enum ESteamNetworkingConfigValue
 	k_ESteamNetworkingConfig_SDRClient_FakeClusterPing = 36,
 
 //
-// Misc
+// Misc / debugging
 //
 
 	/// [global int32] 0 or 1.  Some variables are "dev" variables.  They are useful
