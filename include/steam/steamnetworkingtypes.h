@@ -1316,6 +1316,19 @@ enum ESteamNetworkingConfigValue
 	k_ESteamNetworkingConfig_PacketTraceMaxBytes = 41,
 
 
+	// [global int32] Global UDP token bucket rate limits.
+	// "Rate" refers to the steady state rate. (Bytes/sec, the
+	// rate that tokens are put into the bucket.)  "Burst"
+	// refers to the max amount that could be sent in a single
+	// burst.  (In bytes, the max capacity of the bucket.)
+	// Rate=0 disables the limiter entirely, which is the default.
+	// Burst=0 disables burst.  (This is not realistic.  A
+	// burst of at least 4K is recommended; the default is higher.)
+	k_ESteamNetworkingConfig_FakeRateLimit_Send_Rate = 42,
+	k_ESteamNetworkingConfig_FakeRateLimit_Send_Burst = 43,
+	k_ESteamNetworkingConfig_FakeRateLimit_Recv_Rate = 44,
+	k_ESteamNetworkingConfig_FakeRateLimit_Recv_Burst = 45,
+
 //
 // Callbacks
 //

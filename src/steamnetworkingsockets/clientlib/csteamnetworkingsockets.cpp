@@ -47,6 +47,11 @@ DEFINE_GLOBAL_CONFIGVAL( float, FakePacketDup_Send, 0.0f, 0.0f, 100.0f );
 DEFINE_GLOBAL_CONFIGVAL( float, FakePacketDup_Recv, 0.0f, 0.0f, 100.0f );
 DEFINE_GLOBAL_CONFIGVAL( int32, FakePacketDup_TimeMax, 10, 0, 5000 );
 DEFINE_GLOBAL_CONFIGVAL( int32, PacketTraceMaxBytes, -1, -1, 99999 );
+DEFINE_GLOBAL_CONFIGVAL( int32, FakeRateLimit_Send_Rate, 0, 0, 1024*1024*1024 );
+DEFINE_GLOBAL_CONFIGVAL( int32, FakeRateLimit_Send_Burst, 16*1024, 0, 1024*1024 );
+DEFINE_GLOBAL_CONFIGVAL( int32, FakeRateLimit_Recv_Rate, 0, 0, 1024*1024*1024 );
+DEFINE_GLOBAL_CONFIGVAL( int32, FakeRateLimit_Recv_Burst, 16*1024, 0, 1024*1024 );
+
 DEFINE_GLOBAL_CONFIGVAL( int32, EnumerateDevVars, 0, 0, 1 );
 
 DEFINE_GLOBAL_CONFIGVAL( void *, Callback_AuthStatusChanged, nullptr );

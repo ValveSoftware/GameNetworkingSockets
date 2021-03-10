@@ -638,6 +638,43 @@ bool IsRouteToAddressProbablyLocal( netadr_t addr )
 //
 /////////////////////////////////////////////////////////////////////////////
 
+static double s_flFakeRateLimit_Send_tokens;
+static double s_flFakeRateLimit_Recv_tokens;
+static SteamNetworkingMicroseconds s_usecFakeRateLimitBucketUpdateTime;
+
+static void InitFakeRateLimit()
+{
+	s_usecFakeRateLimitBucketUpdateTime = SteamNetworkingSockets_GetLocalTimestamp();
+	s_flFakeRateLimit_Send_tokens = (double)INT_MAX;
+	s_flFakeRateLimit_Recv_tokens = (double)INT_MAX;
+}
+
+static void UpdateFakeRateLimitTokenBuckets( SteamNetworkingMicroseconds usecNow )
+{
+	float flElapsed = ( usecNow - s_usecFakeRateLimitBucketUpdateTime ) * 1e-6;
+	s_usecFakeRateLimitBucketUpdateTime = usecNow;
+
+	if ( g_Config_FakeRateLimit_Send_Rate.Get() <= 0 )
+	{
+		s_flFakeRateLimit_Send_tokens = (double)INT_MAX;
+	}
+	else
+	{
+		s_flFakeRateLimit_Send_tokens += flElapsed*g_Config_FakeRateLimit_Send_Rate.Get();
+		s_flFakeRateLimit_Send_tokens = std::min( s_flFakeRateLimit_Send_tokens, (double)g_Config_FakeRateLimit_Send_Burst.Get() );
+	}
+
+	if ( g_Config_FakeRateLimit_Recv_Rate.Get() <= 0 )
+	{
+		s_flFakeRateLimit_Recv_tokens = (double)INT_MAX;
+	}
+	else
+	{
+		s_flFakeRateLimit_Recv_tokens += flElapsed*g_Config_FakeRateLimit_Recv_Rate.Get();
+		s_flFakeRateLimit_Recv_tokens = std::min( s_flFakeRateLimit_Recv_tokens, (double)g_Config_FakeRateLimit_Recv_Burst.Get() );
+	}
+}
+
 inline IRawUDPSocket::IRawUDPSocket() {}
 inline IRawUDPSocket::~IRawUDPSocket() {}
 
@@ -699,7 +736,7 @@ public:
 		{
 			int cbTotal = 0;
 			for ( int i = 0 ; i < nChunks ; ++i )
-				cbTotal += (int)pChunks->iov_len;
+				cbTotal += (int)pChunks[i].iov_len;
 			ETW_UDPSendPacket( adrTo, cbTotal );
 		}
 		#endif
@@ -1028,6 +1065,32 @@ bool CRawUDPSocketImpl::BSendRawPacketGather( int nChunks, const iovec *pChunks,
 	// Silently ignore a request to send a packet anytime we're in the process of shutting down the system
 	if ( s_nLowLevelSupportRefCount.load(std::memory_order_acquire) <= 0 )
 		return true;
+
+	// Check simulated global rate limit.  Make sure this is fast
+	// when the limit is not in use
+	if ( unlikely( g_Config_FakeRateLimit_Send_Rate.Get() > 0 ) )
+	{
+
+		// Check if bucket already has tokens in it, which
+		// will be common.  If so, we can avoid reading the
+		// timer
+		if ( s_flFakeRateLimit_Send_tokens <= 0.0f )
+		{
+
+			// Update bucket with tokens
+			UpdateFakeRateLimitTokenBuckets( SteamNetworkingSockets_GetLocalTimestamp() );
+
+			// Still empty?
+			if ( s_flFakeRateLimit_Send_tokens <= 0.0f )
+				return true;
+		}
+
+		// Spend tokens
+		int cbTotal = 0;
+		for ( int i = 0 ; i < nChunks ; ++i )
+			cbTotal += (int)pChunks[i].iov_len;
+		s_flFakeRateLimit_Send_tokens -= cbTotal;
+	}
 
 	// Fake loss?
 	if ( RandomBoolWithOdds( g_Config_FakePacketLoss_Send.Get() ) )
@@ -1444,6 +1507,7 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 	#endif
 
 	SteamNetworkingMicroseconds usecStartedLocking = SteamNetworkingSockets_GetLocalTimestamp();
+	UpdateFakeRateLimitTokenBuckets( usecStartedLocking );
 	for (;;)
 	{
 
@@ -1564,6 +1628,33 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 			// Add a tag.  If we end up holding the lock for a long time, this tag
 			// will tell us how many packets were processed
 			SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "RecvUDPPacket" );
+
+			// Check simulated global rate limit.  Make sure this is fast
+			// when the limit is not in use
+			if ( unlikely( g_Config_FakeRateLimit_Recv_Rate.Get() > 0 ) )
+			{
+
+				// Check if bucket already has tokens in it, which
+				// will be common.  If so, we can avoid reading the
+				// timer
+				if ( s_flFakeRateLimit_Recv_tokens <= 0.0f )
+				{
+
+					// Update bucket with tokens
+					// FIXME - We could probably avoid reading the timer here
+					// If we read it in the outer loop.  Which...we probably should do
+					// and add to the context struct, since almost every packet callback
+					// currently does it.
+					UpdateFakeRateLimitTokenBuckets( SteamNetworkingSockets_GetLocalTimestamp() );
+
+					// Still empty?
+					if ( s_flFakeRateLimit_Recv_tokens <= 0.0f )
+						continue;
+				}
+
+				// Spend tokens
+				s_flFakeRateLimit_Recv_tokens -= ret;
+			}
 
 			// Check for simulating random packet loss
 			if ( RandomBoolWithOdds( g_Config_FakePacketLoss_Recv.Get() ) )
@@ -2232,6 +2323,9 @@ bool BSteamNetworkingSocketsLowLevelAddRef( SteamDatagramErrMsg &errMsg )
 			}
 		}
 		#endif
+
+		// Initialize fake rate limit token buckets
+		InitFakeRateLimit();
 
 		// Make sure random number generator is seeded
 		SeedWeakRandomGenerator();

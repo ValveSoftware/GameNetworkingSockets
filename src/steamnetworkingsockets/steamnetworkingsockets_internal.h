@@ -688,8 +688,8 @@ struct GlobalConfigValueBase : GlobalConfigValueEntry
 
 	inline const T &Get() const
 	{
-		Assert( !m_value.m_pInherit );
-		Assert( m_value.IsSet() );
+		DbgAssert( !m_value.m_pInherit );
+		DbgAssert( m_value.IsSet() );
 		return m_value.m_data;
 	}
 
@@ -767,6 +767,11 @@ extern GlobalConfigValue<float> g_Config_FakePacketDup_Send;
 extern GlobalConfigValue<float> g_Config_FakePacketDup_Recv;
 extern GlobalConfigValue<int32> g_Config_FakePacketDup_TimeMax;
 extern GlobalConfigValue<int32> g_Config_PacketTraceMaxBytes;
+extern GlobalConfigValue<int32> g_Config_FakeRateLimit_Send_Rate;
+extern GlobalConfigValue<int32> g_Config_FakeRateLimit_Send_Burst;
+extern GlobalConfigValue<int32> g_Config_FakeRateLimit_Recv_Rate;
+extern GlobalConfigValue<int32> g_Config_FakeRateLimit_Recv_Burst;
+
 extern GlobalConfigValue<int32> g_Config_EnumerateDevVars;
 extern GlobalConfigValue<void*> g_Config_Callback_CreateConnectionSignaling;
 extern ConnectionConfigDefaultValue<int32> g_ConfigDefault_LogLevel_PacketGaps;
