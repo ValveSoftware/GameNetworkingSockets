@@ -514,7 +514,11 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 			static const char pszExportFunc[] = "CreateWebRTCICESession";
 
 			#if defined( _WINDOWS )
-				static const char pszModule[] = "steamwebrtc.dll";
+				#ifdef _WIN64
+					static const char pszModule[] = "steamwebrtc64.dll";
+				#else
+					static const char pszModule[] = "steamwebrtc.dll";
+				#endif
 				HMODULE h = ::LoadLibraryA( pszModule );
 				if ( h == NULL )
 				{
