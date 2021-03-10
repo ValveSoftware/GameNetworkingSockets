@@ -533,7 +533,7 @@ public:
 
 	/// Record that we sent a non-data packet.  This is so that if the peer acks,
 	/// we can record it as a ping
-	void SNP_SentNonDataPacket( CConnectionTransport *pTransport, SteamNetworkingMicroseconds usecNow );
+	void SNP_SentNonDataPacket( CConnectionTransport *pTransport, int cbPkt, SteamNetworkingMicroseconds usecNow );
 
 	/// Called after the connection state changes.  Default behavior is to notify
 	/// the active transport, if any
