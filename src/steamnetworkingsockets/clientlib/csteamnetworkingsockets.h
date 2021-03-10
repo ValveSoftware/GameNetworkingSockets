@@ -108,6 +108,7 @@ public:
 
 	virtual bool GetCertificateRequest( int *pcbBlob, void *pBlob, SteamNetworkingErrMsg &errMsg ) override;
 	virtual bool SetCertificate( const void *pCertificate, int cbCertificate, SteamNetworkingErrMsg &errMsg ) override;
+	virtual void ResetIdentity( const SteamNetworkingIdentity *pIdentity ) override;
 
 #ifdef STEAMNETWORKINGSOCKETS_STEAMCLIENT
 	virtual int ReceiveMessagesOnListenSocketLegacyPollGroup( HSteamListenSocket hSocket, SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages ) override;
@@ -204,6 +205,7 @@ protected:
 	/// Figure out the current authentication status.  And if it has changed, send out callbacks
 	virtual void DeduceAuthenticationStatus();
 
+	void InternalInitIdentity();
 	void KillConnections();
 
 	SteamNetworkingIdentity m_identity;

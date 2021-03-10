@@ -373,7 +373,15 @@ CSteamNetworkingSockets::CSteamNetworkingSockets( CSteamNetworkingUtils *pSteamN
 , m_mutexPendingCallbacks( "pending_callbacks" )
 {
 	m_connectionConfig.Init( nullptr );
+	InternalInitIdentity();
+}
+
+void CSteamNetworkingSockets::InternalInitIdentity()
+{
 	m_identity.Clear();
+	m_msgSignedCert.Clear();
+	m_msgCert.Clear();
+	m_keyPrivateKey.Wipe();
 
 	#ifdef STEAMNETWORKINGSOCKETS_CAN_REQUEST_CERT
 		m_CertStatus.m_eAvail = k_ESteamNetworkingAvailability_NeverTried;
@@ -383,6 +391,8 @@ CSteamNetworkingSockets::CSteamNetworkingSockets( CSteamNetworkingUtils *pSteamN
 		V_strcpy_safe( m_CertStatus.m_debugMsg, "No certificate authority" );
 	#endif
 	m_AuthenticationStatus = m_CertStatus;
+	m_bEverTriedToGetCert = false;
+	m_bEverGotCert = false;
 }
 
 CSteamNetworkingSockets::~CSteamNetworkingSockets()
@@ -501,10 +511,7 @@ void CSteamNetworkingSockets::FreeResources()
 
 	// Clear identity and crypto stuff.
 	// If we are re-initialized, we might get new ones
-	m_identity.Clear();
-	m_msgSignedCert.Clear();
-	m_msgCert.Clear();
-	m_keyPrivateKey.Wipe();
+	InternalInitIdentity();
 
 	// Mark us as no longer being setup
 	if ( m_bHaveLowLevelRef )
@@ -727,6 +734,18 @@ bool CSteamNetworkingSockets::SetCertificate( const void *pCertificate, int cbCe
 
 	// OK
 	return true;
+}
+
+void CSteamNetworkingSockets::ResetIdentity( const SteamNetworkingIdentity *pIdentity )
+{
+#ifdef STEAMNETWORKINGSOCKETS_STEAM
+	Assert( !"Not supported on steam" );
+#else
+	KillConnections();
+	InternalInitIdentity();
+	if ( pIdentity )
+		m_identity = *pIdentity;
+#endif
 }
 
 ESteamNetworkingAvailability CSteamNetworkingSockets::InitAuthentication()

@@ -687,6 +687,16 @@ public:
 	/// SteamDatagram_CreateCert.
 	virtual bool SetCertificate( const void *pCertificate, int cbCertificate, SteamNetworkingErrMsg &errMsg ) = 0;
 
+	/// Reset the identity associated with this instance.
+	/// Any open connections are closed.  Any previous certificates, etc are discarded.
+	/// You can pass a specific identity that you want to use, or you can pass NULL,
+	/// in which case the identity will be invalid until you set it using SetCertificate
+	///
+	/// NOTE: This function is not actually supported on Steam!  It is included
+	///       for use on other platforms where the active user can sign out and
+	///       a new user can sign in.
+	virtual void ResetIdentity( const SteamNetworkingIdentity *pIdentity ) = 0;
+
 	/// Invoke all callback functions queued for this interface.
 	/// See k_ESteamNetworkingConfig_Callback_ConnectionStatusChanged, etc
 	///
