@@ -746,6 +746,9 @@ protected:
 	SSNPSenderState m_senderState;
 	SSNPReceiverState m_receiverState;
 
+	/// Bandwidth estimation data
+	SSendRateData m_sendRateData; // FIXME Move this to transport!
+
 	/// Called from SNP layer when it decodes a packet that serves as a ping measurement
 	virtual void ProcessSNPPing( int msPing, RecvPacketContext_t &ctx );
 
