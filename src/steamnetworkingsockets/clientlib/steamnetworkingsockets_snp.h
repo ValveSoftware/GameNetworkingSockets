@@ -330,13 +330,6 @@ struct SSNPSenderState
 		m_flTokenBucket = k_flSendRateBurstOverageAllowance;
 	}
 
-	/// Limit our token bucket to the max reserve amount
-	void TokenBucket_Limit()
-	{
-		if ( m_flTokenBucket > k_flSendRateBurstOverageAllowance )
-			m_flTokenBucket = k_flSendRateBurstOverageAllowance;
-	}
-
 	/// Calculate time until we could send our next packet, checking our token
 	/// bucket and the current send rate
 	SteamNetworkingMicroseconds CalcTimeUntilNextSend() const

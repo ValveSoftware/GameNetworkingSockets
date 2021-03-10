@@ -3249,7 +3249,8 @@ SteamNetworkingMicroseconds CSteamNetworkConnectionBase::SNP_ThinkSendState( Ste
 			// We've sent everything we want to send.  Limit our reserve to a
 			// small burst overage, in case we had built up an excess reserve
 			// before due to the scheduler waking us up late.
-			m_senderState.TokenBucket_Limit();
+			if ( m_senderState.m_flTokenBucket > k_flSendRateBurstOverageAllowance )
+				m_senderState.m_flTokenBucket = k_flSendRateBurstOverageAllowance;
 			break;
 		}
 
@@ -3297,8 +3298,10 @@ void CSteamNetworkConnectionBase::SNP_TokenBucket_Accumulate( SteamNetworkingMic
 	// wakeup as soon as we are ready to send the next packet, and thus
 	// any excess tokens we accumulate are because the scheduler woke
 	// us up late, and we are not actually bursting
-	if ( SNP_TimeWhenWantToSendNextPacket() > usecNow )
-		m_senderState.TokenBucket_Limit();
+	if ( m_senderState.m_flTokenBucket > k_flSendRateBurstOverageAllowance && SNP_TimeWhenWantToSendNextPacket() > usecNow )
+	{
+		m_senderState.m_flTokenBucket = k_flSendRateBurstOverageAllowance;
+	}
 }
 
 void SSNPReceiverState::QueueFlushAllAcks( SteamNetworkingMicroseconds usecWhen )
