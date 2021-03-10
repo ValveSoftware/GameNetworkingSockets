@@ -338,7 +338,7 @@ int64 CSteamNetworkConnectionBase::SNP_SendMessage( CSteamNetworkingMessage *pSe
 	// or at the Nagle time, if Nagle is active.)
 	//
 	// NOTE: Right now we might not actually be capable of sending end to end data.
-	// But that case is relatievly rare, and nothing will break if we try to right now.
+	// But that case is relatively rare, and nothing will break if we try to right now.
 	// On the other hand, just asking the question involved a virtual function call,
 	// and it will return success most of the time, so let's not make the check here.
 	if ( GetState() == k_ESteamNetworkingConnectionState_Connected )
@@ -349,14 +349,29 @@ int64 CSteamNetworkConnectionBase::SNP_SendMessage( CSteamNetworkingMessage *pSe
 		if ( usecNextThink > usecNow )
 		{
 
-			// We are rate limiting.  Spew about it?
-			if ( m_senderState.m_messagesQueued.m_pFirst->SNPSend_UsecNagle() == 0 )
+			// Not ready to send yet.  Is it because Nagle, or because we have previous
+			// data queued and are rate limited?
+			if ( usecNextThink > m_senderState.m_messagesQueued.m_pFirst->SNPSend_UsecNagle() )
 			{
-				SpewVerbose( "[%s] RATELIM QueueTime is %.1fms, SendRate=%.1fk, BytesQueued=%d\n", 
+				// It's because of the rate limit
+				SpewVerbose( "[%s] Send RATELIM.  QueueTime is %.1fms, SendRate=%.1fk, BytesQueued=%d, ping=%dms\n", 
 					GetDescription(),
 					m_senderState.CalcTimeUntilNextSend() * 1e-3,
 					m_senderState.m_n_x * ( 1.0/1024.0),
-					m_senderState.PendingBytesTotal()
+					m_senderState.PendingBytesTotal(),
+					m_statsEndToEnd.m_ping.m_nSmoothedPing
+				);
+			}
+			else
+			{
+				// Waiting on nagle
+				SpewVerbose( "[%s] Send Nagle %.1fms.  QueueTime is %.1fms, SendRate=%.1fk, BytesQueued=%d, ping=%dms\n", 
+					GetDescription(),
+					( m_senderState.m_messagesQueued.m_pFirst->SNPSend_UsecNagle() - usecNow ) * 1e-3,
+					m_senderState.CalcTimeUntilNextSend() * 1e-3,
+					m_senderState.m_n_x * ( 1.0/1024.0),
+					m_senderState.PendingBytesTotal(),
+					m_statsEndToEnd.m_ping.m_nSmoothedPing
 				);
 			}
 

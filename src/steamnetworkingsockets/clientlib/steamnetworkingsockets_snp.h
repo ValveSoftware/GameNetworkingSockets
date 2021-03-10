@@ -86,6 +86,7 @@ public:
 	/// Nagle timer to expire and send now (but this should behave the same as if the
 	/// timer < usecNow).  If the timer is cleared, then all messages with lower message numbers
 	/// are also cleared.
+	// NOTE: Intentionally reusing the m_usecTimeReceived field, which is not used on outbound messages
 	inline SteamNetworkingMicroseconds SNPSend_UsecNagle() const { return m_usecTimeReceived; }
 	inline void SNPSend_SetUsecNagle( SteamNetworkingMicroseconds x ) { m_usecTimeReceived = x; }
 
