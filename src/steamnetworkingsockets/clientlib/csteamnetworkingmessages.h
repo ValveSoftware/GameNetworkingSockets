@@ -132,8 +132,8 @@ public:
 
 private:
 
-	SteamNetworkingMessagesSession *FindSession( const SteamNetworkingIdentity &identityRemote );
-	SteamNetworkingMessagesSession *FindOrCreateSession( const SteamNetworkingIdentity &identityRemote );
+	SteamNetworkingMessagesSession *FindSession( const SteamNetworkingIdentity &identityRemote, ConnectionScopeLock &scopeLock );
+	SteamNetworkingMessagesSession *FindOrCreateSession( const SteamNetworkingIdentity &identityRemote, ConnectionScopeLock &scopeLock );
 
 	CUtlHashMap< SteamNetworkingIdentity, SteamNetworkingMessagesSession *, std::equal_to<SteamNetworkingIdentity>, SteamNetworkingIdentityHash > m_mapSessions;
 	CUtlHashMap<int,Channel*,std::equal_to<int>,std::hash<int>> m_mapChannels;

@@ -2443,7 +2443,7 @@ CSteamNetworkConnectionBase *CSteamNetworkingSockets::InternalConnectP2P(
 	// Did we fail because we found an existing matching connection?
 	if ( pMatchingConnection )
 	{
-		scopeLock.Lock( *pMatchingConnection );
+		scopeLock.Lock( *pMatchingConnection, "InternalConnectP2P Matching Accept" );
 
 		// If connection is inbound, then we can just implicitly accept it.
 		if ( !pMatchingConnection->m_bConnectionInitiatedRemotely || pMatchingConnection->GetState() != k_ESteamNetworkingConnectionState_Connecting )

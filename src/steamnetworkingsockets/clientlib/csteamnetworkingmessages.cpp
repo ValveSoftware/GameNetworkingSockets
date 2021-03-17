@@ -229,7 +229,6 @@ void CSteamNetworkingMessages::ConnectionStatusChangedCallback( SteamNetConnecti
 	int h = g_mapSessionsByConnection.Find( pInfo->m_hConn );
 	if ( h != g_mapSessionsByConnection.InvalidIndex() )
 	{
-		// FIXME - take lock?
 		g_mapSessionsByConnection[h]->ConnectionStateChanged( pInfo );
 		return;
 	}
@@ -249,18 +248,17 @@ EResult CSteamNetworkingMessages::SendMessageToUser( const SteamNetworkingIdenti
 		return k_EResultInvalidSteamID;
 	}
 
-	SteamNetworkingGlobalLock scopeLock( "SendMessageToUser" );
-	SteamNetworkingMessagesSession *pSess = FindOrCreateSession( identityRemote );
+	SteamNetworkingGlobalLock scopeLock( "SendMessageToUser" ); // NOTE - Messages sessions are protected by the global lock.  We have not optimized for more granular locking of the Messages interface
+	ConnectionScopeLock connectionLock;
+	SteamNetworkingMessagesSession *pSess = FindOrCreateSession( identityRemote, connectionLock );
 	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 
 	// Check on connection if needed
 	pSess->CheckConnection( usecNow );
 
-	ConnectionScopeLock connectionLock; // NOTE - These connections are protected by the global lock.  We have not optimized for more granular locking of the Messages interface
 	CSteamNetworkConnectionBase *pConn = pSess->m_pConnection;
 	if ( pConn )
 	{
-		connectionLock.Lock( *pConn );
 
 		// Implicit accept?
 		if ( pConn->m_bConnectionInitiatedRemotely && pConn->GetState() == k_ESteamNetworkingConnectionState_Connecting )
@@ -376,7 +374,8 @@ int CSteamNetworkingMessages::ReceiveMessagesOnChannel( int nLocalChannel, Steam
 bool CSteamNetworkingMessages::AcceptSessionWithUser( const SteamNetworkingIdentity &identityRemote )
 {
 	SteamNetworkingGlobalLock scopeLock( "AcceptSessionWithUser" );
-	SteamNetworkingMessagesSession *pSession = FindSession( identityRemote );
+	ConnectionScopeLock connectionLock;
+	SteamNetworkingMessagesSession *pSession = FindSession( identityRemote, connectionLock );
 	if ( !pSession )
 		return false;
 
@@ -395,7 +394,8 @@ bool CSteamNetworkingMessages::AcceptSessionWithUser( const SteamNetworkingIdent
 bool CSteamNetworkingMessages::CloseSessionWithUser( const SteamNetworkingIdentity &identityRemote )
 {
 	SteamNetworkingGlobalLock scopeLock( "CloseSessionWithUser" );
-	SteamNetworkingMessagesSession *pSession = FindSession( identityRemote );
+	ConnectionScopeLock connectionLock;
+	SteamNetworkingMessagesSession *pSession = FindSession( identityRemote, connectionLock );
 	if ( !pSession )
 		return false;
 
@@ -408,7 +408,8 @@ bool CSteamNetworkingMessages::CloseSessionWithUser( const SteamNetworkingIdenti
 bool CSteamNetworkingMessages::CloseChannelWithUser( const SteamNetworkingIdentity &identityRemote, int nChannel )
 {
 	SteamNetworkingGlobalLock scopeLock( "CloseChannelWithUser" );
-	SteamNetworkingMessagesSession *pSession = FindSession( identityRemote );
+	ConnectionScopeLock connectionLock;
+	SteamNetworkingMessagesSession *pSession = FindSession( identityRemote, connectionLock );
 	if ( !pSession )
 		return false;
 
@@ -452,7 +453,8 @@ ESteamNetworkingConnectionState CSteamNetworkingMessages::GetSessionConnectionIn
 	if ( pQuickStatus )
 		memset( pQuickStatus, 0, sizeof(*pQuickStatus) );
 
-	SteamNetworkingMessagesSession *pSess = FindSession( identityRemote );
+	ConnectionScopeLock connectionLock;
+	SteamNetworkingMessagesSession *pSess = FindSession( identityRemote, connectionLock );
 	if ( pSess == nullptr )
 		return k_ESteamNetworkingConnectionState_None;
 
@@ -466,26 +468,31 @@ ESteamNetworkingConnectionState CSteamNetworkingMessages::GetSessionConnectionIn
 	return pSess->m_lastConnectionInfo.m_eState;
 }
 
-SteamNetworkingMessagesSession *CSteamNetworkingMessages::FindSession( const SteamNetworkingIdentity &identityRemote )
+SteamNetworkingMessagesSession *CSteamNetworkingMessages::FindSession( const SteamNetworkingIdentity &identityRemote, ConnectionScopeLock &connectionLock )
 {
+	Assert( !connectionLock.IsLocked() );
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
 	int h = m_mapSessions.Find( identityRemote );
 	if ( h == m_mapSessions.InvalidIndex() )
 		return nullptr;
 	SteamNetworkingMessagesSession *pResult = m_mapSessions[ h ];
 	Assert( pResult->m_identityRemote == identityRemote );
+	if ( pResult->m_pConnection )
+		connectionLock.Lock( *pResult->m_pConnection );
 	return pResult;
 }
 
-SteamNetworkingMessagesSession *CSteamNetworkingMessages::FindOrCreateSession( const SteamNetworkingIdentity &identityRemote )
+SteamNetworkingMessagesSession *CSteamNetworkingMessages::FindOrCreateSession( const SteamNetworkingIdentity &identityRemote, ConnectionScopeLock &connectionLock )
 {
-	SteamNetworkingMessagesSession *pResult = FindSession( identityRemote );
+	SteamNetworkingMessagesSession *pResult = FindSession( identityRemote, connectionLock );
 	if ( !pResult )
 	{
 		SpewVerbose( "Messages session %s: created\n", SteamNetworkingIdentityRender( identityRemote ).c_str() );
 		pResult = new SteamNetworkingMessagesSession( identityRemote, *this );
 		m_mapSessions.Insert( identityRemote, pResult );
 	}
+
+	Assert( ( pResult->m_pConnection != nullptr ) == connectionLock.IsLocked() );
 
 	return pResult;
 }
@@ -523,7 +530,8 @@ void CSteamNetworkingMessages::NewConnection( CSteamNetworkConnectionBase *pConn
 	Assert( pConn->BSymmetricMode() );
 
 	// Check if we already have a session with an open connection
-	SteamNetworkingMessagesSession *pSess = FindOrCreateSession( pConn->m_identityRemote );
+	ConnectionScopeLock connectionLock;
+	SteamNetworkingMessagesSession *pSess = FindOrCreateSession( pConn->m_identityRemote, connectionLock );
 	if ( pSess->m_pConnection )
 	{
 		AssertMsg( false, "Got incoming messages session connection request when we already had a connection.  This could happen legit, but we aren't handling it right now." );
@@ -753,6 +761,8 @@ void SteamNetworkingMessagesSession::ReceivedMessage( CSteamNetworkingMessage *p
 
 void SteamNetworkingMessagesSession::ConnectionStateChanged( SteamNetConnectionStatusChangedCallback_t *pInfo )
 {
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
+
 	// If we are already disassociated from our session, then we don't care.
 	if ( !m_pConnection )
 	{
@@ -760,6 +770,8 @@ void SteamNetworkingMessagesSession::ConnectionStateChanged( SteamNetConnectionS
 		return;
 	}
 	Assert( m_pConnection->m_hConnectionSelf == pInfo->m_hConn );
+
+	ConnectionScopeLock connectionLock( *m_pConnection );
 
 	// If we're dead (about to be destroyed, entering finwait, etc, then unlink from session)
 	ESteamNetworkingConnectionState eNewAPIState = pInfo->m_info.m_eState;
