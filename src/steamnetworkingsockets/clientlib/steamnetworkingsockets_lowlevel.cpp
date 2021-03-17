@@ -899,19 +899,21 @@ public:
 		msDelay = std::min( msDelay, 5000 );
 		const SteamNetworkingMicroseconds usecTime = SteamNetworkingSockets_GetLocalTimestamp() + msDelay * 1000;
 
-		// Find the right place to insert the packet.
+		// Find the right place to insert the packet.  This is a dumb linear search, but in
+		// the steady state where the delay is constant, this search loop won't actually iterate,
+		// and we'll always be adding to the end of the queue
 		LaggedPacket *pkt = nullptr;
-		for ( CUtlLinkedList< LaggedPacket >::IndexType_t i = m_list.Head(); i != m_list.InvalidIndex(); i = m_list.Next( i ) )
+		for ( CUtlLinkedList< LaggedPacket >::IndexType_t i = m_list.Tail(); i != m_list.InvalidIndex(); i = m_list.Previous( i ) )
 		{
-			if ( usecTime < m_list[ i ].m_usecTime )
+			if ( usecTime >= m_list[ i ].m_usecTime )
 			{
-				pkt = &m_list[ m_list.InsertBefore( i ) ];
+				pkt = &m_list[ m_list.InsertAfter( i ) ];
 				break;
 			}
 		}
 		if ( pkt == nullptr )
 		{
-			pkt = &m_list[ m_list.AddToTail() ];
+			pkt = &m_list[ m_list.AddToHead() ];
 		}
 	
 		pkt->m_bSend = bSend;
