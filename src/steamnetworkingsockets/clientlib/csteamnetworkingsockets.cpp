@@ -1983,6 +1983,8 @@ ESteamNetworkingGetConfigValueResult CSteamNetworkingUtils::GetConfigValue(
 	intptr_t scopeObj, ESteamNetworkingConfigDataType *pOutDataType,
 	void *pResult, size_t *cbResult )
 {
+	// Take the global lock.
+	SteamNetworkingGlobalLock scopeLock( "GetConfigValue" );
 
 	if ( eValue == k_ESteamNetworkingConfig_MTU_DataSize )
 	{
@@ -2005,8 +2007,6 @@ ESteamNetworkingGetConfigValueResult CSteamNetworkingUtils::GetConfigValue(
 
 	if ( pOutDataType )
 		*pOutDataType = pEntry->m_eDataType;
-
-	SteamNetworkingGlobalLock scopeLock( "GetConfigValue" );
 
 	switch ( pEntry->m_eDataType )
 	{
