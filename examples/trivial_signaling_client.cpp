@@ -14,6 +14,11 @@
 #include <steam/isteamnetworkingutils.h>
 #include <steam/steamnetworkingcustomsignaling.h>
 
+#ifndef SOCK_NONBLOCK
+#include <fcntl.h>
+# define SOCK_NONBLOCK O_NONBLOCK
+#endif
+
 #ifdef POSIX
 	#include <unistd.h>
 	#include <sys/socket.h>
