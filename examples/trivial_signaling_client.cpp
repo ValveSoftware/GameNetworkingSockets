@@ -14,17 +14,13 @@
 #include <steam/isteamnetworkingutils.h>
 #include <steam/steamnetworkingcustomsignaling.h>
 
-#ifndef SOCK_NONBLOCK
-#include <fcntl.h>
-# define SOCK_NONBLOCK O_NONBLOCK
-#endif
-
 #ifdef POSIX
 	#include <unistd.h>
 	#include <sys/socket.h>
 	#include <sys/types.h>
 	#include <netinet/in.h>
 	#include <netdb.h>
+	#include <sys/ioctl.h>
 	typedef int SOCKET;
 	constexpr SOCKET INVALID_SOCKET = -1;
 	inline void closesocket( SOCKET s ) { close(s); }
@@ -33,7 +29,9 @@
 	{
 		return e == EAGAIN || e == ENOTCONN || e == EWOULDBLOCK;
 	}
-
+	#ifndef ioctlsocket
+		#define ioctlsocket ioctl
+	#endif
 #endif
 #ifdef _WIN32
 	#include <winsock2.h>
@@ -136,24 +134,21 @@ class CTrivialSignalingClient : public ITrivialSignalingClient
 		#ifdef LINUX
 			sockType |= SOCK_CLOEXEC;
 		#endif
-		#if !defined( _WIN32 )
-			sockType |= SOCK_NONBLOCK;
-		#endif
 		m_sock = socket( m_adrServer.ss_family, sockType, IPPROTO_TCP );
 		if ( m_sock == INVALID_SOCKET )
 		{
 			TEST_Printf( "socket() failed, error=%d\n", GetSocketError() );
 			return;
 		}
-		#ifdef _WIN32
-			unsigned long opt = 1;
-			if ( ioctlsocket( m_sock, FIONBIO, &opt ) == -1 )
-			{
-				CloseSocket();
-				TEST_Printf( "ioctlsocket() failed, error=%d\n", GetSocketError() );
-				return;
-			}
-		#endif
+
+		// Request nonblocking IO
+		unsigned long opt = 1;
+		if ( ioctlsocket( m_sock, FIONBIO, &opt ) == -1 )
+		{
+			CloseSocket();
+			TEST_Printf( "ioctlsocket() failed, error=%d\n", GetSocketError() );
+			return;
+		}
 
 		connect( m_sock, (const sockaddr *)&m_adrServer, (socklen_t )m_adrServerSize );
 
