@@ -52,6 +52,9 @@
 
 namespace SteamNetworkingSocketsLib {
 
+constexpr int k_msMaxPollWait = 1000;
+constexpr SteamNetworkingMicroseconds k_usecMaxTimestampDelta = k_msMaxPollWait * 1100;
+
 static void FlushSpew();
 
 int g_nSteamDatagramSocketBufferSize = 256*1024;
@@ -1821,7 +1824,7 @@ static bool SteamNetworkingSockets_InternalPoll( int msWait, bool bManualPoll )
 	// be explicitly waking the thread for good perf, we will notice
 	// the delay.  But not so long that a bug in some rare 
 	// shutdown race condition (or the like) will be catastrophic
-	msWait = std::min( msWait, 5000 );
+	msWait = std::min( msWait, k_msMaxPollWait );
 
 	// Poll sockets
 	if ( !PollRawUDPSockets( msWait, bManualPoll ) )
@@ -2527,7 +2530,6 @@ SteamNetworkingMicroseconds SteamNetworkingSockets_GetLocalTimestamp()
 		// we read the timer?
 		SteamNetworkingMicroseconds usecElapsed = usecResult - usecLastReturned;
 		Assert( usecElapsed >= 0 ); // Our raw timer function is not monotonic!  We assume this never happens!
-		const SteamNetworkingMicroseconds k_usecMaxTimestampDelta = k_nMillion; // one second
 		if ( usecElapsed <= k_usecMaxTimestampDelta )
 		{
 			// Should be the common case - only a relatively small of time has elapsed
