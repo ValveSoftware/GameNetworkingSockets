@@ -8,6 +8,7 @@
 
 #ifdef STEAMNETWORKINGSOCKETS_STANDALONELIB
 #include <steam/steamnetworkingsockets.h>
+#include <steam/steamnetworkingcustomsignaling.h>
 #endif
 
 //--- ISteamNetworkingSockets-------------------------
@@ -455,3 +456,81 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamDatagramHostedAddress_SetDev
 }
 
 #endif // #ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
+
+//--- Special flat functions for custom signaling -------------------------
+
+STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingConnectionSignaling *SteamAPI_ISteamNetworkingSockets_CreateCustomSignaling(
+	void *ctx, // pointer to something useful you understand.  Will be passed to your callbacks.
+	FSteamNetworkingSocketsCustomSignaling_SendSignal fnSendSignal, //< Callback to send a signal.  See ISteamNetworkingConnectionSignaling::SendSignal
+	FSteamNetworkingSocketsCustomSignaling_Release fnRelease //< callback to do any cleanup.  See ISteamNetworkingConnectionSignaling::Release.  You can pass NULL if you don't need to do any cleanup.
+) {
+
+	struct FlatSignalingAdapter final : ISteamNetworkingConnectionSignaling
+	{
+		void *const m_ctx;
+		FSteamNetworkingSocketsCustomSignaling_SendSignal const m_fnSendSignal;
+		FSteamNetworkingSocketsCustomSignaling_Release const m_fnRelease;
+
+		FlatSignalingAdapter(
+			void *ctx,
+			FSteamNetworkingSocketsCustomSignaling_SendSignal fnSendSignal,
+			FSteamNetworkingSocketsCustomSignaling_Release fnRelease
+		) : m_ctx ( ctx ), m_fnSendSignal( fnSendSignal ), m_fnRelease( fnRelease )
+		{
+		}
+
+		virtual bool SendSignal( HSteamNetConnection hConn, const SteamNetConnectionInfo_t &info, const void *pMsg, int cbMsg ) override
+		{
+			return (*m_fnSendSignal)( m_ctx, hConn, info, pMsg, cbMsg );
+		}
+		virtual void Release() override
+		{
+
+			// Invoke app cleanup callback, if any
+			if ( m_fnRelease )
+				(*m_fnRelease)( m_ctx );
+
+			// Self destruct
+			delete this;
+		}
+	};
+
+	return new FlatSignalingAdapter( ctx, fnSendSignal, fnRelease );
+}
+
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_ReceivedP2PCustomSignal2(
+	ISteamNetworkingSockets* self, const void * pMsg, int cbMsg,
+	void *ctx,
+	FSteamNetworkingCustomSignalingRecvContext_OnConnectRequest fnOnConnectRequest,
+	FSteamNetworkingCustomSignalingRecvContext_SendRejectionSignal fnSendRejectionSignal
+) {
+	struct FlatRecvContextAdapter final : ISteamNetworkingSignalingRecvContext
+	{
+		void *const m_ctx;
+		FSteamNetworkingCustomSignalingRecvContext_OnConnectRequest const m_fnOnConnectRequest;
+		FSteamNetworkingCustomSignalingRecvContext_SendRejectionSignal const m_fnSendRejectionSignal;
+
+		FlatRecvContextAdapter(
+			void *ctx,
+			FSteamNetworkingCustomSignalingRecvContext_OnConnectRequest fnOnConnectRequest,
+			FSteamNetworkingCustomSignalingRecvContext_SendRejectionSignal fnSendRejectionSignal
+		) : m_ctx ( ctx ), m_fnOnConnectRequest( fnOnConnectRequest ), m_fnSendRejectionSignal( fnSendRejectionSignal )
+		{
+		}
+
+		virtual ISteamNetworkingConnectionSignaling *OnConnectRequest( HSteamNetConnection hConn, const SteamNetworkingIdentity &identityPeer, int nLocalVirtualPort ) override
+		{
+			return (*m_fnOnConnectRequest)( m_ctx, hConn, identityPeer, nLocalVirtualPort );
+		}
+
+		virtual void SendRejectionSignal( const SteamNetworkingIdentity &identityPeer, const void *pMsg, int cbMsg ) override
+		{
+			if ( m_fnSendRejectionSignal )
+				(*m_fnSendRejectionSignal)( m_ctx, identityPeer, pMsg, cbMsg );
+		}
+	};
+
+	FlatRecvContextAdapter adapter( ctx, fnOnConnectRequest, fnSendRejectionSignal );
+	return self->ReceivedP2PCustomSignal( pMsg, cbMsg, &adapter );
+}
+

@@ -15,6 +15,7 @@
 #include "steamnetworkingtypes.h"
 #include "isteamnetworkingsockets.h"
 #include "isteamnetworkingutils.h"
+class ISteamNetworkingConnectionSignaling;
 
 typedef uint64 uint64_steamid; // Used when passing or returning CSteamID
 
@@ -135,5 +136,30 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamDatagramHostedAddress_Clear(
 STEAMNETWORKINGSOCKETS_INTERFACE SteamNetworkingPOPID SteamAPI_SteamDatagramHostedAddress_GetPopID( SteamDatagramHostedAddress* self );
 STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamDatagramHostedAddress_SetDevAddress( SteamDatagramHostedAddress* self, uint32 nIP, uint16 nPort, SteamNetworkingPOPID popid );
 #endif
+
+//
+// Special flat functions to make it easier to work with custom signaling
+//
+
+typedef bool (*FSteamNetworkingSocketsCustomSignaling_SendSignal)( void *ctx, HSteamNetConnection hConn, const SteamNetConnectionInfo_t &info, const void *pMsg, int cbMsg );
+typedef void (*FSteamNetworkingSocketsCustomSignaling_Release)( void *ctx );
+
+/// Create an ISteamNetworkingConnectionSignaling object from plain C primitives.
+STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingConnectionSignaling *SteamAPI_ISteamNetworkingSockets_CreateCustomSignaling(
+	void *ctx, //< pointer to something useful you understand.  Will be passed to your callbacks.
+	FSteamNetworkingSocketsCustomSignaling_SendSignal fnSendSignal, //< Callback to send a signal.  See ISteamNetworkingConnectionSignaling::SendSignal
+	FSteamNetworkingSocketsCustomSignaling_Release fnRelease //< callback to do any cleanup.  See ISteamNetworkingConnectionSignaling::Release.  You can pass NULL if you don't need to do any cleanup.
+);
+
+typedef ISteamNetworkingConnectionSignaling * (*FSteamNetworkingCustomSignalingRecvContext_OnConnectRequest)( void *ctx, HSteamNetConnection hConn, const SteamNetworkingIdentity &identityPeer, int nLocalVirtualPort );
+typedef void (*FSteamNetworkingCustomSignalingRecvContext_SendRejectionSignal)( void *ctx, const SteamNetworkingIdentity &identityPeer, const void *pMsg, int cbMsg );
+
+/// Same as SteamAPI_ISteamNetworkingSockets_ReceivedP2PCustomSignal, but using plain C primitives.
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_ReceivedP2PCustomSignal2(
+	ISteamNetworkingSockets* self, const void * pMsg, int cbMsg, //< Same as SteamAPI_ISteamNetworkingSockets_ReceivedP2PCustomSignal
+	void *ctx, //< pointer to something useful you understand.  Will be passed to your callbacks.
+	FSteamNetworkingCustomSignalingRecvContext_OnConnectRequest fnOnConnectRequest, //< callback for sending a signal.  Required.  See ISteamNetworkingSignalingRecvContext::OnConnectRequest
+	FSteamNetworkingCustomSignalingRecvContext_SendRejectionSignal fnSendRejectionSignal //< callback when we wish to actively reject the connection.  Optional, pass NULL if you don't need this.  See ISteamNetworkingSignalingRecvContext::SendRejectionSignal
+);
 
 #endif // STEAMNETWORKINGSOCKETS_FLAT
