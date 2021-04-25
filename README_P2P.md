@@ -80,7 +80,7 @@ placed on your signaling service are relatively minimal:
   but never more than a few KB.)
 * Only datagram "best-effort" delivery is required. We are tolerant
   protocol is tolerant of dropped, duplicated, or reordered messages.
-  These anomolies may cause negotiation to take longer, but not fail.
+  These anomalies may cause negotiation to take longer, but not fail.
   This means, for example that there doesn't need to be a mechanism to
   inform the system when your connection to the signaling service is
   disrupted.
