@@ -394,11 +394,19 @@ void CSteamNetworkConnectionP2P::ChangeRoleToServerAndAccept( const CMsgSteamNet
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
 		bool bRestartICE = false;
 		CheckCleanupICE();
-		if ( m_pTransportICE )
+
+		// Already failed?
+		if ( GetICEFailureCode() != 0 )
+		{
+			SpewVerboseGroup( nLogLevel, "[%s] ICE already failed (%d %s) while changing role to server.  We won't try again.",
+				GetDescription(), GetICEFailureCode(), m_szICECloseMsg );
+		}
+		else if ( m_pTransportICE )
 		{
 			SpewVerboseGroup( nLogLevel, "[%s] Destroying ICE while changing role to server.\n", GetDescription() );
 			DestroyICENow();
 			bRestartICE = true;
+			Assert( GetICEFailureCode() == 0 );
 		}
 	#endif
 
@@ -408,6 +416,12 @@ void CSteamNetworkConnectionP2P::ChangeRoleToServerAndAccept( const CMsgSteamNet
 	Assert( !m_bCryptKeysValid );
 	Assert( m_sCertRemote.empty() );
 	Assert( m_sCryptRemote.empty() );
+
+	// We're changing the remote connection ID.
+	// If we're in the remote info -> connection map,
+	// we need to get out.  We'll add ourselves back
+	// correct when we accept the connection
+	RemoveP2PConnectionMapByRemoteInfo();
 
 	// Change role
 	m_bConnectionInitiatedRemotely = true;
@@ -430,15 +444,29 @@ void CSteamNetworkConnectionP2P::ChangeRoleToServerAndAccept( const CMsgSteamNet
 	SteamNetworkingErrMsg errMsg;
 	if ( !BEnsureInP2PConnectionMapByRemoteInfo( errMsg ) )
 	{
-		AssertMsg( false, errMsg );
+		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_InternalError, "%s", errMsg );
+		return;
 	}
 
 	// Restart ICE if necessary
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
 		if ( bRestartICE )
+		{
+			Assert( GetICEFailureCode() == 0 );
 			CheckInitICE();
+		}
 	#endif
 
+	// Accept the connection
+	EResult eAcceptResult = APIAcceptConnection();
+	if ( eAcceptResult == k_EResultOK )
+	{
+		Assert( GetState() == k_ESteamNetworkingConnectionState_FindingRoute );
+	}
+	else
+	{
+		Assert( GetState() == k_ESteamNetworkingConnectionState_ProblemDetectedLocally );
+	}
 }
 
 CSteamNetworkConnectionP2P *CSteamNetworkConnectionP2P::AsSteamNetworkConnectionP2P()
@@ -637,7 +665,7 @@ void CSteamNetworkConnectionP2P::EnsureICEFailureReasonSet( SteamNetworkingMicro
 void CSteamNetworkConnectionP2P::GuessICEFailureReason( ESteamNetConnectionEnd &nReasonCode, ConnectionEndDebugMsg &msg, SteamNetworkingMicroseconds usecNow )
 {
 	// Already have a reason?
-	if ( m_msgICESessionSummary.has_failure_reason_code() )
+	if ( m_msgICESessionSummary.failure_reason_code() )
 	{
 		nReasonCode = ESteamNetConnectionEnd( m_msgICESessionSummary.failure_reason_code() );
 		V_strcpy_safe( msg, m_szICECloseMsg );
