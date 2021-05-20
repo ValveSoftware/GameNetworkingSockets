@@ -24,7 +24,7 @@ static void DebugOutput( ESteamNetworkingSocketsDebugOutputType eType, const cha
 	SteamNetworkingMicroseconds time = SteamNetworkingUtils()->GetLocalTimestamp() - g_logTimeZero;
 	if ( g_fpLog )
 		fprintf( g_fpLog, "%10.6f %s\n", time*1e-6, pszMsg );
-	if ( eType <= k_ESteamNetworkingSocketsDebugOutputType_Msg )
+	//if ( eType <= k_ESteamNetworkingSocketsDebugOutputType_Msg )
 	{
 		printf( "%10.6f %s\n", time*1e-6, pszMsg );
 		fflush(stdout);
@@ -80,6 +80,8 @@ void TEST_Init( const SteamNetworkingIdentity *pIdentity )
 	SteamNetworkingUtils()->SetDebugOutputFunction( k_ESteamNetworkingSocketsDebugOutputType_Debug, DebugOutput );
 	//SteamNetworkingUtils()->SetDebugOutputFunction( k_ESteamNetworkingSocketsDebugOutputType_Verbose, DebugOutput );
 	//SteamNetworkingUtils()->SetDebugOutputFunction( k_ESteamNetworkingSocketsDebugOutputType_Msg, DebugOutput );
+
+	SteamNetworkingUtils()->SetGlobalConfigValueInt32( k_ESteamNetworkingConfig_LogLevel_P2PRendezvous, k_ESteamNetworkingSocketsDebugOutputType_Debug );
 
 	#ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
 		SteamDatagramErrMsg errMsg;
