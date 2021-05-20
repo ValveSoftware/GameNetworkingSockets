@@ -85,14 +85,35 @@ def StartClientInThread( role, local, remote ):
     ]
     return StartProcessInThread( local, cmdline );
 
+# Run a standard client/server connection-oriented case.
+# where one peer is the "server" and "listens" and a "client" connects.
+def ClientServerTest():
+    print( "Running basic socket client/server test" )
+
+    client1 = StartClientInThread( "server", "peer_server", "peer_client" )
+    client2 = StartClientInThread( "client", "peer_client", "peer_server" )
+
+    # Wait for clients to shutdown.  Nuke them if necessary
+    client1.join( timeout=20 )
+    client2.join( timeout=20 )
+
+#
+# Main
+#
+
+# Start the signaling server
 signaling = StartProcessInThread( "signaling", [ './trivial_signaling_server' ] )
 
-client1 = StartClientInThread( "server", "peer_server", "peer_client" )
-client2 = StartClientInThread( "client", "peer_client", "peer_server" )
-
-# Wait for clients to shutdown.  Nuke them if necessary
-client1.join( timeout=20 )
-client2.join( timeout=20 )
+# Run the tests
+# FIXME - Add more tests
+for test in [ ClientServerTest ]:
+    print( "=================================================================" )
+    print( "=================================================================" )
+    test()
+    print( "=================================================================" )
+    print( "=================================================================" )
+    if g_failed:
+        break
 
 # Ignore any "failure" detected in signaling server shutdown.
 really_failed = g_failed
