@@ -292,6 +292,25 @@ bool CSteamNetworkConnectionP2P::BInitP2PConnectionCommon( SteamNetworkingMicros
 	return true;
 }
 
+void CSteamNetworkConnectionP2P::RemoveP2PConnectionMapByRemoteInfo()
+{
+	AssertLocksHeldByCurrentThread();
+
+	if ( m_idxMapP2PConnectionsByRemoteInfo >= 0 )
+	{
+		if ( g_mapP2PConnectionsByRemoteInfo.IsValidIndex( m_idxMapP2PConnectionsByRemoteInfo ) && g_mapP2PConnectionsByRemoteInfo[ m_idxMapP2PConnectionsByRemoteInfo ] == this )
+		{
+			g_mapP2PConnectionsByRemoteInfo[ m_idxMapP2PConnectionsByRemoteInfo ] = nullptr; // just for grins
+			g_mapP2PConnectionsByRemoteInfo.RemoveAt( m_idxMapP2PConnectionsByRemoteInfo );
+		}
+		else
+		{
+			AssertMsg( false, "g_mapIncomingP2PConnections bookkeeping mismatch" );
+		}
+		m_idxMapP2PConnectionsByRemoteInfo = -1;
+	}
+}
+
 bool CSteamNetworkConnectionP2P::BEnsureInP2PConnectionMapByRemoteInfo( SteamDatagramErrMsg &errMsg )
 {
 	Assert( !m_identityRemote.IsInvalid() );
@@ -797,19 +816,7 @@ void CSteamNetworkConnectionP2P::FreeResources()
 	AssertLocksHeldByCurrentThread();
 
 	// Remove from global map, if we're in it
-	if ( m_idxMapP2PConnectionsByRemoteInfo >= 0 )
-	{
-		if ( g_mapP2PConnectionsByRemoteInfo.IsValidIndex( m_idxMapP2PConnectionsByRemoteInfo ) && g_mapP2PConnectionsByRemoteInfo[ m_idxMapP2PConnectionsByRemoteInfo ] == this )
-		{
-			g_mapP2PConnectionsByRemoteInfo[ m_idxMapP2PConnectionsByRemoteInfo ] = nullptr; // just for grins
-			g_mapP2PConnectionsByRemoteInfo.RemoveAt( m_idxMapP2PConnectionsByRemoteInfo );
-		}
-		else
-		{
-			AssertMsg( false, "g_mapIncomingP2PConnections bookkeeping mismatch" );
-		}
-		m_idxMapP2PConnectionsByRemoteInfo = -1;
-	}
+	RemoveP2PConnectionMapByRemoteInfo();
 
 	// Release signaling
 	if ( m_pSignaling )

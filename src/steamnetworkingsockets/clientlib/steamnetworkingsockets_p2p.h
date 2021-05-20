@@ -403,6 +403,7 @@ public:
 
 	static CSteamNetworkConnectionP2P *FindDuplicateConnection( CSteamNetworkingSockets *pInterfaceLocal, int nLocalVirtualPort, const SteamNetworkingIdentity &identityRemote, int nRemoteVirtualPort, bool bOnlySymmetricConnections, CSteamNetworkConnectionP2P *pIgnore );
 
+	void RemoveP2PConnectionMapByRemoteInfo();
 	bool BEnsureInP2PConnectionMapByRemoteInfo( SteamDatagramErrMsg &errMsg );
 
 protected:
