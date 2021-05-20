@@ -49,3 +49,7 @@ perf.data.old
 
 *partner*
 
+# We use cmake, so no Visual studio project files should be in git
+*.sln
+*.vcxproj
+*.vcxproj.filters
