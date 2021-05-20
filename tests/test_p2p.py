@@ -97,6 +97,16 @@ def ClientServerTest():
     client1.join( timeout=20 )
     client2.join( timeout=20 )
 
+def SymmetricTest():
+    print( "Running socket symmetric test" )
+
+    client1 = StartClientInThread( "symmetric", "alice", "bob" )
+    client2 = StartClientInThread( "symmetric", "bob", "alice" )
+
+    # Wait for clients to shutdown.  Nuke them if necessary
+    client1.join( timeout=20 )
+    client2.join( timeout=20 )
+
 #
 # Main
 #
@@ -105,8 +115,7 @@ def ClientServerTest():
 signaling = StartProcessInThread( "signaling", [ './trivial_signaling_server' ] )
 
 # Run the tests
-# FIXME - Add more tests
-for test in [ ClientServerTest ]:
+for test in [ ClientServerTest, SymmetricTest ]:
     print( "=================================================================" )
     print( "=================================================================" )
     test()
