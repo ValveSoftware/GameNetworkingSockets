@@ -368,7 +368,7 @@ void CSteamNetworkConnectionP2P::ChangeRoleToServerAndAccept( const CMsgSteamNet
 		return;
 	}
 
-	SpewVerboseGroup( nLogLevel, "[%s] Symmetric role resolution for connect request remote cxn ID #%u says we should act as client.  Changing role\n", GetDescription(), msg.from_connection_id() );
+	SpewVerboseGroup( nLogLevel, "[%s] Symmetric role resolution for connect request remote cxn ID #%u says we should act as server.  Changing role\n", GetDescription(), msg.from_connection_id() );
 
 	// !KLUDGE! If we already started ICE, then we have to nuke it and restart.
 	// It'd be better if we could just ask ICE to change the role.
@@ -377,7 +377,7 @@ void CSteamNetworkConnectionP2P::ChangeRoleToServerAndAccept( const CMsgSteamNet
 		CheckCleanupICE();
 		if ( m_pTransportICE )
 		{
-			SpewVerboseGroup( nLogLevel, "[%s] Symmetric role resolution for connect request remote cxn ID #%u says we should act as client.  Changing role\n", GetDescription(), msg.from_connection_id() );
+			SpewVerboseGroup( nLogLevel, "[%s] Destroying ICE while changing role to server.\n", GetDescription() );
 			DestroyICENow();
 			bRestartICE = true;
 		}
