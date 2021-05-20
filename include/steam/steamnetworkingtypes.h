@@ -541,13 +541,9 @@ enum ESteamNetConnectionEnd
 		// - etc
 		k_ESteamNetConnectionEnd_Remote_BadCert = 4003,
 
-		// We couldn't rendezvous with the remote host because
-		// they aren't logged into Steam
-		k_ESteamNetConnectionEnd_Remote_NotLoggedIn = 4004,
-
-		// We couldn't rendezvous with the remote host because
-		// they aren't running the right application.
-		k_ESteamNetConnectionEnd_Remote_NotRunningApp = 4005,
+		// These will never be returned
+		//k_ESteamNetConnectionEnd_Remote_NotLoggedIn_DEPRECATED = 4004,
+		//k_ESteamNetConnectionEnd_Remote_NotRunningApp_DEPRECATED = 4005,
 
 		// Something wrong with the protocol version you are using.
 		// (Probably the code you are running is too old.)
@@ -581,10 +577,7 @@ enum ESteamNetConnectionEnd
 		// or on their end.
 		k_ESteamNetConnectionEnd_Misc_Timeout = 5003,
 
-		// We're having trouble talking to the relevant relay.
-		// We don't have enough information to say whether the
-		// problem is on our end or not.
-		k_ESteamNetConnectionEnd_Misc_RelayConnectivity = 5004,
+		//k_ESteamNetConnectionEnd_Misc_RelayConnectivity_DEPRECATED = 5004,
 
 		// There's some trouble talking to Steam.
 		k_ESteamNetConnectionEnd_Misc_SteamConnectivity = 5005,
