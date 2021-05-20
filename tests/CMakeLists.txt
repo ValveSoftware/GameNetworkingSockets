@@ -25,7 +25,7 @@ target_include_directories(test_crypto PRIVATE ../src ../src/public ../src/commo
 target_link_libraries(test_crypto GameNetworkingSockets_s)
 add_sanitizers(test_crypto)
 
-# Test data for the crypto test
+# Test data for the crypto test when the project is built
 file(COPY aesgcmtestvectors DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
 
 # P2P test
@@ -38,7 +38,12 @@ if(USE_STEAMWEBRTC)
 	set_target_common_gns_properties( test_p2p )
 	target_link_libraries(test_p2p ${GAMENETWORKINGSOCKETS_LIB})
 
-	# NOTE: This happens when we generate the projects, and really we'd like to actually
-	# make a build rule to copy it.  I don't want to do that work right now.
-	file(COPY test_p2p.py DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
+	# Publish the test script
+	set( P2P_TEST_SCRIPT ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test_p2p.py )
+	set( P2P_TEST_SCRIPT_SRC ${CMAKE_CURRENT_SOURCE_DIR}/test_p2p.py )
+	add_custom_command( 
+		OUTPUT ${P2P_TEST_SCRIPT} 
+		COMMAND ${CMAKE_COMMAND} -E copy ${P2P_TEST_SCRIPT_SRC} ${P2P_TEST_SCRIPT}
+		DEPENDS ${P2P_TEST_SCRIPT_SRC} )
+	add_custom_target( publish_test_script ALL DEPENDS ${P2P_TEST_SCRIPT} )
 endif()
