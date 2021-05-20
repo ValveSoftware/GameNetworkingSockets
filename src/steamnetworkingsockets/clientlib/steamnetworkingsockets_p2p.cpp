@@ -484,9 +484,13 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 	}
 
 	// Burn it into the connection config, if we inherited it, since we cannot change it
-	// after this point
-	m_connectionConfig.m_P2P_Transport_ICE_Enable.Set( P2P_Transport_ICE_Enable );
-	m_connectionConfig.m_P2P_Transport_ICE_Enable.Lock();
+	// after this point.  (Note in some cases we may be running this initialization
+	// for a second time, restarting ICE, so it might already be locked.)
+	if ( !m_connectionConfig.m_P2P_Transport_ICE_Enable.IsLocked() )
+	{
+		m_connectionConfig.m_P2P_Transport_ICE_Enable.Set( P2P_Transport_ICE_Enable );
+		m_connectionConfig.m_P2P_Transport_ICE_Enable.Lock();
+	}
 
 	// Disabled?
 	if ( P2P_Transport_ICE_Enable <= 0 )
@@ -581,7 +585,6 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 
 		// Set a field in the ice session summary message,
 		// which is how we will remember that we did attempt to use ICE
-		Assert( !m_msgICESessionSummary.has_local_candidate_types() );
 		m_msgICESessionSummary.set_local_candidate_types( 0 );
 	}
 #endif
