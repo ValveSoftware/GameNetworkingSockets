@@ -2037,7 +2037,7 @@ IBoundUDPSocket *OpenUDPSocketBoundToHost( const netadr_t &adrRemote, CRecvPacke
 	// Select local address to use.
 	// Since we know the remote host, let's just always use a single-stack socket
 	// with the specified family
-	int nAddressFamilies = ( adrRemote.GetType() == NA_IPV6 ) ? k_nAddressFamily_IPv6 : k_nAddressFamily_IPv4;
+	int nAddressFamilies = ( adrRemote.GetType() == k_EIPTypeV6 ) ? k_nAddressFamily_IPv6 : k_nAddressFamily_IPv4;
 
 	// Create a socket, bind it to the desired local address
 	CDedicatedBoundSocket *pTempContext = nullptr; // don't yet know the context

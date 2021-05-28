@@ -58,7 +58,12 @@ IThinker::~IThinker()
 	#pragma GCC diagnostic ignored "-Wstrict-overflow"
 #endif
 
+#ifdef IS_STEAMDATAGRAMROUTER
+struct ShortDurationLock { inline void lock() {}; inline void unlock() {}; };
+static ShortDurationLock s_mutexThinkerTable;
+#else
 static ShortDurationLock s_mutexThinkerTable( "thinker" );
+#endif
 
 // Base class isn't lockable
 bool IThinker::TryLock() const { return true; }
