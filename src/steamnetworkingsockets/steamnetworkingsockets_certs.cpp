@@ -9,19 +9,28 @@
 
 namespace SteamNetworkingSocketsLib {
 
+uint64 CalculatePublicKeyID_Ed25519( const void *pPubKey, size_t cbPubKey )
+{
+	if ( cbPubKey != 32 )
+		return 0;
+
+	SHA256Digest_t digest;
+	CCrypto::GenerateSHA256Digest( pPubKey, cbPubKey, &digest );
+
+	// First 8 bytes
+	return LittleQWord( *(uint64*)&digest );
+}
+
 uint64 CalculatePublicKeyID( const CECSigningPublicKey &pubKey )
 {
 	if ( !pubKey.IsValid() )
 		return 0;
 
 	// SHA over the whole public key.
-	SHA256Digest_t digest;
 	uint8 data[32];
-	DbgVerify( pubKey.GetRawData( data ) == sizeof(data) );
-	CCrypto::GenerateSHA256Digest( data, sizeof(data), &digest );
-
-	// First 8 bytes
-	return LittleQWord( *(uint64*)&digest );
+	uint32 cbPubKey = pubKey.GetRawData( data );
+	Assert( cbPubKey == sizeof(data) );
+	return CalculatePublicKeyID_Ed25519( data, cbPubKey );
 }
 
 // Returns:

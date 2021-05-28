@@ -244,7 +244,7 @@ struct PublicKey
 		if ( m_eTrust >= k_ETrust_Trusted )
 			return true;
 		Assert( m_eTrust <= k_ETrust_NotTrusted );
-		Assert( !m_status_msg.empty() ); // We should nkow the reason for any key we don't trust
+		Assert( !m_status_msg.empty() ); // We should know the reason for any key we don't trust
 		return false;
 	}
 
@@ -666,6 +666,38 @@ const CertAuthScope *CertStore_CheckCert( const CMsgSteamDatagramCertificateSign
 		return nullptr;
 	}
 
+	// Check if their key has specifically been revoked.
+	if ( outMsgCert.key_type() != CMsgSteamDatagramCertificate_EKeyType_ED25519 )
+	{
+		V_sprintf_safe( errMsg, "Cert has invalid key type %d", (int)outMsgCert.key_type() );
+		return nullptr;
+	}
+	uint64 nKeyID = CalculatePublicKeyID_Ed25519( outMsgCert.key_data().c_str(), outMsgCert.key_data().length() );
+	if ( nKeyID == 0)
+	{
+		V_sprintf_safe( errMsg, "Cert has invalid public key" );
+		return nullptr;
+	}
+	const PublicKey *pPubKey = FindPublicKey( nKeyID );
+	if ( pPubKey )
+	{
+		if ( pPubKey->m_eTrust == k_ETrust_NotTrusted )
+		{
+			// Hm - this status doesn't mean "bad", it just means that the cert in the cert store
+			// with this key was not able to be verified.  This is an an unusual situation, ordinarily
+			// we should not have any certs in the cert store that we are not able to trust.  Still, we
+			// just specific ally verified trust above.  So let's continue on, but without adding this
+			// to the cert store.
+		}
+		else if ( !pPubKey->IsTrusted() )
+		{
+			// Key is revoked.
+			Assert( pPubKey->m_eTrust == k_ETrust_Revoked );
+			V_sprintf_safe( errMsg, "Cert has untrusted public key.  %s", pPubKey->m_status_msg.c_str() );
+			return nullptr;
+		}
+	}
+
 	return pResult;
 }
 
@@ -677,7 +709,7 @@ bool CheckCertAppID( const CMsgSteamDatagramCertificate &msgCert, const CertAuth
 	{
 		if ( !pCACertAuthScope || pCACertAuthScope->m_apps.HasItem( nAppID ) )
 			return true;
-		V_sprintf_safe( errMsg, "Cert is not restricted by appid, by CA trust chain is, and does not authorize %u", nAppID );
+		V_sprintf_safe( errMsg, "Cert is not restricted by appid, but CA trust chain is, and does not authorize %u", nAppID );
 		return true;
 	}
 
@@ -713,7 +745,7 @@ bool CheckCertPOPID( const CMsgSteamDatagramCertificate &msgCert, const CertAuth
 	{
 		if ( !pCACertAuthScope || pCACertAuthScope->m_pops.HasItem( popID ) )
 			return true;
-		V_sprintf_safe( errMsg, "Cert is not restricted by POPID, by CA trust chain is, and does not authorize %s", SteamNetworkingPOPIDRender( popID ).c_str() );
+		V_sprintf_safe( errMsg, "Cert is not restricted by POPID, but CA trust chain is, and does not authorize %s", SteamNetworkingPOPIDRender( popID ).c_str() );
 		return true;
 	}
 

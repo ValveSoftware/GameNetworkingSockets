@@ -442,6 +442,7 @@ extern uint32 Murmorhash32( const void *data, size_t len );
 /// although not really cryptographically secure.  (We are in charge of the
 /// set of public keys and we expect it to be reasonably small.)
 extern uint64 CalculatePublicKeyID( const CECSigningPublicKey &pubKey );
+extern uint64 CalculatePublicKeyID_Ed25519( const void *pPubKey, size_t cbPubKey );
 
 /// Check an arbitrary signature using the specified public key.  (It's assumed that you have
 /// already verified that this public key is from somebody you trust.)
