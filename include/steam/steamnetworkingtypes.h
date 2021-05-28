@@ -258,6 +258,8 @@ struct SteamNetworkingIdentity
 
 	void SetIPAddr( const SteamNetworkingIPAddr &addr ); // Set to specified IP:port
 	const SteamNetworkingIPAddr *GetIPAddr() const; // returns null if we are not an IP address.
+	void SetIPv4Addr( uint32 nIPv4, uint16 nPort ); // Set to specified IPv4:port
+	uint32 GetIPv4() const; // returns 0 if we are not an IPv4 address.
 
 	// "localhost" is equivalent for many purposes to "anonymous."  Our remote
 	// will identify us by the network address we use.
@@ -1686,6 +1688,8 @@ inline void SteamNetworkingIdentity::SetSteamID64( uint64 steamID ) { m_eType = 
 inline uint64 SteamNetworkingIdentity::GetSteamID64() const { return m_eType == k_ESteamNetworkingIdentityType_SteamID ? m_steamID64 : 0; }
 inline void SteamNetworkingIdentity::SetIPAddr( const SteamNetworkingIPAddr &addr ) { m_eType = k_ESteamNetworkingIdentityType_IPAddress; m_cbSize = (int)sizeof(m_ip); m_ip = addr; }
 inline const SteamNetworkingIPAddr *SteamNetworkingIdentity::GetIPAddr() const { return m_eType == k_ESteamNetworkingIdentityType_IPAddress ? &m_ip : NULL; }
+inline void SteamNetworkingIdentity::SetIPv4Addr( uint32 nIPv4, uint16 nPort ) { m_eType = k_ESteamNetworkingIdentityType_IPAddress; m_cbSize = (int)sizeof(m_ip); m_ip.SetIPv4( nIPv4, nPort ); }
+inline uint32 SteamNetworkingIdentity::GetIPv4() const { return m_eType == k_ESteamNetworkingIdentityType_IPAddress ? m_ip.GetIPv4() : 0; }
 inline void SteamNetworkingIdentity::SetLocalHost() { m_eType = k_ESteamNetworkingIdentityType_IPAddress; m_cbSize = (int)sizeof(m_ip); m_ip.SetIPv6LocalHost(); }
 inline bool SteamNetworkingIdentity::IsLocalHost() const { return m_eType == k_ESteamNetworkingIdentityType_IPAddress && m_ip.IsLocalHost(); }
 inline bool SteamNetworkingIdentity::SetGenericString( const char *pszString ) { size_t l = strlen( pszString ); if ( l >= sizeof(m_szGenericString) ) return false;
