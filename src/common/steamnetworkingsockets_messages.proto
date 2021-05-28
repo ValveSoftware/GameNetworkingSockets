@@ -321,6 +321,12 @@ message CMsgSteamNetworkingICESessionSummary
 	optional uint32 initial_score = 6;
 	optional uint32 negotiation_ms = 5; // How long did it take to get a NAT traversal result (either success or failure)
 
+	// Best route and score we ever had over the life of the connection
+	optional uint32 best_route_kind = 16; // ESteamNetTransportKind
+	optional uint32 best_ping = 17;
+	optional uint32 best_score = 18;
+	optional uint32 best_time = 19; // seconds into the connections when this happened
+
 	// How long were we the selcted transport?
 	optional uint32 selected_seconds = 12;
 

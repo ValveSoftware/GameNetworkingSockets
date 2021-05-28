@@ -295,13 +295,23 @@ void CConnectionTransportP2PICE::P2PTransportUpdateRouteMetrics( SteamNetworking
 
 	// Check for recording the initial scoring data used to make the initial decision
 	CMsgSteamNetworkingICESessionSummary &ice_summary = Connection().m_msgICESessionSummary;
+	uint32 nScore = m_routeMetrics.m_nScoreCurrent + m_routeMetrics.m_nTotalPenalty;
 	if (
 		ConnectionState() == k_ESteamNetworkingConnectionState_FindingRoute
 		|| !ice_summary.has_initial_ping()
+		|| ( nScore < ice_summary.initial_score() && usecNow < Connection().m_usecWhenCreated + 15*k_nMillion )
 	) {
-		ice_summary.set_initial_score( m_routeMetrics.m_nScoreCurrent + m_routeMetrics.m_nTotalPenalty );
+		ice_summary.set_initial_score( nScore );
 		ice_summary.set_initial_ping( m_pingEndToEnd.m_nSmoothedPing );
 		ice_summary.set_initial_route_kind( m_eCurrentRouteKind );
+	}
+
+	if ( !ice_summary.has_best_score() || nScore < ice_summary.best_score() )
+	{
+		ice_summary.set_best_score( nScore );
+		ice_summary.set_best_ping( m_pingEndToEnd.m_nSmoothedPing );
+		ice_summary.set_best_route_kind( m_eCurrentRouteKind );
+		ice_summary.set_best_time( ( usecNow - Connection().m_usecWhenCreated + 500*1000 ) / k_nMillion );
 	}
 }
 
