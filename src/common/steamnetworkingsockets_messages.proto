@@ -26,7 +26,7 @@ enum ESteamNetworkingSocketsCipher
 message CMsgSteamDatagramSessionCryptInfo
 {
 
-	// Key used for Diffie–Hellman key exchange.  Typically this should be an
+	// Key used for Diffie-Hellman key exchange.  Typically this should be an
 	// ephemeral key used only for this connection.
 	enum EKeyType
 	{
