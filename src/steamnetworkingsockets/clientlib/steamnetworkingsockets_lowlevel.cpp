@@ -872,7 +872,7 @@ class CPacketLagger : private IThinker
 public:
 	~CPacketLagger() { Clear(); }
 
-	void LagPacket( bool bSend, CRawUDPSocketImpl *pSock, const netadr_t &adr, int msDelay, int nChunks, const iovec *pChunks )
+	void LagPacket( CRawUDPSocketImpl *pSock, const netadr_t &adr, int msDelay, int nChunks, const iovec *pChunks )
 	{
 		SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "LagPacket" );
 
@@ -919,7 +919,6 @@ public:
 			pkt = &m_list[ m_list.AddToHead() ];
 		}
 	
-		pkt->m_bSend = bSend;
 		pkt->m_pSockOwner = pSock;
 		pkt->m_adrRemote = adr;
 		pkt->m_usecTime = usecTime;
@@ -951,33 +950,18 @@ public:
 
 			// Make sure socket is still in good shape.
 			CRawUDPSocketImpl *pSock = pkt.m_pSockOwner;
-			if ( pSock->m_socket == INVALID_SOCKET || !pSock->m_callback.m_fnCallback )
+			if ( pSock )
 			{
-				AssertMsg( false, "Lagged packet remains in queue after socket destroyed or queued for destruction!" );
-			}
-			else
-			{
-
-				// Sending, or receiving?
-				if ( pkt.m_bSend )
+				if ( pSock->m_socket == INVALID_SOCKET || !pSock->m_callback.m_fnCallback )
 				{
-					iovec temp;
-					temp.iov_len = pkt.m_cbPkt;
-					temp.iov_base = pkt.m_pkt;
-					pSock->BReallySendRawPacket( 1, &temp, pkt.m_adrRemote );
+					AssertMsg( false, "Lagged packet remains in queue after socket destroyed or queued for destruction!" );
 				}
 				else
 				{
-					// Copy data out of queue into local variables, just in case a
-					// packet is queued while we're in this function.  We don't want
-					// our list to shift in memory, and the pointer we pass to the
-					// caller to dangle.
-					char temp[ k_cbSteamNetworkingSocketsMaxUDPMsgLen ];
-					memcpy( temp, pkt.m_pkt, pkt.m_cbPkt );
-					pSock->m_callback( RecvPktInfo_t{ temp, pkt.m_cbPkt, pkt.m_adrRemote, pSock } );
+					ProcessPacket( pkt );
 				}
+				m_list.RemoveFromHead();
 			}
-			m_list.RemoveFromHead();
 		}
 
 		Schedule();
@@ -1001,14 +985,12 @@ public:
 		{
 			int idxNext = m_list.Next( idx );
 			if ( m_list[idx].m_pSockOwner == pSock )
-				m_list.Remove( idx );
+				m_list[idx].m_pSockOwner = nullptr;
 			idx = idxNext;
 		}
-
-		Schedule();
 	}
 
-private:
+protected:
 
 	/// Set the next think time as appropriate
 	void Schedule()
@@ -1021,7 +1003,6 @@ private:
 
 	struct LaggedPacket
 	{
-		bool m_bSend; // true for outbound, false for inbound
 		CRawUDPSocketImpl *m_pSockOwner;
 		netadr_t m_adrRemote;
 		SteamNetworkingMicroseconds m_usecTime; /// Time when it should be sent or received
@@ -1030,9 +1011,39 @@ private:
 	};
 	CUtlLinkedList<LaggedPacket> m_list;
 
+	/// Do whatever we're supposed to do with the next packet
+	virtual void ProcessPacket( const LaggedPacket &pkt ) = 0;
 };
 
-static CPacketLagger s_packetLagQueue;
+class CPacketLaggerSend final : public CPacketLagger
+{
+public:
+	virtual void ProcessPacket( const LaggedPacket &pkt ) override
+	{
+		iovec temp;
+		temp.iov_len = pkt.m_cbPkt;
+		temp.iov_base = (void *)pkt.m_pkt;
+		pkt.m_pSockOwner->BReallySendRawPacket( 1, &temp, pkt.m_adrRemote );
+	}
+};
+
+class CPacketLaggerRecv final : public CPacketLagger
+{
+public:
+	virtual void ProcessPacket( const LaggedPacket &pkt ) override
+	{
+		// Copy data out of queue into local variables, just in case a
+		// packet is queued while we're in this function.  We don't want
+		// our list to shift in memory, and the pointer we pass to the
+		// caller to dangle.
+		char temp[ k_cbSteamNetworkingSocketsMaxUDPMsgLen ];
+		memcpy( temp, pkt.m_pkt, pkt.m_cbPkt );
+		pkt.m_pSockOwner->m_callback( RecvPktInfo_t{ temp, pkt.m_cbPkt, pkt.m_adrRemote, pkt.m_pSockOwner } );
+	}
+};
+
+static CPacketLaggerSend s_packetLagQueueSend;
+static CPacketLaggerRecv s_packetLagQueueRecv;
 
 /// Object used to wake our background thread efficiently
 #if defined( _WIN32 )
@@ -1115,13 +1126,13 @@ bool CRawUDPSocketImpl::BSendRawPacketGather( int nChunks, const iovec *pChunks,
 	{
 		int32 nDupLag = nPacketFakeLagTotal + WeakRandomInt( 0, g_Config_FakePacketDup_TimeMax.Get() );
 		nDupLag = std::max( 1, nDupLag );
-		s_packetLagQueue.LagPacket( true, const_cast<CRawUDPSocketImpl *>( this ), adrTo, nDupLag, nChunks, pChunks );
+		s_packetLagQueueSend.LagPacket( const_cast<CRawUDPSocketImpl *>( this ), adrTo, nDupLag, nChunks, pChunks );
 	}
 
 	// Lag the original packet?
 	if ( nPacketFakeLagTotal > 0 )
 	{
-		s_packetLagQueue.LagPacket( true, const_cast<CRawUDPSocketImpl *>( this ), adrTo, nPacketFakeLagTotal, nChunks, pChunks );
+		s_packetLagQueueSend.LagPacket( const_cast<CRawUDPSocketImpl *>( this ), adrTo, nPacketFakeLagTotal, nChunks, pChunks );
 		return true;
 	}
 
@@ -1129,9 +1140,8 @@ bool CRawUDPSocketImpl::BSendRawPacketGather( int nChunks, const iovec *pChunks,
 	return BReallySendRawPacket( nChunks, pChunks, adrTo );
 }
 
-void CRawUDPSocketImpl::Close()
+void CRawUDPSocketImpl::InternalAddToCleanupQueue()
 {
-	SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "IRawUDPSocket::Close" );
 
 	/// Clear the callback, to ensure that no further callbacks will be executed.
 	/// This marks the socket as pending destruction.
@@ -1144,7 +1154,16 @@ void CRawUDPSocketImpl::Close()
 	s_vecRawSocketsPendingDeletion.AddToTail( this );
 
 	// Clean up lagged packets, if any
-	s_packetLagQueue.AboutToDestroySocket( this );
+	s_packetLagQueueSend.AboutToDestroySocket( this );
+	s_packetLagQueueRecv.AboutToDestroySocket( this );
+}
+
+void CRawUDPSocketImpl::Close()
+{
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "IRawUDPSocket::Close" );
+
+	// Mark the callback as detached, and put us in the queue for cleanup when it's safe.
+	InternalAddToCleanupQueue();
 
 	// Make sure we don't delay doing this too long
 	if ( s_bManualPollMode || ( s_pThreadSteamDatagram && s_pThreadSteamDatagram->get_id() != std::this_thread::get_id() ) )
@@ -1697,7 +1716,7 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 				iovec temp;
 				temp.iov_len = ret;
 				temp.iov_base = buf;
-				s_packetLagQueue.LagPacket( false, pSock, info.m_adrFrom, nDupLag, 1, &temp );
+				s_packetLagQueueRecv.LagPacket( pSock, info.m_adrFrom, nDupLag, 1, &temp );
 			}
 
 			// Check for simulating lag
@@ -1706,7 +1725,7 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 				iovec temp;
 				temp.iov_len = ret;
 				temp.iov_base = buf;
-				s_packetLagQueue.LagPacket( false, pSock, info.m_adrFrom, nPacketFakeLagTotal, 1, &temp );
+				s_packetLagQueueRecv.LagPacket( pSock, info.m_adrFrom, nPacketFakeLagTotal, 1, &temp );
 			}
 			else
 			{
@@ -2472,6 +2491,10 @@ void SteamNetworkingSocketsLowLevelDecRef()
 
 	Assert( s_vecRawSocketsPendingDeletion.IsEmpty() );
 	s_vecRawSocketsPendingDeletion.Purge();
+
+	// Nuke packet lagger queues and make sure we are not registered to think
+	s_packetLagQueueRecv.Clear();
+	s_packetLagQueueSend.Clear();
 
 	// Shutdown event tracing
 	ETW_Kill();
