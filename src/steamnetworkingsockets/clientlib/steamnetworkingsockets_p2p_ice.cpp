@@ -42,23 +42,44 @@ void CConnectionTransportP2PICE::TransportPopulateConnectionInfo( SteamNetConnec
 	CConnectionTransport::TransportPopulateConnectionInfo( info );
 
 	info.m_addrRemote = m_currentRouteRemoteAddress;
-	info.m_eTransportKind = m_eCurrentRouteKind;
-
-	// If we thought the route was local, but ping time is too high, then clear local flag.
-	// (E.g. VPN)
-	if ( info.m_eTransportKind == k_ESteamNetTransport_UDPProbablyLocal )
+	switch ( m_eCurrentRouteKind )
 	{
-		int nPingMin, nPingMax;
-		m_pingEndToEnd.GetPingRangeFromRecentBuckets( nPingMin, nPingMax, SteamNetworkingSockets_GetLocalTimestamp() );
-		if ( nPingMin >= k_nMinPingTimeLocalTolerance )
-			info.m_eTransportKind = k_ESteamNetTransport_UDP;
+		default:
+		case k_ESteamNetTransport_SDRP2P:
+		case k_ESteamNetTransport_Unknown:
+			// Hm...
+			Assert( false );
+			break;
+
+		case k_ESteamNetTransport_LocalHost:
+			info.m_nFlags |= k_nSteamNetworkConnectionInfoFlags_Fast;
+			break;
+
+		case k_ESteamNetTransport_UDP:
+			break;
+
+		case k_ESteamNetTransport_UDPProbablyLocal:
+		{
+			int nPingMin, nPingMax;
+			m_pingEndToEnd.GetPingRangeFromRecentBuckets( nPingMin, nPingMax, SteamNetworkingSockets_GetLocalTimestamp() );
+			if ( nPingMin < k_nMinPingTimeLocalTolerance )
+				info.m_nFlags |= k_nSteamNetworkConnectionInfoFlags_Fast;
+			break;
+		}
+
+		case k_ESteamNetTransport_TURN:
+			info.m_nFlags |= k_nSteamNetworkConnectionInfoFlags_Relayed;
+			info.m_addrRemote.Clear();
+			break;
 	}
 }
 
 void CConnectionTransportP2PICE::GetDetailedConnectionStatus( SteamNetworkingDetailedConnectionStatus &stats, SteamNetworkingMicroseconds usecNow )
 {
-	// FIXME Need to indicate whether we are relayed or were able to pierce NAT
-	CConnectionTransport::GetDetailedConnectionStatus( stats, usecNow );
+	CConnectionTransportUDPBase::GetDetailedConnectionStatus( stats, usecNow );
+	stats.m_eTransportKind = m_eCurrentRouteKind;
+	if ( stats.m_eTransportKind == k_ESteamNetTransport_UDPProbablyLocal && !( stats.m_info.m_nFlags & k_nSteamNetworkConnectionInfoFlags_Fast ) )
+		stats.m_eTransportKind = k_ESteamNetTransport_UDP;
 }
 
 // Base-64 encode the least significant 30 bits.

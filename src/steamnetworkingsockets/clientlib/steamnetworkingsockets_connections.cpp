@@ -1112,6 +1112,7 @@ void CSteamNetworkConnectionBase::ClearCrypto()
 	m_msgCertRemote.Clear();
 	m_msgCryptRemote.Clear();
 	m_bCertHasIdentity = false;
+	m_bRemoteCertHasTrustedCASignature = false;
 	m_keyPrivate.Wipe();
 	ClearLocalCrypto();
 }
@@ -1530,6 +1531,9 @@ bool CSteamNetworkConnectionBase::BRecvCryptoHandshake( const CMsgSteamDatagramC
 		return false;
 	}
 
+	// Remember if we they were authenticated
+	m_bRemoteCertHasTrustedCASignature = ( pCACertAuthScope != nullptr );
+
 	// Deserialize crypt info
 	if ( !m_msgCryptRemote.ParseFromString( m_sCryptRemote ) )
 	{
@@ -1890,6 +1894,12 @@ void CSteamNetworkConnectionBase::ConnectionPopulateInfo( SteamNetConnectionInfo
 	info.m_eEndReason = m_eEndReason;
 	V_strcpy_safe( info.m_szEndDebug, m_szEndDebug );
 	V_strcpy_safe( info.m_szConnectionDescription, m_szDescription );
+
+	// Set security flags
+	if ( !m_bRemoteCertHasTrustedCASignature || m_identityRemote.IsInvalid() || m_identityRemote.m_eType == k_ESteamNetworkingIdentityType_IPAddress )
+		info.m_nFlags |= k_nSteamNetworkConnectionInfoFlags_Unauthenticated;
+	if ( m_eNegotiatedCipher <= k_ESteamNetworkingSocketsCipher_NULL )
+		info.m_nFlags |= k_nSteamNetworkConnectionInfoFlags_Unencrypted;
 
 	if ( m_pTransport )
 		m_pTransport->TransportPopulateConnectionInfo( info );
@@ -2791,8 +2801,8 @@ void CSteamNetworkConnectionBase::ConnectionPopulateDiagnostics( ESteamNetworkin
 	APIGetDetailedConnectionStatus( stats, usecNow );
 
 	// Fill in diagnostic fields that correspond to SteamNetConnectionInfo_t
-	if ( stats.m_info.m_eTransportKind != k_ESteamNetTransport_Unknown )
-		msgConnectionState.set_transport_kind( stats.m_info.m_eTransportKind );
+	if ( stats.m_eTransportKind != k_ESteamNetTransport_Unknown )
+		msgConnectionState.set_transport_kind( stats.m_eTransportKind );
 	if ( stats.m_info.m_idPOPRelay )
 		msgConnectionState.set_sdrpopid_local( SteamNetworkingPOPIDRender( stats.m_info.m_idPOPRelay ).c_str() );
 	if ( stats.m_info.m_idPOPRemote )
@@ -3928,7 +3938,12 @@ int CSteamNetworkConnectionPipe::SendEncryptedDataChunk( const void *pChunk, int
 void CSteamNetworkConnectionPipe::TransportPopulateConnectionInfo( SteamNetConnectionInfo_t &info ) const
 {
 	CConnectionTransport::TransportPopulateConnectionInfo( info );
-	info.m_eTransportKind = k_ESteamNetTransport_LoopbackBuffers;
+	info.m_nFlags |= k_nSteamNetworkConnectionInfoFlags_LoopbackBuffers | k_nSteamNetworkConnectionInfoFlags_Fast;
+
+	// Since we're using loopback buffers, the security flags can't really apply.
+	// Make sure they are turned off
+	info.m_nFlags &= ~k_nSteamNetworkConnectionInfoFlags_Unauthenticated;
+	info.m_nFlags &= ~k_nSteamNetworkConnectionInfoFlags_Unencrypted;
 }
 
 void CSteamNetworkConnectionPipe::ConnectionStateChanged( ESteamNetworkingConnectionState eOldState )

@@ -622,21 +622,6 @@ enum ESteamNetConnectionEnd
 	k_ESteamNetConnectionEnd__Force32Bit = 0x7fffffff
 };
 
-/// Enumerate different kinds of transport that can be used
-enum ESteamNetTransportKind
-{
-	k_ESteamNetTransport_Unknown = 0,
-	k_ESteamNetTransport_LoopbackBuffers = 1, // Internal buffers, not using OS network stack
-	k_ESteamNetTransport_LocalHost = 2, // Using OS network stack to talk to localhost address
-	k_ESteamNetTransport_UDP = 3, // Ordinary UDP connection.
-	k_ESteamNetTransport_UDPProbablyLocal = 4, // Ordinary UDP connection over a route that appears to be "local", meaning we think it is probably fast.  This is just a guess: VPNs and IPv6 make this pretty fuzzy.
-	k_ESteamNetTransport_TURN = 5, // Relayed over TURN server
-	k_ESteamNetTransport_SDRP2P = 6, // P2P connection relayed over Steam Datagram Relay
-	k_ESteamNetTransport_SDRHostedServer = 7, // Connection to a server hosted in a known data center via Steam Datagram Relay
-
-	k_ESteamNetTransport_Force32Bit = 0x7fffffff
-};
-
 /// Max length, in bytes (including null terminator) of the reason string
 /// when a connection is closed.
 const int k_cchSteamNetworkingMaxConnectionCloseReason = 128;
@@ -644,6 +629,13 @@ const int k_cchSteamNetworkingMaxConnectionCloseReason = 128;
 /// Max length, in bytes (include null terminator) of debug description
 /// of a connection.
 const int k_cchSteamNetworkingMaxConnectionDescription = 128;
+
+const int k_nSteamNetworkConnectionInfoFlags_Unauthenticated = 1; // We don't have a certificate for the remote host.
+const int k_nSteamNetworkConnectionInfoFlags_Unencrypted = 2; // Information is being sent out over a wire unencrypted (by this library)
+const int k_nSteamNetworkConnectionInfoFlags_LoopbackBuffers = 4; // Internal loopback buffers.  Won't be true for localhost.  (You can check the address to determine that.)  This implies k_nSteamNetworkConnectionInfoFlags_FastLAN
+const int k_nSteamNetworkConnectionInfoFlags_Fast = 8; // The connection is "fast" and "reliable".  Either internal/localhost (check the address to find out), or the peer is on the same LAN.  (Probably.  It's based on the address and the ping time, this is actually hard to determine unambiguously).
+const int k_nSteamNetworkConnectionInfoFlags_Relayed = 16; // The connection is relayed somehow (SDR or TURN).
+const int k_nSteamNetworkConnectionInfoFlags_DualWifi = 32; // We're taking advantage of dual-wifi multi-path
 
 /// Describe the state of a connection.
 struct SteamNetConnectionInfo_t
@@ -689,11 +681,8 @@ struct SteamNetConnectionInfo_t
 	/// internal logging messages.
 	char m_szConnectionDescription[ k_cchSteamNetworkingMaxConnectionDescription ];
 
-	/// What kind of transport is currently being used?
-	/// Note that this is potentially a dynamic property!  Also, it may not
-	/// always be available, especially right as the connection starts, or
-	/// after the connection ends.
-	ESteamNetTransportKind m_eTransportKind;
+	/// Misc flags.  Bitmask of k_nSteamNetworkConnectionInfoFlags_Xxxx
+	int m_nFlags;
 
 	/// Internal stuff, room to change API easily
 	uint32 reserved[63];

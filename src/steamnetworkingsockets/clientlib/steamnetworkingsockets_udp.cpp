@@ -896,6 +896,25 @@ void CConnectionTransportUDPBase::Received_NoConnection( const CMsgSteamSockets_
 	m_connection.ConnectionState_ClosedByPeer( k_ESteamNetConnectionEnd_Misc_PeerSentNoConnection, "Received unexpected 'no connection' from peer");
 }
 
+void CConnectionTransportUDPBase::GetDetailedConnectionStatus( SteamNetworkingDetailedConnectionStatus &stats, SteamNetworkingMicroseconds usecNow )
+{
+	CConnectionTransport::GetDetailedConnectionStatus( stats, usecNow );
+
+	// Assume that flags field has already been populated by code above
+	if ( stats.m_info.m_addrRemote.IsLocalHost() )
+	{
+		stats.m_eTransportKind = k_ESteamNetTransport_LocalHost;
+	}
+	else if ( stats.m_info.m_nFlags & k_nSteamNetworkConnectionInfoFlags_Fast )
+	{
+		stats.m_eTransportKind = k_ESteamNetTransport_UDPProbablyLocal;
+	}
+	else
+	{
+		stats.m_eTransportKind = k_ESteamNetTransport_UDP;
+	}
+}
+
 /////////////////////////////////////////////////////////////////////////////
 //
 // IP connections
@@ -1312,18 +1331,26 @@ void CConnectionTransportUDP::TransportConnectionStateChanged( ESteamNetworkingC
 
 void CConnectionTransportUDP::TransportPopulateConnectionInfo( SteamNetConnectionInfo_t &info ) const
 {
-	CConnectionTransport::TransportPopulateConnectionInfo( info );
+	CConnectionTransportUDPBase::TransportPopulateConnectionInfo( info );
 
 	if ( m_pSocket )
 	{
 		const netadr_t &addr = m_pSocket->GetRemoteHostAddr();
 		NetAdrToSteamNetworkingIPAddr( info.m_addrRemote, addr );
-		if ( addr.IsLoopback() )
-			info.m_eTransportKind = k_ESteamNetTransport_LocalHost;
+		if ( addr.IsLoopback() ) // Actually "localhost"
+		{
+			info.m_nFlags |= k_nSteamNetworkConnectionInfoFlags_Fast;
+
+			// Should we turn off security flags?  not sure.  We are not really sure that
+			// the other side is "us", meaning our own process.  It could be
+			// some rogue hacker process.
+			//info.m_nFlags &= ~k_nSteamNetworkConnectionInfoFlags_Unauthenticated;
+			//info.m_nFlags &= ~k_nSteamNetworkConnectionInfoFlags_Unencrypted;
+		}
 		else if ( m_connection.m_statsEndToEnd.m_ping.m_nSmoothedPing <= 5 && IsRouteToAddressProbablyLocal( addr ) )
-			info.m_eTransportKind = k_ESteamNetTransport_UDPProbablyLocal;
-		else
-			info.m_eTransportKind = k_ESteamNetTransport_UDP;
+		{
+			info.m_nFlags |= k_nSteamNetworkConnectionInfoFlags_Fast;
+		}
 	}
 }
 

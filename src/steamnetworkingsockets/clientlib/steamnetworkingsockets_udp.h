@@ -125,10 +125,11 @@ class CConnectionTransportUDPBase : public CConnectionTransport
 public:
 	CConnectionTransportUDPBase( CSteamNetworkConnectionBase &connection );
 
-	// Implements CSteamNetworkConnectionTransport
+	// Implements CConnectionTransport
 	virtual bool SendDataPacket( SteamNetworkingMicroseconds usecNow ) override;
 	virtual int SendEncryptedDataChunk( const void *pChunk, int cbChunk, SendPacketContext_t &ctx ) override;
 	virtual void SendEndToEndStatsMsg( EStatsReplyRequest eRequest, SteamNetworkingMicroseconds usecNow, const char *pszReason ) override;
+	virtual void GetDetailedConnectionStatus( SteamNetworkingDetailedConnectionStatus &stats, SteamNetworkingMicroseconds usecNow ) override;
 
 protected:
 	void Received_Data( const uint8 *pPkt, int cbPkt, SteamNetworkingMicroseconds usecNow );
@@ -157,7 +158,7 @@ class CConnectionTransportUDP final : public CConnectionTransportUDPBase
 public:
 	CConnectionTransportUDP( CSteamNetworkConnectionUDP &connection );
 
-	// Implements CSteamNetworkConnectionTransport
+	// Implements CConnectionTransport
 	virtual void TransportFreeResources() override;
 	virtual bool BCanSendEndToEndConnectRequest() const override;
 	virtual bool BCanSendEndToEndData() const override;

@@ -697,6 +697,7 @@ protected:
 	std::string m_sCryptRemote;
 	CMsgSteamDatagramCertificate m_msgCertRemote;
 	CMsgSteamDatagramSessionCryptInfo m_msgCryptRemote;
+	bool m_bRemoteCertHasTrustedCASignature; // Could expand this to an enum of different states
 
 	// Local crypto info for this connection
 	CECSigningPrivateKey m_keyPrivate; // Private key corresponding to our cert.  We'll wipe this in FinalizeLocalCrypto, as soon as we've locked in the crypto properties we're going to use
@@ -952,7 +953,7 @@ public:
 	virtual void DestroyTransport() override;
 	virtual void ConnectionStateChanged( ESteamNetworkingConnectionState eOldState ) override;
 
-	// CSteamNetworkConnectionTransport
+	// CConnectionTransport
 	virtual bool SendDataPacket( SteamNetworkingMicroseconds usecNow ) override;
 	virtual bool BCanSendEndToEndConnectRequest() const override;
 	virtual bool BCanSendEndToEndData() const override;

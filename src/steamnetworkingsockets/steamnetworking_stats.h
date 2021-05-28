@@ -11,6 +11,7 @@
 #endif
 
 #include <steam/steamnetworkingtypes.h>
+#include "steamnetworkingsockets_internal.h"
 
 #pragma pack(push)
 #pragma pack(8)
@@ -327,6 +328,9 @@ struct SteamNetworkingDetailedConnectionStatus
 {
 	/// Basic connection info
 	SteamNetConnectionInfo_t m_info;
+
+	/// What kind of transport us being used?
+	ESteamNetTransportKind m_eTransportKind;
 
 	/// Do we have a valid network configuration?  We cannot do anything without this.
 	ESteamNetworkingAvailability m_eAvailNetworkConfig;

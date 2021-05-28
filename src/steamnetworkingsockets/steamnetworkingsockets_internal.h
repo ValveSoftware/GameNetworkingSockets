@@ -70,6 +70,21 @@
 	#endif
 #endif
 
+/// Enumerate different kinds of transport that can be used
+enum ESteamNetTransportKind
+{
+	k_ESteamNetTransport_Unknown = 0,
+	k_ESteamNetTransport_LoopbackBuffers = 1, // Internal buffers, not using OS network stack
+	k_ESteamNetTransport_LocalHost = 2, // Using OS network stack to talk to localhost address
+	k_ESteamNetTransport_UDP = 3, // Ordinary UDP connection.
+	k_ESteamNetTransport_UDPProbablyLocal = 4, // Ordinary UDP connection over a route that appears to be "local", meaning we think it is probably fast.  This is just a guess: VPNs and IPv6 make this pretty fuzzy.
+	k_ESteamNetTransport_TURN = 5, // Relayed over TURN server
+	k_ESteamNetTransport_SDRP2P = 6, // P2P connection relayed over Steam Datagram Relay
+	k_ESteamNetTransport_SDRHostedServer = 7, // Connection to a server hosted in a known data center via Steam Datagram Relay
+
+	k_ESteamNetTransport_Force32Bit = 0x7fffffff
+};
+
 // Redefine the macros for byte-swapping, to sure the correct
 // argument size.  We probably should move this into platform.h,
 // but I suspect we'd find a bunch of "bugs" which currently don't
