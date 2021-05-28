@@ -30,6 +30,12 @@
 	#endif
 #endif
 
+#include "tier0/memdbgoff.h"
+
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_DIAGNOSTICSUI
+	#include "../../common/steammessages_gamenetworkingui.pb.h"
+#endif
+
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
 
@@ -2051,6 +2057,39 @@ void CSteamNetworkConnectionP2P::PeerSelectedTransportChanged()
 	if ( m_pPeerSelectedTransport )
 		SpewMsgGroup( LogLevel_P2PRendezvous(), "[%s] Peer appears to be using '%s' transport as primary\n", GetDescription(), m_pPeerSelectedTransport->m_pszP2PTransportDebugName );
 }
+
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_DIAGNOSTICSUI
+
+void CSteamNetworkConnectionP2P::ConnectionPopulateDiagnostics( ESteamNetworkingConnectionState eOldState, CGameNetworkingUI_ConnectionState &msgConnectionState, SteamNetworkingMicroseconds usecNow )
+{
+	AssertLocksHeldByCurrentThread();
+	CSteamNetworkConnectionBase::ConnectionPopulateDiagnostics( eOldState, msgConnectionState, usecNow );
+
+	CMsgSteamDatagramP2PRoutingSummary &p2p_routing = *msgConnectionState.mutable_p2p_routing();
+	PopulateP2PRoutingSummary( p2p_routing );
+
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+		if ( m_pTransportICE )
+		{
+			if ( m_pTransportICE->m_pingEndToEnd.m_nSmoothedPing >= 0 )
+			{
+				msgConnectionState.set_ping_default_internet_route( m_pTransportICE->m_pingEndToEnd.m_nSmoothedPing );
+			}
+		}
+		else
+		{
+			if ( p2p_routing.has_ice() )
+			{
+				const CMsgSteamNetworkingICESessionSummary &ice = p2p_routing.ice();
+				if ( ice.has_initial_ping() )
+					msgConnectionState.set_ping_default_internet_route( ice.initial_ping() );
+			}
+		}
+	#endif
+
+}
+
+#endif
 
 /////////////////////////////////////////////////////////////////////////////
 //

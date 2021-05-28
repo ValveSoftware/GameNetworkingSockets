@@ -24,6 +24,7 @@
 
 struct SteamNetConnectionStatusChangedCallback_t;
 class ISteamNetworkingSocketsSerialized;
+class CGameNetworkingUI_ConnectionState;
 
 namespace SteamNetworkingSocketsLib {
 
@@ -606,6 +607,25 @@ public:
 	/// API could not do easily
 	inline bool IsConnectionForMessagesSession() const { return m_connectionConfig.m_LocalVirtualPort.Get() == k_nVirtualPort_Messages; }
 
+	/// Time when we would like to send our next connection diagnostics
+	/// update.  This is initialized the first time we enter the "connecting"
+	/// state and we are on a platform that wants those updates.
+	/// Once we wish to stop sending them, we set it to "never"
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_DIAGNOSTICSUI
+		SteamNetworkingMicroseconds m_usecWhenNextDiagnosticsUpdate;
+		void CheckScheduleDiagnosticsUpdateASAP();
+
+		/// Fill out diagnostics message to send to steam client with current state of the
+		/// connection, and also schedule the next check, if the connection is active.
+		virtual void ConnectionPopulateDiagnostics( ESteamNetworkingConnectionState eOldState, CGameNetworkingUI_ConnectionState &msgConnectionState, SteamNetworkingMicroseconds usecNow );
+	#else
+		inline void CheckScheduleDiagnosticsUpdateASAP() {}
+		static constexpr SteamNetworkingMicroseconds m_usecWhenNextDiagnosticsUpdate = k_nThinkTime_Never;
+	#endif
+
+	/// Timestamp when we were created
+	SteamNetworkingMicroseconds m_usecWhenCreated;
+
 protected:
 	CSteamNetworkConnectionBase( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface, ConnectionScopeLock &scopeLock );
 	virtual ~CSteamNetworkConnectionBase(); // hidden destructor, don't call directly.  Use ConnectionQueueDestroy()
@@ -857,6 +877,9 @@ public:
 	virtual void SendEndToEndStatsMsg( EStatsReplyRequest eRequest, SteamNetworkingMicroseconds usecNow, const char *pszReason ) = 0;
 	virtual void TransportPopulateConnectionInfo( SteamNetConnectionInfo_t &info ) const;
 	virtual void GetDetailedConnectionStatus( SteamNetworkingDetailedConnectionStatus &stats, SteamNetworkingMicroseconds usecNow );
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_DIAGNOSTICSUI
+		virtual void TransportPopulateDiagnostics( CGameNetworkingUI_ConnectionState &msgConnectionState, SteamNetworkingMicroseconds usecNow );
+	#endif
 
 	/// Called when the connection state changes.  Some transports need to do stuff
 	virtual void TransportConnectionStateChanged( ESteamNetworkingConnectionState eOldState );

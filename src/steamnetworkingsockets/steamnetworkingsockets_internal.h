@@ -63,6 +63,13 @@
 	#endif
 #endif
 
+// Enable diagnostics UI if there is a Steam client to display them
+#ifndef STEAMNETWORKINGSOCKETS_ENABLE_DIAGNOSTICSUI
+	#ifdef STEAMNETWORKINGSOCKETS_STEAM
+		#define STEAMNETWORKINGSOCKETS_ENABLE_DIAGNOSTICSUI
+	#endif
+#endif
+
 // Redefine the macros for byte-swapping, to sure the correct
 // argument size.  We probably should move this into platform.h,
 // but I suspect we'd find a bunch of "bugs" which currently don't

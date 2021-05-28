@@ -287,6 +287,18 @@ public:
 	// Reset this utils instance for testing
 	virtual void TEST_ResetSelf();
 
+	// Post a connection update message to the OS diagnostics
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_DIAGNOSTICSUI
+		virtual void PostConnectionStateUpdateForDiagnosticsUI( ESteamNetworkingConnectionState eOldState, CSteamNetworkConnectionBase *pConnection, SteamNetworkingMicroseconds usecNow ) = 0;
+
+		// Desired update interval for connections, outside of state changes.
+		// The default is zero, which means no updates, not even for state changes.
+		// Derived classes that override PostConnectionStateUpdateForDiagnosticsUI must set this.
+		SteamNetworkingMicroseconds m_usecConnectionUpdateFrequency = 0;
+	#else
+		static constexpr SteamNetworkingMicroseconds m_usecConnectionUpdateFrequency = 0;
+	#endif
+
 	// Stubs if SDR not enabled
 #ifndef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 	virtual ESteamNetworkingAvailability GetRelayNetworkStatus( SteamRelayNetworkStatus_t *pDetails ) override

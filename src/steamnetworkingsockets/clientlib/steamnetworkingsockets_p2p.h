@@ -212,6 +212,9 @@ public:
 	virtual void ProcessSNPPing( int msPing, RecvPacketContext_t &ctx ) override;
 	virtual bool BSupportsSymmetricMode() override;
 	ESteamNetConnectionEnd CheckRemoteCert( const CertAuthScope *pCACertAuthScope, SteamNetworkingErrMsg &errMsg ) override;
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_DIAGNOSTICSUI
+		virtual void ConnectionPopulateDiagnostics( ESteamNetworkingConnectionState eOldState, CGameNetworkingUI_ConnectionState &msgConnectionState, SteamNetworkingMicroseconds usecNow ) override;
+	#endif
 
 	void SendConnectOKSignal( SteamNetworkingMicroseconds usecNow );
 	void SendConnectionClosedSignal( SteamNetworkingMicroseconds usecNow );
@@ -271,6 +274,8 @@ public:
 		// Peer to peer, over SDR
 		CConnectionTransportP2PSDR *m_pTransportP2PSDR;
 		CMsgSteamNetworkingP2PSDRRoutingSummary m_msgSDRRoutingSummary;
+
+		void PopulateP2PRoutingSummary( CMsgSteamDatagramP2PRoutingSummary &msg );
 	#endif
 
 	// Client connecting to hosted dedicated server over SDR.  These are not really
