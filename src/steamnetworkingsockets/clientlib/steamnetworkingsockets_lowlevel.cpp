@@ -2193,7 +2193,7 @@ int g_nRateLimitSpewCount;
 ESteamNetworkingSocketsDebugOutputType g_eSystemSpewLevel = k_ESteamNetworkingSocketsDebugOutputType_None; // Option selected by the "system" (environment variable, etc)
 ESteamNetworkingSocketsDebugOutputType g_eAppSpewLevel = k_ESteamNetworkingSocketsDebugOutputType_Msg; // Option selected by app
 ESteamNetworkingSocketsDebugOutputType g_eDefaultGroupSpewLevel = k_ESteamNetworkingSocketsDebugOutputType_Msg; // Effective value
-static FSteamNetworkingSocketsDebugOutput s_pfnDebugOutput = nullptr;
+FSteamNetworkingSocketsDebugOutput g_pfnDebugOutput = nullptr;
 void (*g_pfnPreFormatSpewHandler)( ESteamNetworkingSocketsDebugOutputType eType, bool bFmt, const char* pstrFile, int nLine, const char *pMsg, va_list ap ) = SteamNetworkingSockets_DefaultPreFormatDebugOutputHandler;
 static bool s_bSpewInitted = false;
 
@@ -2267,7 +2267,7 @@ static void InitSpew()
 static void KillSpew()
 {
 	g_eDefaultGroupSpewLevel = g_eSystemSpewLevel = g_eAppSpewLevel = k_ESteamNetworkingSocketsDebugOutputType_None;
-	s_pfnDebugOutput = nullptr;
+	g_pfnDebugOutput = nullptr;
 	s_bSpewInitted = false;
 	s_bNeedToFlushSystemSpew = false;
 	if ( g_pFileSystemSpew )
@@ -2521,12 +2521,12 @@ void SteamNetworkingSockets_SetDebugOutputFunction( ESteamNetworkingSocketsDebug
 {
 	if ( pfnFunc && eDetailLevel > k_ESteamNetworkingSocketsDebugOutputType_None )
 	{
-		SteamNetworkingSocketsLib::s_pfnDebugOutput = pfnFunc;
+		SteamNetworkingSocketsLib::g_pfnDebugOutput = pfnFunc;
 		SteamNetworkingSocketsLib::g_eAppSpewLevel = ESteamNetworkingSocketsDebugOutputType( eDetailLevel );
 	}
 	else
 	{
-		SteamNetworkingSocketsLib::s_pfnDebugOutput = nullptr;
+		SteamNetworkingSocketsLib::g_pfnDebugOutput = nullptr;
 		SteamNetworkingSocketsLib::g_eAppSpewLevel = k_ESteamNetworkingSocketsDebugOutputType_None;
 	}
 
@@ -2713,7 +2713,7 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_DefaultPreFormatDeb
 	}
 
 	// Invoke callback
-	FSteamNetworkingSocketsDebugOutput pfnDebugOutput = s_pfnDebugOutput;
+	FSteamNetworkingSocketsDebugOutput pfnDebugOutput = g_pfnDebugOutput;
 	if ( pfnDebugOutput )
 		pfnDebugOutput( eType, buf );
 }

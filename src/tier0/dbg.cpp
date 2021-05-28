@@ -11,6 +11,8 @@
 #ifdef STEAMNETWORKINGSOCKETS_FOREXPORT
 #include "../steamnetworkingsockets/clientlib/steamnetworkingsockets_lowlevel.h"
 using namespace SteamNetworkingSocketsLib;
+#elif defined ( STEAMDATAGRAM_GAMECOORDINATOR_FOREXPORT )
+extern void SteamDatagramGame_AssertFailed( bool bFmt, const char* pstrFile, unsigned int nLine, const char *pMsg, va_list ap );
 #endif
 
 #if defined(_WIN32) && !defined(_XBOX)
@@ -99,6 +101,8 @@ void AssertMsgImplementationV( bool _bFatal, bool bFmt, const char* pstrFile, un
 
 	#ifdef STEAMNETWORKINGSOCKETS_FOREXPORT
 		(*g_pfnPreFormatSpewHandler)( k_ESteamNetworkingSocketsDebugOutputType_Bug, bFmt, pstrFile, nLine, pMsg, ap );
+	#elif defined ( STEAMDATAGRAM_GAMECOORDINATOR_FOREXPORT )
+		SteamDatagramGame_AssertFailed( bFmt, pstrFile, nLine, pMsg, ap );
 	#else
 		fflush(stdout);
 		if ( pstrFile )

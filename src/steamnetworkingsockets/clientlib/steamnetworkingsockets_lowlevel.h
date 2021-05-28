@@ -302,6 +302,7 @@ inline bool BRateLimitSpew( SteamNetworkingMicroseconds usecNow )
 extern ESteamNetworkingSocketsDebugOutputType g_eDefaultGroupSpewLevel;
 extern void ReallySpewTypeFmt( int eType, PRINTF_FORMAT_STRING const char *pFmt, ... ) FMTFUNCTION( 2, 3 );
 extern void (*g_pfnPreFormatSpewHandler)( ESteamNetworkingSocketsDebugOutputType eType, bool bFmt, const char* pstrFile, int nLine, const char *pMsg, va_list ap );
+extern FSteamNetworkingSocketsDebugOutput g_pfnDebugOutput;
 
 #define SpewTypeGroup( eType, nGroup, ... ) ( ( (eType) <= (nGroup) ) ? ReallySpewTypeFmt( (eType), __VA_ARGS__ ) : (void)0 )
 #define SpewMsgGroup( nGroup, ... ) SpewTypeGroup( k_ESteamNetworkingSocketsDebugOutputType_Msg, (nGroup), __VA_ARGS__ )
