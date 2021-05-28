@@ -2131,7 +2131,7 @@ bool CSteamNetworkConnectionBase::DecryptDataChunk( uint16 nWireSeqNum, int cbPa
 	if ( ctx.m_nPktNum <= 0 )
 	{
 
-		// Update raw packet counters numbers, but do not update any logical state suc as reply timeouts, etc
+		// Update raw packet counters numbers, but do not update any logical state such as reply timeouts, etc
 		m_statsEndToEnd.m_recv.ProcessPacket( cbPacketSize );
 		return false;
 	}
@@ -2183,9 +2183,10 @@ bool CSteamNetworkConnectionBase::DecryptDataChunk( uint16 nWireSeqNum, int cbPa
 				// The assumption is that we either have a bug or some weird thing,
 				// or that somebody is spoofing / tampering.  If it's the latter
 				// we don't want to magnify the impact of their efforts
-				SpewWarningRateLimited( ctx.m_usecNow, "[%s] Packet data chunk failed to decrypt!  Could be tampering/spoofing or a bug.", GetDescription() );
+				SpewWarningRateLimited( ctx.m_usecNow, "[%s] Packet %lld (0x%x) decrypt failed (tampering/spoofing/bug)!",
+					GetDescription(), (long long)ctx.m_nPktNum, (unsigned)nWireSeqNum );
 
-				// Update raw packet counters numbers, but do not update any logical state suc as reply timeouts, etc
+				// Update raw packet counters numbers, but do not update any logical state such as reply timeouts, etc
 				m_statsEndToEnd.m_recv.ProcessPacket( cbPacketSize );
 				return false;
 			}
