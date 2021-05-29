@@ -325,7 +325,11 @@ void LockDebugInfo::AboutToUnlock()
 	// Yelp if we held the lock for longer than the threshold.
 	if ( usecElapsedTooLong != 0 )
 	{
-		SpewWarning( "SteamNetworkingSockets lock held for %.1fms.  (Performance warning).  %s", usecElapsedTooLong*1e-3, tags );
+		SpewWarning(
+			"SteamNetworkingSockets lock held for %.1fms.  (Performance warning.)  %s\n"
+			"This is usually a symptom of a general performance problem such as thread starvation.",
+			usecElapsedTooLong*1e-3, tags
+		);
 		ETW_LongOp( "lock held", usecElapsedTooLong, tags );
 	}
 
