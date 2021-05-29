@@ -138,7 +138,7 @@ enum ESteamNetworkingAvailability
 enum ESteamNetworkingIdentityType
 {
 	// Dummy/empty/invalid.
-	// Plese note that if we parse a string that we don't recognize
+	// Please note that if we parse a string that we don't recognize
 	// but that appears reasonable, we will NOT use this type.  Instead
 	// we'll use k_ESteamNetworkingIdentityType_UnknownType.
 	k_ESteamNetworkingIdentityType_Invalid = 0,
@@ -1463,23 +1463,6 @@ enum ESteamNetworkingConfigValue
 	k_ESteamNetworkingConfig_SDRClient_FakeClusterPing = 36,
 
 //
-// Misc / debugging
-//
-
-	/// [global int32] 0 or 1.  Some variables are "dev" variables.  They are useful
-	/// for debugging, but should not be adjusted in production.  When this flag is false (the default),
-	/// such variables will not be enumerated by the ISteamnetworkingUtils::GetFirstConfigValue
-	/// ISteamNetworkingUtils::GetConfigValueInfo functions.  The idea here is that you
-	/// can use those functions to provide a generic mechanism to set any configuration
-	/// value from a console or configuration file, looking up the variable by name.  Depending
-	/// on your game, modifying other configuration values may also have negative effects, and
-	/// you may wish to further lock down which variables are allowed to be modified by the user.
-	/// (Maybe no variables!)  Or maybe you use a whitelist or blacklist approach.
-	///
-	/// (This flag is itself a dev variable.)
-	k_ESteamNetworkingConfig_EnumerateDevVars = 35,
-
-//
 // Log levels for debugging information of various subsystems.
 // Higher numeric values will cause more stuff to be printed.
 // See ISteamNetworkingUtils::SetDebugOutputFunction for more
@@ -1493,6 +1476,10 @@ enum ESteamNetworkingConfigValue
 	k_ESteamNetworkingConfig_LogLevel_PacketGaps = 16, // [connection int32] dropped packets
 	k_ESteamNetworkingConfig_LogLevel_P2PRendezvous = 17, // [connection int32] P2P rendezvous messages
 	k_ESteamNetworkingConfig_LogLevel_SDRRelayPings = 18, // [global int32] Ping relays
+
+
+	// Deleted, do not use
+	k_ESteamNetworkingConfig_DELETED_EnumerateDevVars = 35,
 
 	k_ESteamNetworkingConfigValue__Force32Bit = 0x7fffffff
 };

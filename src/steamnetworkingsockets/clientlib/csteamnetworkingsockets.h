@@ -260,11 +260,8 @@ public:
 		intptr_t scopeObj, ESteamNetworkingConfigDataType *pOutDataType,
 		void *pResult, size_t *cbResult ) override;
 
-	virtual bool GetConfigValueInfo( ESteamNetworkingConfigValue eValue,
-		const char **pOutName, ESteamNetworkingConfigDataType *pOutDataType,
-		ESteamNetworkingConfigScope *pOutScope, ESteamNetworkingConfigValue *pOutNextValue ) override;
-
-	virtual ESteamNetworkingConfigValue GetFirstConfigValue() override;
+	virtual const char *GetConfigValueInfo( ESteamNetworkingConfigValue eValue, ESteamNetworkingConfigDataType *pOutDataType, ESteamNetworkingConfigScope *pOutScope ) override;
+	virtual ESteamNetworkingConfigValue IterateGenericEditableConfigValues( ESteamNetworkingConfigValue eCurrent, bool bEnumerateDevVars ) override;
 
 	virtual void SteamNetworkingIPAddr_ToString( const SteamNetworkingIPAddr &addr, char *buf, size_t cbBuf, bool bWithPort ) override;
 	virtual bool SteamNetworkingIPAddr_ParseString( SteamNetworkingIPAddr *pAddr, const char *pszStr ) override;

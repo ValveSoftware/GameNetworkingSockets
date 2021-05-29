@@ -295,20 +295,26 @@ public:
 	virtual ESteamNetworkingGetConfigValueResult GetConfigValue( ESteamNetworkingConfigValue eValue, ESteamNetworkingConfigScope eScopeType, intptr_t scopeObj,
 		ESteamNetworkingConfigDataType *pOutDataType, void *pResult, size_t *cbResult ) = 0;
 
-	/// Returns info about a configuration value.  Returns false if the value does not exist.
-	/// pOutNextValue can be used to iterate through all of the known configuration values.
-	/// (Use GetFirstConfigValue() to begin the iteration, will be k_ESteamNetworkingConfig_Invalid on the last value)
-	/// Any of the output parameters can be NULL if you do not need that information.
+	/// Get info about a configuration value.  Returns the name of the value,
+	/// or NULL if the value doesn't exist.  Other output parameters can be NULL
+	/// if you do not need them.
+	virtual const char *GetConfigValueInfo( ESteamNetworkingConfigValue eValue, ESteamNetworkingConfigDataType *pOutDataType,
+		ESteamNetworkingConfigScope *pOutScope ) = 0;
+
+	/// Iterate the list of all configuration values in the current environment that it might
+	/// be possible to display or edit using a generic UI.  To get the first iterable value,
+	/// pass k_ESteamNetworkingConfig_Invalid.  Returns k_ESteamNetworkingConfig_Invalid
+	/// to signal end of list.
 	///
-	/// See k_ESteamNetworkingConfig_EnumerateDevVars for some more info about "dev" variables,
-	/// which are usually excluded from the set of variables enumerated using this function.
-	virtual bool GetConfigValueInfo( ESteamNetworkingConfigValue eValue, const char **pOutName, ESteamNetworkingConfigDataType *pOutDataType, ESteamNetworkingConfigScope *pOutScope, ESteamNetworkingConfigValue *pOutNextValue ) = 0;
+	/// The bEnumerateDevVars argument can be used to include "dev" vars.  These are vars that
+	/// are recommended to only be editable in "debug" or "dev" mode and typically should not be
+	/// shown in a retail environment where a malicious local user might use this to cheat.
+	virtual ESteamNetworkingConfigValue IterateGenericEditableConfigValues( ESteamNetworkingConfigValue eCurrent, bool bEnumerateDevVars ) = 0;
 
-	/// Return the lowest numbered configuration value available in the current environment.
-	virtual ESteamNetworkingConfigValue GetFirstConfigValue() = 0;
-
+	//
 	// String conversions.  You'll usually access these using the respective
 	// inline methods.
+	//
 	virtual void SteamNetworkingIPAddr_ToString( const SteamNetworkingIPAddr &addr, char *buf, size_t cbBuf, bool bWithPort ) = 0;
 	virtual bool SteamNetworkingIPAddr_ParseString( SteamNetworkingIPAddr *pAddr, const char *pszStr ) = 0;
 	virtual void SteamNetworkingIdentity_ToString( const SteamNetworkingIdentity &identity, char *buf, size_t cbBuf ) = 0;
