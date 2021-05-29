@@ -112,6 +112,10 @@ public:
 
 #ifdef STEAMNETWORKINGSOCKETS_STEAMCLIENT
 	virtual int ReceiveMessagesOnListenSocketLegacyPollGroup( HSteamListenSocket hSocket, SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages ) override;
+	virtual void TEST_EnableP2PLooopbackOptimization( bool flag ) override { m_TEST_bEnableP2PLoopbackOptimization = flag; }
+	bool m_TEST_bEnableP2PLoopbackOptimization = true;
+#else
+	static constexpr bool m_TEST_bEnableP2PLoopbackOptimization = true;
 #endif
 
 	virtual void RunCallbacks() override;

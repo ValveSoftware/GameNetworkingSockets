@@ -2408,35 +2408,39 @@ CSteamNetworkConnectionBase *CSteamNetworkingSockets::InternalConnectP2PDefaultS
 
 	SteamDatagramErrMsg errMsg;
 
-	// Check for connecting to an identity in this process
-	for ( CSteamNetworkingSockets *pLocalInstance: CSteamNetworkingSockets::s_vecSteamNetworkingSocketsInstances )
+	// Check for connecting to an identity in this process.  In some test environments we may intentionally
+	// disable this optimization to force two clients to talk to each other through the relay
+	if ( m_TEST_bEnableP2PLoopbackOptimization )
 	{
-		if ( pLocalInstance->InternalGetIdentity() == identityRemote )
+		for ( CSteamNetworkingSockets *pLocalInstance: CSteamNetworkingSockets::s_vecSteamNetworkingSocketsInstances )
 		{
-
-			// This is the guy we want to talk to.  Are we listening on that virtual port?
-			int idx = pLocalInstance->m_mapListenSocketsByVirtualPort.Find( nRemoteVirtualPort );
-			if ( idx == pLocalInstance->m_mapListenSocketsByVirtualPort.InvalidIndex() )
+			if ( pLocalInstance->InternalGetIdentity() == identityRemote )
 			{
-				SpewError( "Cannot create P2P connection to local identity %s.  We are not listening on vport %d", SteamNetworkingIdentityRender( identityRemote ).c_str(), nRemoteVirtualPort );
+
+				// This is the guy we want to talk to.  Are we listening on that virtual port?
+				int idx = pLocalInstance->m_mapListenSocketsByVirtualPort.Find( nRemoteVirtualPort );
+				if ( idx == pLocalInstance->m_mapListenSocketsByVirtualPort.InvalidIndex() )
+				{
+					SpewError( "Cannot create P2P connection to local identity %s.  We are not listening on vport %d", SteamNetworkingIdentityRender( identityRemote ).c_str(), nRemoteVirtualPort );
+					return nullptr;
+				}
+
+				// Create a loopback connection
+				CSteamNetworkConnectionPipe *pConn = CSteamNetworkConnectionPipe::CreateLoopbackConnection( this, nOptions, pOptions, pLocalInstance->m_mapListenSocketsByVirtualPort[ idx ], errMsg, scopeLock );
+				if ( pConn )
+				{
+					SpewVerbose( "[%s] Using loopback for P2P connection to local identity %s on vport %d.  Partner is [%s]\n",
+						pConn->GetDescription(),
+						SteamNetworkingIdentityRender( identityRemote ).c_str(), nRemoteVirtualPort,
+						pConn->m_pPartner->GetDescription() );
+					return pConn;
+				}
+
+				// Failed?
+				SpewError( "P2P connection to local identity %s on vport %d; FAILED to create loopback.  %s\n",
+					SteamNetworkingIdentityRender( identityRemote ).c_str(), nRemoteVirtualPort, errMsg );
 				return nullptr;
 			}
-
-			// Create a loopback connection
-			CSteamNetworkConnectionPipe *pConn = CSteamNetworkConnectionPipe::CreateLoopbackConnection( this, nOptions, pOptions, pLocalInstance->m_mapListenSocketsByVirtualPort[ idx ], errMsg, scopeLock );
-			if ( pConn )
-			{
-				SpewVerbose( "[%s] Using loopback for P2P connection to local identity %s on vport %d.  Partner is [%s]\n",
-					pConn->GetDescription(),
-					SteamNetworkingIdentityRender( identityRemote ).c_str(), nRemoteVirtualPort,
-					pConn->m_pPartner->GetDescription() );
-				return pConn;
-			}
-
-			// Failed?
-			SpewError( "P2P connection to local identity %s on vport %d; FAILED to create loopback.  %s\n",
-				SteamNetworkingIdentityRender( identityRemote ).c_str(), nRemoteVirtualPort, errMsg );
-			return nullptr;
 		}
 	}
 
