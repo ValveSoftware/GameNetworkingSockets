@@ -181,6 +181,21 @@ bool CSteamNetworkConnectionP2P::BInitConnect(
 		return false;
 
 	// Check if there is a matching connection, for symmetric mode
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
+	if ( m_identityRemote.IsFakeIP() )
+	{
+		// FIXME - We might think about a way to add this later.  I can think of
+		// a reasonable way to define how it would work, but I can't really think
+		// of any good use cases, so for now, let's just not support it.  We can add it
+		// once we understand what the use case is.
+		if ( BSymmetricMode() )
+		{
+			V_strcpy_safe( errMsg, "Symmetric connect mode cannot be used with FakeIP" );
+			return false;
+		}
+	}
+	else
+#endif
 	if ( !m_identityRemote.IsInvalid() && LocalVirtualPort() >= 0 )
 	{
 		bool bOnlySymmetricConnections = !BSymmetricMode();
@@ -859,6 +874,10 @@ void CSteamNetworkConnectionP2P::FreeResources()
 		m_pSignaling = nullptr;
 	}
 
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
+		m_fakeIPRef.Clear();
+	#endif
+
 	// Base class cleanup
 	CSteamNetworkConnectionBase::FreeResources();
 }
@@ -907,6 +926,18 @@ void CSteamNetworkConnectionP2P::DestroyTransport()
 CSteamNetworkConnectionP2P *CSteamNetworkConnectionP2P::FindDuplicateConnection( CSteamNetworkingSockets *pInterfaceLocal, int nLocalVirtualPort, const SteamNetworkingIdentity &identityRemote, int nRemoteVirtualPort, bool bOnlySymmetricConnections, CSteamNetworkConnectionP2P *pIgnore )
 {
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
+
+	// Symmetric connect using FakeIP addressing is currently
+	// not supported.
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
+		if ( identityRemote.IsFakeIP() )
+		{
+			Assert( nLocalVirtualPort < 0 );
+			return nullptr;
+		}
+	#endif
+
+	Assert( nLocalVirtualPort >= 0 );
 
 	for ( CSteamNetworkConnectionBase *pConn: g_mapConnections.IterValues() )
 	{
@@ -1591,8 +1622,30 @@ SteamNetworkingMicroseconds CSteamNetworkConnectionP2P::ThinkConnection_ClientCo
 	CMsgSteamNetworkingP2PRendezvous_ConnectRequest &msgConnectRequest = *msgRendezvous.mutable_connect_request();
 	*msgConnectRequest.mutable_cert() = m_msgSignedCertLocal;
 	*msgConnectRequest.mutable_crypt() = m_msgSignedCryptLocal;
-	msgConnectRequest.set_to_virtual_port( m_nRemoteVirtualPort );
-	msgConnectRequest.set_from_virtual_port( LocalVirtualPort() );
+	int nLocalVirtualPort = LocalVirtualPort();
+	if ( nLocalVirtualPort >= 0 )
+		msgConnectRequest.set_from_virtual_port( nLocalVirtualPort );
+	if ( m_nRemoteVirtualPort >= 0 )
+		msgConnectRequest.set_to_virtual_port( m_nRemoteVirtualPort );
+
+	// Connecting via FakeIP?
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
+		if ( m_identityRemote.IsFakeIP() )
+		{
+			Assert( m_nRemoteVirtualPort == -1 ); // This should be invalid (at least until we actually connect)
+			Assert( nLocalVirtualPort == -1 ); // NOTE: Currently we don't allow you to specify this!
+			//msgConnectRequest.set_to_fakeip( SteamNetworkingIPAddrRender( m_identityRemote.m_ip ).c_str() );
+
+			SteamNetworkingFakeIPResult_t fakeIPLocal;
+			m_pSteamNetworkingSocketsInterface->GetFakeIP( 0, &fakeIPLocal );
+			if ( fakeIPLocal.m_eResult == k_EResultOK )
+			{
+				Assert( fakeIPLocal.m_unIP );
+				Assert( fakeIPLocal.m_unPorts[0] );
+				msgConnectRequest.set_from_fakeip( CUtlNetAdrRender( fakeIPLocal.m_unIP, fakeIPLocal.m_unPorts[0] ).String() );
+			}
+		}
+	#endif
 
 	// Send through signaling service
 	SpewMsgGroup( LogLevel_P2PRendezvous(), "[%s] Sending P2P ConnectRequest\n", GetDescription() );
@@ -2086,7 +2139,25 @@ void CSteamNetworkConnectionP2P::ConnectionPopulateDiagnostics( ESteamNetworking
 			}
 		}
 	#endif
+}
 
+#endif
+
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
+
+EResult CSteamNetworkConnectionP2P::APIGetRemoteFakeIPForConnection( SteamNetworkingIPAddr *pOutAddr )
+{
+	if ( m_identityRemote.IsFakeIP() )
+	{
+		if ( pOutAddr )
+			*pOutAddr = m_identityRemote.m_ip;
+		return k_EResultOK;
+	}
+
+	if ( m_fakeIPRef.GetInfo( nullptr, pOutAddr ) )
+		return k_EResultOK;
+
+	return k_EResultIPNotFound;
 }
 
 #endif
@@ -2316,6 +2387,28 @@ HSteamListenSocket CSteamNetworkingSockets::CreateListenSocketP2P( int nLocalVir
 	return k_HSteamListenSocket_Invalid;
 }
 
+HSteamListenSocket CSteamNetworkingSockets::CreateListenSocketP2PFakeIP( int idxFakePort, int nOptions, const SteamNetworkingConfigValue_t *pOptions )
+{
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
+		if ( idxFakePort < 0 || idxFakePort > ( k_nVirtualPort_FakePortMax - k_nVirtualPort_FakePort0 ) )
+		{
+			SpewError( "Invalid fake port index" );
+			return k_HSteamListenSocket_Invalid;
+		}
+
+		SteamNetworkingGlobalLock scopeLock( "CreateListenSocketP2PFakeIP" );
+
+		// FIXME - check the validity of the port index against the actual number requested?
+		int nLocalVirtualPort = k_nVirtualPort_FakePort0 + idxFakePort;
+		CSteamNetworkListenSocketP2P *pSock = InternalCreateListenSocketP2P( nLocalVirtualPort, nOptions, pOptions );
+		if ( pSock )
+			return pSock->m_hListenSocketSelf;
+	#else
+		AssertMsg( false, "FakeIP allocation requires Steam" );
+	#endif
+	return k_HSteamListenSocket_Invalid;
+}
+
 CSteamNetworkListenSocketP2P *CSteamNetworkingSockets::InternalCreateListenSocketP2P( int nLocalVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions )
 {
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "InternalCreateListenSocketP2P" );
@@ -2376,12 +2469,26 @@ CSteamNetworkListenSocketP2P *CSteamNetworkingSockets::InternalCreateListenSocke
 
 HSteamNetConnection CSteamNetworkingSockets::ConnectP2P( const SteamNetworkingIdentity &identityRemote, int nRemoteVirtualPort, int nOptions, const SteamNetworkingConfigValue_t *pOptions )
 {
-	// Despite the API argument being an int, we'd like to reserve most of the address space.
 
-	if ( nRemoteVirtualPort < 0 || nRemoteVirtualPort > 0xffff )
+	// Check remote virtual port
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
+	if ( identityRemote.IsFakeIP() )
 	{
-		SpewError( "Virtual port number should be a small, non-negative number\n" );
-		return k_HSteamNetConnection_Invalid;
+		if ( nRemoteVirtualPort != -1 )
+		{
+			SpewError( "Must specify remote virtual port -1 when connecting by FakeIP!" );
+			return k_HSteamNetConnection_Invalid;
+		}
+	}
+	else
+	#endif
+	{
+		// Despite the API argument being an int, we'd like to reserve most of the address space.
+		if ( nRemoteVirtualPort < 0 || nRemoteVirtualPort > 0xffff )
+		{
+			SpewError( "Virtual port number should be a small, non-negative number\n" );
+			return k_HSteamNetConnection_Invalid;
+		}
 	}
 
 	SteamNetworkingGlobalLock scopeLock( "ConnectP2P" );
@@ -2414,14 +2521,14 @@ CSteamNetworkConnectionBase *CSteamNetworkingSockets::InternalConnectP2PDefaultS
 	{
 		for ( CSteamNetworkingSockets *pLocalInstance: CSteamNetworkingSockets::s_vecSteamNetworkingSocketsInstances )
 		{
-			if ( pLocalInstance->InternalGetIdentity() == identityRemote )
+			if ( pLocalInstance->BMatchesIdentity( identityRemote ) )
 			{
 
 				// This is the guy we want to talk to.  Are we listening on that virtual port?
 				int idx = pLocalInstance->m_mapListenSocketsByVirtualPort.Find( nRemoteVirtualPort );
 				if ( idx == pLocalInstance->m_mapListenSocketsByVirtualPort.InvalidIndex() )
 				{
-					SpewError( "Cannot create P2P connection to local identity %s.  We are not listening on vport %d", SteamNetworkingIdentityRender( identityRemote ).c_str(), nRemoteVirtualPort );
+					SpewBug( "Cannot create P2P connection to local identity %s.  We are not listening on vport %d", SteamNetworkingIdentityRender( identityRemote ).c_str(), nRemoteVirtualPort );
 					return nullptr;
 				}
 
@@ -2437,7 +2544,7 @@ CSteamNetworkConnectionBase *CSteamNetworkingSockets::InternalConnectP2PDefaultS
 				}
 
 				// Failed?
-				SpewError( "P2P connection to local identity %s on vport %d; FAILED to create loopback.  %s\n",
+				SpewBug( "P2P connection to local identity %s on vport %d; FAILED to create loopback.  %s\n",
 					SteamNetworkingIdentityRender( identityRemote ).c_str(), nRemoteVirtualPort, errMsg );
 				return nullptr;
 			}
@@ -2461,6 +2568,22 @@ CSteamNetworkConnectionBase *CSteamNetworkingSockets::InternalConnectP2PDefaultS
 			}
 		}
 	}
+
+	// Check local virtual port and FakeIP
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
+		if ( identityRemote.IsFakeIP() )
+		{
+			Assert( nRemoteVirtualPort == -1 );
+
+			// FIXME - In the future we might allow a mechanism for them to specify this
+			// somehow
+			if ( nLocalVirtualPort >= 0 )
+			{
+				SpewBug( "Can't specify local virtual port when connecting by FakeIP" );
+				return nullptr;
+			}
+		}
+	#endif
 
 	// Create signaling
 	FnSteamNetworkingSocketsCreateConnectionSignaling fnCreateConnectionSignaling = (FnSteamNetworkingSocketsCreateConnectionSignaling)g_Config_Callback_CreateConnectionSignaling.Get();
@@ -2675,6 +2798,14 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const void *pMsg, int c
 		return false;
 	}
 
+	// Parse to identity, if one was given.  note that we sort of assume at this point
+	// that the message has been properly routed and it's intended for *us*.  But
+	// we may have more than one identity (e.g. FakeIP) and this tells us how the
+	// peer is routing messages to us
+	// NOTE this might legit fail on an empty string.  Ignore that.
+	SteamNetworkingIdentity toLocalIdentity;
+	toLocalIdentity.ParseString( msg.to_identity().c_str() );
+
 	int nLogLevel = m_connectionConfig.m_LogLevel_P2PRendezvous.Get();
 
 	// Grab the lock now.  (We might not have previously held it.)
@@ -2716,8 +2847,15 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const void *pMsg, int c
 		}
 
 		// We might not know who the other guy is yet
-		if ( pConn->GetState() == k_ESteamNetworkingConnectionState_Connecting && ( pConn->m_identityRemote.IsInvalid() || pConn->m_identityRemote.IsLocalHost() ) )
+		if ( pConn->GetState() == k_ESteamNetworkingConnectionState_Connecting && ( pConn->m_identityRemote.IsInvalid() || pConn->m_identityRemote.IsLocalHost() || pConn->m_identityRemote.IsFakeIP() ) )
 		{
+			#ifdef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
+				if ( pConn->m_identityRemote.IsFakeIP() )
+				{
+					AssertMsg( !pConn->m_fakeIPRef.IsValid(), "%s Setting up FakeIP ref twice?", pConn->GetDescription() );
+					pConn->m_fakeIPRef.Setup( pConn->m_identityRemote.m_ip, identityRemote );
+				}
+			#endif
 			pConn->m_identityRemote = identityRemote;
 			pConn->SetDescription();
 		}
@@ -2732,7 +2870,7 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const void *pMsg, int c
 		{
 			if ( pConn->m_unConnectionIDRemote != msg.from_connection_id() )
 			{
-				SpewWarning( "Ignoring P2P signal from %s.  For our cxn #%u, they first used remote cxn #%u, not using #%u",
+				SpewWarning( "Ignoring P2P signal from %s.  For our cxn #%u, they first used remote cxn #%u, now using #%u",
 					msg.from_identity().c_str(), msg.to_connection_id(), pConn->m_unConnectionIDRemote, msg.from_connection_id() );
 				return false;
 			}
@@ -2813,17 +2951,41 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const void *pMsg, int c
 			}
 
 			// Determine virtual ports, and locate the listen socket, if any
-			int nLocalVirtualPort = -1;
+			// Connecting by FakeIP?
+			int nLocalVirtualPort = msgConnectRequest.has_to_virtual_port() ? msgConnectRequest.to_virtual_port() : -1;
 			int nRemoteVirtualPort = -1;
+			if ( msgConnectRequest.has_from_virtual_port() )
+				nRemoteVirtualPort = msgConnectRequest.from_virtual_port();
+			else
+				nRemoteVirtualPort = nLocalVirtualPort;
 			bool bSymmetricListenSocket = false;
 			CSteamNetworkListenSocketP2P *pListenSock = nullptr;
-			if ( msgConnectRequest.has_to_virtual_port() )
+
+			#ifdef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
+				if ( toLocalIdentity.IsFakeIP() )
+				{
+					int idxFakePort = GetFakePortIndex( toLocalIdentity.m_ip );
+					if ( idxFakePort < 0 )
+					{
+						SpewWarning( "Ignoring P2P CMsgSteamDatagramConnectRequest from %s to FakeIP %s.  We don't that's one of our ports!  (Why did it get routed to us?)",
+							SteamNetworkingIdentityRender( identityRemote ).c_str(), SteamNetworkingIPAddrRender( toLocalIdentity.m_ip ).c_str() );
+						return false;
+					}
+
+					// Set virtual ports from fake port
+					nRemoteVirtualPort = -1;
+					if ( nLocalVirtualPort != k_nVirtualPort_Messages )
+					{
+						if ( nLocalVirtualPort >= 0 )
+							SpewWarning( "%s set to_virtual_port in rendezvous, when connecting by FakeIP", SteamNetworkingIdentityRender( identityRemote ).c_str() );
+						nLocalVirtualPort = k_nVirtualPort_FakePort0 + idxFakePort;
+						Assert( nLocalVirtualPort <= k_nVirtualPort_FakePortMax );
+					}
+				}
+			#endif
+
+			if ( nLocalVirtualPort >= 0 )
 			{
-				nLocalVirtualPort = msgConnectRequest.to_virtual_port();
-				if ( msgConnectRequest.has_from_virtual_port() )
-					nRemoteVirtualPort = msgConnectRequest.from_virtual_port();
-				else
-					nRemoteVirtualPort = nLocalVirtualPort;
 
 				// Connection for ISteamNetworkingMessages system
 				if ( nLocalVirtualPort == k_nVirtualPort_Messages )

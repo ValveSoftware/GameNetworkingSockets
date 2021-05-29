@@ -203,6 +203,16 @@ STEAMNETWORKINGSOCKETS_INTERFACE bool SteamNetworkingIPAddr_ParseString( SteamNe
 	return true;
 }
 
+STEAMNETWORKINGSOCKETS_INTERFACE ESteamNetworkingFakeIPType SteamNetworkingIPAddr_GetFakeIPType( const SteamNetworkingIPAddr *pAddr )
+{
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
+		uint32 nIPv4 = pAddr->GetIPv4();
+		return GetIPv4FakeIPType( nIPv4 );
+	#else
+		return k_ESteamNetworkingFakeIPType_NotFake;
+	#endif
+}
+
 STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingIdentity_ToString( const SteamNetworkingIdentity *pIdentity, char *buf, size_t cbBuf )
 {
 	switch ( pIdentity->m_eType )

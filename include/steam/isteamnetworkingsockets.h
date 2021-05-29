@@ -8,6 +8,7 @@
 #include "steam_api_common.h"
 
 struct SteamNetAuthenticationStatus_t;
+struct SteamNetworkingFakeIPResult_t;
 class ISteamNetworkingConnectionSignaling;
 class ISteamNetworkingSignalingRecvContext;
 
@@ -15,10 +16,13 @@ class ISteamNetworkingSignalingRecvContext;
 /// Lower level networking API.
 ///
 /// - Connection-oriented API (like TCP, not UDP).  When sending and receiving
-///   messages, a connection handle is used.  (For a UDP-style interface, see
-///   ISteamNetworkingMessages.)  In this TCP-style interface, the "server" will
-///   "listen" on a "listen socket."  A "client" will "connect" to the server,
-///   and the server will "accept" the connection.
+///   messages, a connection handle is used.  (For a UDP-style interface, where
+///   the peer is identified by their address with each send/recv call, see
+///   ISteamNetworkingMessages.)  The typical pattern is for a "server" to "listen"
+///   on a "listen socket."  A "client" will "connect" to the server, and the
+///   server will "accept" the connection.  If you have a symmetric situation
+///   where either peer may initiate the connection and server/client roles are
+///   not clearly defined, check out k_ESteamNetworkingConfig_SymmetricConnect.
 /// - But unlike TCP, it's message-oriented, not stream-oriented.
 /// - Mix of reliable and unreliable messages
 /// - Fragmentation and reassembly
@@ -274,7 +278,7 @@ public:
 	/// m_pData at your buffer and set the callback to the appropriate function
 	/// to free it.  Note that if you use your own buffer, it MUST remain valid
 	/// until the callback is executed.  And also note that your callback can be
-	/// invoked at ant time from any thread (perhaps even before SendMessages
+	/// invoked at any time from any thread (perhaps even before SendMessages
 	/// returns!), so it MUST be fast and threadsafe.
 	///
 	/// You MUST also fill in:
@@ -670,15 +674,15 @@ public:
 	/// to call ISteamNetworkingUtils::InitRelayNetworkAccess() when your app initializes
 	virtual bool ReceivedP2PCustomSignal( const void *pMsg, int cbMsg, ISteamNetworkingSignalingRecvContext *pContext ) = 0;
 
-//
-// Certificate provision by the application.  On Steam, we normally handle all this automatically
-// and you will not need to use these advanced functions.
-//
+	//
+	// Certificate provision by the application.  On Steam, we normally handle all this automatically
+	// and you will not need to use these advanced functions.
+	//
 
 	/// Get blob that describes a certificate request.  You can send this to your game coordinator.
 	/// Upon entry, *pcbBlob should contain the size of the buffer.  On successful exit, it will
 	/// return the number of bytes that were populated.  You can pass pBlob=NULL to query for the required
-	/// size.  (256 bytes is a very conservative estimate.)
+	/// size.  (512 bytes is a conservative estimate.)
 	///
 	/// Pass this blob to your game coordinator and call SteamDatagram_CreateCert.
 	virtual bool GetCertificateRequest( int *pcbBlob, void *pBlob, SteamNetworkingErrMsg &errMsg ) = 0;
@@ -686,13 +690,6 @@ public:
 	/// Set the certificate.  The certificate blob should be the output of
 	/// SteamDatagram_CreateCert.
 	virtual bool SetCertificate( const void *pCertificate, int cbCertificate, SteamNetworkingErrMsg &errMsg ) = 0;
-
-	/// Invoke all callback functions queued for this interface.
-	/// See k_ESteamNetworkingConfig_Callback_ConnectionStatusChanged, etc
-	///
-	/// You don't need to call this if you are using Steam's callback dispatch
-	/// mechanism (SteamAPI_RunCallbacks and SteamGameserver_RunCallbacks).
-	virtual void RunCallbacks() = 0;
 
 	/// Reset the identity associated with this instance.
 	/// Any open connections are closed.  Any previous certificates, etc are discarded.
@@ -704,30 +701,135 @@ public:
 	///       a new user can sign in.
 	virtual void ResetIdentity( const SteamNetworkingIdentity *pIdentity ) = 0;
 
+	//
+	// Misc
+	//
+
+	/// Invoke all callback functions queued for this interface.
+	/// See k_ESteamNetworkingConfig_Callback_ConnectionStatusChanged, etc
+	///
+	/// You don't need to call this if you are using Steam's callback dispatch
+	/// mechanism (SteamAPI_RunCallbacks and SteamGameserver_RunCallbacks).
+	virtual void RunCallbacks() = 0;
+
+	//
+	// "FakeIP" system.
+	//
+	// A FakeIP is essentially a temporary, arbitrary identifier that
+	// happens to be a valid IPv4 address.  The purpose of this system is to make it
+	// easy to integrate with existing code that identifies hosts using IPv4 addresses.
+	// The FakeIP address will never actually be used to send or receive any packets
+	// on the Internet, it is strictly an identifier.
+	//
+	// FakeIP addresses are designed to (hopefully) pass through existing code as
+	// transparently as possible, while conflicting with "real" addresses that might
+	// be in use on networks (both the Internet and LANs) in the same code as little
+	// as possible.  At the time this comment is being written, they come from the
+	// 169.254.0.0/16 range, and the port number will always be >1024.  HOWEVER,
+	// this is subject to change!  Do not make assumptions about these addresses,
+	// or your code might break in the future.  In particular, you should use
+	// functions such as  ISteamNetworkingUtils::IsFakeIP to determine if an IP
+	// address is a "fake" one used by this system.
+	//
+
+	/// Begin asynchronous process of allocating a fake IPv4 address that other
+	/// peers can use to contact us via P2P.  IP addresses returned by this
+	/// function are globally unique for a given appid.
+	///
+	/// nNumPorts is the numbers of ports you wish to reserve.  This is useful
+	/// for the same reason that listening on multiple UDP ports is useful for
+	/// different types of traffic.  Because these allocations come from a global
+	/// namespace, there is a relatively strict limit on the maximum number of
+	/// ports you may request.  (At the time of this writing, the limit is 4.)
+	/// The Port assignments are *not* guaranteed to have any particular order
+	/// or relationship!  Do *not* assume they are contiguous, even though that
+	/// may often occur in practice.
+	///
+	/// Returns false if a request was already in progress, true if a new request
+	/// was started.  A SteamNetworkingFakeIP_t will be posted when the request
+	/// completes.
+	///
+	/// You can call this before you are logged in.  For gameservers, doing so is
+	/// *required*, and all places where your public IP appears (such as the server
+	/// browser) will be replaced by the FakeIP, and the fake port at index 0.
+	/// A failure will not be posted (using SteamNetworkingFakeIP_t) unless we get
+	/// logged in, and then the request fails.  Furthermore, it is assumed that
+	/// FakeIP allocation is essential for your application to function, and so
+	/// failure will not be reported until *several* retries have been attempted,
+	/// possibly lasting several minutes.  It is highly recommended to treat failure
+	/// as fatal.
+	///
+	/// To communicate using a connection-oriented (TCP-style) API:
+	/// - Server creates a listen socket using CreateListenSocketP2PFakeIP
+	/// - Client connects using ConnectByIPAddress, passing in the FakeIP address.
+	/// - The connection will behave mostly like a P2P connection.  The identities
+	///   that appear in SteamNetConnectionInfo_t will be the FakeIP identity until
+	///   we know the real identity.  Then it will be the real identity.  If the
+	///   SteamNetConnectionInfo_t::m_addrRemote is valid, it will be a real IPv4
+	///   address of a NAT-punched connection.  Otherwise, it will not be valid.
+	/// 
+	/// To communicate using an ad-hoc sendto/recv from (UDP-style) API:
+	/// - ISteamNetworkingMessages::SendMessageToFakeIP
+	/// FIXME - more coming soon
+	virtual bool BeginAsyncRequestFakeIP( int nNumPorts ) = 0;
+
+	/// Return info about the FakeIP and port(s) that we have been assigned,
+	/// if any.  idxFirstPort is currently reserved and must be zero.
+	/// Make sure and check SteamNetworkingFakeIPResult_t::m_eResult
+	virtual void GetFakeIP( int idxFirstPort, SteamNetworkingFakeIPResult_t *pInfo ) = 0;
+
+	/// Create a listen socket that will listen for P2P connections sent
+	/// to our FakeIP.  A peer can initiate connections to this listen
+	/// socket by calling ConnectByIPAddress.
+	///
+	/// idxFakePort refers to the *index* of the fake port requested,
+	/// not the actual port number.  For example, pass 0 to refer to the
+	/// first port in the reservation.  You must call this only after calling
+	/// BeginAsyncRequestFakeIP.  However, you do not need to wait for the
+	/// request to complete before creating the listen socket.
+	virtual HSteamListenSocket CreateListenSocketP2PFakeIP( int idxFakePort, int nOptions, const SteamNetworkingConfigValue_t *pOptions ) = 0;
+
+	/// If the connection was initiated using the "FakeIP" system, then we
+	/// we can get an IP address for the remote host.  If the remote host had
+	/// a global FakeIP at the time the connection was established, this
+	/// function will return that global IP.  Otherwise, a FakeIP that is
+	/// unique locally will be allocated from the local FakeIP address space,
+	/// and that will be returned.
+	/// 
+	/// The allocation of local FakeIPs attempts to assign addresses in
+	/// a consistent manner.  If multiple connections are made to the
+	/// same remote host, they *probably* will return the same FakeIP.
+	/// However, since the namespace is limited, this cannot be guaranteed.
+	///
+	/// On failure, returns:
+	/// - k_EResultInvalidParam: invalid connection handle
+	/// - k_EResultIPNotFound: This connection wasn't made using FakeIP system
+	virtual EResult GetRemoteFakeIPForConnection( HSteamNetConnection hConn, SteamNetworkingIPAddr *pOutAddr ) = 0;
+
 protected:
 	~ISteamNetworkingSockets(); // Silence some warnings
 };
-#define STEAMNETWORKINGSOCKETS_INTERFACE_VERSION "SteamNetworkingSockets009"
+#define STEAMNETWORKINGSOCKETS_INTERFACE_VERSION "SteamNetworkingSockets011"
 
 // Global accessors
 // Using standalone lib
 #ifdef STEAMNETWORKINGSOCKETS_STANDALONELIB
 
 	// Standalone lib.
-	static_assert( STEAMNETWORKINGSOCKETS_INTERFACE_VERSION[24] == '9', "Version mismatch" );
-	STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets *SteamNetworkingSockets_LibV9();
-	inline ISteamNetworkingSockets *SteamNetworkingSockets_Lib() { return SteamNetworkingSockets_LibV9(); }
+	static_assert( STEAMNETWORKINGSOCKETS_INTERFACE_VERSION[24] == '1', "Version mismatch" );
+	STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets *SteamNetworkingSockets_LibV11();
+	inline ISteamNetworkingSockets *SteamNetworkingSockets_Lib() { return SteamNetworkingSockets_LibV11(); }
 
 	// If running in context of steam, we also define a gameserver instance.
 	#ifdef STEAMNETWORKINGSOCKETS_STEAM
-		STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets *SteamGameServerNetworkingSockets_LibV9();
-		inline ISteamNetworkingSockets *SteamGameServerNetworkingSockets_Lib() { return SteamGameServerNetworkingSockets_LibV9(); }
+		STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets *SteamGameServerNetworkingSockets_LibV11();
+		inline ISteamNetworkingSockets *SteamGameServerNetworkingSockets_Lib() { return SteamGameServerNetworkingSockets_LibV11(); }
 	#endif
 
 	#ifndef STEAMNETWORKINGSOCKETS_STEAMAPI
-		inline ISteamNetworkingSockets *SteamNetworkingSockets() { return SteamNetworkingSockets_LibV9(); }
+		inline ISteamNetworkingSockets *SteamNetworkingSockets() { return SteamNetworkingSockets_LibV11(); }
 		#ifdef STEAMNETWORKINGSOCKETS_STEAM
-			inline ISteamNetworkingSockets *SteamGameServerNetworkingSockets() { return SteamGameServerNetworkingSockets_LibV9(); }
+			inline ISteamNetworkingSockets *SteamGameServerNetworkingSockets() { return SteamGameServerNetworkingSockets_LibV11(); }
 		#endif
 	#endif
 #endif
@@ -821,6 +923,50 @@ struct SteamNetAuthenticationStatus_t
 	/// Non-localized English language status.  For diagnostic/debugging
 	/// purposes only.
 	char m_debugMsg[ 256 ];
+};
+
+/// A struct used to describe a "fake IP" we have been assigned to
+/// use as an identifier.  This callback is posted when
+/// ISteamNetworkingStatus::BeginAsyncRequestFakeIP completes.
+/// See also ISteamNetworkingSockets::GetFakeIP
+struct SteamNetworkingFakeIPResult_t
+{
+	enum { k_iCallback = k_iSteamNetworkingSocketsCallbacks + 3 };
+
+	/// Status/result of the allocation request.  Possible failure values are:
+	/// - k_EResultBusy - you called GetFakeIP but the request has not completed.
+	/// - k_EResultInvalidParam - you called GetFakeIP with an invalid port index
+	/// - k_EResultLimitExceeded - You asked for too many ports, or made an
+	///   additional request after one had already succeeded
+	/// - k_EResultNoMatch - GetFakeIP was called, but no request has been made
+	///
+	/// Note that, with the exception of k_EResultBusy (if you are polling),
+	/// it is highly recommended to treat all failures as fatal.
+	EResult m_eResult;
+
+	/// Local identity of the ISteamNetworkingSockets object that made
+	/// this request and is assigned the IP.  This is needed in the callback
+	/// in the case where there are multiple ISteamNetworkingSockets objects.
+	/// (E.g. one for the user, and another for the local gameserver).
+	SteamNetworkingIdentity m_identity;
+
+	/// Fake IPv4 IP address that we have been assigned.  NOTE: this
+	/// IP address is not exclusively ours!  Steam tries to avoid sharing
+	/// IP addresses, but this may not always be possible.  The IP address
+	/// may be currently in use by another host, but with different port(s).
+	/// The exact same IP:port address may have been used previously.
+	/// Steam tries to avoid reusing ports until they have not been in use for
+	/// some time, but this may not always be possible.
+	uint32 m_unIP;
+
+	/// Port number(s) assigned to us.  Only the first entries will contain
+	/// nonzero values.  Entries corresponding to ports beyond what was
+	/// allocated for you will be zero.
+	///
+	/// (NOTE: At the time of this writing, the maximum number of ports you may
+	/// request is 4.)
+	enum { k_nMaxReturnPorts = 8 };
+	uint16 m_unPorts[k_nMaxReturnPorts];
 };
 
 #pragma pack( pop )

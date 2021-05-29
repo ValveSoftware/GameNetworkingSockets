@@ -58,6 +58,9 @@ DEFINE_GLOBAL_CONFIGVAL( void*, Callback_MessagesSessionRequest, nullptr );
 DEFINE_GLOBAL_CONFIGVAL( void*, Callback_MessagesSessionFailed, nullptr );
 #endif
 DEFINE_GLOBAL_CONFIGVAL( void *, Callback_CreateConnectionSignaling, nullptr );
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
+DEFINE_GLOBAL_CONFIGVAL( void *, Callback_FakeIPResult, nullptr );
+#endif
 
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, TimeoutInitial, 10000, 0, INT32_MAX );
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, TimeoutConnected, 10000, 0, INT32_MAX );
@@ -978,6 +981,21 @@ HSteamNetConnection CSteamNetworkingSockets::ConnectByIPAddress( const SteamNetw
 {
 	SteamNetworkingGlobalLock scopeLock( "ConnectByIPAddress" );
 	ConnectionScopeLock connectionLock;
+
+	// Check if the IP address is "fake" and this is really a P2P connection
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
+		if ( address.IsFakeIP() )
+		{
+			SteamNetworkingIdentity identityRemote;
+			identityRemote.SetIPAddr( address );
+			int nRemoveVirtualPort = -1; // Ignored, we multiplex in this case based on the fake port
+			CSteamNetworkConnectionBase *pConn = InternalConnectP2PDefaultSignaling( identityRemote, nRemoveVirtualPort, nOptions, pOptions, connectionLock );
+			if ( !pConn )
+				return k_HSteamNetConnection_Invalid;
+			return pConn->m_hConnectionSelf;
+		}
+	#endif
+
 	CSteamNetworkConnectionUDP *pConn = new CSteamNetworkConnectionUDP( this, connectionLock );
 	if ( !pConn )
 		return k_HSteamNetConnection_Invalid;
@@ -1413,6 +1431,21 @@ bool CSteamNetworkingSockets::BCertHasIdentity() const
 	return m_msgCert.has_identity_string() || m_msgCert.has_legacy_identity_binary() || m_msgCert.has_legacy_steam_id();
 }
 
+bool CSteamNetworkingSockets::BMatchesIdentity( const SteamNetworkingIdentity &identity )
+{
+	if ( identity == InternalGetIdentity() )
+		return true;
+
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
+		if ( identity.IsFakeIP() )
+		{
+			if ( GetFakePortIndex( identity.m_ip ) >= 0 )
+				return true;
+		}
+	#endif
+
+	return false;
+}
 
 bool CSteamNetworkingSockets::SetCertificateAndPrivateKey( const void *pCert, int cbCert, void *pPrivateKey, int cbPrivateKey )
 {
@@ -1523,6 +1556,9 @@ void CSteamNetworkingSockets::RunCallbacks()
 			DISPATCH_CALLBACK( SteamNetworkingMessagesSessionRequest_t, FnSteamNetworkingMessagesSessionRequest )
 			DISPATCH_CALLBACK( SteamNetworkingMessagesSessionFailed_t, FnSteamNetworkingMessagesSessionFailed )
 		#endif
+		#ifdef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
+			DISPATCH_CALLBACK( SteamNetworkingFakeIPResult_t, FnSteamNetworkingFakeIPResult )
+		#endif
 			default:
 				AssertMsg1( false, "Unknown callback type %d!", x.nCallback );
 		}
@@ -1550,6 +1586,32 @@ void CSteamNetworkingSockets::InternalQueueCallback( int nCallback, int cbCallba
 	q.fnCallback = fnRegisteredFunctionPtr;
 	memcpy( q.data, pvCallback, cbCallback );
 	m_mutexPendingCallbacks.unlock();
+}
+
+bool CSteamNetworkingSockets::BeginAsyncRequestFakeIP( int nNumPorts )
+{
+	AssertMsg( false, "FakeIP allocation requires Steam" );
+	return false;
+}
+
+void CSteamNetworkingSockets::GetFakeIP( int idxFirstPort, SteamNetworkingFakeIPResult_t *pInfo )
+{
+	// Not supported by base class
+	if ( pInfo )
+	{
+		memset( pInfo, 0, sizeof(*pInfo) );
+		GetIdentity( &pInfo->m_identity );
+		pInfo->m_eResult = k_EResultDisabled;
+	}
+}
+
+EResult CSteamNetworkingSockets::GetRemoteFakeIPForConnection( HSteamNetConnection hConn, SteamNetworkingIPAddr *pOutAddr )
+{
+	ConnectionScopeLock connectionLock;
+	CSteamNetworkConnectionBase *pConn = GetConnectionByHandleForAPI( hConn, connectionLock, "GetRemoteFakeIPForConnection" );
+	if ( !pConn )
+		return k_EResultInvalidParam;
+	return pConn->APIGetRemoteFakeIPForConnection( pOutAddr );
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -2103,6 +2165,26 @@ bool CSteamNetworkingUtils::SteamNetworkingIdentity_ParseString( SteamNetworking
 	return ::SteamNetworkingIdentity_ParseString( pIdentity, sizeof(SteamNetworkingIdentity), pszStr );
 }
 
+ESteamNetworkingFakeIPType CSteamNetworkingUtils::GetIPv4FakeIPType( uint32 nIPv4 )
+{
+	return SteamNetworkingSocketsLib::GetIPv4FakeIPType( nIPv4 );
+}
+
+EResult CSteamNetworkingUtils::GetRealIdentityForFakeIP( const SteamNetworkingIPAddr &fakeIP, SteamNetworkingIdentity *pOutRealIdentity )
+{
+	// Not supported without Steam
+	return k_EResultDisabled;
+}
+
+ESteamNetworkingFakeIPType CSteamNetworkingUtils::SteamNetworkingIPAddr_GetFakeIPType( const SteamNetworkingIPAddr &addr )
+{
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
+		return ::SteamNetworkingIPAddr_GetFakeIPType( &addr );
+	#else
+		return k_ESteamNetworkingFakeIPType_NotFake;
+	#endif
+}
+
 AppId_t CSteamNetworkingUtils::GetAppID()
 {
 	return m_nAppID;
@@ -2235,12 +2317,12 @@ STEAMNETWORKINGSOCKETS_INTERFACE void GameNetworkingSockets_Kill()
 	}
 }
 
-STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets *SteamNetworkingSockets_LibV9()
+STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets *SteamNetworkingSockets_LibV11()
 {
 	return s_pSteamNetworkingSockets;
 }
 
-STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingUtils *SteamNetworkingUtils_LibV3()
+STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingUtils *SteamNetworkingUtils_LibV4()
 {
 	static CSteamNetworkingUtils s_utils;
 	return &s_utils;

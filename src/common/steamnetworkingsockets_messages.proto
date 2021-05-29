@@ -230,7 +230,8 @@ message CMsgSteamNetworkingP2PRendezvous
 	// Connection this is from
 	optional fixed32 from_connection_id = 9;
 
-	// Destination identity, if I know it
+	// Destination identity, if I know it.  If we are using FakeIP and don't know
+	// the destination's real identity, this will be the fake IP.
 	optional string to_identity = 10;
 
 	// Destination connection ID, if I know it.
@@ -259,6 +260,10 @@ message CMsgSteamNetworkingP2PRendezvous
 		optional CMsgSteamDatagramCertificateSigned cert = 7;
 		optional uint32 to_virtual_port = 9;
 		optional uint32 from_virtual_port = 10;
+
+		// From FakeIP.  Will only be present if we have a global-allocated FakeIP
+		// and we are attempting to connect by FakeIP
+		optional string from_fakeip = 11;
 	};
 	optional ConnectRequest connect_request = 4;
 

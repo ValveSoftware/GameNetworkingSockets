@@ -50,6 +50,16 @@
 	#define STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
 #endif
 
+// FakeIP system can only be used on Steam
+#ifndef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
+	#ifdef STEAMNETWORKINGSOCKETS_STEAM
+		#define STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
+	#endif
+#endif
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
+	#include "steamdatagram_fakeip.h"
+#endif
+
 #if !defined( STEAMNETWORKINGSOCKETS_OPENSOURCE ) && !defined( STEAMNETWORKINGSOCKETS_STREAMINGCLIENT )
 	// STEAMNETWORKINGSOCKETS_CAN_REQUEST_CERT means we know how to make a cert request from some sort of certificate authority
 	#define STEAMNETWORKINGSOCKETS_CAN_REQUEST_CERT
@@ -304,6 +314,14 @@ const uint32 k_nMinRequiredProtocolVersion = 8;
 /// SteamNetworkingMessages is built on top of SteamNetworkingSockets.  We use a reserved
 /// virtual port for this interface
 const int k_nVirtualPort_Messages = 0x7fffffff;
+
+/// A portion of the virtual port range is carved out for "fake IP ports".
+/// These are the *index* of the fake port, not the actual fake port value itself.
+/// This is a much bigger reservation of the space than we ever actually expect to
+/// use in practice.  Furthermore, these numbers should only be used locally.
+/// Outside of the local process, we would always use the actual fake port value.
+const int k_nVirtualPort_FakePort0 = 0x7fffff00;
+const int k_nVirtualPort_FakePortMax = 0x7ffffffe;
 
 // Serialize an UNSIGNED quantity.  Returns pointer to the next byte.
 // https://developers.google.com/protocol-buffers/docs/encoding
@@ -820,6 +838,10 @@ extern GlobalConfigValue<std::string> g_Config_SDRClient_FakeClusterPing;
 extern ConnectionConfigDefaultValue< std::string > g_ConfigDefault_P2P_STUN_ServerList;
 #endif
 
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
+extern GlobalConfigValue<void*> g_Config_Callback_FakeIPResult;
+#endif
+
 // This awkwardness (adding and subtracting sizeof(intptr_t)) silences an UBSan
 // runtime error about "member access within null pointer"
 #define V_offsetof(class, field) (int)((intptr_t)&((class *)(0+sizeof(intptr_t)))->field - sizeof(intptr_t))
@@ -836,6 +858,22 @@ inline bool RandomBoolWithOdds( float odds )
 		return false;
 	return WeakRandomFloat( 0, 100.0 ) < odds;
 }
+
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
+inline ESteamNetworkingFakeIPType GetIPv4FakeIPType( uint32 nIPv4 )
+{
+	if ( nIPv4 < k_nSteamNetworkingSockets_FakeIP_MinIP || nIPv4 > k_nSteamNetworkingSockets_FakeIP_MaxIP )
+		return k_ESteamNetworkingFakeIPType_NotFake;
+
+	COMPILE_TIME_ASSERT( k_nSteamNetworkingSockets_FakeIP_MaxGlobalIP + 1 == k_nSteamNetworkingSockets_FakeIP_MinLocalIP );
+	if ( nIPv4 < k_nSteamNetworkingSockets_FakeIP_MinLocalIP )
+		return k_ESteamNetworkingFakeIPType_GlobalIPv4;
+
+	return k_ESteamNetworkingFakeIPType_LocalIPv4;
+}
+#else
+inline ESteamNetworkingFakeIPType GetIPv4FakeIPType( uint32 nIPv4 ) { return k_ESteamNetworkingFakeIPType_NotFake; }
+#endif
 
 } // namespace SteamNetworkingSocketsLib
 

@@ -69,6 +69,9 @@ public:
 		return m_identity;
 	}
 
+	/// Return true if this identity refers to us.  (We might have more than one identity that could be used to refer to us, e.g. FakeIP)
+	bool BMatchesIdentity( const SteamNetworkingIdentity &identity );
+
 	template <typename T>
 	void QueueCallback( const T& x, void *fnRegisteredFunctionPtr )
 	{
@@ -109,6 +112,15 @@ public:
 	virtual bool GetCertificateRequest( int *pcbBlob, void *pBlob, SteamNetworkingErrMsg &errMsg ) override;
 	virtual bool SetCertificate( const void *pCertificate, int cbCertificate, SteamNetworkingErrMsg &errMsg ) override;
 	virtual void ResetIdentity( const SteamNetworkingIdentity *pIdentity ) override;
+
+	virtual bool BeginAsyncRequestFakeIP( int nNumPorts ) override;
+	virtual void GetFakeIP( int idxFirstPort, SteamNetworkingFakeIPResult_t *pInfo ) override;
+	virtual HSteamListenSocket CreateListenSocketP2PFakeIP( int idxFakePort, int nOptions, const SteamNetworkingConfigValue_t *pOptions ) override;
+	virtual EResult GetRemoteFakeIPForConnection( HSteamNetConnection hConn, SteamNetworkingIPAddr *pOutAddr ) override;
+
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
+	virtual int GetFakePortIndex( const SteamNetworkingIPAddr &fakeIP ) = 0;
+	#endif
 
 #ifdef STEAMNETWORKINGSOCKETS_STEAMCLIENT
 	virtual int ReceiveMessagesOnListenSocketLegacyPollGroup( HSteamListenSocket hSocket, SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages ) override;
@@ -251,6 +263,9 @@ public:
 	virtual SteamNetworkingMicroseconds GetLocalTimestamp() override;
 	virtual void SetDebugOutputFunction( ESteamNetworkingSocketsDebugOutputType eDetailLevel, FSteamNetworkingSocketsDebugOutput pfnFunc ) override;
 
+	virtual ESteamNetworkingFakeIPType GetIPv4FakeIPType( uint32 nIPv4 ) override;
+	virtual EResult GetRealIdentityForFakeIP( const SteamNetworkingIPAddr &fakeIP, SteamNetworkingIdentity *pOutRealIdentity ) override;
+
 	virtual bool SetConfigValue( ESteamNetworkingConfigValue eValue,
 		ESteamNetworkingConfigScope eScopeType, intptr_t scopeObj,
 		ESteamNetworkingConfigDataType eDataType, const void *pValue ) override;
@@ -265,6 +280,7 @@ public:
 
 	virtual void SteamNetworkingIPAddr_ToString( const SteamNetworkingIPAddr &addr, char *buf, size_t cbBuf, bool bWithPort ) override;
 	virtual bool SteamNetworkingIPAddr_ParseString( SteamNetworkingIPAddr *pAddr, const char *pszStr ) override;
+	virtual ESteamNetworkingFakeIPType SteamNetworkingIPAddr_GetFakeIPType( const SteamNetworkingIPAddr &addr ) override;
 	virtual void SteamNetworkingIdentity_ToString( const SteamNetworkingIdentity &identity, char *buf, size_t cbBuf ) override;
 	virtual bool SteamNetworkingIdentity_ParseString( SteamNetworkingIdentity *pIdentity, const char *pszStr ) override;
 

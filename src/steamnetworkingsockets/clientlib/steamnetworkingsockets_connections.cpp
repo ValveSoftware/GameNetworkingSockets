@@ -2123,6 +2123,12 @@ int CSteamNetworkConnectionBase::APIReceiveMessages( SteamNetworkingMessage_t **
 	return result;
 }
 
+EResult CSteamNetworkConnectionBase::APIGetRemoteFakeIPForConnection( SteamNetworkingIPAddr *pOutAddr )
+{
+	// Derived class must override if FakeIP support is desired
+	return k_EResultIPNotFound;
+}
+
 bool CSteamNetworkConnectionBase::DecryptDataChunk( uint16 nWireSeqNum, int cbPacketSize, const void *pChunk, int cbChunk, RecvPacketContext_t &ctx )
 {
 	AssertLocksHeldByCurrentThread();

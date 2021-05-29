@@ -189,6 +189,40 @@ inline ESteamNetworkingConnectionState CollapseConnectionStateToAPIState( ESteam
 /// received messages.  (On connections and poll groups!)
 extern ShortDurationLock g_lockAllRecvMessageQueues;
 
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
+
+struct FakeIPKey;
+
+// Struct that holds a reference, so that we don't forget about FakeIPs that are actually in use
+struct FakeIPReference
+{
+	~FakeIPReference() { Clear(); }
+
+	/// Return true if we are in use
+	inline bool IsValid() const { return m_nHandle >= 0; }
+
+	/// If we hold a reference, clear it
+	void Clear();
+
+	/// Setup to hold a reference to the given FakeIP and the known remote identity
+	void Setup( const SteamNetworkingIPAddr &addr, const SteamNetworkingIdentity &identity );
+
+	/// Allocate a new local FakeIP for the given identity.  Returns false if we fail (which should
+	/// really never happen)
+	bool SetupNewLocalIP( const SteamNetworkingIdentity &identity, SteamNetworkingIPAddr *pOutLocalFakeIP );
+
+	/// Get the real identity and/or fake IP.  Returns false if we do not hold a reference
+	bool GetInfo( SteamNetworkingIdentity *pOutIdentity, SteamNetworkingIPAddr *pOutFakeIP ) const;
+
+private:
+	void InsertInternal( const FakeIPKey &key, const SteamNetworkingIdentity &identity );
+	void AddRefInternal( int handle, const SteamNetworkingIdentity &identity );
+
+	int m_nHandle = -1;
+};
+
+#endif // #ifdef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
+
 /////////////////////////////////////////////////////////////////////////////
 //
 // CSteamNetworkPollGroup
@@ -334,6 +368,9 @@ public:
 	/// Hook to allow connections to customize message sending.
 	/// (E.g. loopback.)
 	virtual int64 _APISendMessageToConnection( CSteamNetworkingMessage *pMsg, SteamNetworkingMicroseconds usecNow, bool *pbThinkImmediately );
+
+	/// FakeIP lookuip
+	virtual EResult APIGetRemoteFakeIPForConnection( SteamNetworkingIPAddr *pOutAddr );
 
 //
 // Accessor
