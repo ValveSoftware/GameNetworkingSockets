@@ -76,6 +76,10 @@ private:
 
 	void InternalSetNextThinkTime( SteamNetworkingMicroseconds usecTargetThinkTime );
 	void InternalEnsureMinThinkTime( SteamNetworkingMicroseconds usecTargetThinkTime );
+public:
+	#ifdef DBGFLAG_VALIDATE
+	virtual void Validate( CValidator &validator, const char *pchName );
+	#endif
 };
 template <typename L>
 class ILockableThinker : public IThinker

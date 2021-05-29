@@ -246,8 +246,13 @@ void IThinker::Thinker_ProcessThinkers()
 #ifdef DBGFLAG_VALIDATE
 void Thinker_ValidateStatics( CValidator &validator )
 {
-	ValidateObj( s_queueThinkers );
+	ValidateRecursive( s_queueThinkers );
 }
+
+void IThinker::Validate( CValidator &validator, const char *pchName )
+{
+}
+
 #endif
 
 } // namespace SteamNetworkingSocketsLib
