@@ -687,6 +687,13 @@ public:
 	/// SteamDatagram_CreateCert.
 	virtual bool SetCertificate( const void *pCertificate, int cbCertificate, SteamNetworkingErrMsg &errMsg ) = 0;
 
+	/// Invoke all callback functions queued for this interface.
+	/// See k_ESteamNetworkingConfig_Callback_ConnectionStatusChanged, etc
+	///
+	/// You don't need to call this if you are using Steam's callback dispatch
+	/// mechanism (SteamAPI_RunCallbacks and SteamGameserver_RunCallbacks).
+	virtual void RunCallbacks() = 0;
+
 	/// Reset the identity associated with this instance.
 	/// Any open connections are closed.  Any previous certificates, etc are discarded.
 	/// You can pass a specific identity that you want to use, or you can pass NULL,
@@ -697,12 +704,6 @@ public:
 	///       a new user can sign in.
 	virtual void ResetIdentity( const SteamNetworkingIdentity *pIdentity ) = 0;
 
-	/// Invoke all callback functions queued for this interface.
-	/// See k_ESteamNetworkingConfig_Callback_ConnectionStatusChanged, etc
-	///
-	/// You don't need to call this if you are using Steam's callback dispatch
-	/// mechanism (SteamAPI_RunCallbacks and SteamGameserver_RunCallbacks).
-	virtual void RunCallbacks() = 0;
 protected:
 	~ISteamNetworkingSockets(); // Silence some warnings
 };
