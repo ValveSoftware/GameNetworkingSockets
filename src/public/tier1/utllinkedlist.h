@@ -150,6 +150,7 @@ public:
 
 #ifdef DBGFLAG_VALIDATE
 	void Validate( CValidator &validator, const char *pchName );		// Validate our internal structures
+	void RecursiveValidate( CValidator &validator, const char *pchName );		// Validate our internal structures
 	void ValidateSelfAndElements( CValidator &validator, const char *pchName );
 #endif // DBGFLAG_VALIDATE
 
@@ -328,14 +329,14 @@ inline I  CUtlLinkedList<T,I>::Next( I i ) const
 template <class T, class I>
 inline bool CUtlLinkedList<T,I>::IsValidIndex( I i ) const  
 { 
-	return (i < m_TotalElements) && (i >= 0) &&
+	return ((unsigned)i < (unsigned)m_TotalElements) &&
 		((m_Memory[i].m_Previous != i) || (m_Memory[i].m_Next == i));
 }
 
 template <class T, class I>
 inline bool CUtlLinkedList<T,I>::IsInList( I i ) const
 {
-	return (i < m_TotalElements) && (i >= 0) && (Previous(i) != i);
+	return ((unsigned)i < (unsigned)m_TotalElements) && (m_Memory[i].m_Previous != i);
 }
 
 //-----------------------------------------------------------------------------
@@ -430,7 +431,11 @@ inline I CUtlLinkedList<T,I>::Alloc( bool multilist )
 template <class T, class I>
 inline void  CUtlLinkedList<T,I>::Free( I elem )
 {
-	Assert( IsValidIndex(elem) );
+	if ( !IsValidIndex(elem) )
+	{
+		AssertMsg1( false, "Invalid index %u", (unsigned)elem );
+		return;
+	}
 	Unlink(elem);
 
 	ListElem_t &internalElem = InternalElement(elem);
@@ -519,7 +524,7 @@ inline I CUtlLinkedList<T,I>::InsertBefore( I before, T const& src )
 	LinkBefore( before, newNode );
 	
 	// Construct the data
-	CopyConstruct( &Element(newNode), src );
+	Construct( &Element(newNode), src );
 	
 	return newNode;
 }
@@ -534,7 +539,7 @@ inline I CUtlLinkedList<T,I>::InsertAfter( I after, T const& src )
 	LinkAfter( after, newNode );
 	
 	// Construct the data
-	CopyConstruct( &Element(newNode), src );
+	Construct( &Element(newNode), src );
 	
 	return newNode;
 }
@@ -722,7 +727,6 @@ inline void  CUtlLinkedList<T,I>::LinkAfter( I after, I elem )
 template <class T, class I>
 inline void  CUtlLinkedList<T,I>::Unlink( I elem )
 {
-	Assert( IsValidIndex(elem) );
 	if (IsInList(elem))
 	{
 		ListElem_t *pBase = m_Memory.Base();
@@ -757,6 +761,10 @@ inline void  CUtlLinkedList<T,I>::Unlink( I elem )
 		// One less puppy
 		--m_ElementCount;
 	}
+	else
+	{
+		Assert( IsValidIndex(elem) );
+	}
 }
 
 template <class T, class I>
@@ -776,25 +784,27 @@ inline void CUtlLinkedList<T,I>::LinkToTail( I elem )
 template <class T, class I>
 inline void CUtlLinkedList<T, I>::Validate( CValidator &validator, const char *pchName )
 {
-#ifdef _WIN32
-	validator.Push( typeid(*this).raw_name(), this, pchName );
-#else
-	validator.Push( typeid(*this).name(), this, pchName );
-#endif
+	VALIDATE_SCOPE();
 
 	m_Memory.Validate( validator, "m_Memory" );
+}
 
-	validator.Pop();
+template <class T, class I>
+inline void CUtlLinkedList<T, I>::RecursiveValidate( CValidator &validator, const char *pchName )
+{
+	VALIDATE_SCOPE();
+
+	ValidateRecursive( m_Memory );
+	FOR_EACH_LL( *this, i )
+	{
+		ValidateRecursive( Element( i ) );
+	}
 }
 
 template <class T, class I>
 inline void CUtlLinkedList<T, I>::ValidateSelfAndElements( CValidator &validator, const char *pchName )
 {
-#ifdef _WIN32
-	validator.Push( typeid(*this).raw_name(), this, pchName );
-#else
-	validator.Push( typeid(*this).name(), this, pchName );
-#endif
+	VALIDATE_SCOPE();
 
 	m_Memory.Validate( validator, "m_Memory" );
 
@@ -804,8 +814,6 @@ inline void CUtlLinkedList<T, I>::ValidateSelfAndElements( CValidator &validator
 	{
 		functor( Element(i), pchName );
 	}
-
-	validator.Pop();
 }
 
 #endif // DBGFLAG_VALIDATE
