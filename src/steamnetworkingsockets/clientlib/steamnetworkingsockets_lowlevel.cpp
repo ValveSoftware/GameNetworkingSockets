@@ -2349,6 +2349,17 @@ bool BSteamNetworkingSocketsLowLevelAddRef( SteamDatagramErrMsg &errMsg )
 				V_strcpy_safe( errMsg, "WSAStartup failed" );
 				return false;
 			}
+
+			#pragma comment( lib, "winmm.lib" )
+			if ( ::timeBeginPeriod( 1 ) != 0 )
+			{
+				::WSACleanup();
+				#ifdef _XBOX_ONE
+					::CoUninitialize();
+				#endif
+				V_strcpy_safe( errMsg, "timeBeginPeriod failed" );
+				return false;
+			}
 		}
 		#endif
 
@@ -2505,6 +2516,7 @@ void SteamNetworkingSocketsLowLevelDecRef()
 
 	// Nuke sockets and COM
 	#ifdef _WIN32
+		::timeEndPeriod( 1 );
 		::WSACleanup();
 	#endif
 	#ifdef _XBOX_ONE
