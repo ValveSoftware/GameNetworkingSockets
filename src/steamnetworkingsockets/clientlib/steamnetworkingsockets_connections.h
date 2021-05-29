@@ -264,7 +264,7 @@ public:
 
 	/// For legacy interface.
 	#ifdef STEAMNETWORKINGSOCKETS_STEAMCLIENT
-	CSteamNetworkPollGroup m_legacyPollGroup;
+	std::unique_ptr<CSteamNetworkPollGroup> m_pLegacyPollGroup;
 	#endif
 
 protected:

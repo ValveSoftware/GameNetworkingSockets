@@ -346,7 +346,6 @@ CSteamNetworkPollGroup::~CSteamNetworkPollGroup()
 	// Object deletion is rare; to keep things simple we require the global lock
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
 	m_lock.AssertHeldByCurrentThread();
-	g_tables_lock.AssertHeldByCurrentThread();
 
 	FOR_EACH_VEC_BACK( m_vecConnections, i )
 	{
@@ -385,6 +384,7 @@ CSteamNetworkPollGroup::~CSteamNetworkPollGroup()
 	// Remove us from global table, if we're in it
 	if ( m_hPollGroupSelf != k_HSteamNetPollGroup_Invalid )
 	{
+		g_tables_lock.AssertHeldByCurrentThread();
 		int idx = m_hPollGroupSelf & 0xffff;
 		if ( g_mapPollGroups.IsValidIndex( idx ) && g_mapPollGroups[ idx ] == this )
 		{
@@ -443,9 +443,6 @@ void CSteamNetworkPollGroup::AssignHandleAndAddToGlobalTable()
 CSteamNetworkListenSocketBase::CSteamNetworkListenSocketBase( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface )
 : m_pSteamNetworkingSocketsInterface( pSteamNetworkingSocketsInterface )
 , m_hListenSocketSelf( k_HSteamListenSocket_Invalid )
-#ifdef STEAMNETWORKINGSOCKETS_STEAMCLIENT
-, m_legacyPollGroup( pSteamNetworkingSocketsInterface )
-#endif
 {
 	m_connectionConfig.Init( &pSteamNetworkingSocketsInterface->m_connectionConfig );
 }
@@ -473,6 +470,10 @@ CSteamNetworkListenSocketBase::~CSteamNetworkListenSocketBase()
 
 		m_hListenSocketSelf = k_HSteamListenSocket_Invalid;
 	}
+
+	#ifdef STEAMNETWORKINGSOCKETS_STEAMCLIENT
+		Assert( !m_pLegacyPollGroup ); // Should have been cleaned up by Destroy()
+	#endif
 }
 
 bool CSteamNetworkListenSocketBase::BInitListenSocketCommon( int nOptions, const SteamNetworkingConfigValue_t *pOptions, SteamDatagramErrMsg &errMsg )
@@ -556,6 +557,14 @@ void CSteamNetworkListenSocketBase::Destroy()
 		Assert( m_mapChildConnections.Count() == n-1 );
 	}
 
+	#ifdef STEAMNETWORKINGSOCKETS_STEAMCLIENT
+	if ( m_pLegacyPollGroup )
+	{
+		m_pLegacyPollGroup->m_lock.lock(); // Don't use scope object.  It will unlock when we destruct
+		m_pLegacyPollGroup.reset();
+	}
+	#endif
+
 	// Self destruct
 	delete this;
 }
@@ -615,7 +624,11 @@ bool CSteamNetworkListenSocketBase::BAddChildConnection( CSteamNetworkConnection
 	// Don't override it, if so.)
 	#ifdef STEAMNETWORKINGSOCKETS_STEAMCLIENT
 	if ( !pConn->m_pPollGroup )
-		pConn->SetPollGroup( &m_legacyPollGroup );
+	{
+		if ( !m_pLegacyPollGroup )
+			m_pLegacyPollGroup.reset( new CSteamNetworkPollGroup( m_pSteamNetworkingSocketsInterface ) );
+		pConn->SetPollGroup( m_pLegacyPollGroup.get() );
+	}
 	#endif
 
 	return true;

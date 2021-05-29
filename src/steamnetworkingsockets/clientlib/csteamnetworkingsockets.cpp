@@ -1298,8 +1298,10 @@ int CSteamNetworkingSockets::ReceiveMessagesOnListenSocketLegacyPollGroup( HStea
 	CSteamNetworkListenSocketBase *pSock = GetListenSocketByHandle( hSocket );
 	if ( !pSock )
 		return -1;
+	if ( !pSock->m_pLegacyPollGroup )
+		return 0;
 	g_lockAllRecvMessageQueues.lock();
-	int nMessagesReceived = pSock->m_legacyPollGroup.m_queueRecvMessages.RemoveMessages( ppOutMessages, nMaxMessages );
+	int nMessagesReceived = pSock->m_pLegacyPollGroup->m_queueRecvMessages.RemoveMessages( ppOutMessages, nMaxMessages );
 	g_lockAllRecvMessageQueues.unlock();
 	return nMessagesReceived;
 }
