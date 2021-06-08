@@ -202,7 +202,7 @@ public:
 
 	// CSteamNetworkConnectionBase overrides
 	virtual void FreeResources() override;
-	virtual EResult AcceptConnection( SteamNetworkingMicroseconds usecNow ) override;
+	virtual EResult AcceptConnection( SteamNetworkingMicroseconds usecNow ) override final;
 	virtual void GetConnectionTypeDescription( ConnectionTypeDescription_t &szDescription ) const override;
 	virtual void ThinkConnection( SteamNetworkingMicroseconds usecNow ) override;
 	virtual SteamNetworkingMicroseconds ThinkConnection_ClientConnecting( SteamNetworkingMicroseconds usecNow ) override;
@@ -429,6 +429,8 @@ protected:
 	bool BInitP2PConnectionCommon( SteamNetworkingMicroseconds usecNow, int nOptions, const SteamNetworkingConfigValue_t *pOptions, SteamDatagramErrMsg &errMsg );
 
 	virtual void PopulateRendezvousMsgWithTransportInfo( CMsgSteamNetworkingP2PRendezvous &msg, SteamNetworkingMicroseconds usecNow );
+
+	virtual EResult P2PInternalAcceptConnection( SteamNetworkingMicroseconds usecNow );
 
 private:
 

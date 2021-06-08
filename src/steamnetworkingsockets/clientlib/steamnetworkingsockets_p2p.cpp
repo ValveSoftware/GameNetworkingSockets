@@ -1000,7 +1000,6 @@ EResult CSteamNetworkConnectionP2P::AcceptConnection( SteamNetworkingMicrosecond
 	// Calling code shouldn't call us unless this is true
 	Assert( m_bConnectionInitiatedRemotely );
 	Assert( GetState() == k_ESteamNetworkingConnectionState_Connecting );
-	Assert( !IsSDRHostedServer() ); // Those connections use a derived class that overrides this function
 
 	// Check symmetric mode.  Note that if they are using the API properly, we should
 	// have already detected this earlier!
@@ -1012,6 +1011,13 @@ EResult CSteamNetworkConnectionP2P::AcceptConnection( SteamNetworkingMicrosecond
 			return k_EResultFail;
 		}
 	}
+
+	return P2PInternalAcceptConnection( usecNow );
+}
+
+EResult CSteamNetworkConnectionP2P::P2PInternalAcceptConnection( SteamNetworkingMicroseconds usecNow )
+{
+	Assert( !IsSDRHostedServer() ); // Those connections use a derived class that overrides this function
 
 	// Spew
 	SpewVerboseGroup( LogLevel_P2PRendezvous(), "[%s] Accepting connection, transitioning to 'finding route' state\n", GetDescription() );
