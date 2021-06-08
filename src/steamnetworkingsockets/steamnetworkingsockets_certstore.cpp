@@ -686,7 +686,7 @@ const CertAuthScope *CertStore_CheckCert( const CMsgSteamDatagramCertificateSign
 			// Hm - this status doesn't mean "bad", it just means that the cert in the cert store
 			// with this key was not able to be verified.  This is an an unusual situation, ordinarily
 			// we should not have any certs in the cert store that we are not able to trust.  Still, we
-			// just specific ally verified trust above.  So let's continue on, but without adding this
+			// just specifically verified trust above.  So let's continue on, but without adding this
 			// to the cert store.
 		}
 		else if ( !pPubKey->IsTrusted() )
@@ -699,6 +699,33 @@ const CertAuthScope *CertStore_CheckCert( const CMsgSteamDatagramCertificateSign
 	}
 
 	return pResult;
+}
+
+const CertAuthScope *CertStore_CheckPublicKey( uint64 nKeyID, time_t timeNow, SteamNetworkingErrMsg &errMsg )
+{
+	CertStore_EnsureTrustValid();
+
+	const PublicKey *pPubKey = FindPublicKey( nKeyID );
+	if ( pPubKey && pPubKey->m_eTrust == k_ETrust_Revoked )
+	{
+		// Key is revoked.
+		V_sprintf_safe( errMsg, "Key public ID%llu has been revoked!", nKeyID );
+		return nullptr;
+	}
+	if ( !pPubKey || !pPubKey->IsTrusted() )
+	{
+		// Not affirmatively trusted
+		V_sprintf_safe( errMsg, "Cert store does not contain chain authorizing public key ID%llu.", nKeyID );
+		return nullptr;
+	}
+	time_t expiry = pPubKey->m_effectiveAuthScope.m_timeExpiry;
+	if ( expiry < timeNow )
+	{
+		V_sprintf_safe( errMsg, "Public key ID%llu at %llu (%.1f hours ago).", nKeyID, (unsigned long long)expiry, (timeNow - expiry) / 3600.0 );
+		return nullptr;
+	}
+
+	return &pPubKey->m_effectiveAuthScope;
 }
 
 bool CheckCertAppID( const CMsgSteamDatagramCertificate &msgCert, const CertAuthScope *pCACertAuthScope, AppId_t nAppID, SteamNetworkingErrMsg &errMsg )

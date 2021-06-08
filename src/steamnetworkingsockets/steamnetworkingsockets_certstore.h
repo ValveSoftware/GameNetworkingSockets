@@ -141,6 +141,11 @@ extern void CertStore_Print( std::ostream &out );
 /// Check the cert store, asserting if any keys are not trusted
 extern void CertStore_Check();
 
+/// Search the cert store for a particular public key.  Returns NULL if the key
+/// is not affirmatively trusted (or has expired).  Otherwise returns the
+/// Auth scope that has been granted by the newest/best cert we have for that key.
+extern const CertAuthScope *CertStore_CheckPublicKey( uint64 nKeyID, time_t timeNow, SteamNetworkingErrMsg &errMsg );
+
 /// Steam memory validation
 #ifdef DBGFLAG_VALIDATE
 extern void CertStore_ValidateStatics( CValidator &validator );
