@@ -130,6 +130,9 @@ public:
 
 	void PollMessages( SteamNetworkingMicroseconds usecNow );
 
+	#ifdef DBGFLAG_VALIDATE
+	static void ValidateStatics( CValidator &validator );
+	#endif
 private:
 
 	SteamNetworkingMessagesSession *FindSession( const SteamNetworkingIdentity &identityRemote, ConnectionScopeLock &scopeLock );

@@ -842,6 +842,12 @@ void SteamNetworkingMessagesSession::Validate( CValidator &validator, const char
 	// FIXME: m_queueRecvMessages
 }
 
+void CSteamNetworkingMessages::ValidateStatics( CValidator &validator )
+{
+	ValidateObj( g_mapSessionsByConnection ); // not recursive, we don't own these
+	ValidateObj( g_mapMessagesInterfaceByListenSocket ); // not recursive, we don't own these
+}
+
 #endif
 
 } // namespace SteamNetworkingSocketsLib
