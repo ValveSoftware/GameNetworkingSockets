@@ -30,6 +30,10 @@
 	#endif
 #endif
 
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
+	#include "csteamnetworkingmessages.h"
+#endif
+
 #include "tier0/memdbgoff.h"
 
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_DIAGNOSTICSUI
@@ -1878,6 +1882,11 @@ bool CSteamNetworkConnectionP2P::ProcessSignal( const CMsgSteamNetworkingP2PRend
 	#endif
 
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+		if ( msg.has_connection_closed() )
+		{
+			m_vecUnackedOutboundMessages.clear();
+			m_nLastSendRendesvousMessageID = 0;
+		}
 		if ( !msg.ice_enabled() )
 		{
 			ICEFailed( k_nICECloseCode_Remote_NotEnabled, "Peer sent signal without ice_enabled set" );
@@ -2984,6 +2993,9 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const void *pMsg, int c
 				nRemoteVirtualPort = nLocalVirtualPort;
 			bool bSymmetricListenSocket = false;
 			CSteamNetworkListenSocketP2P *pListenSock = nullptr;
+			#ifdef STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
+			CSteamNetworkingMessages *pSteamNetworkingMessages = nullptr;
+			#endif
 
 			#ifdef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
 				if ( toLocalIdentity.IsFakeIP() )
@@ -3017,7 +3029,8 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const void *pMsg, int c
 					#ifdef STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
 
 						// Make sure messages system is initialized
-						if ( !GetSteamNetworkingMessages() )
+						pSteamNetworkingMessages = GetSteamNetworkingMessages();
+						if ( !pSteamNetworkingMessages )
 						{
 							SpewBug( "Ignoring P2P CMsgSteamDatagramConnectRequest from %s; can't get ISteamNetworkingNetworkingMessages interface!", SteamNetworkingIdentityRender( identityRemote ).c_str() );
 							//SendP2PRejection( pContext, identityRemote, msg, k_ESteamNetConnectionEnd_Misc_Generic, "Internal error accepting connection.  Can't get NetworkingMessages interface" );
@@ -3197,8 +3210,22 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const void *pMsg, int c
 					// But they didn't accept it, so they want to go through the normal
 					// callback mechanism.
 
-					SpewVerboseGroup( nLogLevel, "[%s] Received incoming P2P connect request; awaiting app to accept connection\n",
-						pConn->GetDescription() );
+					#ifdef STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
+					if ( pSteamNetworkingMessages )
+					{
+						SpewVerboseGroup( nLogLevel, "[%s] Received incoming P2P connect request on messages listen socket\n",
+							pConn->GetDescription() );
+						if ( !pSteamNetworkingMessages->BHandleNewIncomingConnection( pConn, connectionLock ) )
+						{
+							pConn->ConnectionQueueDestroy();
+							return false;
+						}
+					} else
+					#endif
+					{
+						SpewVerboseGroup( nLogLevel, "[%s] Received incoming P2P connect request; awaiting app to accept connection\n",
+							pConn->GetDescription() );
+					}
 					pConn->PostConnectionStateChangedCallback( k_ESteamNetworkingConnectionState_None, k_ESteamNetworkingConnectionState_Connecting );
 					break;
 

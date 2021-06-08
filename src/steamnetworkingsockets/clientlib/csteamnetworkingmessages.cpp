@@ -133,8 +133,12 @@ void CSteamNetworkingMessages::FreeResources()
 	m_mapChannels.PurgeAndDeleteElements();
 
 	// Destroy poll group, if any
-	delete m_pPollGroup;
-	m_pPollGroup = nullptr;
+	if ( m_pPollGroup )
+	{
+		m_pPollGroup->m_lock.lock(); // Only lock once, destructor unlocks!
+		delete m_pPollGroup;
+		m_pPollGroup = nullptr;
+	}
 
 	// Destroy listen socket, if any
 	if ( m_pListenSocket )
@@ -189,41 +193,9 @@ void CSteamNetworkingMessages::ConnectionStatusChangedCallback( SteamNetConnecti
 	// These callbacks should happen synchronously, while we have the lock
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "CSteamNetworkingMessages::ConnectionStatusChangedCallback" );
 
-	// New connection?
+	// New connection?  We handle this case more explicitly
 	if ( pInfo->m_eOldState == k_ESteamNetworkingConnectionState_None )
-	{
-
-		// New connections should only ever transition into to the "connecting" state
-		if ( pInfo->m_info.m_eState != k_ESteamNetworkingConnectionState_Connecting )
-		{
-			AssertMsg( false, "Unexpected state transition from 'none' to %d", pInfo->m_info.m_eState );
-			return;
-		}
-
-		// Are we initiating this?
-		if ( pInfo->m_info.m_hListenSocket == k_HSteamListenSocket_Invalid )
-			return; // ignore
-
-		// New incoming connection.
-		int h = g_mapMessagesInterfaceByListenSocket.Find( pInfo->m_info.m_hListenSocket );
-		if ( h == g_mapSessionsByConnection.InvalidIndex() )
-		{
-			AssertMsg( false, "ConnectionStatusChangedCallback, but listen socket not found?" );
-
-			// FIXME - if we hit this bug, we leak the connection.  Should we try to clean up better?
-			return;
-		}
-		ConnectionScopeLock connectionLock;
-		CSteamNetworkConnectionBase *pConn = GetConnectionByHandle( pInfo->m_hConn, connectionLock );
-		if ( !pConn )
-		{
-			AssertMsg( false, "Can't find connection by handle?" );
-			return;
-		}
-		Assert( pConn->GetState() == k_ESteamNetworkingConnectionState_Connecting );
-		g_mapMessagesInterfaceByListenSocket[h]->NewConnection( pConn );
 		return;
-	}
 
 	// Change to a known connection with a session?
 	int h = g_mapSessionsByConnection.Find( pInfo->m_hConn );
@@ -248,7 +220,7 @@ EResult CSteamNetworkingMessages::SendMessageToUser( const SteamNetworkingIdenti
 		return k_EResultInvalidSteamID;
 	}
 
-	SteamNetworkingGlobalLock scopeLock( "SendMessageToUser" ); // NOTE - Messages sessions are protected by the global lock.  We have not optimized for more granular locking of the Messages interface
+	SteamNetworkingGlobalLock scopeLock( "SendMessageToUser" ); // !SPEED! Can we avoid this?
 	ConnectionScopeLock connectionLock;
 	SteamNetworkingMessagesSession *pSess = FindOrCreateSession( identityRemote, connectionLock );
 	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
@@ -293,7 +265,8 @@ EResult CSteamNetworkingMessages::SendMessageToUser( const SteamNetworkingIdenti
 		SteamNetworkingConfigValue_t opt[2];
 		opt[0].SetPtr( k_ESteamNetworkingConfig_Callback_ConnectionStatusChanged, (void*)ConnectionStatusChangedCallback );
 		opt[1].SetInt32( k_ESteamNetworkingConfig_SymmetricConnect, 1 );
-		pConn = m_steamNetworkingSockets.InternalConnectP2PDefaultSignaling( identityRemote, k_nVirtualPort_Messages, 2, opt, connectionLock );
+		ConnectionScopeLock connectionLock2;
+		pConn = m_steamNetworkingSockets.InternalConnectP2PDefaultSignaling( identityRemote, k_nVirtualPort_Messages, 2, opt, connectionLock2 );
 		if ( !pConn )
 		{
 			AssertMsg( false, "Failed to create connection to '%s' for new messages session", SteamNetworkingIdentityRender( identityRemote ).c_str() );
@@ -301,7 +274,7 @@ EResult CSteamNetworkingMessages::SendMessageToUser( const SteamNetworkingIdenti
 		}
 
 		SpewVerbose( "[%s] Created connection for messages session\n", pConn->GetDescription() );
-		pSess->LinkConnection( pConn );
+		pSess->LinkConnection( pConn, connectionLock2 );
 	}
 
 	// KLUDGE Old P2P always sent messages that had to be queued reliably!
@@ -338,7 +311,7 @@ EResult CSteamNetworkingMessages::SendMessageToUser( const SteamNetworkingIdenti
 
 int CSteamNetworkingMessages::ReceiveMessagesOnChannel( int nLocalChannel, SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages )
 {
-	SteamNetworkingGlobalLock scopeLock( "ReceiveMessagesOnChannel" );
+	SteamNetworkingGlobalLock scopeLock( "ReceiveMessagesOnChannel" ); // !SPEED! Can we avoid this?
 
 	Channel *pChan = FindOrCreateChannel( nLocalChannel );
 
@@ -373,7 +346,7 @@ int CSteamNetworkingMessages::ReceiveMessagesOnChannel( int nLocalChannel, Steam
 
 bool CSteamNetworkingMessages::AcceptSessionWithUser( const SteamNetworkingIdentity &identityRemote )
 {
-	SteamNetworkingGlobalLock scopeLock( "AcceptSessionWithUser" );
+	SteamNetworkingGlobalLock scopeLock( "AcceptSessionWithUser" ); // !SPEED! Can we avoid this?
 	ConnectionScopeLock connectionLock;
 	SteamNetworkingMessagesSession *pSession = FindSession( identityRemote, connectionLock );
 	if ( !pSession )
@@ -393,7 +366,7 @@ bool CSteamNetworkingMessages::AcceptSessionWithUser( const SteamNetworkingIdent
 
 bool CSteamNetworkingMessages::CloseSessionWithUser( const SteamNetworkingIdentity &identityRemote )
 {
-	SteamNetworkingGlobalLock scopeLock( "CloseSessionWithUser" );
+	SteamNetworkingGlobalLock scopeLock( "CloseSessionWithUser" ); // !SPEED! Can we avoid this?
 	ConnectionScopeLock connectionLock;
 	SteamNetworkingMessagesSession *pSession = FindSession( identityRemote, connectionLock );
 	if ( !pSession )
@@ -407,7 +380,7 @@ bool CSteamNetworkingMessages::CloseSessionWithUser( const SteamNetworkingIdenti
 
 bool CSteamNetworkingMessages::CloseChannelWithUser( const SteamNetworkingIdentity &identityRemote, int nChannel )
 {
-	SteamNetworkingGlobalLock scopeLock( "CloseChannelWithUser" );
+	SteamNetworkingGlobalLock scopeLock( "CloseChannelWithUser" ); // !SPEED! Can we avoid this?
 	ConnectionScopeLock connectionLock;
 	SteamNetworkingMessagesSession *pSession = FindSession( identityRemote, connectionLock );
 	if ( !pSession )
@@ -420,6 +393,7 @@ bool CSteamNetworkingMessages::CloseChannelWithUser( const SteamNetworkingIdenti
 	pSession->m_mapOpenChannels.RemoveAt(h);
 
 	// Destroy all unread messages on this channel from this user
+	g_lockAllRecvMessageQueues.lock();
 	CSteamNetworkingMessage **ppMsg = &pSession->m_queueRecvMessages.m_pFirst;
 	for (;;)
 	{
@@ -438,6 +412,7 @@ bool CSteamNetworkingMessages::CloseChannelWithUser( const SteamNetworkingIdenti
 			ppMsg = &pMsg->m_links.m_pPrev;
 		}
 	}
+	g_lockAllRecvMessageQueues.unlock();
 
 	// No more open channels?
 	if ( pSession->m_mapOpenChannels.Count() == 0 )
@@ -447,7 +422,7 @@ bool CSteamNetworkingMessages::CloseChannelWithUser( const SteamNetworkingIdenti
 
 ESteamNetworkingConnectionState CSteamNetworkingMessages::GetSessionConnectionInfo( const SteamNetworkingIdentity &identityRemote, SteamNetConnectionInfo_t *pConnectionInfo, SteamNetworkingQuickConnectionStatus *pQuickStatus )
 {
-	SteamNetworkingGlobalLock scopeLock( "GetSessionConnectionInfo" );
+	SteamNetworkingGlobalLock scopeLock( "GetSessionConnectionInfo" ); // !SPEED! Can we avoid this?
 	if ( pConnectionInfo )
 		memset( pConnectionInfo, 0, sizeof(*pConnectionInfo) );
 	if ( pQuickStatus )
@@ -471,14 +446,16 @@ ESteamNetworkingConnectionState CSteamNetworkingMessages::GetSessionConnectionIn
 SteamNetworkingMessagesSession *CSteamNetworkingMessages::FindSession( const SteamNetworkingIdentity &identityRemote, ConnectionScopeLock &connectionLock )
 {
 	Assert( !connectionLock.IsLocked() );
-	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread(); // !SPEED! Could we use a more tightly scoped lock, perhaps the table lock here?
 	int h = m_mapSessions.Find( identityRemote );
 	if ( h == m_mapSessions.InvalidIndex() )
 		return nullptr;
 	SteamNetworkingMessagesSession *pResult = m_mapSessions[ h ];
+	connectionLock.Lock( *pResult->m_pLock );
+
 	Assert( pResult->m_identityRemote == identityRemote );
-	if ( pResult->m_pConnection )
-		connectionLock.Lock( *pResult->m_pConnection );
+	Assert( !pResult->m_pConnection || pResult->m_pConnection->m_pLock == pResult->m_pLock );
+
 	return pResult;
 }
 
@@ -489,16 +466,17 @@ SteamNetworkingMessagesSession *CSteamNetworkingMessages::FindOrCreateSession( c
 	{
 		SpewVerbose( "Messages session %s: created\n", SteamNetworkingIdentityRender( identityRemote ).c_str() );
 		pResult = new SteamNetworkingMessagesSession( identityRemote, *this );
+		connectionLock.Lock( *pResult->m_pLock );
 		m_mapSessions.Insert( identityRemote, pResult );
 	}
-
-	Assert( ( pResult->m_pConnection != nullptr ) == connectionLock.IsLocked() );
 
 	return pResult;
 }
 
 CSteamNetworkingMessages::Channel *CSteamNetworkingMessages::FindOrCreateChannel( int nChannel )
 {
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "CSteamNetworkingMessages::FindOrCreateChannel" );
+
 	int h = m_mapChannels.Find( nChannel );
 	if ( h != m_mapChannels.InvalidIndex() )
 		return m_mapChannels[h];
@@ -516,6 +494,11 @@ void CSteamNetworkingMessages::DestroySession( const SteamNetworkingIdentity &id
 	SteamNetworkingMessagesSession *pSess = m_mapSessions[ h ];
 	Assert( pSess->m_identityRemote == identityRemote );
 
+	// Hold session/connection lock while we do this.  We'll need to review this
+	// code and be a bit more particular if we move away from a shared lock
+	Assert( pSess->m_pLock == &m_sharedConnectionLock );
+	ConnectionScopeLock connectionLock( m_sharedConnectionLock );
+
 	// Remove from table
 	m_mapSessions[ h ] = nullptr;
 	m_mapSessions.RemoveAt( h );
@@ -524,28 +507,34 @@ void CSteamNetworkingMessages::DestroySession( const SteamNetworkingIdentity &id
 	delete pSess;
 }
 
-void CSteamNetworkingMessages::NewConnection( CSteamNetworkConnectionBase *pConn )
+bool CSteamNetworkingMessages::BHandleNewIncomingConnection( CSteamNetworkConnectionBase *pConn, ConnectionScopeLock &connectionLock )
 {
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "CSteamNetworkingMessages::BHandleNewIncomingConnection" ); // New connections can only be created while the global lock is held
+
+	// Caller's scope lock object should hold the current lock
+	Assert( connectionLock.BHoldsLock( *pConn->m_pLock ) );
+
 	// All of our connections should have this flag set
 	Assert( pConn->BSymmetricMode() );
 
 	// Check if we already have a session with an open connection
-	ConnectionScopeLock connectionLock;
-	SteamNetworkingMessagesSession *pSess = FindOrCreateSession( pConn->m_identityRemote, connectionLock );
+	ConnectionScopeLock sessionLock;
+	SteamNetworkingMessagesSession *pSess = FindOrCreateSession( pConn->m_identityRemote, sessionLock );
 	if ( pSess->m_pConnection )
 	{
 		AssertMsg( false, "Got incoming messages session connection request when we already had a connection.  This could happen legit, but we aren't handling it right now." );
-		pConn->ConnectionQueueDestroy();
-		return;
+		return false;
 	}
 
 	// Setup the association
-	pSess->LinkConnection( pConn );
+	pSess->LinkConnection( pConn, connectionLock );
 
 	// Post a callback
 	SteamNetworkingMessagesSessionRequest_t callback;
 	callback.m_identityRemote = pConn->m_identityRemote;
 	m_steamNetworkingSockets.QueueCallback( callback, g_Config_Callback_MessagesSessionRequest.Get() );
+
+	return true;
 }
 
 #ifdef DBGFLAG_VALIDATE
@@ -564,8 +553,9 @@ void CSteamNetworkingMessages::Validate( CValidator &validator, const char *pchN
 //
 /////////////////////////////////////////////////////////////////////////////
 
-SteamNetworkingMessagesSession::SteamNetworkingMessagesSession( const SteamNetworkingIdentity &identityRemote, CSteamNetworkingMessages &steamNetworkingP2P )
-: m_steamNetworkingMessagesOwner( steamNetworkingP2P )
+SteamNetworkingMessagesSession::SteamNetworkingMessagesSession( const SteamNetworkingIdentity &identityRemote, CSteamNetworkingMessages &steamNetworkingMessages )
+: ILockableThinker( steamNetworkingMessages.m_sharedConnectionLock )
+, m_steamNetworkingMessagesOwner( steamNetworkingMessages )
 , m_identityRemote( identityRemote )
 {
 	m_pConnection = nullptr;
@@ -671,6 +661,8 @@ void SteamNetworkingMessagesSession::CheckConnection( SteamNetworkingMicrosecond
 
 void SteamNetworkingMessagesSession::Think( SteamNetworkingMicroseconds usecNow )
 {
+	ConnectionScopeLock scopeLock;
+	scopeLock.TakeLockOwnership( m_pLock, "SteamNetworkingMessagesSession::Think" );
 
 	// Check on the connection
 	CheckConnection( usecNow );
@@ -761,7 +753,6 @@ void SteamNetworkingMessagesSession::ReceivedMessage( CSteamNetworkingMessage *p
 
 void SteamNetworkingMessagesSession::ConnectionStateChanged( SteamNetConnectionStatusChangedCallback_t *pInfo )
 {
-	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
 
 	// If we are already disassociated from our session, then we don't care.
 	if ( !m_pConnection )
@@ -771,7 +762,9 @@ void SteamNetworkingMessagesSession::ConnectionStateChanged( SteamNetConnectionS
 	}
 	Assert( m_pConnection->m_hConnectionSelf == pInfo->m_hConn );
 
-	ConnectionScopeLock connectionLock( *m_pConnection );
+	// We're using a shared lock right now so we should already be locked!
+	m_pLock->AssertHeldByCurrentThread();
+	Assert( m_pLock == m_pConnection->m_pLock );
 
 	// If we're dead (about to be destroyed, entering finwait, etc, then unlink from session)
 	ESteamNetworkingConnectionState eNewAPIState = pInfo->m_info.m_eState;
@@ -795,14 +788,26 @@ void SteamNetworkingMessagesSession::ConnectionStateChanged( SteamNetConnectionS
 	SetNextThinkTimeASAP();
 }
 
-void SteamNetworkingMessagesSession::LinkConnection( CSteamNetworkConnectionBase *pConn )
+void SteamNetworkingMessagesSession::LinkConnection( CSteamNetworkConnectionBase *pConn, ConnectionScopeLock &connectionLock )
 {
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "SteamNetworkingMessagesSession::LinkConnection" );
+	Assert( m_pLock == &m_steamNetworkingMessagesOwner.m_sharedConnectionLock ); // This could change in the futurre
+	m_pLock->AssertHeldByCurrentThread();
+	Assert( connectionLock.IsLocked() );
+
 	UnlinkConnection();
-	if ( !pConn )
-		return;
+
 	Assert( !g_mapSessionsByConnection.HasElement( pConn->m_hConnectionSelf ) );
 	m_pConnection = pConn;
 	g_mapSessionsByConnection.InsertOrReplace( pConn->m_hConnectionSelf, this );
+
+	// Change connection to use the shared lock
+	Assert( pConn->m_pLock == &pConn->m_defaultLock );
+	pConn->m_pLock->AssertHeldByCurrentThread();
+	connectionLock.Abandon();
+	connectionLock.Lock( *m_pLock );
+	pConn->m_pLock->unlock();
+	pConn->m_pLock = m_pLock;
 
 	m_bConnectionStateChanged = true;
 	m_bConnectionWasEverConnected = false;
@@ -815,8 +820,15 @@ void SteamNetworkingMessagesSession::LinkConnection( CSteamNetworkConnectionBase
 
 void SteamNetworkingMessagesSession::UnlinkConnection()
 {
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "SteamNetworkingMessagesSession::LinkConnection" );
+	m_pLock->AssertHeldByCurrentThread();
+
 	if ( !m_pConnection )
 		return;
+
+	// They should still be using the shared lock!
+	// (And we won't change this here!)
+	Assert( m_pConnection->m_pLock == m_pLock );
 
 	int h = g_mapSessionsByConnection.Find( m_pConnection->m_hConnectionSelf );
 	if ( h == g_mapSessionsByConnection.InvalidIndex() || g_mapSessionsByConnection[h] != this )
