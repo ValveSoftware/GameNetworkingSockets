@@ -500,6 +500,21 @@ struct ScopeLock
 
 	// If we have a lock, forget about it
 	void Abandon() { m_pLock = nullptr; }
+
+	// Take ownership of a lock (that must already be locked by the current thread),
+	// so that we will unlock it when we are destructed
+	void _TakeLockOwnership( TLock *pLock, const char *pszFile, int line, const char *pszTag = nullptr )
+	{
+		pLock->_AssertHeldByCurrentThread( pszFile, line, pszTag );
+
+		if ( m_pLock )
+		{
+			AssertMsg( false, "Scopelock already holding %s, while assuming ownership %s!  tag=%s",
+				m_pLock->m_pszName, pLock->m_pszName, pszTag ? pszTag : "???" );
+			m_pLock->unlock();
+		}
+		m_pLock = pLock;
+	}
 private:
 	TLock *m_pLock;
 };
@@ -518,9 +533,11 @@ using ShortDurationScopeLock = ScopeLock<ShortDurationLock>;
 #if STEAMNETWORKINGSOCKETS_LOCK_DEBUG_LEVEL > 0
 	#define AssertHeldByCurrentThread( ... ) _AssertHeldByCurrentThread( __FILE__, __LINE__ ,## __VA_ARGS__ )
 	#define AssertLocksHeldByCurrentThread( ... ) _AssertLocksHeldByCurrentThread( __FILE__, __LINE__,## __VA_ARGS__ )
+	#define TakeLockOwnership( pLock, ... ) _TakeLockOwnership( (pLock), __FILE__, __LINE__,## __VA_ARGS__ )
 #else
 	#define AssertHeldByCurrentThread( ... ) _AssertHeldByCurrentThread( nullptr, 0,## __VA_ARGS__ )
 	#define AssertLocksHeldByCurrentThread( ... ) _AssertLocksHeldByCurrentThread( nullptr, 0,## __VA_ARGS__ )
+	#define TakeLockOwnership( pLock, ... ) _TakeLockOwnership( (pLock), nullptr, 0,## __VA_ARGS__ )
 #endif
 
 /// Special utilities for acquiring the global lock
