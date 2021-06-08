@@ -206,6 +206,7 @@ public:
 	virtual void GetConnectionTypeDescription( ConnectionTypeDescription_t &szDescription ) const override;
 	virtual void ThinkConnection( SteamNetworkingMicroseconds usecNow ) override;
 	virtual SteamNetworkingMicroseconds ThinkConnection_ClientConnecting( SteamNetworkingMicroseconds usecNow ) override;
+	virtual SteamNetworkingMicroseconds ThinkConnection_FindingRoute( SteamNetworkingMicroseconds usecNow ) override;
 	virtual void DestroyTransport() override;
 	virtual CSteamNetworkConnectionP2P *AsSteamNetworkConnectionP2P() override;
 	virtual void ConnectionStateChanged( ESteamNetworkingConnectionState eOldState ) override;

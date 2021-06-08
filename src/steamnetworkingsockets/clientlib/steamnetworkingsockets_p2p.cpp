@@ -1178,9 +1178,20 @@ void CSteamNetworkConnectionP2P::ConnectionStateChanged( ESteamNetworkingConnect
 			break;
 	}
 
-	// Inform transports
+	// Inform transports.  If we have a selected transport (or are in a special case) do that one first
+	#ifdef SDR_ENABLE_HOSTED_CLIENT
+		Assert( !m_pTransportToSDRServer || m_pTransport == m_pTransportToSDRServer );
+	#endif
+	#ifdef SDR_ENABLE_HOSTED_SERVER
+		Assert( !m_pTransportFromSDRClient || m_pTransport == m_pTransportFromSDRClient );
+	#endif
+	if ( m_pTransport )
+		m_pTransport->TransportConnectionStateChanged( eOldState );
 	for ( CConnectionTransportP2PBase *pTransportP2P: m_vecAvailableTransports )
-		pTransportP2P->m_pSelfAsConnectionTransport->TransportConnectionStateChanged( eOldState );
+	{
+		if ( pTransportP2P->m_pSelfAsConnectionTransport != m_pTransport )
+			pTransportP2P->m_pSelfAsConnectionTransport->TransportConnectionStateChanged( eOldState );
+	}
 }
 
 void CSteamNetworkConnectionP2P::ThinkConnection( SteamNetworkingMicroseconds usecNow )
@@ -1656,6 +1667,19 @@ SteamNetworkingMicroseconds CSteamNetworkConnectionP2P::ThinkConnection_ClientCo
 
 	// And set timeout for retry
 	return m_usecWhenSentConnectRequest + k_usecConnectRetryInterval;
+}
+
+SteamNetworkingMicroseconds CSteamNetworkConnectionP2P::ThinkConnection_FindingRoute( SteamNetworkingMicroseconds usecNow )
+{
+	#ifdef SDR_ENABLE_HOSTED_CLIENT
+		if ( m_pTransportToSDRServer )
+		{
+			Assert( m_pTransport == m_pTransportToSDRServer );
+			return m_pTransportToSDRServer->ThinkFindingRoute( usecNow );
+		}
+	#endif
+
+	return CSteamNetworkConnectionBase::ThinkConnection_FindingRoute( usecNow );
 }
 
 void CSteamNetworkConnectionP2P::SendConnectOKSignal( SteamNetworkingMicroseconds usecNow )
