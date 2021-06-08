@@ -2921,7 +2921,14 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const void *pMsg, int c
 			// We must know who we are.
 			if ( m_identity.IsInvalid() )
 			{
-				SpewWarning( "Ignoring P2P signal from '%s', no local identity\n", msg.from_identity().c_str() );
+				SpewWarning( "Ignoring P2P connect request signal from '%s', no local identity?\n", msg.from_identity().c_str() );
+				return false;
+			}
+
+			const CMsgSteamNetworkingP2PRendezvous_ConnectRequest &msgConnectRequest = msg.connect_request();
+			if ( !msgConnectRequest.has_cert() || !msgConnectRequest.has_crypt() )
+			{
+				SpewWarning( "Ignoring P2P CMsgSteamDatagramConnectRequest from %s; missing required fields", SteamNetworkingIdentityRender( identityRemote ).c_str() );
 				return false;
 			}
 
@@ -2942,13 +2949,6 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const void *pMsg, int c
 					return true; // Return true because the signal is valid, we just cannot do anything with it right now
 				}
 			#endif
-
-			const CMsgSteamNetworkingP2PRendezvous_ConnectRequest &msgConnectRequest = msg.connect_request();
-			if ( !msgConnectRequest.has_cert() || !msgConnectRequest.has_crypt() )
-			{
-				AssertMsg1( false, "Ignoring P2P CMsgSteamDatagramConnectRequest from %s; missing required fields", SteamNetworkingIdentityRender( identityRemote ).c_str() );
-				return false;
-			}
 
 			// Determine virtual ports, and locate the listen socket, if any
 			// Connecting by FakeIP?
