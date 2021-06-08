@@ -470,7 +470,8 @@ struct ScopeLock
 	ScopeLock() : m_pLock( nullptr ) {}
 	explicit ScopeLock( TLock &lock, const char *pszTag = nullptr ) : m_pLock(&lock) { lock.lock( pszTag ); }
 	~ScopeLock() { if ( m_pLock ) m_pLock->unlock(); }
-	bool IsLocked() const { return m_pLock != nullptr; }
+	bool IsLocked() const { return m_pLock != nullptr; } // Return true if we hold any lock
+	bool BHoldsLock( const TLock &lock ) const { return m_pLock == &lock; } // Return true if we hold the specific lock
 	void Lock( TLock &lock, const char *pszTag = nullptr )
 	{
 		if ( m_pLock )
