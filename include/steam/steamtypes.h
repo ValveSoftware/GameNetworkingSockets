@@ -24,7 +24,7 @@ typedef unsigned char uint8;
 	#define POSIX 1
 #endif
 
-#if defined(__x86_64__) || defined(_WIN64) || defined(__aarch64__) || defined(__s390x__)
+#if defined(__LP64__) || defined(_WIN64)
 #define X64BITS
 #endif
 
