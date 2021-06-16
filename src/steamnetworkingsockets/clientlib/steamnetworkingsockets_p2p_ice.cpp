@@ -266,8 +266,12 @@ void CConnectionTransportP2PICE::P2PTransportThink( SteamNetworkingMicroseconds 
 	// Are we dead?
 	if ( !m_pICESession || Connection().m_pTransportICEPendingDelete )
 	{
-		Connection().CheckCleanupICE();
-		// We could be deleted here!
+		// If we're a zombie, we should be queued for destruction
+		Assert( Connection().m_pTransportICE != this );
+		Assert( Connection().m_pTransportICEPendingDelete == this );
+
+		// Make sure connection wakes up to do this
+		Connection().SetNextThinkTimeASAP();
 		return;
 	}
 
