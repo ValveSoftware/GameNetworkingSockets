@@ -3270,7 +3270,7 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 					}
 					else
 					{
-						AssertMsg( false, "Application didn't accept or close incoming connection in a reasonable amount of time.  This is probably a bug." );
+						SpewError( "[%s] Application didn't accept or close incoming connection in a reasonable amount of time.  This is probably a bug in applicaiton code!\n", GetDescription() );
 						ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_Timeout, "%s", "App didn't accept or close incoming connection in time." );
 					}
 				}
