@@ -77,11 +77,17 @@ void CSteamID::SetFromString( const char *pchSteamID, EUniverse eDefaultUniverse
 		pchSteamID++;
 
 	// BUGBUG Rich use the Q_ functions
-	if (*pchSteamID == 'A')
+	if ( *pchSteamID == 'A' || *pchSteamID == 'a' )
 	{
 		// This is test only
+		if ( *pchSteamID == 'A' )
+			eAccountType = k_EAccountTypeAnonGameServer;
+		else
+		{
+			eAccountType = k_EAccountTypeAnonUser;
+			nInstance = 0;
+		}
 		pchSteamID++; // skip the A
-		eAccountType = k_EAccountTypeAnonGameServer;
 		if (*pchSteamID == '-' || *pchSteamID == ':')
 			pchSteamID++; // skip the optional - or :
 
@@ -258,6 +264,13 @@ bool CSteamID::SetFromStringStrict( const char *pchSteamID, EUniverse eDefaultUn
         unMaxVal = 3;
         break;
 
+	case 'a':
+		// This is test only
+		eAccountType = k_EAccountTypeAnonUser;
+		nInstance = 0;
+        unMaxVal = 3;
+        break;
+
     case 'G':
 		eAccountType = k_EAccountTypeGameServer;
         break;
@@ -399,7 +412,8 @@ bool CSteamID::SetFromStringStrict( const char *pchSteamID, EUniverse eDefaultUn
     }
     if ( unIdx > 1 )
     {
-        if ( unVal[0] < k_EUniverseMax )
+        if ( unVal[0] >= k_EUniverseInvalid &&
+             unVal[0] < k_EUniverseMax )
         {
             eUniverse = (EUniverse)unVal[0];
             if ( eUniverse == k_EUniverseInvalid )
@@ -566,10 +580,7 @@ const char * CSteamID::Render() const
 	}
 	else if ( k_EAccountTypeIndividual == m_steamid.m_comp.m_EAccountType )
 	{
-		if ( m_steamid.m_comp.m_unAccountInstance != k_unSteamUserDesktopInstance )
-			V_snprintf( pchBuf, k_cBufLen, "[U:%u:%u:%u]", m_steamid.m_comp.m_EUniverse, m_steamid.m_comp.m_unAccountID, m_steamid.m_comp.m_unAccountInstance );
-		else
-			V_snprintf( pchBuf, k_cBufLen, "[U:%u:%u]", m_steamid.m_comp.m_EUniverse, m_steamid.m_comp.m_unAccountID );
+		V_snprintf( pchBuf, k_cBufLen, "[U:%u:%u]", m_steamid.m_comp.m_EUniverse, m_steamid.m_comp.m_unAccountID );
 	}
 	else if ( k_EAccountTypeAnonUser == m_steamid.m_comp.m_EAccountType )
 	{
