@@ -1406,6 +1406,7 @@ enum ESteamNetworkingConfigValue
 
 	/// [global FnSteamNetworkingFakeIPResult] Callback that's invoked when
 	/// a FakeIP allocation finishes.  See: ISteamNetworkingSockets::BeginAsyncRequestFakeIP,
+	/// ISteamNetworkingUtils::SetGlobalCallback_FakeIPResult
 	k_ESteamNetworkingConfig_Callback_FakeIPResult = 207,
 
 //
