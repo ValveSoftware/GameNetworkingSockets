@@ -31,6 +31,9 @@ GameNetworkingSockets is a basic transport layer for games.  The features are:
     UDP-based, we mean non-connection-oriented code, where each time you send a
     packet, you specify the recipient's address.)
   * See [README_P2P.md](README_P2P.md) for more info
+* Cross platform.  This library has shipped on consoles, mobile platforms, and non-Steam
+  stores, and has been used to facilitate cross-platform connectivity.  Contact us to get
+  access to the code.  (We are not allowed to distributed it here.)
 
 What it does *not* do:
 
@@ -87,12 +90,19 @@ functionality of the [API](https://partner.steamgames.com/doc/api/ISteamNetworki
 with the same name in the Steamworks SDK.  Our main
 reason for releasing this code is so that developers won't have any hesitation
 coding to the API in the Steamworks SDK.  On Steam, you will link against the
-Steamworks version, and you can get the additional features there (access to
-the relay network).  And on other platforms, you can use this version, which
-has the same names for everything, the same semantics, the same behavioural
-quirks.  We want you to take maximum advantage of the features in the
-Steamworks version, and that won't happen if the Steam code is a weird "wart"
-that's hidden behind `#ifdef STEAM`.
+Steamworks version, and you can access the additional services provided by
+the [Steam Datagram Relay](https://partner.steamgames.com/doc/features/multiplayer/steamdatagramrelay)
+network.  On other platforms and stores, as long as you ship a version of your
+game on Steam, you can probably still take advantage of these services!  Contact
+us to get a console version of the code, and see the Steamworks documentation for
+more info.
+
+If you aren't a Steam partner, or don't have a version of your game on Steam,
+then use this opensource version of the API and take advantage of the permissive
+license to do whatever you want.  We want you to take maximum advantage of the
+features in the Steamworks version.  That won't happen if this API is a weird
+"wart" that's hidden behind `#ifdef STEAM`, which is why we're making this
+opensource version available.
 
 The desire to match the Steamworks SDK also explains a somewhat anachronistic
 coding style and weird directory layout.  This project is kept in sync with the
