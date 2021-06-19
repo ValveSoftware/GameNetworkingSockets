@@ -293,8 +293,8 @@ add_library(GameNetworkingSockets::static ALIAS GameNetworkingSockets_s)
 target_compile_definitions(GameNetworkingSockets_s INTERFACE STEAMNETWORKINGSOCKETS_STATIC_LINK)
 gamenetworkingsockets_common(GameNetworkingSockets_s)
 
-# Install rules
 
+# Install rules
 install(
 	TARGETS 
 		GameNetworkingSockets
@@ -307,8 +307,9 @@ install(
 
 install(DIRECTORY ../include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/GameNetworkingSockets)
 
-# Export doesn't work if we're using WebRTC and the Abseil dependency came from the submodule
-if(NOT (USE_STEAMWEBRTC AND STEAMWEBRTC_ABSL_SOURCE STREQUAL submodule))
+# Export file required for find_package(GameNetworkingSockets CONFIG) to work
+# There's some issues around getting this to work properly when WebRTC is enabled.
+if(NOT (USE_STEAMWEBRTC))
 	install(
 		EXPORT GameNetworkingSockets
 		DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/GameNetworkingSockets
