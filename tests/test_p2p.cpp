@@ -126,7 +126,7 @@ void OnSteamNetConnectionStatusChanged( SteamNetConnectionStatusChangedCallback_
 		break;
 
 	case k_ESteamNetworkingConnectionState_FindingRoute:
-		// P2P connections will spend a bried time here where they swap addresses
+		// P2P connections will spend a brief time here where they swap addresses
 		// and try to find a route.
 		TEST_Printf( "[%s] finding route\n", pInfo->m_info.m_szConnectionDescription );
 		break;
@@ -142,6 +142,10 @@ void OnSteamNetConnectionStatusChanged( SteamNetConnectionStatusChangedCallback_
 		break;
 	}
 }
+
+#ifdef _MSC_VER
+	#pragma warning( disable: 4702 ) /* unreachable code */
+#endif
 
 int main( int argc, const char **argv )
 {
@@ -286,7 +290,6 @@ int main( int argc, const char **argv )
 		// since we don't need it.  (Your signaling object already
 		// knows how to talk to the peer) and then the peer identity
 		// will be confirmed via rendezvous.
-		SteamNetworkingErrMsg errMsg;
 		ISteamNetworkingConnectionSignaling *pConnSignaling = pSignaling->CreateSignalingForConnection(
 			identityRemote,
 			errMsg
@@ -337,7 +340,7 @@ int main( int argc, const char **argv )
 				{
 					TEST_Printf( "Closing connection and shutting down.\n" );
 					SteamNetworkingSockets()->CloseConnection( g_hConnection, 0, "Test completed OK", true );
-					Quit(0);
+					break;
 				}
 
 				// We're the server.  Send a reply.
@@ -346,5 +349,6 @@ int main( int argc, const char **argv )
 		}
 	}
 
+	Quit(0);
 	return 0;
 }

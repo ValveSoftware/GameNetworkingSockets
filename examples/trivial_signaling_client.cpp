@@ -80,6 +80,9 @@ class CTrivialSignalingClient : public ITrivialSignalingClient
 		// so we need to be threadsafe, and avoid duoing slow stuff or calling back into SteamNetworkingSockets
 		virtual bool SendSignal( HSteamNetConnection hConn, const SteamNetConnectionInfo_t &info, const void *pMsg, int cbMsg ) override
 		{
+			// Silence warnings
+			(void)info;
+			(void)hConn;
 
 			// We'll use a dumb hex encoding.
 			std::string signal;
@@ -204,9 +207,12 @@ public:
 	) override {
 		SteamNetworkingIdentityRender sIdentityPeer( identityPeer );
 
-		// FIXME - here we really ouight to confirm that the string version of the
+		// FIXME - here we really ought to confirm that the string version of the
 		// identity does not have spaces, since our protocol doesn't permit it.
 		TEST_Printf( "Creating signaling session for peer '%s'\n", sIdentityPeer.c_str() );
+
+		// Silence warnings
+		(void)errMsg;
 
 		return new ConnectionSignaling( this, sIdentityPeer.c_str() );
 	}
@@ -248,7 +254,7 @@ public:
 			while ( !m_queueSend.empty() )
 			{
 				const std::string &s = m_queueSend.front();
-				int l = s.length();
+				int l = (int)s.length();
 				int r = ::send( m_sock, s.c_str(), l, 0 );
 				if ( r < 0 && IgnoreSocketError( GetSocketError() ) )
 					break;
@@ -295,15 +301,15 @@ public:
 				std::string data; data.reserve( ( l - spc ) / 2 );
 				for ( size_t i = spc+1 ; i+2 <= l ; i += 2 )
 				{
-					int h = HexDigitVal( m_sBufferedData[i] );
-					int l = HexDigitVal( m_sBufferedData[i+1] );
-					if ( ( h | l ) & ~0xf )
+					int dh = HexDigitVal( m_sBufferedData[i] );
+					int dl = HexDigitVal( m_sBufferedData[i+1] );
+					if ( ( dh | dl ) & ~0xf )
 					{
 						// Failed hex decode.  Not a bug in our code here, but this is just example code, so we'll handle it this way
 						assert( !"Failed hex decode from signaling server?!" );
 						goto next_message;
 					}
-					data.push_back( (char)(h<<4 | l ) );
+					data.push_back( (char)(dh<<4 | dl ) );
 				}
 
 				// Setup a context object that can respond if this signal is a connection request.
@@ -316,9 +322,12 @@ public:
 						const SteamNetworkingIdentity &identityPeer,
 						int nLocalVirtualPort
 					) override {
+						// Silence warnings
+						(void)hConn;
+;						(void)nLocalVirtualPort;
 
-						// We will just always handle requests thorugh the usual listen socket state
-						// machine.  See the docuemntation for this function for other behaviour we
+						// We will just always handle requests through the usual listen socket state
+						// machine.  See the documentation for this function for other behaviour we
 						// might take.
 
 						// Also, note that if there was routing/session info, it should have been in
@@ -339,6 +348,11 @@ public:
 						// the peer has a good reason for trying to connect, sending an active failure
 						// can improve error handling and the UX, instead of relying on timeout.  But
 						// just consider the security implications.
+
+						// Silence warnings
+						(void)identityPeer;
+						(void)pMsg;
+						(void)cbMsg;
 					}
 				};
 				Context context;
