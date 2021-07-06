@@ -953,9 +953,9 @@ CSteamNetworkConnectionP2P *CSteamNetworkConnectionP2P::FindDuplicateConnection(
 		// Check state
 		switch ( pConn->GetState() )
 		{
-			case k_ESteamNetworkingConnectionState_Dead:
 			default:
 				Assert( false );
+			case k_ESteamNetworkingConnectionState_Dead: // NOTE: Dead connections do stay in the map for a brief time while we wait for a safe point to destroy them
 			case k_ESteamNetworkingConnectionState_ClosedByPeer:
 			case k_ESteamNetworkingConnectionState_FinWait:
 			case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
