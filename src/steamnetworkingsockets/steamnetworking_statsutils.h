@@ -771,13 +771,13 @@ protected:
 	inline static void ThinkInternal( TLinkStatsTracker *pThis, SteamNetworkingMicroseconds usecNow )
 	{
 		// Check for ending the current QoS interval
-		if ( !pThis->m_bPassive && pThis->m_usecIntervalStart + k_usecSteamDatagramLinkStatsDefaultInterval < usecNow )
+		if ( !pThis->m_bPassive && pThis->m_usecIntervalStart + k_usecSteamDatagramLinkStatsDefaultInterval <= usecNow )
 		{
 			pThis->UpdateInterval( usecNow );
 		}
 	
 		// Check for reply timeout.
-		if ( pThis->m_usecInFlightReplyTimeout > 0 && pThis->m_usecInFlightReplyTimeout < usecNow )
+		if ( pThis->m_usecInFlightReplyTimeout > 0 && pThis->m_usecInFlightReplyTimeout <= usecNow )
 		{
 			pThis->InFlightReplyTimeout( usecNow );
 		}
@@ -1027,7 +1027,7 @@ protected:
 	{
 		LinkStatsTrackerBase::ThinkInternal( pThis, usecNow );
 
-		if ( pThis->m_usecSpeedIntervalStart + k_usecSteamDatagramSpeedStatsDefaultInterval < usecNow )
+		if ( pThis->m_usecSpeedIntervalStart + k_usecSteamDatagramSpeedStatsDefaultInterval <= usecNow )
 		{
 			pThis->UpdateSpeedInterval( usecNow );
 		}

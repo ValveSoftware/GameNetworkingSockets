@@ -2295,7 +2295,7 @@ void CConnectionTransportP2PBase::P2PTransportThink( SteamNetworkingMicroseconds
 	// Check for reply timeout
 	if ( m_usecEndToEndInFlightReplyTimeout )
 	{
-		if ( m_usecEndToEndInFlightReplyTimeout < usecNow )
+		if ( m_usecEndToEndInFlightReplyTimeout <= usecNow )
 		{
 			m_usecEndToEndInFlightReplyTimeout = 0;
 			++m_nReplyTimeoutsSinceLastRecv;

@@ -422,17 +422,17 @@ int LinkStatsTrackerBase::GetStatsSendNeed( SteamNetworkingMicroseconds usecNow 
 	// Message already in flight?
 	if ( m_pktNumInFlight == 0 && !m_bPassive )
 	{
-		if ( m_usecPeerAckedInstaneous + k_usecLinkStatsInstantaneousReportInterval < usecNow && BCheckHaveDataToSendInstantaneous( usecNow ) )
+		if ( m_usecPeerAckedInstaneous + k_usecLinkStatsInstantaneousReportInterval <= usecNow && BCheckHaveDataToSendInstantaneous( usecNow ) )
 		{
-			if ( m_usecPeerAckedInstaneous + k_usecLinkStatsInstantaneousReportMaxInterval < usecNow )
+			if ( m_usecPeerAckedInstaneous + k_usecLinkStatsInstantaneousReportMaxInterval <= usecNow )
 				nResult |= k_nSendStats_Instantanous_Due;
 			else
 				nResult |= k_nSendStats_Instantanous_Ready;
 		}
 
-		if ( m_usecPeerAckedLifetime + k_usecLinkStatsLifetimeReportInterval < usecNow && BCheckHaveDataToSendLifetime( usecNow ) )
+		if ( m_usecPeerAckedLifetime + k_usecLinkStatsLifetimeReportInterval <= usecNow && BCheckHaveDataToSendLifetime( usecNow ) )
 		{
-			if ( m_usecPeerAckedInstaneous + k_usecLinkStatsLifetimeReportMaxInterval < usecNow )
+			if ( m_usecPeerAckedInstaneous + k_usecLinkStatsLifetimeReportMaxInterval <= usecNow )
 				nResult |= k_nSendStats_Lifetime_Due;
 			else
 				nResult |= k_nSendStats_Lifetime_Ready;
@@ -454,7 +454,7 @@ const char *LinkStatsTrackerBase::InternalGetSendStatsReasonOrUpdateNextThinkTim
 		return nullptr;
 
 	int n = 0;
-	if ( m_usecPeerAckedInstaneous + k_usecLinkStatsInstantaneousReportMaxInterval < usecNow && BCheckHaveDataToSendInstantaneous( usecNow ) )
+	if ( m_usecPeerAckedInstaneous + k_usecLinkStatsInstantaneousReportMaxInterval <= usecNow && BCheckHaveDataToSendInstantaneous( usecNow ) )
 	{
 		n |= 1;
 	}
@@ -464,7 +464,7 @@ const char *LinkStatsTrackerBase::InternalGetSendStatsReasonOrUpdateNextThinkTim
 		if ( usecNextCheck < inOutNextThinkTime )
 			inOutNextThinkTime = usecNextCheck;
 	}
-	if ( m_usecPeerAckedLifetime + k_usecLinkStatsLifetimeReportMaxInterval < usecNow && BCheckHaveDataToSendLifetime( usecNow ) )
+	if ( m_usecPeerAckedLifetime + k_usecLinkStatsLifetimeReportMaxInterval <= usecNow && BCheckHaveDataToSendLifetime( usecNow ) )
 	{
 		n |= 2;
 	}
