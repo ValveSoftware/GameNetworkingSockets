@@ -787,6 +787,8 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLa
 				// Packet loss is in the past.  Forget about it and move on
 				h = m_receiverState.m_mapPacketGaps.erase(h);
 			}
+
+			m_receiverState.DebugCheckPackGapMap();
 		}
 		else if ( ( nFrameType & 0xf0 ) == 0x90 )
 		{
@@ -1969,6 +1971,9 @@ bool CSteamNetworkConnectionBase::SNP_SendPacket( CConnectionTransport *pTranspo
 	if ( m_senderState.m_itNextInFlightPacketToTimeout == m_senderState.m_mapInFlightPacketsByPktNum.end() )
 		m_senderState.m_itNextInFlightPacketToTimeout = pairInsertResult.first;
 
+	// Make sure we didn't hose data structures
+	m_senderState.MaybeCheckInFlightPacketMap();
+
 	#ifdef SNP_ENABLE_PACKETSENDLOG
 		pLog->m_cbSent = nBytesSent;
 	#endif
@@ -2181,6 +2186,7 @@ uint8 *CSteamNetworkConnectionBase::SNP_SerializeAckBlocks( const SNPAckSerializ
 				// Mark it as sent
 				m_receiverState.m_itPendingAck->second.m_usecWhenAckPrior = INT64_MAX;
 				++m_receiverState.m_itPendingAck;
+				m_receiverState.DebugCheckPackGapMap();
 			}
 
 			// NOTE: We did NOT nack anything just now
@@ -2242,6 +2248,7 @@ uint8 *CSteamNetworkConnectionBase::SNP_SerializeAckBlocks( const SNPAckSerializ
 			++m_receiverState.m_itPendingAck;
 		}
 		m_receiverState.m_itPendingNack = m_receiverState.m_itPendingAck;
+		m_receiverState.DebugCheckPackGapMap();
 	}
 	else
 	{
@@ -2261,6 +2268,7 @@ uint8 *CSteamNetworkConnectionBase::SNP_SerializeAckBlocks( const SNPAckSerializ
 		// we are about to nack.
 		while ( m_receiverState.m_itPendingNack->first < nAckEnd )
 			++m_receiverState.m_itPendingNack;
+		m_receiverState.DebugCheckPackGapMap();
 	}
 
 	// Serialize the blocks into the packet, from newest to oldest
