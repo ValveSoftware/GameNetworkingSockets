@@ -578,8 +578,6 @@ public:
 	}
 
 private:
-	uint32 m_nConnectionIDLocal;
-
 	inline bool Setup( CConnectionTransportP2PICE *pTransport )
 	{
 		CSteamNetworkConnectionP2P &conn = pTransport->Connection();
