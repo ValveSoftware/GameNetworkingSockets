@@ -2005,6 +2005,8 @@ void CSteamNetworkConnectionBase::SNP_GatherAckBlocks( SNPAckSerializerHelper &h
 	if ( n <= 0 )
 		return;
 
+	m_receiverState.DebugCheckPackGapMap();
+
 	// Let's not just flush the acks that are due right now.  Let's flush all of them
 	// that will be due any time before we have the bandwidth to send the next packet.
 	// (Assuming that we send the max packet size here.)
@@ -2012,8 +2014,9 @@ void CSteamNetworkConnectionBase::SNP_GatherAckBlocks( SNPAckSerializerHelper &h
 	SteamNetworkingMicroseconds usecTimeUntilNextPacket = SteamNetworkingMicroseconds( ( m_sendRateData.m_flTokenBucket - (float)m_cbMTUPacketSize ) / m_sendRateData.m_flCurrentSendRateUsed * -1e6 );
 	if ( usecTimeUntilNextPacket > 0 )
 		usecSendAcksDueBefore += usecTimeUntilNextPacket;
-
-	m_receiverState.DebugCheckPackGapMap();
+	int64 nForceAckUpToPkt = INT64_MIN;
+	if ( m_receiverState.m_itPendingAck->second.m_usecWhenAckPrior <= usecNow )
+		nForceAckUpToPkt = m_receiverState.m_itPendingAck->first;
 
 	n = std::min( (int)helper.k_nMaxBlocks, n );
 	auto itNext = m_receiverState.m_mapPacketGaps.begin();
@@ -2028,7 +2031,7 @@ void CSteamNetworkConnectionBase::SNP_GatherAckBlocks( SNPAckSerializerHelper &h
 		Assert( itCur->first < itCur->second.m_nEnd );
 
 		// Do we need to report on this block now?
-		bool bNeedToReport = ( itNext->second.m_usecWhenAckPrior <= usecSendAcksDueBefore );
+		bool bNeedToReport = ( itNext->first <= nForceAckUpToPkt ) || ( itNext->second.m_usecWhenAckPrior <= usecSendAcksDueBefore );
 
 		// Should we wait to NACK this?
 		if ( itCur == m_receiverState.m_itPendingNack )
@@ -2052,10 +2055,10 @@ void CSteamNetworkConnectionBase::SNP_GatherAckBlocks( SNPAckSerializerHelper &h
 
 		int64 nAckEnd;
 		SteamNetworkingMicroseconds usecWhenSentLast;
-		if ( n == 0 )
+		if ( itNext->first == INT64_MAX )
 		{
-			// itNext should be the sentinel
-			Assert( itNext->first == INT64_MAX );
+			// We hit the sentinel, so this should be the last block
+			Assert( n == 0 );
 			nAckEnd = m_statsEndToEnd.m_nMaxRecvPktNum+1;
 			usecWhenSentLast = m_statsEndToEnd.m_usecTimeLastRecvSeq;
 		}
