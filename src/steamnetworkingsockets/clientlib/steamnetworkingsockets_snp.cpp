@@ -152,6 +152,15 @@ void SSNPSenderState::DebugCheckInFlightPacketMap() const
 			Assert( !bFoundNextToTimeout );
 			bFoundNextToTimeout = true;
 		}
+		else
+		{
+			// All packets earlier than the next one to timeout
+			// should be marked with a nack
+			if ( !bFoundNextToTimeout )
+			{
+				Assert( it->second.m_bNack );
+			}
+		}
 		prevPktNum = it->first;
 		prevWhenSent = it->second.m_usecWhenSent;
 	}
@@ -787,7 +796,6 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLa
 			//
 
 			#if STEAMNETWORKINGSOCKETS_SNP_PARANOIA > 0
-				m_senderState.DebugCheckInFlightPacketMap();
 				#if STEAMNETWORKINGSOCKETS_SNP_PARANOIA == 1
 				if ( ( nPktNum & 255 ) == 0 ) // only do it periodically
 				#endif
@@ -1974,7 +1982,14 @@ void CSteamNetworkConnectionBase::SNP_SentNonDataPacket( CConnectionTransport *p
 {
 	std::pair<int64,SNPInFlightPacket_t> pairInsert( m_statsEndToEnd.m_nNextSendSequenceNumber-1, SNPInFlightPacket_t{ usecNow, false, pTransport, {} } );
 	auto pairInsertResult = m_senderState.m_mapInFlightPacketsByPktNum.insert( pairInsert );
-	Assert( pairInsertResult.second ); // We should have inserted a new element, not updated an existing element.  Probably an order ofoperations bug with m_nNextSendSequenceNumber
+	Assert( pairInsertResult.second ); // We should have inserted a new element, not updated an existing element.  Probably an order of operations bug with m_nNextSendSequenceNumber
+
+	// If we aren't already tracking anything to timeout, then this is the next one.
+	if ( m_senderState.m_itNextInFlightPacketToTimeout == m_senderState.m_mapInFlightPacketsByPktNum.end() )
+		m_senderState.m_itNextInFlightPacketToTimeout = pairInsertResult.first;
+
+	// Make sure we didn't hose data structures
+	m_senderState.MaybeCheckInFlightPacketMap();
 
 	// Spend tokens from the bucket
 	m_sendRateData.m_flTokenBucket -= (float)cbPkt;
