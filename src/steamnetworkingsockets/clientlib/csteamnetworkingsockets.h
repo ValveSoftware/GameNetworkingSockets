@@ -196,6 +196,8 @@ public:
 	virtual EResult GetGameCoordinatorServerLogin( SteamDatagramGameCoordinatorServerLogin *pLogin, int *pcbSignedBlob, void *pBlob ) override { return k_EResultFail; }
 #endif
 
+	bool InternalReceivedP2PSignal( const CMsgSteamNetworkingP2PRendezvous &msg, ISteamNetworkingSignalingRecvContext *pContext, bool bDefaultPlatformSignaling );
+
 protected:
 
 	/// Overall authentication status.  Depends on the status of our cert, and the ability
@@ -246,7 +248,6 @@ protected:
 		int nOptions, const SteamNetworkingConfigValue_t *pOptions,
 		ConnectionScopeLock &scopeLock
 	);
-	bool InternalReceivedP2PSignal( const void *pMsg, int cbMsg, ISteamNetworkingSignalingRecvContext *pContext, bool bDefaultPlatformSignaling );
 
 	// Protected - use Destroy()
 	virtual ~CSteamNetworkingSockets();

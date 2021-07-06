@@ -2768,7 +2768,16 @@ static void SendP2PRejection( ISteamNetworkingSignalingRecvContext *pContext, St
 
 bool CSteamNetworkingSockets::ReceivedP2PCustomSignal( const void *pMsg, int cbMsg, ISteamNetworkingSignalingRecvContext *pContext )
 {
-	return InternalReceivedP2PSignal( pMsg, cbMsg, pContext, false );
+	// Deserialize the message
+	CMsgSteamNetworkingP2PRendezvous msg;
+	if ( !msg.ParseFromArray( pMsg, cbMsg ) )
+	{
+		SpewWarning( "P2P signal failed protobuf parse\n" );
+		return false;
+	}
+
+	SteamNetworkingGlobalLock scopeLock( "ReceivedP2PCustomSignal" );
+	return InternalReceivedP2PSignal( msg, pContext, false );
 }
 
 // Compare connections initiated by two peers, and make a decision
@@ -2812,17 +2821,12 @@ static int CompareSymmetricConnections( uint32 nConnectionIDA, const std::string
 	return result;
 }
 
-bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const void *pMsg, int cbMsg, ISteamNetworkingSignalingRecvContext *pContext, bool bDefaultSignaling )
+bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const CMsgSteamNetworkingP2PRendezvous &msg, ISteamNetworkingSignalingRecvContext *pContext, bool bDefaultSignaling )
 {
 	SteamDatagramErrMsg errMsg;
 
-	// Deserialize the message
-	CMsgSteamNetworkingP2PRendezvous msg;
-	if ( !msg.ParseFromArray( pMsg, cbMsg ) )
-	{
-		SpewWarning( "P2P signal failed protobuf parse\n" );
-		return false;
-	}
+	// Grab the lock now.  (We might not have previously held it.)
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "InternalReceivedP2PSignal" );
 
 	// Parse remote identity
 	if ( *msg.from_identity().c_str() == '\0' )
@@ -2846,9 +2850,6 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const void *pMsg, int c
 	toLocalIdentity.ParseString( msg.to_identity().c_str() );
 
 	int nLogLevel = m_connectionConfig.m_LogLevel_P2PRendezvous.Get();
-
-	// Grab the lock now.  (We might not have previously held it.)
-	SteamNetworkingGlobalLock lock( "ReceivedP2PSignal" );
 
 	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 
