@@ -1417,7 +1417,12 @@ void CSteamNetworkConnectionP2P::ThinkSelectTransport( SteamNetworkingMicrosecon
 							} \
 							else if ( pTransport->m_usecEndToEndInFlightReplyTimeout > 0 ) \
 							{ \
-								m_usecNextEvaluateTransport = std::min( m_usecNextEvaluateTransport, pTransport->m_usecEndToEndInFlightReplyTimeout ); \
+								/* The transport *should* be scheduled to deal with the timeout */ \
+								Assert( pTransport->GetP2PTransportThinkScheduleTime() <= pTransport->m_usecEndToEndInFlightReplyTimeout ); \
+								/* In case not, use the max so we don't wake up and try to deal with it before it has taken care of it and get into a loop */ \
+								SteamNetworkingMicroseconds usecAfterTimeOut = std::max( pTransport->GetP2PTransportThinkScheduleTime(), pTransport->m_usecEndToEndInFlightReplyTimeout ); \
+								++usecAfterTimeOut; /* because we need to make sure we do our processing AFTER the transport has had a chance to deal with the timeout */ \
+								m_usecNextEvaluateTransport = std::min( m_usecNextEvaluateTransport, usecAfterTimeOut ); \
 							} \
 							else \
 							{ \

@@ -163,6 +163,8 @@ public:
 	bool TryLock() { return m_pSelfAsConnectionTransport->m_connection.TryLock(); }
 	void Unlock() const { return m_pSelfAsConnectionTransport->m_connection.Unlock(); }
 
+	inline SteamNetworkingMicroseconds GetP2PTransportThinkScheduleTime() const { return m_scheduleP2PTransportThink.GetScheduleTime(); }
+
 protected:
 	CConnectionTransportP2PBase( const char *pszDebugName, CConnectionTransport *pSelfBase );
 	virtual ~CConnectionTransportP2PBase();
