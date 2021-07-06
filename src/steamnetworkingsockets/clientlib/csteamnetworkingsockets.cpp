@@ -800,12 +800,15 @@ void CSteamNetworkingSockets::CheckAuthenticationPrerequisites( SteamNetworkingM
 				return;
 
 			// Check if it's time to renew
-			SteamNetworkingMicroseconds usecTargetRenew = usecNow + ( nSeconduntilExpiry - k_nSecCertExpirySeekRenew ) * k_nMillion;
-			if ( usecTargetRenew > usecNow )
+			int nSecondsUntilRenew = nSeconduntilExpiry - k_nSecCertExpirySeekRenew;
+			if ( nSecondsUntilRenew > 0 )
 			{
-				SteamNetworkingMicroseconds usecScheduledRenew = m_scheduleCheckRenewCert.GetScheduleTime();
-				SteamNetworkingMicroseconds usecLatestRenew = usecTargetRenew + 4*k_nMillion;
-				if ( usecScheduledRenew <= usecLatestRenew )
+
+				// Schedule a wakeup
+				constexpr SteamNetworkingMicroseconds kFudge = k_nMillion*3/2;
+				SteamNetworkingMicroseconds usecTargetCheck = std::min( usecNow + nSecondsUntilRenew*k_nMillion + kFudge, usecNow + 600*k_nMillion );
+				SteamNetworkingMicroseconds usecScheduledCheck = m_scheduleCheckRenewCert.GetScheduleTime();
+				if ( usecScheduledCheck <= usecTargetCheck + kFudge*2 )
 				{
 					// Currently scheduled time is good enough.  Don't constantly update the schedule time,
 					// that involves a (small amount) of work.  Just wait for it
@@ -813,7 +816,15 @@ void CSteamNetworkingSockets::CheckAuthenticationPrerequisites( SteamNetworkingM
 				else
 				{
 					// Schedule a check later
-					m_scheduleCheckRenewCert.Schedule( usecTargetRenew + 2*k_nMillion );
+					m_scheduleCheckRenewCert.Schedule( usecTargetCheck );
+
+					// !TEST! Spew cert expiry
+					long long expiry = m_msgCert.time_expiry(); Assert( expiry > 0 );
+					long long now = m_pSteamNetworkingUtils->GetTimeSecure();
+					long long nSecondsUntilExpiry = expiry - now;
+					SpewMsg( "Certificate expires in %lldh%02lldm at %lld (current time %lld), will renew in %dh%02dm\n",
+						nSecondsUntilExpiry/3600, ( nSecondsUntilExpiry/60 ) % 60, expiry, now,
+						nSecondsUntilRenew/3600, (nSecondsUntilRenew/60)%60 );
 				}
 				return;
 			}
@@ -904,6 +915,10 @@ void CSteamNetworkingSockets::AsyncCertRequestFinished()
 
 	Assert( m_msgSignedCert.has_cert() );
 	SetCertStatus( k_ESteamNetworkingAvailability_Current, "OK" );
+
+	// Setup renewal check (this will also spew how much time until cert expires)
+	m_scheduleCheckRenewCert.Cancel();
+	CheckAuthenticationPrerequisites( SteamNetworkingSockets_GetLocalTimestamp() );
 
 	// Check for any connections that we own that are waiting on a cert
 	TableScopeLock tableScopeLock( g_tables_lock );
