@@ -25,6 +25,7 @@ struct UDPSendPacketContext_t;
 class CConnectionTransportP2PICE final
 : public CConnectionTransportUDPBase
 , public CConnectionTransportP2PBase
+, public CTaskTarget // Should we promote this to a base class?
 , private IICESessionDelegate
 {
 public:

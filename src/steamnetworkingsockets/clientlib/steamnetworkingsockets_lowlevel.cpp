@@ -430,90 +430,289 @@ static volatile bool s_bManualPollMode;
 
 /////////////////////////////////////////////////////////////////////////////
 //
-// Raw sockets
+// Task lists
 //
 /////////////////////////////////////////////////////////////////////////////
 
-// We don't need recursion or timeout.  Just the fastest thing that works.
-// Note that we could use a lock-free queue for this.  But I suspect that this
-// won't get enough work or have enough contention for that to be an important
-// optimization
-static ShortDurationLock s_mutexRunWithLockQueue( "run_with_lock_queue" );
-static std::vector< ISteamNetworkingSocketsRunWithLock * > s_vecRunWithLockQueue;
+ShortDurationLock s_lockTaskQueue( "TaskQueue" );
 
-ISteamNetworkingSocketsRunWithLock::~ISteamNetworkingSocketsRunWithLock() {}
-
-bool ISteamNetworkingSocketsRunWithLock::RunOrQueue( const char *pszTag )
+CTaskTarget::~CTaskTarget()
 {
+	CancelQueuedTasks();
+
+	// Set to invalid value so we will crash if we have use after free
+	m_pFirstTask = (CQueuedTask *)~(uintptr_t)0;
+}
+
+void CTaskTarget::CancelQueuedTasks()
+{
+
+	// If we have any queued tasks, we need to cancel them
+	if ( m_pFirstTask )
+	{
+		ShortDurationScopeLock scopeLock( s_lockTaskQueue );
+		CQueuedTask *pTask = m_pFirstTask;
+		while ( pTask )
+		{
+			CQueuedTask *pNext = pTask->m_pNextTaskForTarget;
+			Assert( !pNext || pNext->m_pPrevTaskForTarget == pTask );
+			Assert( pTask->m_pTarget == this );
+			Assert( pTask->m_eTaskState == CQueuedTask::k_ETaskState_Queued );
+			pTask->m_eTaskState = CQueuedTask::k_ETaskState_ReadyToDelete;
+			pTask->m_pTarget = nullptr;
+			pTask->m_pPrevTaskForTarget = nullptr;
+			pTask->m_pNextTaskForTarget = nullptr;
+			pTask = pNext;
+		}
+		m_pFirstTask = nullptr;
+	}
+}
+
+void CTaskList::QueueTask( CQueuedTask *pTask )
+{
+	Assert( pTask->m_eTaskState == CQueuedTask::k_ETaskState_Init );
+	Assert( !pTask->m_pPrevTaskForTarget );
+	Assert( !pTask->m_pNextTaskForTarget );
+	Assert( !pTask->m_pNextTaskInQueue );
+
+	ShortDurationScopeLock scopeLock( s_lockTaskQueue );
+
+	// If we have a target, add to list of target's tasks that need to be deleted
+	CTaskTarget *pTarget = pTask->m_pTarget;
+	if ( pTarget )
+	{
+		if ( pTarget->m_pFirstTask )
+		{
+			Assert( pTarget->m_pFirstTask->m_pPrevTaskForTarget == nullptr );
+			pTarget->m_pFirstTask->m_pPrevTaskForTarget = pTask;
+		}
+		pTask->m_pPrevTaskForTarget = nullptr;
+		pTask->m_pNextTaskForTarget = pTarget->m_pFirstTask;
+		pTarget->m_pFirstTask = pTask;
+	}
+
+	if ( m_pLastTask )
+	{
+		Assert( m_pFirstTask );
+		Assert( !m_pLastTask->m_pNextTaskInQueue );
+		m_pLastTask->m_pNextTaskInQueue = pTask;
+	}
+	else
+	{
+		Assert( !m_pFirstTask );
+		m_pFirstTask = pTask;
+	}
+
+	m_pLastTask = pTask;
+
+	// Mark task as queued
+	pTask->m_eTaskState = CQueuedTask::k_ETaskState_Queued;
+}
+
+void CTaskList::RunTasks()
+{
+	// Quick check for no tasks
+	if ( !m_pFirstTask )
+		return;
+
+	// Detach the linked list
+	s_lockTaskQueue.lock();
+	CQueuedTask *pFirstTask = m_pFirstTask;
+	m_pFirstTask = nullptr;
+	m_pLastTask = nullptr;
+	s_lockTaskQueue.unlock();
+
+	// Process items
+	CQueuedTask *pTask = pFirstTask;
+	while ( pTask )
+	{
+
+		// We might have to loop due to lock contention
+		for (;;)
+		{
+
+			// Already deleted?
+			if ( pTask->m_eTaskState != CQueuedTask::k_ETaskState_Queued )
+			{
+				Assert( pTask->m_eTaskState == CQueuedTask::k_ETaskState_ReadyToDelete );
+				Assert( pTask->m_pTarget == nullptr );
+				break;
+			}
+
+			ShortDurationScopeLock scopeLock;
+
+			// We'll need to lock the queue if they have a target.
+			// If their target does not have a locking mechanism, then we
+			// assume that it cannot be deleted here.  However, we always need
+			// to protect against other tasks getting queued against the target,
+			// and we allow that to be done without locking the target.
+			if ( pTask->m_pTarget )
+				scopeLock.Lock( s_lockTaskQueue );
+
+			// Do we have a lock we need to take?
+			if ( pTask->m_lockFunc )
+			{
+
+				int msTimeOut = 10;
+				if ( pTask->m_pTarget )
+				{
+					scopeLock.Lock( s_lockTaskQueue );
+
+					// Deleted while we locked?
+					if ( pTask->m_eTaskState != CQueuedTask::k_ETaskState_Queued )
+					{
+						Assert( pTask->m_eTaskState == CQueuedTask::k_ETaskState_ReadyToDelete );
+						Assert( pTask->m_pTarget == nullptr );
+						break;
+					}
+
+					// Use a short timeout and loop, in case we might deadlock
+					msTimeOut = 1;
+				}
+
+				if ( !(*pTask->m_lockFunc)( pTask->m_lockFuncArg, msTimeOut, pTask->m_pszTag ) )
+				{
+					// Other object is busy, or perhaps we are deadlocked?
+					continue;
+				}
+
+				// Deleted while we locked?
+				if ( pTask->m_eTaskState != CQueuedTask::k_ETaskState_Queued )
+				{
+					Assert( pTask->m_eTaskState == CQueuedTask::k_ETaskState_ReadyToDelete );
+					Assert( pTask->m_pTarget == nullptr );
+					break;
+				}
+			}
+
+			// OK, we've got the locks we need and are ready to run.
+			// Unlink from the target, if we have one
+			CTaskTarget *pTarget = pTask->m_pTarget;
+			if ( pTarget )
+			{
+				CQueuedTask *p = pTask->m_pPrevTaskForTarget;
+				CQueuedTask *n = pTask->m_pNextTaskForTarget;
+				if ( p )
+				{
+					Assert( p->m_pTarget == pTarget );
+					Assert( p->m_pNextTaskForTarget == pTask );
+					p->m_pNextTaskForTarget = n;
+					pTask->m_pPrevTaskForTarget = nullptr;
+				}
+				else
+				{
+					Assert( pTarget->m_pFirstTask == pTask );
+					pTarget->m_pFirstTask = n;
+				}
+				if ( n )
+				{
+					Assert( n->m_pPrevTaskForTarget == pTask );
+					n->m_pPrevTaskForTarget = p;
+					pTask->m_pNextTaskForTarget = nullptr;
+				}
+
+				// Note: we must leave the target pointer set
+			}
+
+			// We can release this lock now if we took it
+			scopeLock.Unlock();
+
+			// !KLUDGE! Deluxe
+			if ( this == &g_taskListRunWithGlobalLock )
+			{
+				// Make sure we hold the lock, and also set the tag for debugging purposes
+				SteamNetworkingGlobalLock::AssertHeldByCurrentThread( pTask->m_pszTag );
+			}
+
+			// Run the task
+			pTask->m_eTaskState = CQueuedTask::k_ETaskState_Running;
+			pTask->Run();
+
+			// Mark us as finished
+			pTask->m_eTaskState = CQueuedTask::k_ETaskState_ReadyToDelete;
+			pTask->m_pTarget = nullptr;
+			break;
+		}
+
+		// Done, we can delete the task
+		CQueuedTask *pNext = pTask->m_pNextTaskInQueue;
+		pTask->m_pNextTaskInQueue = nullptr;
+		delete pTask;
+		pTask = pNext;
+	}
+}
+
+CTaskList g_taskListRunWithGlobalLock;
+CTaskList g_taskListRunInBackground;
+
+CQueuedTask::~CQueuedTask()
+{
+	Assert( m_eTaskState == k_ETaskState_Init || m_eTaskState == k_ETaskState_ReadyToDelete );
+	Assert( !m_pNextTaskInQueue );
+	Assert( !m_pPrevTaskForTarget );
+	Assert( !m_pNextTaskForTarget );
+}
+
+void CQueuedTask::SetTarget( CTaskTarget *pTarget )
+{
+	// Can only call this once
+	Assert( m_eTaskState == k_ETaskState_Init );
+	Assert( m_pTarget == nullptr );
+	m_pTarget = pTarget;
+
+	// NOTE: We wait to link task to the target until we actually queue it
+}
+
+bool CQueuedTask::RunWithGlobalLockOrQueue( const char *pszTag )
+{
+	Assert( m_eTaskState == k_ETaskState_Init );
+	Assert( m_lockFunc == nullptr );
+
 	// Check if lock is available immediately
 	if ( !SteamNetworkingGlobalLock::TryLock( pszTag, 0 ) )
 	{
-		Queue( pszTag );
+		QueueToRunWithGlobalLock( pszTag );
 		return false;
 	}
 
 	// Service the queue so we always do items in order
-	ServiceQueue();
+	g_taskListRunWithGlobalLock.RunTasks();
 
 	// Let derived class do work
+	m_eTaskState = k_ETaskState_Running;
 	Run();
 
 	// Go ahead and unlock now
 	SteamNetworkingGlobalLock::Unlock();
 
 	// Self destruct
+	m_eTaskState = k_ETaskState_ReadyToDelete;
+	m_pTarget = nullptr;
 	delete this;
 
 	// We have run
 	return true;
 }
 
-void ISteamNetworkingSocketsRunWithLock::Queue( const char *pszTag )
+void CQueuedTask::QueueToRunWithGlobalLock( const char *pszTag )
 {
-	// Remember our tag, for accounting purposes
-	m_pszTag = pszTag;
-
-	// Put us into the queue
-	s_mutexRunWithLockQueue.lock();
-	s_vecRunWithLockQueue.push_back( this );
-	s_mutexRunWithLockQueue.unlock();
-
-	// NOTE: At this point we are subject to being run or deleted at any time!
+	Assert( m_lockFunc == nullptr );
+	if ( pszTag )
+		m_pszTag = pszTag;
+	g_taskListRunWithGlobalLock.QueueTask( this );
 
 	// Make sure service thread will wake up to do something with this
 	WakeSteamDatagramThread();
 
+	// NOTE: At this point we are subject to being run or deleted at any time!
 }
 
-void ISteamNetworkingSocketsRunWithLock::ServiceQueue()
+void CQueuedTask::QueueToRunInBackground()
 {
-	// Quick check if we're empty, which will be common and can be done safely
-	// even if we don't hold the lock and the vector is being modified.  It's
-	// OK if we have an occasional false positive or negative here.  Work
-	// put into this queue does not have any guarantees about when it will get done
-	// beyond "run them in order they are queued" and "best effort".
-	if ( s_vecRunWithLockQueue.empty() )
-		return;
+	g_taskListRunInBackground.QueueTask( this );
 
-	std::vector<ISteamNetworkingSocketsRunWithLock *> vecTempQueue;
-
-	// Quickly move the queue into the temp while holding the lock.
-	// Once it is in our temp, we can release the lock.
-	s_mutexRunWithLockQueue.lock();
-	vecTempQueue = std::move( s_vecRunWithLockQueue );
-	s_vecRunWithLockQueue.clear(); // Just in case assigning from std::move didn't clear it.
-	s_mutexRunWithLockQueue.unlock();
-
-	// Run them
-	for ( ISteamNetworkingSocketsRunWithLock *pItem: vecTempQueue )
-	{
-		// Make sure we hold the lock, and also set the tag for debugging purposes
-		SteamNetworkingGlobalLock::AssertHeldByCurrentThread( pItem->m_pszTag );
-
-		// Do the work and nuke
-		pItem->Run();
-		delete pItem;
-	}
+	//if ( s_bManualPollMode || ( s_pThreadSteamDatagram && s_pThreadSteamDatagram->get_id() != std::this_thread::get_id() ) )
+	WakeSteamDatagramThread();
 }
 
 // Try to guess if the route the specified address is probably "local".
@@ -1523,6 +1722,10 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 	// Release lock while we're asleep
 	SteamNetworkingGlobalLock::Unlock();
 
+	// Run idle tasks since we don't have the lock.
+	// !FIXME! Should we move this to another thread?
+	g_taskListRunInBackground.RunTasks();
+
 	// Shutdown request?
 	if ( s_nLowLevelSupportRefCount.load(std::memory_order_acquire) <= 0 || s_bManualPollMode != bManualPoll )
 		return false; // ABORT THREAD
@@ -1534,6 +1737,7 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 		poll( pPollFDs, nPollFDs, nMaxTimeoutMS );
 	#endif
 
+	// We're back awake.  Grab the lock again
 	SteamNetworkingMicroseconds usecStartedLocking = SteamNetworkingSockets_GetLocalTimestamp();
 	UpdateFakeRateLimitTokenBuckets( usecStartedLocking );
 	for (;;)
@@ -1778,7 +1982,7 @@ static void ProcessDeferredOperations()
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
 
 	// Tasks that were queued to be run while we hold the lock
-	ISteamNetworkingSocketsRunWithLock::ServiceQueue();
+	g_taskListRunWithGlobalLock.RunTasks();
 
 	// Process any connections queued for delete
 	CSteamNetworkConnectionBase::ProcessDeletionList();

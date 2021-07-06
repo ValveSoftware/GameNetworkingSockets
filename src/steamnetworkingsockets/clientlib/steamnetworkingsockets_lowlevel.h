@@ -569,38 +569,149 @@ extern void SteamNetworkingSocketsLowLevelValidate( CValidator &validator );
 /// but is safe to call from the service thread as well.
 extern void WakeSteamDatagramThread();
 
-/// Class used to take some action while we have the global thread locked,
-/// perhaps later and in another thread if necessary.  Intended to be used
-/// from callbacks and other contexts where we don't know what thread we are
-/// in and cannot risk trying to wait on the lock, without risking creating
-/// a deadlock.
-///
-/// Note: This code could have been a lot simpler with std::function, but
-/// it was intentionally not used, to avoid adding that runtime dependency.
-class ISteamNetworkingSocketsRunWithLock
+class CQueuedTask;
+
+/// The target of a task that can be locked and can be safely deleted while
+/// tasks are still queued against the target
+class CTaskTarget
 {
 public:
-	virtual ~ISteamNetworkingSocketsRunWithLock();
 
-	/// If we can run immediately, then do so, delete self, and return true.
-	/// Otherwise, we are placed into a queue and false is returned.
-	bool RunOrQueue( const char *pszTag );
+protected:
 
-	/// Don't check the global lock, just queue the item to be run.
-	void Queue( const char *pszTag );
+	/// Destructor will cancel tasks.  You need to make sure any relevant
+	/// locks have been acquired!
+	~CTaskTarget();
 
-	/// Called from service thread while we hold the lock
-	static void ServiceQueue();
+	/// Cancel any tasks that are queued for us.
+	/// This MUST be called while relevant locks are held,
+	/// if any tasks are queued with a locking mechanism.
+	void CancelQueuedTasks();
 
-	inline const char *Tag() const { return m_pszTag; }
 private:
-	const char *m_pszTag = nullptr;
+	friend class CTaskList;
+
+	/// Doubly-linked list of tasks that need to be canceled
+	/// if we get deleted.  These are stored in "reverse"
+	/// order, or more accurately, the order of the list
+	/// should not be relevant
+	CQueuedTask *m_pFirstTask = nullptr;
+};
+
+/// Abstract class for a task that is in a queue.  Optionally, you can set
+/// a target that may need to be locked before the task is run or may be
+/// deleted while tasks are queued
+class CQueuedTask
+{
+public:
+
+	// Target accessors
+	void SetTarget( CTaskTarget *pTarget );
+	CTaskTarget *Target() const { return m_pTarget; }
+
+	/// If we can acquire the global lock immediately, then do so, delete self, and return true.
+	/// Otherwise, we are placed into a queue and false is returned.
+	bool RunWithGlobalLockOrQueue( const char *pszTag );
+
+	/// Queue the item to run while we have the global lock held.
+	void QueueToRunWithGlobalLock( const char *pszTag );
+
+	/// Queue the item to run in the background when we have some time,
+	/// on no particular thread and with no locks held
+	void QueueToRunInBackground();
+
+	/// Function call used to try to take the lock
+	typedef bool (*FTryLockFunc)( void *lock, int msTimeOut, const char *pszTag );
+
+	/// Set the locking mechanism that we should acquire before trying to
+	/// run the task.  You must use this if the target might be deleted
+	/// while the task is run.  If there is no chance of the target being
+	/// deleted while the tasks are being run, then this is not necessary.
+	inline void SetLockFunc( FTryLockFunc func, void *lock, const char *pszTag = nullptr )
+	{
+		m_lockFunc = func;
+		m_lockFuncArg = lock;
+		if ( pszTag )
+			m_pszTag = pszTag;
+	}
+
+	/// Adapter for typed locks
+	template<typename TLock>
+	inline void SetLock( TLock &lock, const char *pszTag = nullptr )
+	{
+		m_lockFunc = []( void *pLock, int msTimeOut, const char *pszTagArg ) -> bool
+		{
+			return ((TLock *)pLock)->try_lock_for( msTimeOut, pszTagArg );
+		};
+		m_lockFuncArg = &lock;
+		if ( pszTag )
+			m_pszTag = pszTag;
+	}
 
 protected:
 	virtual void Run() = 0;
+	CQueuedTask() {}
+	CQueuedTask( CTaskTarget *pTarget ) { SetTarget( pTarget ); }
+	CTaskTarget *m_pTarget = nullptr;
 
-	inline ISteamNetworkingSocketsRunWithLock() {};
+	virtual ~CQueuedTask();
+
+	enum ETaskState
+	{
+		k_ETaskState_Init,
+		k_ETaskState_Queued,
+		k_ETaskState_Running,
+		k_ETaskState_ReadyToDelete,
+	};
+
+private:
+	friend class CTaskList;
+	friend class CTaskTarget;
+	CQueuedTask *m_pNextTaskInQueue = nullptr;
+	CQueuedTask *m_pPrevTaskForTarget = nullptr;
+	CQueuedTask *m_pNextTaskForTarget = nullptr;
+	FTryLockFunc m_lockFunc = nullptr;
+	void *m_lockFuncArg = nullptr;
+	const char *m_pszTag = nullptr;
+	volatile ETaskState m_eTaskState = k_ETaskState_Init;
 };
+
+/// Helper class for a class that takes a target of a specific
+/// type that is derived from CTaskTarget
+template<typename TTarget>
+class CQueuedTaskOnTarget : public CQueuedTask
+{
+public:
+	CQueuedTaskOnTarget( TTarget *pTarget = nullptr ) : CQueuedTask( pTarget ) {}
+
+	/// Upcast
+	void SetTarget( TTarget *pTarget ) { CQueuedTask::SetTarget( pTarget ); }
+	TTarget *Target() const { return static_cast<TTarget*>( m_pTarget ); }
+};
+
+/// A list of queued tasks
+class CTaskList
+{
+public:
+
+	// Add a task to the queue
+	void QueueTask( CQueuedTask *pTask );
+
+	// Run the queued tasks
+	void RunTasks();
+
+private:
+	// List of queued tasks
+	CQueuedTask *m_pFirstTask;
+	CQueuedTask *m_pLastTask;
+};
+
+/// Tasks that we want to run while we hold the global lock
+extern CTaskList g_taskListRunWithGlobalLock;
+
+/// Tasks that we want to run when we are "idle", while
+/// we do NOT hold the global lock.
+extern CTaskList g_taskListRunInBackground;
 
 /////////////////////////////////////////////////////////////////////////////
 //

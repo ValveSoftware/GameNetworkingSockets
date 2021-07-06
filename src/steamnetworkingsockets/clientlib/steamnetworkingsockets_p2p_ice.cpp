@@ -558,7 +558,7 @@ void CConnectionTransportP2PICE::RouteOrWritableStateChanged()
 
 /// A glue object used to take a callback from ICE, which might happen in
 /// any thread, and execute it with the proper locks.
-class IConnectionTransportP2PICERunWithLock : private ISteamNetworkingSocketsRunWithLock
+class IConnectionTransportP2PICERunWithLock : private CQueuedTaskOnTarget<CConnectionTransportP2PICE>
 {
 public:
 
@@ -568,13 +568,13 @@ public:
 	inline void Queue( CConnectionTransportP2PICE *pTransport, const char *pszTag )
 	{
 		DbgVerify( Setup( pTransport ) ); // Caller should have already checked
-		ISteamNetworkingSocketsRunWithLock::Queue( pszTag );
+		QueueToRunWithGlobalLock( pszTag );
 	}
 
 	inline void RunOrQueue( CConnectionTransportP2PICE *pTransport, const char *pszTag )
 	{
 		if ( Setup( pTransport ) )
-			ISteamNetworkingSocketsRunWithLock::RunOrQueue( pszTag );
+			RunWithGlobalLockOrQueue( pszTag );
 	}
 
 private:
@@ -589,25 +589,20 @@ private:
 			return false;
 		}
 
-		m_nConnectionIDLocal = conn.m_unConnectionIDLocal;
+		SetTarget( pTransport );
 		return true;
 	}
 
 	virtual void Run()
 	{
-		ConnectionScopeLock connectionLock;
-		CSteamNetworkConnectionBase *pConnBase = FindConnectionByLocalID( m_nConnectionIDLocal, connectionLock );
-		if ( !pConnBase )
+		CConnectionTransportP2PICE *pTransport = Target();
+		CSteamNetworkConnectionP2P &conn = pTransport->Connection();
+
+		ConnectionScopeLock connectionLock( conn );
+		if ( conn.m_pTransportICE != pTransport )
 			return;
 
-		CSteamNetworkConnectionP2P *pConn = pConnBase->AsSteamNetworkConnectionP2P();
-		if ( !pConn )
-			return;
-
-		if ( !pConn->m_pTransportICE )
-			return;
-
-		RunTransportP2PICE( pConn->m_pTransportICE );
+		RunTransportP2PICE( pTransport );
 	}
 };
 
