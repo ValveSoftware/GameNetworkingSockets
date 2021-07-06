@@ -24,7 +24,7 @@ static void DebugOutput( ESteamNetworkingSocketsDebugOutputType eType, const cha
 	SteamNetworkingMicroseconds time = SteamNetworkingUtils()->GetLocalTimestamp() - g_logTimeZero;
 	if ( g_fpLog )
 		fprintf( g_fpLog, "%10.6f %s\n", time*1e-6, pszMsg );
-	//if ( eType <= k_ESteamNetworkingSocketsDebugOutputType_Msg )
+	if ( eType <= k_ESteamNetworkingSocketsDebugOutputType_Msg )
 	{
 		printf( "%10.6f %s\n", time*1e-6, pszMsg );
 		fflush(stdout);

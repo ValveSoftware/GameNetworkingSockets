@@ -364,7 +364,7 @@ int64 CSteamNetworkConnectionBase::SNP_SendMessage( CSteamNetworkingMessage *pSe
 			if ( usecNextThink > m_senderState.m_messagesQueued.m_pFirst->SNPSend_UsecNagle() )
 			{
 				// It's because of the rate limit
-				SpewVerbose( "[%s] Send RATELIM.  QueueTime is %.1fms, SendRate=%.1fk, BytesQueued=%d, ping=%dms\n", 
+				SpewDebug( "[%s] Send RATELIM.  QueueTime is %.1fms, SendRate=%.1fk, BytesQueued=%d, ping=%dms\n", 
 					GetDescription(),
 					m_sendRateData.CalcTimeUntilNextSend() * 1e-3,
 					m_sendRateData.m_nCurrentSendRateEstimate * ( 1.0/1024.0),
@@ -375,7 +375,7 @@ int64 CSteamNetworkConnectionBase::SNP_SendMessage( CSteamNetworkingMessage *pSe
 			else
 			{
 				// Waiting on nagle
-				SpewVerbose( "[%s] Send Nagle %.1fms.  QueueTime is %.1fms, SendRate=%.1fk, BytesQueued=%d, ping=%dms\n", 
+				SpewDebug( "[%s] Send Nagle %.1fms.  QueueTime is %.1fms, SendRate=%.1fk, BytesQueued=%d, ping=%dms\n", 
 					GetDescription(),
 					( m_senderState.m_messagesQueued.m_pFirst->SNPSend_UsecNagle() - usecNow ) * 1e-3,
 					m_sendRateData.CalcTimeUntilNextSend() * 1e-3,
