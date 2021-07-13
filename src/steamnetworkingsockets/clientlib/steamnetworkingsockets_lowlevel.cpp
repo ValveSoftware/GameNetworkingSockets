@@ -2686,15 +2686,6 @@ void SteamNetworkingSocketsLowLevelDecRef()
 	// might need to do stuff when we close a bunch of sockets (and WSACleanup)
 	SteamNetworkingGlobalLock::SetLongLockWarningThresholdMS( "SteamNetworkingSocketsLowLevelDecRef", 500 );
 
-	if ( s_vecRawSockets.IsEmpty() )
-	{
-		s_vecRawSockets.Purge();
-	}
-	else
-	{
-		AssertMsg( false, "Trying to close low level socket support, but we still have sockets open!" );
-	}
-
 	// Stop the service thread, if we have one
 	if ( s_pThreadSteamDatagram )
 		StopSteamDatagramThread();
@@ -2724,6 +2715,16 @@ void SteamNetworkingSocketsLowLevelDecRef()
 
 	// Check for any leftover tasks that were queued to be run while we hold the lock
 	ProcessDeferredOperations();
+
+	// At this point, we shouldn't have any remaining sockets
+	if ( s_vecRawSockets.IsEmpty() )
+	{
+		s_vecRawSockets.Purge();
+	}
+	else
+	{
+		AssertMsg( false, "Trying to close low level socket support, but we still have sockets open!" );
+	}
 
 	// Nuke packet lagger queues and make sure we are not registered to think
 	s_packetLagQueueRecv.Clear();
