@@ -1161,7 +1161,7 @@ public:
 				}
 				else
 				{
-					ProcessPacket( pkt );
+					ProcessPacket( pkt, usecNow );
 				}
 				m_list.RemoveFromHead();
 			}
@@ -1215,13 +1215,13 @@ protected:
 	CUtlLinkedList<LaggedPacket> m_list;
 
 	/// Do whatever we're supposed to do with the next packet
-	virtual void ProcessPacket( const LaggedPacket &pkt ) = 0;
+	virtual void ProcessPacket( const LaggedPacket &pkt, SteamNetworkingMicroseconds usecNow ) = 0;
 };
 
 class CPacketLaggerSend final : public CPacketLagger
 {
 public:
-	virtual void ProcessPacket( const LaggedPacket &pkt ) override
+	virtual void ProcessPacket( const LaggedPacket &pkt, SteamNetworkingMicroseconds usecNow ) override
 	{
 		iovec temp;
 		temp.iov_len = pkt.m_cbPkt;
@@ -1233,7 +1233,7 @@ public:
 class CPacketLaggerRecv final : public CPacketLagger
 {
 public:
-	virtual void ProcessPacket( const LaggedPacket &pkt ) override
+	virtual void ProcessPacket( const LaggedPacket &pkt, SteamNetworkingMicroseconds usecNow ) override
 	{
 		// Copy data out of queue into local variables, just in case a
 		// packet is queued while we're in this function.  We don't want
@@ -1241,7 +1241,8 @@ public:
 		// caller to dangle.
 		char temp[ k_cbSteamNetworkingSocketsMaxUDPMsgLen ];
 		memcpy( temp, pkt.m_pkt, pkt.m_cbPkt );
-		pkt.m_pSockOwner->m_callback( RecvPktInfo_t{ temp, pkt.m_cbPkt, pkt.m_adrRemote, pkt.m_pSockOwner } );
+		//pkt.m_pSockOwner->m_callback( RecvPktInfo_t{ temp, pkt.m_cbPkt, usecNow, pkt.m_usecTime, 0, pkt.m_adrRemote, pkt.m_pSockOwner } );
+		pkt.m_pSockOwner->m_callback( RecvPktInfo_t{ temp, pkt.m_cbPkt, usecNow, pkt.m_adrRemote, pkt.m_pSockOwner } );
 	}
 };
 
@@ -1827,9 +1828,9 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 			sockaddr_storage from;
 			socklen_t fromlen = sizeof(from);
 			int ret = ::recvfrom( pSock->m_socket, buf, sizeof( buf ), 0, (sockaddr *)&from, &fromlen );
+			SteamNetworkingMicroseconds usecRecvFromEnd = SteamNetworkingSockets_GetLocalTimestamp();
 
 			#ifdef STEAMNETWORKINGSOCKETS_LOWLEVEL_TIME_SOCKET_CALLS
-				SteamNetworkingMicroseconds usecRecvFromEnd = SteamNetworkingSockets_GetLocalTimestamp(); // FIXME - If we add a timestamp to RecvPktInfo_t this will be free
 				if ( usecRecvFromEnd > s_usecIgnoreLongLockWaitTimeUntil )
 				{
 					SteamNetworkingMicroseconds usecRecvFromElapsed = usecRecvFromEnd - usecRecvFromStart;
@@ -1941,6 +1942,7 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 
 				info.m_pPkt = buf;
 				info.m_cbPkt = ret;
+				info.m_usecNow = usecRecvFromEnd;
 				info.m_pSock = pSock;
 				pSock->m_callback( info );
 			}

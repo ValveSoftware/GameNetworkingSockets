@@ -46,6 +46,10 @@ struct RecvPktInfo_t
 {
 	const void *m_pPkt;
 	int m_cbPkt;
+	SteamNetworkingMicroseconds m_usecNow; // Current time
+	// FIXME - coming soon!
+	//SteamNetworkingMicroseconds m_usecRecvMin; // Earliest possible time when the packet might have actually arrived
+	//SteamNetworkingMicroseconds m_usecRecvMax; // Latest possible time when the packet might have actually arrived
 	netadr_t m_adrFrom;
 	IRawUDPSocket *m_pSock;
 };

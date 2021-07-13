@@ -167,7 +167,7 @@ void CSteamNetworkListenSocketDirectUDP::ReceivedFromUnknownHost( const RecvPktI
 	int cbPkt = info.m_cbPkt;
 	const netadr_t &adrFrom = info.m_adrFrom;
 
-	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
+	const SteamNetworkingMicroseconds usecNow = info.m_usecNow;
 
 	if ( cbPkt < 5 )
 	{
@@ -1359,8 +1359,7 @@ void CConnectionTransportUDP::PacketReceived( const RecvPktInfo_t &info, CConnec
 	const uint8 *pPkt = static_cast<const uint8 *>( info.m_pPkt );
 	int cbPkt = info.m_cbPkt;
 	const netadr_t &adrFrom = info.m_adrFrom;
-
-	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
+	SteamNetworkingMicroseconds usecNow = info.m_usecNow;
 
 	if ( cbPkt < 5 )
 	{
