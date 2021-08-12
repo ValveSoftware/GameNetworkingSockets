@@ -55,7 +55,8 @@ namespace SteamNetworkingSocketsLib {
 constexpr int k_msMaxPollWait = 1000;
 constexpr SteamNetworkingMicroseconds k_usecMaxTimestampDelta = k_msMaxPollWait * 1100;
 
-static void FlushSpew();
+static void FlushSystemSpew();
+static void FlushSystemSpewLocked();
 
 int g_nSteamDatagramSocketBufferSize = 256*1024;
 
@@ -1739,6 +1740,10 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 	// !FIXME! Should we move this to another thread?
 	g_taskListRunInBackground.RunTasks();
 
+	// If we have spewed, flush to disk.
+	// We probably could use the background task system for this.
+	FlushSystemSpew();
+
 	// Shutdown request?
 	if ( s_nLowLevelSupportRefCount.load(std::memory_order_acquire) <= 0 || s_bManualPollMode != bManualPoll )
 		return false; // ABORT THREAD
@@ -1758,22 +1763,20 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 		if ( s_nLowLevelSupportRefCount.load(std::memory_order_acquire) <= 0 || s_bManualPollMode != bManualPoll )
 			return false;
 
-		// Try to acquire the lock.  But don't wait forever, in case the other thread has the lock
-		// and then makes a shutdown request while we're waiting on the lock here.
-		if ( SteamNetworkingGlobalLock::TryLock( "ServiceThread", 250 ) )
+		// Try to acquire the lock.  But don't wait forever, in case the other thread has
+		// the lock and then makes a shutdown request while we're waiting on the lock here.
+		if ( SteamNetworkingGlobalLock::TryLock( "ServiceThread", 20 ) )
 			break;
-
-		// The only time this really should happen is a relatively rare race condition
-		// where the main thread is trying to shut us down.  (Or while debugging.)
-		// However, note that try_lock_for is permitted to "fail" spuriously, returning
-		// false even if no other thread holds the lock.  (For performance reasons.)
-		// So we check how long we have actually been waiting.
-		SteamNetworkingMicroseconds usecElapsed = SteamNetworkingSockets_GetLocalTimestamp() - usecStartedLocking;
-		AssertMsg1( usecElapsed < 50*1000 || s_nLowLevelSupportRefCount.load(std::memory_order_acquire) <= 0 || s_bManualPollMode != bManualPoll || Plat_IsInDebugSession(), "SDR service thread gave up on lock after waiting %dms.  This directly adds to delay of processing of network packets!", int( usecElapsed/1000 ) );
 	}
 
-	// If we have spewed, flush to disk
-	FlushSpew();
+	// If we waited a long time, then that's probably bad.  Spew about it
+	{
+		SteamNetworkingMicroseconds usecElapsedWaitingForLock = SteamNetworkingSockets_GetLocalTimestamp() - usecStartedLocking;
+		// Hm, if another thread indicated that they expected to hold the lock for a while,
+		// perhaps we should ignore this assert?
+		AssertMsg1( usecElapsedWaitingForLock < 50*1000 || Plat_IsInDebugSession(),
+			"SteamnetworkingSockets service thread waited %dms for lock!  This directly adds to network latency!  It could be a bug, but it's usually caused by general performance problem such as thread starvation or a debug output handler taking too long.", int( usecElapsedWaitingForLock/1000 ) );
+	}
 
 	// Recv socket data from any sockets that might have data, and execute the callbacks.
 	char buf[ k_cbSteamNetworkingSocketsMaxUDPMsgLen + 1024 ];
@@ -2413,6 +2416,7 @@ void CSharedSocket::RemoteHost::Close()
 //
 /////////////////////////////////////////////////////////////////////////////
 
+static ShortDurationLock s_systemSpewLock( "SystemSpew" );
 SteamNetworkingMicroseconds g_usecLastRateLimitSpew;
 int g_nRateLimitSpewCount;
 ESteamNetworkingSocketsDebugOutputType g_eSystemSpewLevel = k_ESteamNetworkingSocketsDebugOutputType_None; // Option selected by the "system" (environment variable, etc)
@@ -2426,10 +2430,9 @@ static FILE *g_pFileSystemSpew;
 static SteamNetworkingMicroseconds g_usecSystemLogFileOpened;
 static bool s_bNeedToFlushSystemSpew = false;;
 
-// FIXME - probably need our own leaf lock for the spew
-
 static void InitSpew()
 {
+	ShortDurationScopeLock scopeLock( s_systemSpewLock );
 
 	// First time, check environment variables and set system spew level
 	if ( !s_bSpewInitted )
@@ -2491,6 +2494,7 @@ static void InitSpew()
 
 static void KillSpew()
 {
+	ShortDurationScopeLock scopeLock( s_systemSpewLock );
 	g_eDefaultGroupSpewLevel = g_eSystemSpewLevel = g_eAppSpewLevel = k_ESteamNetworkingSocketsDebugOutputType_None;
 	g_pfnDebugOutput = nullptr;
 	s_bSpewInitted = false;
@@ -2502,13 +2506,23 @@ static void KillSpew()
 	}
 }
 
-static void FlushSpew()
+static void FlushSystemSpewLocked()
 {
+	s_systemSpewLock.AssertHeldByCurrentThread();
 	if ( s_bNeedToFlushSystemSpew )
 	{
 		if ( g_pFileSystemSpew )
 			fflush( g_pFileSystemSpew );
 		s_bNeedToFlushSystemSpew = false;
+	}
+}
+
+static void FlushSystemSpew()
+{
+	if ( s_bNeedToFlushSystemSpew ) // Read the flag without taking the lock first as an optimization, as most of the time it will not be set
+	{
+		ShortDurationScopeLock scopeLock( s_systemSpewLock );
+		FlushSystemSpewLocked();
 	}
 }
 
@@ -2934,17 +2948,21 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_DefaultPreFormatDeb
 	// Spew to log file?
 	if ( eType <= g_eSystemSpewLevel && g_pFileSystemSpew )
 	{
+		ShortDurationScopeLock scopeLock( s_systemSpewLock ); // WARNING - these locks are not re-entrant, so if we assert while holding it, we could deadlock!
+		if ( eType <= g_eSystemSpewLevel && g_pFileSystemSpew )
+		{
 
-		// Write
-		SteamNetworkingMicroseconds usecLogTime = SteamNetworkingSockets_GetLocalTimestamp() - g_usecSystemLogFileOpened;
-		fprintf( g_pFileSystemSpew, "%8.3f %s\n", usecLogTime*1e-6, buf );
+			// Write
+			SteamNetworkingMicroseconds usecLogTime = SteamNetworkingSockets_GetLocalTimestamp() - g_usecSystemLogFileOpened;
+			fprintf( g_pFileSystemSpew, "%8.3f %s\n", usecLogTime*1e-6, buf );
 
-		// Queue to flush when we we think we can afford to hit the disk synchronously
-		s_bNeedToFlushSystemSpew = true;
+			// Queue to flush when we we think we can afford to hit the disk synchronously
+			s_bNeedToFlushSystemSpew = true;
 
-		// Flush certain critical messages things immediately
-		if ( eType <= k_ESteamNetworkingSocketsDebugOutputType_Error )
-			FlushSpew();
+			// Flush certain critical messages things immediately
+			if ( eType <= k_ESteamNetworkingSocketsDebugOutputType_Error )
+				FlushSystemSpewLocked();
+		}
 	}
 
 	// Invoke callback
