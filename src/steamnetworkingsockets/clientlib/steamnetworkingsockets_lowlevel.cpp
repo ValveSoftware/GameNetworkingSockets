@@ -1163,8 +1163,8 @@ public:
 				{
 					ProcessPacket( pkt, usecNow );
 				}
-				m_list.RemoveFromHead();
 			}
+			m_list.RemoveFromHead();
 		}
 
 		Schedule();
