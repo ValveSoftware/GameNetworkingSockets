@@ -708,12 +708,29 @@ void PrintUsageAndExit( int rc = 1 )
 	fflush(stderr);
 	printf(
 R"usage(Usage:
-    example_chat client SERVER_ADDR
+    example_chat client SERVER_ADDR [--port PORT]
     example_chat server [--port PORT]
 )usage"
 	);
 	fflush(stdout);
 	exit(rc);
+}
+
+int ParsePort(int argc, const char *argv[], int i)
+{
+	int port = DEFAULT_SERVER_PORT;
+
+	if ( !strcmp( argv[i], "--port" ) )
+	{
+		++i;
+		if ( i >= argc )
+			PrintUsageAndExit();
+		port = atoi( argv[i] );
+		if ( port <= 0 || port > 65535 )
+			FatalError( "Invalid port %d", port );
+	}
+
+	return port;
 }
 
 int main( int argc, const char *argv[] )
@@ -730,33 +747,34 @@ int main( int argc, const char *argv[] )
 			if ( !strcmp( argv[i], "client" ) )
 			{
 				bClient = true;
-				continue;
+
+				++i;
+				if ( i >= argc )
+					PrintUsageAndExit();
+
+				if ( addrServer.IsIPv6AllZeros() )
+					if ( !addrServer.ParseString( argv[i] ) )
+						FatalError( "Invalid server address '%s'", argv[i] );
+
+				++i;
+				if ( i >= argc )
+					break;
+
+				nPort = ParsePort(argc, argv, i);
+				break;
 			}
+
 			if ( !strcmp( argv[i], "server" ) )
 			{
 				bServer = true;
-				continue;
-			}
-		}
-		if ( !strcmp( argv[i], "--port" ) )
-		{
-			++i;
-			if ( i >= argc )
-				PrintUsageAndExit();
-			nPort = atoi( argv[i] );
-			if ( nPort <= 0 || nPort > 65535 )
-				FatalError( "Invalid port %d", nPort );
-			continue;
-		}
 
-		// Anything else, must be server address to connect to
-		if ( bClient && addrServer.IsIPv6AllZeros() )
-		{
-			if ( !addrServer.ParseString( argv[i] ) )
-				FatalError( "Invalid server address '%s'", argv[i] );
-			if ( addrServer.m_port == 0 )
-				addrServer.m_port = DEFAULT_SERVER_PORT;
-			continue;
+				++i;
+				if ( i >= argc )
+					break;
+
+				nPort = ParsePort(argc, argv, i);
+				break;
+			}
 		}
 
 		PrintUsageAndExit();
@@ -764,6 +782,9 @@ int main( int argc, const char *argv[] )
 
 	if ( bClient == bServer || ( bClient && addrServer.IsIPv6AllZeros() ) )
 		PrintUsageAndExit();
+
+	if ( bClient && addrServer.m_port == 0 )
+		addrServer.m_port = nPort;
 
 	// Create client and server sockets
 	InitSteamDatagramConnectionSockets();
