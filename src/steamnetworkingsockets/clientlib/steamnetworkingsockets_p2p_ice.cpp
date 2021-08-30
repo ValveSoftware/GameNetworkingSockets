@@ -180,12 +180,9 @@ void CConnectionTransportP2PICE::Init()
 	std_vector<std::string> vecTurnServers;
 	std_vector<std::string> vecTurnUsers;
 	std_vector<std::string> vecTurnPasses;
-	std_vector<ICESessionConfig::TurnServer*> vecTurnServersPsz;
+	ICESessionConfig::TurnServer *vecTurnServersPsz = nullptr;
 	if ( P2P_Transport_ICE_Enable & k_nSteamNetworkingConfig_P2P_Transport_ICE_Enable_Relay )
 	{
-		// FIXME
-		//cfg.m_nCandidateTypes = m_nAllowedCandidateTypes;
-
 		m_nAllowedCandidateTypes |= k_EICECandidate_Any_HostPublic | k_EICECandidate_Any_Reflexive;
 
 		{
@@ -203,24 +200,28 @@ void CConnectionTransportP2PICE::Init()
 				vecTurnServers.push_back(std::move(server));
 			}
 
+			// Create the TurnServers pointer array if any Turn Server is present
+			if (vecTurnServers.size() > 0)
+				vecTurnServersPsz = new ICESessionConfig::TurnServer[vecTurnServers.size()];
+
 			// populate usernames
 			CUtlVectorAutoPurge<char*> tempTurnUsers;
 			V_AllocAndSplitString(m_connection.m_connectionConfig.m_P2P_TURN_UserList.Get().c_str(), ",", tempTurnUsers);
-			for (const char* user : tempTurnServers)
+			for (const char* userPtr : tempTurnUsers)
 			{
-				std::string server;				
-				server.append(user);
-				vecTurnUsers.push_back(std::move(server));
+				std::string user;				
+				user.append(userPtr);
+				vecTurnUsers.push_back(std::move(user));
 			}
 
 			// populate passwords
 			CUtlVectorAutoPurge<char*> tempTurnPasses;
 			V_AllocAndSplitString(m_connection.m_connectionConfig.m_P2P_TURN_PassList.Get().c_str(), ",", tempTurnPasses);
-			for (const char* pass : tempTurnPasses)
+			for (const char* passPtr : tempTurnPasses)
 			{
-				std::string server;
-				server.append(pass);
-				vecTurnPasses.push_back(std::move(server));
+				std::string pass;
+				pass.append(passPtr);
+				vecTurnPasses.push_back(std::move(pass));
 			}
 		}
 		if (vecTurnServers.empty())
@@ -228,7 +229,12 @@ void CConnectionTransportP2PICE::Init()
 		else
 			SpewVerboseGroup(LogLevel_P2PRendezvous(), "[%s] Using STUN server list: %s\n", ConnectionDescription(), m_connection.m_connectionConfig.m_P2P_TURN_ServerList.Get().c_str());
 
-		Assert(vecTurnServers.size() == vecTurnUsers.size() == vecTurnPasses.size());
+		// If turn arrays lengths (servers, users and passes) are not match, treat all TURN servers as unauthenticated
+		if (!(vecTurnServers.size() == vecTurnUsers.size() == vecTurnPasses.size()))
+		{
+			vecTurnUsers.clear();
+			vecTurnPasses.clear();
+		}
 	}
 	else
 	{
@@ -238,18 +244,25 @@ void CConnectionTransportP2PICE::Init()
 	// Populate TurnServers configs
 	for (int i = 0; i < vecTurnServers.size(); i++)
 	{
-		ICESessionConfig::TurnServer* turn = new ICESessionConfig::TurnServer();
+		ICESessionConfig::TurnServer* turn = &vecTurnServersPsz[i];
 		turn->m_pszHost = vecTurnServers[i].c_str();
-		turn->m_pszPwd = vecTurnUsers[i].c_str();
-		turn->m_pszUsername = vecTurnPasses[i].c_str();
-		vecTurnServersPsz.push_back(turn);
+
+		if (vecTurnUsers.size() > i)
+			turn->m_pszUsername = vecTurnUsers[i].c_str();
+		else
+			turn->m_pszUsername = "";
+
+		if (vecTurnPasses.size() > i)
+			turn->m_pszPwd = vecTurnPasses[i].c_str();
+		else
+			turn->m_pszPwd = "";
 	}
 
 	// If any Turn server config exists, set it
 	if (vecTurnServers.size() > 0)
 	{
 		cfg.m_nTurnServers = len(vecTurnServers);
-		cfg.m_pTurnServers = *vecTurnServersPsz.data();
+		cfg.m_pTurnServers = vecTurnServersPsz;
 	}
 
 	cfg.m_nCandidateTypes = m_nAllowedCandidateTypes;
