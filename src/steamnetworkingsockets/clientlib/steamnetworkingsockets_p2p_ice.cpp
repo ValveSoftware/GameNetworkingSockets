@@ -141,7 +141,7 @@ void CConnectionTransportP2PICE::Init()
 	if ( P2P_Transport_ICE_Enable & k_nSteamNetworkingConfig_P2P_Transport_ICE_Enable_Private )
 		m_nAllowedCandidateTypes |= k_EICECandidate_Any_HostPrivate;
 
-	// Get the STUN server list
+	// Get the STUN server list 
 	std_vector<std::string> vecStunServers;
 	std_vector<const char *> vecStunServersPsz;
 	if ( P2P_Transport_ICE_Enable & k_nSteamNetworkingConfig_P2P_Transport_ICE_Enable_Public )
@@ -177,10 +177,79 @@ void CConnectionTransportP2PICE::Init()
 	cfg.m_pStunServers = vecStunServersPsz.data();
 
 	// Get the TURN server list
+	std_vector<std::string> vecTurnServers;
+	std_vector<std::string> vecTurnUsers;
+	std_vector<std::string> vecTurnPasses;
+	std_vector<ICESessionConfig::TurnServer*> vecTurnServersPsz;
 	if ( P2P_Transport_ICE_Enable & k_nSteamNetworkingConfig_P2P_Transport_ICE_Enable_Relay )
 	{
 		// FIXME
 		//cfg.m_nCandidateTypes = m_nAllowedCandidateTypes;
+
+		m_nAllowedCandidateTypes |= k_EICECandidate_Any_HostPublic | k_EICECandidate_Any_Reflexive;
+
+		{
+			CUtlVectorAutoPurge<char*> tempTurnServers;
+			V_AllocAndSplitString(m_connection.m_connectionConfig.m_P2P_TURN_ServerList.Get().c_str(), ",", tempTurnServers);
+			for (const char* pszAddress : tempTurnServers)
+			{
+				std::string server;
+
+				// Add prefix, unless they already supplied it
+				if (V_strnicmp(pszAddress, "turn:", 5) != 0)
+					server = "turn:";
+				server.append(pszAddress);
+
+				vecTurnServers.push_back(std::move(server));
+			}
+
+			// populate usernames
+			CUtlVectorAutoPurge<char*> tempTurnUsers;
+			V_AllocAndSplitString(m_connection.m_connectionConfig.m_P2P_TURN_UserList.Get().c_str(), ",", tempTurnUsers);
+			for (const char* user : tempTurnServers)
+			{
+				std::string server;				
+				server.append(user);
+				vecTurnUsers.push_back(std::move(server));
+			}
+
+			// populate passwords
+			CUtlVectorAutoPurge<char*> tempTurnPasses;
+			V_AllocAndSplitString(m_connection.m_connectionConfig.m_P2P_TURN_PassList.Get().c_str(), ",", tempTurnPasses);
+			for (const char* pass : tempTurnPasses)
+			{
+				std::string server;
+				server.append(pass);
+				vecTurnPasses.push_back(std::move(server));
+			}
+		}
+		if (vecTurnServers.empty())
+			SpewWarningGroup(LogLevel_P2PRendezvous(), "[%s] Reflexive candidates enabled by P2P_Transport_ICE_Enable, but P2P_STUN_ServerList is empty\n", ConnectionDescription());
+		else
+			SpewVerboseGroup(LogLevel_P2PRendezvous(), "[%s] Using STUN server list: %s\n", ConnectionDescription(), m_connection.m_connectionConfig.m_P2P_TURN_ServerList.Get().c_str());
+
+		Assert(vecTurnServers.size() == vecTurnUsers.size() == vecTurnPasses.size());
+	}
+	else
+	{
+		SpewVerboseGroup(LogLevel_P2PRendezvous(), "[%s] Not using STUN servers as per P2P_Transport_ICE_Enable\n", ConnectionDescription());
+	}
+
+	// Populate TurnServers configs
+	for (int i = 0; i < vecTurnServers.size(); i++)
+	{
+		ICESessionConfig::TurnServer* turn = new ICESessionConfig::TurnServer();
+		turn->m_pszHost = vecTurnServers[i].c_str();
+		turn->m_pszPwd = vecTurnUsers[i].c_str();
+		turn->m_pszUsername = vecTurnPasses[i].c_str();
+		vecTurnServersPsz.push_back(turn);
+	}
+
+	// If any Turn server config exists, set it
+	if (vecTurnServers.size() > 0)
+	{
+		cfg.m_nTurnServers = len(vecTurnServers);
+		cfg.m_pTurnServers = *vecTurnServersPsz.data();
 	}
 
 	cfg.m_nCandidateTypes = m_nAllowedCandidateTypes;

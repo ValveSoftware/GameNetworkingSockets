@@ -313,6 +313,7 @@ bool CICESession::BInitializeOnSocketThread( const ICESessionConfig &cfg )
 				case k_EProtocolTypeTCP:
 				case k_EProtocolTypeSSLTCP:
 				case k_EProtocolTypeTLS:
+					break;
 				default:
 				m_pDelegate->Log( IICESessionDelegate::k_ELogPriorityError, "Invalid Turn server protocol type '%d'\n", (int) pTurn->m_protocolType );
 				return false;
