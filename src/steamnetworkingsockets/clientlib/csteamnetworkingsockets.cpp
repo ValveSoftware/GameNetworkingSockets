@@ -97,6 +97,9 @@ DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, EnableDiagnosticsUI, 1, 0, 1 );
 
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( std::string, P2P_STUN_ServerList, "" );
+DEFINE_CONNECTON_DEFAULT_CONFIGVAL( std::string, P2P_TURN_ServerList, "" );
+DEFINE_CONNECTON_DEFAULT_CONFIGVAL( std::string, P2P_TURN_UserList, "" );
+DEFINE_CONNECTON_DEFAULT_CONFIGVAL( std::string, P2P_TURN_PassList, "" );
 
 COMPILE_TIME_ASSERT( k_nSteamNetworkingConfig_P2P_Transport_ICE_Enable_Default == -1 );
 COMPILE_TIME_ASSERT( k_nSteamNetworkingConfig_P2P_Transport_ICE_Enable_Disable == 0 );

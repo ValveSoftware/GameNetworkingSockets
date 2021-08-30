@@ -198,6 +198,16 @@ int main( int argc, const char **argv )
 	// Hardcode STUN servers
 	SteamNetworkingUtils()->SetGlobalConfigValueString( k_ESteamNetworkingConfig_P2P_STUN_ServerList, "stun.l.google.com:19302" );
 
+	// Hardcode TURN servers
+	// comma seperated setting lists
+	//const char* turnList = "turn:123.45.45:3478";
+	//const char* userList = "username";
+	//const char* passList = "pass";
+
+	//SteamNetworkingUtils()->SetGlobalConfigValueString(k_ESteamNetworkingConfig_P2P_TURN_ServerList, turnList);
+	//SteamNetworkingUtils()->SetGlobalConfigValueString(k_ESteamNetworkingConfig_P2P_TURN_UserList, userList);
+	//SteamNetworkingUtils()->SetGlobalConfigValueString(k_ESteamNetworkingConfig_P2P_TURN_PassList, passList);
+
 	// Allow sharing of any kind of ICE address.
 	// We don't have any method of relaying (TURN) in this example, so we are essentially
 	// forced to disclose our public address if we want to pierce NAT.  But if we

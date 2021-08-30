@@ -1444,6 +1444,9 @@ enum ESteamNetworkingConfigValue
 	/// route ping time and is then adjusted.)
 	k_ESteamNetworkingConfig_P2P_Transport_ICE_Penalty = 105,
 	k_ESteamNetworkingConfig_P2P_Transport_SDR_Penalty = 106,
+	k_ESteamNetworkingConfig_P2P_TURN_ServerList = 107,
+	k_ESteamNetworkingConfig_P2P_TURN_UserList = 108,
+	k_ESteamNetworkingConfig_P2P_TURN_PassList = 109,
 	//k_ESteamNetworkingConfig_P2P_Transport_LANBeacon_Penalty = 107,
 
 //
