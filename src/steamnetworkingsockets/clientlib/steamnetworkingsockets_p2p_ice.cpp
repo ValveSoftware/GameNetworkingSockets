@@ -187,7 +187,7 @@ void CConnectionTransportP2PICE::Init()
 
 		{
 			CUtlVectorAutoPurge<char*> tempTurnServers;
-			V_AllocAndSplitString(m_connection.m_connectionConfig.m_P2P_TURN_ServerList.Get().c_str(), ",", tempTurnServers);
+			V_AllocAndSplitString(m_connection.m_connectionConfig.m_P2P_TURN_ServerList.Get().c_str(), ",", tempTurnServers, true);
 			for (const char* pszAddress : tempTurnServers)
 			{
 				std::string server;
@@ -206,7 +206,7 @@ void CConnectionTransportP2PICE::Init()
 
 			// populate usernames
 			CUtlVectorAutoPurge<char*> tempTurnUsers;
-			V_AllocAndSplitString(m_connection.m_connectionConfig.m_P2P_TURN_UserList.Get().c_str(), ",", tempTurnUsers);
+			V_AllocAndSplitString(m_connection.m_connectionConfig.m_P2P_TURN_UserList.Get().c_str(), ",", tempTurnUsers, true);
 			for (const char* userPtr : tempTurnUsers)
 			{
 				std::string user;				
@@ -216,7 +216,7 @@ void CConnectionTransportP2PICE::Init()
 
 			// populate passwords
 			CUtlVectorAutoPurge<char*> tempTurnPasses;
-			V_AllocAndSplitString(m_connection.m_connectionConfig.m_P2P_TURN_PassList.Get().c_str(), ",", tempTurnPasses);
+			V_AllocAndSplitString(m_connection.m_connectionConfig.m_P2P_TURN_PassList.Get().c_str(), ",", tempTurnPasses, true);
 			for (const char* passPtr : tempTurnPasses)
 			{
 				std::string pass;
