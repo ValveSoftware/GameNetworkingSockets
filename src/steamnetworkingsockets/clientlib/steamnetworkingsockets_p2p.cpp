@@ -256,7 +256,10 @@ bool CSteamNetworkConnectionP2P::BInitP2PConnectionCommon( SteamNetworkingMicros
 
 	// Check for defaulting the local virtual port to be the same as the remote virtual port
 	if ( LocalVirtualPort() < 0 && m_nRemoteVirtualPort >= 0 )
+	{
+		Assert( m_nRemoteVirtualPort <= 0xffff || m_nRemoteVirtualPort == k_nVirtualPort_Messages ); // Regular P2P virtual ports
 		m_connectionConfig.m_LocalVirtualPort.Set( m_nRemoteVirtualPort );
+	}
 
 	// Local virtual port cannot be changed henceforth
 	m_connectionConfig.m_LocalVirtualPort.Lock();
@@ -931,8 +934,9 @@ CSteamNetworkConnectionP2P *CSteamNetworkConnectionP2P::FindDuplicateConnection(
 {
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
 
-	// Symmetric connect using FakeIP addressing is currently
-	// not supported.
+	// FIXME - This is not right for fake IP.  If both peers
+	// are using their global addresses, then they might
+	// try to connect to each other at the same time.
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
 		if ( identityRemote.IsFakeIP() )
 		{
@@ -2434,16 +2438,16 @@ HSteamListenSocket CSteamNetworkingSockets::CreateListenSocketP2P( int nLocalVir
 HSteamListenSocket CSteamNetworkingSockets::CreateListenSocketP2PFakeIP( int idxFakePort, int nOptions, const SteamNetworkingConfigValue_t *pOptions )
 {
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
-		if ( idxFakePort < 0 || idxFakePort > ( k_nVirtualPort_FakePortMax - k_nVirtualPort_FakePort0 ) )
+		SteamNetworkingGlobalLock scopeLock( "CreateListenSocketP2PFakeIP" );
+
+		if ( idxFakePort < 0 || idxFakePort >= m_nFakeIPPortsRequested )
 		{
-			SpewError( "Invalid fake port index" );
+			SpewBug( "CreateListenSocketP2PFakeIP: Invalid fake port index %d (%d requested)", idxFakePort, m_nFakeIPPortsRequested );
 			return k_HSteamListenSocket_Invalid;
 		}
 
-		SteamNetworkingGlobalLock scopeLock( "CreateListenSocketP2PFakeIP" );
-
-		// FIXME - check the validity of the port index against the actual number requested?
-		int nLocalVirtualPort = k_nVirtualPort_FakePort0 + idxFakePort;
+		int nLocalVirtualPort = k_nVirtualPort_GlobalFakePort0 + idxFakePort;
+		Assert( nLocalVirtualPort >= k_nVirtualPort_GlobalFakePort0 && nLocalVirtualPort <= k_nVirtualPort_GlobalFakePortMax );
 		CSteamNetworkListenSocketP2P *pSock = InternalCreateListenSocketP2P( nLocalVirtualPort, nOptions, pOptions );
 		if ( pSock )
 			return pSock->m_hListenSocketSelf;
@@ -3020,15 +3024,14 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const CMsgSteamNetworki
 						return false;
 					}
 
-					// Set virtual ports from fake port
+					// Ignore any remote virtual port they set.
 					nRemoteVirtualPort = -1;
-					if ( nLocalVirtualPort != k_nVirtualPort_Messages )
-					{
-						if ( nLocalVirtualPort >= 0 )
-							SpewWarning( "%s set to_virtual_port in rendezvous, when connecting by FakeIP", SteamNetworkingIdentityRender( identityRemote ).c_str() );
-						nLocalVirtualPort = k_nVirtualPort_FakePort0 + idxFakePort;
-						Assert( nLocalVirtualPort <= k_nVirtualPort_FakePortMax );
-					}
+
+					// Set local virtual port from fake port they are sending to
+					if ( nLocalVirtualPort >= 0 )
+						SpewWarning( "%s set to_virtual_port in rendezvous when connecting by FakeIP; ignored", SteamNetworkingIdentityRender( identityRemote ).c_str() );
+					nLocalVirtualPort = k_nVirtualPort_GlobalFakePort0 + idxFakePort;
+					Assert( nLocalVirtualPort <= k_nVirtualPort_GlobalFakePortMax );
 				}
 			#endif
 

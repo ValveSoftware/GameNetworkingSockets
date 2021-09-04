@@ -113,13 +113,16 @@ public:
 	virtual bool SetCertificate( const void *pCertificate, int cbCertificate, SteamNetworkingErrMsg &errMsg ) override;
 	virtual void ResetIdentity( const SteamNetworkingIdentity *pIdentity ) override;
 
-	virtual bool BeginAsyncRequestFakeIP( int nNumPorts ) override;
-	virtual void GetFakeIP( int idxFirstPort, SteamNetworkingFakeIPResult_t *pInfo ) override;
 	virtual HSteamListenSocket CreateListenSocketP2PFakeIP( int idxFakePort, int nOptions, const SteamNetworkingConfigValue_t *pOptions ) override;
 	virtual EResult GetRemoteFakeIPForConnection( HSteamNetConnection hConn, SteamNetworkingIPAddr *pOutAddr ) override;
 
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
+	int m_nFakeIPPortsRequested = 0;
 	virtual int GetFakePortIndex( const SteamNetworkingIPAddr &fakeIP ) = 0;
+	#else
+	static constexpr int m_nFakeIPPortsRequested = 0;
+	virtual bool BeginAsyncRequestFakeIP( int nNumPorts ) override;
+	virtual void GetFakeIP( int idxFirstPort, SteamNetworkingFakeIPResult_t *pInfo ) override;
 	#endif
 
 #ifdef STEAMNETWORKINGSOCKETS_STEAMCLIENT

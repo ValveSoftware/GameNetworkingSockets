@@ -320,8 +320,13 @@ const int k_nVirtualPort_Messages = 0x7fffffff;
 /// This is a much bigger reservation of the space than we ever actually expect to
 /// use in practice.  Furthermore, these numbers should only be used locally.
 /// Outside of the local process, we would always use the actual fake port value.
-const int k_nVirtualPort_FakePort0 = 0x7fffff00;
-const int k_nVirtualPort_FakePortMax = 0x7ffffffe;
+const int k_nFakePort_MaxGlobalAllocationAttempt = 255;
+const int k_nVirtualPort_GlobalFakePort0 = 0x7fffff00;
+const int k_nVirtualPort_GlobalFakePortMax = k_nVirtualPort_GlobalFakePort0 + k_nFakePort_MaxGlobalAllocationAttempt - 1;
+
+const int k_nFakePort_MaxEphemeralPorts = 256;
+const int k_nVirtualPort_EphemeralFakePort0 = 0x7ffffe00;
+const int k_nVirtualPort_EphemeralFakePortMax = k_nVirtualPort_EphemeralFakePort0 + k_nFakePort_MaxEphemeralPorts - 1;
 
 // Serialize an UNSIGNED quantity.  Returns pointer to the next byte.
 // https://developers.google.com/protocol-buffers/docs/encoding

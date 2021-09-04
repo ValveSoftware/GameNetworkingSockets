@@ -1603,6 +1603,7 @@ void CSteamNetworkingSockets::InternalQueueCallback( int nCallback, int cbCallba
 	m_mutexPendingCallbacks.unlock();
 }
 
+#ifndef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
 bool CSteamNetworkingSockets::BeginAsyncRequestFakeIP( int nNumPorts )
 {
 	AssertMsg( false, "FakeIP allocation requires Steam" );
@@ -1619,6 +1620,7 @@ void CSteamNetworkingSockets::GetFakeIP( int idxFirstPort, SteamNetworkingFakeIP
 		pInfo->m_eResult = k_EResultDisabled;
 	}
 }
+#endif
 
 EResult CSteamNetworkingSockets::GetRemoteFakeIPForConnection( HSteamNetConnection hConn, SteamNetworkingIPAddr *pOutAddr )
 {
