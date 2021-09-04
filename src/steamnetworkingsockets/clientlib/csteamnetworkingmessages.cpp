@@ -738,6 +738,7 @@ void SteamNetworkingMessagesSession::ReceivedMessage( CSteamNetworkingMessage *p
 	pMsg->m_nChannel = LittleDWord( hdr->m_nToChannel );
 	pMsg->m_cbSize -= sizeof(P2PMessageHeader);
 	pMsg->m_pData = hdr+1;
+	pMsg->m_conn = k_HSteamNetConnection_Invalid; // Invalidate this, we don't want app to think it's legit to access to the underlying connection
 	pMsg->m_pfnFreeData = FreeMessageDataWithP2PMessageHeader;
 
 	// Add to the session
