@@ -2378,7 +2378,6 @@ void CSteamNetworkConnectionBase::APICloseConnection( int nReason, const char *p
 				SpewMsg( "[%s] closed by app, entering linger state (%d) %s\n", GetDescription(), (int)m_eEndReason, m_szEndDebug );
 				SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 				SetState( k_ESteamNetworkingConnectionState_Linger, usecNow );
-				CheckConnectionStateAndSetNextThinkTime( usecNow );
 			}
 			else
 			{
@@ -3158,24 +3157,6 @@ void CSteamNetworkConnectionBase::ConnectionState_FindingRoute( SteamNetworkingM
 	SetNextThinkTimeASAP();
 }
 
-void CSteamNetworkConnectionBase::Think( SteamNetworkingMicroseconds usecNow )
-{
-	// NOTE: Lock has already been taken by ILockableThinker
-
-	// Safety check against leaving callbacks suppressed.  If this fires, there's a good chance
-	// we have already suppressed a callback that we should have posted, which is very bad
-	AssertMsg( m_nSupressStateChangeCallbacks == 0, "[%s] m_nSupressStateChangeCallbacks left on!", GetDescription() );
-	m_nSupressStateChangeCallbacks = 0;
-
-	// CheckConnectionStateAndSetNextThinkTime does all the work of examining the current state
-	// and deciding what to do.  But it should be safe to call at any time, whereas Think()
-	// has a fixed contract: it should only be called by the thinker framework.
-	CheckConnectionStateAndSetNextThinkTime( usecNow );
-
-	// Release lock
-	m_pLock->unlock();
-}
-
 void CSteamNetworkConnectionBase::CheckConnectionStateOrScheduleWakeUp( SteamNetworkingMicroseconds usecNow )
 {
 	m_pLock->AssertHeldByCurrentThread();
@@ -3184,9 +3165,16 @@ void CSteamNetworkConnectionBase::CheckConnectionStateOrScheduleWakeUp( SteamNet
 	SetNextThinkTimeASAP();
 }
 
-void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( SteamNetworkingMicroseconds usecNow )
+void CSteamNetworkConnectionBase::Think( SteamNetworkingMicroseconds usecNow )
 {
-	AssertLocksHeldByCurrentThread();
+	// NOTE: Lock has already been taken by ILockableThinker.  So we need to unlock it when we're done
+	ConnectionScopeLock scopeLock;
+	scopeLock.TakeLockOwnership( m_pLock );
+
+	// Safety check against leaving callbacks suppressed.  If this fires, there's a good chance
+	// we have already suppressed a callback that we should have posted, which is very bad
+	AssertMsg( m_nSupressStateChangeCallbacks == 0, "[%s] m_nSupressStateChangeCallbacks left on!", GetDescription() );
+	m_nSupressStateChangeCallbacks = 0;
 
 	// Assume a default think interval just to make sure we check in periodically
 	SteamNetworkingMicroseconds usecMinNextThinkTime = usecNow + k_nMillion;
@@ -3218,7 +3206,6 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 
 		case k_ESteamNetworkingConnectionState_FinWait:
 		{
-			// Timeout?
 			SteamNetworkingMicroseconds usecTimeout = m_usecWhenEnteredConnectionState + k_usecFinWaitTimeout;
 			if ( usecNow >= usecTimeout )
 			{
@@ -3227,7 +3214,7 @@ void CSteamNetworkConnectionBase::CheckConnectionStateAndSetNextThinkTime( Steam
 			}
 
 			// It's not time yet, make sure we get our callback when it's time.
-			EnsureMinThinkTime( usecTimeout );
+			SetNextThinkTime( usecTimeout );
 		}
 		return;
 

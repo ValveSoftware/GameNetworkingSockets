@@ -624,14 +624,10 @@ public:
 	bool BRecvCryptoHandshake( const CMsgSteamDatagramCertificateSigned &msgCert, const CMsgSteamDatagramSessionCryptInfoSigned &msgSessionInfo, bool bServer );
 	bool BFinishCryptoHandshake( bool bServer );
 
-	/// Check state of connection.  Check for timeouts, and schedule time when we
-	/// should think next
-	void CheckConnectionStateAndSetNextThinkTime( SteamNetworkingMicroseconds usecNow );
-
-	/// Same as CheckConnectionStateAndSetNextThinkTime, but can be called when we don't
-	/// already have the global lock.  If we can take the necessary locks now, without
-	/// blocking, then we'll go ahead and take action now.  If we cannot, we will
-	/// just schedule a wakeup call
+	/// Basically the same as Think(), but can be called when we don't already have
+	/// the global lock.  If we can take the necessary locks now, without blocking,
+	/// then we'll go ahead and take action now.  If we cannot, we will just schedule
+	/// a wakeup call
 	void CheckConnectionStateOrScheduleWakeUp( SteamNetworkingMicroseconds usecNow );
 
 	// Upcasts.  So we don't have to compile with RTTI
