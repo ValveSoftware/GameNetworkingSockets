@@ -25,6 +25,7 @@ namespace SteamNetworkingSocketsLib {
 
 class CSteamNetworkingUtils;
 class CSteamNetworkListenSocketP2P;
+class CMessagesEndPoint;
 
 /////////////////////////////////////////////////////////////////////////////
 //
@@ -184,8 +185,12 @@ public:
 		int nOptions, const SteamNetworkingConfigValue_t *pOptions,
 		ConnectionScopeLock &scopeLock
 	);
+
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
 	CSteamNetworkingMessages *GetSteamNetworkingMessages();
 	CSteamNetworkingMessages *m_pSteamNetworkingMessages;
+	CUtlHashMap<int,CMessagesEndPoint *,std::equal_to<int>,std::hash<int>> m_mapMessagesEndpointByVirtualPort;
+#endif
 
 // Stubs if SDR not enabled
 #ifndef STEAMNETWORKINGSOCKETS_ENABLE_SDR

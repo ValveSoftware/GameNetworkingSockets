@@ -42,6 +42,7 @@ class CSharedSocket;
 class CConnectionTransport;
 struct SNPAckSerializerHelper;
 struct CertAuthScope;
+class CMessagesEndPointSession;
 
 enum EUnsignedCert
 {
@@ -633,12 +634,15 @@ public:
 	// Upcasts.  So we don't have to compile with RTTI
 	virtual CSteamNetworkConnectionP2P *AsSteamNetworkConnectionP2P();
 
-	/// Check if this connection is an internal connection for the
-	/// ISteamMessages interface.  The messages layer *mostly* works
-	/// on top of the sockets system, but in a few places we need
-	/// to break the abstraction and do things other clients of the
-	/// API could not do easily
-	inline bool IsConnectionForMessagesSession() const { return m_connectionConfig.m_LocalVirtualPort.Get() == k_nVirtualPort_Messages; }
+	/// Is this an internal connection (e.g. for the ISteamMessages interface)?
+	/// We *mostly* work on top of the sockets system, but in a few places we
+	/// need to break the abstraction and do things other clients of the API
+	/// could not do easily
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
+	CMessagesEndPointSession *m_pMessagesEndPointSessionOwner = nullptr;
+	#else
+	static constexpr CMessagesEndPointSession *m_pMessagesEndPointSessionOwner = nullptr;
+	#endif
 
 	/// Time when we would like to send our next connection diagnostics
 	/// update.  This is initialized the first time we enter the "connecting"

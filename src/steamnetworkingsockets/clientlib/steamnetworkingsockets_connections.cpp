@@ -11,6 +11,10 @@
 
 #include "tier0/memdbgoff.h"
 
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
+	#include "csteamnetworkingmessages.h"
+#endif
+
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_DIAGNOSTICSUI
 	#include "../../common/steammessages_gamenetworkingui.pb.h"
 #endif
@@ -711,6 +715,7 @@ CSteamNetworkConnectionBase::~CSteamNetworkConnectionBase()
 	Assert( m_eConnectionWireState == k_ESteamNetworkingConnectionState_Dead );
 	Assert( m_queueRecvMessages.empty() );
 	Assert( m_pParentListenSocket == nullptr );
+	Assert( m_pMessagesEndPointSessionOwner == nullptr );
 
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
 	g_tables_lock.AssertHeldByCurrentThread();
@@ -782,7 +787,19 @@ void CSteamNetworkConnectionBase::ProcessDeletionList()
 	TableScopeLock tablesLock( g_tables_lock );
 	s_lockPendingDeleteConnections.lock();
 	for ( CSteamNetworkConnectionBase *pConnection: s_vecPendingDeleteConnections )
+	{
+		#ifdef STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
+			CMessagesEndPointSession *pMessagesSession = pConnection->m_pMessagesEndPointSessionOwner;
+			if ( pMessagesSession )
+			{
+				ConnectionScopeLock scopeLock( *pMessagesSession->m_pLock );
+				pMessagesSession->SetNextThinkTimeASAP();
+				pMessagesSession->UnlinkConnectionNow( pConnection );
+				Assert( pConnection->m_pMessagesEndPointSessionOwner == nullptr );
+			}
+		#endif
 		delete pConnection;
+	}
 	s_vecPendingDeleteConnections.clear();
 	s_lockPendingDeleteConnections.unlock();
 }
@@ -2490,17 +2507,28 @@ void CSteamNetworkConnectionBase::SetState( ESteamNetworkingConnectionState eNew
 	const ESteamNetworkingConnectionState eOldAPIState = CollapseConnectionStateToAPIState( eOldState );
 	const ESteamNetworkingConnectionState eNewAPIState = CollapseConnectionStateToAPIState( GetState() );
 
-	// Internal connection used by the higher-level messages interface?
+	// Callbacks temporarily suppressed?
 	Assert( m_nSupressStateChangeCallbacks >= 0 );
 	if ( m_nSupressStateChangeCallbacks == 0 )
 	{
-		if ( eOldState == k_ESteamNetworkingConnectionState_None && GetState() == k_ESteamNetworkingConnectionState_ProblemDetectedLocally )
+		// If connection is associated with an ad-hoc-style messages endpoint,
+		// let them process the state change
+		#ifdef STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
+		if ( m_pMessagesEndPointSessionOwner )
 		{
-			// Do not post callbacks for internal failures during connection creation
+			m_pMessagesEndPointSessionOwner->SessionConnectionStateChanged( this, eOldAPIState );
 		}
 		else
+		#endif
 		{
-			PostConnectionStateChangedCallback( eOldAPIState, eNewAPIState );
+			if ( eOldState == k_ESteamNetworkingConnectionState_None && GetState() == k_ESteamNetworkingConnectionState_ProblemDetectedLocally )
+			{
+				// Do not post callbacks for internal failures during connection creation
+			}
+			else
+			{
+				PostConnectionStateChangedCallback( eOldAPIState, eNewAPIState );
+			}
 		}
 	}
 
@@ -2535,6 +2563,10 @@ void CSteamNetworkConnectionBase::SetState( ESteamNetworkingConnectionState eNew
 			break;
 
 		case k_ESteamNetworkingConnectionState_Linger:
+			Assert( !m_pMessagesEndPointSessionOwner ); // We shouldn't try to enter the linger state for these types of connections!
+			// |
+			// | Fall through
+			// V
 		case k_ESteamNetworkingConnectionState_Connected:
 
 			// Key exchange should be complete
@@ -2642,8 +2674,9 @@ void CSteamNetworkConnectionBase::ReceivedMessage( CSteamNetworkingMessage *pMsg
 void CSteamNetworkConnectionBase::PostConnectionStateChangedCallback( ESteamNetworkingConnectionState eOldAPIState, ESteamNetworkingConnectionState eNewAPIState )
 {
 	// Send API callback for this state change?
-	// Do not post if connection state has not changed from an API perspective
-	if ( eOldAPIState != eNewAPIState )
+	// Do not post if connection state has not changed from an API perspective.
+	// And don't post notifications for internal connections used by ad-hoc-style endpoints.
+	if ( eOldAPIState != eNewAPIState && !m_pMessagesEndPointSessionOwner )
 	{
 
 		SteamNetConnectionStatusChangedCallback_t c;
@@ -2651,27 +2684,10 @@ void CSteamNetworkConnectionBase::PostConnectionStateChangedCallback( ESteamNetw
 		c.m_eOldState = eOldAPIState;
 		c.m_hConn = m_hConnectionSelf;
 
-		// !KLUDGE! For ISteamnetworkingMessages connections, we want to process the callback immediately.
 		void *fnCallback = m_connectionConfig.m_Callback_ConnectionStatusChanged.Get();
-		if ( IsConnectionForMessagesSession() )
-		{
-			if ( fnCallback )
-			{
-				FnSteamNetConnectionStatusChanged fnConnectionStatusChanged = (FnSteamNetConnectionStatusChanged)( fnCallback );
-				(*fnConnectionStatusChanged)( &c );
-			}
-			else
-			{
-				// Currently there is no use case that does this.  It's probably a bug.
-				Assert( false );
-			}
-		}
-		else
-		{
 
-			// Typical codepath - post to a queue
-			m_pSteamNetworkingSocketsInterface->QueueCallback( c, fnCallback );
-		}
+		// Typical codepath - post to a queue
+		m_pSteamNetworkingSocketsInterface->QueueCallback( c, fnCallback );
 	}
 
 	// Send diagnostics for this state change?
@@ -3207,6 +3223,19 @@ void CSteamNetworkConnectionBase::Think( SteamNetworkingMicroseconds usecNow )
 		case k_ESteamNetworkingConnectionState_FinWait:
 		{
 			SteamNetworkingMicroseconds usecTimeout = m_usecWhenEnteredConnectionState + k_usecFinWaitTimeout;
+
+			// If we're linked to a messages session, they need to unlink us!
+			#ifdef STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
+				if ( m_pMessagesEndPointSessionOwner )
+				{
+					m_pMessagesEndPointSessionOwner->SetNextThinkTimeASAP();
+
+					// And go ahead and schedule our own wakeup call
+					SetNextThinkTime( std::max( usecTimeout, usecNow + 10*1000 ) );
+					return;
+				}
+			#endif
+
 			if ( usecNow >= usecTimeout )
 			{
 				ConnectionQueueDestroy();
@@ -3221,6 +3250,15 @@ void CSteamNetworkConnectionBase::Think( SteamNetworkingMicroseconds usecNow )
 		case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
 		case k_ESteamNetworkingConnectionState_ClosedByPeer:
 		{
+			// If we're linked to a messages session, they need to unlink us!
+			#ifdef STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
+				if ( m_pMessagesEndPointSessionOwner )
+				{
+					m_pMessagesEndPointSessionOwner->SetNextThinkTimeASAP();
+					return;
+				}
+			#endif
+
 			// We don't send any data packets or keepalives in this state.
 			// We're just waiting for the client API to close us.  Let's check
 			// in once after a pretty lengthy delay, and assert if we're still alive
@@ -3249,11 +3287,11 @@ void CSteamNetworkConnectionBase::Think( SteamNetworkingMicroseconds usecNow )
 				// We should squawk about this and let them know.
 				if ( m_eConnectionState != k_ESteamNetworkingConnectionState_FindingRoute && m_bConnectionInitiatedRemotely )
 				{
-					// Discard this warning for messages sessions.  It's part of the messages API design
-					// that the app can ignore these connections if they do not want to accept them.
-					if ( IsConnectionForMessagesSession() )
+					// Discard this warning if we are handling the state changes internally.  It's part of
+					// the API design that the app can ignore these connections if they do not want to accept them.
+					if ( m_pMessagesEndPointSessionOwner )
 					{
-						ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_Timeout, "%s", "App did not respond to Messages session request in time, discarding." );
+						ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_Timeout, "%s", "App did not respond; discarding." );
 					}
 					else
 					{

@@ -370,7 +370,9 @@ std::vector<CSteamNetworkingSockets *> CSteamNetworkingSockets::s_vecSteamNetwor
 CSteamNetworkingSockets::CSteamNetworkingSockets( CSteamNetworkingUtils *pSteamNetworkingUtils )
 : m_bHaveLowLevelRef( false )
 , m_pSteamNetworkingUtils( pSteamNetworkingUtils )
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
 , m_pSteamNetworkingMessages( nullptr )
+#endif
 , m_bEverTriedToGetCert( false )
 , m_bEverGotCert( false )
 #ifdef STEAMNETWORKINGSOCKETS_CAN_REQUEST_CERT
@@ -445,11 +447,18 @@ void CSteamNetworkingSockets::KillConnections()
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "CSteamNetworkingSockets::KillConnections" );
 	TableScopeLock tableScopeLock( g_tables_lock );
 
-	// Warn messages interface that it needs to clean up.  We need to do this
-	// because that class has pointers to objects that we are about to destroy.
+	// Nuke all messages endpoints.  We need to do this because the sessions hold
+	// pointers to objects that we are about to destroy.
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
-		if ( m_pSteamNetworkingMessages )
-			m_pSteamNetworkingMessages->FreeResources();
+		FOR_EACH_HASHMAP( m_mapMessagesEndpointByVirtualPort, idx )
+		{
+			m_mapMessagesEndpointByVirtualPort[idx]->DestroyMessagesEndPoint();
+			Assert( !m_mapMessagesEndpointByVirtualPort.IsValidIndex( idx ) ); // It should have removed itself from the map!
+		}
+		Assert( m_pSteamNetworkingMessages == nullptr );
+		Assert( m_mapMessagesEndpointByVirtualPort.Count() == 0 );
+		m_pSteamNetworkingMessages = nullptr; // Buuuuut we'll slam it, too, in case there's a bug
+		m_mapMessagesEndpointByVirtualPort.Purge();
 	#endif
 
 	// Destroy all of my connections
@@ -493,16 +502,6 @@ void CSteamNetworkingSockets::Destroy()
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "CSteamNetworkingSockets::Destroy" );
 
 	FreeResources();
-
-	// Nuke messages interface, if we had one.
-	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
-		if ( m_pSteamNetworkingMessages )
-		{
-			delete m_pSteamNetworkingMessages;
-			Assert( m_pSteamNetworkingMessages == nullptr ); // Destructor should sever this link
-			m_pSteamNetworkingMessages = nullptr; // Buuuuut we'll slam it, too, in case there's a bug
-		}
-	#endif
 
 	// Remove from list of extant instances, if we are there
 	find_and_remove_element( s_vecSteamNetworkingSocketsInstances, this );

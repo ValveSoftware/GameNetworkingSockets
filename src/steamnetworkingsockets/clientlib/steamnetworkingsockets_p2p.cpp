@@ -3009,9 +3009,6 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const CMsgSteamNetworki
 				nRemoteVirtualPort = nLocalVirtualPort;
 			bool bSymmetricListenSocket = false;
 			CSteamNetworkListenSocketP2P *pListenSock = nullptr;
-			#ifdef STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
-			CSteamNetworkingMessages *pSteamNetworkingMessages = nullptr;
-			#endif
 
 			#ifdef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
 				if ( toLocalIdentity.IsFakeIP() )
@@ -3038,14 +3035,13 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const CMsgSteamNetworki
 			if ( nLocalVirtualPort >= 0 )
 			{
 
-				// Connection for ISteamNetworkingMessages system
+				// Special case for SteamNetworkingMessages.  We can get a message
+				// before this interface is ever created, so the lookup below won't
+				// work.
 				if ( nLocalVirtualPort == k_nVirtualPort_Messages )
 				{
 					#ifdef STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
-
-						// Make sure messages system is initialized
-						pSteamNetworkingMessages = GetSteamNetworkingMessages();
-						if ( !pSteamNetworkingMessages )
+						if ( !GetSteamNetworkingMessages() )
 						{
 							SpewBug( "Ignoring P2P CMsgSteamDatagramConnectRequest from %s; can't get ISteamNetworkingNetworkingMessages interface!", SteamNetworkingIdentityRender( identityRemote ).c_str() );
 							//SendP2PRejection( pContext, identityRemote, msg, k_ESteamNetConnectionEnd_Misc_Generic, "Internal error accepting connection.  Can't get NetworkingMessages interface" );
@@ -3210,6 +3206,7 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const CMsgSteamNetworki
 					return true;
 
 				case k_ESteamNetworkingConnectionState_Connecting:
+				{
 
 					// If they returned null, that means they want to totally ignore it.
 					if ( !pConn->m_pSignaling )
@@ -3226,11 +3223,12 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const CMsgSteamNetworki
 					// callback mechanism.
 
 					#ifdef STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
-					if ( pSteamNetworkingMessages )
+					CMessagesEndPoint *pMessagesEndPoint = pListenSock ? pListenSock->m_pMessagesEndPointOwner : nullptr;
+					if ( pMessagesEndPoint )
 					{
-						SpewVerboseGroup( nLogLevel, "[%s] Received incoming P2P connect request on messages listen socket\n",
+						SpewVerboseGroup( nLogLevel, "[%s] Received incoming P2P connect request on ad-hoc style end point\n",
 							pConn->GetDescription() );
-						if ( !pSteamNetworkingMessages->BHandleNewIncomingConnection( pConn, connectionLock ) )
+						if ( !pMessagesEndPoint->BHandleNewIncomingConnection( pConn, connectionLock ) )
 						{
 							pConn->ConnectionQueueDestroy();
 							return false;
@@ -3242,7 +3240,7 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const CMsgSteamNetworki
 							pConn->GetDescription() );
 					}
 					pConn->PostConnectionStateChangedCallback( k_ESteamNetworkingConnectionState_None, k_ESteamNetworkingConnectionState_Connecting );
-					break;
+				} break;
 
 				case k_ESteamNetworkingConnectionState_Connected:
 					AssertMsg( false, "How did we already get connected?  We should be finding route?");

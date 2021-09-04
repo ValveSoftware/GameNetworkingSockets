@@ -44,6 +44,7 @@ class CConnectionTransportToSDRServer;
 class CConnectionTransportFromSDRClient;
 class CConnectionTransportP2PICE;
 class CSteamNetworkListenSocketSDRServer;
+class CMessagesEndPoint;
 struct CachedRelayAuthTicket;
 
 //-----------------------------------------------------------------------------
@@ -69,6 +70,11 @@ public:
 		Assert( m_connectionConfig.m_LocalVirtualPort.IsLocked() );
 		return m_connectionConfig.m_LocalVirtualPort.m_data;
 	}
+
+	// Some listen sockets are used by ad-hoc style messages endpoints
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
+	CMessagesEndPoint *m_pMessagesEndPointOwner = nullptr;
+	#endif
 
 	// Listen sockets for hosted dedicated server connections derive from this class.
 	// This enum tells what methods we will allow clients to connect to us.
