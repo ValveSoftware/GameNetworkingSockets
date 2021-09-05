@@ -328,6 +328,19 @@ const int k_nFakePort_MaxEphemeralPorts = 256;
 const int k_nVirtualPort_EphemeralFakePort0 = 0x7ffffe00;
 const int k_nVirtualPort_EphemeralFakePortMax = k_nVirtualPort_EphemeralFakePort0 + k_nFakePort_MaxEphemeralPorts - 1;
 
+inline bool IsVirtualPortEphemeralFakePort( int nVirtualPort )
+{
+	return k_nVirtualPort_EphemeralFakePort0 <= nVirtualPort && nVirtualPort <= k_nVirtualPort_EphemeralFakePortMax;
+}
+inline bool IsVirtualPortGlobalFakePort( int nVirtualPort )
+{
+	return k_nVirtualPort_GlobalFakePort0 <= nVirtualPort && nVirtualPort <= k_nVirtualPort_GlobalFakePortMax;
+}
+inline bool IsVirtualPortFakePort( int nVirtualPort )
+{
+	return k_nVirtualPort_EphemeralFakePort0 <= nVirtualPort && nVirtualPort <= k_nVirtualPort_GlobalFakePortMax;
+}
+
 // Serialize an UNSIGNED quantity.  Returns pointer to the next byte.
 // https://developers.google.com/protocol-buffers/docs/encoding
 template <typename T>

@@ -223,32 +223,6 @@ void CMessagesEndPointSession::UnlinkFromInactiveConnections()
 	Assert( len( m_vecLinkedConnections ) == ( ( m_pConnection != nullptr ) ? 1 : 0 ) );
 }
 
-//void CSteamNetworkConnectionBase::UnlinkFromMessagesSessionNow( ConnectionScopeLock &scopeLock )
-//{
-//	// Check locks
-//	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
-//	Assert( scopeLock.BHoldsLock( *m_pLock ) );
-//
-//	// Not owned by a messages session?
-//	if ( !m_pMessagesEndPointSessionOwner )
-//		return;
-//
-//	// We'll be switching back to being protected by our own lock.
-//	// Go ahead and take it now.  We are allowed to take more than
-//	// one lock because we hold the global lock
-//	Assert( m_pLock == m_pMessagesEndPointSessionOwner->m_pLock );
-//	m_defaultLock.lock();
-//
-//	// Unlink
-//	m_pMessagesEndPointSessionOwner->UnlinkConnectionNow( this );
-//
-//	// The scope lock can now unlock the message session lock, and
-//	// switch to our own lock
-//	scopeLock.Unlock();
-//	Assert( m_pLock == &m_defaultLock );
-//	scopeLock.TakeLockOwnership( m_pLock );
-//}
-
 void CMessagesEndPointSession::UnlinkConnectionNow( CSteamNetworkConnectionBase *pConn )
 {
 	// Should only be doing this stuff when we hold the global lock and
@@ -754,7 +728,7 @@ void CSteamNetworkingMessages::DestroySession( const SteamNetworkingIdentity &id
 	delete pSess;
 }
 
-bool CSteamNetworkingMessages::BHandleNewIncomingConnection( CSteamNetworkConnectionBase *pConn, ConnectionScopeLock &connectionLock )
+bool CSteamNetworkingMessages::BHandleNewIncomingConnection( CSteamNetworkConnectionP2P *pConn, ConnectionScopeLock &connectionLock )
 {
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "CSteamNetworkingMessages::BHandleNewIncomingConnection" ); // New connections can only be created while the global lock is held
 

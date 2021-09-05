@@ -24,6 +24,7 @@ namespace SteamNetworkingSocketsLib {
 class CSteamNetworkingSockets;
 class CSteamNetworkingMessage;
 class CSteamNetworkingMessages;
+class CSteamNetworkConnectionP2P;
 class CSteamNetworkListenSocketP2P;
 struct SteamNetworkingMessagesSession;
 
@@ -40,7 +41,7 @@ public:
 	CSteamNetworkingSockets &m_steamNetworkingSockets;
 	const int m_nLocalVirtualPort;
 
-	virtual bool BHandleNewIncomingConnection( CSteamNetworkConnectionBase *pConn, ConnectionScopeLock &connectionLock ) = 0;
+	virtual bool BHandleNewIncomingConnection( CSteamNetworkConnectionP2P *pConn, ConnectionScopeLock &connectionLock ) = 0;
 
 	void DestroyMessagesEndPoint();
 
@@ -147,7 +148,7 @@ public:
 	virtual void Validate( CValidator &validator, const char *pchName ) override;
 	#endif
 
-	virtual bool BHandleNewIncomingConnection( CSteamNetworkConnectionBase *pConn, ConnectionScopeLock &connectionLock ) override;
+	virtual bool BHandleNewIncomingConnection( CSteamNetworkConnectionP2P *pConn, ConnectionScopeLock &connectionLock ) override;
 
 	struct Channel
 	{
@@ -193,7 +194,7 @@ struct SteamNetworkingMessagesSession final : public CMessagesEndPointSession
 	SteamNetConnectionInfo_t m_lastConnectionInfo;
 	SteamNetworkingQuickConnectionStatus m_lastQuickStatus;
 
-	// Implements CMessagesEndPointSession overrides
+	// Implements CMessagesEndPointSession
 	virtual void Think( SteamNetworkingMicroseconds usecNow ) override;
 	virtual void SetActiveConnection( CSteamNetworkConnectionBase *pConn, ConnectionScopeLock &connectionLock ) override;
 	virtual void ActiveConnectionStateChanged() override;
