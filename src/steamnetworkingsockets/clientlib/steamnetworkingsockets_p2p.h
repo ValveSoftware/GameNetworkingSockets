@@ -467,6 +467,11 @@ private:
 	void DestroyICENow();
 
 	void PeerSelectedTransportChanged();
+
+	// Check if we should wait a bit for routing info to be
+	// ready, before sending the first signal to a peer.  This
+	// allows us to send fewer signals and speeds up negotiation.
+	SteamNetworkingMicroseconds CheckWaitForInitialRoutingReady( SteamNetworkingMicroseconds usecNow );
 };
 
 inline CSteamNetworkConnectionP2P &CConnectionTransportP2PBase::Connection() const

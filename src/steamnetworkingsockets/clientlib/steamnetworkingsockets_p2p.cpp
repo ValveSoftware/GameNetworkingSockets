@@ -1231,12 +1231,6 @@ void CSteamNetworkConnectionP2P::ThinkConnection( SteamNetworkingMicroseconds us
 		// Process route selection
 		ThinkSelectTransport( usecNow );
 
-		if ( m_bNeedToSendConnectOKSignal )
-		{
-			m_usecSendSignalDeadline = k_nThinkTime_ASAP;
-			m_pszNeedToSendSignalReason = "SendConnectedOK";
-		}
-
 		// If nothing scheduled, check RTOs.  If we have something scheduled,
 		// wait for the timer. The timer is short and designed to avoid
 		// a blast, so let it do its job.
@@ -1251,6 +1245,23 @@ void CSteamNetworkConnectionP2P::ThinkConnection( SteamNetworkingMicroseconds us
 					// Keep scanning the list.  we want to collect
 					// the minimum RTO.
 				}
+			}
+		}
+
+		if ( m_bNeedToSendConnectOKSignal )
+		{
+			Assert( m_bConnectionInitiatedRemotely );
+
+			SteamNetworkingMicroseconds usecRoutingReady = CheckWaitForInitialRoutingReady( usecNow );
+			if ( usecRoutingReady > usecNow )
+			{
+				EnsureMinThinkTime( usecRoutingReady );
+				m_usecSendSignalDeadline = std::max( m_usecSendSignalDeadline, usecRoutingReady );
+			}
+			else
+			{
+				m_usecSendSignalDeadline = k_nThinkTime_ASAP;
+				m_pszNeedToSendSignalReason = "ConnectOK";
 			}
 		}
 
@@ -1628,28 +1639,9 @@ SteamNetworkingMicroseconds CSteamNetworkConnectionP2P::ThinkConnection_ClientCo
 		return k_nThinkTime_Never;
 	}
 
-	// If we are using SDR, then we want to wait until we have finished the initial ping probes.
-	// This makes sure out initial connect message doesn't contain potentially inaccurate
-	// routing information.  This delay should only happen very soon after initializing the
-	// relay network.
-	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
-		if ( m_pTransportP2PSDR )
-		{
-			if ( !m_pTransportP2PSDR->BReady() )
-				return usecNow + k_nMillion/20;
-		}
-	#endif
-
-	// When using ICE, it takes just a few milliseconds to collect the local candidates.
-	// We'd like to send those in the initial connect request
-	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
-		if ( m_pTransportICE )
-		{
-			SteamNetworkingMicroseconds usecWaitForICE = GetTimeEnteredConnectionState() + 5*1000;
-			if ( usecNow < usecWaitForICE )
-				return usecWaitForICE;
-		}
-	#endif
+	SteamNetworkingMicroseconds usecRoutingReady = CheckWaitForInitialRoutingReady( usecNow );
+	if ( usecRoutingReady > usecNow )
+		return usecRoutingReady;
 
 	// Time to send another connect request?
 	// We always do this through signaling service rendezvous message.  We don't need to have
@@ -1698,6 +1690,80 @@ SteamNetworkingMicroseconds CSteamNetworkConnectionP2P::ThinkConnection_ClientCo
 	// And set timeout for retry
 	return m_usecWhenSentConnectRequest + k_usecConnectRetryInterval;
 }
+
+SteamNetworkingMicroseconds CSteamNetworkConnectionP2P::CheckWaitForInitialRoutingReady( SteamNetworkingMicroseconds usecNow )
+{
+
+	// If we are using SDR, then we want to wait until we have finished the initial ping probes.
+	// This makes sure out initial connect message doesn't contain potentially inaccurate
+	// routing information.  This delay should only happen very soon after initializing the
+	// relay network.
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
+		if ( m_pTransportP2PSDR )
+		{
+			// SDR not ready?
+			if ( !m_pTransportP2PSDR->BReady() )
+			{
+				// NOTE: It is actually possible for ICE to have already
+				// succeeded here.  (If we are the server and have all of
+				// the peer's info.)  So we might consider not waiting in
+				// that case.  But this is a relatively fine point, let's
+				// not worry about it right now.
+				SteamNetworkingMicroseconds usecWaitForSDR = GetTimeEnteredConnectionState() + 2*k_nMillion;
+				if ( usecNow < usecWaitForSDR )
+					return std::min( usecNow + 20*1000, usecWaitForSDR );
+			}
+
+			// SDR is ready, but if the connection was initiated remotely, then
+			// we might want to go ahead and establish sessions on the POPs
+			// we expect to use.
+			if (
+				( GetState() == k_ESteamNetworkingConnectionState_FindingRoute )
+				&& m_pTransportP2PSDR->m_vecAllRelaySessions.IsEmpty()
+				&& m_pTransportP2PSDR->BHaveAnyPeerClusters()
+			) {
+				// Note that this logic assumes that SDR was ready immediately
+				// when we entered the connection state.
+				// That won't be true for the first connection, but let's not worry
+				// about that.  We could fix this by recording the time
+				// when SDR became available.
+				SteamNetworkingMicroseconds usecWaitForSDR = GetTimeEnteredConnectionState() + 100*1000;
+				if ( usecNow < usecWaitForSDR )
+					return std::min( usecNow + 20*1000, usecWaitForSDR );
+			}
+
+		}
+	#endif
+
+	// When using ICE, it takes just a few milliseconds to collect the local candidates.
+	// We'd like to send those in the initial connect request
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+		if ( m_pTransportICE && GetICEFailureCode() == 0 && !m_pTransportICE->BCanSendEndToEndData() )
+		{
+			SteamNetworkingMicroseconds usecWaitForICE = GetTimeEnteredConnectionState();
+			uint32 nAllowed = m_msgICESessionSummary.local_candidate_types_allowed();
+			uint32 nGathered = m_msgICESessionSummary.local_candidate_types();
+			if ( ( nAllowed & k_EICECandidate_Any_Reflexive ) && !( nGathered & k_EICECandidate_Any_Reflexive ) )
+			{
+				usecWaitForICE += 100*1000;
+			}
+			else if (
+				( nAllowed & (k_EICECandidate_Any_HostPrivate|k_EICECandidate_Any_HostPublic) )
+				&& !( nGathered & (k_EICECandidate_Any_HostPrivate|k_EICECandidate_Any_HostPublic) )
+			) {
+				// Missing something we really ought to be able to immediately
+				// determine by iterating adapters, etc.  This is worth waiting
+				// for.  10ms is an extremely generous deadline.
+				usecWaitForICE += 10*1000;
+			}
+			if ( usecNow < usecWaitForICE )
+				return std::min( usecNow + 10*1000, usecWaitForICE );
+		}
+	#endif
+
+	return k_nThinkTime_ASAP;
+}
+
 
 SteamNetworkingMicroseconds CSteamNetworkConnectionP2P::ThinkConnection_FindingRoute( SteamNetworkingMicroseconds usecNow )
 {
@@ -1770,7 +1836,6 @@ void CSteamNetworkConnectionP2P::SetRendezvousCommonFieldsAndSendSignal( CMsgSte
 		CMsgSteamNetworkingP2PRendezvous_ConnectOK &msgConnectOK = *msg.mutable_connect_ok();
 		*msgConnectOK.mutable_cert() = m_msgSignedCertLocal;
 		*msgConnectOK.mutable_crypt() = m_msgSignedCryptLocal;
-		SpewMsgGroup( LogLevel_P2PRendezvous(), "[%s] Sending P2P ConnectOK via Steam, remote cxn %u\n", GetDescription(), m_unConnectionIDRemote );
 		m_bNeedToSendConnectOKSignal = false;
 	}
 
@@ -2747,7 +2812,7 @@ CSteamNetworkConnectionBase *CSteamNetworkingSockets::InternalConnectP2P(
 					if ( !m_pSteamNetworkingUtils->SetConfigValueStruct( opt, k_ESteamNetworkingConfig_Connection, pMatchingConnection->m_hConnectionSelf ) )
 					{
 						// Spew, but keep going!
-						SpewBug( errMsg, "[%s] Failed to set option %d while implicitly accepting.  Ignoring failure!", pMatchingConnection->GetDescription(), opt.m_eValue );
+						SpewBug( "[%s] Failed to set option %d while implicitly accepting.  Ignoring failure!", pMatchingConnection->GetDescription(), opt.m_eValue );
 					}
 				}
 			}
@@ -2758,14 +2823,14 @@ CSteamNetworkConnectionBase *CSteamNetworkingSockets::InternalConnectP2P(
 
 			// Implicitly accept connection
 			EResult eAcceptResult = pMatchingConnection->AcceptConnection( SteamNetworkingSockets_GetLocalTimestamp() );
-			if ( eAcceptResult != k_EResultOK )
+			if ( eAcceptResult == k_EResultOK )
 			{
-				SpewBug( errMsg, "[%s] Failed to implicitly accept with return code %d", pMatchingConnection->GetDescription(), eAcceptResult );
-				return nullptr;
+
+				// All good!  Return the incoming connection that was accepted
+				return pMatchingConnection;
 			}
 
-			// All good!  Return the incoming connection that was accepted
-			return pMatchingConnection;
+			V_sprintf_safe( errMsg, "Failed to implicitly accept [%s], return code %d", pMatchingConnection->GetDescription(), eAcceptResult );
 		}
 	}
 
