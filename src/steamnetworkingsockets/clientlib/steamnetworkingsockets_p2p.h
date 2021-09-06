@@ -39,6 +39,14 @@ constexpr int k_nICECloseCode_Local_Special = k_ESteamNetConnectionEnd_Local_Max
 constexpr int k_nICECloseCode_Aborted = k_ESteamNetConnectionEnd_Local_Max-2;
 constexpr int k_nICECloseCode_Remote_NotEnabled = k_ESteamNetConnectionEnd_Remote_Max;
 
+// For some types of connections we send actual message data in the signals.
+// This constant defines the max we should ever send in a single signal
+constexpr int k_cbMaxSendMessagDataInRSVP = 4200;
+
+// When sending app handshake messages in the signaling, don't send a signal
+// more often that this.
+constexpr SteamNetworkingMicroseconds k_usecAppHandshakePacketsInRVSPInterval = 100*1000;
+
 class CConnectionTransportP2PSDR;
 class CConnectionTransportToSDRServer;
 class CConnectionTransportFromSDRClient;
@@ -221,6 +229,7 @@ public:
 	virtual void ProcessSNPPing( int msPing, RecvPacketContext_t &ctx ) override;
 	virtual bool BSupportsSymmetricMode() override;
 	ESteamNetConnectionEnd CheckRemoteCert( const CertAuthScope *pCACertAuthScope, SteamNetworkingErrMsg &errMsg ) override;
+	virtual int64 _APISendMessageToConnection( CSteamNetworkingMessage *pMsg, SteamNetworkingMicroseconds usecNow, bool *pbThinkImmediately );
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_DIAGNOSTICSUI
 		virtual void ConnectionPopulateDiagnostics( ESteamNetworkingConnectionState eOldState, CGameNetworkingUI_ConnectionState &msgConnectionState, SteamNetworkingMicroseconds usecNow ) override;
 	#endif
@@ -272,6 +281,16 @@ public:
 
 	/// How to send signals to the remote host for this
 	ISteamNetworkingConnectionSignaling *m_pSignaling;
+
+	// For certain types of connections (e.g. FakeUDPPort) we don't use our own
+	// state machine to send the connect request messages.  Instead, we only
+	// send a connect request signal when the app sends a message, and we send
+	// that message in the signal itself.  Because for FakeUDP, there is no
+	// concept of "you have an incoming connection, do you want to accept it?"
+	// The only feedback the app gets is messages.  So, we deliver the message,
+	// and if the application wants to accept the connection and communicate
+	// with the peer, then it will reply.
+	bool m_bAppConnectHandshakePacketsInRSVP;
 
 	/// True if we need to send a "connect OK" message via signaling.  This
 	/// is queued and we flush it out as soon as we're ready.  Because often

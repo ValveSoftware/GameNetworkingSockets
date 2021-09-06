@@ -117,6 +117,7 @@ CSteamNetworkConnectionP2P::CSteamNetworkConnectionP2P( CSteamNetworkingSockets 
 	m_usecWhenStartedFindingRoute = 0;
 	m_usecNextEvaluateTransport = k_nThinkTime_ASAP;
 	m_bTransportSticky = false;
+	m_bAppConnectHandshakePacketsInRSVP = false;
 	m_bNeedToSendConnectOKSignal = false;
 
 	m_pszNeedToSendSignalReason = nullptr;
@@ -1076,6 +1077,16 @@ void CSteamNetworkConnectionP2P::ProcessSNPPing( int msPing, RecvPacketContext_t
 	}
 }
 
+int64 CSteamNetworkConnectionP2P::_APISendMessageToConnection( CSteamNetworkingMessage *pMsg, SteamNetworkingMicroseconds usecNow, bool *pbThinkImmediately )
+{
+	int64 nResult = CSteamNetworkConnectionBase::_APISendMessageToConnection( pMsg, usecNow, pbThinkImmediately );
+	if ( nResult > 0 && m_bAppConnectHandshakePacketsInRSVP )
+		// FIXME - we probably need to rate limit this.
+		ScheduleSendSignal( "ConnectHandshakePacketsInRSVP" );
+
+	return nResult;
+}
+
 bool CSteamNetworkConnectionP2P::BSupportsSymmetricMode()
 {
 	return true;
@@ -1195,6 +1206,14 @@ void CSteamNetworkConnectionP2P::ConnectionStateChanged( ESteamNetworkingConnect
 				pTransportP2P->EnsureP2PTransportThink( k_nThinkTime_ASAP );
 
 			break;
+	}
+
+	// Clear this flag once we leave the handshake phase.  It keeps some logic elsewhere simpler
+	if ( m_bAppConnectHandshakePacketsInRSVP
+		&& GetState() != k_ESteamNetworkingConnectionState_FindingRoute
+		&& GetState() != k_ESteamNetworkingConnectionState_Connected )
+	{
+		m_bAppConnectHandshakePacketsInRSVP = false;
 	}
 
 	// Inform transports.  If we have a selected transport (or are in a special case) do that one first
@@ -1917,6 +1936,42 @@ void CSteamNetworkConnectionP2P::SetRendezvousCommonFieldsAndSendSignal( CMsgSte
 
 		// Go ahead and always ack, even if we don't need to, because this is small
 		msg.set_ack_reliable_msg( m_nLastRecvRendesvousMessageID );
+
+		// Check for sending application data
+		if ( m_bAppConnectHandshakePacketsInRSVP )
+		{
+			if ( GetState() == k_ESteamNetworkingConnectionState_Connecting || GetState() == k_ESteamNetworkingConnectionState_FindingRoute )
+			{
+				int cbRemaining = k_cbMaxSendMessagDataInRSVP;
+				for (;;)
+				{
+					CSteamNetworkingMessage *pMsgSend = m_senderState.m_messagesQueued.m_pFirst;
+					if ( !pMsgSend )
+						break;
+					if ( pMsgSend->SNPSend_IsReliable() )
+					{
+						AssertMsg( false, "[%s] Reliable messages can't be send in signals!", GetDescription() );
+						break;
+					}
+					if ( pMsgSend->m_cbSize > cbRemaining )
+					{
+						AssertMsg( pMsgSend->m_cbSize <= k_cbMaxSendMessagDataInRSVP, "[%s] Can't send %d-byte message in signal", GetDescription(), pMsgSend->m_cbSize );
+						break;
+					}
+					CMsgSteamNetworkingP2PRendezvous_ApplicationMessage *pAppMsgOut = msg.add_application_messages();
+					pAppMsgOut->set_msg_num( pMsgSend->m_nMessageNumber );
+					pAppMsgOut->set_data( pMsgSend->m_pData, pMsgSend->m_cbSize );
+
+					m_senderState.m_cbPendingUnreliable -= pMsgSend->m_cbSize;
+					Assert( m_senderState.m_cbPendingUnreliable >= 0 );
+
+					cbRemaining -= pMsgSend->m_cbSize;
+
+					m_senderState.m_messagesQueued.pop_front();
+					pMsgSend->Release();
+				}
+			}
+		}
 	}
 
 	// Spew
@@ -2160,6 +2215,13 @@ bool CSteamNetworkConnectionP2P::ProcessSignal( const CMsgSteamNetworkingP2PRend
 			}
 			break;
 	}
+
+	// Check if they sent actual end-to-end data in the signal.
+	for ( const CMsgSteamNetworkingP2PRendezvous_ApplicationMessage &msgAppMsg: msg.application_messages() )
+	{
+		ReceivedMessageData( msgAppMsg.data().c_str(), (int)msgAppMsg.data().length(), msgAppMsg.msg_num(), msgAppMsg.flags(), usecNow );
+	}
+
 
 	return true;
 }

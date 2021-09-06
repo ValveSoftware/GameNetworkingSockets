@@ -302,6 +302,18 @@ message CMsgSteamNetworkingP2PRendezvous
 		optional CMsgICERendezvous ice = 1; // Currently only ICE uses the reliable message stream, but this may change
 	}
 	repeated ReliableMessage reliable_messages = 13;
+
+	// App messages.  In certain circumstances we actually send
+	// application messages in the signals, instead of waiting
+	// until rendezvous completes.
+	message ApplicationMessage
+	{
+		// NOTE: Currently only unreliable messages are supported!
+		optional bytes data = 1; // Message bytes
+		optional uint64 msg_num = 2; // Probably a waste of a few bytes
+		optional uint32 flags = 3; // Also probably a waste of a few bytes
+	}
+	repeated ApplicationMessage application_messages = 15;
 };
 
 // A summary of what happened in an ICE session, for analytics
