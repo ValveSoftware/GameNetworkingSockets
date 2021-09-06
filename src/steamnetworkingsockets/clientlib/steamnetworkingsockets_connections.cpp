@@ -1331,6 +1331,9 @@ void CSteamNetworkConnectionBase::SetCryptoCipherList()
 		default:
 			AssertMsg( false, "Unexpected value for 'Unencrypted' config value" );
 			// FALLTHROUGH
+			// |
+			// |
+			// V
 		case 0:
 			// Not allowed
 			m_msgCryptLocal.add_ciphers( k_ESteamNetworkingSocketsCipher_AES_256_GCM );
@@ -2430,6 +2433,9 @@ void CSteamNetworkConnectionBase::SetState( ESteamNetworkingConnectionState eNew
 		default:
 			Assert( false );
 			// FALLTHROUGH
+			// |
+			// |
+			// V
 
 		case k_ESteamNetworkingConnectionState_Dead:
 		case k_ESteamNetworkingConnectionState_None:
@@ -2570,8 +2576,9 @@ void CSteamNetworkConnectionBase::SetState( ESteamNetworkingConnectionState eNew
 
 		case k_ESteamNetworkingConnectionState_Linger:
 			Assert( !m_pMessagesEndPointSessionOwner ); // We shouldn't try to enter the linger state for these types of connections!
+			// FALLTHROUGH
 			// |
-			// | Fall through
+			// |
 			// V
 		case k_ESteamNetworkingConnectionState_Connected:
 
@@ -3355,10 +3362,9 @@ void CSteamNetworkConnectionBase::Think( SteamNetworkingMicroseconds usecNow )
 				return;
 			}
 			// FALLTHROUGH
-
-		// |
-		// | otherwise, fall through
-		// V
+			// |
+			// |
+			// V
 		case k_ESteamNetworkingConnectionState_Connected:
 		{
 			if ( m_pTransport && m_pTransport->BCanSendEndToEndData() )
@@ -4008,6 +4014,9 @@ void CSteamNetworkConnectionPipe::ConnectionStateChanged( ESteamNetworkingConnec
 		default:
 			AssertMsg1( false, "Invalid state %d", GetState() );
 			// FALLTHROUGH
+			// |
+			// |
+			// V
 		case k_ESteamNetworkingConnectionState_None:
 		case k_ESteamNetworkingConnectionState_Dead:
 		case k_ESteamNetworkingConnectionState_FinWait:
