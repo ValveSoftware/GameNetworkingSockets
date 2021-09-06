@@ -225,7 +225,7 @@ public:
 		virtual void ConnectionPopulateDiagnostics( ESteamNetworkingConnectionState eOldState, CGameNetworkingUI_ConnectionState &msgConnectionState, SteamNetworkingMicroseconds usecNow ) override;
 	#endif
 
-	void SendConnectOKSignal( SteamNetworkingMicroseconds usecNow );
+	void QueueSendConnectOKSignal();
 	void SendConnectionClosedSignal( SteamNetworkingMicroseconds usecNow );
 	void SendNoConnectionSignal( SteamNetworkingMicroseconds usecNow );
 
@@ -272,6 +272,13 @@ public:
 
 	/// How to send signals to the remote host for this
 	ISteamNetworkingConnectionSignaling *m_pSignaling;
+
+	/// True if we need to send a "connect OK" message via signaling.  This
+	/// is queued and we flush it out as soon as we're ready.  Because often
+	/// it's advantageous when we get a connect request to wait just a bit before
+	/// replying, so that we can include some routing info, application reply
+	/// messages (when appropriate), etc.
+	bool m_bNeedToSendConnectOKSignal;
 
 	//
 	// Different transports

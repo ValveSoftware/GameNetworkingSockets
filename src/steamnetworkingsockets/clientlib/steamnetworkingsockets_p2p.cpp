@@ -117,6 +117,7 @@ CSteamNetworkConnectionP2P::CSteamNetworkConnectionP2P( CSteamNetworkingSockets 
 	m_usecWhenStartedFindingRoute = 0;
 	m_usecNextEvaluateTransport = k_nThinkTime_ASAP;
 	m_bTransportSticky = false;
+	m_bNeedToSendConnectOKSignal = false;
 
 	m_pszNeedToSendSignalReason = nullptr;
 	m_usecSendSignalDeadline = k_nThinkTime_Never;
@@ -1046,8 +1047,10 @@ EResult CSteamNetworkConnectionP2P::P2PInternalAcceptConnection( SteamNetworking
 		return k_EResultFail;
 	}
 
-	// Send them a reply, and include whatever info we have right now
-	SendConnectOKSignal( usecNow );
+	// Remember that we need to send them a "ConnectOK" message via signaling.
+	// But we might wait just a bit before doing so.  Usually we can include
+	// a bit more routing info in the message.
+	QueueSendConnectOKSignal();
 
 	// WE'RE NOT "CONNECTED" YET!
 	// We need to do route negotiation first, which could take several route trips,
@@ -1154,6 +1157,7 @@ void CSteamNetworkConnectionP2P::ConnectionStateChanged( ESteamNetworkingConnect
 
 		case k_ESteamNetworkingConnectionState_ClosedByPeer:
 		case k_ESteamNetworkingConnectionState_FinWait:
+			m_bNeedToSendConnectOKSignal = false;
 			EnsureICEFailureReasonSet( usecNow );
 			break;
 
@@ -1161,6 +1165,7 @@ void CSteamNetworkConnectionP2P::ConnectionStateChanged( ESteamNetworkingConnect
 			break;
 
 		case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
+			m_bNeedToSendConnectOKSignal = false;
 			EnsureICEFailureReasonSet( usecNow );
 
 			// If we fail during these states, send a signal to Steam, for analytics
@@ -1225,6 +1230,12 @@ void CSteamNetworkConnectionP2P::ThinkConnection( SteamNetworkingMicroseconds us
 
 		// Process route selection
 		ThinkSelectTransport( usecNow );
+
+		if ( m_bNeedToSendConnectOKSignal )
+		{
+			m_usecSendSignalDeadline = k_nThinkTime_ASAP;
+			m_pszNeedToSendSignalReason = "SendConnectedOK";
+		}
 
 		// If nothing scheduled, check RTOs.  If we have something scheduled,
 		// wait for the timer. The timer is short and designed to avoid
@@ -1701,21 +1712,19 @@ SteamNetworkingMicroseconds CSteamNetworkConnectionP2P::ThinkConnection_FindingR
 	return CSteamNetworkConnectionBase::ThinkConnection_FindingRoute( usecNow );
 }
 
-void CSteamNetworkConnectionP2P::SendConnectOKSignal( SteamNetworkingMicroseconds usecNow )
+void CSteamNetworkConnectionP2P::QueueSendConnectOKSignal()
 {
-	Assert( BCryptKeysValid() );
-
-	CMsgSteamNetworkingP2PRendezvous msgRendezvous;
-	CMsgSteamNetworkingP2PRendezvous_ConnectOK &msgConnectOK = *msgRendezvous.mutable_connect_ok();
-	*msgConnectOK.mutable_cert() = m_msgSignedCertLocal;
-	*msgConnectOK.mutable_crypt() = m_msgSignedCryptLocal;
-	SpewMsgGroup( LogLevel_P2PRendezvous(), "[%s] Sending P2P ConnectOK via Steam, remote cxn %u\n", GetDescription(), m_unConnectionIDRemote );
-	SetRendezvousCommonFieldsAndSendSignal( msgRendezvous, usecNow, "ConnectOK" );
+	if ( !m_bNeedToSendConnectOKSignal )
+		SpewVerboseGroup( LogLevel_P2PRendezvous(), "[%s] Queueing ConnectOK signal\n", GetDescription() );
+	m_bNeedToSendConnectOKSignal = true;
+	SetNextThinkTimeASAP();
 }
 
 void CSteamNetworkConnectionP2P::SendConnectionClosedSignal( SteamNetworkingMicroseconds usecNow )
 {
 	SpewVerboseGroup( LogLevel_P2PRendezvous(), "[%s] Sending graceful P2P ConnectionClosed, remote cxn %u\n", GetDescription(), m_unConnectionIDRemote );
+
+	m_bNeedToSendConnectOKSignal = false;
 
 	CMsgSteamNetworkingP2PRendezvous msgRendezvous;
 	CMsgSteamNetworkingP2PRendezvous_ConnectionClosed &msgConnectionClosed = *msgRendezvous.mutable_connection_closed();
@@ -1731,6 +1740,8 @@ void CSteamNetworkConnectionP2P::SendConnectionClosedSignal( SteamNetworkingMicr
 void CSteamNetworkConnectionP2P::SendNoConnectionSignal( SteamNetworkingMicroseconds usecNow )
 {
 	SpewVerboseGroup( LogLevel_P2PRendezvous(), "[%s] Sending P2P NoConnection signal, remote cxn %u\n", GetDescription(), m_unConnectionIDRemote );
+
+	m_bNeedToSendConnectOKSignal = false;
 
 	CMsgSteamNetworkingP2PRendezvous msgRendezvous;
 	CMsgSteamNetworkingP2PRendezvous_ConnectionClosed &msgConnectionClosed = *msgRendezvous.mutable_connection_closed();
@@ -1748,6 +1759,20 @@ void CSteamNetworkConnectionP2P::SetRendezvousCommonFieldsAndSendSignal( CMsgSte
 		return;
 
 	AssertLocksHeldByCurrentThread( "P2P::SetRendezvousCommonFieldsAndSendSignal" );
+
+	// Check if we have a "ConnectOK" message we need to flush out
+	if ( m_bNeedToSendConnectOKSignal )
+	{
+		Assert( m_bConnectionInitiatedRemotely );
+		Assert( BStateIsActive() );
+		Assert( BCryptKeysValid() );
+
+		CMsgSteamNetworkingP2PRendezvous_ConnectOK &msgConnectOK = *msg.mutable_connect_ok();
+		*msgConnectOK.mutable_cert() = m_msgSignedCertLocal;
+		*msgConnectOK.mutable_crypt() = m_msgSignedCryptLocal;
+		SpewMsgGroup( LogLevel_P2PRendezvous(), "[%s] Sending P2P ConnectOK via Steam, remote cxn %u\n", GetDescription(), m_unConnectionIDRemote );
+		m_bNeedToSendConnectOKSignal = false;
+	}
 
 	Assert( !msg.has_to_connection_id() );
 	if ( !msg.has_connect_request() )
@@ -2061,7 +2086,7 @@ bool CSteamNetworkConnectionP2P::ProcessSignal( const CMsgSteamNetworkingP2PRend
 				{
 					// NOTE: We're assuming here that it actually is a redundant retry,
 					//       meaning they specified all the same parameters as before!
-					SendConnectOKSignal( usecNow );
+					QueueSendConnectOKSignal();
 				}
 				else
 				{
