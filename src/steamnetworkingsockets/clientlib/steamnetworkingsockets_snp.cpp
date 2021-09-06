@@ -2426,7 +2426,7 @@ void CSteamNetworkConnectionBase::SNP_ReceiveUnreliableSegment( int64 nMsgNum, i
 
 		// Deliver it immediately, don't go through the fragmentation assembly process below.
 		// (Although that would work.)
-		ReceivedMessage( pSegmentData, cbSegmentSize, nMsgNum, k_nSteamNetworkingSend_Unreliable, usecNow );
+		ReceivedMessageData( pSegmentData, cbSegmentSize, nMsgNum, k_nSteamNetworkingSend_Unreliable, usecNow );
 		return;
 	}
 
@@ -2509,9 +2509,12 @@ void CSteamNetworkConnectionBase::SNP_ReceiveUnreliableSegment( int64 nMsgNum, i
 			return;
 	}
 
-	CSteamNetworkingMessage *pMsg = CSteamNetworkingMessage::New( this, cbMessageSize, nMsgNum, k_nSteamNetworkingSend_Unreliable, usecNow );
+	CSteamNetworkingMessage *pMsg = AllocateNewRecvMessage( cbMessageSize, k_nSteamNetworkingSend_Unreliable, usecNow );
 	if ( !pMsg )
 		return;
+
+	// Record the message number
+	pMsg->m_nMessageNumber = nMsgNum;
 
 	// OK, we have the complete message!  Gather the
 	// segments into a contiguous buffer
@@ -2903,7 +2906,7 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 		}
 
 		// We have a full message!  Queue it
-		if ( !ReceivedMessage( pReliableDecode, cbMsgSize, nMsgNum, k_nSteamNetworkingSend_Reliable, usecNow ) )
+		if ( !ReceivedMessageData( pReliableDecode, cbMsgSize, nMsgNum, k_nSteamNetworkingSend_Reliable, usecNow ) )
 			return false; // Weird failure.  Most graceful response is to not ack this packet, and maybe we will work next on retry.
 		pReliableDecode += cbMsgSize;
 		int cbStreamConsumed = pReliableDecode-pReliableStart;

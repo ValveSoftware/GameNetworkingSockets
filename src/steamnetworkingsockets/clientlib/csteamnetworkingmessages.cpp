@@ -77,8 +77,9 @@ CMessagesEndPoint::CMessagesEndPoint( CSteamNetworkingSockets &steamNetworkingSo
 
 CMessagesEndPoint::~CMessagesEndPoint()
 {
-	Assert( !m_pPollGroup );
+	m_sharedConnectionLock.AssertHeldByCurrentThread();
 	Assert( !m_pListenSocket );
+	m_sharedConnectionLock.unlock();
 }
 
 bool CMessagesEndPoint::BInit()
@@ -88,15 +89,6 @@ bool CMessagesEndPoint::BInit()
 	if ( m_steamNetworkingSockets.m_mapMessagesEndpointByVirtualPort.HasElement( m_nLocalVirtualPort ) )
 	{
 		AssertMsg( false, "Tried to create multiple messages endopints on vport %d", m_nLocalVirtualPort );
-		return false;
-	}
-
-	// Create poll group
-	PollGroupScopeLock pollGroupLock;
-	m_pPollGroup = m_steamNetworkingSockets.InternalCreatePollGroup( pollGroupLock );
-	if ( !m_pPollGroup )
-	{
-		AssertMsg( false, "Failed to create poll group" );
 		return false;
 	}
 
@@ -129,14 +121,7 @@ bool CMessagesEndPoint::BCreateListenSocket()
 void CMessagesEndPoint::FreeResources()
 {
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread("CMessagesEndPoint::FreeResources");
-
-	// Destroy poll group, if any
-	if ( m_pPollGroup )
-	{
-		m_pPollGroup->m_lock.lock(); // Only lock once, destructor unlocks!
-		delete m_pPollGroup;
-		m_pPollGroup = nullptr;
-	}
+	m_sharedConnectionLock.AssertHeldByCurrentThread();
 
 	// Destroy listen socket, if any
 	if ( m_pListenSocket )
@@ -163,7 +148,7 @@ void CMessagesEndPoint::FreeResources()
 
 void CMessagesEndPoint::DestroyMessagesEndPoint()
 {
-	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
+	m_sharedConnectionLock.lock();
 	FreeResources();
 	delete this;
 }
@@ -321,8 +306,6 @@ void CMessagesEndPointSession::SetActiveConnection( CSteamNetworkConnectionBase 
 	m_bConnectionWasEverConnected = false;
 	SetNextThinkTimeASAP();
 	MarkUsed( SteamNetworkingSockets_GetLocalTimestamp() );
-
-	pConn->SetPollGroup( m_messageEndPointOwner.m_pPollGroup );
 }
 
 void CMessagesEndPointSession::ClearActiveConnection()
@@ -396,6 +379,7 @@ bool CSteamNetworkingMessages::BInit()
 void CSteamNetworkingMessages::FreeResources()
 {
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "CSteamNetworkingMessages::FreeResources" );
+	m_sharedConnectionLock.AssertHeldByCurrentThread();
 
 	// Destroy all of our sessions.  This will detach all of our connections
 	FOR_EACH_HASHMAP( m_mapSessions, i )
@@ -537,30 +521,6 @@ int CSteamNetworkingMessages::ReceiveMessagesOnChannel( int nLocalChannel, Steam
 	Channel *pChan = FindOrCreateChannel( nLocalChannel );
 
 	ShortDurationScopeLock lockMessageQueues( g_lockAllRecvMessageQueues );
-
-	// Pull out all messages from the poll group into per-channel queues
-	if ( m_pPollGroup )
-	{
-		for (;;)
-		{
-			CSteamNetworkingMessage *pMsg = m_pPollGroup->m_queueRecvMessages.m_pFirst;
-			if ( !pMsg )
-				break;
-			pMsg->Unlink();
-
-			int idxSession = g_mapSessionsByConnection.Find( pMsg->m_conn );
-			if ( idxSession == g_mapSessionsByConnection.InvalidIndex() )
-			{
-				pMsg->Release();
-				continue;
-			}
-
-			SteamNetworkingMessagesSession *pSess = assert_cast<SteamNetworkingMessagesSession*>( g_mapSessionsByConnection[ idxSession ] );
-			Assert( pSess->m_pConnection );
-			Assert( this == &pSess->MessagesOwner() );
-			pSess->ReceivedMessage( pMsg );
-		}
-	}
 
 	return pChan->m_queueRecvMessages.RemoveMessages( ppOutMessages, nMaxMessages );
 }
@@ -947,10 +907,9 @@ static void FreeMessageDataWithP2PMessageHeader( SteamNetworkingMessage_t *pMsg 
 	::free( hdr );
 }
 
-void SteamNetworkingMessagesSession::ReceivedMessage( CSteamNetworkingMessage *pMsg )
+void SteamNetworkingMessagesSession::ReceivedMessage( CSteamNetworkingMessage *pMsg, CSteamNetworkConnectionBase *pConn )
 {
-	// Caller locks this
-	g_lockAllRecvMessageQueues.AssertHeldByCurrentThread();
+	m_pLock->AssertHeldByCurrentThread();
 
 	// Make sure the message is big enough to contain a header
 	if ( pMsg->m_cbSize < sizeof(P2PMessageHeader) )
@@ -963,20 +922,24 @@ void SteamNetworkingMessagesSession::ReceivedMessage( CSteamNetworkingMessage *p
 
 	// Process the header
 	P2PMessageHeader *hdr = static_cast<P2PMessageHeader *>( pMsg->m_pData );
+	pMsg->m_identityPeer = pConn->m_identityRemote;
 	pMsg->m_nChannel = LittleDWord( hdr->m_nToChannel );
 	pMsg->m_cbSize -= sizeof(P2PMessageHeader);
 	pMsg->m_pData = hdr+1;
 	pMsg->m_conn = k_HSteamNetConnection_Invalid; // Invalidate this, we don't want app to think it's legit to access to the underlying connection
 	pMsg->m_pfnFreeData = FreeMessageDataWithP2PMessageHeader;
 
+	// Mark channel as open
+	m_mapOpenChannels.Insert( pMsg->m_nChannel, true );
+	CSteamNetworkingMessages::Channel *pChannel = MessagesOwner().FindOrCreateChannel( pMsg->m_nChannel );
+
+	// Grab the lock while we insert into the proper queues
+	ShortDurationScopeLock lockMessageQueues( g_lockAllRecvMessageQueues );
+
 	// Add to the session
 	pMsg->LinkToQueueTail( &CSteamNetworkingMessage::m_links, &m_queueRecvMessages );
 
-	// Mark channel as open
-	m_mapOpenChannels.Insert( pMsg->m_nChannel, true );
-
 	// Add to end of channel queue
-	CSteamNetworkingMessages::Channel *pChannel = MessagesOwner().FindOrCreateChannel( pMsg->m_nChannel );
 	pMsg->LinkToQueueTail( &CSteamNetworkingMessage::m_linksSecondaryQueue, &pChannel->m_queueRecvMessages );
 }
 

@@ -46,7 +46,6 @@ public:
 	void DestroyMessagesEndPoint();
 
 	CSteamNetworkListenSocketP2P *m_pListenSocket = nullptr; // Might be NULL for "ephemeral" endpoints that cannot receive unsolicited traffic
-	CSteamNetworkPollGroup *m_pPollGroup = nullptr;
 
 	// !SPEED! *All* of the sessions and connections share the same lock!
 	// This could be improved, if we encounter a use case that needs it!
@@ -103,6 +102,9 @@ public:
 
 	virtual void SetActiveConnection( CSteamNetworkConnectionBase *pConn, ConnectionScopeLock &connectionLock );
 	virtual void ClearActiveConnection();
+
+	/// Called when a message is received on one of our connections
+	virtual void ReceivedMessage( CSteamNetworkingMessage *pMsg, CSteamNetworkConnectionBase *pConn ) = 0;
 
 	/// Try to unlink from any old connections.  The locking and
 	/// object ownership is complicated here.  This must be called
@@ -198,6 +200,7 @@ struct SteamNetworkingMessagesSession final : public CMessagesEndPointSession
 	virtual void Think( SteamNetworkingMicroseconds usecNow ) override;
 	virtual void SetActiveConnection( CSteamNetworkConnectionBase *pConn, ConnectionScopeLock &connectionLock ) override;
 	virtual void ActiveConnectionStateChanged() override;
+	virtual void ReceivedMessage( CSteamNetworkingMessage *pMsg, CSteamNetworkConnectionBase *pConn ) override;
 
 	/// Close the connection with the specified reason info
 	void CloseConnection( int nReason, const char *pszDebug );
@@ -206,8 +209,6 @@ struct SteamNetworkingMessagesSession final : public CMessagesEndPointSession
 	void CheckConnection( SteamNetworkingMicroseconds usecNow );
 
 	void UpdateConnectionInfo();
-
-	void ReceivedMessage( CSteamNetworkingMessage *pMsg );
 
 	#ifdef DBGFLAG_VALIDATE
 	void Validate( CValidator &validator, const char *pchName );

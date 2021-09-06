@@ -712,8 +712,9 @@ protected:
 	virtual void ConnectionGuessTimeoutReason( ESteamNetConnectionEnd &nReasonCode, ConnectionEndDebugMsg &msg, SteamNetworkingMicroseconds usecNow );
 
 	/// Called when we receive a complete message.  Should allocate a message object and put it into the proper queues
-	bool ReceivedMessage( const void *pData, int cbData, int64 nMsgNum, int nFlags, SteamNetworkingMicroseconds usecNow );
+	bool ReceivedMessageData( const void *pData, int cbData, int64 nMsgNum, int nFlags, SteamNetworkingMicroseconds usecNow );
 	void ReceivedMessage( CSteamNetworkingMessage *pMsg );
+	CSteamNetworkingMessage *AllocateNewRecvMessage( uint32 cbSize, int nFlags, SteamNetworkingMicroseconds usecNow );
 
 	/// Timestamp when we last sent an end-to-end connection request packet
 	SteamNetworkingMicroseconds m_usecWhenSentConnectRequest;

@@ -137,35 +137,13 @@ CSteamNetworkingMessage *CSteamNetworkingMessage::New( uint32 cbSize )
 	pMsg->m_pfnRelease = ReleaseFunc;
 
 	// Clear these fields
+	pMsg->m_nConnUserData = 0;
+	pMsg->m_usecTimeReceived = 0;
+	pMsg->m_nMessageNumber = 0;
 	pMsg->m_nChannel = -1;
 	pMsg->m_nFlags = 0;
 	pMsg->m_links.Clear();
 	pMsg->m_linksSecondaryQueue.Clear();
-
-	return pMsg;
-}
-
-CSteamNetworkingMessage *CSteamNetworkingMessage::New( CSteamNetworkConnectionBase *pParent, uint32 cbSize, int64 nMsgNum, int nFlags, SteamNetworkingMicroseconds usecNow )
-{
-	CSteamNetworkingMessage *pMsg = New( cbSize );
-	if ( !pMsg )
-	{
-		// Failed!  if it's for a reliable message, then we must abort the connection.
-		// If unreliable message....well we've spewed, but let's try to keep on chugging.
-		if ( pParent && ( nFlags & k_nSteamNetworkingSend_Reliable ) )
-			pParent->ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_InternalError, "Failed to allocate buffer to receive reliable message" );
-		return nullptr;
-	}
-
-	if ( pParent )
-	{
-		pMsg->m_identityPeer = pParent->m_identityRemote;
-		pMsg->m_conn = pParent->m_hConnectionSelf;
-		pMsg->m_nConnUserData = pParent->GetUserData();
-	}
-	pMsg->m_usecTimeReceived = usecNow;
-	pMsg->m_nMessageNumber = nMsgNum;
-	pMsg->m_nFlags = nFlags;
 
 	return pMsg;
 }
@@ -2627,23 +2605,28 @@ void CSteamNetworkConnectionBase::ConnectionStateChanged( ESteamNetworkingConnec
 		m_pTransport->TransportConnectionStateChanged( eOldState );
 }
 
-bool CSteamNetworkConnectionBase::ReceivedMessage( const void *pData, int cbData, int64 nMsgNum, int nFlags, SteamNetworkingMicroseconds usecNow )
+CSteamNetworkingMessage *CSteamNetworkConnectionBase::AllocateNewRecvMessage( uint32 cbSize, int nFlags, SteamNetworkingMicroseconds usecNow )
 {
-//	// !TEST! Enable this during connection test to trap bogus messages earlier
-//		struct TestMsg
-//		{
-//			int64 m_nMsgNum;
-//			bool m_bReliable;
-//			int m_cbSize;
-//			uint8 m_data[ 20*1000 ];
-//		};
-//		const TestMsg *pTestMsg = (const TestMsg *)pData;
-//
-//		// Size makes sense?
-//		Assert( sizeof(*pTestMsg) - sizeof(pTestMsg->m_data) + pTestMsg->m_cbSize == cbData );
+	CSteamNetworkingMessage *pMsg = CSteamNetworkingMessage::New( cbSize );
+	if ( !pMsg )
+	{
+		// Failed!  if it's for a reliable message, then we must abort the connection.
+		// If unreliable message....well we've spewed, but let's try to keep on chugging.
+		if ( nFlags & k_nSteamNetworkingSend_Reliable )
+			ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_InternalError, "Failed to allocate buffer to receive reliable message" );
+		return nullptr;
+	}
+
+	pMsg->m_usecTimeReceived = usecNow;
+	pMsg->m_nFlags = nFlags;
+	return pMsg;
+}
+
+bool CSteamNetworkConnectionBase::ReceivedMessageData( const void *pData, int cbData, int64 nMsgNum, int nFlags, SteamNetworkingMicroseconds usecNow )
+{
 
 	// Create a message
-	CSteamNetworkingMessage *pMsg = CSteamNetworkingMessage::New( this, cbData, nMsgNum, nFlags, usecNow );
+	CSteamNetworkingMessage *pMsg = AllocateNewRecvMessage( cbData, nFlags, usecNow );
 	if ( !pMsg )
 	{
 		// Hm.  this failure really is probably a sign that we are in a pretty bad state,
@@ -2651,6 +2634,9 @@ bool CSteamNetworkConnectionBase::ReceivedMessage( const void *pData, int cbData
 		// Right now, we'll try to muddle on.
 		return false;
 	}
+
+	// Record message number
+	pMsg->m_nMessageNumber = nMsgNum;
 
 	// Copy the data
 	memcpy( pMsg->m_pData, pData, cbData );
@@ -2669,6 +2655,20 @@ void CSteamNetworkConnectionBase::ReceivedMessage( CSteamNetworkingMessage *pMsg
 		GetDescription(),
 		(long long)pMsg->m_nMessageNumber,
 		pMsg->m_cbSize );
+
+	// Check for redirecting it to the messages endpoint owner
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
+		if ( m_pMessagesEndPointSessionOwner )
+		{
+			m_pMessagesEndPointSessionOwner->ReceivedMessage( pMsg, this );
+			return;
+		}
+	#endif
+
+	// Fill in a few more details
+	pMsg->m_identityPeer = m_identityRemote;
+	pMsg->m_conn = m_hConnectionSelf;
+	pMsg->m_nConnUserData = GetUserData();
 
 	// We use the same lock to protect *all* recv queues, for both connections and poll groups,
 	// which keeps this really simple.
@@ -2999,12 +2999,12 @@ void CSteamNetworkConnectionBase::ConnectionState_FinWait()
 	// Check our state
 	switch ( GetState() )
 	{
-		case k_ESteamNetworkingConnectionState_Dead:
 		case k_ESteamNetworkingConnectionState_None:
 		default:
 			Assert( false );
 			return;
 
+		case k_ESteamNetworkingConnectionState_Dead:
 		case k_ESteamNetworkingConnectionState_FinWait:
 			break;
 
@@ -3236,6 +3236,19 @@ void CSteamNetworkConnectionBase::Think( SteamNetworkingMicroseconds usecNow )
 		case k_ESteamNetworkingConnectionState_FinWait:
 		{
 			SteamNetworkingMicroseconds usecTimeout = m_usecWhenEnteredConnectionState + k_usecFinWaitTimeout;
+
+			// If we're linked to a messages session, they need to unlink us!
+			#ifdef STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
+				if ( m_pMessagesEndPointSessionOwner )
+				{
+					m_pMessagesEndPointSessionOwner->SetNextThinkTimeASAP();
+
+					// And go ahead and schedule our own wakeup call
+					SetNextThinkTime( std::max( usecTimeout, usecNow + 10*1000 ) );
+					return;
+				}
+			#endif
+
 
 			// If we're linked to a messages session, they need to unlink us!
 			#ifdef STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
