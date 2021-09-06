@@ -721,8 +721,6 @@ CSteamNetworkConnectionBase::~CSteamNetworkConnectionBase()
 	g_tables_lock.AssertHeldByCurrentThread();
 
 	// Remove from global connection list
-	// FIXME - This doesn't work!  We don't hold table lock,
-	// and we cannot take it here without potentially introducing deadlock
 	if ( m_hConnectionSelf != k_HSteamNetConnection_Invalid )
 	{
 		int idx = g_mapConnections.Find( uint16( m_hConnectionSelf ) );
@@ -784,9 +782,19 @@ void CSteamNetworkConnectionBase::ProcessDeletionList()
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
 	if ( s_vecPendingDeleteConnections.empty() )
 		return;
-	TableScopeLock tablesLock( g_tables_lock );
+
+	// Swap into a temp vector.  Our lock hygiene code doesn't
+	// want us to take a ShortDurationLock and then take any
+	// other locks.
 	s_lockPendingDeleteConnections.lock();
-	for ( CSteamNetworkConnectionBase *pConnection: s_vecPendingDeleteConnections )
+	std_vector<CSteamNetworkConnectionBase *> vecTemp( std::move( s_vecPendingDeleteConnections ) );
+	s_vecPendingDeleteConnections.clear();
+	s_lockPendingDeleteConnections.unlock();
+
+	// Now actually process the list.  We need the tables
+	// lock in order to remove connections from global tables.
+	TableScopeLock tablesLock( g_tables_lock );
+	for ( CSteamNetworkConnectionBase *pConnection: vecTemp )
 	{
 		#ifdef STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
 			CMessagesEndPointSession *pMessagesSession = pConnection->m_pMessagesEndPointSessionOwner;
@@ -800,8 +808,6 @@ void CSteamNetworkConnectionBase::ProcessDeletionList()
 		#endif
 		delete pConnection;
 	}
-	s_vecPendingDeleteConnections.clear();
-	s_lockPendingDeleteConnections.unlock();
 }
 
 void CConnectionTransport::TransportDestroySelfNow()
