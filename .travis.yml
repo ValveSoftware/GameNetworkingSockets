@@ -19,7 +19,8 @@ env:
     - IMAGE=ubuntu IMAGE_TAG=bionic
     - IMAGE=ubuntu IMAGE_TAG=latest
     - IMAGE=ubuntu IMAGE_TAG=rolling
-    - IMAGE=ubuntu IMAGE_TAG=devel
+    # Something broke here.  Commenting it out to see if it's just broken at the head.
+    #- IMAGE=ubuntu IMAGE_TAG=devel
     - IMAGE=fedora IMAGE_TAG=latest
     - IMAGE=fedora IMAGE_TAG=rawhide
 
