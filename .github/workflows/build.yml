@@ -21,10 +21,10 @@ jobs:
             os: ubuntu-latest
             docker_image: ubuntu
             docker_tag: rolling
-          - build: ubuntu-devel
-            os: ubuntu-latest
-            docker_image: ubuntu
-            docker_tag: devel
+          #- build: ubuntu-devel
+          #  os: ubuntu-latest
+          #  docker_image: ubuntu
+          #  docker_tag: devel
           - build: fedora-latest
             os: ubuntu-latest
             docker_image: fedora
