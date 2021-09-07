@@ -7,7 +7,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        build: [alpine-latest, ubuntu-bionic, ubuntu-latest, ubuntu-rolling, ubuntu-devel, fedora-latest]
+        build: [alpine-latest, ubuntu-bionic, ubuntu-latest, ubuntu-rolling, fedora-latest]
         include:
           - build: ubuntu-bionic
             os: ubuntu-latest
