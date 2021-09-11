@@ -688,7 +688,7 @@ void CSteamNetworkingMessages::DestroySession( const SteamNetworkingIdentity &id
 	delete pSess;
 }
 
-bool CSteamNetworkingMessages::BHandleNewIncomingConnection( CSteamNetworkConnectionP2P *pConn, ConnectionScopeLock &connectionLock )
+bool CSteamNetworkingMessages::BHandleNewIncomingConnection( CSteamNetworkConnectionBase *pConn, ConnectionScopeLock &connectionLock )
 {
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "CSteamNetworkingMessages::BHandleNewIncomingConnection" ); // New connections can only be created while the global lock is held
 

@@ -19,6 +19,10 @@
 	#include "../../common/steammessages_gamenetworkingui.pb.h"
 #endif
 
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
+	#include <steam/steamnetworkingfakeip.h>
+#endif
+
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
 
@@ -3710,13 +3714,15 @@ CSteamNetworkConnectionPipe *CSteamNetworkConnectionPipe::CreateLoopbackConnecti
 	CSteamNetworkingSockets *pClientInstance,
 	int nOptions, const SteamNetworkingConfigValue_t *pOptions,
 	CSteamNetworkListenSocketBase *pListenSocket, const SteamNetworkingIdentity &identityServerInitial,
-	bool bUseFastPath,
 	SteamNetworkingErrMsg &errMsg,
 	ConnectionScopeLock &scopeLock
 ) {
 	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 
 	CSteamNetworkingSockets *pServerInstance = pListenSocket->m_pSteamNetworkingSocketsInterface;
+
+	// Use the fast path unless there is a messages endpoint
+	bool bUseFastPath = pListenSocket->m_pMessagesEndPointOwner == nullptr;
 
 	ConnectionScopeLock serverScopeLock;
 	CSteamNetworkConnectionPipe *pClient = new CSteamNetworkConnectionPipe( pClientInstance, pClientInstance->InternalGetIdentity(), scopeLock, bUseFastPath );
@@ -3746,7 +3752,7 @@ failed:
 		goto failed;
 
 	// Server receives the connection and starts "accepting" it
-	if ( !pServer->BBeginAccept( pListenSocket, usecNow, errMsg ) )
+	if ( !pServer->BBeginAccept( pListenSocket, usecNow, serverScopeLock, errMsg ) )
 		goto failed;
 
 	// Client sends a "connect" packet
@@ -3901,7 +3907,7 @@ int64 CSteamNetworkConnectionPipe::_APISendMessageToConnection( CSteamNetworking
 	return nMsgNum;
 }
 
-bool CSteamNetworkConnectionPipe::BBeginAccept( CSteamNetworkListenSocketBase *pListenSocket, SteamNetworkingMicroseconds usecNow, SteamDatagramErrMsg &errMsg )
+bool CSteamNetworkConnectionPipe::BBeginAccept( CSteamNetworkListenSocketBase *pListenSocket, SteamNetworkingMicroseconds usecNow, ConnectionScopeLock &scopeLock, SteamDatagramErrMsg &errMsg )
 {
 	// We gotta have the global lock and both locks
 	CSteamNetworkConnectionBase::AssertLocksHeldByCurrentThread();
@@ -3911,16 +3917,37 @@ bool CSteamNetworkConnectionPipe::BBeginAccept( CSteamNetworkListenSocketBase *p
 	m_identityRemote = m_pPartner->m_identityLocal;
 	m_unConnectionIDRemote = m_pPartner->m_unConnectionIDLocal;
 
-	// If they connected to us via a local FakeIP, we need to assign the client side an ephemeral FakeIP
+	// If they connected to us via a local FakeIP, we need to link up
+	// their FakeIP, possibly assigning them an ephemeral one
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
 		if ( m_pPartner->m_identityRemote.IsFakeIP() )
 		{
 			Assert( !m_identityRemote.IsFakeIP() );
 			Assert( !m_fakeIPRefRemote.IsValid() );
-			if ( !m_fakeIPRefRemote.SetupNewLocalIP( m_identityRemote, nullptr ) )
+			int nPartnerLocalVirtualPort = m_pPartner->LocalVirtualPort();
+			if ( IsVirtualPortGlobalFakePort( nPartnerLocalVirtualPort ) )
 			{
-				V_sprintf_safe( errMsg, "Failed to allocate ephemeral FakeIP to client" );
-				return false;
+				int nFakePort = nPartnerLocalVirtualPort - k_nVirtualPort_GlobalFakePort0;
+				SteamNetworkingFakeIPResult_t fakePort;
+				m_pPartner->m_pSteamNetworkingSocketsInterface->GetFakeIP( nFakePort, &fakePort );
+				if ( fakePort.m_eResult != k_EResultOK || fakePort.m_unIP == 0 || fakePort.m_unPorts[0] == 0 )
+				{
+					V_strcpy_safe( errMsg, "Failed to get global FakeIP of client" );
+					return false;
+				}
+				SteamNetworkingIPAddr addrFakeIP;
+				addrFakeIP.SetIPv4( fakePort.m_unIP, fakePort.m_unPorts[0] );
+				Assert( addrFakeIP.GetFakeIPType() == k_ESteamNetworkingFakeIPType_GlobalIPv4 );
+				m_fakeIPRefRemote.Setup( addrFakeIP, m_identityRemote );
+			}
+			else
+			{
+				Assert( nPartnerLocalVirtualPort == -1 || IsVirtualPortEphemeralFakePort( nPartnerLocalVirtualPort ) );
+				if ( !m_fakeIPRefRemote.SetupNewLocalIP( m_identityRemote, nullptr ) )
+				{
+					V_strcpy_safe( errMsg, "Failed to allocate ephemeral FakeIP to client" );
+					return false;
+				}
 			}
 		}
 	#endif
@@ -3940,6 +3967,29 @@ bool CSteamNetworkConnectionPipe::BBeginAccept( CSteamNetworkListenSocketBase *p
 		V_sprintf_safe( errMsg, "Failed crypto init.  %s", m_szEndDebug );
 		return false;
 	}
+
+	// Is this connection for a messages session
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
+		if ( pListenSocket->m_pMessagesEndPointOwner )
+		{
+			Assert( m_pLock != m_pPartner->m_pLock ); // We can't use the fast path
+
+			// Switch into the connecting state now.  No state change callbacks
+			++m_nSupressStateChangeCallbacks;
+			bool bEnteredConnectingStateOK = BConnectionState_Connecting( usecNow, errMsg );
+			--m_nSupressStateChangeCallbacks;
+			if ( !bEnteredConnectingStateOK )
+				return false;
+
+			// Messages endpoint will finish setting up
+			if ( !pListenSocket->m_pMessagesEndPointOwner->BHandleNewIncomingConnection( this, scopeLock ) )
+			{
+				V_sprintf_safe( errMsg, "BHandleNewIncomingConnection returned false" );
+				return false;
+			}
+			return true;
+		}
+	#endif
 
 	// Transition to connecting state
 	return BConnectionState_Connecting( usecNow, errMsg );
@@ -4117,7 +4167,6 @@ void CSteamNetworkConnectionPipe::ConnectionStateChanged( ESteamNetworkingConnec
 	switch ( GetState() )
 	{
 		case k_ESteamNetworkingConnectionState_FindingRoute:
-		case k_ESteamNetworkingConnectionState_ProblemDetectedLocally: // What local "problem" could we have detected??
 		default:
 			AssertMsg1( false, "Invalid state %d", GetState() );
 			// FALLTHROUGH
@@ -4128,6 +4177,7 @@ void CSteamNetworkConnectionPipe::ConnectionStateChanged( ESteamNetworkingConnec
 		case k_ESteamNetworkingConnectionState_Dead:
 		case k_ESteamNetworkingConnectionState_FinWait:
 		case k_ESteamNetworkingConnectionState_Linger:
+		case k_ESteamNetworkingConnectionState_ProblemDetectedLocally: // We can "timeout" and fail to connect, if the app doesn't accept the connection in time.
 			if ( m_pPartner )
 			{
 				// Grab our partner's lock as well
@@ -4150,12 +4200,16 @@ void CSteamNetworkConnectionPipe::ConnectionStateChanged( ESteamNetworkingConnec
 			// (In the code directly above.)
 			if ( m_pPartner )
 			{
-				Assert( CollapseConnectionStateToAPIState( m_pPartner->GetState() ) == k_ESteamNetworkingConnectionState_None );
 				Assert( m_pPartner->m_pPartner == nullptr );
 				m_pPartner = nullptr;
 			}
 			break;
 	}
+}
+
+bool CSteamNetworkConnectionPipe::BSupportsSymmetricMode()
+{
+	return true;
 }
 
 void CSteamNetworkConnectionPipe::DestroyTransport()

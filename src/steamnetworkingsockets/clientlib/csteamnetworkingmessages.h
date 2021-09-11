@@ -41,7 +41,7 @@ public:
 	CSteamNetworkingSockets &m_steamNetworkingSockets;
 	const int m_nLocalVirtualPort;
 
-	virtual bool BHandleNewIncomingConnection( CSteamNetworkConnectionP2P *pConn, ConnectionScopeLock &connectionLock ) = 0;
+	virtual bool BHandleNewIncomingConnection( CSteamNetworkConnectionBase *pConn, ConnectionScopeLock &connectionLock ) = 0;
 
 	void DestroyMessagesEndPoint();
 
@@ -150,7 +150,7 @@ public:
 	virtual void Validate( CValidator &validator, const char *pchName ) override;
 	#endif
 
-	virtual bool BHandleNewIncomingConnection( CSteamNetworkConnectionP2P *pConn, ConnectionScopeLock &connectionLock ) override;
+	virtual bool BHandleNewIncomingConnection( CSteamNetworkConnectionBase *pConn, ConnectionScopeLock &connectionLock ) override;
 
 	struct Channel
 	{

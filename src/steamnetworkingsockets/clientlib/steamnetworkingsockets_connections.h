@@ -999,7 +999,6 @@ public:
 		CSteamNetworkingSockets *pClientInstance,
 		int nOptions, const SteamNetworkingConfigValue_t *pOptions,
 		CSteamNetworkListenSocketBase *pListenSocket, const SteamNetworkingIdentity &identityServerInitial,
-		bool bUseFastPath,
 		SteamNetworkingErrMsg &errMsg,
 		ConnectionScopeLock &scopeLock );
 
@@ -1017,6 +1016,7 @@ public:
 	virtual void GetConnectionTypeDescription( ConnectionTypeDescription_t &szDescription ) const override;
 	virtual void DestroyTransport() override;
 	virtual void ConnectionStateChanged( ESteamNetworkingConnectionState eOldState ) override;
+	virtual bool BSupportsSymmetricMode() override;
 
 	// CConnectionTransport
 	virtual bool SendDataPacket( SteamNetworkingMicroseconds usecNow ) override;
@@ -1034,7 +1034,7 @@ private:
 	virtual ~CSteamNetworkConnectionPipe();
 
 	/// Setup the server side of a loopback connection
-	bool BBeginAccept( CSteamNetworkListenSocketBase *pListenSocket, SteamNetworkingMicroseconds usecNow, SteamDatagramErrMsg &errMsg );
+	bool BBeginAccept( CSteamNetworkListenSocketBase *pListenSocket, SteamNetworkingMicroseconds usecNow, ConnectionScopeLock &scopeLock, SteamDatagramErrMsg &errMsg );
 
 	/// Act like we sent a sequenced packet
 	void FakeSendStatsAndRecv( SteamNetworkingMicroseconds usecNow, int cbPktSize );
