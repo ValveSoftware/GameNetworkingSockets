@@ -2758,21 +2758,39 @@ CSteamNetworkConnectionBase *CSteamNetworkingSockets::InternalConnectP2PDefaultS
 	// disable this optimization to force two clients to talk to each other through the relay
 	if ( m_TEST_bEnableP2PLoopbackOptimization )
 	{
-		for ( CSteamNetworkingSockets *pLocalInstance: CSteamNetworkingSockets::s_vecSteamNetworkingSocketsInstances )
+		for ( CSteamNetworkingSockets *pServerInstance: CSteamNetworkingSockets::s_vecSteamNetworkingSocketsInstances )
 		{
-			if ( pLocalInstance->BMatchesIdentity( identityRemote ) )
+			if ( pServerInstance->BMatchesIdentity( identityRemote ) )
 			{
 
-				// This is the guy we want to talk to.  Are we listening on that virtual port?
-				int idx = pLocalInstance->m_mapListenSocketsByVirtualPort.Find( nRemoteVirtualPort );
-				if ( idx == pLocalInstance->m_mapListenSocketsByVirtualPort.InvalidIndex() )
+				// This is the guy we want to talk to.  Locate the listen socket
+				CSteamNetworkListenSocketP2P *pListenSocket = nullptr;
+
+
+				#ifdef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
+				if ( identityRemote.IsFakeIP() )
 				{
-					SpewBug( "Cannot create P2P connection to local identity %s.  We are not listening on vport %d", SteamNetworkingIdentityRender( identityRemote ).c_str(), nRemoteVirtualPort );
+					AssertMsg( false, "FIXME!" );
 					return nullptr;
+				}
+				else
+				#endif
+				{
+					int idx = pServerInstance->m_mapListenSocketsByVirtualPort.Find( nRemoteVirtualPort );
+					if ( idx == pServerInstance->m_mapListenSocketsByVirtualPort.InvalidIndex() )
+					{
+						SpewBug( "Cannot create P2P connection to local identity %s.  We are not listening on vport %d", SteamNetworkingIdentityRender( identityRemote ).c_str(), nRemoteVirtualPort );
+						return nullptr;
+					}
+					pListenSocket = pServerInstance->m_mapListenSocketsByVirtualPort[ idx ];
 				}
 
 				// Create a loopback connection
-				CSteamNetworkConnectionPipe *pConn = CSteamNetworkConnectionPipe::CreateLoopbackConnection( this, nOptions, pOptions, pLocalInstance->m_mapListenSocketsByVirtualPort[ idx ], errMsg, scopeLock );
+				CSteamNetworkConnectionPipe *pConn = CSteamNetworkConnectionPipe::CreateLoopbackConnection(
+					this,
+					nOptions, pOptions,
+					pListenSocket, identityRemote,
+					errMsg, scopeLock );
 				if ( pConn )
 				{
 					SpewVerbose( "[%s] Using loopback for P2P connection to local identity %s on vport %d.  Partner is [%s]\n",

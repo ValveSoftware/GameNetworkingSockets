@@ -979,8 +979,9 @@ public:
 	///
 	/// The client connection is returned.
 	static CSteamNetworkConnectionPipe *CreateLoopbackConnection(
-		CSteamNetworkingSockets *pClientInstance, int nOptions, const SteamNetworkingConfigValue_t *pOptions,
-		CSteamNetworkListenSocketBase *pListenSocket,
+		CSteamNetworkingSockets *pClientInstance,
+		int nOptions, const SteamNetworkingConfigValue_t *pOptions,
+		CSteamNetworkListenSocketBase *pListenSocket, const SteamNetworkingIdentity &identityServerInitial,
 		SteamNetworkingErrMsg &errMsg,
 		ConnectionScopeLock &scopeLock );
 

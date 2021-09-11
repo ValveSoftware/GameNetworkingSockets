@@ -3718,8 +3718,9 @@ failed:
 }
 
 CSteamNetworkConnectionPipe *CSteamNetworkConnectionPipe::CreateLoopbackConnection(
-	CSteamNetworkingSockets *pClientInstance, int nOptions, const SteamNetworkingConfigValue_t *pOptions,
-	CSteamNetworkListenSocketBase *pListenSocket,
+	CSteamNetworkingSockets *pClientInstance,
+	int nOptions, const SteamNetworkingConfigValue_t *pOptions,
+	CSteamNetworkListenSocketBase *pListenSocket, const SteamNetworkingIdentity &identityServerInitial,
 	SteamNetworkingErrMsg &errMsg,
 	ConnectionScopeLock &scopeLock
 ) {
@@ -3744,6 +3745,10 @@ failed:
 	// Link em up
 	pClient->m_pPartner = pServer;
 	pServer->m_pPartner = pClient;
+
+	// Make sure initial identity is whatever the client used to initate the connection.  (E.g. FakeIP).
+	// We want these loopback connections to behave as similarly as possible to ordinary connections.
+	pClient->m_identityRemote = identityServerInitial;
 
 	// Initialize client connection.  This triggers a state transition callback
 	// to the "connecting" state
@@ -3914,7 +3919,7 @@ EResult CSteamNetworkConnectionPipe::AcceptConnection( SteamNetworkingMicrosecon
 	FakeSendStats( usecNow, 0 );
 
 	// Partner "receives" ConnectOK
-	m_pPartner->m_identityRemote = m_identityLocal;
+	m_pPartner->m_identityRemote = m_identityLocal; // And now they know our real identity
 	m_pPartner->m_unConnectionIDRemote = m_unConnectionIDLocal;
 	if ( !m_pPartner->BRecvCryptoHandshake( m_msgSignedCertLocal, m_msgSignedCryptLocal, false ) )
 		return k_EResultHandshakeFailed;
