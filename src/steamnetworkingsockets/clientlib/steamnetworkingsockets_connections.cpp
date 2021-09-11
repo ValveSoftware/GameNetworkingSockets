@@ -3248,19 +3248,6 @@ void CSteamNetworkConnectionBase::Think( SteamNetworkingMicroseconds usecNow )
 				}
 			#endif
 
-
-			// If we're linked to a messages session, they need to unlink us!
-			#ifdef STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
-				if ( m_pMessagesEndPointSessionOwner )
-				{
-					m_pMessagesEndPointSessionOwner->SetNextThinkTimeASAP();
-
-					// And go ahead and schedule our own wakeup call
-					SetNextThinkTime( std::max( usecTimeout, usecNow + 10*1000 ) );
-					return;
-				}
-			#endif
-
 			if ( usecNow >= usecTimeout )
 			{
 				ConnectionQueueDestroy();

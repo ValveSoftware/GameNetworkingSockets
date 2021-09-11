@@ -42,6 +42,7 @@ class CSharedSocket;
 class CConnectionTransport;
 struct SNPAckSerializerHelper;
 struct CertAuthScope;
+class CMessagesEndPoint;
 class CMessagesEndPointSession;
 
 enum EUnsignedCert
@@ -301,6 +302,13 @@ public:
 	inline bool BSymmetricMode() const { return m_connectionConfig.m_SymmetricConnect.Get() != 0; }
 	virtual bool BSupportsSymmetricMode();
 
+	// Some listen sockets are used by ad-hoc style messages endpoints
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
+	CMessagesEndPoint *m_pMessagesEndPointOwner = nullptr;
+	#else
+	static constexpr CMessagesEndPoint *m_pMessagesEndPointOwner = nullptr;
+	#endif
+
 	/// For legacy interface.
 	#ifdef STEAMNETWORKINGSOCKETS_STEAMCLIENT
 	std::unique_ptr<CSteamNetworkPollGroup> m_pLegacyPollGroup;
@@ -519,6 +527,10 @@ public:
 	int m_cbMaxReliableMessageSegment = 0;
 
 	void UpdateMTUFromConfig();
+
+	/// Handy accessor to the local virtual port configuration option, which is used
+	/// a lot by P2P connections.
+	inline int LocalVirtualPort() const { return m_connectionConfig.m_LocalVirtualPort.Get(); }
 
 	// Each connection is protected by a lock.  The actual lock to use is IThinker::m_pLock.
 	// Almost all connections use this default lock.  (A few special cases use a different lock

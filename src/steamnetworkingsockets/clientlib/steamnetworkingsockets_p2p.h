@@ -79,11 +79,6 @@ public:
 		return m_connectionConfig.m_LocalVirtualPort.m_data;
 	}
 
-	// Some listen sockets are used by ad-hoc style messages endpoints
-	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
-	CMessagesEndPoint *m_pMessagesEndPointOwner = nullptr;
-	#endif
-
 	// Listen sockets for hosted dedicated server connections derive from this class.
 	// This enum tells what methods we will allow clients to connect to us.
 	#ifdef SDR_ENABLE_HOSTED_SERVER
@@ -272,9 +267,6 @@ public:
 	/// matching.  If the peer didn't specify when attempting to connect, we will assume that it is the same
 	/// as the local virtual port.
 	int m_nRemoteVirtualPort;
-
-	/// local virtual port is a configuration option
-	inline int LocalVirtualPort() const { return m_connectionConfig.m_LocalVirtualPort.Get(); }
 
 	/// Handle to our entry in g_mapIncomingP2PConnections, or -1 if we're not in the map
 	int m_idxMapP2PConnectionsByRemoteInfo;
