@@ -2712,8 +2712,9 @@ void CSteamNetworkConnectionBase::PostConnectionStateChangedCallback( ESteamNetw
 			// Disabled, don't send any more
 			m_usecWhenNextDiagnosticsUpdate = k_nThinkTime_Never;
 		}
-		else
+		else if ( m_connectionConfig.m_EnableDiagnosticsUI.Get() != 0 )
 		{
+
 			// Post an update.  If more should be sent, we'll schedule it.
 			// NOTE: Here we are going to ask the connection to populate SteamNetConnectionInfo_t info
 			// *again*, even though we just called ConnectionPopulateInfo above.  But this keeps the code
@@ -2737,9 +2738,9 @@ void CSteamNetworkConnectionBase::CheckScheduleDiagnosticsUpdateASAP()
 	}
 	else if ( m_usecWhenNextDiagnosticsUpdate == k_nThinkTime_Never )
 	{
-		// We've sent out last update.  Don't send any more
+		// We've sent our last update.  Don't send any more
 	}
-	else
+	else if ( m_connectionConfig.m_EnableDiagnosticsUI.Get() != 0 )
 	{
 		m_usecWhenNextDiagnosticsUpdate = k_nThinkTime_ASAP;
 		SetNextThinkTimeASAP();
@@ -3793,6 +3794,12 @@ CSteamNetworkConnectionPipe::CSteamNetworkConnectionPipe( CSteamNetworkingSocket
 	int nRate = 0x10000000;
 	m_connectionConfig.m_SendRateMin.Set( nRate );
 	m_connectionConfig.m_SendRateMax.Set( nRate );
+
+	// Diagnostics usually not useful on these types of connections.
+	// (App can enable it or clear this override if it wants to.)
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_DIAGNOSTICSUI
+		m_connectionConfig.m_EnableDiagnosticsUI.Set(0);
+	#endif
 }
 
 CSteamNetworkConnectionPipe::~CSteamNetworkConnectionPipe()

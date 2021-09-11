@@ -87,6 +87,10 @@ DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, LogLevel_PacketGaps, k_ESteamNetworki
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, LogLevel_P2PRendezvous, k_ESteamNetworkingSocketsDebugOutputType_Warning, k_ESteamNetworkingSocketsDebugOutputType_Error, k_ESteamNetworkingSocketsDebugOutputType_Everything );
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( void *, Callback_ConnectionStatusChanged, nullptr );
 
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_DIAGNOSTICSUI
+DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, EnableDiagnosticsUI, 1, 0, 1 );
+#endif
+
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( std::string, P2P_STUN_ServerList, "" );
 

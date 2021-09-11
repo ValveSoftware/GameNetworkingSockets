@@ -1285,6 +1285,10 @@ enum ESteamNetworkingConfigValue
 	/// This value should not be read or written in any other context.
 	k_ESteamNetworkingConfig_LocalVirtualPort = 38,
 
+	/// [connection int32] True to enable diagnostics reporting through
+	/// generic platform UI.  (Only available on Steam.)
+	k_ESteamNetworkingConfig_EnableDiagnosticsUI = 46,
+
 //
 // Simulating network conditions
 //

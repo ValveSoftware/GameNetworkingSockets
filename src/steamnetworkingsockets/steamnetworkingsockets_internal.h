@@ -784,6 +784,11 @@ struct ConnectionConfig
 	ConfigValue<int32> m_LocalVirtualPort;
 	ConfigValue<int64> m_ConnectionUserData;
 
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_DIAGNOSTICSUI
+	ConfigValue<int32> m_EnableDiagnosticsUI;
+	#endif
+
+
 	ConfigValue<int32> m_LogLevel_AckRTT;
 	ConfigValue<int32> m_LogLevel_PacketDecode;
 	ConfigValue<int32> m_LogLevel_Message;
@@ -850,6 +855,10 @@ extern GlobalConfigValue<int32> g_Config_LogLevel_SDRRelayPings;
 extern GlobalConfigValue<std::string> g_Config_SDRClient_ForceRelayCluster;
 extern GlobalConfigValue<std::string> g_Config_SDRClient_ForceProxyAddr;
 extern GlobalConfigValue<std::string> g_Config_SDRClient_FakeClusterPing;
+#endif
+
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_DIAGNOSTICSUI
+extern ConnectionConfigDefaultValue<int32> g_ConfigDefault_EnableDiagnosticsUI;
 #endif
 
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
