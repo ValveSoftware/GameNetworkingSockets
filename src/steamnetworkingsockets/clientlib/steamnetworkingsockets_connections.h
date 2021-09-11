@@ -970,6 +970,7 @@ inline void ConnectionScopeLock::Lock( CSteamNetworkConnectionBase &conn, const 
 /// For these types of connections, the distinction between connection and transport
 /// is not really useful
 class CSteamNetworkConnectionPipe final : public CSteamNetworkConnectionBase, public CConnectionTransport
+, public CTaskTarget // Should we promote this to a base class?
 {
 public:
 
@@ -986,10 +987,13 @@ public:
 		CSteamNetworkingSockets *pClientInstance,
 		int nOptions, const SteamNetworkingConfigValue_t *pOptions,
 		CSteamNetworkListenSocketBase *pListenSocket, const SteamNetworkingIdentity &identityServerInitial,
+		bool bUseFastPath,
 		SteamNetworkingErrMsg &errMsg,
 		ConnectionScopeLock &scopeLock );
 
 	/// The guy who is on the other end.
+	/// This linkage can only be changed (or our partner deleted)
+	/// while the global lock is held, AND both connection locks are held
 	CSteamNetworkConnectionPipe *m_pPartner;
 
 	// CSteamNetworkConnectionBase overrides
@@ -1014,14 +1018,17 @@ public:
 private:
 
 	// Use CreateSocketPair!
-	CSteamNetworkConnectionPipe( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface, const SteamNetworkingIdentity &identity, ConnectionScopeLock &scopeLock );
+	CSteamNetworkConnectionPipe( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface, const SteamNetworkingIdentity &identity, ConnectionScopeLock &scopeLock, bool bUseFastPath );
 	virtual ~CSteamNetworkConnectionPipe();
 
 	/// Setup the server side of a loopback connection
 	bool BBeginAccept( CSteamNetworkListenSocketBase *pListenSocket, SteamNetworkingMicroseconds usecNow, SteamDatagramErrMsg &errMsg );
 
 	/// Act like we sent a sequenced packet
-	void FakeSendStats( SteamNetworkingMicroseconds usecNow, int cbPktSize );
+	void FakeSendStatsAndRecv( SteamNetworkingMicroseconds usecNow, int cbPktSize );
+
+	uint16 FakeSendStats( SteamNetworkingMicroseconds usecNow, int cbPktSize );
+	void FakeRecvStats( SteamNetworkingMicroseconds usecNow, int cbPktSize, uint16 nWirePktNum );
 };
 
 // Had to delay this until CSteamNetworkConnectionBase was defined

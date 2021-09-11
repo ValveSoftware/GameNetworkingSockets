@@ -3652,8 +3652,12 @@ bool CSteamNetworkConnectionPipe::APICreateSocketPair( CSteamNetworkingSockets *
 	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 	ConnectionScopeLock scopeLock[2];
 
-	pConn[1] = new CSteamNetworkConnectionPipe( pSteamNetworkingSocketsInterface, pIdentity[0], scopeLock[0] );
-	pConn[0] = new CSteamNetworkConnectionPipe( pSteamNetworkingSocketsInterface, pIdentity[1], scopeLock[1] );
+	// We can use the "fast path" here, which delivers messages to the other side
+	// very efficiently, without taking the global lock or queuing stuff
+	constexpr bool bUseFastPath = true;
+
+	pConn[1] = new CSteamNetworkConnectionPipe( pSteamNetworkingSocketsInterface, pIdentity[0], scopeLock[0], bUseFastPath );
+	pConn[0] = new CSteamNetworkConnectionPipe( pSteamNetworkingSocketsInterface, pIdentity[1], scopeLock[1], bUseFastPath );
 	if ( !pConn[0] || !pConn[1] )
 	{
 failed:
@@ -3686,8 +3690,8 @@ failed:
 
 	// Exchange some dummy "connect" packets so that all of our internal variables
 	// (and ping) look as realistic as possible
-	pConn[0]->FakeSendStats( usecNow, 0 );
-	pConn[1]->FakeSendStats( usecNow, 0 );
+	pConn[0]->FakeSendStatsAndRecv( usecNow, 0 );
+	pConn[1]->FakeSendStatsAndRecv( usecNow, 0 );
 
 	// Tie the connections to each other, and mark them as connected
 	for ( int i = 0 ; i < 2 ; ++i )
@@ -3719,6 +3723,7 @@ CSteamNetworkConnectionPipe *CSteamNetworkConnectionPipe::CreateLoopbackConnecti
 	CSteamNetworkingSockets *pClientInstance,
 	int nOptions, const SteamNetworkingConfigValue_t *pOptions,
 	CSteamNetworkListenSocketBase *pListenSocket, const SteamNetworkingIdentity &identityServerInitial,
+	bool bUseFastPath,
 	SteamNetworkingErrMsg &errMsg,
 	ConnectionScopeLock &scopeLock
 ) {
@@ -3727,8 +3732,8 @@ CSteamNetworkConnectionPipe *CSteamNetworkConnectionPipe::CreateLoopbackConnecti
 	CSteamNetworkingSockets *pServerInstance = pListenSocket->m_pSteamNetworkingSocketsInterface;
 
 	ConnectionScopeLock serverScopeLock;
-	CSteamNetworkConnectionPipe *pClient = new CSteamNetworkConnectionPipe( pClientInstance, pClientInstance->InternalGetIdentity(), scopeLock );
-	CSteamNetworkConnectionPipe *pServer = new CSteamNetworkConnectionPipe( pServerInstance, pServerInstance->InternalGetIdentity(), serverScopeLock );
+	CSteamNetworkConnectionPipe *pClient = new CSteamNetworkConnectionPipe( pClientInstance, pClientInstance->InternalGetIdentity(), scopeLock, bUseFastPath );
+	CSteamNetworkConnectionPipe *pServer = new CSteamNetworkConnectionPipe( pServerInstance, pServerInstance->InternalGetIdentity(), serverScopeLock, bUseFastPath );
 	if ( !pClient || !pServer )
 	{
 		V_strcpy_safe( errMsg, "new CSteamNetworkConnectionPipe failed" );
@@ -3762,7 +3767,7 @@ failed:
 		goto failed;
 	Assert( pServer->m_statsEndToEnd.m_nMaxRecvPktNum == 1 );
 	pClient->m_statsEndToEnd.m_nNextSendSequenceNumber = pServer->m_statsEndToEnd.m_nMaxRecvPktNum+1;
-	pClient->FakeSendStats( usecNow, 0 );
+	pClient->FakeSendStatsAndRecv( usecNow, 0 );
 
 	// Now we wait for the app to accept the connection
 	return pClient;
@@ -3771,7 +3776,7 @@ failed:
 // All pipe connections share the same lock!
 static ConnectionLock s_sharedPipeLock;
 
-CSteamNetworkConnectionPipe::CSteamNetworkConnectionPipe( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface, const SteamNetworkingIdentity &identity, ConnectionScopeLock &scopeLock )
+CSteamNetworkConnectionPipe::CSteamNetworkConnectionPipe( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface, const SteamNetworkingIdentity &identity, ConnectionScopeLock &scopeLock, bool bUseFastPath )
 : CSteamNetworkConnectionBase( pSteamNetworkingSocketsInterface, scopeLock )
 , CConnectionTransport( *static_cast<CSteamNetworkConnectionBase*>( this ) ) // connection and transport object are the same
 , m_pPartner( nullptr )
@@ -3779,13 +3784,15 @@ CSteamNetworkConnectionPipe::CSteamNetworkConnectionPipe( CSteamNetworkingSocket
 	m_identityLocal = identity;
 	m_pTransport = this;
 
-	// All pipe connections use a shared, global lock.
-	// We could optimize this so that only pairs of connections share
-	// a lock, but this is easy and we don't expect the lock to be
-	// held for very long at a time
-	scopeLock.Unlock();
-	m_pLock = &s_sharedPipeLock;
-	scopeLock.Lock( *this );
+	// Some pipe connections can use a shared, global lock.  It's more
+	// efficient (we expect lock contention to be very low) because we
+	// can very efficiently transfer messages from one side to the other.
+	if ( bUseFastPath )
+	{
+		scopeLock.Unlock();
+		m_pLock = &s_sharedPipeLock;
+		scopeLock.Lock( *this );
+	}
 
 	// Encryption is not used for pipe connections.
 	// This is not strictly necessary, since we never even send packets or
@@ -3835,6 +3842,7 @@ EUnsignedCert CSteamNetworkConnectionPipe::AllowLocalUnsignedCert()
 
 int64 CSteamNetworkConnectionPipe::_APISendMessageToConnection( CSteamNetworkingMessage *pMsg, SteamNetworkingMicroseconds usecNow, bool *pbThinkImmediately )
 {
+	m_pLock->AssertHeldByCurrentThread();
 	NOTE_UNUSED( pbThinkImmediately );
 	if ( !m_pPartner )
 	{
@@ -3843,13 +3851,6 @@ int64 CSteamNetworkConnectionPipe::_APISendMessageToConnection( CSteamNetworking
 		pMsg->Release();
 		return -k_EResultFail;
 	}
-
-	// We have partner pipes use the same lock, to keep this code simple
-	Assert( m_pPartner->m_pLock == m_pLock );
-	m_pLock->AssertHeldByCurrentThread();
-
-	// Fake a bunch of stats
-	FakeSendStats( usecNow, pMsg->m_cbSize );
 
 	// Set fields to their values applicable on the receiving side
 	// NOTE: This assumes that we can muck with the structure,
@@ -3862,17 +3863,62 @@ int64 CSteamNetworkConnectionPipe::_APISendMessageToConnection( CSteamNetworking
 	pMsg->m_nConnUserData = m_pPartner->GetUserData();
 	pMsg->m_usecTimeReceived = usecNow;
 
-	// Pass directly to our partner
-	m_pPartner->ReceivedMessage( pMsg );
+	// Fake sending a bunch of stats
+	uint16 nWirePktNum = FakeSendStats( usecNow, pMsg->m_cbSize );
 
+	// Can we immediately dispatch to the other side?
+	if ( m_pLock == m_pPartner->m_pLock )
+	{
+		// Special fast path for when we don't need the global lock
+		// to receive the messages.
+		m_pPartner->FakeRecvStats( pMsg->m_usecTimeReceived, pMsg->m_cbSize, nWirePktNum );
+		m_pPartner->ReceivedMessage( pMsg );
+	}
+	else
+	{
+		// Each side has its own lock.  We can't deliver it to the
+		// pther side immediately.
+
+		// Queue a task to run when we have the global lock.
+		struct DeliverMsgToPipePartner : CQueuedTaskOnTarget<CSteamNetworkConnectionPipe>
+		{
+			CSteamNetworkingMessage *m_pMsg;
+			uint16 m_nWirePktNum;
+			virtual void Run()
+			{
+				CSteamNetworkConnectionPipe *pConn = Target();
+				ConnectionScopeLock connectionLock( *pConn );
+
+				// Make sure connection has not been closed
+				if ( pConn->m_pPartner )
+				{
+					pConn->FakeRecvStats( m_pMsg->m_usecTimeReceived, m_pMsg->m_cbSize, m_nWirePktNum );
+					pConn->ReceivedMessage( m_pMsg );
+				}
+				else
+				{
+					m_pMsg->Release();
+				}
+			}
+		};
+		DeliverMsgToPipePartner *pTask = new DeliverMsgToPipePartner;
+		pTask->m_pMsg = pMsg;
+		pTask->m_nWirePktNum = nWirePktNum;
+		pTask->SetTarget( m_pPartner );
+
+		// Just always queue it -- don't try to handle immediately.
+		pTask->QueueToRunWithGlobalLock( "DeliverMsgToPipePartner" );
+	}
+
+	// Return message number
 	return nMsgNum;
 }
 
 bool CSteamNetworkConnectionPipe::BBeginAccept( CSteamNetworkListenSocketBase *pListenSocket, SteamNetworkingMicroseconds usecNow, SteamDatagramErrMsg &errMsg )
 {
-	// We have partner pipes use the same lock, to keep this code simple
-	Assert( m_pPartner->m_pLock == m_pLock );
-	m_pLock->AssertHeldByCurrentThread();
+	// We gotta have the global lock and both locks
+	CSteamNetworkConnectionBase::AssertLocksHeldByCurrentThread();
+	m_pPartner->m_pLock->AssertHeldByCurrentThread();
 
 	// Ordinary connections usually learn the client identity and connection ID at this point
 	m_identityRemote = m_pPartner->m_identityLocal;
@@ -3914,21 +3960,23 @@ bool CSteamNetworkConnectionPipe::BBeginAccept( CSteamNetworkListenSocketBase *p
 
 EResult CSteamNetworkConnectionPipe::AcceptConnection( SteamNetworkingMicroseconds usecNow )
 {
+	// We gotta have the global lock and our own lock
+	CSteamNetworkConnectionBase::AssertLocksHeldByCurrentThread();
+
 	if ( !m_pPartner )
 	{
 		Assert( false );
 		return k_EResultFail;
 	}
 
-	// We have partner pipes use the same lock, to keep this code simple
-	CSteamNetworkConnectionBase::AssertLocksHeldByCurrentThread();
-	Assert( m_pPartner->m_pLock == m_pLock );
+	// Grab our partner's lock as well
+	ConnectionScopeLock scopePartnerLock( *m_pPartner );
 
 	// Mark server side connection as connected
 	ConnectionState_Connected( usecNow );
 
 	// "Send connect OK" to partner, and he is connected
-	FakeSendStats( usecNow, 0 );
+	FakeSendStatsAndRecv( usecNow, 0 );
 
 	// At this point, client would ordinarily learn the real identity.
 	// if he connected by FakeIP, setup FakeIP reference just like
@@ -3951,35 +3999,48 @@ EResult CSteamNetworkConnectionPipe::AcceptConnection( SteamNetworkingMicrosecon
 	return k_EResultOK;
 }
 
-void CSteamNetworkConnectionPipe::FakeSendStats( SteamNetworkingMicroseconds usecNow, int cbPktSize )
+void CSteamNetworkConnectionPipe::FakeSendStatsAndRecv( SteamNetworkingMicroseconds usecNow, int cbPktSize )
 {
+	uint16 nWirePktNum = FakeSendStats( usecNow, cbPktSize );
 	if ( !m_pPartner )
+	{
+		Assert( false);
 		return;
+	}
+	m_pPartner->FakeRecvStats( usecNow, cbPktSize, nWirePktNum );
+}
 
-	// We have partner pipes use the same lock, to keep this code simple.
-	// Note that we might not hold the global lock!
-	Assert( m_pPartner->m_pLock == m_pLock );
+uint16 CSteamNetworkConnectionPipe::FakeSendStats( SteamNetworkingMicroseconds usecNow, int cbPktSize )
+{
 	m_pLock->AssertHeldByCurrentThread();
 
 	// Get the next packet number we would have sent
-	uint16 nSeqNum = m_statsEndToEnd.ConsumeSendPacketNumberAndGetWireFmt( usecNow );
-
-	// And the peer receiving it immediately.  And assume every packet represents
-	// a ping measurement.
-	int64 nPktNum = m_pPartner->m_statsEndToEnd.ExpandWirePacketNumberAndCheck( nSeqNum );
-	Assert( nPktNum+1 == m_statsEndToEnd.m_nNextSendSequenceNumber );
-	m_pPartner->m_statsEndToEnd.TrackProcessSequencedPacket( nPktNum, usecNow, -1 );
-	m_pPartner->m_statsEndToEnd.TrackRecvPacket( cbPktSize, usecNow );
-	m_pPartner->m_statsEndToEnd.m_ping.ReceivedPing( 0, usecNow );
+	uint16 nWirePktNum = m_statsEndToEnd.ConsumeSendPacketNumberAndGetWireFmt( usecNow );
 
 	// Fake sending stats
 	m_statsEndToEnd.TrackSentPacket( cbPktSize );
+
+	return nWirePktNum;
+}
+
+void CSteamNetworkConnectionPipe::FakeRecvStats( SteamNetworkingMicroseconds usecNow, int cbPktSize, uint16 nWirePktNum )
+{
+	m_pLock->AssertHeldByCurrentThread();
+
+	// And the peer receiving it immediately.  And assume every packet represents
+	// a ping measurement.
+	int64 nPktNum = m_statsEndToEnd.ExpandWirePacketNumberAndCheck( nWirePktNum );
+	m_statsEndToEnd.TrackProcessSequencedPacket( nPktNum, usecNow, -1 );
+	m_statsEndToEnd.TrackRecvPacket( cbPktSize, usecNow );
+	m_statsEndToEnd.m_ping.ReceivedPing( 0, usecNow );
 }
 
 void CSteamNetworkConnectionPipe::SendEndToEndStatsMsg( EStatsReplyRequest eRequest, SteamNetworkingMicroseconds usecNow, const char *pszReason )
 {
 	NOTE_UNUSED( eRequest );
 	NOTE_UNUSED( pszReason );
+
+	// We gotta have the global lock and our own lock
 	CSteamNetworkConnectionBase::AssertLocksHeldByCurrentThread();
 
 	if ( !m_pPartner )
@@ -3988,16 +4049,19 @@ void CSteamNetworkConnectionPipe::SendEndToEndStatsMsg( EStatsReplyRequest eRequ
 		return;
 	}
 
+	// Grab our partner's lock as well
+	ConnectionScopeLock scopePartnerLock( *m_pPartner );
+
 	// Fake sending us a ping request
 	m_statsEndToEnd.TrackSentPingRequest( usecNow, false );
-	FakeSendStats( usecNow, 0 );
+	FakeSendStatsAndRecv( usecNow, 0 );
 
 	// Fake partner receiving it
 	m_pPartner->m_statsEndToEnd.PeerAckedLifetime( usecNow );
 	m_pPartner->m_statsEndToEnd.PeerAckedInstantaneous( usecNow );
 
 	// ...and sending us a reply immediately
-	m_pPartner->FakeSendStats( usecNow, 0 );
+	m_pPartner->FakeSendStatsAndRecv( usecNow, 0 );
 
 	// ... and us receiving it immediately
 	m_statsEndToEnd.PeerAckedLifetime( usecNow );
@@ -4024,8 +4088,16 @@ bool CSteamNetworkConnectionPipe::BCanSendEndToEndData() const
 
 void CSteamNetworkConnectionPipe::SendEndToEndConnectRequest( SteamNetworkingMicroseconds usecNow )
 {
+	// We gotta have the global lock and our own lock
+	CSteamNetworkConnectionBase::AssertLocksHeldByCurrentThread();
+	if ( !m_pPartner )
+		return;
+
+	// Grab our partner's lock as well
+	ConnectionScopeLock scopePartnerLock( *m_pPartner );
+
 	// Send a "packet"
-	FakeSendStats( usecNow, 0 );
+	FakeSendStatsAndRecv( usecNow, 0 );
 }
 
 bool CSteamNetworkConnectionPipe::SendDataPacket( SteamNetworkingMicroseconds usecNow )
@@ -4071,9 +4143,8 @@ void CSteamNetworkConnectionPipe::ConnectionStateChanged( ESteamNetworkingConnec
 		case k_ESteamNetworkingConnectionState_Linger:
 			if ( m_pPartner )
 			{
-				// We have partner pipes use the same lock, to keep this code simple.
-				// Note that we might not hold the global lock!
-				Assert( m_pPartner->m_pLock == m_pLock );
+				// Grab our partner's lock as well
+				ConnectionScopeLock scopePartnerLock( *m_pPartner );
 
 				CSteamNetworkConnectionPipe *pPartner = m_pPartner;
 				m_pPartner = nullptr; // clear pointer now, to prevent recursion
@@ -4092,11 +4163,6 @@ void CSteamNetworkConnectionPipe::ConnectionStateChanged( ESteamNetworkingConnec
 			// (In the code directly above.)
 			if ( m_pPartner )
 			{
-
-				// We have partner pipes use the same lock, to keep this code simple.
-				// Note that we might not hold the global lock!
-				Assert( m_pPartner->m_pLock == m_pLock );
-
 				Assert( CollapseConnectionStateToAPIState( m_pPartner->GetState() ) == k_ESteamNetworkingConnectionState_None );
 				Assert( m_pPartner->m_pPartner == nullptr );
 				m_pPartner = nullptr;

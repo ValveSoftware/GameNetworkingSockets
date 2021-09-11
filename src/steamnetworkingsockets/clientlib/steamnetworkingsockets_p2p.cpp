@@ -2773,11 +2773,16 @@ CSteamNetworkConnectionBase *CSteamNetworkingSockets::InternalConnectP2PDefaultS
 					pListenSocket = pServerInstance->m_mapListenSocketsByVirtualPort[ idx ];
 				}
 
+				// !SPEED! - I think we actually could use the fast path sometimes.
+				// We really only can't use the fast path for ad-hoc messages sessions.
+				bool bUseFastPath = false;
+
 				// Create a loopback connection
 				CSteamNetworkConnectionPipe *pConn = CSteamNetworkConnectionPipe::CreateLoopbackConnection(
 					this,
 					nOptions, pOptions,
 					pListenSocket, identityRemote,
+					bUseFastPath,
 					errMsg, scopeLock );
 				if ( pConn )
 				{
