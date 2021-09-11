@@ -124,6 +124,7 @@ public:
 	static constexpr int m_nFakeIPPortsRequested = 0;
 	virtual bool BeginAsyncRequestFakeIP( int nNumPorts ) override;
 	virtual void GetFakeIP( int idxFirstPort, SteamNetworkingFakeIPResult_t *pInfo ) override;
+	ISteamNetworkingFakeUDPPort *CreateFakeUDPPort( int idxFakeServerPort ) override;
 	#endif
 
 #ifdef STEAMNETWORKINGSOCKETS_STEAMCLIENT

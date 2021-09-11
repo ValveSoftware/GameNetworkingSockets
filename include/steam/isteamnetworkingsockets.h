@@ -11,6 +11,7 @@ struct SteamNetAuthenticationStatus_t;
 struct SteamNetworkingFakeIPResult_t;
 class ISteamNetworkingConnectionSignaling;
 class ISteamNetworkingSignalingRecvContext;
+class ISteamNetworkingFakeUDPPort;
 
 //-----------------------------------------------------------------------------
 /// Lower level networking API.
@@ -768,9 +769,8 @@ public:
 	///   SteamNetConnectionInfo_t::m_addrRemote is valid, it will be a real IPv4
 	///   address of a NAT-punched connection.  Otherwise, it will not be valid.
 	/// 
-	/// To communicate using an ad-hoc sendto/recv from (UDP-style) API:
-	/// - ISteamNetworkingMessages::SendMessageToFakeIP
-	/// FIXME - more coming soon
+	/// To communicate using an ad-hoc sendto/recv from (UDP-style) API,
+	/// use CreateFakeUDPPort.
 	virtual bool BeginAsyncRequestFakeIP( int nNumPorts ) = 0;
 
 	/// Return info about the FakeIP and port(s) that we have been assigned,
@@ -805,6 +805,25 @@ public:
 	/// - k_EResultInvalidParam: invalid connection handle
 	/// - k_EResultIPNotFound: This connection wasn't made using FakeIP system
 	virtual EResult GetRemoteFakeIPForConnection( HSteamNetConnection hConn, SteamNetworkingIPAddr *pOutAddr ) = 0;
+
+	/// Get an interface that can be used like a UDP port to send/receive
+	/// datagrams to a FakeIP address.  This is intended to make it easy
+	/// to port existing UDP-based code to take advantage of SDR.
+	/// 
+	/// idxFakeServerPort refers to the *index* of the port allocated using
+	/// BeginAsyncRequestFakeIP and is used to create "server" ports.  You may
+	/// call this before the allocation has completed.  However, any attempts
+	/// to send packets will fail until the allocation has succeeded.  When
+	/// the peer receives packets sent from this interface, the from address
+	/// of the packet will be the globally-unique FakeIP.  If you call this
+	/// function multiple times and pass the same (nonnegative) fake port index,
+	/// the same object will be returned, and this object is not reference counted.
+	/// 
+	/// To create a "client" port (e.g. the equivalent of an ephemeral UDP port)
+	/// pass -1.  In this case, a distinct object will be returned for each call.
+	/// When the peer receives packets sent from this interface, the peer will
+	/// assign a FakeIP from its own locally-controlled namespace.
+	virtual ISteamNetworkingFakeUDPPort *CreateFakeUDPPort( int idxFakeServerPort ) = 0;
 
 protected:
 	~ISteamNetworkingSockets(); // Silence some warnings
@@ -923,50 +942,6 @@ struct SteamNetAuthenticationStatus_t
 	/// Non-localized English language status.  For diagnostic/debugging
 	/// purposes only.
 	char m_debugMsg[ 256 ];
-};
-
-/// A struct used to describe a "fake IP" we have been assigned to
-/// use as an identifier.  This callback is posted when
-/// ISteamNetworkingStatus::BeginAsyncRequestFakeIP completes.
-/// See also ISteamNetworkingSockets::GetFakeIP
-struct SteamNetworkingFakeIPResult_t
-{
-	enum { k_iCallback = k_iSteamNetworkingSocketsCallbacks + 3 };
-
-	/// Status/result of the allocation request.  Possible failure values are:
-	/// - k_EResultBusy - you called GetFakeIP but the request has not completed.
-	/// - k_EResultInvalidParam - you called GetFakeIP with an invalid port index
-	/// - k_EResultLimitExceeded - You asked for too many ports, or made an
-	///   additional request after one had already succeeded
-	/// - k_EResultNoMatch - GetFakeIP was called, but no request has been made
-	///
-	/// Note that, with the exception of k_EResultBusy (if you are polling),
-	/// it is highly recommended to treat all failures as fatal.
-	EResult m_eResult;
-
-	/// Local identity of the ISteamNetworkingSockets object that made
-	/// this request and is assigned the IP.  This is needed in the callback
-	/// in the case where there are multiple ISteamNetworkingSockets objects.
-	/// (E.g. one for the user, and another for the local gameserver).
-	SteamNetworkingIdentity m_identity;
-
-	/// Fake IPv4 IP address that we have been assigned.  NOTE: this
-	/// IP address is not exclusively ours!  Steam tries to avoid sharing
-	/// IP addresses, but this may not always be possible.  The IP address
-	/// may be currently in use by another host, but with different port(s).
-	/// The exact same IP:port address may have been used previously.
-	/// Steam tries to avoid reusing ports until they have not been in use for
-	/// some time, but this may not always be possible.
-	uint32 m_unIP;
-
-	/// Port number(s) assigned to us.  Only the first entries will contain
-	/// nonzero values.  Entries corresponding to ports beyond what was
-	/// allocated for you will be zero.
-	///
-	/// (NOTE: At the time of this writing, the maximum number of ports you may
-	/// request is 4.)
-	enum { k_nMaxReturnPorts = 8 };
-	uint16 m_unPorts[k_nMaxReturnPorts];
 };
 
 #pragma pack( pop )

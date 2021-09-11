@@ -15,6 +15,10 @@
 #include "csteamnetworkingmessages.h"
 #endif
 
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
+#include <steam/steamnetworkingfakeip.h>
+#endif
+
 // Needed for the platform checks below
 #if defined(__APPLE__)
 	#include "AvailabilityMacros.h"
@@ -79,7 +83,7 @@ DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, MTU_PacketSize, 1300, k_cbSteamNetwor
 #endif
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, Unencrypted, 0, 0, 3 );
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, SymmetricConnect, 0, 0, 1 );
-DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, LocalVirtualPort, -1, -1, 65535 );
+DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, LocalVirtualPort, -1, -1, INT32_MAX );
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, LogLevel_AckRTT, k_ESteamNetworkingSocketsDebugOutputType_Warning, k_ESteamNetworkingSocketsDebugOutputType_Error, k_ESteamNetworkingSocketsDebugOutputType_Everything );
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, LogLevel_PacketDecode, k_ESteamNetworkingSocketsDebugOutputType_Warning, k_ESteamNetworkingSocketsDebugOutputType_Error, k_ESteamNetworkingSocketsDebugOutputType_Everything );
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, LogLevel_Message, k_ESteamNetworkingSocketsDebugOutputType_Warning, k_ESteamNetworkingSocketsDebugOutputType_Error, k_ESteamNetworkingSocketsDebugOutputType_Everything );
@@ -1004,6 +1008,16 @@ HSteamNetConnection CSteamNetworkingSockets::ConnectByIPAddress( const SteamNetw
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
 		if ( address.IsFakeIP() )
 		{
+			// Cannot specify a local port
+			for ( int idxOpt = 0 ; idxOpt < nOptions ; ++idxOpt )
+			{
+				if ( pOptions[idxOpt].m_eValue == k_ESteamNetworkingConfig_LocalVirtualPort )
+				{
+					SpewBug( "Cannot specify LocalVirtualPort when connecting by FakeIP" );
+					return k_HSteamNetConnection_Invalid;
+				}
+			}
+
 			SteamNetworkingIdentity identityRemote;
 			identityRemote.SetIPAddr( address );
 			int nRemoveVirtualPort = -1; // Ignored, we multiplex in this case based on the fake port
@@ -1615,13 +1629,23 @@ bool CSteamNetworkingSockets::BeginAsyncRequestFakeIP( int nNumPorts )
 
 void CSteamNetworkingSockets::GetFakeIP( int idxFirstPort, SteamNetworkingFakeIPResult_t *pInfo )
 {
-	// Not supported by base class
-	if ( pInfo )
-	{
-		memset( pInfo, 0, sizeof(*pInfo) );
-		GetIdentity( &pInfo->m_identity );
-		pInfo->m_eResult = k_EResultDisabled;
-	}
+// Bleh, I don't want to ship the header to people who don't need it.
+// This would be the right thing to do.
+//	// Not supported by base class
+//	if ( pInfo )
+//	{
+//		memset( pInfo, 0, sizeof(*pInfo) );
+//		GetIdentity( &pInfo->m_identity );
+//		pInfo->m_eResult = k_EResultDisabled;
+//	}
+
+	AssertMsg( false, "FakeIP allocation requires Steam" );
+}
+
+ISteamNetworkingFakeUDPPort *CSteamNetworkingSockets::CreateFakeUDPPort( int idxFakeServerPort )
+{
+	AssertMsg( false, "FakeIP system requires Steam" );
+	return nullptr;
 }
 #endif
 

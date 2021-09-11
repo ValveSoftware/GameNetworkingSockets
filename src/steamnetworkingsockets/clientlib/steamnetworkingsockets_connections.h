@@ -205,6 +205,10 @@ struct FakeIPReference
 	/// If we hold a reference, clear it
 	void Clear();
 
+	/// Setup to hold a reference to the given FakeIP.  Returns false if we don't
+	/// know who is on the other end of that identity
+	bool Lookup( const SteamNetworkingIPAddr &addr );
+
 	/// Setup to hold a reference to the given FakeIP and the known remote identity
 	void Setup( const SteamNetworkingIPAddr &addr, const SteamNetworkingIdentity &identity );
 
@@ -217,7 +221,7 @@ struct FakeIPReference
 
 private:
 	void InsertInternal( const FakeIPKey &key, const SteamNetworkingIdentity &identity );
-	void AddRefInternal( int handle, const SteamNetworkingIdentity &identity );
+	void AddRefInternal( int handle, const SteamNetworkingIdentity *pIdentity );
 
 	int m_nHandle = -1;
 };
@@ -565,6 +569,8 @@ public:
 	{
 		return m_receiverState.TimeWhenFlushAcks() < INT64_MAX || SNP_TimeWhenWantToSendNextPacket() < INT64_MAX;
 	}
+
+	inline int SNP_PendingUnreliable() const { return m_senderState.m_cbPendingUnreliable; }
 
 	/// Send a data packet now, even if we don't have the bandwidth available.  Returns true if a packet was
 	/// sent successfully, false if there was a problem.  This will call SendEncryptedDataChunk to do the work
