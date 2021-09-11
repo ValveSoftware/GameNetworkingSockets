@@ -446,16 +446,6 @@ public:
 	void RemoveP2PConnectionMapByRemoteInfo();
 	bool BEnsureInP2PConnectionMapByRemoteInfo( SteamDatagramErrMsg &errMsg );
 
-	//
-	// FakeIP
-	//
-#ifdef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
-
-	FakeIPReference m_fakeIPRef;
-	virtual EResult APIGetRemoteFakeIPForConnection( SteamNetworkingIPAddr *pOutAddr ) override;
-
-#endif
-
 protected:
 	virtual ~CSteamNetworkConnectionP2P();
 

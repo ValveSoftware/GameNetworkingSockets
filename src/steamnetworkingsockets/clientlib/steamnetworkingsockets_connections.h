@@ -374,9 +374,6 @@ public:
 	/// (E.g. loopback.)
 	virtual int64 _APISendMessageToConnection( CSteamNetworkingMessage *pMsg, SteamNetworkingMicroseconds usecNow, bool *pbThinkImmediately );
 
-	/// FakeIP lookuip
-	virtual EResult APIGetRemoteFakeIPForConnection( SteamNetworkingIPAddr *pOutAddr );
-
 //
 // Accessor
 //
@@ -664,6 +661,13 @@ public:
 	#else
 		inline void CheckScheduleDiagnosticsUpdateASAP() {}
 		static constexpr SteamNetworkingMicroseconds m_usecWhenNextDiagnosticsUpdate = k_nThinkTime_Never;
+	#endif
+
+	//
+	// FakeIP
+	//
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
+	FakeIPReference m_fakeIPRefRemote;
 	#endif
 
 	/// Timestamp when we were created

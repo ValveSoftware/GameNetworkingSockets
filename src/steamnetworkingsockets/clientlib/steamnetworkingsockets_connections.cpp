@@ -815,6 +815,10 @@ void CSteamNetworkConnectionBase::FreeResources()
 	// So we basically don't exist to you if all you have is a handle
 	SetState( k_ESteamNetworkingConnectionState_Dead, SteamNetworkingSockets_GetLocalTimestamp() );
 
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
+		m_fakeIPRefRemote.Clear();
+	#endif
+
 	// Discard any messages that weren't retrieved
 	g_lockAllRecvMessageQueues.lock();
 	m_queueRecvMessages.PurgeMessages();
@@ -2125,12 +2129,6 @@ int CSteamNetworkConnectionBase::APIReceiveMessages( SteamNetworkingMessage_t **
 	g_lockAllRecvMessageQueues.unlock();
 
 	return result;
-}
-
-EResult CSteamNetworkConnectionBase::APIGetRemoteFakeIPForConnection( SteamNetworkingIPAddr *pOutAddr )
-{
-	// Derived class must override if FakeIP support is desired
-	return k_EResultIPNotFound;
 }
 
 bool CSteamNetworkConnectionBase::DecryptDataChunk( uint16 nWireSeqNum, int cbPacketSize, const void *pChunk, int cbChunk, RecvPacketContext_t &ctx )
@@ -3880,6 +3878,20 @@ bool CSteamNetworkConnectionPipe::BBeginAccept( CSteamNetworkListenSocketBase *p
 	m_identityRemote = m_pPartner->m_identityLocal;
 	m_unConnectionIDRemote = m_pPartner->m_unConnectionIDLocal;
 
+	// If they connected to us via a local FakeIP, we need to assign the client side an ephemeral FakeIP
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
+		if ( m_pPartner->m_identityRemote.IsFakeIP() )
+		{
+			Assert( !m_identityRemote.IsFakeIP() );
+			Assert( !m_fakeIPRefRemote.IsValid() );
+			if ( !m_fakeIPRefRemote.SetupNewLocalIP( m_identityRemote, nullptr ) )
+			{
+				V_sprintf_safe( errMsg, "Failed to allocate ephemeral FakeIP to client" );
+				return false;
+			}
+		}
+	#endif
+
 	// Act like we came in on this listen socket
 	if ( !pListenSocket->BAddChildConnection( this, errMsg ) )
 		return false;
@@ -3917,6 +3929,17 @@ EResult CSteamNetworkConnectionPipe::AcceptConnection( SteamNetworkingMicrosecon
 
 	// "Send connect OK" to partner, and he is connected
 	FakeSendStats( usecNow, 0 );
+
+	// At this point, client would ordinarily learn the real identity.
+	// if he connected by FakeIP, setup FakeIP reference just like
+	// we ordinarily would
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
+		if ( m_pPartner->m_identityRemote.IsFakeIP() )
+		{
+			Assert( !m_pPartner->m_fakeIPRefRemote.IsValid() );
+			m_pPartner->m_fakeIPRefRemote.Setup( m_pPartner->m_identityRemote.m_ip, m_identityLocal );
+		}
+	#endif
 
 	// Partner "receives" ConnectOK
 	m_pPartner->m_identityRemote = m_identityLocal; // And now they know our real identity

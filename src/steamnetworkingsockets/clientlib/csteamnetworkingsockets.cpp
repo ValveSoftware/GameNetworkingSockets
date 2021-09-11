@@ -1655,7 +1655,20 @@ EResult CSteamNetworkingSockets::GetRemoteFakeIPForConnection( HSteamNetConnecti
 	CSteamNetworkConnectionBase *pConn = GetConnectionByHandleForAPI( hConn, connectionLock, "GetRemoteFakeIPForConnection" );
 	if ( !pConn )
 		return k_EResultInvalidParam;
-	return pConn->APIGetRemoteFakeIPForConnection( pOutAddr );
+
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
+		if ( pConn->m_identityRemote.IsFakeIP() )
+		{
+			if ( pOutAddr )
+				*pOutAddr = pConn->m_identityRemote.m_ip;
+			return k_EResultOK;
+		}
+
+		if ( pConn->m_fakeIPRefRemote.GetInfo( nullptr, pOutAddr ) )
+			return k_EResultOK;
+	#endif
+
+	return k_EResultIPNotFound;
 }
 
 /////////////////////////////////////////////////////////////////////////////

@@ -181,6 +181,19 @@ bool CSteamNetworkConnectionP2P::BInitConnect(
 		m_identityRemote = *pIdentityRemote;
 	m_nRemoteVirtualPort = nRemoteVirtualPort;
 
+	// Can only initiate FakeIP connections to global addresses
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
+		if ( m_identityRemote.IsFakeIP() )
+		{
+			if ( m_identityRemote.GetFakeIPType() != k_ESteamNetworkingFakeIPType_GlobalIPv4 )
+			{
+				V_sprintf_safe( errMsg, "Can only initiate connection to global FakeIP" );
+				AssertMsg( false, errMsg );
+				return false;
+			}
+		}
+	#endif
+
 	// Remember when we started finding a session
 	//m_usecTimeStartedFindingSession = usecNow;
 
@@ -189,31 +202,6 @@ bool CSteamNetworkConnectionP2P::BInitConnect(
 	if ( !BInitP2PConnectionCommon( usecNow, nOptions, pOptions, errMsg ) )
 		return false;
 
-	// Check if there is a matching connection, for symmetric mode
-#ifdef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
-	if ( m_identityRemote.IsFakeIP() )
-	{
-		// We are assuming for now that we cannot initiate connections
-		// to ephemeral addresses!
-		Assert( m_identityRemote.GetFakeIPType() == k_ESteamNetworkingFakeIPType_GlobalIPv4 );
-
-		// We can only use symmetric mode if we are connecting from our global
-		// address
-		if ( BSymmetricMode() )
-		{
-			// Note: I think this actually might just work.
-			// But it hasn't been tested
-			AssertMsg( false, "FIXME - untested!" );
-			return false;
-			//if ( !IsVirtualPortGlobalFakePort( LocalVirtualPort() ) )
-			//{
-			//	V_strcpy_safe( errMsg, "Symmetric connect mode cannot be used with FakeIP" );
-			//	return false;
-			//}
-		}
-	}
-	else
-#endif
 	if ( !m_identityRemote.IsInvalid() && LocalVirtualPort() >= 0 )
 	{
 		bool bOnlySymmetricConnections = !BSymmetricMode();
@@ -896,10 +884,6 @@ void CSteamNetworkConnectionP2P::FreeResources()
 		m_pSignaling = nullptr;
 	}
 
-	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
-		m_fakeIPRef.Clear();
-	#endif
-
 	// Base class cleanup
 	CSteamNetworkConnectionBase::FreeResources();
 }
@@ -948,19 +932,29 @@ void CSteamNetworkConnectionP2P::DestroyTransport()
 CSteamNetworkConnectionP2P *CSteamNetworkConnectionP2P::FindDuplicateConnection( CSteamNetworkingSockets *pInterfaceLocal, int nLocalVirtualPort, const SteamNetworkingIdentity &identityRemote, int nRemoteVirtualPort, bool bOnlySymmetricConnections, CSteamNetworkConnectionP2P *pIgnore )
 {
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
+	Assert( nLocalVirtualPort >= 0 );
 
-	// FIXME - This is not right for fake IP.  If both peers
-	// are using their global addresses, then they might
-	// try to connect to each other at the same time.
+	// Check FakeIP
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
-		if ( identityRemote.IsFakeIP() )
+		switch ( identityRemote.GetFakeIPType() )
 		{
-			Assert( nLocalVirtualPort < 0 );
-			return nullptr;
+			case k_ESteamNetworkingFakeIPType_Invalid:
+				// Typical P2P connection
+				break;
+
+			case k_ESteamNetworkingFakeIPType_GlobalIPv4:
+				if ( !IsVirtualPortGlobalFakePort( nLocalVirtualPort ) )
+				{
+					Assert( IsVirtualPortEphemeralFakePort( nLocalVirtualPort ) );
+					return nullptr;
+				}
+				break;
+
+			default:
+				AssertMsg( false, "Bad FakeIP type %d", identityRemote.GetFakeIPType() );
+				return nullptr;
 		}
 	#endif
-
-	Assert( nLocalVirtualPort >= 0 );
 
 	for ( CSteamNetworkConnectionBase *pConn: g_mapConnections.IterValues() )
 	{
@@ -2372,25 +2366,6 @@ void CSteamNetworkConnectionP2P::ConnectionPopulateDiagnostics( ESteamNetworking
 
 #endif
 
-#ifdef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
-
-EResult CSteamNetworkConnectionP2P::APIGetRemoteFakeIPForConnection( SteamNetworkingIPAddr *pOutAddr )
-{
-	if ( m_identityRemote.IsFakeIP() )
-	{
-		if ( pOutAddr )
-			*pOutAddr = m_identityRemote.m_ip;
-		return k_EResultOK;
-	}
-
-	if ( m_fakeIPRef.GetInfo( nullptr, pOutAddr ) )
-		return k_EResultOK;
-
-	return k_EResultIPNotFound;
-}
-
-#endif
-
 /////////////////////////////////////////////////////////////////////////////
 //
 // CSteamNetworkingSockets CConnectionTransportP2PBase
@@ -2763,15 +2738,28 @@ CSteamNetworkConnectionBase *CSteamNetworkingSockets::InternalConnectP2PDefaultS
 			if ( pServerInstance->BMatchesIdentity( identityRemote ) )
 			{
 
-				// This is the guy we want to talk to.  Locate the listen socket
 				CSteamNetworkListenSocketP2P *pListenSocket = nullptr;
 
+				// This is the guy we want to talk to.  Locate the listen socket
 
 				#ifdef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
 				if ( identityRemote.IsFakeIP() )
 				{
-					AssertMsg( false, "FIXME!" );
-					return nullptr;
+					Assert( identityRemote.GetFakeIPType() == k_ESteamNetworkingFakeIPType_GlobalIPv4 ); // We cannot initiate connections to ephemeral addresses!
+					Assert( nRemoteVirtualPort == -1 );
+					int idxFakePort = pServerInstance->GetFakePortIndex( identityRemote.m_ip );
+					Assert( idxFakePort >= 0 ); // Else why did BMatchesIdentity return true?
+
+					int nRemoteVirtualPortToSearch = k_nVirtualPort_GlobalFakePort0 + idxFakePort;
+					int idx = pServerInstance->m_mapListenSocketsByVirtualPort.Find( nRemoteVirtualPortToSearch );
+					if ( idx == pServerInstance->m_mapListenSocketsByVirtualPort.InvalidIndex() )
+					{
+						SpewBug( "Cannot create P2P connection to local identity %s.  That is our FakeIP, but we aren't listening on fake port %d",
+							SteamNetworkingIdentityRender( identityRemote ).c_str(), identityRemote.m_ip.m_port );
+						return nullptr;
+					}
+					pListenSocket = pServerInstance->m_mapListenSocketsByVirtualPort[ idx ];
+
 				}
 				else
 				#endif
@@ -3153,8 +3141,8 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const CMsgSteamNetworki
 			#ifdef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
 				if ( pConn->m_identityRemote.IsFakeIP() )
 				{
-					AssertMsg( !pConn->m_fakeIPRef.IsValid(), "%s Setting up FakeIP ref twice?", pConn->GetDescription() );
-					pConn->m_fakeIPRef.Setup( pConn->m_identityRemote.m_ip, identityRemote );
+					AssertMsg( !pConn->m_fakeIPRefRemote.IsValid(), "%s Setting up FakeIP ref twice?", pConn->GetDescription() );
+					pConn->m_fakeIPRefRemote.Setup( pConn->m_identityRemote.m_ip, identityRemote );
 				}
 			#endif
 			pConn->m_identityRemote = identityRemote;
@@ -3354,38 +3342,52 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const CMsgSteamNetworki
 				if ( nLocalVirtualPort >= 0 )
 				{
 
-					CSteamNetworkConnectionP2P *pMatchingConnection = nullptr;
+					bool bSearchDuplicateConnections = true;
 					if ( IsVirtualPortFakePort( nLocalVirtualPort ) )
 					{
 						#ifdef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
-							// FIXME - check for matching symmetric connection if both sides
-							// are using global addresses
-							nUseSymmetricConnection = 0;
+							Assert( IsVirtualPortGlobalFakePort( nLocalVirtualPort ) );
+
+							// Check for matching symmetric connection if both
+							// sides are using global addresses
+							if ( fromFakeIP.GetFakeIPType() == k_ESteamNetworkingFakeIPType_GlobalIPv4 )
+							{
+								// Use symmetric mode if the listen socket is opened in symmetric mode
+							}
+							else
+							{
+								// Can't use symmetric mode, since we wouldn't have a way to
+								// send back out to them
+								Assert( fromFakeIP.IsIPv6AllZeros() );
+								nUseSymmetricConnection = 0;
+								bSearchDuplicateConnections = false;
+							}
 						#else
 							Assert( false );
+							return false;
 						#endif
 					}
-					else
-					{
-						pMatchingConnection = CSteamNetworkConnectionP2P::FindDuplicateConnection( this, nLocalVirtualPort, identityRemote, nRemoteVirtualPort, nUseSymmetricConnection > 0, nullptr );
-					}
 
-					if ( pMatchingConnection )
+					if ( bSearchDuplicateConnections )
 					{
-						ConnectionScopeLock lockMatchingConnection( *pMatchingConnection );
-						Assert( pMatchingConnection->m_pParentListenSocket == nullptr ); // This conflict should only happen for connections we initiate!
-						int cmp = CompareSymmetricConnections( pMatchingConnection->m_unConnectionIDLocal, pMatchingConnection->GetSignedCertLocal().cert(), msg.from_connection_id(), msgConnectRequest.cert().cert() );
-
-						// Check if we prefer for our connection to act as the "client"
-						if ( cmp <= 0 )
+						CSteamNetworkConnectionP2P *pMatchingConnection = CSteamNetworkConnectionP2P::FindDuplicateConnection( this, nLocalVirtualPort, identityRemote, nRemoteVirtualPort, nUseSymmetricConnection > 0, nullptr );
+						if ( pMatchingConnection )
 						{
-							SpewVerboseGroup( nLogLevel, "[%s] Symmetric role resolution for connect request remote cxn ID #%u says we should act as client.  Dropping incoming request, we will wait for them to accept ours\n", pMatchingConnection->GetDescription(), msg.from_connection_id() );
-							Assert( !pMatchingConnection->m_bConnectionInitiatedRemotely );
+							ConnectionScopeLock lockMatchingConnection( *pMatchingConnection );
+							Assert( pMatchingConnection->m_pParentListenSocket == nullptr ); // This conflict should only happen for connections we initiate!
+							int cmp = CompareSymmetricConnections( pMatchingConnection->m_unConnectionIDLocal, pMatchingConnection->GetSignedCertLocal().cert(), msg.from_connection_id(), msgConnectRequest.cert().cert() );
+
+							// Check if we prefer for our connection to act as the "client"
+							if ( cmp <= 0 )
+							{
+								SpewVerboseGroup( nLogLevel, "[%s] Symmetric role resolution for connect request remote cxn ID #%u says we should act as client.  Dropping incoming request, we will wait for them to accept ours\n", pMatchingConnection->GetDescription(), msg.from_connection_id() );
+								Assert( !pMatchingConnection->m_bConnectionInitiatedRemotely );
+								return true;
+							}
+
+							pMatchingConnection->ChangeRoleToServerAndAccept( msg, usecNow );
 							return true;
 						}
-
-						pMatchingConnection->ChangeRoleToServerAndAccept( msg, usecNow );
-						return true;
 					}
 				}
 
@@ -3445,10 +3447,10 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const CMsgSteamNetworki
 			#ifdef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
 				if ( toLocalIdentity.IsFakeIP() )
 				{
-					Assert( !pConn->m_fakeIPRef.IsValid() );
+					Assert( !pConn->m_fakeIPRefRemote.IsValid() );
 					if ( fromFakeIP.IsIPv6AllZeros() )
 					{
-						if ( !pConn->m_fakeIPRef.SetupNewLocalIP( pConn->m_identityRemote, &fromFakeIP ) )
+						if ( !pConn->m_fakeIPRefRemote.SetupNewLocalIP( pConn->m_identityRemote, &fromFakeIP ) )
 						{
 							SpewWarning( "Failed to start accepting P2P FakeIP connect request from %s; cannot assign ephemeral IP\n",
 								SteamNetworkingIdentityRender( pConn->m_identityRemote ).c_str() );
@@ -3458,7 +3460,7 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const CMsgSteamNetworki
 					}
 					else
 					{
-						pConn->m_fakeIPRef.Setup( fromFakeIP, pConn->m_identityRemote );
+						pConn->m_fakeIPRefRemote.Setup( fromFakeIP, pConn->m_identityRemote );
 					}
 				}
 			#endif
