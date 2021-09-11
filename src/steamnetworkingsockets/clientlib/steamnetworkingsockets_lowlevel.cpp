@@ -550,41 +550,42 @@ void CTaskList::RunTasks()
 			if ( pTask->m_pTarget )
 				scopeLock.Lock( s_lockTaskQueue );
 
-			// Do we have a lock we need to take?
-			if ( pTask->m_lockFunc )
-			{
-
-				int msTimeOut = 10;
-				if ( pTask->m_pTarget )
-				{
-					scopeLock.Lock( s_lockTaskQueue );
-
-					// Deleted while we locked?
-					if ( pTask->m_eTaskState != CQueuedTask::k_ETaskState_Queued )
-					{
-						Assert( pTask->m_eTaskState == CQueuedTask::k_ETaskState_ReadyToDelete );
-						Assert( pTask->m_pTarget == nullptr );
-						break;
-					}
-
-					// Use a short timeout and loop, in case we might deadlock
-					msTimeOut = 1;
-				}
-
-				if ( !(*pTask->m_lockFunc)( pTask->m_lockFuncArg, msTimeOut, pTask->m_pszTag ) )
-				{
-					// Other object is busy, or perhaps we are deadlocked?
-					continue;
-				}
-
-				// Deleted while we locked?
-				if ( pTask->m_eTaskState != CQueuedTask::k_ETaskState_Queued )
-				{
-					Assert( pTask->m_eTaskState == CQueuedTask::k_ETaskState_ReadyToDelete );
-					Assert( pTask->m_pTarget == nullptr );
-					break;
-				}
-			}
+// FIXME - has not been tested, and also does not have a good mechanism for unlocking.
+//			// Do we have a lock we need to take?
+//			if ( pTask->m_lockFunc )
+//			{
+//
+//				int msTimeOut = 10;
+//				if ( pTask->m_pTarget )
+//				{
+//					scopeLock.Lock( s_lockTaskQueue );
+//
+//					// Deleted while we locked?
+//					if ( pTask->m_eTaskState != CQueuedTask::k_ETaskState_Queued )
+//					{
+//						Assert( pTask->m_eTaskState == CQueuedTask::k_ETaskState_ReadyToDelete );
+//						Assert( pTask->m_pTarget == nullptr );
+//						break;
+//					}
+//
+//					// Use a short timeout and loop, in case we might deadlock
+//					msTimeOut = 1;
+//				}
+//
+//				if ( !(*pTask->m_lockFunc)( pTask->m_lockFuncArg, msTimeOut, pTask->m_pszTag ) )
+//				{
+//					// Other object is busy, or perhaps we are deadlocked?
+//					continue;
+//				}
+//
+//				// Deleted while we locked?
+//				if ( pTask->m_eTaskState != CQueuedTask::k_ETaskState_Queued )
+//				{
+//					Assert( pTask->m_eTaskState == CQueuedTask::k_ETaskState_ReadyToDelete );
+//					Assert( pTask->m_pTarget == nullptr );
+//					break;
+//				}
+//			}
 
 			// OK, we've got the locks we need and are ready to run.
 			// Unlink from the target, if we have one

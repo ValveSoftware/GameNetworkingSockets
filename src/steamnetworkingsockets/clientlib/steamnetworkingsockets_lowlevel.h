@@ -627,30 +627,31 @@ public:
 	/// Function call used to try to take the lock
 	typedef bool (*FTryLockFunc)( void *lock, int msTimeOut, const char *pszTag );
 
-	/// Set the locking mechanism that we should acquire before trying to
-	/// run the task.  You must use this if the target might be deleted
-	/// while the task is run.  If there is no chance of the target being
-	/// deleted while the tasks are being run, then this is not necessary.
-	inline void SetLockFunc( FTryLockFunc func, void *lock, const char *pszTag = nullptr )
-	{
-		m_lockFunc = func;
-		m_lockFuncArg = lock;
-		if ( pszTag )
-			m_pszTag = pszTag;
-	}
-
-	/// Adapter for typed locks
-	template<typename TLock>
-	inline void SetLock( TLock &lock, const char *pszTag = nullptr )
-	{
-		m_lockFunc = []( void *pLock, int msTimeOut, const char *pszTagArg ) -> bool
-		{
-			return ((TLock *)pLock)->try_lock_for( msTimeOut, pszTagArg );
-		};
-		m_lockFuncArg = &lock;
-		if ( pszTag )
-			m_pszTag = pszTag;
-	}
+// !FIXME! Hasn't been tested.  And tehre isn't a good mechanism for unlocking.
+//	/// Set the locking mechanism that we should acquire before trying to
+//	/// run the task.  You must use this if the target might be deleted
+//	/// while the task is run.  If there is no chance of the target being
+//	/// deleted while the tasks are being run, then this is not necessary.
+//	inline void SetLockFunc( FTryLockFunc func, void *lock, const char *pszTag = nullptr )
+//	{
+//		m_lockFunc = func;
+//		m_lockFuncArg = lock;
+//		if ( pszTag )
+//			m_pszTag = pszTag;
+//	}
+//
+//	/// Adapter for typed locks
+//	template<typename TLock>
+//	inline void SetLock( TLock &lock, const char *pszTag = nullptr )
+//	{
+//		m_lockFunc = []( void *pLock, int msTimeOut, const char *pszTagArg ) -> bool
+//		{
+//			return ((TLock *)pLock)->try_lock_for( msTimeOut, pszTagArg );
+//		};
+//		m_lockFuncArg = &lock;
+//		if ( pszTag )
+//			m_pszTag = pszTag;
+//	}
 
 protected:
 	virtual void Run() = 0;
@@ -674,9 +675,13 @@ private:
 	CQueuedTask *m_pNextTaskInQueue = nullptr;
 	CQueuedTask *m_pPrevTaskForTarget = nullptr;
 	CQueuedTask *m_pNextTaskForTarget = nullptr;
-	FTryLockFunc m_lockFunc = nullptr;
-	void *m_lockFuncArg = nullptr;
+
+	// FIXME Locking hasn't been tested, and doesn't have a good
+	// mechanism for unlocking.
+	static constexpr FTryLockFunc m_lockFunc = nullptr;
+	static constexpr void *m_lockFuncArg = nullptr;
 	const char *m_pszTag = nullptr;
+
 	volatile ETaskState m_eTaskState = k_ETaskState_Init;
 };
 
