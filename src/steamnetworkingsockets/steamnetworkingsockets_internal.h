@@ -559,10 +559,31 @@ inline int64 NearestWithSameLowerBits( T nLowerBits, int64 nReference )
 	return nReference + nDiff;
 }
 
-/// Calculate hash of identity.
+/// Calculate hash of SteamNetworkingIdentity
 struct SteamNetworkingIdentityHash
 {
-	uint32 operator()( const SteamNetworkingIdentity &x ) const;
+	uint32 operator()(struct SteamNetworkingIdentity const &x ) const
+	{
+		// Make sure we don't have any packing or alignment issues
+		COMPILE_TIME_ASSERT( offsetof( SteamNetworkingIdentity, m_eType ) == 0 );
+		COMPILE_TIME_ASSERT( sizeof( x.m_eType ) == 4 );
+		COMPILE_TIME_ASSERT( offsetof( SteamNetworkingIdentity, m_cbSize ) == 4 );
+		COMPILE_TIME_ASSERT( sizeof( x.m_cbSize ) == 4 );
+		COMPILE_TIME_ASSERT( offsetof( SteamNetworkingIdentity, m_steamID64 ) == 8 );
+
+		return Murmorhash32( &x, sizeof( x.m_eType ) + sizeof( x.m_cbSize ) + x.m_cbSize );
+	}
+};
+
+/// Calculate hash of SteamNetworkingIPAddr
+struct SteamNetworkingIPAddrHash
+{
+	uint32 operator()( struct SteamNetworkingIPAddr const &x ) const
+	{
+		// Make sure we don't have any packing or alignment issues
+		COMPILE_TIME_ASSERT( sizeof( SteamNetworkingIPAddr ) == 16+2 );
+		return Murmorhash32( &x, sizeof( SteamNetworkingIPAddr ) );
+	};
 };
 
 inline bool IsValidSteamIDForIdentity( CSteamID steamID )
