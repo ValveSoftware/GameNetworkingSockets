@@ -33,7 +33,7 @@ GameNetworkingSockets is a basic transport layer for games.  The features are:
   * See [README_P2P.md](README_P2P.md) for more info
 * Cross platform.  This library has shipped on consoles, mobile platforms, and non-Steam
   stores, and has been used to facilitate cross-platform connectivity.  Contact us to get
-  access to the code.  (We are not allowed to distributed it here.)
+  access to the code.  (We are not allowed to distribute it here.)
 
 What it does *not* do:
 
