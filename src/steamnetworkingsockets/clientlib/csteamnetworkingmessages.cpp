@@ -800,9 +800,6 @@ void SteamNetworkingMessagesSession::CheckConnection( SteamNetworkingMicrosecond
 
 	UpdateConnectionInfo();
 
-	bool bIdle = !m_pConnection->SNP_BHasAnyBufferedRecvData()
-		&& !m_pConnection->SNP_BHasAnyUnackedSentReliableData();
-
 	// Safety check in case the connection got nuked without going thorugh an expected terminal state
 	if ( !m_pConnection->BStateIsActive() )
 	{
@@ -818,6 +815,9 @@ void SteamNetworkingMessagesSession::CheckConnection( SteamNetworkingMicrosecond
 	// Check if the connection died
 	if ( m_lastConnectionInfo.m_eState == k_ESteamNetworkingConnectionState_ProblemDetectedLocally || m_lastConnectionInfo.m_eState == k_ESteamNetworkingConnectionState_ClosedByPeer )
 	{
+		bool bIdle = !m_pConnection->SNP_BHasAnyBufferedRecvData()
+			&& !m_pConnection->SNP_BHasAnyUnackedSentReliableData();
+
 		SpewVerbose( "[%s] messages session %s: %d %s\n",
 			m_lastConnectionInfo.m_szConnectionDescription,
 			m_lastConnectionInfo.m_eState == k_ESteamNetworkingConnectionState_ProblemDetectedLocally ? "problem detected locally" : "closed by peer",
