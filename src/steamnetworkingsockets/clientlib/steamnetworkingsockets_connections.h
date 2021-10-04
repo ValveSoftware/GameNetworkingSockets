@@ -815,7 +815,6 @@ protected:
 	void SNP_PopulateQuickStats( SteamNetworkingQuickConnectionStatus &info, SteamNetworkingMicroseconds usecNow );
 	void SNP_RecordReceivedPktNum( int64 nPktNum, SteamNetworkingMicroseconds usecNow, bool bScheduleAck );
 	EResult SNP_FlushMessage( SteamNetworkingMicroseconds usecNow );
-	uint8 *SNP_EncodeSegment( int idxSeg, uint8 *pPayloadPtr, SNPPacketSerializeHelper &helper );
 
 	/// Accumulate "tokens" into our bucket base on the current calculated send rate
 	void SNP_TokenBucket_Accumulate( SteamNetworkingMicroseconds usecNow );
@@ -839,6 +838,10 @@ protected:
 private:
 
 	void SNP_GatherAckBlocks( SNPPacketSerializeHelper &helper );
+
+	template<bool k_bUnreliableOnly, bool k_bSingleLane>
+	int SNP_SerializePacketInternal( SNPPacketSerializeHelper &helper );
+
 	uint8 *SNP_SerializeAckBlocks( const SNPPacketSerializeHelper &helper, uint8 *pOut, const uint8 *pOutEnd );
 	uint8 *SNP_SerializeStopWaitingFrame( SNPPacketSerializeHelper &helper, uint8 *pOut );
 
