@@ -497,7 +497,9 @@ struct SSNPReceiverState
 		/// The message number of the most recently received reliable message
 		int64 m_nLastRecvReliableMsgNum = 0;
 
-		/// Reliable data stream that we have received.  This might have gaps in it!
+		/// Reliable data stream that we have received but not yet
+		/// parsed as reliable messages and dispatched them.  This
+		/// might have gaps in it!
 		std_vector<byte> m_bufReliableStream;
 
 		/// Gaps in the reliable data.  These are created when we receive reliable data that
