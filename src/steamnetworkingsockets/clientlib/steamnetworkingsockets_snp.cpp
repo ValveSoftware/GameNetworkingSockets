@@ -1619,9 +1619,9 @@ bool CSteamNetworkConnectionBase::SNP_SendPacket( CConnectionTransport *pTranspo
 			cbReserveForAcks = 0;
 		}
 
-		// Truncate the buffer, don't try to fit any data
-		// !SPEED! - instead of doing this, we could just put all of the segment code below
-		// in an else() block.
+		// Truncate the buffer, don't try to fit any data.  Note that instead of doing
+		// this, we could just put all of the segment code below in an else() block.  But
+		// this is a pretty rare edge case and honestly I just prefer to not indent the code!
 		pPayloadEnd = pPayloadPtr;
 	}
 
