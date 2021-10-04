@@ -40,7 +40,8 @@ class CSteamNetworkConnectionBase;
 class CSteamNetworkConnectionP2P;
 class CSharedSocket;
 class CConnectionTransport;
-struct SNPAckSerializerHelper;
+struct SNPPacketSerializeHelper;
+struct SNPEncodedSegment;
 struct CertAuthScope;
 class CMessagesEndPoint;
 class CMessagesEndPointSession;
@@ -814,6 +815,7 @@ protected:
 	void SNP_PopulateQuickStats( SteamNetworkingQuickConnectionStatus &info, SteamNetworkingMicroseconds usecNow );
 	void SNP_RecordReceivedPktNum( int64 nPktNum, SteamNetworkingMicroseconds usecNow, bool bScheduleAck );
 	EResult SNP_FlushMessage( SteamNetworkingMicroseconds usecNow );
+	uint8 *SNP_EncodeSegment( int idxSeg, uint8 *pPayloadPtr, SNPPacketSerializeHelper &helper );
 
 	/// Accumulate "tokens" into our bucket base on the current calculated send rate
 	void SNP_TokenBucket_Accumulate( SteamNetworkingMicroseconds usecNow );
@@ -836,9 +838,9 @@ protected:
 
 private:
 
-	void SNP_GatherAckBlocks( SNPAckSerializerHelper &helper, SteamNetworkingMicroseconds usecNow );
-	uint8 *SNP_SerializeAckBlocks( const SNPAckSerializerHelper &helper, uint8 *pOut, const uint8 *pOutEnd, SteamNetworkingMicroseconds usecNow );
-	uint8 *SNP_SerializeStopWaitingFrame( uint8 *pOut, const uint8 *pOutEnd, SteamNetworkingMicroseconds usecNow );
+	void SNP_GatherAckBlocks( SNPPacketSerializeHelper &helper );
+	uint8 *SNP_SerializeAckBlocks( const SNPPacketSerializeHelper &helper, uint8 *pOut, const uint8 *pOutEnd );
+	uint8 *SNP_SerializeStopWaitingFrame( SNPPacketSerializeHelper &helper, uint8 *pOut );
 
 	void SetState( ESteamNetworkingConnectionState eNewState, SteamNetworkingMicroseconds usecNow );
 	ESteamNetworkingConnectionState m_eConnectionState;

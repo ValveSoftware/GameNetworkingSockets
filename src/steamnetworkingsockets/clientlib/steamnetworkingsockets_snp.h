@@ -410,6 +410,34 @@ struct SSNPSenderState
 	// Remove messages from m_unackedReliableMessages that have been fully acked.
 	void RemoveAckedReliableMessageFromUnackedList();
 
+	/// Check if the current virtual time is getting pretty big, then shift everything
+	/// down.  This only happens after we've been running for a pretty long time.
+	inline void CheckShiftVirtualTime()
+	{
+		// NOTE: Intentionally using a lower limit than strictly necessary, just so that my
+		// soak test would actually hit this code and I could make sure it works.
+		// 64-bit numbers are HUUUUGE.
+		constexpr VirtualTime kThresh = 0x0020000000000000ULL;
+		if ( likely( m_virtTimeCurrent < kThresh ) )
+			return;
+
+		VirtualTime shift = m_virtTimeCurrent - 0x000100000000ULL;
+		for ( Lane &l: m_vecLanes )
+		{
+			if ( l.m_messagesQueued.empty() )
+			{
+				l.m_virtTimeEstFinish = k_virtTime_Infinite;
+			}
+			else
+			{
+				Assert( l.m_virtTimeEstFinish < kThresh*2 );
+				Assert( l.m_virtTimeEstFinish >= shift );
+				l.m_virtTimeEstFinish -= shift;
+			}
+		}
+		m_virtTimeCurrent -= shift;
+	}
+
 	/// Check invariants in debug.
 	#if STEAMNETWORKINGSOCKETS_SNP_PARANOIA == 0 
 		inline void DebugCheckInFlightPacketMap() const {}
