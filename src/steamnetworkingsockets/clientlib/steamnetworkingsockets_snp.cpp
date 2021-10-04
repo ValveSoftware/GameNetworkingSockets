@@ -1378,12 +1378,12 @@ SteamNetworkingMicroseconds CSteamNetworkConnectionBase::SNP_SenderCheckInFlight
 
 struct SNPEncodedSegment
 {
-	static constexpr int k_cbMaxHdr = 16; 
-	uint8 m_hdr[ k_cbMaxHdr ];
-	int m_cbHdr; // Doesn't include any size byte
+	static constexpr int k_cbMaxHdr = 15;
 	CSteamNetworkingMessage *m_pMsg;
-	int m_cbSegSize;
-	int m_nOffset;
+	int m_cbSegSize; // Number of data bytes (not including header)
+	int m_nOffset; // Offset of the start of the segment within the message data
+	uint8 m_cbHdr; // Doesn't include any size byte
+	uint8 m_hdr[ k_cbMaxHdr ];
 
 	inline void SetupReliable( CSteamNetworkingMessage *pMsg, int64 nBegin, int64 nEnd, int64 nLastReliableStreamPosEnd )
 	{
