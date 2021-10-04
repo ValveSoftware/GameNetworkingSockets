@@ -1719,7 +1719,7 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 				Assert( f != INVALID_SOCKET ); \
 				p.fd = f; \
 				p.events = POLLRDNORM; \
-				p.revents = 0x7fff; /* Make sure kernel is clearing events properly */ \
+				p.revents = -1; /* Make sure kernel is clearing events properly */ \
 			}
 
 			for ( CRawUDPSocketImpl *pSock: s_vecRawSockets )
@@ -1800,7 +1800,7 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 		#else
 			if ( !( s_vecPollFDs[ idx ].revents & POLLRDNORM ) )
 				continue;
-			Assert( s_vecPollFDs[ idx ].revents != 0x7fff ); // Make sure kernel actually populated this
+			Assert( s_vecPollFDs[ idx ].revents != -1 ); // Make sure kernel actually populated this
 		#endif
 
 		// Drain the socket.  But if the callback gets cleared, that
@@ -1953,7 +1953,7 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 		pollfd &wake = s_vecPollFDs[ nSocketsToPoll ];
 		if ( wake.revents & POLLRDNORM )
 		{
-			Assert( wake.revents != 0x7fff );
+			Assert( wake.revents != -1 );
 
 			// It's a wake request.  Pull a single packet out of the queue.
 			// We want one wake request to always result in exactly one wake up.
