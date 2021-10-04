@@ -184,14 +184,16 @@ SSNPReceiverState::SSNPReceiverState()
 	m_itPendingAck = m_mapPacketGaps.end();
 	--m_itPendingAck;
 	m_itPendingNack = m_itPendingAck;
+
+	// Start with one lane
+	m_vecLanes.resize(1);
 }
 
 //-----------------------------------------------------------------------------
 void SSNPReceiverState::Shutdown()
 {
 	m_mapUnreliableSegments.clear();
-	m_bufReliableStream.clear();
-	m_mapReliableStreamGaps.clear();
+	m_vecLanes.clear();
 	m_mapPacketGaps.clear();
 }
 
@@ -238,12 +240,21 @@ int64 CSteamNetworkConnectionBase::SNP_SendMessage( CSteamNetworkingMessage *pSe
 	if ( pbThinkImmediately )
 		*pbThinkImmediately = false;
 
+	// Locate the lane, and check the lane index
+	if ( (size_t)pSendMessage->m_idxLane >= m_senderState.m_vecLanes.size() )
+	{
+		SpewBug( "Invalid lane %d.  Only %d lanes configured\n", (int)pSendMessage->m_idxLane, (int)m_senderState.m_vecLanes.size() );
+		pSendMessage->Release();
+		return -k_EResultInvalidParam;
+	}
+	SSNPSenderState::Lane &lane = m_senderState.m_vecLanes[ pSendMessage->m_idxLane ];
+
 	// Check if we're full
 	if ( m_senderState.PendingBytesTotal() + cbData > m_connectionConfig.m_SendBufferSize.Get() )
 	{
 		SpewWarningRateLimited( usecNow, "Connection already has %u bytes pending, cannot queue any more messages\n", m_senderState.PendingBytesTotal() );
 		pSendMessage->Release();
-		return -k_EResultLimitExceeded; 
+		return -k_EResultLimitExceeded;
 	}
 
 	// Check if they try to send a really large message
@@ -271,13 +282,13 @@ int64 CSteamNetworkConnectionBase::SNP_SendMessage( CSteamNetworkingMessage *pSe
 	// Reliable, or unreliable?
 	if ( pSendMessage->m_nFlags & k_nSteamNetworkingSend_Reliable )
 	{
-		pSendMessage->SNPSend_SetReliableStreamPos( m_senderState.m_nReliableStreamPos );
+		pSendMessage->SNPSend_SetReliableStreamPos( lane.m_nReliableStreamPos );
 
 		// Generate the header
 		byte *hdr = pSendMessage->SNPSend_ReliableHeader();
 		hdr[0] = 0;
 		byte *hdrEnd = hdr+1;
-		int64 nMsgNumGap = pSendMessage->m_nMessageNumber - m_senderState.m_nLastSendMsgNumReliable;
+		int64 nMsgNumGap = pSendMessage->m_nMessageNumber - lane.m_nLastSendMsgNumReliable;
 		Assert( nMsgNumGap >= 1 );
 		if ( nMsgNumGap > 1 )
 		{
@@ -299,7 +310,7 @@ int64 CSteamNetworkConnectionBase::SNP_SendMessage( CSteamNetworkingMessage *pSe
 		pSendMessage->m_cbSize += pSendMessage->m_cbSNPSendReliableHeader;
 
 		// Advance stream pointer
-		m_senderState.m_nReliableStreamPos += pSendMessage->m_cbSize;
+		lane.m_nReliableStreamPos += pSendMessage->m_cbSize;
 
 		// Update stats
 		++m_senderState.m_nMessagesSentReliable;
@@ -307,7 +318,7 @@ int64 CSteamNetworkConnectionBase::SNP_SendMessage( CSteamNetworkingMessage *pSe
 
 		// Remember last sent reliable message number, so we can know how to
 		// encode the next one
-		m_senderState.m_nLastSendMsgNumReliable = pSendMessage->m_nMessageNumber;
+		lane.m_nLastSendMsgNumReliable = pSendMessage->m_nMessageNumber;
 
 		Assert( pSendMessage->SNPSend_IsReliable() );
 	}
@@ -322,6 +333,19 @@ int64 CSteamNetworkConnectionBase::SNP_SendMessage( CSteamNetworkingMessage *pSe
 		Assert( !pSendMessage->SNPSend_IsReliable() );
 	}
 
+	// Use Nagle?
+	// NOTE: If the configuration value is changing, the assumption that Nagle times are
+	// increasing might be violated.  Probably not worth fixing.
+	if ( pSendMessage->m_nFlags & k_nSteamNetworkingSend_NoNagle )
+	{
+		m_senderState.ClearNagleTimers();
+		pSendMessage->SNPSend_SetUsecNagle( 0 );
+	}
+	else
+	{
+		pSendMessage->SNPSend_SetUsecNagle( usecNow + m_connectionConfig.m_NagleTime.Get() );
+	}
+
 	// Add to pending list
 	pSendMessage->LinkToQueueTail(&CSteamNetworkingMessage::m_links, &m_senderState.m_messagesQueued );
 	SpewVerboseGroup( m_connectionConfig.m_LogLevel_Message.Get(), "[%s] SendMessage %s: MsgNum=%lld sz=%d\n",
@@ -330,16 +354,18 @@ int64 CSteamNetworkConnectionBase::SNP_SendMessage( CSteamNetworkingMessage *pSe
 				 (long long)pSendMessage->m_nMessageNumber,
 				 pSendMessage->m_cbSize );
 
-	// Use Nagle?
-	// We always set the Nagle timer, even if we immediately clear it.  This makes our clearing code simpler,
-	// since we can always safely assume that once we find a message with the nagle timer cleared, all messages
-	// queued earlier than this also have it cleared.
-	// FIXME - Don't think this works if the configuration value is changing.  Since changing the
-	// config value could violate the assumption that nagle times are increasing.  Probably not worth
-	// fixing.
-	pSendMessage->SNPSend_SetUsecNagle( usecNow + m_connectionConfig.m_NagleTime.Get() );
-	if ( pSendMessage->m_nFlags & k_nSteamNetworkingSend_NoNagle )
-		m_senderState.ClearNagleTimers();
+	// Add it to the list for the lane.
+	// Was lane previously idle?
+	bool bWasEmpty = lane.m_messagesQueued.empty();
+	pSendMessage->LinkToQueueTail(&CSteamNetworkingMessage::m_linksSecondaryQueue, &lane.m_messagesQueued );
+	if ( bWasEmpty )
+	{
+		m_senderState.CalculateLaneEstimatedVirtualFinishTime( lane );
+	}
+	else
+	{
+		Assert( lane.m_virtTimeEstFinish < SSNPSenderState::k_virtTime_Infinite );
+	}
 
 	// Save the message number.  The code below might end up deleting the message we just queued
 	int64 result = pSendMessage->m_nMessageNumber;
@@ -417,6 +443,68 @@ int64 CSteamNetworkConnectionBase::SNP_SendMessage( CSteamNetworkingMessage *pSe
 	}
 
 	return result;
+}
+
+EResult CSteamNetworkConnectionBase::SNP_ConfigureLanes( int nLanes, const uint16 *pLaneWeights )
+{
+	// Connection must be locked, but we don't require the global lock here
+	m_pLock->AssertHeldByCurrentThread();
+
+	// Check for bogus number of lanes
+	if ( nLanes < 1 || nLanes > 255 )
+		return k_EResultInvalidParam;
+
+	// Can't reduce the number of lanes
+	if ( nLanes < len( m_senderState.m_vecLanes ) )
+		return k_EResultInvalidParam;
+
+	// Calculate total weight, and make sure all weights are legit
+	unsigned nTotalWeight = 0;
+	for ( int i = 0 ; i < nLanes ; ++i )
+	{
+		unsigned w = pLaneWeights[i];
+		if ( w < 1 )
+			return k_EResultInvalidParam;
+		nTotalWeight += w;
+	}
+
+	// Values are all good.  Resize the array.
+	m_senderState.m_vecLanes.resize( nLanes );
+
+	// Take this opportunity to reset virtual time
+	m_senderState.m_virtTimeCurrent = 0;
+
+	// Setup each lane
+	for ( int idxLane = 0 ; idxLane < nLanes ; ++idxLane )
+	{
+		SSNPSenderState::Lane &l = m_senderState.m_vecLanes[idxLane];
+
+		// Calculate multiplier to convert from bytes to
+		// virtual time.  The scale factor is so that we
+		// don't lose precision.
+		l.m_flBytesToVirtualTime = 65536.0f * (float)nTotalWeight / (float)pLaneWeights[idxLane];
+
+		// Reset virtual time.  This only matters if we actually have
+		// something queued.
+		l.m_virtTimeEstFinish = (SSNPSenderState::VirtualTime)l.m_flBytesToVirtualTime;
+
+		// !KLUDGE! Messages in a queue have a pointer to the queue
+		// That pointer may currently be dangling when we resized the
+		// array.  Go through and fix them all up
+		CSteamNetworkingMessage *pMsg = l.m_messagesQueued.m_pFirst;
+		if ( pMsg )
+		{
+			void *const pCheckQueue = pMsg->m_linksSecondaryQueue.m_pQueue;
+			do
+			{
+				Assert( pMsg->m_linksSecondaryQueue.m_pQueue == pCheckQueue );
+				pMsg->m_linksSecondaryQueue.m_pQueue = &l.m_messagesQueued;
+				pMsg = pMsg->m_linksSecondaryQueue.m_pNext;
+			} while ( pMsg );
+		}
+
+	}
+	return k_EResultOK;
 }
 
 EResult CSteamNetworkConnectionBase::SNP_FlushMessage( SteamNetworkingMicroseconds usecNow )
@@ -536,6 +624,7 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLa
 	const byte *pEnd = pDecode + ctx.m_cbPlainText;
 	int64 nCurMsgNum = 0;
 	int64 nDecodeReliablePos = 0;
+	SSNPReceiverState::Lane *pCurrentLane = &m_receiverState.m_vecLanes[0];
 	while ( pDecode < pEnd )
 	{
 
@@ -649,7 +738,7 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLa
 				}
 
 				// What do we expect to receive next?
-				int64 nExpectNextStreamPos = m_receiverState.m_nReliableStreamPos + len( m_receiverState.m_bufReliableStream );
+				int64 nExpectNextStreamPos = pCurrentLane->m_nReliableStreamPos + len( pCurrentLane->m_bufReliableStream );
 
 				// Find the stream offset closest to that
 				nDecodeReliablePos = ( nExpectNextStreamPos & ~nMask ) + nOffset;
@@ -693,7 +782,7 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLa
 			READ_SEGMENT_DATA_SIZE( reliable )
 
 			// Ingest the segment.
-			if ( !SNP_ReceiveReliableSegment( nPktNum, nDecodeReliablePos, pSegmentData, cbSegmentSize, usecNow ) )
+			if ( !SNP_ReceiveReliableSegment( nPktNum, nDecodeReliablePos, pSegmentData, cbSegmentSize, *pCurrentLane, usecNow ) )
 			{
 				if ( !BStateIsActive() )
 					return false; // we decided to nuke the connection - abort packet processing
@@ -1072,7 +1161,7 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLa
 				if ( nLogLevelPacketDecode >= k_ESteamNetworkingSocketsDebugOutputType_Debug )
 				{
 
-					int64 nPeerReliablePos = m_senderState.m_nReliableStreamPos;
+					int64 nPeerReliablePos = m_senderState.m_vecLanes[0].m_nReliableStreamPos;
 					if ( !m_senderState.m_listInFlightReliableRange.empty() )
 						nPeerReliablePos = std::min( nPeerReliablePos, m_senderState.m_listInFlightReliableRange.begin()->first.m_nBegin );
 					if ( !m_senderState.m_listReadyRetryReliableRange.empty() )
@@ -1609,13 +1698,33 @@ bool CSteamNetworkConnectionBase::SNP_SendPacket( CConnectionTransport *pTranspo
 		int64 nLastMsgNum = 0;
 		while ( cbBytesRemainingForSegments > 4 )
 		{
-			if ( m_senderState.m_messagesQueued.empty() )
+
+			// Locate the ready lane with the earliest virtual finish time
+			CSteamNetworkingMessage *pSendMsg = nullptr;
+			SSNPSenderState::VirtualTime virtTimeMinEstFinish = SSNPSenderState::k_virtTime_Infinite;
+			for ( SSNPSenderState::Lane &l: m_senderState.m_vecLanes )
 			{
-				m_senderState.m_cbCurrentSendMessageSent = 0;
+				if ( l.m_virtTimeEstFinish < virtTimeMinEstFinish )
+				{
+					if ( l.m_messagesQueued.m_pFirst )
+					{
+						pSendMsg = l.m_messagesQueued.m_pFirst;
+						Assert( l.m_cbCurrentSendMessageSent < pSendMsg->m_cbSize );
+					}
+					else
+					{
+						// Lane is idle.  Mark a super high finish time, as a simple
+						// optimization for next time
+						l.m_virtTimeEstFinish = std::numeric_limits<SSNPSenderState::VirtualTime>::max();
+					}
+				}
+			}
+			if ( !pSendMsg )
+			{
+				Assert( !m_senderState.m_messagesQueued.m_pFirst );
 				break;
 			}
-			CSteamNetworkingMessage *pSendMsg = m_senderState.m_messagesQueued.m_pFirst;
-			Assert( m_senderState.m_cbCurrentSendMessageSent < pSendMsg->m_cbSize );
+			SSNPSenderState::Lane &sendLane = m_senderState.m_vecLanes[ pSendMsg->m_idxLane ];
 
 			// Start a new segment
 			EncodedSegment &seg = *push_back_get_ptr( vecSegments );
@@ -1627,14 +1736,14 @@ bool CSteamNetworkConnectionBase::SNP_SendPacket( CConnectionTransport *pTranspo
 
 				// FIXME - Coalesce adjacent reliable messages ranges
 
-				int64 nBegin = pSendMsg->SNPSend_ReliableStreamPos() + m_senderState.m_cbCurrentSendMessageSent;
+				int64 nBegin = pSendMsg->SNPSend_ReliableStreamPos() + sendLane.m_cbCurrentSendMessageSent;
 
 				// How large would we like this segment to be,
 				// ignoring how much space is left in the packet.
 				// We limit the size of reliable segments, to make
 				// sure that we don't make an excessively large
 				// one and then have a hard time retrying it later.
-				int cbDesiredSegSize = pSendMsg->m_cbSize - m_senderState.m_cbCurrentSendMessageSent;
+				int cbDesiredSegSize = pSendMsg->m_cbSize - sendLane.m_cbCurrentSendMessageSent;
 				if ( cbDesiredSegSize > m_cbMaxReliableMessageSegment )
 				{
 					cbDesiredSegSize = m_cbMaxReliableMessageSegment;
@@ -1649,7 +1758,32 @@ bool CSteamNetworkConnectionBase::SNP_SendPacket( CConnectionTransport *pTranspo
 			}
 			else
 			{
-				seg.SetupUnreliable( pSendMsg, m_senderState.m_cbCurrentSendMessageSent, nLastMsgNum );
+				seg.SetupUnreliable( pSendMsg, sendLane.m_cbCurrentSendMessageSent, nLastMsgNum );
+			}
+
+			// Advance fair queuing virtual time, and check if we're getting close
+			// to overflowing the 
+			// NOTE: Intentionally using a lower limit than strictly necessary, just so that my
+			// soak test would actually hit this code and I could make sure it works.
+			// 64-bit numbers are HUUUUGE.
+			m_senderState.m_virtTimeCurrent += seg.m_cbSegSize * sendLane.m_flBytesToVirtualTime;
+			if ( unlikely( m_senderState.m_virtTimeCurrent > 0x0002000000000000ULL ) )
+			{
+				SSNPSenderState::VirtualTime shift = std::min( m_senderState.m_virtTimeCurrent, sendLane.m_virtTimeEstFinish );
+				for ( SSNPSenderState::Lane &l: m_senderState.m_vecLanes )
+				{
+					if ( l.m_messagesQueued.empty() )
+					{
+						l.m_virtTimeEstFinish = SSNPSenderState::k_virtTime_Infinite;
+					}
+					else
+					{
+						Assert( l.m_virtTimeEstFinish < 0x0004000000000000ULL );
+						Assert( l.m_virtTimeEstFinish >= shift );
+						l.m_virtTimeEstFinish -= shift;
+					}
+				}
+				m_senderState.m_virtTimeCurrent -= shift;
 			}
 
 			// Can't fit the whole thing?
@@ -1676,20 +1810,30 @@ bool CSteamNetworkConnectionBase::SNP_SendPacket( CConnectionTransport *pTranspo
 
 				// Truncate, and leave the message in the queue
 				seg.m_cbSegSize = std::min( seg.m_cbSegSize, cbBytesRemainingForSegments - seg.m_cbHdr );
-				m_senderState.m_cbCurrentSendMessageSent += seg.m_cbSegSize;
-				Assert( m_senderState.m_cbCurrentSendMessageSent < pSendMsg->m_cbSize );
+				sendLane.m_cbCurrentSendMessageSent += seg.m_cbSegSize;
+				Assert( sendLane.m_cbCurrentSendMessageSent < pSendMsg->m_cbSize );
 				cbBytesRemainingForSegments -= seg.m_cbHdr + seg.m_cbSegSize;
 				break;
 			}
 
 			// The whole message fit (perhaps exactly, without the size byte)
 			// Reset send pointer for the next message
-			Assert( m_senderState.m_cbCurrentSendMessageSent + seg.m_cbSegSize == pSendMsg->m_cbSize );
-			m_senderState.m_cbCurrentSendMessageSent = 0;
+			Assert( sendLane.m_cbCurrentSendMessageSent + seg.m_cbSegSize == pSendMsg->m_cbSize );
+			sendLane.m_cbCurrentSendMessageSent = 0;
 
 			// Remove message from queue.  We have transfered ownership to the segment
 			// and will dispose of the message when we serialize the segments
 			pSendMsg->Unlink();
+
+			// Schedule next send for this lane
+			if ( sendLane.m_messagesQueued.empty() )
+			{
+				sendLane.m_virtTimeEstFinish = SSNPSenderState::k_virtTime_Infinite;
+			}
+			else
+			{
+				m_senderState.CalculateLaneEstimatedVirtualFinishTime( sendLane );
+			}
 
 			// Consume payload bytes
 			cbBytesRemainingForSegments -= seg.m_cbHdr + seg.m_cbSegSize;
@@ -2539,7 +2683,7 @@ void CSteamNetworkConnectionBase::SNP_ReceiveUnreliableSegment( int64 nMsgNum, i
 	ReceivedMessage( pMsg );
 }
 
-bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int64 nSegBegin, const uint8 *pSegmentData, int cbSegmentSize, SteamNetworkingMicroseconds usecNow )
+bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int64 nSegBegin, const uint8 *pSegmentData, int cbSegmentSize, SSNPReceiverState::Lane &lane, SteamNetworkingMicroseconds usecNow )
 {
 	int nLogLevelPacketDecode = m_connectionConfig.m_LogLevel_PacketDecode.Get();
 
@@ -2588,7 +2732,7 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 
 	// Check if the entire thing is stuff we have already received, then
 	// we can discard it
-	if ( nSegEnd <= m_receiverState.m_nReliableStreamPos )
+	if ( nSegEnd <= lane.m_nReliableStreamPos )
 		return true;
 
 	// !SPEED! Should we have a fast path here for small messages
@@ -2596,13 +2740,13 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 	// stream buffer and decode directly.
 
 	// What do we expect to receive next?
-	const int64 nExpectNextStreamPos = m_receiverState.m_nReliableStreamPos + len( m_receiverState.m_bufReliableStream );
+	const int64 nExpectNextStreamPos = lane.m_nReliableStreamPos + len( lane.m_bufReliableStream );
 
 	// Check if we need to grow the reliable buffer to hold the data
 	if ( nSegEnd > nExpectNextStreamPos )
 	{
-		int64 cbNewSize = nSegEnd - m_receiverState.m_nReliableStreamPos;
-		Assert( cbNewSize > len( m_receiverState.m_bufReliableStream ) );
+		int64 cbNewSize = nSegEnd - lane.m_nReliableStreamPos;
+		Assert( cbNewSize > len( lane.m_bufReliableStream ) );
 
 		// Check if we have too much data buffered, just stop processing
 		// this packet, and forget we ever received it.  We need to protect
@@ -2617,9 +2761,9 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 			SpewWarningRateLimited( usecNow, "[%s] decode pkt %lld abort.  %lld bytes reliable data buffered [%lld-%lld), new size would be %lld to %lld\n",
 				GetDescription(),
 				(long long)nPktNum,
-				(long long)m_receiverState.m_bufReliableStream.size(),
-				(long long)m_receiverState.m_nReliableStreamPos,
-				(long long)( m_receiverState.m_nReliableStreamPos + m_receiverState.m_bufReliableStream.size() ),
+				(long long)lane.m_bufReliableStream.size(),
+				(long long)lane.m_nReliableStreamPos,
+				(long long)( lane.m_nReliableStreamPos + lane.m_bufReliableStream.size() ),
 				(long long)cbNewSize, (long long)nSegEnd
 			);
 			return false;  // DO NOT ACK THIS PACKET
@@ -2628,16 +2772,16 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 		// Check if this is going to make a new gap
 		if ( nSegBegin > nExpectNextStreamPos )
 		{
-			if ( !m_receiverState.m_mapReliableStreamGaps.empty() )
+			if ( !lane.m_mapReliableStreamGaps.empty() )
 			{
 
 				// We should never have a gap at the very end of the buffer.
 				// (Why would we extend the buffer, unless we needed to to
 				// store some data?)
-				Assert( m_receiverState.m_mapReliableStreamGaps.rbegin()->second < nExpectNextStreamPos );
+				Assert( lane.m_mapReliableStreamGaps.rbegin()->second < nExpectNextStreamPos );
 
 				// We need to add a new gap.  See if we're already too fragmented.
-				if ( len( m_receiverState.m_mapReliableStreamGaps ) >= k_nMaxReliableStreamGaps_Extend )
+				if ( len( lane.m_mapReliableStreamGaps ) >= k_nMaxReliableStreamGaps_Extend )
 				{
 					// Stop processing the packet, and don't ack it
 					// This indicates the connection is in pretty bad shape,
@@ -2645,9 +2789,9 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 					SpewWarningRateLimited( usecNow, "[%s] decode pkt %lld abort.  Reliable stream already has %d fragments, first is [%lld,%lld), last is [%lld,%lld), new segment is [%lld,%lld)\n",
 						GetDescription(),
 						(long long)nPktNum,
-						len( m_receiverState.m_mapReliableStreamGaps ),
-						(long long)m_receiverState.m_mapReliableStreamGaps.begin()->first, (long long)m_receiverState.m_mapReliableStreamGaps.begin()->second,
-						(long long)m_receiverState.m_mapReliableStreamGaps.rbegin()->first, (long long)m_receiverState.m_mapReliableStreamGaps.rbegin()->second,
+						len( lane.m_mapReliableStreamGaps ),
+						(long long)lane.m_mapReliableStreamGaps.begin()->first, (long long)lane.m_mapReliableStreamGaps.begin()->second,
+						(long long)lane.m_mapReliableStreamGaps.rbegin()->first, (long long)lane.m_mapReliableStreamGaps.rbegin()->second,
 						(long long)nSegBegin, (long long)nSegEnd
 					);
 					return false;  // DO NOT ACK THIS PACKET
@@ -2655,9 +2799,9 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 			}
 
 			// Add a gap
-			m_receiverState.m_mapReliableStreamGaps[ nExpectNextStreamPos ] = nSegBegin;
+			lane.m_mapReliableStreamGaps[ nExpectNextStreamPos ] = nSegBegin;
 		}
-		m_receiverState.m_bufReliableStream.resize( size_t( cbNewSize ) );
+		lane.m_bufReliableStream.resize( size_t( cbNewSize ) );
 	}
 
 	// If segment overlapped the existing buffer, we might need to discard the front
@@ -2666,9 +2810,9 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 	{
 
 		// Check if the front bit has already been processed, then skip it
-		if ( nSegBegin < m_receiverState.m_nReliableStreamPos )
+		if ( nSegBegin < lane.m_nReliableStreamPos )
 		{
-			int nSkip = m_receiverState.m_nReliableStreamPos - nSegBegin;
+			int nSkip = lane.m_nReliableStreamPos - nSegBegin;
 			cbSegmentSize -= nSkip;
 			pSegmentData += nSkip;
 			nSegBegin += nSkip;
@@ -2676,10 +2820,10 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 		Assert( nSegBegin < nSegEnd );
 
 		// Check if this filled in one or more gaps (or made a hole in the middle!)
-		if ( !m_receiverState.m_mapReliableStreamGaps.empty() )
+		if ( !lane.m_mapReliableStreamGaps.empty() )
 		{
-			auto gapFilled = m_receiverState.m_mapReliableStreamGaps.upper_bound( nSegBegin );
-			if ( gapFilled != m_receiverState.m_mapReliableStreamGaps.begin() )
+			auto gapFilled = lane.m_mapReliableStreamGaps.upper_bound( nSegBegin );
+			if ( gapFilled != lane.m_mapReliableStreamGaps.begin() )
 			{
 				--gapFilled;
 				Assert( gapFilled->first < gapFilled->second ); // Make sure we don't have degenerate/invalid gaps in our table
@@ -2703,7 +2847,7 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 							// Erase, and move forward in case this also fills more gaps
 							// !SPEED! Since exactly filing the gap should be common, we might
 							// check specifically for that case and early out here.
-							gapFilled = m_receiverState.m_mapReliableStreamGaps.erase( gapFilled );
+							gapFilled = lane.m_mapReliableStreamGaps.erase( gapFilled );
 						}
 						else if ( nSegEnd >= gapFilled->second )
 						{
@@ -2723,15 +2867,15 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 							// Protect against malicious sender.  A good sender will
 							// fill the gaps in stream position order and not fragment
 							// like this
-							if ( len( m_receiverState.m_mapReliableStreamGaps ) >= k_nMaxReliableStreamGaps_Fragment )
+							if ( len( lane.m_mapReliableStreamGaps ) >= k_nMaxReliableStreamGaps_Fragment )
 							{
 								// Stop processing the packet, and don't ack it
 								SpewWarningRateLimited( usecNow, "[%s] decode pkt %lld abort.  Reliable stream already has %d fragments, first is [%lld,%lld), last is [%lld,%lld).  We don't want to fragment [%lld,%lld) with new segment [%lld,%lld)\n",
 									GetDescription(),
 									(long long)nPktNum,
-									len( m_receiverState.m_mapReliableStreamGaps ),
-									(long long)m_receiverState.m_mapReliableStreamGaps.begin()->first, (long long)m_receiverState.m_mapReliableStreamGaps.begin()->second,
-									(long long)m_receiverState.m_mapReliableStreamGaps.rbegin()->first, (long long)m_receiverState.m_mapReliableStreamGaps.rbegin()->second,
+									len( lane.m_mapReliableStreamGaps ),
+									(long long)lane.m_mapReliableStreamGaps.begin()->first, (long long)lane.m_mapReliableStreamGaps.begin()->second,
+									(long long)lane.m_mapReliableStreamGaps.rbegin()->first, (long long)lane.m_mapReliableStreamGaps.rbegin()->second,
 									(long long)gapFilled->first, (long long)gapFilled->second,
 									(long long)nSegBegin, (long long)nSegEnd
 								);
@@ -2746,7 +2890,7 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 							gapFilled->second = nSegBegin;
 
 							// Add the right hand gap
-							m_receiverState.m_mapReliableStreamGaps[ nRightHandBegin ] = nRightHandEnd;
+							lane.m_mapReliableStreamGaps[ nRightHandBegin ] = nRightHandEnd;
 
 							// And we know that we cannot possible have covered any more gaps
 							break;
@@ -2754,7 +2898,7 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 
 						// In some rare cases we might fill more than one gap with a single segment.
 						// So keep searching forward.
-					} while ( gapFilled != m_receiverState.m_mapReliableStreamGaps.end() && gapFilled->first < nSegEnd );
+					} while ( gapFilled != lane.m_mapReliableStreamGaps.end() && gapFilled->first < nSegEnd );
 				}
 			}
 		}
@@ -2763,21 +2907,21 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 	// Copy the data into the buffer.
 	// It might be redundant, but if so, we aren't going to take the
 	// time to figure that out.
-	int nBufOffset = nSegBegin - m_receiverState.m_nReliableStreamPos;
+	int nBufOffset = nSegBegin - lane.m_nReliableStreamPos;
 	Assert( nBufOffset >= 0 );
-	Assert( nBufOffset+cbSegmentSize <= len( m_receiverState.m_bufReliableStream ) );
-	memcpy( &m_receiverState.m_bufReliableStream[nBufOffset], pSegmentData, cbSegmentSize );
+	Assert( nBufOffset+cbSegmentSize <= len( lane.m_bufReliableStream ) );
+	memcpy( &lane.m_bufReliableStream[nBufOffset], pSegmentData, cbSegmentSize );
 
 	// Figure out how many valid bytes are at the head of the buffer
 	int nNumReliableBytes;
-	if ( m_receiverState.m_mapReliableStreamGaps.empty() )
+	if ( lane.m_mapReliableStreamGaps.empty() )
 	{
-		nNumReliableBytes = len( m_receiverState.m_bufReliableStream );
+		nNumReliableBytes = len( lane.m_bufReliableStream );
 	}
 	else
 	{
-		auto firstGap = m_receiverState.m_mapReliableStreamGaps.begin();
-		Assert( firstGap->first >= m_receiverState.m_nReliableStreamPos );
+		auto firstGap = lane.m_mapReliableStreamGaps.begin();
+		Assert( firstGap->first >= lane.m_nReliableStreamPos );
 		if ( firstGap->first < nSegBegin )
 		{
 			// There's gap in front of us, and therefore if we didn't have
@@ -2788,9 +2932,9 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 
 		// We do have a gap, but it's somewhere after this segment.
 		Assert( firstGap->first >= nSegEnd );
-		nNumReliableBytes = firstGap->first - m_receiverState.m_nReliableStreamPos;
+		nNumReliableBytes = firstGap->first - lane.m_nReliableStreamPos;
 		Assert( nNumReliableBytes > 0 );
-		Assert( nNumReliableBytes < len( m_receiverState.m_bufReliableStream ) ); // The last byte in the buffer should always be valid!
+		Assert( nNumReliableBytes < len( lane.m_bufReliableStream ) ); // The last byte in the buffer should always be valid!
 	}
 	Assert( nNumReliableBytes > 0 );
 
@@ -2803,7 +2947,7 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 		// each time we get a new packet.  We could cache off the result if we find out
 		// that it's worth while.  It should be pretty fast, though, so let's keep the
 		// code simple until we know that it's worthwhile.
-		uint8 *pReliableStart = &m_receiverState.m_bufReliableStream[0];
+		uint8 *pReliableStart = &lane.m_bufReliableStream[0];
 		uint8 *pReliableDecode = pReliableStart;
 		uint8 *pReliableEnd = pReliableDecode + nNumReliableBytes;
 
@@ -2811,8 +2955,8 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 		SpewDebugGroup( nLogLevelPacketDecode, "[%s]   decode pkt %lld valid reliable bytes = %d [%lld,%lld)\n",
 			GetDescription(),
 			(long long)nPktNum, nNumReliableBytes,
-			(long long)m_receiverState.m_nReliableStreamPos,
-			(long long)( m_receiverState.m_nReliableStreamPos + nNumReliableBytes ) );
+			(long long)lane.m_nReliableStreamPos,
+			(long long)( lane.m_nReliableStreamPos + nNumReliableBytes ) );
 
 		// Sanity check that we have a valid header byte.
 		uint8 nHeaderByte = *(pReliableDecode++);
@@ -2823,7 +2967,7 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 		}
 
 		// Parse the message number
-		int64 nMsgNum = m_receiverState.m_nLastRecvReliableMsgNum;
+		int64 nMsgNum = lane.m_nLastRecvReliableMsgNum;
 		if ( nHeaderByte & 0x40 )
 		{
 			uint64 nOffset;
@@ -2847,7 +2991,7 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 			{
 				ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_InternalError,
 					"Reliable message number lurch.  Last reliable %lld, offset %llu, highest seen %lld",
-					(long long)m_receiverState.m_nLastRecvReliableMsgNum, (unsigned long long)nOffset,
+					(long long)lane.m_nLastRecvReliableMsgNum, (unsigned long long)nOffset,
 					(long long)m_receiverState.m_nHighestSeenMsgNum );
 				return false;
 			}
@@ -2910,11 +3054,11 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 		int cbStreamConsumed = pReliableDecode-pReliableStart;
 
 		// Advance bookkeeping
-		m_receiverState.m_nLastRecvReliableMsgNum = nMsgNum;
-		m_receiverState.m_nReliableStreamPos += cbStreamConsumed;
+		lane.m_nLastRecvReliableMsgNum = nMsgNum;
+		lane.m_nReliableStreamPos += cbStreamConsumed;
 
 		// Remove the data from the from the front of the buffer
-		pop_from_front( m_receiverState.m_bufReliableStream, cbStreamConsumed );
+		pop_from_front( lane.m_bufReliableStream, cbStreamConsumed );
 
 		// We might have more in the stream that is ready to dispatch right now.
 		nNumReliableBytes -= cbStreamConsumed;
@@ -3584,6 +3728,17 @@ void CSteamNetworkConnectionBase::SNP_PopulateQuickStats( SteamNetworkingQuickCo
 		// We'll never be able to send it.  (Or, we don't know when that will be.)
 		info.m_usecQueueTime = INT64_MAX;
 	}
+}
+
+bool CSteamNetworkConnectionBase::SNP_BHasAnyBufferedRecvData() const
+{
+	// !KLUDGE! Linear scan of all lanes!
+	for ( const SSNPReceiverState::Lane &l: m_receiverState.m_vecLanes )
+	{
+		if ( !l.m_bufReliableStream.empty() )
+			return true;
+	}
+	return false;
 }
 
 } // namespace SteamNetworkingSocketsLib

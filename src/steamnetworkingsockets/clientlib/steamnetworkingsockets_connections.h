@@ -564,10 +564,7 @@ public:
 	void SetLocalCert( const CMsgSteamDatagramCertificateSigned &msgSignedCert, const CECSigningPrivateKey &keyPrivate, bool bCertHasIdentity );
 	void InterfaceGotCert();
 
-	bool SNP_BHasAnyBufferedRecvData() const
-	{
-		return !m_receiverState.m_bufReliableStream.empty();
-	}
+	bool SNP_BHasAnyBufferedRecvData() const;
 	bool SNP_BHasAnyUnackedSentReliableData() const
 	{
 		return m_senderState.m_cbPendingReliable > 0 || m_senderState.m_cbSentUnackedReliable > 0;
@@ -685,6 +682,9 @@ public:
 
 	/// Timestamp when we were created
 	SteamNetworkingMicroseconds m_usecWhenCreated;
+
+	/// Setup lanes
+	EResult SNP_ConfigureLanes( int nLanes, const uint16 *pLaneWeights );
 
 protected:
 	CSteamNetworkConnectionBase( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface, ConnectionScopeLock &scopeLock );
@@ -808,7 +808,7 @@ protected:
 	SteamNetworkingMicroseconds SNP_TimeWhenWantToSendNextPacket() const;
 	void SNP_PrepareFeedback( SteamNetworkingMicroseconds usecNow );
 	void SNP_ReceiveUnreliableSegment( int64 nMsgNum, int nOffset, const void *pSegmentData, int cbSegmentSize, bool bLastSegmentInMessage, SteamNetworkingMicroseconds usecNow );
-	bool SNP_ReceiveReliableSegment( int64 nPktNum, int64 nSegBegin, const uint8 *pSegmentData, int cbSegmentSize, SteamNetworkingMicroseconds usecNow );
+	bool SNP_ReceiveReliableSegment( int64 nPktNum, int64 nSegBegin, const uint8 *pSegmentData, int cbSegmentSize, SSNPReceiverState::Lane &lane, SteamNetworkingMicroseconds usecNow );
 	int SNP_ClampSendRate();
 	void SNP_PopulateDetailedStats( SteamDatagramLinkStats &info );
 	void SNP_PopulateQuickStats( SteamNetworkingQuickConnectionStatus &info, SteamNetworkingMicroseconds usecNow );

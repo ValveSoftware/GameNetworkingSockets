@@ -873,6 +873,12 @@ struct SteamNetworkingMessage_t
 	/// Not used for received messages.
 	int64 m_nUserData;
 
+	/// For outbound messages, which lane to use?  See ISteamNetworkingSockets::ConfigureConnectionLanes.
+	///
+	/// Not used for received messages.
+	uint16 m_idxLane;
+	uint16 _pad1__;
+
 	/// You MUST call this when you're done with the object,
 	/// to free up memory, etc.
 	inline void Release();

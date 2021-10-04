@@ -146,6 +146,7 @@ CSteamNetworkingMessage *CSteamNetworkingMessage::New( uint32 cbSize )
 	pMsg->m_nMessageNumber = 0;
 	pMsg->m_nChannel = -1;
 	pMsg->m_nFlags = 0;
+	pMsg->m_idxLane = 0;
 	pMsg->m_links.Clear();
 	pMsg->m_linksSecondaryQueue.Clear();
 
@@ -984,6 +985,10 @@ bool CSteamNetworkConnectionBase::BInitConnection( SteamNetworkingMicroseconds u
 		V_sprintf_safe( errMsg, "Crypto init error.  %s", m_szEndDebug );
 		return false;
 	}
+
+	// Start with a single lane
+	uint16 one_weight = 1;
+	DbgVerify( SNP_ConfigureLanes( 1, &one_weight ) == k_EResultOK );
 
 	return true;
 }
@@ -3784,7 +3789,7 @@ int64 CSteamNetworkConnectionPipe::_APISendMessageToConnection( CSteamNetworking
 	else
 	{
 		// Each side has its own lock.  We can't deliver it to the
-		// pther side immediately.
+		// other side immediately.
 
 		// Queue a task to run when we have the global lock.
 		struct DeliverMsgToPipePartner : CQueuedTaskOnTarget<CSteamNetworkConnectionPipe>

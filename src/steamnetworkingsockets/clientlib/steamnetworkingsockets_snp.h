@@ -279,6 +279,7 @@ struct SSendRateData
 	}
 };
 
+/// Track the state of a host, in its role as a sender
 struct SSNPSenderState
 {
 	SSNPSenderState();
@@ -286,6 +287,53 @@ struct SSNPSenderState
 		Shutdown();
 	}
 	void Shutdown();
+
+	/// We implement priority groups using Weighted Fair Queueing.
+	/// https://en.wikipedia.org/wiki/Weighted_fair_queueing
+	/// The idea is to assign a virtual "timestamp" when the message
+	/// would finish sending, and each time we have an opportunity to
+	/// send, we select the group with the earliest finish time.
+	/// Virtual time is essentially an arbitrary counter that increases
+	/// at a fixed rate per outbound byte sent.
+	typedef int64 VirtualTime;
+	static constexpr VirtualTime k_virtTime_Infinite = std::numeric_limits<VirtualTime>::max();
+
+	/// Current virtual timestamp.  This is used when a message is queued
+	/// to calculate it's virtual finish time.
+	VirtualTime m_virtTimeCurrent = 0;
+
+	/// Info we track for each lane
+	struct Lane
+	{
+		inline ~Lane() { Assert( m_messagesQueued.empty() ); }
+
+		/// List of messages for this priority group that we have not yet
+		/// finished putting on the wire the first time. The Nagle timer may
+		/// be active on one or more, but if so, it is only on messages at the
+		/// END of the list.  The first message may have been partially sent.
+		///
+		/// We use the CSteamNetworkingMessage::m_linksSecondaryQueue
+		SteamNetworkingMessageQueue m_messagesQueued;
+
+		/// "Virtual finish time".  This is the "virtual time" when we
+		/// wound have finished sending the current message, if any,
+		/// if all priority groups were busy and we got our proportionate
+		/// share.  It is calculated as virtual_time_start + message_size*m_nBytesToVirtualTime
+		VirtualTime m_virtTimeEstFinish;
+
+		/// Multiplier used to calculate virtual finish time.
+		float m_flBytesToVirtualTime;
+
+		/// Current position in the reliable stream for this group
+		int64 m_nReliableStreamPos = 1;
+
+		/// Last message number we sent on this channel
+		int64 m_nLastSendMsgNumReliable = 0;
+
+		/// How many bytes into the first message in the queue have we put on the wire?
+		int m_cbCurrentSendMessageSent = 0;
+	};
+	std_vector<Lane> m_vecLanes;
 
 	/// Nagle timer on all pending messages
 	void ClearNagleTimers()
@@ -299,17 +347,13 @@ struct SSNPSenderState
 	}
 
 	// Current message number, we ++ when adding a message
-	int64 m_nReliableStreamPos = 1;
 	int64 m_nLastSentMsgNum = 0; // Will increment to 1 with first message
-	int64 m_nLastSendMsgNumReliable = 0;
 
-	/// List of messages that we have not yet finished putting on the wire the first time.
-	/// The Nagle timer may be active on one or more, but if so, it is only on messages
-	/// at the END of the list.  The first message may be partially sent.
+	/// Queue of all messages (from all priority groups), that we have not yet
+	/// finished putting on the wire the first time. The Nagle timer may be active
+	/// on one or more, but if so, it is only on messages at the END of the list.
+	/// The first message in each priority group may have been partially sent
 	SteamNetworkingMessageQueue m_messagesQueued;
-
-	/// How many bytes into the first message in the queue have we put on the wire?
-	int m_cbCurrentSendMessageSent = 0;
 
 	/// List of reliable messages that have been fully placed on the wire at least once,
 	/// but we're hanging onto because of the potential need to retry.  (Note that if we get
@@ -354,6 +398,14 @@ struct SSNPSenderState
 	/// Oldest packet sequence number that we are still asking peer
 	/// to send acks for.
 	int64 m_nMinPktWaitingOnAck = 0;
+
+	/// Called when a packet is queued, to calculate the estimated finish time
+	void CalculateLaneEstimatedVirtualFinishTime( Lane &lane )
+	{
+		Assert( lane.m_cbCurrentSendMessageSent == 0 );
+		const CSteamNetworkingMessage *pMsg = lane.m_messagesQueued.m_pFirst;
+		lane.m_virtTimeEstFinish = m_virtTimeCurrent + (VirtualTime)( (float)pMsg->m_cbSize * lane.m_flBytesToVirtualTime );
+	}
 
 	// Remove messages from m_unackedReliableMessages that have been fully acked.
 	void RemoveAckedReliableMessageFromUnackedList();
@@ -407,33 +459,38 @@ struct SSNPReceiverState
 	}
 	void Shutdown();
 
+	/// Each lane has its own reliable stream
+	struct Lane
+	{
+		/// Stream position of the first byte in m_bufReliableData.  Remember that the first byte
+		/// in the reliable stream is actually at position 1, not 0
+		int64 m_nReliableStreamPos = 1;
+
+		/// The message number of the most recently received reliable message
+		int64 m_nLastRecvReliableMsgNum = 0;
+
+		/// Reliable data stream that we have received.  This might have gaps in it!
+		std_vector<byte> m_bufReliableStream;
+
+		/// Gaps in the reliable data.  These are created when we receive reliable data that
+		/// is beyond what we expect next.  Since these must never overlap, we store them
+		/// using begin as the key and end as the value.
+		///
+		/// !SPEED! We should probably use a small fixed-sized, sorted vector here,
+		/// since in most cases the list will be small, and the cost of dynamic memory
+		/// allocation will be way worse than O(n) insertion/removal.
+		std_map<int64,int64> m_mapReliableStreamGaps;
+	};
+	std_vector<Lane> m_vecLanes;
+
 	/// Unreliable message segments that we have received.  When an unreliable message
 	/// needs to be fragmented, we store the pieces here.  NOTE: it might be more efficient
 	/// to use a simpler container, with worse O(), since this should ordinarily be
 	/// a pretty small list.
 	std_map<SSNPRecvUnreliableSegmentKey,SSNPRecvUnreliableSegmentData> m_mapUnreliableSegments;
 
-	/// Stream position of the first byte in m_bufReliableData.  Remember that the first byte
-	/// in the reliable stream is actually at position 1, not 0
-	int64 m_nReliableStreamPos = 1;
-
 	/// The highest message number we have seen so far.
 	int64 m_nHighestSeenMsgNum = 0;
-
-	/// The message number of the most recently received reliable message
-	int64 m_nLastRecvReliableMsgNum = 0;
-
-	/// Reliable data stream that we have received.  This might have gaps in it!
-	std_vector<byte> m_bufReliableStream;
-
-	/// Gaps in the reliable data.  These are created when we receive reliable data that
-	/// is beyond what we expect next.  Since these must never overlap, we store them
-	/// using begin as the key and end as the value.
-	///
-	/// !SPEED! We should probably use a small fixed-sized, sorted vector here,
-	/// since in most cases the list will be small, and the cost of dynamic memory
-	/// allocation will be way worse than O(n) insertion/removal.
-	std_map<int64,int64> m_mapReliableStreamGaps;
 
 	/// List of gaps in the packet sequence numbers we have received.
 	/// Since these must never overlap, we store them using begin as the
