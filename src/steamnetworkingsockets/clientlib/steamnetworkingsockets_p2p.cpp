@@ -1991,7 +1991,7 @@ void CSteamNetworkConnectionP2P::SetRendezvousCommonFieldsAndSendSignal( CMsgSte
 
 					cbRemaining -= pMsgSend->m_cbSize;
 
-					m_senderState.m_messagesQueued.pop_front();
+					pMsgSend->Unlink();
 					pMsgSend->Release();
 				}
 			}

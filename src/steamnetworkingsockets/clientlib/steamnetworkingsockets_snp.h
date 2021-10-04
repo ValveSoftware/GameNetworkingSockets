@@ -238,61 +238,6 @@ struct SNPInFlightPacket_t
 	vstd::small_vector<SNPRange_t,1> m_vecReliableSegments;
 };
 
-struct SSNPSendMessageList : public SteamNetworkingMessageQueue
-{
-
-	/// Unlink the message at the head, if any and return it.
-	/// Unlike STL pop_front, this will return nullptr if the
-	/// list is empty
-	CSteamNetworkingMessage *pop_front()
-	{
-		CSteamNetworkingMessage *pResult = m_pFirst;
-		if ( pResult )
-		{
-			Assert( m_pLast );
-			Assert( pResult->m_links.m_pQueue == this );
-			Assert( pResult->m_links.m_pPrev == nullptr );
-			m_pFirst = pResult->m_links.m_pNext;
-			if ( m_pFirst )
-			{
-				Assert( m_pFirst->m_links.m_pPrev == pResult );
-				Assert( m_pFirst->m_nMessageNumber > pResult->m_nMessageNumber );
-				m_pFirst->m_links.m_pPrev = nullptr;
-			}
-			else
-			{
-				Assert( m_pLast == pResult );
-				m_pLast = nullptr;
-			}
-			pResult->m_links.m_pQueue = nullptr;
-			pResult->m_links.m_pNext = nullptr;
-		}
-		return pResult;
-	}
-
-	/// Optimized insertion when we know it goes at the end
-	void push_back( CSteamNetworkingMessage *pMsg )
-	{
-		if ( m_pFirst == nullptr )
-		{
-			Assert( m_pLast == nullptr );
-			m_pFirst = pMsg;
-		}
-		else
-		{
-			// Messages are always kept in message number order
-			Assert( pMsg->m_nMessageNumber > m_pLast->m_nMessageNumber );
-			Assert( m_pLast->m_links.m_pNext == nullptr );
-			m_pLast->m_links.m_pNext = pMsg;
-		}
-		pMsg->m_links.m_pQueue = this;
-		pMsg->m_links.m_pNext = nullptr;
-		pMsg->m_links.m_pPrev = m_pLast;
-		m_pLast = pMsg;
-	}
-
-};
-
 /// Info used by a sender to estimate the available bandwidth
 struct SSendRateData
 {
@@ -361,7 +306,7 @@ struct SSNPSenderState
 	/// List of messages that we have not yet finished putting on the wire the first time.
 	/// The Nagle timer may be active on one or more, but if so, it is only on messages
 	/// at the END of the list.  The first message may be partially sent.
-	SSNPSendMessageList m_messagesQueued;
+	SteamNetworkingMessageQueue m_messagesQueued;
 
 	/// How many bytes into the first message in the queue have we put on the wire?
 	int m_cbCurrentSendMessageSent = 0;
@@ -372,7 +317,7 @@ struct SSNPSenderState
 	/// acked, because a prior message is still needed.  We always operate on this list
 	/// like a queue, rather than seeking into the middle of the list and removing messages
 	/// as soon as they are no longer needed.)
-	SSNPSendMessageList m_unackedReliableMessages;
+	SteamNetworkingMessageQueue m_unackedReliableMessages;
 
 	// Buffered data counters.  See SteamNetworkingQuickConnectionStatus for more info
 	int m_cbPendingUnreliable = 0;
@@ -573,5 +518,127 @@ struct SSNPReceiverState
 	int64 m_nMessagesRecvReliable = 0;
 	int64 m_nMessagesRecvUnreliable = 0;
 };
+
+inline void CSteamNetworkingMessage::LinkBefore( CSteamNetworkingMessage *pSuccessor, CSteamNetworkingMessage::Links CSteamNetworkingMessage::*pMbrLinks, SteamNetworkingMessageQueue *pQueue )
+{
+	// No successor?
+	if ( !pSuccessor )
+	{
+		LinkToQueueTail( pMbrLinks, pQueue );
+		return;
+	}
+
+	// Check lock.  We must not already be in a queue
+	pQueue->AssertLockHeld();
+	Assert( (this->*pMbrLinks).m_pQueue == nullptr );
+	Assert( (this->*pMbrLinks).m_pPrev == nullptr );
+	Assert( (this->*pMbrLinks).m_pNext == nullptr );
+
+	// The queue cannot be empty, since it at least contains the successor
+	Assert( pQueue->m_pFirst );
+	Assert( pQueue->m_pLast );
+	Assert( (pSuccessor->*pMbrLinks).m_pQueue == pQueue );
+
+	CSteamNetworkingMessage *pPrev = (pSuccessor->*pMbrLinks).m_pPrev;
+	if ( pPrev )
+	{
+		Assert( pQueue->m_pFirst != pSuccessor );
+		Assert( (pPrev->*pMbrLinks).m_pNext == pSuccessor );
+		Assert( (pPrev->*pMbrLinks).m_pQueue == pQueue );
+
+		(pPrev->*pMbrLinks).m_pNext = this;
+		(this->*pMbrLinks).m_pPrev = pPrev;
+	}
+	else
+	{
+		Assert( pQueue->m_pFirst == pSuccessor );
+		pQueue->m_pFirst = this;
+		(this->*pMbrLinks).m_pPrev = nullptr; // Should already be null, but let's slam it again anyway
+	}
+
+	// Finish up
+	(this->*pMbrLinks).m_pQueue = pQueue;
+	(this->*pMbrLinks).m_pNext = pSuccessor;
+	(pSuccessor->*pMbrLinks).m_pPrev = this;
+}
+
+inline void CSteamNetworkingMessage::LinkToQueueTail( CSteamNetworkingMessage::Links CSteamNetworkingMessage::*pMbrLinks, SteamNetworkingMessageQueue *pQueue )
+{
+	// Check lock.  We must not already be in a queue
+	pQueue->AssertLockHeld();
+	Assert( (this->*pMbrLinks).m_pQueue == nullptr );
+	Assert( (this->*pMbrLinks).m_pPrev == nullptr );
+	Assert( (this->*pMbrLinks).m_pNext == nullptr );
+
+	// Locate previous link that should point to us.
+	// Does the queue have anything in it?
+	if ( pQueue->m_pLast )
+	{
+		Assert( pQueue->m_pFirst );
+		Assert( !(pQueue->m_pLast->*pMbrLinks).m_pNext );
+		(pQueue->m_pLast->*pMbrLinks).m_pNext = this;
+	}
+	else
+	{
+		Assert( !pQueue->m_pFirst );
+		pQueue->m_pFirst = this;
+	}
+
+	// Link back to the previous guy, if any
+	(this->*pMbrLinks).m_pPrev = pQueue->m_pLast;
+
+	// We're last in the list, nobody after us
+	(this->*pMbrLinks).m_pNext = nullptr;
+	pQueue->m_pLast = this;
+
+	// Remember what queue we're in
+	(this->*pMbrLinks).m_pQueue = pQueue;
+}
+
+inline void CSteamNetworkingMessage::UnlinkFromQueue( CSteamNetworkingMessage::Links CSteamNetworkingMessage::*pMbrLinks )
+{
+	Links &links = this->*pMbrLinks;
+
+	// Not in a queue?
+	if ( links.m_pQueue == nullptr )
+	{
+		Assert( links.m_pPrev == nullptr );
+		Assert( links.m_pNext == nullptr );
+		return;
+	}
+	SteamNetworkingMessageQueue &q = *links.m_pQueue;
+	q.AssertLockHeld();
+
+	// Unlink from previous
+	if ( links.m_pPrev )
+	{
+		Assert( q.m_pFirst != this );
+		Assert( (links.m_pPrev->*pMbrLinks).m_pNext == this );
+		(links.m_pPrev->*pMbrLinks).m_pNext = links.m_pNext;
+	}
+	else
+	{
+		Assert( q.m_pFirst == this );
+		q.m_pFirst = links.m_pNext;
+	}
+
+	// Unlink from next
+	if ( links.m_pNext )
+	{
+		Assert( q.m_pLast != this );
+		Assert( (links.m_pNext->*pMbrLinks).m_pPrev == this );
+		(links.m_pNext->*pMbrLinks).m_pPrev = links.m_pPrev;
+	}
+	else
+	{
+		Assert( q.m_pLast == this );
+		q.m_pLast = links.m_pPrev;
+	}
+
+	// Clear links
+	links.m_pQueue = nullptr;
+	links.m_pPrev = nullptr;
+	links.m_pNext = nullptr;
+}
 
 } // SteamNetworkingSocketsLib

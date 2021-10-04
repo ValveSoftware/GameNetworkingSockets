@@ -115,7 +115,7 @@ void SSNPSenderState::RemoveAckedReliableMessageFromUnackedList()
 		}
 
 		// We're all done!
-		DbgVerify( m_unackedReliableMessages.pop_front() == pMsg );
+		pMsg->Unlink();
 		pMsg->Release();
 	}
 }
@@ -323,7 +323,7 @@ int64 CSteamNetworkConnectionBase::SNP_SendMessage( CSteamNetworkingMessage *pSe
 	}
 
 	// Add to pending list
-	m_senderState.m_messagesQueued.push_back( pSendMessage );
+	pSendMessage->LinkToQueueTail(&CSteamNetworkingMessage::m_links, &m_senderState.m_messagesQueued );
 	SpewVerboseGroup( m_connectionConfig.m_LogLevel_Message.Get(), "[%s] SendMessage %s: MsgNum=%lld sz=%d\n",
 				 GetDescription(),
 				 pSendMessage->SNPSend_IsReliable() ? "RELIABLE" : "UNRELIABLE",
@@ -1689,9 +1689,9 @@ bool CSteamNetworkConnectionBase::SNP_SendPacket( CConnectionTransport *pTranspo
 			Assert( m_senderState.m_cbCurrentSendMessageSent + seg.m_cbSegSize == pSendMsg->m_cbSize );
 			m_senderState.m_cbCurrentSendMessageSent = 0;
 
-			// Remove message from queue,w e have transfered ownership to the segment and will
-			// dispose of the message when we serialize the segments
-			m_senderState.m_messagesQueued.pop_front();
+			// Remove message from queue.  We have transfered ownership to the segment
+			// and will dispose of the message when we serialize the segments
+			pSendMsg->Unlink();
 
 			// Consume payload bytes
 			cbBytesRemainingForSegments -= seg.m_cbHdr + seg.m_cbSegSize;
@@ -1710,7 +1710,7 @@ bool CSteamNetworkConnectionBase::SNP_SendPacket( CConnectionTransport *pTranspo
 					++nLastMsgNum;
 
 				// Go ahead and add us to the end of the list of unacked messages
-				m_senderState.m_unackedReliableMessages.push_back( seg.m_pMsg );
+				seg.m_pMsg->LinkToQueueTail( &CSteamNetworkingMessage::m_links, &m_senderState.m_unackedReliableMessages );
 			}
 			else
 			{
