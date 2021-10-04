@@ -1449,12 +1449,10 @@ bool CSteamNetworkConnectionBase::SNP_SendPacket( CConnectionTransport *pTranspo
 	SteamNetworkingMicroseconds usecNow = ctx.m_usecNow;
 
 	// Get max size of plaintext we could send.
-	// AES-GCM has a fixed size overhead, for the tag.
-	// FIXME - but what we if we aren't using AES-GCM!
-	int cbMaxPlaintextPayload = std::max( 0, ctx.m_cbMaxEncryptedPayload-k_cbSteamNetwokingSocketsEncrytionTagSize );
+	int cbMaxPlaintextPayload = std::max( 0, ctx.m_cbMaxEncryptedPayload-m_cbEncryptionOverhead );
 	cbMaxPlaintextPayload = std::min( cbMaxPlaintextPayload, m_cbMaxPlaintextPayloadSend );
 
-	uint8 payload[ k_cbSteamNetworkingSocketsMaxPlaintextPayloadSend ];
+	uint8 payload[ k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend ];
 	uint8 *pPayloadEnd = payload + cbMaxPlaintextPayload;
 	uint8 *pPayloadPtr = payload;
 

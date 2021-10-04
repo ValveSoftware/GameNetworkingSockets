@@ -525,8 +525,9 @@ public:
 	int m_cbMaxPlaintextPayloadSend = 0;
 	int m_cbMaxMessageNoFragment = 0;
 	int m_cbMaxReliableMessageSegment = 0;
+	int m_cbEncryptionOverhead = 0;
 
-	void UpdateMTUFromConfig();
+	void UpdateMTUFromConfig( bool bForceRecalc );
 
 	/// Handy accessor to the local virtual port configuration option, which is used
 	/// a lot by P2P connections.

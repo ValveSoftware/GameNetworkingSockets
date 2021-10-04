@@ -567,6 +567,7 @@ CSteamNetworkConnectionBase::CSteamNetworkConnectionBase( CSteamNetworkingSocket
 	m_bCertHasIdentity = false;
 	m_bCryptKeysValid = false;
 	m_eNegotiatedCipher = k_ESteamNetworkingSocketsCipher_INVALID;
+	m_cbEncryptionOverhead = k_cbAESGCMTagSize;
 	memset( m_szAppName, 0, sizeof( m_szAppName ) );
 	memset( m_szDescription, 0, sizeof( m_szDescription ) );
 	m_bConnectionInitiatedRemotely = false;
@@ -862,7 +863,7 @@ bool CSteamNetworkConnectionBase::BInitConnection( SteamNetworkingMicroseconds u
 	Assert( GetState() == k_ESteamNetworkingConnectionState_None );
 
 	// Make sure MTU values are initialized
-	UpdateMTUFromConfig();
+	UpdateMTUFromConfig( true );
 
 	Assert( m_hConnectionSelf == k_HSteamNetConnection_Invalid );
 
@@ -1033,6 +1034,7 @@ void CSteamNetworkConnectionBase::ClearLocalCrypto()
 {
 	AssertLocksHeldByCurrentThread();
 	m_eNegotiatedCipher = k_ESteamNetworkingSocketsCipher_INVALID;
+	m_cbEncryptionOverhead = k_cbAESGCMTagSize;
 	m_keyExchangePrivateKeyLocal.Wipe();
 	m_msgCryptLocal.Clear();
 	m_msgSignedCryptLocal.Clear();
@@ -1552,11 +1554,24 @@ bool CSteamNetworkConnectionBase::BFinishCryptoHandshake( bool bServer )
 			break;
 		}
 	}
-	if ( m_eNegotiatedCipher == k_ESteamNetworkingSocketsCipher_INVALID )
+	switch (m_eNegotiatedCipher )
 	{
-		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCrypt, "Failed to negotiate mutually-agreeable cipher" );
-		return false;
+		default:
+		case k_ESteamNetworkingSocketsCipher_INVALID:
+			ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCrypt, "Failed to negotiate mutually-agreeable cipher" );
+			return false;
+
+		case k_ESteamNetworkingSocketsCipher_NULL:
+			m_cbEncryptionOverhead = 0;
+			break;
+
+		case k_ESteamNetworkingSocketsCipher_AES_256_GCM:
+			m_cbEncryptionOverhead = k_cbAESGCMTagSize;
+			break;
 	}
+
+	// Recalculate MTU
+	UpdateMTUFromConfig( true );
 
 	// If we're the server, then lock in that single cipher as the only
 	// acceptable cipher, and then we are ready to seal up our crypt info
@@ -1675,8 +1690,8 @@ bool CSteamNetworkConnectionBase::BFinishCryptoHandshake( bool bServer )
 
 	// Set encryption keys into the contexts, and set parameters
 	if (
-		!m_cryptContextSend.Init( cryptKeySend.m_buf, cryptKeySend.k_nSize, m_cryptIVSend.k_nSize, k_cbSteamNetwokingSocketsEncrytionTagSize )
-		|| !m_cryptContextRecv.Init( cryptKeyRecv.m_buf, cryptKeyRecv.k_nSize, m_cryptIVRecv.k_nSize, k_cbSteamNetwokingSocketsEncrytionTagSize ) )
+		!m_cryptContextSend.Init( cryptKeySend.m_buf, cryptKeySend.k_nSize, m_cryptIVSend.k_nSize, k_cbAESGCMTagSize )
+		|| !m_cryptContextRecv.Init( cryptKeyRecv.m_buf, cryptKeyRecv.k_nSize, m_cryptIVRecv.k_nSize, k_cbAESGCMTagSize ) )
 	{
 		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCrypt, "Error initializing crypto" );
 		return false;
@@ -3276,7 +3291,7 @@ void CSteamNetworkConnectionBase::Think( SteamNetworkingMicroseconds usecNow )
 
 	// Update stats
 	m_statsEndToEnd.Think( usecNow );
-	UpdateMTUFromConfig();
+	UpdateMTUFromConfig( false );
 
 	// Check for sending keepalives or probing a connection that appears to be timing out
 	if ( BStateIsConnectedForWirePurposes() )
@@ -3482,25 +3497,34 @@ void CSteamNetworkConnectionBase::UpdateSpeeds( int nTXSpeed, int nRXSpeed )
 	m_statsEndToEnd.UpdateSpeeds( nTXSpeed, nRXSpeed );
 }
 
-void CSteamNetworkConnectionBase::UpdateMTUFromConfig()
+void CSteamNetworkConnectionBase::UpdateMTUFromConfig( bool bForceRecalc )
 {
-	int newMTUPacketSize = m_connectionConfig.m_MTU_PacketSize.Get();
-	if ( newMTUPacketSize == m_cbMTUPacketSize )
-		return;
-
-	// Shrinking MTU?
-	if ( newMTUPacketSize < m_cbMTUPacketSize )
+	if ( bForceRecalc )
 	{
-		// We cannot do this while we have any reliable segments in flight!
-		// To keep things simple, the retries are always the original ranges,
-		// we never have our retries chop up the space differently than
-		// the original send
-		if ( !m_senderState.m_listReadyRetryReliableRange.empty() || !m_senderState.m_listInFlightReliableRange.empty() )
+		Assert( m_senderState.m_listReadyRetryReliableRange.empty() && m_senderState.m_listInFlightReliableRange.empty() );
+	}
+	else
+	{
+		int newMTUPacketSize = m_connectionConfig.m_MTU_PacketSize.Get();
+		if ( newMTUPacketSize == m_cbMTUPacketSize )
 			return;
+
+		// Shrinking MTU?
+		if ( newMTUPacketSize < m_cbMTUPacketSize )
+		{
+			// We cannot do this while we have any reliable segments in flight!
+			// To keep things simple, the retries are always the original ranges,
+			// we never have our retries chop up the space differently than
+			// the original send
+			if ( !m_senderState.m_listReadyRetryReliableRange.empty() || !m_senderState.m_listInFlightReliableRange.empty() )
+			{
+				return;
+			}
+		}
 	}
 
 	m_cbMTUPacketSize = m_connectionConfig.m_MTU_PacketSize.Get();
-	m_cbMaxPlaintextPayloadSend = m_cbMTUPacketSize - ( k_cbSteamNetworkingSocketsMaxUDPMsgLen - k_cbSteamNetworkingSocketsMaxPlaintextPayloadSend );
+	m_cbMaxPlaintextPayloadSend = m_cbMTUPacketSize - ( k_cbSteamNetworkingSocketsMaxUDPMsgLen - k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend ) - m_cbEncryptionOverhead;
 	m_cbMaxMessageNoFragment = m_cbMaxPlaintextPayloadSend - k_cbSteamNetworkingSocketsNoFragmentHeaderReserve;
 
 	// Max size of a reliable segment.  This is designed such that a reliable

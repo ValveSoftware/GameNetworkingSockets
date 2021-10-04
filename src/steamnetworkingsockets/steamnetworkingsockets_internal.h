@@ -201,19 +201,19 @@ const int k_cbSteamNetworkingSocketsNoFragmentHeaderReserve = 100;
 /// Size of security tag for AES-GCM.
 /// It would be nice to use a smaller tag, but BCrypt requires a 16-byte tag,
 /// which is what OpenSSL uses by default for TLS.
-const int k_cbSteamNetwokingSocketsEncrytionTagSize = 16;
+const int k_cbAESGCMTagSize = 16;
 
 /// Max length of plaintext and encrypted payload we will send.  AES-GCM does
 /// not use padding (but it does have the security tag).  So this can be
 /// arbitrary, it does not need to account for the block size.
 const int k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend = 1248;
-const int k_cbSteamNetworkingSocketsMaxPlaintextPayloadSend = k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend-k_cbSteamNetwokingSocketsEncrytionTagSize;
+const int k_cbSteamNetworkingSocketsTypicalMaxPlaintextPayloadSend = k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend-k_cbAESGCMTagSize;
 
 /// Use larger limits for what we are willing to receive.
 const int k_cbSteamNetworkingSocketsMaxEncryptedPayloadRecv = k_cbSteamNetworkingSocketsMaxUDPMsgLen;
 const int k_cbSteamNetworkingSocketsMaxPlaintextPayloadRecv = k_cbSteamNetworkingSocketsMaxUDPMsgLen;
 
-/// If we have a cert that is going to expire in <N secondws, try to renew it
+/// If we have a cert that is going to expire in <N seconds, try to renew it
 const int k_nSecCertExpirySeekRenew = 3600*2;
 
 /// Make sure we have enough room for our headers and occasional inline pings and stats and such
