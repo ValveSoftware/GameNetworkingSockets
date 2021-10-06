@@ -114,6 +114,9 @@ struct RecvPacketContext_t
 	/// Jitter measurement, if present
 	//int m_usecTimeSinceLast;
 
+	/// For dual path, is this the primary or secondary path?
+	int m_idxMultiPath = 0;
+
 //
 // Output of DecryptDataChunk
 //

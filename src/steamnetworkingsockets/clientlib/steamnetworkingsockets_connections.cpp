@@ -1060,7 +1060,8 @@ void CSteamNetworkConnectionBase::RecvNonDataSequencedPacket( int64 nPktNum, Ste
 	SNP_RecordReceivedPktNum( nPktNum, usecNow, false );
 
 	// Update general sequence number/stats tracker for the end-to-end flow.
-	m_statsEndToEnd.TrackProcessSequencedPacket( nPktNum, usecNow, 0 );
+	int idxMultiPath = 0; // Assume for now
+	m_statsEndToEnd.TrackProcessSequencedPacket( nPktNum, usecNow, 0, idxMultiPath );
 }
 
 bool CSteamNetworkConnectionBase::BThinkCryptoReady( SteamNetworkingMicroseconds usecNow )
@@ -2062,7 +2063,7 @@ bool CSteamNetworkConnectionBase::DecryptDataChunk( uint16 nWireSeqNum, int cbPa
 	AssertMsg1( m_statsEndToEnd.m_nMaxRecvPktNum > 0 || m_statsEndToEnd.m_nPeerProtocolVersion < 10, "[%s] packet number not properly initialized!", GetDescription() );
 
 	// Get the full end-to-end packet number, check if we should process it
-	ctx.m_nPktNum = m_statsEndToEnd.ExpandWirePacketNumberAndCheck( nWireSeqNum );
+	ctx.m_nPktNum = m_statsEndToEnd.ExpandWirePacketNumberAndCheck( nWireSeqNum, ctx.m_idxMultiPath );
 	if ( ctx.m_nPktNum <= 0 )
 	{
 
@@ -2118,8 +2119,8 @@ bool CSteamNetworkConnectionBase::DecryptDataChunk( uint16 nWireSeqNum, int cbPa
 				// The assumption is that we either have a bug or some weird thing,
 				// or that somebody is spoofing / tampering.  If it's the latter
 				// we don't want to magnify the impact of their efforts
-				SpewWarningRateLimited( ctx.m_usecNow, "[%s] Packet %lld (0x%x) decrypt failed (tampering/spoofing/bug)!",
-					GetDescription(), (long long)ctx.m_nPktNum, (unsigned)nWireSeqNum );
+				SpewWarningRateLimited( ctx.m_usecNow, "[%s] Packet %lld (0x%x) decrypt failed (tampering/spoofing/bug)! mpath%d",
+					GetDescription(), (long long)ctx.m_nPktNum, (unsigned)nWireSeqNum, ctx.m_idxMultiPath );
 
 				// Update raw packet counters numbers, but do not update any logical state such as reply timeouts, etc
 				m_statsEndToEnd.m_recv.ProcessPacket( cbPacketSize );
@@ -3985,8 +3986,9 @@ void CSteamNetworkConnectionPipe::FakeRecvStats( SteamNetworkingMicroseconds use
 
 	// And the peer receiving it immediately.  And assume every packet represents
 	// a ping measurement.
-	int64 nPktNum = m_statsEndToEnd.ExpandWirePacketNumberAndCheck( nWirePktNum );
-	m_statsEndToEnd.TrackProcessSequencedPacket( nPktNum, usecNow, -1 );
+	int idxMultiPath = 0;
+	int64 nPktNum = m_statsEndToEnd.ExpandWirePacketNumberAndCheck( nWirePktNum, idxMultiPath );
+	m_statsEndToEnd.TrackProcessSequencedPacket( nPktNum, usecNow, -1, idxMultiPath );
 	m_statsEndToEnd.TrackRecvPacket( cbPktSize, usecNow );
 	m_statsEndToEnd.m_ping.ReceivedPing( 0, usecNow );
 }

@@ -580,6 +580,12 @@ struct LinkStatsTrackerBase
 		m_usecWhenTimeoutStarted = 0;
 	}
 
+	// For multi-path, we track some extra stats
+	uint64 m_recvPktNumberMaskMultiPath[2][2]; // Bitmask that we have received on either path
+	int64 m_nMultiPathRecvLater[2];
+	int64 m_nMultiPathRecvSeq[2];
+	bool m_bMultiPathSendEnabled;
+
 	//
 	// Quality metrics stats
 	//
@@ -874,10 +880,11 @@ protected:
 
 	// Hooks that derived classes may override when we process a packet
 	// and it meets certain characteristics
-	inline void InternalProcessSequencedPacket_Count()
+	inline void InternalProcessSequencedPacket_Count( int idxMultiPath )
 	{
 		m_seqPktCounters.OnRecv();
 		++m_nPktsRecvSequenced;
+		++m_nMultiPathRecvSeq[ idxMultiPath ];
 	}
 	void InternalProcessSequencedPacket_OutOfOrder( int64 nPktNum );
 	inline void InternalProcessSequencedPacket_Duplicate()
@@ -1115,7 +1122,7 @@ struct LinkStatsTracker final : public TLinkStatsTracker
 	/// This expands the wire packet number to its full value,
 	/// and checks if it is a duplicate or out of range.
 	/// Stats are also updated
-	int64 ExpandWirePacketNumberAndCheck( uint16 nWireSeqNum )
+	int64 ExpandWirePacketNumberAndCheck( uint16 nWireSeqNum, int idxMultiPath )
 	{
 		int16 nGap = (int16)( nWireSeqNum - (uint16)TLinkStatsTracker::m_nMaxRecvPktNum );
 		int64 nPktNum = TLinkStatsTracker::m_nMaxRecvPktNum + nGap;
@@ -1125,7 +1132,7 @@ struct LinkStatsTracker final : public TLinkStatsTracker
 		constexpr int N = V_ARRAYSIZE(TLinkStatsTracker::m_arDebugHistoryRecvSeqNum);
 		COMPILE_TIME_ASSERT( ( N & (N-1) ) == 0 );
 		TLinkStatsTracker::m_arDebugHistoryRecvSeqNum[ TLinkStatsTracker::m_nPktsRecvSequenced & (N-1) ] = nPktNum;
-		TLinkStatsTracker::InternalProcessSequencedPacket_Count();
+		TLinkStatsTracker::InternalProcessSequencedPacket_Count( idxMultiPath );
 
 		// Packet number is increasing?
 		// (Maybe by a lot -- we don't handle that here.)
@@ -1145,8 +1152,23 @@ struct LinkStatsTracker final : public TLinkStatsTracker
 		uint64 bit = uint64{1} << ( nPktNum & 63 );
 		if ( TLinkStatsTracker::m_recvPktNumberMask[ idxRecvBitmask ] & bit )
 		{
-			// Duplicate
-			TLinkStatsTracker::InternalProcessSequencedPacket_Duplicate();
+			// Duplicate.  But if we haven't received it through this path yet,
+			// it's just because the packet got to us through the other path first.
+			if ( TLinkStatsTracker::m_recvPktNumberMaskMultiPath[idxMultiPath][idxRecvBitmask] & bit )
+			{
+				// Yes a true duplicate.  (This will be the typical case,
+				// when dual-path is not available.)
+				TLinkStatsTracker::InternalProcessSequencedPacket_Duplicate();
+			}
+			else
+			{
+				// The other path beat us
+				++TLinkStatsTracker::m_nMultiPathRecvLater[ idxMultiPath ];
+
+				// Mark that we got it on this path, too
+				TLinkStatsTracker::m_recvPktNumberMaskMultiPath[idxMultiPath][idxRecvBitmask] |= bit;
+			}
+
 			return 0;
 		}
 
@@ -1158,18 +1180,18 @@ struct LinkStatsTracker final : public TLinkStatsTracker
 
 	/// Same as ExpandWirePacketNumberAndCheck, but if this is the first sequenced
 	/// packet we have ever received, initialize the packet number
-	int64 ExpandWirePacketNumberAndCheckMaybeInitialize( uint16 nWireSeqNum )
+	int64 ExpandWirePacketNumberAndCheckMaybeInitialize( uint16 nWireSeqNum, int idxMultiPath )
 	{
 		if ( unlikely( TLinkStatsTracker::m_nMaxRecvPktNum == 0 ) )
 			TLinkStatsTracker::ResetMaxRecvPktNumForIncomingWirePktNum( nWireSeqNum );
-		return ExpandWirePacketNumberAndCheck( nWireSeqNum );
+		return ExpandWirePacketNumberAndCheck( nWireSeqNum, idxMultiPath );
 	}
 
 	/// Called when we have processed a packet with a sequence number, to update estimated
 	/// number of dropped packets, etc.  This MUST only be called after we have
 	/// called ExpandWirePacketNumberAndCheck, to ensure that the packet number is not a
 	/// duplicate or out of range.
-	inline void TrackProcessSequencedPacket( int64 nPktNum, SteamNetworkingMicroseconds usecNow, int usecSenderTimeSincePrev )
+	inline void TrackProcessSequencedPacket( int64 nPktNum, SteamNetworkingMicroseconds usecNow, int usecSenderTimeSincePrev, int idxMultiPath )
 	{
 		Assert( nPktNum > 0 );
 
@@ -1183,18 +1205,25 @@ struct LinkStatsTracker final : public TLinkStatsTracker
 			{
 				// Crossed to the next 64-packet block.  Shift bitmasks forward by one.
 				TLinkStatsTracker::m_recvPktNumberMask[0] = TLinkStatsTracker::m_recvPktNumberMask[1];
+				TLinkStatsTracker::m_recvPktNumberMaskMultiPath[0][0] = TLinkStatsTracker::m_recvPktNumberMaskMultiPath[0][1];
+				TLinkStatsTracker::m_recvPktNumberMaskMultiPath[1][0] = TLinkStatsTracker::m_recvPktNumberMaskMultiPath[1][1];
 			}
 			else
 			{
 				// Large packet number jump, we skipped a whole block
 				TLinkStatsTracker::m_recvPktNumberMask[0] = 0;
+				TLinkStatsTracker::m_recvPktNumberMaskMultiPath[0][0] = 0;
+				TLinkStatsTracker::m_recvPktNumberMaskMultiPath[1][0] = 0;
 			}
 			TLinkStatsTracker::m_recvPktNumberMask[1] = 0;
+			TLinkStatsTracker::m_recvPktNumberMaskMultiPath[0][1] = 0;
+			TLinkStatsTracker::m_recvPktNumberMaskMultiPath[1][1] = 0;
 			idxRecvBitmask = 1;
 		}
 		uint64 bit = uint64{1} << ( nPktNum & 63 );
 		Assert( !( TLinkStatsTracker::m_recvPktNumberMask[ idxRecvBitmask ] & bit ) ); // Should not have already been marked!  We should have already discarded duplicates
 		TLinkStatsTracker::m_recvPktNumberMask[ idxRecvBitmask ] |= bit;
+		TLinkStatsTracker::m_recvPktNumberMaskMultiPath[idxMultiPath][idxRecvBitmask] |= bit;
 
 		// Check for dropped packet.  Since we hope that by far the most common
 		// case will be packets delivered in order, we optimize this logic

@@ -1215,7 +1215,7 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLa
 	//
 	// Also, note that order of operations is important.  This call must
 	// happen after the SNP_RecordReceivedPktNum call above
-	m_statsEndToEnd.TrackProcessSequencedPacket( nPktNum, usecNow, usecTimeSinceLast );
+	m_statsEndToEnd.TrackProcessSequencedPacket( nPktNum, usecNow, usecTimeSinceLast, ctx.m_idxMultiPath );
 
 	// Packet can be processed further
 	return true;

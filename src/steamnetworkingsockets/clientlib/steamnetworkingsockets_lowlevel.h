@@ -121,10 +121,33 @@ public:
 	/// get any further callbacks.
 	virtual void Close() = 0;
 
+	/// Check if Dual Wifi support is available, and if so, return the secondary socket.
+	/// The first time this is called, we will check for support and attempt to open a socket.
+	/// Thereafter, we will merely return the result of the first attempt
+	enum EDualWifiStatus
+	{
+		k_EDualWifi_NotAttempted,
+		k_EDualWifi_Done, // Failed or closed; don't try again
+		k_EDualWifi_Primary, // We're the primary.  m_pDualWifiPartner is the secondary
+		k_EDualWifi_Secondary, // We're the secondary.  m_pDualWifiPartner is the primary
+	};
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_DUALWIFI
+		virtual IRawUDPSocket *GetDualWifiSecondarySocket( int nEnableSetting ) = 0;
+		inline bool IsDualWifiSecondary() const { return m_eDualWifiStatus == k_EDualWifi_Secondary; }
+	#else
+		inline IRawUDPSocket *GetDualWifiSecondarySocket( int nEnableSetting ) { return nullptr; }
+		inline bool IsDualWifiSecondary() const { return false; }
+	#endif
+
 	/// The local address we ended up binding to
 	SteamNetworkingIPAddr m_boundAddr;
 
 protected:
+
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_DUALWIFI
+		EDualWifiStatus m_eDualWifiStatus = k_EDualWifi_NotAttempted;
+	#endif
+
 	IRawUDPSocket();
 	virtual ~IRawUDPSocket();
 };

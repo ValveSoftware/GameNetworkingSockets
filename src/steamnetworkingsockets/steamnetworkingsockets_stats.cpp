@@ -154,6 +154,9 @@ void LinkStatsTrackerBase::InitInternal( SteamNetworkingMicroseconds usecNow )
 	m_flInPacketsWeirdSequencePct = -1.0f;
 	m_usecMaxJitterPreviousInterval = -1;
 	m_nPktsRecvSequenced = 0;
+	m_nMultiPathRecvSeq[0] = m_nMultiPathRecvSeq[1] = 0;
+	m_nMultiPathRecvLater[0] = m_nMultiPathRecvLater[1] = 0;
+	m_bMultiPathSendEnabled = false;
 	m_nDebugPktsRecvInOrder = 0;
 	m_nPktsRecvDroppedAccumulator = 0;
 	m_nPktsRecvOutOfOrderAccumulator = 0;
@@ -313,6 +316,9 @@ void LinkStatsTrackerBase::InitMaxRecvPktNum( int64 nPktNum )
 		m_recvPktNumberMask[1] = ~(uint64)0;
 	else
 		m_recvPktNumberMask[1] = ( (uint64)1 << nBitsToSet ) - 1;
+
+	m_recvPktNumberMaskMultiPath[0][0] = m_recvPktNumberMaskMultiPath[1][0] = m_recvPktNumberMask[0];
+	m_recvPktNumberMaskMultiPath[0][1] = m_recvPktNumberMaskMultiPath[1][1] = m_recvPktNumberMask[1];
 
 	m_nDebugLastInitMaxRecvPktNum = nPktNum;
 }
@@ -554,6 +560,10 @@ void LinkStatsTrackerBase::GetLifetimeStats( SteamDatagramLinkLifetimeStats &s )
 	s.m_nPktsRecvOutOfOrder = PktsRecvOutOfOrder();
 	s.m_nPktsRecvDuplicate = PktsRecvDuplicate();
 	s.m_nPktsRecvSequenceNumberLurch = PktsRecvLurch();
+
+	s.m_bMultiPathSendEnabled = m_bMultiPathSendEnabled;
+	s.m_nMultiPathRecvSeq[0] = m_nMultiPathRecvSeq[0]; s.m_nMultiPathRecvSeq[1] = m_nMultiPathRecvSeq[1];
+	s.m_nMultiPathRecvLater[0] = m_nMultiPathRecvLater[0]; s.m_nMultiPathRecvLater[1] = m_nMultiPathRecvLater[1];
 
 	s.m_qualityHistogram = m_qualityHistogram;
 
@@ -823,6 +833,16 @@ void LinkStatsLifetimeStructToMsg( const SteamDatagramLinkLifetimeStats &s, CMsg
 	msg.set_packets_recv_duplicate( s.m_nPktsRecvDuplicate );
 	msg.set_packets_recv_lurch( s.m_nPktsRecvSequenceNumberLurch );
 
+	if ( s.m_bMultiPathSendEnabled )
+		msg.set_multipath_send_enabled( 1 );
+	if ( s.m_bMultiPathSendEnabled || s.m_nMultiPathRecvSeq[1] > 0 )
+	{
+		msg.add_multipath_packets_recv_sequenced( s.m_nMultiPathRecvSeq[0] );
+		msg.add_multipath_packets_recv_sequenced( s.m_nMultiPathRecvSeq[1] );
+		msg.add_multipath_packets_recv_later( s.m_nMultiPathRecvLater[0] );
+		msg.add_multipath_packets_recv_later( s.m_nMultiPathRecvLater[1] );
+	}
+
 	#define SET_HISTOGRAM( mbr, field ) if ( mbr > 0 ) msg.set_ ## field( mbr );
 	#define SET_NTILE( mbr, field ) if ( mbr >= 0 ) msg.set_ ## field( mbr );
 
@@ -916,6 +936,12 @@ void LinkStatsLifetimeMsgToStruct( const CMsgSteamDatagramLinkLifetimeStats &msg
 	s.m_nPktsRecvOutOfOrder = msg.packets_recv_out_of_order();
 	s.m_nPktsRecvDuplicate = msg.packets_recv_duplicate();
 	s.m_nPktsRecvSequenceNumberLurch = msg.packets_recv_lurch();
+
+	s.m_bMultiPathSendEnabled = msg.multipath_send_enabled() > 0;
+	s.m_nMultiPathRecvSeq[0] = ( msg.multipath_packets_recv_sequenced_size() > 0 ) ? msg.multipath_packets_recv_sequenced(0) : 0;
+	s.m_nMultiPathRecvSeq[1] = ( msg.multipath_packets_recv_sequenced_size() > 1 ) ? msg.multipath_packets_recv_sequenced(1) : 0;
+	s.m_nMultiPathRecvLater[0] = ( msg.multipath_packets_recv_later_size() > 0 ) ? msg.multipath_packets_recv_later(0) : 0;
+	s.m_nMultiPathRecvLater[1] = ( msg.multipath_packets_recv_later_size() > 1 ) ? msg.multipath_packets_recv_later(1) : 0;
 
 	#define SET_HISTOGRAM( mbr, field ) mbr = msg.field();
 	#define SET_NTILE( mbr, field ) mbr = ( msg.has_ ## field() ? msg.field() : -1 );
@@ -1059,6 +1085,7 @@ void LinkStatsPrintLifetimeToBuf( const char *pszLeader, const SteamDatagramLink
 	buf.Printf( "%sTotals\n", pszLeader );
 	buf.Printf( "%s    Sent:%11s pkts %15s bytes\n", pszLeader, NumberPrettyPrinter( stats.m_nPacketsSent ).String(), NumberPrettyPrinter( stats.m_nBytesSent ).String() );
 	buf.Printf( "%s    Recv:%11s pkts %15s bytes\n", pszLeader, NumberPrettyPrinter( stats.m_nPacketsRecv ).String(), NumberPrettyPrinter( stats.m_nBytesRecv ).String() );
+
 	if ( stats.m_nPktsRecvSequenced > 0 )
 	{
 		buf.Printf( "%s    Recv w seq:%11s pkts\n", pszLeader, NumberPrettyPrinter( stats.m_nPktsRecvSequenced ).String() );
@@ -1067,6 +1094,17 @@ void LinkStatsPrintLifetimeToBuf( const char *pszLeader, const SteamDatagramLink
 		buf.Printf( "%s    OutOfOrder:%11s pkts%7.2f%%\n", pszLeader, NumberPrettyPrinter( stats.m_nPktsRecvOutOfOrder ).String(), stats.m_nPktsRecvOutOfOrder * flToPct );
 		buf.Printf( "%s    Duplicate :%11s pkts%7.2f%%\n", pszLeader, NumberPrettyPrinter( stats.m_nPktsRecvDuplicate ).String(), stats.m_nPktsRecvDuplicate * flToPct );
 		buf.Printf( "%s    SeqLurch  :%11s pkts%7.2f%%\n", pszLeader, NumberPrettyPrinter( stats.m_nPktsRecvSequenceNumberLurch ).String(), stats.m_nPktsRecvSequenceNumberLurch * flToPct );
+
+		if ( stats.m_nMultiPathRecvSeq[1] > 0 )
+		{
+			AssertMsg( stats.m_nMultiPathRecvSeq[0] + stats.m_nMultiPathRecvSeq[1] == stats.m_nPktsRecvSequenced, "multipath seq bookkeeping error %lld + %lld != %lld",
+				(long long)stats.m_nMultiPathRecvSeq[0], (long long)stats.m_nMultiPathRecvSeq[1], (long long)stats.m_nPktsRecvSequenced );
+
+			buf.Printf( "%s    Pth0 w seq:%11s pkts\n", pszLeader, NumberPrettyPrinter( stats.m_nMultiPathRecvSeq[0] ).String() );
+			buf.Printf( "%s    Pth1 w seq:%11s pkts\n", pszLeader, NumberPrettyPrinter( stats.m_nMultiPathRecvSeq[1] ).String() );
+			buf.Printf( "%s    Pth0 later:%11s pkts\n", pszLeader, NumberPrettyPrinter( stats.m_nMultiPathRecvLater[0] ).String() );
+			buf.Printf( "%s    Pth1 later:%11s pkts\n", pszLeader, NumberPrettyPrinter( stats.m_nMultiPathRecvLater[1] ).String() );
+		}
 	}
 
 	// Do we have enough ping samples such that the distribution might be interesting

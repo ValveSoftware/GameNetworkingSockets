@@ -80,6 +80,23 @@
 	#endif
 #endif
 
+//// Don't enable DualSTA support, even on Windows.  It's not useful
+//// right now because it only works for relayed connections.  We'll want
+//// to enable this once it's working for plain IP connections, too.
+//#ifdef _WINDOWS
+//	#define STEAMNETWORKINGSOCKETS_ENABLE_DUALWIFI
+//#endif
+
+enum EDualWifiEnable {
+	k_nDualWifiEnable_Disable = 0,
+	k_nDualWifiEnable_Enable = 1, // 
+	k_nDualWifiEnable_DoNotEnumerate = 2, // Enumerate primary adapters, but don't actually try to enable any Dual Wifi support
+	k_nDualWifiEnable_DoNotBind = 3, // Try to turn on Dual Wifi and locate the secondary adapter, but don't actually bind
+	k_nDualWifiEnable_ForceSimulate = 4, // Don't really do any DualWifi work, just open up another "regular" socket
+
+	k_nDualWifiEnable_MAX = k_nDualWifiEnable_ForceSimulate // Maximum legal value
+};
+
 /// Enumerate different kinds of transport that can be used
 enum ESteamNetTransportKind
 {
@@ -809,6 +826,9 @@ struct ConnectionConfig
 	ConfigValue<int32> m_EnableDiagnosticsUI;
 	#endif
 
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_DUALWIFI
+	ConfigValue<int32> m_DualWifi_Enable;
+	#endif
 
 	ConfigValue<int32> m_LogLevel_AckRTT;
 	ConfigValue<int32> m_LogLevel_PacketDecode;

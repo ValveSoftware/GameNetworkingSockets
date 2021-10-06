@@ -191,6 +191,11 @@ struct SteamDatagramLinkLifetimeStats
 	int64 m_nPktsRecvDuplicate;
 	int64 m_nPktsRecvSequenceNumberLurch;
 
+	// Multipath stats
+	bool m_bMultiPathSendEnabled;
+	int64 m_nMultiPathRecvSeq[2];
+	int64 m_nMultiPathRecvLater[2];
+
 	// SNP message counters
 	int64 m_nMessagesSentReliable;
 	int64 m_nMessagesSentUnreliable;

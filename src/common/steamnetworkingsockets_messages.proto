@@ -101,6 +101,9 @@ message CMsgSteamDatagramLinkLifetimeStats
 	optional uint64 packets_recv_out_of_order = 9;
 	optional uint64 packets_recv_duplicate = 10;
 	optional uint64 packets_recv_lurch = 11;
+	repeated uint64 multipath_packets_recv_sequenced = 12; // If multipath send or receive was used, then the samples for how many we received on each path
+	repeated uint64 multipath_packets_recv_later = 13; // How often we received a sequenced packet only this path, but another path one the race and so we discarded this one
+	optional uint32 multipath_send_enabled = 14;
 
 	/// Histogram of connection quality.  Here we count up the number
 	/// of connection quality measurement intervals (about 5 seconds)
