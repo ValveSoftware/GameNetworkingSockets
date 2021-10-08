@@ -833,15 +833,17 @@ struct SteamNetworkingMessage_t
 	/// - You might have closed the connection, so fetching the user data
 	///   would not be possible.
 	///
-	/// Not used when sending messages, 
+	/// Not used when sending messages.
 	int64 m_nConnUserData;
 
 	/// Local timestamp when the message was received
 	/// Not used for outbound messages.
 	SteamNetworkingMicroseconds m_usecTimeReceived;
 
-	/// Message number assigned by the sender.
-	/// This is not used for outbound messages
+	/// Message number assigned by the sender.  This is not used for outbound
+	/// messages.  Note that if multiple lanes are used, each lane has its own
+	/// message numbers, which are assigned sequentially, so messages from
+	/// different lanes will share the same numbers.
 	int64 m_nMessageNumber;
 
 	/// Function used to free up m_pData.  This mechanism exists so that
@@ -874,8 +876,7 @@ struct SteamNetworkingMessage_t
 	int64 m_nUserData;
 
 	/// For outbound messages, which lane to use?  See ISteamNetworkingSockets::ConfigureConnectionLanes.
-	///
-	/// Not used for received messages.
+	/// For inbound messages, what lane was the message received on?
 	uint16 m_idxLane;
 	uint16 _pad1__;
 

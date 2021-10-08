@@ -987,8 +987,7 @@ bool CSteamNetworkConnectionBase::BInitConnection( SteamNetworkingMicroseconds u
 	}
 
 	// Start with a single lane
-	uint16 one_weight = 1;
-	DbgVerify( SNP_ConfigureLanes( 1, &one_weight ) == k_EResultOK );
+	DbgVerify( SNP_ConfigureLanes( 1, nullptr, nullptr ) == k_EResultOK );
 
 	return true;
 }
@@ -2535,7 +2534,7 @@ CSteamNetworkingMessage *CSteamNetworkConnectionBase::AllocateNewRecvMessage( ui
 	return pMsg;
 }
 
-bool CSteamNetworkConnectionBase::ReceivedMessageData( const void *pData, int cbData, int64 nMsgNum, int nFlags, SteamNetworkingMicroseconds usecNow )
+bool CSteamNetworkConnectionBase::ReceivedMessageData( const void *pData, int cbData, int idxLane, int64 nMsgNum, int nFlags, SteamNetworkingMicroseconds usecNow )
 {
 
 	// Create a message
@@ -2548,7 +2547,8 @@ bool CSteamNetworkConnectionBase::ReceivedMessageData( const void *pData, int cb
 		return false;
 	}
 
-	// Record message number
+	// Record lane and message number
+	pMsg->m_idxLane = idxLane;
 	pMsg->m_nMessageNumber = nMsgNum;
 
 	// Copy the data
@@ -3765,11 +3765,18 @@ int64 CSteamNetworkConnectionPipe::_APISendMessageToConnection( CSteamNetworking
 		return -k_EResultFail;
 	}
 
+	if ( (int)pMsg->m_idxLane >= len( m_senderState.m_vecLanes ) )
+	{
+		pMsg->Release();
+		return -k_EResultInvalidParam;
+	}
+	SSNPSenderState::Lane &lane = m_senderState.m_vecLanes[ pMsg->m_idxLane ];
+
 	// Set fields to their values applicable on the receiving side
 	// NOTE: This assumes that we can muck with the structure,
 	//       and that the caller won't need to look at the original
 	//       object any more.
-	int nMsgNum = ++m_senderState.m_nLastSentMsgNum;
+	int64 nMsgNum = ++lane.m_nLastSentMsgNum;
 	pMsg->m_nMessageNumber = nMsgNum;
 	pMsg->m_conn = m_pPartner->m_hConnectionSelf;
 	pMsg->m_identityPeer = m_pPartner->m_identityRemote;

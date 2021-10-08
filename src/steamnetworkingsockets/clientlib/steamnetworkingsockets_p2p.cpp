@@ -1984,6 +1984,8 @@ void CSteamNetworkConnectionP2P::SetRendezvousCommonFieldsAndSendSignal( CMsgSte
 					}
 					CMsgSteamNetworkingP2PRendezvous_ApplicationMessage *pAppMsgOut = msg.add_application_messages();
 					pAppMsgOut->set_msg_num( pMsgSend->m_nMessageNumber );
+					if ( pMsgSend->m_idxLane )
+						pAppMsgOut->set_lane_idx( pMsgSend->m_idxLane );
 					pAppMsgOut->set_data( pMsgSend->m_pData, pMsgSend->m_cbSize );
 
 					m_senderState.m_cbPendingUnreliable -= pMsgSend->m_cbSize;
@@ -2243,7 +2245,8 @@ bool CSteamNetworkConnectionP2P::ProcessSignal( const CMsgSteamNetworkingP2PRend
 	// Check if they sent actual end-to-end data in the signal.
 	for ( const CMsgSteamNetworkingP2PRendezvous_ApplicationMessage &msgAppMsg: msg.application_messages() )
 	{
-		ReceivedMessageData( msgAppMsg.data().c_str(), (int)msgAppMsg.data().length(), msgAppMsg.msg_num(), msgAppMsg.flags(), usecNow );
+		int idxLane = 0; // (int)msgAppMsg.data().lane_idx() // FIXME - Need to handle growing the lanes and aborting the connection if they try to use too high of a lane number
+		ReceivedMessageData( msgAppMsg.data().c_str(), (int)msgAppMsg.data().length(), idxLane, msgAppMsg.msg_num(), msgAppMsg.flags(), usecNow );
 	}
 
 

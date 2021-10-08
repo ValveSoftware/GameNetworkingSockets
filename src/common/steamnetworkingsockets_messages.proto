@@ -315,6 +315,7 @@ message CMsgSteamNetworkingP2PRendezvous
 		optional bytes data = 1; // Message bytes
 		optional uint64 msg_num = 2; // Probably a waste of a few bytes
 		optional uint32 flags = 3; // Also probably a waste of a few bytes
+		optional uint32 lane_idx = 4; // Only present if nonzero.  (At the time of this writing, it's zero for all use cases.)
 	}
 	repeated ApplicationMessage application_messages = 15;
 };

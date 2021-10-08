@@ -192,7 +192,6 @@ SSNPReceiverState::SSNPReceiverState()
 //-----------------------------------------------------------------------------
 void SSNPReceiverState::Shutdown()
 {
-	m_mapUnreliableSegments.clear();
 	m_vecLanes.clear();
 	m_mapPacketGaps.clear();
 }
@@ -277,7 +276,7 @@ int64 CSteamNetworkConnectionBase::SNP_SendMessage( CSteamNetworkingMessage *pSe
 	SNP_TokenBucket_Accumulate( usecNow );
 
 	// Assign a message number
-	pSendMessage->m_nMessageNumber = ++m_senderState.m_nLastSentMsgNum;
+	pSendMessage->m_nMessageNumber = ++lane.m_nLastSentMsgNum;
 
 	// Reliable, or unreliable?
 	if ( pSendMessage->m_nFlags & k_nSteamNetworkingSend_Reliable )
@@ -445,7 +444,7 @@ int64 CSteamNetworkConnectionBase::SNP_SendMessage( CSteamNetworkingMessage *pSe
 	return result;
 }
 
-EResult CSteamNetworkConnectionBase::SNP_ConfigureLanes( int nLanes, const uint16 *pLaneWeights )
+EResult CSteamNetworkConnectionBase::SNP_ConfigureLanes( int nLanes, const int *pLanePriorities, const uint16 *pLaneWeights )
 {
 	// Connection must be locked, but we don't require the global lock here
 	m_pLock->AssertHeldByCurrentThread();
@@ -458,21 +457,62 @@ EResult CSteamNetworkConnectionBase::SNP_ConfigureLanes( int nLanes, const uint1
 	if ( nLanes < len( m_senderState.m_vecLanes ) )
 		return k_EResultInvalidParam;
 
-	// Calculate total weight, and make sure all weights are legit
-	unsigned nTotalWeight = 0;
-	for ( int i = 0 ; i < nLanes ; ++i )
+	// Temporary list we'll use to count up the
+	// number of distinct priority classes and their
+	// total weight.
+	struct TempPriorityClass
 	{
-		unsigned w = pLaneWeights[i];
-		if ( w < 1 )
+		int m_nPriority;
+		int m_idxLane;
+		unsigned m_nTotalWeight;
+		inline bool operator<( const TempPriorityClass &x) const
+		{
+			if ( m_nPriority < x.m_nPriority ) return true;
+			if ( m_nPriority > x.m_nPriority ) return false;
+			return m_idxLane < x.m_idxLane;
+		}
+	};
+
+	// Start by assuming each lane has its own priority.
+	// Also, check that we don't have any illegal values
+	TempPriorityClass *pPriorityClass = (TempPriorityClass *)alloca( nLanes * sizeof(TempPriorityClass) );
+	for ( int idxLane = 0 ; idxLane < nLanes ; ++idxLane )
+	{
+		TempPriorityClass &p = pPriorityClass[idxLane];
+		p.m_nPriority = pLanePriorities ? pLanePriorities[idxLane] : 1;
+		p.m_idxLane = idxLane;
+		p.m_nTotalWeight = pLaneWeights ? pLaneWeights[idxLane] : 1;
+		if ( p.m_nTotalWeight < 1 )
 			return k_EResultInvalidParam;
-		nTotalWeight += w;
 	}
 
-	// Values are all good.  Resize the array.
+	// Values are all good.  Resize the lane array.
 	m_senderState.m_vecLanes.resize( nLanes );
 
-	// Take this opportunity to reset virtual time
-	m_senderState.m_virtTimeCurrent = 0;
+	// Sort temp list
+	std::sort( pPriorityClass, pPriorityClass+nLanes );
+
+	// Merge duplicate priority classes, calculate the total weight
+	// of each, and assign each lane its priority class index
+	{
+		int i = 0;
+		for ( int j = 1 ; j < nLanes ; ++j )
+		{
+			if ( pPriorityClass[i].m_nPriority == pPriorityClass[j].m_nPriority )
+			{
+				pPriorityClass[i].m_nTotalWeight += pPriorityClass[j].m_nTotalWeight;
+			}
+			else
+			{
+				Assert( pPriorityClass[i].m_nPriority < pPriorityClass[j].m_nPriority );
+				++i;
+				pPriorityClass[i] = pPriorityClass[j];
+			}
+			m_senderState.m_vecLanes[ pPriorityClass[j].m_idxLane ].m_idxPriorityClass = i;
+		}
+		m_senderState.m_vecPriorityClasses.clear(); // Clear, so that resize() will invoke constructors on all entries, even previously existing ones
+		m_senderState.m_vecPriorityClasses.resize( i+1 );
+	}
 
 	// Setup each lane
 	for ( int idxLane = 0 ; idxLane < nLanes ; ++idxLane )
@@ -482,7 +522,8 @@ EResult CSteamNetworkConnectionBase::SNP_ConfigureLanes( int nLanes, const uint1
 		// Calculate multiplier to convert from bytes to
 		// virtual time.  The scale factor is so that we
 		// don't lose precision.
-		l.m_flBytesToVirtualTime = 65536.0f * (float)nTotalWeight / (float)pLaneWeights[idxLane];
+		unsigned nLaneWeight = pLaneWeights ? pLaneWeights[idxLane] : 1;
+		l.m_flBytesToVirtualTime = 65536.0f * (float)pPriorityClass[ l.m_idxPriorityClass ].m_nTotalWeight / (float)nLaneWeight;
 
 		// Reset virtual time.  This only matters if we actually have
 		// something queued.
@@ -624,7 +665,8 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLa
 	const byte *pEnd = pDecode + ctx.m_cbPlainText;
 	int64 nCurMsgNum = 0;
 	int64 nDecodeReliablePos = 0;
-	SSNPReceiverState::Lane *pCurrentLane = &m_receiverState.m_vecLanes[0];
+	int idxCurrentLane = 0;
+	SSNPReceiverState::Lane *pCurrentLane = &m_receiverState.m_vecLanes[idxCurrentLane];
 	while ( pDecode < pEnd )
 	{
 
@@ -647,26 +689,26 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLa
 				{
 					READ_32BITU( nLowerBits, szUnreliableMsgNumOffset );
 					nMask = 0xffffffff;
-					nCurMsgNum = NearestWithSameLowerBits( (int32)nLowerBits, m_receiverState.m_nHighestSeenMsgNum );
+					nCurMsgNum = NearestWithSameLowerBits( (int32)nLowerBits, pCurrentLane->m_nHighestSeenMsgNum );
 				}
 				else
 				{
 					READ_16BITU( nLowerBits, szUnreliableMsgNumOffset );
 					nMask = 0xffff;
-					nCurMsgNum = NearestWithSameLowerBits( (int16)nLowerBits, m_receiverState.m_nHighestSeenMsgNum );
+					nCurMsgNum = NearestWithSameLowerBits( (int16)nLowerBits, pCurrentLane->m_nHighestSeenMsgNum );
 				}
 				Assert( ( nCurMsgNum & nMask ) == nLowerBits );
 
 				if ( nCurMsgNum <= 0 )
 				{
 					DECODE_ERROR( "SNP decode unreliable msgnum underflow.  %llx mod %llx, highest seen %llx",
-						(unsigned long long)nLowerBits, (unsigned long long)( nMask+1 ), (unsigned long long)m_receiverState.m_nHighestSeenMsgNum );
+						(unsigned long long)nLowerBits, (unsigned long long)( nMask+1 ), (unsigned long long)pCurrentLane->m_nHighestSeenMsgNum );
 				}
-				if ( std::abs( nCurMsgNum - m_receiverState.m_nHighestSeenMsgNum ) > (nMask>>2) )
+				if ( std::abs( nCurMsgNum - pCurrentLane->m_nHighestSeenMsgNum ) > (nMask>>2) )
 				{
 					// We really should never get close to this boundary.
 					SpewWarningRateLimited( usecNow, "Sender sent abs unreliable message number using %llx mod %llx, highest seen %llx\n",
-						(unsigned long long)nLowerBits, (unsigned long long)( nMask+1 ), (unsigned long long)m_receiverState.m_nHighestSeenMsgNum );
+						(unsigned long long)nLowerBits, (unsigned long long)( nMask+1 ), (unsigned long long)pCurrentLane->m_nHighestSeenMsgNum );
 				}
 
 			}
@@ -683,8 +725,8 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLa
 					++nCurMsgNum;
 				}
 			}
-			if ( nCurMsgNum > m_receiverState.m_nHighestSeenMsgNum )
-				m_receiverState.m_nHighestSeenMsgNum = nCurMsgNum;
+			if ( nCurMsgNum > pCurrentLane->m_nHighestSeenMsgNum )
+				pCurrentLane->m_nHighestSeenMsgNum = nCurMsgNum;
 
 			//
 			// Decode segment offset in message
@@ -712,7 +754,7 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLa
 
 				// Receive the segment
 				bool bLastSegmentInMessage = ( nFrameType & 0x20 ) != 0;
-				SNP_ReceiveUnreliableSegment( nCurMsgNum, nOffset, pSegmentData, cbSegmentSize, bLastSegmentInMessage, usecNow );
+				SNP_ReceiveUnreliableSegment( nCurMsgNum, nOffset, pSegmentData, cbSegmentSize, bLastSegmentInMessage, idxCurrentLane, usecNow );
 			}
 		}
 		else if ( ( nFrameType & 0xe0 ) == 0x40 )
@@ -782,7 +824,7 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLa
 			READ_SEGMENT_DATA_SIZE( reliable )
 
 			// Ingest the segment.
-			if ( !SNP_ReceiveReliableSegment( nPktNum, nDecodeReliablePos, pSegmentData, cbSegmentSize, *pCurrentLane, usecNow ) )
+			if ( !SNP_ReceiveReliableSegment( nPktNum, nDecodeReliablePos, pSegmentData, cbSegmentSize, idxCurrentLane, usecNow ) )
 			{
 				if ( !BStateIsActive() )
 					return false; // we decided to nuke the connection - abort packet processing
@@ -2058,7 +2100,35 @@ int CSteamNetworkConnectionBase::SNP_SerializePacketInternal( SNPPacketSerialize
 
 		// Advance fair queuing virtual time
 		if ( !k_bSingleLane )
-			m_senderState.m_virtTimeCurrent += pSeg->m_cbSegSize * sendLane.m_flBytesToVirtualTime;
+		{
+			SSNPSenderState::PriorityClass &priClass = m_senderState.m_vecPriorityClasses[ sendLane.m_idxPriorityClass ];
+			priClass.m_virtTimeCurrent += pSeg->m_cbSegSize * sendLane.m_flBytesToVirtualTime;
+
+			/// Check if the current virtual time is getting pretty big, then shift everything
+			/// down.  This only happens after we've been running for a pretty long time.
+			// NOTE: Intentionally using a lower limit than strictly necessary, just so that my
+			// soak test would actually hit this code and I could make sure it works.
+			// 64-bit numbers are HUUUUGE.
+			constexpr SSNPSenderState::VirtualTime kThresh = 0x0020000000000000ULL;
+			if ( unlikely( priClass.m_virtTimeCurrent > kThresh ) )
+			{
+				SSNPSenderState::VirtualTime shift = priClass.m_virtTimeCurrent - 0x000100000000ULL;
+				for ( SSNPSenderState::Lane &l: m_senderState.m_vecLanes )
+				{
+					if ( l.m_messagesQueued.empty() )
+					{
+						l.m_virtTimeEstFinish = SSNPSenderState::k_virtTime_Infinite;
+					}
+					else
+					{
+						Assert( l.m_virtTimeEstFinish < kThresh*2 );
+						Assert( l.m_virtTimeEstFinish >= shift );
+						l.m_virtTimeEstFinish -= shift;
+					}
+				}
+				priClass.m_virtTimeCurrent -= shift;
+			}
+		}
 
 		// Can't fit the whole thing?
 		if ( bLastSegment || pSeg->m_cbHdr + pSeg->m_cbSegSize > helper.m_cbRemainingForSegments )
@@ -2135,9 +2205,6 @@ int CSteamNetworkConnectionBase::SNP_SerializePacketInternal( SNPPacketSerialize
 		}
 	}
 
-	// Check if we're getting close to virtual time overflowing
-	if ( !k_bSingleLane )
-		m_senderState.CheckShiftVirtualTime();
 done_with_all_segments:
 
 	// Now we know how much space we need for the segments.  If we asked to reserve
@@ -2745,7 +2812,13 @@ inline uint8 *CSteamNetworkConnectionBase::SNP_SerializeStopWaitingFrame( SNPPac
 	return pOut;
 }
 
-void CSteamNetworkConnectionBase::SNP_ReceiveUnreliableSegment( int64 nMsgNum, int nOffset, const void *pSegmentData, int cbSegmentSize, bool bLastSegmentInMessage, SteamNetworkingMicroseconds usecNow )
+void CSteamNetworkConnectionBase::SNP_ReceiveUnreliableSegment(
+	int64 nMsgNum,
+	int nOffset,
+	const void *pSegmentData, int cbSegmentSize,
+	bool bLastSegmentInMessage,
+	int idxLane,
+	SteamNetworkingMicroseconds usecNow )
 {
 	SpewDebugGroup( m_connectionConfig.m_LogLevel_PacketDecode.Get(), "[%s] RX msg %lld offset %d+%d=%d %02x ... %02x\n", GetDescription(), nMsgNum, nOffset, cbSegmentSize, nOffset+cbSegmentSize, ((byte*)pSegmentData)[0], ((byte*)pSegmentData)[cbSegmentSize-1] );
 
@@ -2766,22 +2839,23 @@ void CSteamNetworkConnectionBase::SNP_ReceiveUnreliableSegment( int64 nMsgNum, i
 
 		// Deliver it immediately, don't go through the fragmentation assembly process below.
 		// (Although that would work.)
-		ReceivedMessageData( pSegmentData, cbSegmentSize, nMsgNum, k_nSteamNetworkingSend_Unreliable, usecNow );
+		ReceivedMessageData( pSegmentData, cbSegmentSize, idxLane, nMsgNum, k_nSteamNetworkingSend_Unreliable, usecNow );
 		return;
 	}
+	SSNPReceiverState::Lane &lane = m_receiverState.m_vecLanes[ idxLane ];
 
 	// Limit number of unreliable segments we store.  We just use a fixed
 	// limit, rather than trying to be smart by expiring based on time or whatever.
-	if ( len( m_receiverState.m_mapUnreliableSegments ) > k_nMaxBufferedUnreliableSegments )
+	if ( len( lane.m_mapUnreliableSegments ) > k_nMaxBufferedUnreliableSegments )
 	{
-		auto itDelete = m_receiverState.m_mapUnreliableSegments.begin();
+		auto itDelete = lane.m_mapUnreliableSegments.begin();
 
 		// If we're going to delete some, go ahead and delete all of them for this
 		// message.
 		int64 nDeleteMsgNum = itDelete->first.m_nMsgNum;
 		do {
-			itDelete = m_receiverState.m_mapUnreliableSegments.erase( itDelete );
-		} while ( itDelete != m_receiverState.m_mapUnreliableSegments.end() && itDelete->first.m_nMsgNum == nDeleteMsgNum );
+			itDelete = lane.m_mapUnreliableSegments.erase( itDelete );
+		} while ( itDelete != lane.m_mapUnreliableSegments.end() && itDelete->first.m_nMsgNum == nDeleteMsgNum );
 
 		// Warn if the message we are receiving is older (or the same) than the one
 		// we are deleting.  If sender is legit, then it probably means that we have
@@ -2799,7 +2873,7 @@ void CSteamNetworkConnectionBase::SNP_ReceiveUnreliableSegment( int64 nMsgNum, i
 	SSNPRecvUnreliableSegmentKey key;
 	key.m_nMsgNum = nMsgNum;
 	key.m_nOffset = nOffset;
-	SSNPRecvUnreliableSegmentData &data = m_receiverState.m_mapUnreliableSegments[ key ];
+	SSNPRecvUnreliableSegmentData &data = lane.m_mapUnreliableSegments[ key ];
 	if ( data.m_cbSegSize >= 0 )
 	{
 		// We got another segment starting at the same offset.  This is weird, since they shouldn't
@@ -2824,8 +2898,8 @@ void CSteamNetworkConnectionBase::SNP_ReceiveUnreliableSegment( int64 nMsgNum, i
 
 	// Now check if that completed the message
 	key.m_nOffset = 0;
-	auto itMsgStart = m_receiverState.m_mapUnreliableSegments.lower_bound( key );
-	auto end = m_receiverState.m_mapUnreliableSegments.end();
+	auto itMsgStart = lane.m_mapUnreliableSegments.lower_bound( key );
+	auto end = lane.m_mapUnreliableSegments.end();
 	Assert( itMsgStart != end );
 	auto itMsgLast = itMsgStart;
 	int cbMessageSize = 0;
@@ -2855,6 +2929,7 @@ void CSteamNetworkConnectionBase::SNP_ReceiveUnreliableSegment( int64 nMsgNum, i
 
 	// Record the message number
 	pMsg->m_nMessageNumber = nMsgNum;
+	pMsg->m_idxLane = idxLane;
 
 	// OK, we have the complete message!  Gather the
 	// segments into a contiguous buffer
@@ -2868,20 +2943,20 @@ void CSteamNetworkConnectionBase::SNP_ReceiveUnreliableSegment( int64 nMsgNum, i
 			break;
 
 		// Remove entry from list, and move onto the next entry
-		itMsgStart = m_receiverState.m_mapUnreliableSegments.erase( itMsgStart );
+		itMsgStart = lane.m_mapUnreliableSegments.erase( itMsgStart );
 	}
 
 	// Erase the last segment, and anything else we might have hanging around
 	// for this message (???)
 	do {
-		itMsgStart = m_receiverState.m_mapUnreliableSegments.erase( itMsgStart );
+		itMsgStart = lane.m_mapUnreliableSegments.erase( itMsgStart );
 	} while ( itMsgStart != end && itMsgStart->first.m_nMsgNum == nMsgNum );
 
 	// Deliver the message.
 	ReceivedMessage( pMsg );
 }
 
-bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int64 nSegBegin, const uint8 *pSegmentData, int cbSegmentSize, SSNPReceiverState::Lane &lane, SteamNetworkingMicroseconds usecNow )
+bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int64 nSegBegin, const uint8 *pSegmentData, int cbSegmentSize, int idxLane, SteamNetworkingMicroseconds usecNow )
 {
 	int nLogLevelPacketDecode = m_connectionConfig.m_LogLevel_PacketDecode.Get();
 
@@ -2927,6 +3002,8 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 			AssertMsg( false, "Unexpected state %d", GetState() );
 			return false;
 	}
+
+	SSNPReceiverState::Lane &lane = m_receiverState.m_vecLanes[ idxLane ];
 
 	// Check if the entire thing is stuff we have already received, then
 	// we can discard it
@@ -3185,12 +3262,12 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 			// the case where the app decides to send literally a million unreliable
 			// messages in between reliable messages.  The second condition is probably
 			// legit, though.)
-			if ( nOffset > 1000000 || nMsgNum > m_receiverState.m_nHighestSeenMsgNum+10000 )
+			if ( nOffset > 1000000 || nMsgNum > lane.m_nHighestSeenMsgNum+10000 )
 			{
 				ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_InternalError,
 					"Reliable message number lurch.  Last reliable %lld, offset %llu, highest seen %lld",
 					(long long)lane.m_nLastRecvReliableMsgNum, (unsigned long long)nOffset,
-					(long long)m_receiverState.m_nHighestSeenMsgNum );
+					(long long)lane.m_nHighestSeenMsgNum );
 				return false;
 			}
 		}
@@ -3202,8 +3279,8 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 		// Check for updating highest message number seen, so we know how to interpret
 		// message numbers from the sender with only the lowest N bits present.
 		// And yes, we want to do this even if we end up not processing the entire message
-		if ( nMsgNum > m_receiverState.m_nHighestSeenMsgNum )
-			m_receiverState.m_nHighestSeenMsgNum = nMsgNum;
+		if ( nMsgNum > lane.m_nHighestSeenMsgNum )
+			lane.m_nHighestSeenMsgNum = nMsgNum;
 
 		// Parse message size.
 		int cbMsgSize = nHeaderByte&0x1f;
@@ -3246,7 +3323,7 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 		}
 
 		// We have a full message!  Queue it
-		if ( !ReceivedMessageData( pReliableDecode, cbMsgSize, nMsgNum, k_nSteamNetworkingSend_Reliable, usecNow ) )
+		if ( !ReceivedMessageData( pReliableDecode, cbMsgSize, idxLane, nMsgNum, k_nSteamNetworkingSend_Reliable, usecNow ) )
 			return false; // Weird failure.  Most graceful response is to not ack this packet, and maybe we will work next on retry.
 		pReliableDecode += cbMsgSize;
 		int cbStreamConsumed = pReliableDecode-pReliableStart;

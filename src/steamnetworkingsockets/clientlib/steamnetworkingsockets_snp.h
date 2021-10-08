@@ -298,9 +298,15 @@ struct SSNPSenderState
 	typedef int64 VirtualTime;
 	static constexpr VirtualTime k_virtTime_Infinite = std::numeric_limits<VirtualTime>::max();
 
-	/// Current virtual timestamp.  This is used when a message is queued
-	/// to calculate it's virtual finish time.
-	VirtualTime m_virtTimeCurrent = 0;
+	/// Each priority classes has its own virtual timer for weighted fair queuing
+	struct PriorityClass
+	{
+
+		/// Current virtual timestamp.  This is used when a message
+		/// is queued to calculate its virtual finish time.
+		VirtualTime m_virtTimeCurrent = 0;
+	};
+	std_vector<PriorityClass> m_vecPriorityClasses;
 
 	/// Info we track for each lane
 	struct Lane
@@ -321,6 +327,10 @@ struct SSNPSenderState
 		/// share.  It is calculated as virtual_time_start + message_size*m_nBytesToVirtualTime
 		VirtualTime m_virtTimeEstFinish;
 
+		/// Index of the priority class we belong to.  Priority classes
+		/// are sorted, and so a lower m_idxPriorityClass means lower priority.
+		int m_idxPriorityClass;
+
 		/// Multiplier used to calculate virtual finish time.
 		float m_flBytesToVirtualTime;
 
@@ -332,6 +342,9 @@ struct SSNPSenderState
 
 		/// How many bytes into the first message in the queue have we put on the wire?
 		int m_cbCurrentSendMessageSent = 0;
+
+		// Current message number, we ++ when adding a message
+		int64 m_nLastSentMsgNum = 0; // Will increment to 1 with first message
 	};
 	std_vector<Lane> m_vecLanes;
 
@@ -345,9 +358,6 @@ struct SSNPSenderState
 			pMsg = pMsg->m_links.m_pPrev;
 		}
 	}
-
-	// Current message number, we ++ when adding a message
-	int64 m_nLastSentMsgNum = 0; // Will increment to 1 with first message
 
 	/// Queue of all messages (from all priority groups), that we have not yet
 	/// finished putting on the wire the first time. The Nagle timer may be active
@@ -404,39 +414,11 @@ struct SSNPSenderState
 	{
 		Assert( lane.m_cbCurrentSendMessageSent == 0 );
 		const CSteamNetworkingMessage *pMsg = lane.m_messagesQueued.m_pFirst;
-		lane.m_virtTimeEstFinish = m_virtTimeCurrent + (VirtualTime)( (float)pMsg->m_cbSize * lane.m_flBytesToVirtualTime );
+		lane.m_virtTimeEstFinish = m_vecPriorityClasses[ lane.m_idxPriorityClass ].m_virtTimeCurrent + (VirtualTime)( (float)pMsg->m_cbSize * lane.m_flBytesToVirtualTime );
 	}
 
 	// Remove messages from m_unackedReliableMessages that have been fully acked.
 	void RemoveAckedReliableMessageFromUnackedList();
-
-	/// Check if the current virtual time is getting pretty big, then shift everything
-	/// down.  This only happens after we've been running for a pretty long time.
-	inline void CheckShiftVirtualTime()
-	{
-		// NOTE: Intentionally using a lower limit than strictly necessary, just so that my
-		// soak test would actually hit this code and I could make sure it works.
-		// 64-bit numbers are HUUUUGE.
-		constexpr VirtualTime kThresh = 0x0020000000000000ULL;
-		if ( likely( m_virtTimeCurrent < kThresh ) )
-			return;
-
-		VirtualTime shift = m_virtTimeCurrent - 0x000100000000ULL;
-		for ( Lane &l: m_vecLanes )
-		{
-			if ( l.m_messagesQueued.empty() )
-			{
-				l.m_virtTimeEstFinish = k_virtTime_Infinite;
-			}
-			else
-			{
-				Assert( l.m_virtTimeEstFinish < kThresh*2 );
-				Assert( l.m_virtTimeEstFinish >= shift );
-				l.m_virtTimeEstFinish -= shift;
-			}
-		}
-		m_virtTimeCurrent -= shift;
-	}
 
 	/// Check invariants in debug.
 	#if STEAMNETWORKINGSOCKETS_SNP_PARANOIA == 0 
@@ -490,6 +472,16 @@ struct SSNPReceiverState
 	/// Each lane has its own reliable stream
 	struct Lane
 	{
+
+		/// Unreliable message segments that we have received.  When an unreliable message
+		/// needs to be fragmented, we store the pieces here.  NOTE: it might be more efficient
+		/// to use a simpler container, with worse O(), since this should ordinarily be
+		/// a pretty small list.
+		std_map<SSNPRecvUnreliableSegmentKey,SSNPRecvUnreliableSegmentData> m_mapUnreliableSegments;
+
+		/// The highest message number we have seen so far.
+		int64 m_nHighestSeenMsgNum = 0;
+
 		/// Stream position of the first byte in m_bufReliableData.  Remember that the first byte
 		/// in the reliable stream is actually at position 1, not 0
 		int64 m_nReliableStreamPos = 1;
@@ -512,15 +504,6 @@ struct SSNPReceiverState
 		std_map<int64,int64> m_mapReliableStreamGaps;
 	};
 	std_vector<Lane> m_vecLanes;
-
-	/// Unreliable message segments that we have received.  When an unreliable message
-	/// needs to be fragmented, we store the pieces here.  NOTE: it might be more efficient
-	/// to use a simpler container, with worse O(), since this should ordinarily be
-	/// a pretty small list.
-	std_map<SSNPRecvUnreliableSegmentKey,SSNPRecvUnreliableSegmentData> m_mapUnreliableSegments;
-
-	/// The highest message number we have seen so far.
-	int64 m_nHighestSeenMsgNum = 0;
 
 	/// List of gaps in the packet sequence numbers we have received.
 	/// Since these must never overlap, we store them using begin as the
