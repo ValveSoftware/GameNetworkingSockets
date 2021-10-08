@@ -198,17 +198,8 @@ no blocks need be encoded at all.
 Select active lane for segment decoding.
 
     10001nnn
-		000-110: INCREASE the current lane by nnn+1 
-		         The +1 is because zero is not useful.
-				 Also we use incrse rather than set,
-				 because eocnding the lanes in order is
-				 easy, and affords a small optimization.
-		111: varint-encoded value follows.  SET the active lane to that value.
-		     We set the lane here, rather than increase the current value,
-			 because if we are going to have to use a whole byte, then the
-			 savings from encoding the delta rather than the actual value
-			 is unlikely to be benefit.  Meanwhile, this gives us an escape
-			 hatch in the future, if we ever need to encode lanes out of order.
+		000-110: Set the current lane to nnn+1.  (+1 because the default lane is 0 and can be encoded first.)
+		111: varint-encoded value follows.  Set the active lane to that value.
 
 When packet decoding starts, the current lane is set to 0.
 Any lane change resets the context for reliable and unreliable decode,

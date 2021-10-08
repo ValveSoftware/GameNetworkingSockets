@@ -1828,72 +1828,52 @@ template<bool k_bUnreliableOnly> struct SNPSegmentCollector<k_bUnreliableOnly,fa
 	// Packets for a particular lane, tagged with 
 	struct TaggedLane : Lane
 	{
-		int m_idxLane;
-		int m_cbHdrSizeReserved;
+		int m_nLaneID;
 
-		// Encode the necessary lane selection command into the packet
-		// NOTE: We assume that we have reserved enough and overflow is not possible.
-		inline uint8 *EncodeSelectLane( uint8 *pPayloadPtr, int idxPrevLane ) const
-		{
-			int idxDiff = m_idxLane - idxPrevLane;
-			if ( idxDiff == 0 )
-			{
-				DbgAssert( idxPrevLane == 0 );
-				DbgAssert( m_cbHdrSizeReserved == 0 );
-			}
-
-			uint8 *const pEnd = pPayloadPtr + m_cbHdrSizeReserved;
-
-			DbgAssert( idxDiff > 0 );
-			if ( idxDiff <= 7 )
-			{
-				*(pPayloadPtr++) = (uint8)( 0x83 + idxDiff );
-			}
-			else
-			{
-				*(pPayloadPtr++) = 0x8f;
-				pPayloadPtr = SerializeVarInt( pPayloadPtr, (unsigned)idxDiff );
-			}
-
-			DbgAssert( pPayloadPtr <= pEnd );
-			(void)pEnd; // Silence warning if debug asserts not enabled
-			return pPayloadPtr;
-		}
+		// Lane select header
+		uint8 m_cbHdr;
+		uint8 m_hdr[7];
 	};
 
 	vstd::small_vector<TaggedLane,3> m_vecLanes;
 
-	inline Lane *GetLane( int idxLane )
+	// If lane 0 is used, what is the index (in m_vecLanes)
+	// where we used it.
+	int m_idxLane0 = -1;
+
+	inline Lane *GetLane( int nLaneID )
 	{
+
+		// Check if we already have data for this lane
 		for ( TaggedLane &l: m_vecLanes )
 		{
-			if ( l.m_idxLane == idxLane )
+			if ( l.m_nLaneID == nLaneID )
 				return &l;
 		}
 		TaggedLane *pNewLane = push_back_get_ptr( m_vecLanes );
-		pNewLane->m_idxLane = idxLane;
+		pNewLane->m_nLaneID = nLaneID;
 
 		// Get a conservative size for the header we will need to select the specified lane.
 		// This assumes the lanes will be encoded in order.
-		int cbHdrSizeReserved = 0;
-		if ( idxLane > 0 ) // Lane zero is the default
+		if ( nLaneID == 0 ) // Lane zero is the default
 		{
-			if ( idxLane <= 7 )
-			{
-				// We can always encode as a difference from the previous lane
-				cbHdrSizeReserved = 1;
-			}
-			else
-			{
-				// Assume for now we will need the var-int style.
-				// Although it's that we can use the 1-byte incremental
-				// style
-				cbHdrSizeReserved = 1 + VarIntSerializedSize( (uint32)idxLane );
-			}
-			m_cbRemainingForSegments -= cbHdrSizeReserved;
+			Assert( m_idxLane0 == -1 );
+			pNewLane->m_cbHdr = 0;
+			m_idxLane0 = len( m_vecLanes )-1;
 		}
-
-		pNewLane->m_cbHdrSizeReserved = cbHdrSizeReserved;
+		else
+		{
+			if ( nLaneID <= 7 )
+			{
+				pNewLane->m_cbHdr = 1;
+				pNewLane->m_hdr[0] = (uint8)( 0x83 + nLaneID );
+			} else {
+				pNewLane->m_hdr[0] = 0x8f;
+				uint8 *p = SerializeVarInt( &pNewLane->m_hdr[1], (unsigned)nLaneID );
+				pNewLane->m_cbHdr = p - &pNewLane->m_hdr[1];
+			}
+			m_cbRemainingForSegments -= pNewLane->m_cbHdr;
+		}
 
 		return pNewLane;
 	}
@@ -1906,7 +1886,9 @@ template<bool k_bUnreliableOnly> struct SNPSegmentCollector<k_bUnreliableOnly,fa
 		if ( pLane->m_vecSegments.empty() )
 		{
 			TaggedLane *t = (TaggedLane *)pLane;
-			m_cbRemainingForSegments += t->m_cbHdrSizeReserved;
+			m_cbRemainingForSegments += t->m_cbHdr;
+			if ( t->m_nLaneID == 0 )
+				m_idxLane0 = -1;
 			m_vecLanes.erase( t );
 		}
 	}
@@ -2049,61 +2031,29 @@ uint8 *CSteamNetworkConnectionBase::SNP_SerializeSegments_MultiLane( uint8 *pPay
 {
 	using Lane = typename SNPSegmentCollector<k_bUnreliableOnly, false>::TaggedLane;
 
-	// Packet encoding always starts with 0 as the current lane
-	int idxCurrentLane = 0;
-
-	// First, check for a hopefully-common case where only one lane was used in this packet.
-	const int nLanes = len( segmentCollector.m_vecLanes );
-	if ( nLanes == 1 )
+	// If any data was sent on lane 0, serialize it first (with no lane select header)
+	// NOTE: We write the test this way in case we added lane 0 and then removed it.
+	if ( segmentCollector.m_idxLane0 >= 0 )
 	{
-		Lane &onlyLane = segmentCollector.m_vecLanes[0];
-		pPayloadPtr = onlyLane.EncodeSelectLane( pPayloadPtr, idxCurrentLane );
-		return SNP_SerializeSegmentArray<k_bUnreliableOnly>( pPayloadPtr, helper, onlyLane.m_vecSegments.begin(), onlyLane.m_vecSegments.end() );
+		Lane &lane0 = segmentCollector.m_vecLanes[segmentCollector.m_idxLane0];
+		pPayloadPtr = SNP_SerializeSegmentArray<k_bUnreliableOnly>( pPayloadPtr, helper, lane0.m_vecSegments.begin(), lane0.m_vecSegments.end() );
 	}
 
-	// More than one lane was used in this packet.
-	// Sort the lanes by their logical index
-	Lane **pSortLanes = (Lane **)alloca( nLanes*sizeof(Lane*) );
-	for ( int i = 0 ; i < nLanes ; ++i )
-		pSortLanes[i] = &segmentCollector.m_vecLanes[i];
-
-	#define ORDER( i, j ) \
-		if ( pSortLanes[i]->m_idxLane > pSortLanes[i]->m_idxLane ) { std::swap( pSortLanes[i], pSortLanes[j] ); }
-
-	switch ( nLanes )
+	// Now serialize the other lanes
+	for ( Lane &lane: segmentCollector.m_vecLanes )
 	{
-		default:
+		if ( lane.m_nLaneID == 0 )
 		{
-			// If you get here, please rethink your life choices
-			struct LaneIdxLess
-			{
-				inline bool operator()( const Lane *a, const Lane *b ) { return a->m_idxLane < b->m_idxLane; }
-			};
-			std::sort( pSortLanes, pSortLanes + nLanes, LaneIdxLess{} );
-			break;
+			DbgAssert( &lane == &segmentCollector.m_vecLanes[ segmentCollector.m_idxLane0 ] );
 		}
-
-		// Hand-unrolled bubble sort
-		case 8: ORDER(0,1) ORDER(1,2) ORDER(2,3) ORDER(3,4) ORDER(4,5) ORDER(5,6) ORDER(6,7) // FALLTHROUGH
-		case 7: ORDER(0,1) ORDER(1,2) ORDER(2,3) ORDER(3,4) ORDER(4,5) ORDER(5,6) // FALLTHROUGH
-		case 6: ORDER(0,1) ORDER(1,2) ORDER(2,3) ORDER(3,4) ORDER(4,5) // FALLTHROUGH
-		case 5: ORDER(0,1) ORDER(1,2) ORDER(2,3) ORDER(3,4) // FALLTHROUGH
-		case 4: ORDER(0,1) ORDER(1,2) ORDER(2,3) // FALLTHROUGH
-		case 3: ORDER(0,1) ORDER(1,2) // FALLTHROUGH
-		case 2: ORDER(0,1)
-	}
-
-	#undef ORDER
-
-	// Now encode the lanes in order
-	for ( int i = 0 ; i < nLanes ; ++i )
-	{
-		Lane *pLane = pSortLanes[i];
-		pPayloadPtr = pLane->EncodeSelectLane( pPayloadPtr, idxCurrentLane );
-		idxCurrentLane = pLane->m_idxLane;
-		pPayloadPtr = SNP_SerializeSegmentArray<k_bUnreliableOnly>( pPayloadPtr, helper, pLane->m_vecSegments.begin(), pLane->m_vecSegments.end() );
-		if ( !pPayloadPtr )
-			break;
+		else
+		{
+			memcpy( pPayloadPtr, lane.m_hdr, lane.m_cbHdr );
+			pPayloadPtr += lane.m_cbHdr;
+			pPayloadPtr = SNP_SerializeSegmentArray<k_bUnreliableOnly>( pPayloadPtr, helper, lane.m_vecSegments.begin(), lane.m_vecSegments.end() );
+			if ( !pPayloadPtr )
+				break;
+		}
 	}
 
 	return pPayloadPtr;
