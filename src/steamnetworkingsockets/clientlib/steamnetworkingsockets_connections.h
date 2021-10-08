@@ -45,6 +45,7 @@ struct SNPEncodedSegment;
 struct CertAuthScope;
 class CMessagesEndPoint;
 class CMessagesEndPointSession;
+template<bool k_bUnreliableOnly, bool k_bSingleLane> struct SNPSegmentCollector;
 
 enum EUnsignedCert
 {
@@ -844,6 +845,15 @@ private:
 
 	template<bool k_bUnreliableOnly, bool k_bSingleLane>
 	int SNP_SerializePacketInternal( SNPPacketSerializeHelper &helper );
+
+	template<bool k_bUnreliableOnly, bool k_bSingleLane>
+	uint8 *SNP_SerializeSegments( uint8 *pPayloadPtr, SNPPacketSerializeHelper &helper, SNPSegmentCollector<k_bUnreliableOnly, k_bSingleLane> &segmentCollector );
+
+	template<bool k_bUnreliableOnly>
+	uint8 *SNP_SerializeSegments_MultiLane( uint8 *pPayloadPtr, SNPPacketSerializeHelper &helper, SNPSegmentCollector<k_bUnreliableOnly, false> &segmentCollector );
+
+	template<bool k_bUnreliableOnly>
+	uint8 *SNP_SerializeSegmentArray( uint8 *pPayloadPtr, SNPPacketSerializeHelper &helper, SNPEncodedSegment *pSegBegin, SNPEncodedSegment *pSegEnd );
 
 	uint8 *SNP_SerializeAckBlocks( const SNPPacketSerializeHelper &helper, uint8 *pOut, const uint8 *pOutEnd );
 	uint8 *SNP_SerializeStopWaitingFrame( SNPPacketSerializeHelper &helper, uint8 *pOut );

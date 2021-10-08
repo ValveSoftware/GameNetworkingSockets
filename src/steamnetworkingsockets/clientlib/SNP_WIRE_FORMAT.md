@@ -1,6 +1,12 @@
+# SNP wire format
+
+This document describes the encoding of an SNP data payload.  The data payload
+includes stuff that is transport-agnostic.  It does not include packet numbers
+or inline stats or any transport-specific information.
+
 ## SNP frames
 
-SNP encrypted payload is a sequence of frames.  Each frame begins with an 8-bit
+The SNP data payload is a sequence of frames.  Each frame begins with an 8-bit
 frame type / flags field.
 
 ### Unreliable message segment
@@ -9,24 +15,32 @@ Encodes a segment of an unreliable message.  (Often, an entire message.)
 
     00emosss [message_num] [offset] [size] data
 
-    e: 0: There's more data after ths in the unreliable message.
+    e: 0: There's more data after this in the unreliable message.
           (Will be sent in another packet.)
        1: This is the last segment in the unreliable message.
+
     m: encoded size of message_num
-       First segment in packet: message_num is absolute.  Only bottom N bits are sent.
+       First unreliable segment since start of packet or last lane change:
+           message_num is absolute.  Only bottom N bits are sent.
+
            0: 16-bits
            1: 32-bits
-       Subsequent segments: message number field is relative to previous
+
+       Subsequent segments in the same lane:
+	       message number field is relative to previous segment in this lane
+
            0: no message number field follows, assume 1 greater than previous segment
            1: Var-int encoded offset from previous follows
            (NOTE: while encoding/decoding a packet, any reliable segment frames sent after unreliable data
            will *also* increment the current message number, even though the message number is *not*
            guaranteed to match that reliable segment.  Since in practice the message number often will
            match, making this encode/decode rule affords a small optimization.)
+
     o:  offset of this segment within message
         If first segment in packet, or message number differs from previous segment in packet:
             0: Zero offset, segment is first in message.  No offset field follows.
             1: varint-encoded offset follows
+
     sss: Size of data
         000-100: Append upper three bits to lower 8 bits in explicit size field,
                  which follows  (Max value is 0x4ff = 1279, which is larger than our MTU)
@@ -40,12 +54,18 @@ Encodes a segment of the reliable stream.
     010mmsss [stream_pos] [size] data
 
     mm: encoded size of stream_pos
-        First reliable segment in packet: stream_pos is absolute.  Only bottom N bits are sent.
+
+        First reliable segment since start of packet or last lane change:
+            stream_pos is absolute. Only bottom N bits are sent.
+
             00: 24-bits
             01: 32-bits
             10: 48-bits
             11: Reserved
-        Subsequent reliable segments: stream_pos field is relative to end of previous reliable segment
+
+        Subsequent reliable segments in the same lane:
+            stream_pos field is relative to end of previous reliable segment
+
             00: assume segment immediately follows previous reliable segment in stream.
                 (If two small reliable messages appear in sequence, we can combine them into a
                 single segment, so this shortcut would not be needed.  When it is useful is when
@@ -53,7 +73,9 @@ Encodes a segment of the reliable stream.
             01: 8-bit offset from previous
             10: 16-bit offset from previous
             11: 32-bit offset from previous
+
         NOTE: Stream position 0 is reserved.  The first reliable byte is actually at position 1.
+
     sss: Size of data
         000-100: Append upper three bits to lower 8 bits in explicit size field,
                  which follows  (Max value is 0x4ff = 1279, which is larger than our MTU)
@@ -171,14 +193,30 @@ loss, and for the sender to implicitly mark those packets as acked when decoding
 in the (hopefully!) common case where no packets have been lost in the range being accounted for,
 no blocks need be encoded at all.
 
-(FIXME - based on the above description, it's actually never necessary to encode a zero.
-So should we then always encode the number - 1?  Saving one byte in the case of a run of 8 dropped
-packets?)
+### Select lane
+
+Select active lane for segment decoding.
+
+    10001nnn
+		000-110: INCREASE the current lane by nnn+1 
+		         The +1 is because zero is not useful.
+				 Also we use incrse rather than set,
+				 because eocnding the lanes in order is
+				 easy, and affords a small optimization.
+		111: varint-encoded value follows.  SET the active lane to that value.
+		     We set the lane here, rather than increase the current value,
+			 because if we are going to have to use a whole byte, then the
+			 savings from encoding the delta rather than the actual value
+			 is unlikely to be benefit.  Meanwhile, this gives us an escape
+			 hatch in the future, if we ever need to encode lanes out of order.
+
+When packet decoding starts, the current lane is set to 0.
+Any lane change resets the context for reliable and unreliable decode,
+even if it goes back to a previous
 
 ### Reserved lead bytes
 
     100001xx
-    10001xxx
     101xxxxx
     11xxxxxx
 

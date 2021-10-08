@@ -378,6 +378,79 @@ public:
 	/// actual bound loopback port.  Otherwise, the port will be zero.
 	virtual bool CreateSocketPair( HSteamNetConnection *pOutConnection1, HSteamNetConnection *pOutConnection2, bool bUseNetworkLoopback, const SteamNetworkingIdentity *pIdentity1, const SteamNetworkingIdentity *pIdentity2 ) = 0;
 
+	/// Configure multiple outbound messages streams ("lanes") on a connection, and
+	/// control head-of-line blocking between them.  Messages within a given lane
+	/// are always sent in the order they are queued, but messages from different
+	/// lanes may be sent out of order.  Each lane has its own message number
+	/// sequence.  The first message sent on each lane will be assigned the number 1.
+	///
+	/// Each lane has a "priority".  Lower priority lanes will only be processed
+	/// when all higher-priority lanes are empty.  The magnitudes of the priority
+	/// values are not relevant, only their sort order.  Higher numeric values
+	/// take priority over lower numeric values.
+	/// 
+	/// Each lane also is assigned a weight, which controls the approximate proportion
+	/// of the bandwidth that will be consumed by the lane, relative to other lanes
+	/// of the same priority.  (This is assuming the lane stays busy.  An idle lane
+	/// does not build up "credits" to be be spent once a message is queued.)
+	/// This value is only meaningful as a proportion, relative to other lanes with
+	/// the same priority.  For lanes with different priorities, the strict priority
+	/// order will prevail, and their weights relative to each other are not relevant.
+	/// Thus, if a lane has a unique priority value, the weight value for that lane is
+	/// not relevant.  
+	///
+	/// Example: 3 lanes, with priorities [ 0, 10, 10 ] and weights [ (NA), 20, 5 ].
+	/// Messages sent on the first will always be sent first, before messages in the
+	/// other two lanes.  Its weight value is irrelevant, since there are no other
+	/// lanes with priority=0.  The other two lanes will share bandwidth, with the second
+	/// and third lanes sharing bandwidth using a ratio of approximately 4:1.
+	/// (The weights [ NA, 4, 1 ] would be equivalent.)
+	///
+	/// Notes:
+	/// - At the time of this writing, some code has performance cost that is linear
+	///   in the number of lanes, so keep the number of lanes to an absolute minimum.
+	///   3 or so is fine; >8 is a lot.  Currently the max number of lanes is 255.
+	/// - Lane priority values may be any int.  Their absolute value is not relevant,
+	///   only the order matters.
+	/// - Weights must be positive, and due to implementation details, they are restricted
+	///   to 16-bit values.  The absolute magnitudes don't matter, just the proportions.
+	/// - Messages sent on a lane index other than 0 have a small overhead on the wire,
+	///   so for maximum wire efficiency, lane 0 should be the "most common" lane, regardless
+	///   of priorities or weights.
+	/// - A connection has a single lane by default.  Calling this function with
+	///   nNumLanes=1 is legal, but pointless, since the priority and weight values are
+	///   irrelevant in that case.
+	/// - You may reconfigure connection lanes at any time, however reducing the number of
+	///   lanes is not allowed.
+	/// - Reconfiguring lanes might restart any bandwidth sharing balancing.  Usually you
+	///   will call this function once, near the start of the connection, perhaps after
+	///   exchanging a few messages.
+	/// - To assign all lanes the same priority, you may use pLanePriorities=NULL.
+	/// - If you wish all lanes with the same priority to share bandwidth equally (or
+	///   if no two lanes have the same priority value, and thus priority values are
+	///   irrelevant), you may use pLaneWeights=NULL
+	/// - Priorities and weights determine the order that messages are SENT on the wire.
+	///   This DOES NOT guarantee the order that messages are RECEIVED!  Due to packet
+	///   loss and out-of-order delivery, the messages might still be received out of
+	///   order.  Essentially the only guarantee is that *reliable* messages on the *same
+	///   lane* will be delivered in the order they are sent.
+	/// - Each host configures the lanes for the packets they send; the lanes for the flow
+	///   in one direction are completely unrelated to the lanes in the opposite direction.
+	/// 
+	/// Return value:
+	/// - k_EResultNoConnection - bad hConn
+	/// - k_EResultInvalidParam - Invalid number of channels, bad weights, or you tried to reduce the number of lanes
+	/// - k_EResultInvalidState - Connection is already dead, etc
+	/// 
+	/// See also:
+	/// SteamNetworkingMessage_t::m_idxLane
+	// FIXME - WIP
+	//virtual EResult ConfigureConnectionLanes( HSteamNetConnection hConn, int nNumLanes, const int *pLanePriorities, const uint16 *pLaneWeights ) = 0;
+
+	//
+	// Identity and authentication
+	//
+
 	/// Get the identity assigned to this interface.
 	/// E.g. on Steam, this is the user's SteamID, or for the gameserver interface, the SteamID assigned
 	/// to the gameserver.  Returns false and sets the result to an invalid identity if we don't know

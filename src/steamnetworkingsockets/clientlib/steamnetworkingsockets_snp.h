@@ -417,6 +417,37 @@ struct SSNPSenderState
 		lane.m_virtTimeEstFinish = m_vecPriorityClasses[ lane.m_idxPriorityClass ].m_virtTimeCurrent + (VirtualTime)( (float)pMsg->m_cbSize * lane.m_flBytesToVirtualTime );
 	}
 
+	void AdvanceVirtualTime( Lane &sendLane, int nBytes )
+	{
+		PriorityClass &priClass = m_vecPriorityClasses[ sendLane.m_idxPriorityClass ];
+		priClass.m_virtTimeCurrent += nBytes * sendLane.m_flBytesToVirtualTime;
+
+		/// Check if the current virtual time is getting pretty big, then shift everything
+		/// down.  This only happens after we've been running for a pretty long time.
+		// NOTE: Intentionally using a lower limit than strictly necessary, just so that my
+		// soak test would actually hit this code and I could make sure it works.
+		// 64-bit numbers are HUUUUGE.
+		constexpr VirtualTime kThresh = 0x0020000000000000ULL;
+		if ( likely( priClass.m_virtTimeCurrent < kThresh ) )
+			return;
+
+		VirtualTime shift = priClass.m_virtTimeCurrent - 0x000100000000ULL;
+		for ( Lane &l: m_vecLanes )
+		{
+			if ( l.m_messagesQueued.empty() )
+			{
+				l.m_virtTimeEstFinish = k_virtTime_Infinite;
+			}
+			else
+			{
+				Assert( l.m_virtTimeEstFinish < kThresh*2 );
+				Assert( l.m_virtTimeEstFinish >= shift );
+				l.m_virtTimeEstFinish -= shift;
+			}
+		}
+		priClass.m_virtTimeCurrent -= shift;
+	}
+
 	// Remove messages from m_unackedReliableMessages that have been fully acked.
 	void RemoveAckedReliableMessageFromUnackedList();
 
