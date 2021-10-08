@@ -97,7 +97,7 @@ void TEST_Init( const SteamNetworkingIdentity *pIdentity )
 		assert( pIdentity == nullptr );
 
 		SteamDatagramClient_SetAppID( 570 ); // Just set something, doesn't matter what
-		//SteamDatagramClient_SetUniverse( k_EUniverseDev );
+		SteamDatagramClient_SetUniverse( k_EUniverseDev, false );
 
 		SteamDatagramErrMsg errMsg;
 		if ( !SteamDatagramClient_Init( true, errMsg ) )
