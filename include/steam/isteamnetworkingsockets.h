@@ -409,7 +409,9 @@ public:
 	/// Notes:
 	/// - At the time of this writing, some code has performance cost that is linear
 	///   in the number of lanes, so keep the number of lanes to an absolute minimum.
-	///   3 or so is fine; >8 is a lot.  Currently the max number of lanes is 255.
+	///   3 or so is fine; >8 is a lot.  The max number of lanes on Steam is 255,
+	///   which is a very large number and not recommended!  If you are compiling this
+	///   library from source, see STEAMNETWORKINGSOCKETS_MAX_LANES.)
 	/// - Lane priority values may be any int.  Their absolute value is not relevant,
 	///   only the order matters.
 	/// - Weights must be positive, and due to implementation details, they are restricted

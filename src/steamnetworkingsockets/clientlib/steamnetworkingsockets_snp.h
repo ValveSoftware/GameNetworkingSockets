@@ -306,7 +306,7 @@ struct SSNPSenderState
 		/// is queued to calculate its virtual finish time.
 		VirtualTime m_virtTimeCurrent = 0;
 	};
-	std_vector<PriorityClass> m_vecPriorityClasses;
+	vstd::small_vector<PriorityClass,4<STEAMNETWORKINGSOCKETS_MAX_LANES ? 4 : STEAMNETWORKINGSOCKETS_MAX_LANES> m_vecPriorityClasses;
 
 	/// Info we track for each lane
 	struct Lane
@@ -346,7 +346,11 @@ struct SSNPSenderState
 		// Current message number, we ++ when adding a message
 		int64 m_nLastSentMsgNum = 0; // Will increment to 1 with first message
 	};
-	std_vector<Lane> m_vecLanes;
+	#if STEAMNETWORKINGSOCKETS_MAX_LANES > 4
+		std_vector<Lane> m_vecLanes;
+	#else
+		vstd::small_vector<Lane,STEAMNETWORKINGSOCKETS_MAX_LANES> m_vecLanes;
+	#endif
 
 	/// Nagle timer on all pending messages
 	void ClearNagleTimers()
@@ -534,7 +538,11 @@ struct SSNPReceiverState
 		/// allocation will be way worse than O(n) insertion/removal.
 		std_map<int64,int64> m_mapReliableStreamGaps;
 	};
-	std_vector<Lane> m_vecLanes;
+	#if STEAMNETWORKINGSOCKETS_MAX_LANES > 4
+		std_vector<Lane> m_vecLanes;
+	#else
+		vstd::small_vector<Lane,STEAMNETWORKINGSOCKETS_MAX_LANES> m_vecLanes;
+	#endif
 
 	/// List of gaps in the packet sequence numbers we have received.
 	/// Since these must never overlap, we store them using begin as the

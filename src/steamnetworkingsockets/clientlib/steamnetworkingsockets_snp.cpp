@@ -450,7 +450,7 @@ EResult CSteamNetworkConnectionBase::SNP_ConfigureLanes( int nLanes, const int *
 	m_pLock->AssertHeldByCurrentThread();
 
 	// Check for bogus number of lanes
-	if ( nLanes < 1 || nLanes > 255 )
+	if ( nLanes < 1 || nLanes > STEAMNETWORKINGSOCKETS_MAX_LANES )
 		return k_EResultInvalidParam;
 
 	// Can't reduce the number of lanes
@@ -663,7 +663,7 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLa
 	// Decode frames until we get to the end of the payload
 	const byte *pDecode = (const byte *)ctx.m_pPlainText;
 	const byte *pEnd = pDecode + ctx.m_cbPlainText;
-	int64 nCurMsgNum = 0;
+	int64 nCurMsgNumForUnreliable = 0;
 	int64 nDecodeReliablePos = 0;
 	int idxCurrentLane = 0;
 	SSNPReceiverState::Lane *pCurrentLane = &m_receiverState.m_vecLanes[idxCurrentLane];
@@ -680,7 +680,7 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLa
 			//
 
 			// Decode message number
-			if ( nCurMsgNum == 0 )
+			if ( nCurMsgNumForUnreliable == 0 )
 			{
 				// First unreliable frame.  Message number is absolute, but only bottom N bits are sent
 				static const char szUnreliableMsgNumOffset[] = "unreliable msgnum";
@@ -689,22 +689,22 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLa
 				{
 					READ_32BITU( nLowerBits, szUnreliableMsgNumOffset );
 					nMask = 0xffffffff;
-					nCurMsgNum = NearestWithSameLowerBits( (int32)nLowerBits, pCurrentLane->m_nHighestSeenMsgNum );
+					nCurMsgNumForUnreliable = NearestWithSameLowerBits( (int32)nLowerBits, pCurrentLane->m_nHighestSeenMsgNum );
 				}
 				else
 				{
 					READ_16BITU( nLowerBits, szUnreliableMsgNumOffset );
 					nMask = 0xffff;
-					nCurMsgNum = NearestWithSameLowerBits( (int16)nLowerBits, pCurrentLane->m_nHighestSeenMsgNum );
+					nCurMsgNumForUnreliable = NearestWithSameLowerBits( (int16)nLowerBits, pCurrentLane->m_nHighestSeenMsgNum );
 				}
-				Assert( ( nCurMsgNum & nMask ) == nLowerBits );
+				Assert( ( nCurMsgNumForUnreliable & nMask ) == nLowerBits );
 
-				if ( nCurMsgNum <= 0 )
+				if ( nCurMsgNumForUnreliable <= 0 )
 				{
 					DECODE_ERROR( "SNP decode unreliable msgnum underflow.  %llx mod %llx, highest seen %llx",
 						(unsigned long long)nLowerBits, (unsigned long long)( nMask+1 ), (unsigned long long)pCurrentLane->m_nHighestSeenMsgNum );
 				}
-				if ( std::abs( nCurMsgNum - pCurrentLane->m_nHighestSeenMsgNum ) > (nMask>>2) )
+				if ( std::abs( nCurMsgNumForUnreliable - pCurrentLane->m_nHighestSeenMsgNum ) > (nMask>>2) )
 				{
 					// We really should never get close to this boundary.
 					SpewWarningRateLimited( usecNow, "Sender sent abs unreliable message number using %llx mod %llx, highest seen %llx\n",
@@ -718,15 +718,15 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLa
 				{
 					uint64 nMsgNumOffset;
 					READ_VARINT( nMsgNumOffset, "unreliable msgnum offset" );
-					nCurMsgNum += nMsgNumOffset;
+					nCurMsgNumForUnreliable += nMsgNumOffset;
 				}
 				else
 				{
-					++nCurMsgNum;
+					++nCurMsgNumForUnreliable;
 				}
 			}
-			if ( nCurMsgNum > pCurrentLane->m_nHighestSeenMsgNum )
-				pCurrentLane->m_nHighestSeenMsgNum = nCurMsgNum;
+			if ( nCurMsgNumForUnreliable > pCurrentLane->m_nHighestSeenMsgNum )
+				pCurrentLane->m_nHighestSeenMsgNum = nCurMsgNumForUnreliable;
 
 			//
 			// Decode segment offset in message
@@ -754,7 +754,7 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLa
 
 				// Receive the segment
 				bool bLastSegmentInMessage = ( nFrameType & 0x20 ) != 0;
-				SNP_ReceiveUnreliableSegment( nCurMsgNum, nOffset, pSegmentData, cbSegmentSize, bLastSegmentInMessage, idxCurrentLane, usecNow );
+				SNP_ReceiveUnreliableSegment( nCurMsgNumForUnreliable, nOffset, pSegmentData, cbSegmentSize, bLastSegmentInMessage, idxCurrentLane, usecNow );
 			}
 		}
 		else if ( ( nFrameType & 0xe0 ) == 0x40 )
@@ -840,8 +840,8 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLa
 
 			// Decoding rules state that if we have established a message number,
 			// (from an earlier unreliable message), then we advance it.
-			if ( nCurMsgNum > 0 ) 
-				++nCurMsgNum;
+			if ( nCurMsgNumForUnreliable > 0 ) 
+				++nCurMsgNumForUnreliable;
 		}
 		else if ( ( nFrameType & 0xfc ) == 0x80 )
 		{
@@ -1223,6 +1223,39 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLa
 					(long long)m_senderState.m_nMinPktWaitingOnAck, (long long)nLatestRecvSeqNum );
 				m_senderState.m_nMinPktWaitingOnAck = nLatestRecvSeqNum;
 			}
+		}
+		else if ( ( nFrameType & 0xf4 ) == 0x84 )
+		{
+
+			//
+			// Select lane
+			//
+
+			unsigned nLane = nFrameType & 0x7;
+			if ( nLane < 7 )
+			{
+				++nLane;
+			}
+			else
+			{
+				READ_VARINT( nLane, "lane" );
+			}
+			if ( nLane > STEAMNETWORKINGSOCKETS_MAX_LANES )
+			{
+				DECODE_ERROR( "Sender tried to send on invalid lane %d; max is %d", nLane, STEAMNETWORKINGSOCKETS_MAX_LANES );
+			}
+
+			// Expand number of lanes if necessary
+			if ( nLane >= m_receiverState.m_vecLanes.size() )
+				m_receiverState.m_vecLanes.resize( nLane+1 );
+
+			// Select the lane
+			idxCurrentLane = nLane;
+			pCurrentLane = &m_receiverState.m_vecLanes[idxCurrentLane];
+
+			// Reset some context for mesage decode on this lane
+			nCurMsgNumForUnreliable = 0;
+			nDecodeReliablePos = 0;
 		}
 		else
 		{
@@ -1618,26 +1651,31 @@ bool CSteamNetworkConnectionBase::SNP_SendPacket( CConnectionTransport *pTranspo
 	// their own message framing and reliability layer.
 	//
 	// Also fast path if they are only using one lane.  Multiple lanes adds some overhead, so let's not
-	// have people pay that cost if they don't need it.
+	// have people pay that cost if they don't need it.  In fact they can totally disable support with
+	// a #define, and we can prevent the code from being compiled at all here.
 	int cbPlainText;
 	if ( m_senderState.m_listReadyRetryReliableRange.empty() && m_senderState.m_cbPendingReliable == 0 )
 	{
-		if ( m_senderState.m_vecLanes.size() == 1 )
+		#if STEAMNETWORKINGSOCKETS_MAX_LANES > 1
+			if ( m_senderState.m_vecLanes.size() > 1 )
+			{
+				cbPlainText = SNP_SerializePacketInternal<true,false>( helper );
+			}
+			else
+		#endif
 		{
 			cbPlainText = SNP_SerializePacketInternal<true,true>( helper );
-		}
-		else
-		{
-			cbPlainText = SNP_SerializePacketInternal<true,false>( helper );
 		}
 	}
 	else
 	{
-		if ( m_senderState.m_vecLanes.size() == 1 )
-		{
-			cbPlainText = SNP_SerializePacketInternal<false,true>( helper );
-		}
+		#if STEAMNETWORKINGSOCKETS_MAX_LANES > 1
+			if ( m_senderState.m_vecLanes.size() > 1 )
+			{
+				cbPlainText = SNP_SerializePacketInternal<false,true>( helper );
+			}
 		else
+		#endif
 		{
 			cbPlainText = SNP_SerializePacketInternal<false,false>( helper );
 		}
