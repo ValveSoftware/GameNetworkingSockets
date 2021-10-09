@@ -1162,7 +1162,7 @@ namespace vstd
 	// If they tell us it's OK to relocate the type, then ignore GCC warnings
 	#ifdef __GNUC__
 		#pragma GCC diagnostic push
-		#if __GNUC__ >= 11
+		#if __GNUC__ >= 8
 			#pragma GCC diagnostic ignored "-Wclass-memaccess"
 		#endif
 	#endif
