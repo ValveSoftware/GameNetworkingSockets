@@ -242,17 +242,17 @@ void CConnectionTransportP2PICE::Init()
 	}
 
 	// Populate TurnServers configs
-	for (int i = 0; i < vecTurnServers.size(); i++)
+	for (int i = 0; i < len( vecTurnServers ); i++)
 	{
 		ICESessionConfig::TurnServer* turn = &vecTurnServersPsz[i];
 		turn->m_pszHost = vecTurnServers[i].c_str();
 
-		if (vecTurnUsers.size() > i)
+		if ( len( vecTurnUsers ) > i)
 			turn->m_pszUsername = vecTurnUsers[i].c_str();
 		else
 			turn->m_pszUsername = "";
 
-		if (vecTurnPasses.size() > i)
+		if ( len( vecTurnPasses ) > i)
 			turn->m_pszPwd = vecTurnPasses[i].c_str();
 		else
 			turn->m_pszPwd = "";
