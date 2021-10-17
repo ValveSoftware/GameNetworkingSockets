@@ -44,6 +44,16 @@ bool AES_GCM_CipherContext::InitCipher( const void *pKey, size_t cbKey, size_t c
 	return true;
 }
 
+bool AES_GCM_CipherContext::IsAvailable()
+{
+	// Libsodium requires AES and CLMUL instructions for AES-GCM, available in
+	// Intel "Westmere" and up. 90.41% of Steam users have this as of the
+	// November 2019 survey.
+	// Libsodium recommends ChaCha20-Poly1305 in software if you've not got AES support
+	// in hardware.
+	return crypto_aead_aes256gcm_is_available() == 1;
+}
+
 bool AES_GCM_EncryptContext::Encrypt(
 		const void *pPlaintextData, size_t cbPlaintextData,
 		const void *pIV,

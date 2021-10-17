@@ -37,6 +37,9 @@ public:
 
 	// Initialize context with the specified private key, IV size, and tag size
 	bool InitCipher( const void *pKey, size_t cbKey, size_t cbIV, size_t cbTag, bool bEncrypt );
+
+	// Determine whether AES_GCM is supported on this system + crypto backend
+	static bool IsAvailable();
 };
 
 class AES_GCM_EncryptContext : public AES_GCM_CipherContext
