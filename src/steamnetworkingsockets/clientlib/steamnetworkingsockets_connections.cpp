@@ -1037,14 +1037,17 @@ void CSteamNetworkConnectionBase::ClearCrypto()
 void CSteamNetworkConnectionBase::ClearLocalCrypto()
 {
 	AssertLocksHeldByCurrentThread();
-	m_eNegotiatedCipher = k_ESteamNetworkingSocketsCipher_INVALID;
-	m_cbEncryptionOverhead = k_cbAESGCMTagSize;
 	m_keyExchangePrivateKeyLocal.Wipe();
 	m_msgCryptLocal.Clear();
 	m_msgSignedCryptLocal.Clear();
 	m_bCryptKeysValid = false;
-	m_cryptContextSend.Wipe();
-	m_cryptContextRecv.Wipe();
+	if (m_eNegotiatedCipher != k_ESteamNetworkingSocketsCipher_NULL)
+	{
+		m_cryptContextSend.Wipe();
+		m_cryptContextRecv.Wipe();
+	}
+	m_eNegotiatedCipher = k_ESteamNetworkingSocketsCipher_INVALID;
+	m_cbEncryptionOverhead = k_cbAESGCMTagSize;
 	m_cryptIVSend.Wipe();
 	m_cryptIVRecv.Wipe();
 }
@@ -1219,19 +1222,29 @@ void CSteamNetworkConnectionBase::SetCryptoCipherList()
 			// V
 		case 0:
 			// Not allowed
-			m_msgCryptLocal.add_ciphers( k_ESteamNetworkingSocketsCipher_AES_256_GCM );
+			if (AES_GCM_CipherContext::IsAvailable())
+			{
+				m_msgCryptLocal.add_ciphers( k_ESteamNetworkingSocketsCipher_AES_256_GCM );
+			}
+			Assert( m_msgCryptLocal.ciphers_size() > 0 );
 			break;
 
 		case 1:
 			// Allowed, but prefer encrypted
-			m_msgCryptLocal.add_ciphers( k_ESteamNetworkingSocketsCipher_AES_256_GCM );
+			if (AES_GCM_CipherContext::IsAvailable())
+			{
+				m_msgCryptLocal.add_ciphers( k_ESteamNetworkingSocketsCipher_AES_256_GCM );
+			}
 			m_msgCryptLocal.add_ciphers( k_ESteamNetworkingSocketsCipher_NULL );
 			break;
 
 		case 2:
 			// Allowed, preferred
 			m_msgCryptLocal.add_ciphers( k_ESteamNetworkingSocketsCipher_NULL );
-			m_msgCryptLocal.add_ciphers( k_ESteamNetworkingSocketsCipher_AES_256_GCM );
+			if (AES_GCM_CipherContext::IsAvailable())
+			{
+				m_msgCryptLocal.add_ciphers( k_ESteamNetworkingSocketsCipher_AES_256_GCM );
+			}
 			break;
 
 		case 3:
@@ -1693,13 +1706,16 @@ bool CSteamNetworkConnectionBase::BFinishCryptoHandshake( bool bServer )
 		V_memcpy( pStart, &expandTemp, sizeof(SHA256Digest_t) );
 	}
 
-	// Set encryption keys into the contexts, and set parameters
-	if (
-		!m_cryptContextSend.Init( cryptKeySend.m_buf, cryptKeySend.k_nSize, m_cryptIVSend.k_nSize, k_cbAESGCMTagSize )
-		|| !m_cryptContextRecv.Init( cryptKeyRecv.m_buf, cryptKeyRecv.k_nSize, m_cryptIVRecv.k_nSize, k_cbAESGCMTagSize ) )
+	if (m_eNegotiatedCipher != k_ESteamNetworkingSocketsCipher_NULL)
 	{
-		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCrypt, "Error initializing crypto" );
-		return false;
+		// Set encryption keys into the contexts, and set parameters
+		if (
+			!m_cryptContextSend.Init( cryptKeySend.m_buf, cryptKeySend.k_nSize, m_cryptIVSend.k_nSize, k_cbAESGCMTagSize )
+			|| !m_cryptContextRecv.Init( cryptKeyRecv.m_buf, cryptKeyRecv.k_nSize, m_cryptIVRecv.k_nSize, k_cbAESGCMTagSize ) )
+		{
+			ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCrypt, "Error initializing crypto" );
+			return false;
+		}
 	}
 
 	//
