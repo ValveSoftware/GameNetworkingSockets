@@ -1927,7 +1927,8 @@ template<bool k_bUnreliableOnly> struct SNPSegmentCollector<k_bUnreliableOnly,fa
 			m_cbRemainingForSegments += t->m_cbHdr;
 			if ( t->m_nLaneID == 0 )
 				m_idxLane0 = -1;
-			m_vecLanes.erase( t );
+			Assert( t+1 == m_vecLanes.end() );
+			m_vecLanes.resize( m_vecLanes.size()-1 );
 		}
 	}
 };
