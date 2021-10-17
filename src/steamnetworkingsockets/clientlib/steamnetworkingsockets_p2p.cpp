@@ -1991,6 +1991,10 @@ void CSteamNetworkConnectionP2P::SetRendezvousCommonFieldsAndSendSignal( CMsgSte
 					m_senderState.m_cbPendingUnreliable -= pMsgSend->m_cbSize;
 					Assert( m_senderState.m_cbPendingUnreliable >= 0 );
 
+					SSNPSenderState::Lane &sendLane = m_senderState.m_vecLanes[ pMsgSend->m_idxLane ];
+					sendLane.m_cbPendingUnreliable -= pMsgSend->m_cbSize;
+					Assert( sendLane.m_cbPendingUnreliable >= 0 );
+
 					cbRemaining -= pMsgSend->m_cbSize;
 
 					pMsgSend->Unlink();

@@ -3,6 +3,7 @@
 #pragma once
 
 #include "../steamnetworkingsockets_internal.h"
+#include <tier1/utllinkedlist.h>
 #include <vector>
 #include <map>
 #include <set>
@@ -94,7 +95,7 @@ public:
 	inline void SNPSend_SetReliableStreamPos( int64 x ) { m_nConnUserData = x; }
 	inline int SNPSend_ReliableStreamSize() const
 	{
-		DbgAssert( m_nFlags & k_nSteamNetworkingSend_Reliable && m_nConnUserData > 0 && m_cbSNPSendReliableHeader > 0 && m_cbSize >= m_cbSNPSendReliableHeader );
+		DbgAssert( m_nFlags & k_nSteamNetworkingSend_Reliable && m_nConnUserData > 0 && ReliableSendInfo().m_cbHdr > 0 && m_cbSize >= ReliableSendInfo().m_cbHdr );
 		return m_cbSize;
 	}
 
@@ -102,19 +103,32 @@ public:
 	{
 		if ( m_nFlags & k_nSteamNetworkingSend_Reliable )
 		{
-			DbgAssert( m_nConnUserData > 0 && m_cbSNPSendReliableHeader > 0 && m_cbSize >= m_cbSNPSendReliableHeader );
+			DbgAssert( m_nConnUserData > 0 && m_cbSize >= ((ReliableSendInfo_t *)&m_identityPeer)->m_cbHdr );
 			return true;
 		}
-		DbgAssert( m_nConnUserData == 0 && m_cbSNPSendReliableHeader == 0 );
+		DbgAssert( m_nConnUserData == 0 );
 		return false;
 	}
 
-	// Reliable stream header
-	int m_cbSNPSendReliableHeader;
-	byte *SNPSend_ReliableHeader()
+	// Working data for reliable messages.
+	// !KLUDGE! Reuse the identity field
+	struct ReliableSendInfo_t
 	{
-		// !KLUDGE! Reuse the peer identity to hold the reliable header
-		return (byte*)&m_identityPeer;
+		int m_nSentReliableSegRefCount;
+		int m_cbHdr;
+		byte m_hdr[16];
+	};
+	const ReliableSendInfo_t &ReliableSendInfo() const
+	{
+		DbgAssert( m_nFlags & k_nSteamNetworkingSend_Reliable );
+		COMPILE_TIME_ASSERT( sizeof(m_identityPeer) >= sizeof(ReliableSendInfo_t) );
+		return *(ReliableSendInfo_t *)&m_identityPeer;
+	}
+	ReliableSendInfo_t &ReliableSendInfo()
+	{
+		DbgAssert( m_nFlags & k_nSteamNetworkingSend_Reliable );
+		COMPILE_TIME_ASSERT( sizeof(m_identityPeer) >= sizeof(ReliableSendInfo_t) );
+		return *(ReliableSendInfo_t *)&m_identityPeer;
 	}
 
 	/// Remove it from queues
@@ -181,32 +195,39 @@ const int k_nMaxPacketsPerThink = 16;
 /// Max number of tokens we are allowed to store up in reserve, for a burst.
 const float k_flSendRateBurstOverageAllowance = k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend;
 
-struct SNPRange_t
+/// Describe a reliable segment that was placed in a packet
+#pragma pack(push, 1)
+struct SNPSendReliableSegment_t
 {
-	/// Byte or sequence number range
-	int64 m_nBegin;
-	int64 m_nEnd; // STL-style.  It's one past the end
 
-	inline int64 length() const
-	{
-		// In general, allow zero-length ranges, but not negative ones
-		Assert( m_nEnd >= m_nBegin );
-		return m_nEnd - m_nBegin;
-	}
+	/// Message that backs the segment.  Although our wire format can accommodate
+	/// a segment that spans messages, in our internal bookkeeping we do not do this.
+	/// All segments we track come from a single message.
+	CSteamNetworkingMessage *m_pMsg;
 
-	/// Strict comparison function.  This is used in situations where
-	/// ranges must not overlap, AND we also never search for
-	/// a range that might overlap.
-	struct NonOverlappingLess
-	{
-		inline bool operator ()(const SNPRange_t &l, const SNPRange_t &r ) const
-		{
-			if ( l.m_nBegin < r.m_nBegin ) return true;
-			AssertMsg( l.m_nBegin > r.m_nBegin || l.m_nEnd == r.m_nEnd, "Ranges should not overlap in this map!" );
-			return false;
-		}
-	};
+	/// Offset from the start of the message's position in the reliable stream
+	/// where this segment begins
+	int m_nOffset;
+
+	/// Size of the segment
+	int m_cbSize;
+
+	/// Number of references to this
+	int16 m_nRefCount;
+
+	/// Status of this segment.  Either one of the k_nStatus_xxx constants
+	/// below, or we are scheduled for retry, in which case it is a handle into
+	/// m_listReadyRetryReliableRange
+	uint16 m_hStatusOrRetry;
+
+	static constexpr uint16 k_nStatus_InFlight = 0xffff;
+	static constexpr uint16 k_nStatus_Acked = 0xfffe;
+
+	int64 begin() const { return m_pMsg->SNPSend_ReliableStreamPos() + m_nOffset; }
+
+	// CUtlLinkedList will use two words here for the prev/next links
 };
+#pragma pack(pop)
 
 /// A packet that has been sent but we don't yet know if was received
 /// or dropped.  These are kept in an ordered map keyed by packet number.
@@ -230,12 +251,10 @@ struct SNPInFlightPacket_t
 	/// Transport used to send
 	CConnectionTransport *m_pTransport;
 
-	/// List of reliable segments.  Ignoring retransmission,
-	/// there really is no reason why we we would need to have
-	/// more than 1 in a packet, even if there are multiple
-	/// reliable messages.  If we need to retry, we might
-	/// be fragmented.  But usually it will only be a few.
-	vstd::small_vector<SNPRange_t,1> m_vecReliableSegments;
+	/// Reliable segments that were sent.  We might have multiple of
+	/// these either due to multiple lanes or retransmission.
+	/// Each entry is a handle into m_listSentReliableSegments
+	vstd::small_vector<uint16,2> m_vecReliableSegments;
 };
 
 /// Info used by a sender to estimate the available bandwidth
@@ -334,8 +353,9 @@ struct SSNPSenderState
 		/// Multiplier used to calculate virtual finish time.
 		float m_flBytesToVirtualTime;
 
-		/// Current position in the reliable stream for this group
-		int64 m_nReliableStreamPos = 1;
+		/// Current "write" position in the reliable stream for this lane.
+		/// The next reliable message will begin at this address.
+		int64 m_nReliableStreamNextSendPos = 1;
 
 		/// Last message number we sent on this channel
 		int64 m_nLastSendMsgNumReliable = 0;
@@ -345,6 +365,12 @@ struct SSNPSenderState
 
 		// Current message number, we ++ when adding a message
 		int64 m_nLastSentMsgNum = 0; // Will increment to 1 with first message
+
+		// Amount of buffered data in this lane
+		int m_cbPendingUnreliable = 0;
+		int m_cbPendingReliable = 0;
+		int m_cbSentUnackedReliable = 0;
+		inline int PendingBytesTotal() const { return m_cbPendingUnreliable + m_cbPendingReliable; }
 	};
 	#if STEAMNETWORKINGSOCKETS_MAX_LANES > 4
 		std_vector<Lane> m_vecLanes;
@@ -363,10 +389,10 @@ struct SSNPSenderState
 		}
 	}
 
-	/// Queue of all messages (from all priority groups), that we have not yet
+	/// Queue of all messages (from all lanes), that we have not yet
 	/// finished putting on the wire the first time. The Nagle timer may be active
 	/// on one or more, but if so, it is only on messages at the END of the list.
-	/// The first message in each priority group may have been partially sent
+	/// The first message in each lane may have been partially sent
 	SteamNetworkingMessageQueue m_messagesQueued;
 
 	/// List of reliable messages that have been fully placed on the wire at least once,
@@ -397,17 +423,26 @@ struct SSNPSenderState
 	/// if we don't have any in flight packets that we are waiting on.
 	std_map<int64,SNPInFlightPacket_t>::iterator m_itNextInFlightPacketToTimeout;
 
-	/// Ordered list of reliable ranges that we have recently sent
-	/// in a packet.  These should be non-overlapping, and furthermore
-	/// should not overlap with with any range in m_listReadyReliableRange
-	///
-	/// The "value" portion of the map is the message that has the first bit of
-	/// reliable data we need for this message
-	std_map<SNPRange_t,CSteamNetworkingMessage*,SNPRange_t::NonOverlappingLess> m_listInFlightReliableRange;
+	/// Reliable segments that have been sent at least once and either
+	/// have not yet been acked, or have references by in-flight packets
+	CUtlLinkedList<SNPSendReliableSegment_t, uint16> m_listSentReliableSegments;
 
-	/// Ordered list of ranges that have been put on the wire,
-	/// but have been detected as dropped, and now need to be retried.
-	std_map<SNPRange_t,CSteamNetworkingMessage*,SNPRange_t::NonOverlappingLess> m_listReadyRetryReliableRange;
+	/// Queue of reliable ranges that have been scheduled for retry.
+	/// Each entry is a handle into m_listSentReliableSegments
+	CUtlLinkedList<uint16,uint16> m_listReadyRetryReliableRange;
+
+	/// Called when we discard a packet after having nacked it
+	void RemoveRefCountReliableSegment( uint16 hSeg );
+
+	/// Called when a reliable segment is scheduled for retry, and we need to un-schedule it
+	void RemoveReliableSegmentFromRetryList( uint16 hSeg, uint16 nNewStatus )
+	{
+		SNPSendReliableSegment_t &seg = m_listSentReliableSegments[ hSeg ];
+		DbgAssert( seg.m_hStatusOrRetry < 0xfffe );
+		DbgAssert( m_listReadyRetryReliableRange[ seg.m_hStatusOrRetry ] == hSeg );
+		m_listReadyRetryReliableRange.Remove( seg.m_hStatusOrRetry );
+		seg.m_hStatusOrRetry = nNewStatus;
+	}
 
 	/// Oldest packet sequence number that we are still asking peer
 	/// to send acks for.
@@ -452,19 +487,20 @@ struct SSNPSenderState
 		priClass.m_virtTimeCurrent -= shift;
 	}
 
-	// Remove messages from m_unackedReliableMessages that have been fully acked.
-	void RemoveAckedReliableMessageFromUnackedList();
-
 	/// Check invariants in debug.
 	#if STEAMNETWORKINGSOCKETS_SNP_PARANOIA == 0 
 		inline void DebugCheckInFlightPacketMap() const {}
+		inline void DebugCheckReliable() const {}
 	#else
 		void DebugCheckInFlightPacketMap() const;
+		void DebugCheckReliable() const;
 	#endif
 	#if STEAMNETWORKINGSOCKETS_SNP_PARANOIA > 1
 		inline void MaybeCheckInFlightPacketMap() const { DebugCheckInFlightPacketMap(); }
+		inline void MaybeCheckReliable() const { DebugCheckReliable(); }
 	#else
 		inline void MaybeCheckInFlightPacketMap() const {}
+		inline void MaybeCheckReliable() const {}
 	#endif
 };
 

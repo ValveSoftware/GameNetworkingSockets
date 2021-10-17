@@ -3269,8 +3269,10 @@ void CSteamNetworkConnectionBase::Think( SteamNetworkingMicroseconds usecNow )
 		case k_ESteamNetworkingConnectionState_Linger:
 
 			// Have we sent everything we wanted to?
-			if ( m_senderState.m_messagesQueued.empty() && m_senderState.m_unackedReliableMessages.empty() )
+			if ( m_senderState.m_cbPendingReliable == 0 && m_senderState.m_cbSentUnackedReliable == 0 )
 			{
+				Assert( m_senderState.m_listReadyRetryReliableRange.IsEmpty() );
+
 				// Close the connection ASAP
 				ConnectionState_FinWait();
 				return;
@@ -3507,7 +3509,9 @@ void CSteamNetworkConnectionBase::UpdateMTUFromConfig( bool bForceRecalc )
 {
 	if ( bForceRecalc )
 	{
-		Assert( m_senderState.m_listReadyRetryReliableRange.empty() && m_senderState.m_listInFlightReliableRange.empty() );
+		Assert( m_senderState.m_cbSentUnackedReliable == 0 );
+		Assert( m_senderState.m_listReadyRetryReliableRange.IsEmpty() );
+		Assert( m_senderState.m_listSentReliableSegments.IsEmpty() );
 	}
 	else
 	{
@@ -3519,11 +3523,15 @@ void CSteamNetworkConnectionBase::UpdateMTUFromConfig( bool bForceRecalc )
 		if ( newMTUPacketSize < m_cbMTUPacketSize )
 		{
 			// We cannot do this while we have any reliable segments in flight!
-			// To keep things simple, the retries are always the original ranges,
+			// To keep things simple, the retries are always the original segments,
 			// we never have our retries chop up the space differently than
 			// the original send
-			if ( !m_senderState.m_listReadyRetryReliableRange.empty() || !m_senderState.m_listInFlightReliableRange.empty() )
+			//
+			// !FIXME! - This could be a deal-breaker.  It might in practice prevent
+			// us from ever being able to reduce the MTU.
+			if ( m_senderState.m_cbSentUnackedReliable != 0 || !m_senderState.m_listReadyRetryReliableRange.IsEmpty() )
 			{
+				Assert( !m_senderState.m_listSentReliableSegments.IsEmpty() );
 				return;
 			}
 		}
