@@ -37,6 +37,7 @@ typedef struct _BCryptContext {
 	ULONG cbKeyObject;
 
 	_BCryptContext() {
+		hAlgAES = INVALID_HANDLE_VALUE;
 		hKey = INVALID_HANDLE_VALUE;
 		pbKeyObject = NULL;
 		cbKeyObject = 0;
