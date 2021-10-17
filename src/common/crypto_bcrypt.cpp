@@ -33,6 +33,7 @@ typedef struct _BCryptContext {
 	ULONG cbKeyObject;
 
 	_BCryptContext() {
+		hAlgAES = INVALID_HANDLE_VALUE;
 		hKey = INVALID_HANDLE_VALUE;
 		pbKeyObject = NULL;
 		cbKeyObject = 0;
@@ -118,6 +119,15 @@ bool AES_GCM_CipherContext::InitCipher( const void *pKey, size_t cbKey, size_t c
 	m_cbIV = (uint32)cbIV;
 	m_cbTag = (uint32)cbTag;
 
+	return true;
+}
+
+bool AES_GCM_CipherContext::IsAvailable()
+{
+	BCryptContext ctx;
+	if ( BCryptOpenAlgorithmProvider( &ctx.hAlgAES, BCRYPT_AES_ALGORITHM, nullptr, 0 ) != 0 )
+		return false;
+	AssertFatal( ctx.hAlgAES != INVALID_HANDLE_VALUE );
 	return true;
 }
 
