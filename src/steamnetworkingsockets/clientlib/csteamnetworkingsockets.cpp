@@ -146,9 +146,7 @@ GlobalConfigValueEntry::GlobalConfigValueEntry(
 
 static void EnsureConfigValueTableInitted()
 {
-	if ( s_bConfigValueTableInitted )
-		return;
-	SteamNetworkingGlobalLock scopeLock;
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "EnsureConfigValueTableInitted" );
 	if ( s_bConfigValueTableInitted )
 		return;
 
@@ -169,7 +167,7 @@ static void EnsureConfigValueTableInitted()
 		[]( GlobalConfigValueEntry *a, GlobalConfigValueEntry *b ) { return a->m_cbOffsetOf < b->m_cbOffsetOf; } );
 
 	// Rebuild linked list, in order, and safety check for duplicates
-	int N = len( s_vecConfigValueTable );
+	const int N = len( s_vecConfigValueTable );
 	for ( int i = 1 ; i < N ; ++i )
 	{
 		s_vecConfigValueTable[i-1]->m_pNextEntry = s_vecConfigValueTable[i];
@@ -178,16 +176,17 @@ static void EnsureConfigValueTableInitted()
 	s_vecConfigValueTable[N-1]->m_pNextEntry = nullptr;
 
 	s_pFirstGlobalConfigEntry = nullptr;
-	s_bConfigValueTableInitted = true;
+	s_bConfigValueTableInitted = true; // Set this flag LAST
 }
 
 static GlobalConfigValueEntry *FindConfigValueEntry( ESteamNetworkingConfigValue eSearchVal )
 {
-	EnsureConfigValueTableInitted();
+	Assert( s_bConfigValueTableInitted );
 
 	// Binary search
 	int l = 0;
 	int r = len( s_vecConfigValueTable )-1;
+	Assert( r > 0 ); // Order of operations -- table not initialized!
 	while ( l <= r )
 	{
 		int m = (l+r)>>1;
@@ -206,7 +205,7 @@ static GlobalConfigValueEntry *FindConfigValueEntry( ESteamNetworkingConfigValue
 
 void ConnectionConfig::Init( ConnectionConfig *pInherit )
 {
-	EnsureConfigValueTableInitted();
+	Assert( s_bConfigValueTableInitted );
 
 	for ( GlobalConfigValueEntry *pEntry : s_vecConnectionConfigValueTable )
 	{
@@ -1682,6 +1681,12 @@ EResult CSteamNetworkingSockets::GetRemoteFakeIPForConnection( HSteamNetConnecti
 // CSteamNetworkingUtils
 //
 /////////////////////////////////////////////////////////////////////////////
+
+CSteamNetworkingUtils::CSteamNetworkingUtils()
+{
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "CSteamNetworkingUtils::CSteamNetworkingUtils" );
+	EnsureConfigValueTableInitted();
+}
 
 CSteamNetworkingUtils::~CSteamNetworkingUtils() {}
 

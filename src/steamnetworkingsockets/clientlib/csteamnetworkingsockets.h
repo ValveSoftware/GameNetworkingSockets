@@ -266,6 +266,7 @@ class CSteamNetworkingUtils : public IClientNetworkingUtils
 {
 public:
 	STEAMNETWORKINGSOCKETS_DECLARE_CLASS_OPERATOR_NEW
+	CSteamNetworkingUtils();
 	virtual ~CSteamNetworkingUtils();
 
 	virtual SteamNetworkingMessage_t *AllocateMessage( int cbAllocateBuffer ) override;
