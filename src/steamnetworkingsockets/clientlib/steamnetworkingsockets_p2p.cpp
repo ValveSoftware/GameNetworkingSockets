@@ -55,6 +55,9 @@ CUtlHashMap<RemoteConnectionKey_t,CSteamNetworkConnectionP2P*, std::equal_to<Rem
 
 constexpr SteamNetworkingMicroseconds k_usecWaitForControllingAgentBeforeSelectingNonNominatedTransport = 1*k_nMillion;
 
+// Retry timeout for reliable messages in P2P signals
+constexpr SteamNetworkingMicroseconds k_usecP2PSignalReliableRTO = k_nMillion;
+
 /////////////////////////////////////////////////////////////////////////////
 //
 // CSteamNetworkListenSocketP2P
@@ -123,9 +126,11 @@ CSteamNetworkConnectionP2P::CSteamNetworkConnectionP2P( CSteamNetworkingSockets 
 	m_bTransportSticky = false;
 	m_bAppConnectHandshakePacketsInRSVP = false;
 	m_bNeedToSendConnectOKSignal = false;
+	m_bWaitForInitialRoutingReady = true;
 
 	m_pszNeedToSendSignalReason = nullptr;
 	m_usecSendSignalDeadline = k_nThinkTime_Never;
+	m_usecWhenSentLastSignal = 0; // A very long time ago
 	m_nLastSendRendesvousMessageID = 0;
 	m_nLastRecvRendesvousMessageID = 0;
 	m_pPeerSelectedTransport = nullptr;
@@ -1177,6 +1182,7 @@ void CSteamNetworkConnectionP2P::ConnectionStateChanged( ESteamNetworkingConnect
 		case k_ESteamNetworkingConnectionState_ClosedByPeer:
 		case k_ESteamNetworkingConnectionState_FinWait:
 			m_bNeedToSendConnectOKSignal = false;
+			m_bWaitForInitialRoutingReady = false;
 			EnsureICEFailureReasonSet( usecNow );
 			break;
 
@@ -1185,6 +1191,7 @@ void CSteamNetworkConnectionP2P::ConnectionStateChanged( ESteamNetworkingConnect
 
 		case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
 			m_bNeedToSendConnectOKSignal = false;
+			m_bWaitForInitialRoutingReady = false;
 			EnsureICEFailureReasonSet( usecNow );
 
 			// If we fail during these states, send a signal to Steam, for analytics
@@ -1219,9 +1226,10 @@ void CSteamNetworkConnectionP2P::ConnectionStateChanged( ESteamNetworkingConnect
 	// Clear this flag once we leave the handshake phase.  It keeps some logic elsewhere simpler
 	if ( m_bAppConnectHandshakePacketsInRSVP
 		&& GetState() != k_ESteamNetworkingConnectionState_FindingRoute
-		&& GetState() != k_ESteamNetworkingConnectionState_Connected )
+		&& GetState() != k_ESteamNetworkingConnectionState_Connecting )
 	{
 		m_bAppConnectHandshakePacketsInRSVP = false;
+		m_bWaitForInitialRoutingReady = false;
 	}
 
 	// Inform transports.  If we have a selected transport (or are in a special case) do that one first
@@ -1240,71 +1248,73 @@ void CSteamNetworkConnectionP2P::ConnectionStateChanged( ESteamNetworkingConnect
 	}
 }
 
+// If nothing scheduled, check RTOs.  If we have something scheduled,
+// wait for the timer. The timer is short and designed to avoid
+// a blast, so let it do its job.
+SteamNetworkingMicroseconds CSteamNetworkConnectionP2P::GetSignalReliableRTO()
+{
+	SteamNetworkingMicroseconds usecMinRTO = k_nThinkTime_Never;
+	for ( const OutboundMessage &s: m_vecUnackedOutboundMessages )
+	{
+		if ( s.m_usecRTO < usecMinRTO )
+			usecMinRTO = s.m_usecRTO;
+	}
+
+	return usecMinRTO;
+}
+
 void CSteamNetworkConnectionP2P::ThinkConnection( SteamNetworkingMicroseconds usecNow )
 {
 	CSteamNetworkConnectionBase::ThinkConnection( usecNow );
 
-	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
-		CheckCleanupICE();
-	#endif
+	CheckCleanupICE();
 
-	// Check for sending signals pending for RTO or Nagle.
-	// (If we have gotten far enough along where we know where
-	// to send them.  Some messages can be queued very early, and
-	// do not depend on who the peer it.)
+	// Process route selection if we're ready
 	if ( GetState() != k_ESteamNetworkingConnectionState_Connecting )
 	{
-
-		// Process route selection
 		ThinkSelectTransport( usecNow );
-
-		// If nothing scheduled, check RTOs.  If we have something scheduled,
-		// wait for the timer. The timer is short and designed to avoid
-		// a blast, so let it do its job.
-		if ( m_usecSendSignalDeadline == k_nThinkTime_Never )
-		{
-			for ( const OutboundMessage &s: m_vecUnackedOutboundMessages )
-			{
-				if ( s.m_usecRTO < m_usecSendSignalDeadline )
-				{
-					m_usecSendSignalDeadline = s.m_usecRTO;
-					m_pszNeedToSendSignalReason = "MessageRTO";
-					// Keep scanning the list.  we want to collect
-					// the minimum RTO.
-				}
-			}
-		}
-
-		if ( m_bNeedToSendConnectOKSignal )
-		{
-			Assert( m_bConnectionInitiatedRemotely );
-
-			SteamNetworkingMicroseconds usecRoutingReady = CheckWaitForInitialRoutingReady( usecNow );
-			if ( usecRoutingReady > usecNow )
-			{
-				EnsureMinThinkTime( usecRoutingReady );
-				m_usecSendSignalDeadline = std::max( m_usecSendSignalDeadline, usecRoutingReady );
-			}
-			else
-			{
-				m_usecSendSignalDeadline = k_nThinkTime_ASAP;
-				m_pszNeedToSendSignalReason = "ConnectOK";
-			}
-		}
-
-		if ( usecNow >= m_usecSendSignalDeadline )
-		{
-			Assert( m_pszNeedToSendSignalReason );
-
-			// Send a signal
-			CMsgSteamNetworkingP2PRendezvous msgRendezvous;
-			SetRendezvousCommonFieldsAndSendSignal( msgRendezvous, usecNow, m_pszNeedToSendSignalReason );
-		}
-
-		Assert( m_usecSendSignalDeadline > usecNow );
-
-		EnsureMinThinkTime( m_usecSendSignalDeadline );
 	}
+
+	// Check for sending a signal.  Can't send signals?
+	if ( !m_pSignaling )
+		return;
+
+	// Time to send a signal?
+	// Limit using really basic minimum spacing between successive calls
+	SteamNetworkingMicroseconds usecReliableRTO = GetSignalReliableRTO();
+	SteamNetworkingMicroseconds usecNextWantToSend = std::min( usecReliableRTO, m_usecSendSignalDeadline );
+	SteamNetworkingMicroseconds usecNextSend = std::max( usecNextWantToSend, GetWhenCanSendNextP2PSignal() );
+	if ( usecNextSend > usecNow )
+	{
+		EnsureMinThinkTime( usecNextSend );
+		return;
+	}
+
+	// Check if we should delay sending a signal until
+	// we collect a bit of initial routing info
+	SteamNetworkingMicroseconds usecRoutingReady = CheckWaitForInitialRoutingReady( usecNow );
+	if ( usecRoutingReady > usecNow )
+	{
+		EnsureMinThinkTime( usecRoutingReady );
+		return;
+	}
+
+	// OK, we're gonna send something.  Is it because of reliable RTO,
+	// then we might not have a reason set yet, so set one now.
+	const char *pszDebugReason = m_pszNeedToSendSignalReason;
+	if ( !pszDebugReason )
+	{
+		Assert( m_usecSendSignalDeadline == k_nThinkTime_Never );
+		Assert( usecReliableRTO <= usecNow );
+		pszDebugReason = "ReliableRTO";
+	}
+
+	// Send a signal
+	CMsgSteamNetworkingP2PRendezvous msgRendezvous;
+	if ( !SetRendezvousCommonFieldsAndSendSignal( msgRendezvous, usecNow, pszDebugReason ) )
+		return;
+	Assert( m_usecWhenSentLastSignal == usecNow );
+	Assert( m_usecSendSignalDeadline == k_nThinkTime_Never );
 }
 
 void CSteamNetworkConnectionP2P::ThinkSelectTransport( SteamNetworkingMicroseconds usecNow )
@@ -1674,68 +1684,28 @@ SteamNetworkingMicroseconds CSteamNetworkConnectionP2P::ThinkConnection_ClientCo
 	// We always do this through signaling service rendezvous message.  We don't need to have
 	// selected the transport (yet)
 	SteamNetworkingMicroseconds usecRetry = m_usecWhenSentConnectRequest + k_usecConnectRetryInterval;
+	usecRetry = std::min( usecRetry, m_usecSendSignalDeadline );
 	if ( usecNow < usecRetry )
 		return usecRetry;
 
-	// Fill out the rendezvous message
 	CMsgSteamNetworkingP2PRendezvous msgRendezvous;
-	CMsgSteamNetworkingP2PRendezvous_ConnectRequest &msgConnectRequest = *msgRendezvous.mutable_connect_request();
-	*msgConnectRequest.mutable_cert() = m_msgSignedCertLocal;
-	*msgConnectRequest.mutable_crypt() = m_msgSignedCryptLocal;
-	int nLocalVirtualPort = LocalVirtualPort();
-
-	// Connecting via FakeIP?
-	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
-		if ( m_identityRemote.IsFakeIP() )
-		{
-			Assert( m_nRemoteVirtualPort == -1 ); // We never use remote virtual port for FakeIP connections
-
-			// If we are sending from a global FakeIP, then let them
-			// know who we are.
-			if ( IsVirtualPortGlobalFakePort( nLocalVirtualPort ) )
-			{
-				int idxGlobalPort = nLocalVirtualPort - k_nVirtualPort_GlobalFakePort0;
-
-				SteamNetworkingFakeIPResult_t fakeIPLocal;
-				m_pSteamNetworkingSocketsInterface->GetFakeIP( idxGlobalPort, &fakeIPLocal );
-
-				// We don't have our fake IP yet.  Try again in a bit
-				if ( fakeIPLocal.m_eResult != k_EResultOK )
-				{
-					if ( fakeIPLocal.m_eResult != k_EResultBusy )
-						ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_InternalError, "GetFakeIP returned %d trying to send connect signal", fakeIPLocal.m_eResult );
-					return usecNow + 100*1000;
-				}
-
-				Assert( fakeIPLocal.m_unIP );
-				Assert( fakeIPLocal.m_unPorts[0] );
-				msgConnectRequest.set_from_fakeip( CUtlNetAdrRender( fakeIPLocal.m_unIP, fakeIPLocal.m_unPorts[0] ).String() );
-			}
-
-			// Don't send any virtual ports in the message
-			nLocalVirtualPort = -1;
-		}
-	#endif
-
-	// put virtual ports into the message
-	if ( nLocalVirtualPort >= 0 )
-		msgConnectRequest.set_from_virtual_port( nLocalVirtualPort );
-	if ( m_nRemoteVirtualPort >= 0 )
-		msgConnectRequest.set_to_virtual_port( m_nRemoteVirtualPort );
 
 	// Send through signaling service
 	SpewMsgGroup( LogLevel_P2PRendezvous(), "[%s] Sending P2P ConnectRequest\n", GetDescription() );
-	SetRendezvousCommonFieldsAndSendSignal( msgRendezvous, usecNow, "ConnectRequest" );
-
-	// Remember when we send it
-	m_usecWhenSentConnectRequest = usecNow;
+	if ( SetRendezvousCommonFieldsAndSendSignal( msgRendezvous, usecNow, "ConnectRequest" ) )
+	{
+		Assert( m_usecWhenSentConnectRequest == usecNow );
+	}
 
 	// And set timeout for retry
-	return m_usecWhenSentConnectRequest + k_usecConnectRetryInterval;
+	return usecNow + k_usecConnectRetryInterval;
 }
 
 SteamNetworkingMicroseconds CSteamNetworkConnectionP2P::CheckWaitForInitialRoutingReady( SteamNetworkingMicroseconds usecNow )
 {
+	// Check if we already waited or decided we were ready
+	if ( !m_bWaitForInitialRoutingReady )
+		return k_nThinkTime_ASAP;
 
 	// If we are using SDR, then we want to wait until we have finished the initial ping probes.
 	// This makes sure out initial connect message doesn't contain potentially inaccurate
@@ -1804,6 +1774,8 @@ SteamNetworkingMicroseconds CSteamNetworkConnectionP2P::CheckWaitForInitialRouti
 		}
 	#endif
 
+	// We're ready.  Don't ever check again
+	m_bWaitForInitialRoutingReady = false;
 	return k_nThinkTime_ASAP;
 }
 
@@ -1826,7 +1798,7 @@ void CSteamNetworkConnectionP2P::QueueSendConnectOKSignal()
 	if ( !m_bNeedToSendConnectOKSignal )
 		SpewVerboseGroup( LogLevel_P2PRendezvous(), "[%s] Queueing ConnectOK signal\n", GetDescription() );
 	m_bNeedToSendConnectOKSignal = true;
-	SetNextThinkTimeASAP();
+	ScheduleSendSignal( "ConnectOK" );
 }
 
 void CSteamNetworkConnectionP2P::SendConnectionClosedSignal( SteamNetworkingMicroseconds usecNow )
@@ -1862,10 +1834,10 @@ void CSteamNetworkConnectionP2P::SendNoConnectionSignal( SteamNetworkingMicrosec
 	SetRendezvousCommonFieldsAndSendSignal( msgRendezvous, usecNow, "NoConnection" );
 }
 
-void CSteamNetworkConnectionP2P::SetRendezvousCommonFieldsAndSendSignal( CMsgSteamNetworkingP2PRendezvous &msg, SteamNetworkingMicroseconds usecNow, const char *pszDebugReason )
+bool CSteamNetworkConnectionP2P::SetRendezvousCommonFieldsAndSendSignal( CMsgSteamNetworkingP2PRendezvous &msg, SteamNetworkingMicroseconds usecNow, const char *pszDebugReason )
 {
 	if ( !m_pSignaling )
-		return;
+		return false;
 
 	AssertLocksHeldByCurrentThread( "P2P::SetRendezvousCommonFieldsAndSendSignal" );
 
@@ -1880,6 +1852,56 @@ void CSteamNetworkConnectionP2P::SetRendezvousCommonFieldsAndSendSignal( CMsgSte
 		*msgConnectOK.mutable_cert() = m_msgSignedCertLocal;
 		*msgConnectOK.mutable_crypt() = m_msgSignedCryptLocal;
 		m_bNeedToSendConnectOKSignal = false;
+	}
+
+	// If we are the client connecting, then send a connect_request
+	// message in every signal.  (That's really the only reason we
+	// should be sending a signal.)
+	if ( GetState() == k_ESteamNetworkingConnectionState_Connecting && !msg.has_connection_closed() && !m_bConnectionInitiatedRemotely )
+	{
+		CMsgSteamNetworkingP2PRendezvous_ConnectRequest &msgConnectRequest = *msg.mutable_connect_request();
+		*msgConnectRequest.mutable_cert() = m_msgSignedCertLocal;
+		*msgConnectRequest.mutable_crypt() = m_msgSignedCryptLocal;
+		int nLocalVirtualPort = LocalVirtualPort();
+
+		// Connecting via FakeIP?
+		#ifdef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
+			if ( m_identityRemote.IsFakeIP() )
+			{
+				Assert( m_nRemoteVirtualPort == -1 ); // We never use remote virtual port for FakeIP connections
+
+				// If we are sending from a global FakeIP, then let them
+				// know who we are.
+				if ( IsVirtualPortGlobalFakePort( nLocalVirtualPort ) )
+				{
+					int idxGlobalPort = nLocalVirtualPort - k_nVirtualPort_GlobalFakePort0;
+
+					SteamNetworkingFakeIPResult_t fakeIPLocal;
+					m_pSteamNetworkingSocketsInterface->GetFakeIP( idxGlobalPort, &fakeIPLocal );
+
+					// We don't have our fake IP yet.  Try again in a bit
+					if ( fakeIPLocal.m_eResult != k_EResultOK )
+					{
+						if ( fakeIPLocal.m_eResult != k_EResultBusy )
+							ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_InternalError, "GetFakeIP returned %d trying to send connect signal", fakeIPLocal.m_eResult );
+						return usecNow + 100*1000;
+					}
+
+					Assert( fakeIPLocal.m_unIP );
+					Assert( fakeIPLocal.m_unPorts[0] );
+					msgConnectRequest.set_from_fakeip( CUtlNetAdrRender( fakeIPLocal.m_unIP, fakeIPLocal.m_unPorts[0] ).String() );
+				}
+
+				// Don't send any virtual ports in the message
+				nLocalVirtualPort = -1;
+			}
+		#endif
+
+		// put virtual ports into the message
+		if ( nLocalVirtualPort >= 0 )
+			msgConnectRequest.set_from_virtual_port( nLocalVirtualPort );
+		if ( m_nRemoteVirtualPort >= 0 )
+			msgConnectRequest.set_to_virtual_port( m_nRemoteVirtualPort );
 	}
 
 	Assert( !msg.has_to_connection_id() );
@@ -1942,11 +1964,7 @@ void CSteamNetworkConnectionP2P::SetRendezvousCommonFieldsAndSendSignal( CMsgSte
 				// Try to keep individual signals relatively small.  If we have a lot
 				// to say, break it up into multiple messages
 				if ( nTotalMsgSize > 800 )
-				{
-					if ( !msg.has_connect_request() )
-						ScheduleSendSignal( "ContinueLargeSignal" );
 					break;
-				}
 
 				// Start sending from this guy forward
 				msg.set_first_reliable_msg( s.m_nID );
@@ -1955,7 +1973,7 @@ void CSteamNetworkConnectionP2P::SetRendezvousCommonFieldsAndSendSignal( CMsgSte
 			*msg.add_reliable_messages() = s.m_msg;
 			nTotalMsgSize += s.m_cbSerialized;
 
-			s.m_usecRTO = usecNow + k_nMillion/2; // Reset RTO
+			s.m_usecRTO = usecNow + k_usecP2PSignalReliableRTO; // Reset RTO
 		}
 
 		// Go ahead and always ack, even if we don't need to, because this is small
@@ -2023,7 +2041,28 @@ void CSteamNetworkConnectionP2P::SetRendezvousCommonFieldsAndSendSignal( CMsgSte
 		// NOTE: we might already be closed, either before this call,
 		//       or the caller might have closed us!
 		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_InternalError, "Failed to send P2P signal" );
+		return false;
 	}
+
+	// Mark that we sent it
+	m_usecWhenSentLastSignal = usecNow;
+
+	// If we sent a connect request, remember that
+	if ( msg.has_connect_request() )
+		m_usecWhenSentConnectRequest = usecNow;
+
+	// Check if we might need to schedule another signal
+	SteamNetworkingMicroseconds usecNextCheck = std::max( GetSignalReliableRTO(), GetWhenCanSendNextP2PSignal() );
+	Assert( usecNextCheck > usecNow );
+
+	EnsureMinThinkTime( usecNextCheck );
+
+	// Once we send our first signal for any reason, don't bother checking
+	// to wait for routing info to be ready for the next one.
+	m_bWaitForInitialRoutingReady = false;
+
+	// OK, send a signal
+	return true;
 }
 
 void CSteamNetworkConnectionP2P::PopulateRendezvousMsgWithTransportInfo( CMsgSteamNetworkingP2PRendezvous &msg, SteamNetworkingMicroseconds usecNow )
@@ -2136,15 +2175,6 @@ bool CSteamNetworkConnectionP2P::ProcessSignal( const CMsgSteamNetworkingP2PRend
 		// Remove messages that are being acked
 		while ( !m_vecUnackedOutboundMessages.empty() && m_vecUnackedOutboundMessages[0].m_nID <= msg.ack_reliable_msg() )
 			erase_at( m_vecUnackedOutboundMessages, 0 );
-
-		// If anything ready to retry now, schedule wakeup
-		if ( m_usecSendSignalDeadline == k_nThinkTime_Never )
-		{
-			SteamNetworkingMicroseconds usecNextRTO = k_nThinkTime_Never;
-			for ( const OutboundMessage &s: m_vecUnackedOutboundMessages )
-				usecNextRTO = std::min( usecNextRTO, s.m_usecRTO );
-			EnsureMinThinkTime( usecNextRTO );
-		}
 	}
 
 	// Check if they sent reliable messages

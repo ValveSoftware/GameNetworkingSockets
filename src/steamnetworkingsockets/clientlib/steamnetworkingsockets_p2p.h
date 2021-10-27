@@ -43,9 +43,8 @@ constexpr int k_nICECloseCode_Remote_NotEnabled = k_ESteamNetConnectionEnd_Remot
 // This constant defines the max we should ever send in a single signal
 constexpr int k_cbMaxSendMessagDataInRSVP = 4200;
 
-// When sending app handshake messages in the signaling, don't send a signal
-// more often that this.
-constexpr SteamNetworkingMicroseconds k_usecAppHandshakePacketsInRVSPInterval = 100*1000;
+// Never send P2P signals faster than this rate
+constexpr SteamNetworkingMicroseconds k_usecP2PSignalMinSendInterval = 100*1000;
 
 class CConnectionTransportP2PSDR;
 class CConnectionTransportToSDRServer;
@@ -238,7 +237,7 @@ public:
 
 	/// Given a partially-completed CMsgSteamNetworkingP2PRendezvous, finish filling out
 	/// the required fields, and send it to the peer via the signaling mechanism
-	void SetRendezvousCommonFieldsAndSendSignal( CMsgSteamNetworkingP2PRendezvous &msg, SteamNetworkingMicroseconds usecNow, const char *pszDebugReason );
+	bool SetRendezvousCommonFieldsAndSendSignal( CMsgSteamNetworkingP2PRendezvous &msg, SteamNetworkingMicroseconds usecNow, const char *pszDebugReason );
 
 	bool ProcessSignal( const CMsgSteamNetworkingP2PRendezvous &msg, SteamNetworkingMicroseconds usecNow );
 	void ProcessSignal_ConnectOK( const CMsgSteamNetworkingP2PRendezvous_ConnectOK &msgConnectOK, SteamNetworkingMicroseconds usecNow );
@@ -290,6 +289,10 @@ public:
 	/// replying, so that we can include some routing info, application reply
 	/// messages (when appropriate), etc.
 	bool m_bNeedToSendConnectOKSignal;
+
+	/// True if we should delay sending the first signal until we have some
+	/// initial routing info
+	bool m_bWaitForInitialRoutingReady;
 
 	//
 	// Different transports
@@ -429,6 +432,9 @@ public:
 
 	void UpdateTransportSummaries( SteamNetworkingMicroseconds usecNow );
 
+	SteamNetworkingMicroseconds GetSignalReliableRTO();
+	SteamNetworkingMicroseconds GetWhenCanSendNextP2PSignal() const { return m_usecWhenSentLastSignal + k_usecP2PSignalMinSendInterval; }
+
 	// FIXME - UDP transport for LAN discovery, so P2P works without any signaling
 
 	inline int LogLevel_P2PRendezvous() const { return m_connectionConfig.m_LogLevel_P2PRendezvous.Get(); }
@@ -461,6 +467,7 @@ private:
 
 	const char *m_pszNeedToSendSignalReason;
 	SteamNetworkingMicroseconds m_usecSendSignalDeadline;
+	SteamNetworkingMicroseconds m_usecWhenSentLastSignal;
 	uint32 m_nLastSendRendesvousMessageID;
 	uint32 m_nLastRecvRendesvousMessageID;
 
