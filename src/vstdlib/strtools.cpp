@@ -402,7 +402,7 @@ void V_SplitString2( const char *pString, const char * const *pSeparators, int n
 			{
 				outStrings.AddToTail( AllocString( pCurPos, -1 ) );
 			}
-			else if (bIncludeEmptyStrings)
+			else if (bIncludeEmptyStrings && pCurPos > pString)
 			{
 				outStrings.AddToTail( AllocString( "" , 1 ));
 			}
