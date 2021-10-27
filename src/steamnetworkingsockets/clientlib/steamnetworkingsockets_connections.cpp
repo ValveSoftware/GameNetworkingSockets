@@ -1334,25 +1334,43 @@ void CSteamNetworkConnectionBase::CertRequestFailed( ESteamNetConnectionEnd nCon
 	SetNextThinkTime( SteamNetworkingSockets_GetLocalTimestamp() );
 }
 
-bool CSteamNetworkConnectionBase::BRecvCryptoHandshake( const CMsgSteamDatagramCertificateSigned &msgCert, const CMsgSteamDatagramSessionCryptInfoSigned &msgSessionInfo, bool bServer )
+bool CSteamNetworkConnectionBase::BRecvCryptoHandshake(
+	const CMsgSteamDatagramCertificateSigned &msgCert,
+	const CMsgSteamDatagramSessionCryptInfoSigned &msgSessionInfo,
+	bool bServer )
+{
+	SteamNetworkingErrMsg errMsg;
+	ESteamNetConnectionEnd eFailure = RecvCryptoHandshake( msgCert, msgSessionInfo, bServer, errMsg );
+	if ( eFailure == k_ESteamNetConnectionEnd_Invalid )
+		return true;
+
+	ConnectionState_ProblemDetectedLocally( eFailure, "%s", errMsg );
+	return false;
+}
+
+ESteamNetConnectionEnd CSteamNetworkConnectionBase::RecvCryptoHandshake(
+	const CMsgSteamDatagramCertificateSigned &msgCert,
+	const CMsgSteamDatagramSessionCryptInfoSigned &msgSessionInfo,
+	bool bServer,
+	SteamNetworkingErrMsg &errMsg )
 {
 	AssertLocksHeldByCurrentThread( "BRecvCryptoHandshake" );
-	SteamNetworkingErrMsg errMsg;
+	SteamNetworkingErrMsg tmpErrMsg;
 
 	// Have we already done key exchange?
 	if ( m_bCryptKeysValid )
 	{
 		// FIXME - Probably should check that they aren't changing any keys.
 		Assert( m_eNegotiatedCipher != k_ESteamNetworkingSocketsCipher_INVALID );
-		return true;
+		return k_ESteamNetConnectionEnd_Invalid;
 	}
 	Assert( m_eNegotiatedCipher == k_ESteamNetworkingSocketsCipher_INVALID );
 
 	// Make sure we have what we need
 	if ( !msgCert.has_cert() || !msgSessionInfo.has_info() )
 	{
-		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCrypt, "Crypto handshake missing cert or session data" );
-		return false;
+		V_strcpy_safe( errMsg, "Crypto handshake missing cert or session data" );
+		return k_ESteamNetConnectionEnd_Remote_BadCrypt;
 	}
 
 	// Save off the exact serialized data in the cert and crypt info,
@@ -1367,11 +1385,11 @@ bool CSteamNetworkConnectionBase::BRecvCryptoHandshake( const CMsgSteamDatagramC
 
 		// Check the signature and chain of trust, and expiry, and deserialize the signed cert
 		time_t timeNow = m_pSteamNetworkingSocketsInterface->m_pSteamNetworkingUtils->GetTimeSecure();
-		pCACertAuthScope = CertStore_CheckCert( msgCert, m_msgCertRemote, timeNow, errMsg );
+		pCACertAuthScope = CertStore_CheckCert( msgCert, m_msgCertRemote, timeNow, tmpErrMsg );
 		if ( !pCACertAuthScope )
 		{
-			ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCert, "Bad cert: %s", errMsg );
-			return false;
+			V_sprintf_safe( errMsg, "Bad cert: %s", tmpErrMsg );
+			return k_ESteamNetConnectionEnd_Remote_BadCert;
 		}
 	}
 	else
@@ -1380,8 +1398,8 @@ bool CSteamNetworkConnectionBase::BRecvCryptoHandshake( const CMsgSteamDatagramC
 		// Deserialize the cert
 		if ( !m_msgCertRemote.ParseFromString( m_sCertRemote ) )
 		{
-			ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCrypt, "Cert failed protobuf decode" );
-			return false;
+			V_strcpy_safe( errMsg, "Cert failed protobuf decode" );
+			return k_ESteamNetConnectionEnd_Remote_BadCrypt;
 		}
 
 		// We'll check if unsigned certs are allowed below, after we know a bit more info
@@ -1389,11 +1407,11 @@ bool CSteamNetworkConnectionBase::BRecvCryptoHandshake( const CMsgSteamDatagramC
 
 	// Check identity from cert
 	SteamNetworkingIdentity identityCert;
-	int rIdentity = SteamNetworkingIdentityFromCert( identityCert, m_msgCertRemote, errMsg );
+	int rIdentity = SteamNetworkingIdentityFromCert( identityCert, m_msgCertRemote, tmpErrMsg );
 	if ( rIdentity < 0 )
 	{
-		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCert, "Bad cert identity.  %s", errMsg );
-		return false;
+		V_sprintf_safe( errMsg, "Bad cert identity.  %s", tmpErrMsg );
+		return k_ESteamNetConnectionEnd_Remote_BadCert;
 	}
 	if ( rIdentity > 0 && !identityCert.IsLocalHost() )
 	{
@@ -1401,16 +1419,16 @@ bool CSteamNetworkConnectionBase::BRecvCryptoHandshake( const CMsgSteamDatagramC
 		// They sent an identity.  Then it must match the identity we expect!
 		if ( !( identityCert == m_identityRemote ) )
 		{
-			ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCert, "Cert was issued to %s, not %s",
+			V_sprintf_safe( errMsg, "Cert was issued to %s, not %s",
 				SteamNetworkingIdentityRender( identityCert ).c_str(), SteamNetworkingIdentityRender( m_identityRemote ).c_str() );
-			return false;
+			return k_ESteamNetConnectionEnd_Remote_BadCert;
 		}
 
 		// We require certs to be bound to a particular AppID.
 		if ( m_msgCertRemote.app_ids_size() == 0 )
 		{
-			ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCert, "Cert must be bound to an AppID." );
-			return false;
+			V_strcpy_safe( errMsg, "Cert must be bound to an AppID." );
+			return k_ESteamNetConnectionEnd_Remote_BadCert;
 		}
 	}
 	else if ( !msgCert.has_ca_signature() )
@@ -1426,31 +1444,27 @@ bool CSteamNetworkConnectionBase::BRecvCryptoHandshake( const CMsgSteamDatagramC
 		// right now when connecting to anonymous gameservers
 		if ( !m_identityRemote.GetSteamID().BAnonGameServerAccount() )
 		{
-			ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCert, "Certs with no identity can only by anonymous gameservers, not %s", SteamNetworkingIdentityRender( m_identityRemote ).c_str() );
-			return false;
+			V_sprintf_safe( errMsg, "Certs with no identity can only by anonymous gameservers, not %s", SteamNetworkingIdentityRender( m_identityRemote ).c_str() );
+			return k_ESteamNetConnectionEnd_Remote_BadCert;
 		}
 
 		// And cert must be scoped to a data center, we don't permit blanked certs for anybody with no restrictions at all
 		if ( m_msgCertRemote.gameserver_datacenter_ids_size() == 0 )
 		{
-			ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCert, "Cert with no identity must be scoped to PoPID." );
-			return false;
+			V_strcpy_safe( errMsg, "Cert with no identity must be scoped to PoPID." );
+			return k_ESteamNetConnectionEnd_Remote_BadCert;
 		}
 	}
 
 	// OK, we've parsed everything out, now do any connection-type-specific checks on the cert
 	ESteamNetConnectionEnd eRemoteCertFailure = CheckRemoteCert( pCACertAuthScope, errMsg );
 	if ( eRemoteCertFailure )
-	{
-		ConnectionState_ProblemDetectedLocally( eRemoteCertFailure, "%s", errMsg );
-		return false;
-	}
+		return eRemoteCertFailure;
 
 	// Check the signature of the crypt info
 	if ( !BCheckSignature( m_sCryptRemote, m_msgCertRemote.key_type(), m_msgCertRemote.key_data(), msgSessionInfo.signature(), errMsg ) )
 	{
-		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCrypt, "%s", errMsg );
-		return false;
+		return k_ESteamNetConnectionEnd_Remote_BadCrypt;
 	}
 
 	// Remember if we they were authenticated
@@ -1459,23 +1473,23 @@ bool CSteamNetworkConnectionBase::BRecvCryptoHandshake( const CMsgSteamDatagramC
 	// Deserialize crypt info
 	if ( !m_msgCryptRemote.ParseFromString( m_sCryptRemote ) )
 	{
-		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCrypt, "Crypt info failed protobuf decode" );
-		return false;
+		V_strcpy_safe( errMsg, "Crypt info failed protobuf decode" );
+		return k_ESteamNetConnectionEnd_Remote_BadCrypt;
 	}
 
 	// Protocol version
 	if ( m_msgCryptRemote.protocol_version() < k_nMinRequiredProtocolVersion )
 	{
-		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadProtocolVersion, "Peer is running old software and needs to be updated.  (V%u, >=V%u is required)",
+		V_sprintf_safe( errMsg, "Peer is running old software and needs to be updated.  (V%u, >=V%u is required)",
 			m_msgCryptRemote.protocol_version(), k_nMinRequiredProtocolVersion );
-		return false;
+		return k_ESteamNetConnectionEnd_Remote_BadProtocolVersion;
 	}
 
 	// Did they already send a protocol version in an earlier message?  If so, it needs to match.
 	if ( m_statsEndToEnd.m_nPeerProtocolVersion != 0 && m_statsEndToEnd.m_nPeerProtocolVersion != m_msgCryptRemote.protocol_version() )
 	{
-		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadProtocolVersion, "Claiming protocol V%u now, but earlier was using V%u",m_msgCryptRemote.protocol_version(), m_statsEndToEnd.m_nPeerProtocolVersion );
-		return false;
+		V_sprintf_safe( errMsg, "Claiming protocol V%u now, but earlier was using V%u",m_msgCryptRemote.protocol_version(), m_statsEndToEnd.m_nPeerProtocolVersion );
+		return k_ESteamNetConnectionEnd_Remote_BadProtocolVersion;
 	}
 	m_statsEndToEnd.m_nPeerProtocolVersion = m_msgCryptRemote.protocol_version();
 
@@ -1506,8 +1520,8 @@ bool CSteamNetworkConnectionBase::BRecvCryptoHandshake( const CMsgSteamDatagramC
 		{
 			// Derived class / calling code should check for this and handle it better and fail
 			// earlier with a more specific error message.  (Or allow self-signed certs)
-			ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_InternalError, "We don't have cert, and self-signed certs not allowed" );
-			return false;
+			V_strcpy_safe( errMsg, "We don't have cert, and self-signed certs not allowed" );
+			return k_ESteamNetConnectionEnd_Misc_InternalError;
 		}
 		if ( eLocalUnsignedCert == k_EUnsignedCert_AllowWarn )
 			SpewWarning( "[%s] Continuing with self-signed cert.\n", GetDescription() );
@@ -1522,20 +1536,17 @@ bool CSteamNetworkConnectionBase::BRecvCryptoHandshake( const CMsgSteamDatagramC
 		// The server MUST send back the single cipher that they decided to use
 		if ( m_msgCryptRemote.ciphers_size() != 1 )
 		{
-			ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCrypt, "Server must select exactly only one cipher!" );
-			return false;
+			V_strcpy_safe( errMsg, "Server must select exactly only one cipher!" );
+			return k_ESteamNetConnectionEnd_Remote_BadCrypt;
 		}
-		if ( !BFinishCryptoHandshake( bServer ) )
-		{
-			Assert( GetState() == k_ESteamNetworkingConnectionState_ProblemDetectedLocally );
-			return false;
-		}
+		return FinishCryptoHandshake( bServer, errMsg );
 	}
 
-	return true;
+	// Return success status
+	return k_ESteamNetConnectionEnd_Invalid;
 }
 
-bool CSteamNetworkConnectionBase::BFinishCryptoHandshake( bool bServer )
+ESteamNetConnectionEnd CSteamNetworkConnectionBase::FinishCryptoHandshake( bool bServer, SteamNetworkingErrMsg &errMsg )
 {
 	AssertLocksHeldByCurrentThread( "BFinishCryptoHandshake" );
 
@@ -1563,8 +1574,8 @@ bool CSteamNetworkConnectionBase::BFinishCryptoHandshake( bool bServer )
 	{
 		default:
 		case k_ESteamNetworkingSocketsCipher_INVALID:
-			ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCrypt, "Failed to negotiate mutually-agreeable cipher" );
-			return false;
+			V_strcpy_safe( errMsg, "Failed to negotiate mutually-agreeable cipher" );
+			return k_ESteamNetConnectionEnd_Remote_BadCrypt;
 
 		case k_ESteamNetworkingSocketsCipher_NULL:
 			m_cbEncryptionOverhead = 0;
@@ -1598,21 +1609,21 @@ bool CSteamNetworkConnectionBase::BFinishCryptoHandshake( bool bServer )
 	CECKeyExchangePublicKey keyExchangePublicKeyRemote;
 	if ( m_msgCryptRemote.key_type() != CMsgSteamDatagramSessionCryptInfo_EKeyType_CURVE25519 )
 	{
-		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCrypt, "Unsupported DH key type" );
-		return false;
+		V_sprintf_safe( errMsg, "Unsupported DH key type %d", (int)m_msgCryptRemote.key_type() );
+		return k_ESteamNetConnectionEnd_Remote_BadCrypt;
 	}
 	if ( !keyExchangePublicKeyRemote.SetRawDataWithoutWipingInput( m_msgCryptRemote.key_data().c_str(), m_msgCryptRemote.key_data().length() ) )
 	{
-		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCrypt, "Invalid DH key" );
-		return false;
+		V_strcpy_safe( errMsg, "Invalid DH key" );
+		return k_ESteamNetConnectionEnd_Remote_BadCrypt;
 	}
 
 	// Diffie–Hellman key exchange to get "premaster secret"
 	AutoWipeFixedSizeBuffer<sizeof(SHA256Digest_t)> premasterSecret;
 	if ( !CCrypto::PerformKeyExchange( m_keyExchangePrivateKeyLocal, keyExchangePublicKeyRemote, &premasterSecret.m_buf ) )
 	{
-		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCrypt, "Key exchange failed" );
-		return false;
+		V_strcpy_safe( errMsg, "Key exchange failed" );
+		return k_ESteamNetConnectionEnd_Remote_BadCrypt;
 	}
 	//SpewMsg( "%s premaster: %02x%02x%02x%02x\n", bServer ? "Server" : "Client", premasterSecret.m_buf[0], premasterSecret.m_buf[1], premasterSecret.m_buf[2], premasterSecret.m_buf[3] );
 
@@ -1698,8 +1709,8 @@ bool CSteamNetworkConnectionBase::BFinishCryptoHandshake( bool bServer )
 		!m_cryptContextSend.Init( cryptKeySend.m_buf, cryptKeySend.k_nSize, m_cryptIVSend.k_nSize, k_cbAESGCMTagSize )
 		|| !m_cryptContextRecv.Init( cryptKeyRecv.m_buf, cryptKeyRecv.k_nSize, m_cryptIVRecv.k_nSize, k_cbAESGCMTagSize ) )
 	{
-		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCrypt, "Error initializing crypto" );
-		return false;
+		V_strcpy_safe( errMsg, "Error initializing crypto" );
+		return k_ESteamNetConnectionEnd_Remote_BadCrypt;
 	}
 
 	//
@@ -1718,7 +1729,7 @@ bool CSteamNetworkConnectionBase::BFinishCryptoHandshake( bool bServer )
 
 	// We're ready
 	m_bCryptKeysValid = true;
-	return true;
+	return k_ESteamNetConnectionEnd_Invalid;
 }
 
 EUnsignedCert CSteamNetworkConnectionBase::AllowLocalUnsignedCert()
@@ -2166,6 +2177,7 @@ bool CSteamNetworkConnectionBase::DecryptDataChunk( uint16 nWireSeqNum, int cbPa
 EResult CSteamNetworkConnectionBase::APIAcceptConnection()
 {
 	AssertLocksHeldByCurrentThread();
+	SteamNetworkingErrMsg errMsg;
 
 	// Must be in in state ready to be accepted
 	if ( GetState() != k_ESteamNetworkingConnectionState_Connecting )
@@ -2196,8 +2208,12 @@ EResult CSteamNetworkConnectionBase::APIAcceptConnection()
 	// Select the cipher.  We needed to wait until now to do it, because the app
 	// might have set connection options on a new connection.
 	Assert( m_eNegotiatedCipher == k_ESteamNetworkingSocketsCipher_INVALID );
-	if ( !BFinishCryptoHandshake( true ) )
+	ESteamNetConnectionEnd eCryptoHandshakeErr = FinishCryptoHandshake( true, errMsg );
+	if ( eCryptoHandshakeErr )
+	{
+		ConnectionState_ProblemDetectedLocally( eCryptoHandshakeErr, "%s", errMsg );
 		return k_EResultHandshakeFailed;
+	}
 
 	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 
@@ -3619,9 +3635,9 @@ failed:
 		CSteamNetworkConnectionPipe *q = pConn[1-i];
 		p->m_identityRemote = q->m_identityLocal;
 		p->m_unConnectionIDRemote = q->m_unConnectionIDLocal;
-		if ( !p->BRecvCryptoHandshake( q->m_msgSignedCertLocal, q->m_msgSignedCryptLocal, i==0 ) )
+		if ( p->RecvCryptoHandshake( q->m_msgSignedCertLocal, q->m_msgSignedCryptLocal, i==0, errMsg ) != k_ESteamNetConnectionEnd_Invalid )
 		{
-			AssertMsg( false, "BRecvCryptoHandshake failed creating loopback pipe socket pair" );
+			AssertMsg( false, "RecvCryptoHandshake failed creating loopback pipe socket pair.  %s", errMsg );
 			goto failed;
 		}
 		if ( !p->BConnectionState_Connecting( usecNow, errMsg ) )
@@ -3896,12 +3912,8 @@ bool CSteamNetworkConnectionPipe::BBeginAccept( CSteamNetworkListenSocketBase *p
 		return false;
 
 	// Receive the crypto info that is in the client's
-	if ( !BRecvCryptoHandshake( m_pPartner->m_msgSignedCertLocal, m_pPartner->m_msgSignedCryptLocal, true ) )
-	{
-		Assert( GetState() == k_ESteamNetworkingConnectionState_ProblemDetectedLocally );
-		V_sprintf_safe( errMsg, "Failed crypto init.  %s", m_szEndDebug );
+	if ( RecvCryptoHandshake( m_pPartner->m_msgSignedCertLocal, m_pPartner->m_msgSignedCryptLocal, true, errMsg ) != k_ESteamNetConnectionEnd_Invalid )
 		return false;
-	}
 
 	// Is this connection for a messages session
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES

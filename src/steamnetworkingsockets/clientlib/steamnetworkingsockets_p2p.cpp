@@ -390,12 +390,8 @@ bool CSteamNetworkConnectionP2P::BBeginAcceptFromSignal(
 		return false;
 
 	// Process crypto handshake now
-	if ( !BRecvCryptoHandshake( msgConnectRequest.cert(), msgConnectRequest.crypt(), true ) )
-	{
-		Assert( GetState() == k_ESteamNetworkingConnectionState_ProblemDetectedLocally );
-		V_sprintf_safe( errMsg, "Error with crypto.  %s", m_szEndDebug );
+	if ( RecvCryptoHandshake( msgConnectRequest.cert(), msgConnectRequest.crypt(), true, errMsg ) != k_ESteamNetConnectionEnd_Invalid )
 		return false;
-	}
 
 	// Add to connection map
 	if ( !BEnsureInP2PConnectionMapByRemoteInfo( errMsg ) )
@@ -1288,6 +1284,16 @@ void CSteamNetworkConnectionP2P::ThinkConnection( SteamNetworkingMicroseconds us
 	{
 		EnsureMinThinkTime( usecNextSend );
 		return;
+	}
+
+	// We can't send our initial signals without certs, etc
+	if ( GetState() == k_ESteamNetworkingConnectionState_Connecting )
+	{
+		if ( !BThinkCryptoReady( usecNow ) )
+		{
+			EnsureMinThinkTime( usecNow + k_nMillion/20 );
+			return;
+		}
 	}
 
 	// Check if we should delay sending a signal until

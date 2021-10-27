@@ -1247,11 +1247,9 @@ bool CSteamNetworkConnectionUDP::BBeginAccept(
 	}
 
 	// Process crypto handshake now
-	if ( !BRecvCryptoHandshake( msgCert, msgCryptSessionInfo, true ) )
+	if ( RecvCryptoHandshake( msgCert, msgCryptSessionInfo, true, errMsg ) != k_ESteamNetConnectionEnd_Invalid )
 	{
 		DestroyTransport();
-		Assert( GetState() == k_ESteamNetworkingConnectionState_ProblemDetectedLocally );
-		V_sprintf_safe( errMsg, "Failed crypto init.  %s", m_szEndDebug );
 		return false;
 	}
 
@@ -1656,10 +1654,11 @@ void CConnectionTransportUDP::Received_ConnectOK( const CMsgSteamSockets_UDP_Con
 	m_connection.m_identityRemote = identityRemote;
 
 	// Check the certs, save keys, etc
-	if ( !m_connection.BRecvCryptoHandshake( msg.cert(), msg.crypt(), false ) )
+	ESteamNetConnectionEnd eCryptFailure = m_connection.RecvCryptoHandshake( msg.cert(), msg.crypt(), false, errMsg );
+	if ( eCryptFailure )
 	{
-		Assert( ConnectionState() == k_ESteamNetworkingConnectionState_ProblemDetectedLocally );
-		ReportBadUDPPacketFromConnectionPeer( "ConnectOK", "Failed crypto init.  %s", m_connection.m_szEndDebug );
+		m_connection.ConnectionState_ProblemDetectedLocally( eCryptFailure, "%s", errMsg );
+		ReportBadUDPPacketFromConnectionPeer( "ConnectOK", "Failed crypto init.  %s", errMsg );
 		return;
 	}
 
@@ -1864,9 +1863,9 @@ failed:
 		p->m_identityRemote = q->m_identityLocal;
 		p->m_unConnectionIDRemote = q->m_unConnectionIDLocal;
 		p->m_statsEndToEnd.m_usecTimeLastRecv = usecNow; // Act like we just now received something
-		if ( !p->BRecvCryptoHandshake( q->m_msgSignedCertLocal, q->m_msgSignedCryptLocal, i==0 ) )
+		if ( p->RecvCryptoHandshake( q->m_msgSignedCertLocal, q->m_msgSignedCryptLocal, i==0, errMsg ) != k_ESteamNetConnectionEnd_Invalid )
 		{
-			AssertMsg( false, "BRecvCryptoHandshake failed creating localhost socket pair" );
+			AssertMsg( false, "RecvCryptoHandshake failed creating localhost socket pair.  %s", errMsg );
 			goto failed;
 		}
 		if ( !p->BConnectionState_Connecting( usecNow, errMsg ) )

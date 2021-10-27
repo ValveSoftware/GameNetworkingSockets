@@ -640,8 +640,11 @@ public:
 	virtual bool BSupportsSymmetricMode();
 
 	// Check the certs, save keys, etc
+	ESteamNetConnectionEnd RecvCryptoHandshake( const CMsgSteamDatagramCertificateSigned &msgCert, const CMsgSteamDatagramSessionCryptInfoSigned &msgSessionInfo, bool bServer, SteamNetworkingErrMsg &errMsg );
+	ESteamNetConnectionEnd FinishCryptoHandshake( bool bServer, SteamNetworkingErrMsg &errMsg );
+
+	// Process crypto handshake, and terminate the connection if it fails
 	bool BRecvCryptoHandshake( const CMsgSteamDatagramCertificateSigned &msgCert, const CMsgSteamDatagramSessionCryptInfoSigned &msgSessionInfo, bool bServer );
-	bool BFinishCryptoHandshake( bool bServer );
 
 	/// Basically the same as Think(), but can be called when we don't already have
 	/// the global lock.  If we can take the necessary locks now, without blocking,
