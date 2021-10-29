@@ -601,13 +601,13 @@ bool CSteamNetworkingMessages::CloseChannelWithUser( const SteamNetworkingIdenti
 	return true;
 }
 
-ESteamNetworkingConnectionState CSteamNetworkingMessages::GetSessionConnectionInfo( const SteamNetworkingIdentity &identityRemote, SteamNetConnectionInfo_t *pConnectionInfo, SteamNetworkingQuickConnectionStatus *pQuickStatus )
+ESteamNetworkingConnectionState CSteamNetworkingMessages::GetSessionConnectionInfo( const SteamNetworkingIdentity &identityRemote, SteamNetConnectionInfo_t *pConnectionInfo, SteamNetConnectionRealTimeStatus_t *pRealTimeStatus )
 {
 	SteamNetworkingGlobalLock scopeLock( "GetSessionConnectionInfo" ); // !SPEED! We should be able to get rid of this!
 	if ( pConnectionInfo )
 		memset( pConnectionInfo, 0, sizeof(*pConnectionInfo) );
-	if ( pQuickStatus )
-		memset( pQuickStatus, 0, sizeof(*pQuickStatus) );
+	if ( pRealTimeStatus )
+		memset( pRealTimeStatus, 0, sizeof(*pRealTimeStatus) );
 
 	ConnectionScopeLock connectionLock;
 	SteamNetworkingMessagesSession *pSess = FindSession( identityRemote, connectionLock );
@@ -618,8 +618,8 @@ ESteamNetworkingConnectionState CSteamNetworkingMessages::GetSessionConnectionIn
 
 	if ( pConnectionInfo )
 		*pConnectionInfo = pSess->m_lastConnectionInfo;
-	if ( pQuickStatus )
-		*pQuickStatus = pSess->m_lastQuickStatus;
+	if ( pRealTimeStatus )
+		*pRealTimeStatus = pSess->m_lastQuickStatus;
 
 	return pSess->m_lastConnectionInfo.m_eState;
 }
@@ -776,7 +776,7 @@ void SteamNetworkingMessagesSession::UpdateConnectionInfo()
 		return;
 	m_pConnection->ConnectionPopulateInfo( m_lastConnectionInfo );
 	m_lastConnectionInfo.m_hListenSocket = k_HSteamListenSocket_Invalid; // Always clear this, we don't want users of the API to know this is a thing
-	m_pConnection->APIGetQuickConnectionStatus( m_lastQuickStatus );
+	m_pConnection->APIGetRealTimeStatus( &m_lastQuickStatus, 0, nullptr );
 	if ( m_lastConnectionInfo.m_eState == k_ESteamNetworkingConnectionState_Connected )
 		m_bConnectionWasEverConnected = true;
 }

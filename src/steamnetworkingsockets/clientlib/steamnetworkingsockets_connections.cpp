@@ -1851,42 +1851,64 @@ void CSteamNetworkConnectionBase::ConnectionPopulateInfo( SteamNetConnectionInfo
 		m_pTransport->TransportPopulateConnectionInfo( info );
 }
 
-void CSteamNetworkConnectionBase::APIGetQuickConnectionStatus( SteamNetworkingQuickConnectionStatus &stats )
+EResult CSteamNetworkConnectionBase::APIGetRealTimeStatus( SteamNetConnectionRealTimeStatus_t *pStatus, int nLanes, SteamNetConnectionRealTimeLaneStatus_t *pLanes )
 {
 	m_pLock->AssertHeldByCurrentThread();
 	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 
-	stats.m_eState = CollapseConnectionStateToAPIState( m_eConnectionState );
-	stats.m_nPing = m_statsEndToEnd.m_ping.m_nSmoothedPing;
-	if ( m_statsEndToEnd.m_flInPacketsDroppedPct >= 0.0f )
+	if ( pLanes )
 	{
-		Assert( m_statsEndToEnd.m_flInPacketsWeirdSequencePct >= 0.0f );
-		stats.m_flConnectionQualityLocal = 1.0f - m_statsEndToEnd.m_flInPacketsDroppedPct - m_statsEndToEnd.m_flInPacketsWeirdSequencePct;
-		Assert( stats.m_flConnectionQualityLocal >= 0.0f );
+		if ( nLanes < 0 || nLanes > len( m_senderState.m_vecLanes ) )
+		{
+			SpewBug( "Invalid lane count %d; Connection only has %d lanes configured\n", nLanes, len( m_senderState.m_vecLanes ) );
+			return k_EResultInvalidParam;
+		}
 	}
 	else
 	{
-		stats.m_flConnectionQualityLocal = -1.0f;
+		if ( nLanes != 0 )
+		{
+			SpewBug( "Number of lanes must be zero if array pointer is nonzero\n" );
+			return k_EResultInvalidParam;
+		}
 	}
 
-	// FIXME - Can SNP give us a more up-to-date value from the feedback packet?
-	if ( m_statsEndToEnd.m_latestRemote.m_flPacketsDroppedPct >= 0.0f )
+	if ( pStatus )
 	{
-		Assert( m_statsEndToEnd.m_latestRemote.m_flPacketsWeirdSequenceNumberPct >= 0.0f );
-		stats.m_flConnectionQualityRemote = 1.0f - m_statsEndToEnd.m_latestRemote.m_flPacketsDroppedPct - m_statsEndToEnd.m_latestRemote.m_flPacketsWeirdSequenceNumberPct;
-		Assert( stats.m_flConnectionQualityRemote >= 0.0f );
-	}
-	else
-	{
-		stats.m_flConnectionQualityRemote = -1.0f;
-	}
+		pStatus->m_eState = CollapseConnectionStateToAPIState( m_eConnectionState );
+		pStatus->m_nPing = m_statsEndToEnd.m_ping.m_nSmoothedPing;
+		if ( m_statsEndToEnd.m_flInPacketsDroppedPct >= 0.0f )
+		{
+			Assert( m_statsEndToEnd.m_flInPacketsWeirdSequencePct >= 0.0f );
+			pStatus->m_flConnectionQualityLocal = 1.0f - m_statsEndToEnd.m_flInPacketsDroppedPct - m_statsEndToEnd.m_flInPacketsWeirdSequencePct;
+			Assert( pStatus->m_flConnectionQualityLocal >= 0.0f );
+		}
+		else
+		{
+			pStatus->m_flConnectionQualityLocal = -1.0f;
+		}
 
-	// Actual current data rates
-	stats.m_flOutPacketsPerSec = m_statsEndToEnd.m_sent.m_packets.m_flRate;
-	stats.m_flOutBytesPerSec = m_statsEndToEnd.m_sent.m_bytes.m_flRate;
-	stats.m_flInPacketsPerSec = m_statsEndToEnd.m_recv.m_packets.m_flRate;
-	stats.m_flInBytesPerSec = m_statsEndToEnd.m_recv.m_bytes.m_flRate;
-	SNP_PopulateQuickStats( stats, usecNow );
+		// FIXME - Can SNP give us a more up-to-date value from the feedback packet?
+		if ( m_statsEndToEnd.m_latestRemote.m_flPacketsDroppedPct >= 0.0f )
+		{
+			Assert( m_statsEndToEnd.m_latestRemote.m_flPacketsWeirdSequenceNumberPct >= 0.0f );
+			pStatus->m_flConnectionQualityRemote = 1.0f - m_statsEndToEnd.m_latestRemote.m_flPacketsDroppedPct - m_statsEndToEnd.m_latestRemote.m_flPacketsWeirdSequenceNumberPct;
+			Assert( pStatus->m_flConnectionQualityRemote >= 0.0f );
+		}
+		else
+		{
+			pStatus->m_flConnectionQualityRemote = -1.0f;
+		}
+
+		// Actual current data rates
+		pStatus->m_flOutPacketsPerSec = m_statsEndToEnd.m_sent.m_packets.m_flRate;
+		pStatus->m_flOutBytesPerSec = m_statsEndToEnd.m_sent.m_bytes.m_flRate;
+		pStatus->m_flInPacketsPerSec = m_statsEndToEnd.m_recv.m_packets.m_flRate;
+		pStatus->m_flInBytesPerSec = m_statsEndToEnd.m_recv.m_bytes.m_flRate;
+	}
+	SNP_PopulateRealTimeStatus( pStatus, nLanes, pLanes, usecNow );
+
+	return k_EResultOK;
 }
 
 void CSteamNetworkConnectionBase::APIGetDetailedConnectionStatus( SteamNetworkingDetailedConnectionStatus &stats, SteamNetworkingMicroseconds usecNow )

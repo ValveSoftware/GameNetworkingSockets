@@ -337,8 +337,21 @@ public:
 	virtual bool GetConnectionInfo( HSteamNetConnection hConn, SteamNetConnectionInfo_t *pInfo ) = 0;
 
 	/// Returns a small set of information about the real-time state of the connection
-	/// Returns false if the connection handle is invalid, or the connection has ended.
-	virtual bool GetQuickConnectionStatus( HSteamNetConnection hConn, SteamNetworkingQuickConnectionStatus *pStats ) = 0;
+	/// and the queue status of each lane.
+	/// 
+	/// - pStatus may be NULL if the information is not desired.  (E.g. you are only interested
+	///   in the lane information.)
+	/// - On entry, nLanes specifies the length of the pLanes array.  This may be 0
+	///   if you do not wish to receive any lane data.  It's OK for this to be smaller than
+	///   the total number of configured lanes.
+	/// - pLanes points to an array that will receive lane-specific info.  It can be NULL
+	///   if this is not needed.
+	/// 
+	/// Return value:
+	/// - k_EResultNoConnection - connection handle is invalid or connection has been closed.
+	/// - k_EResultInvalidParam - nLanes is bad
+	virtual EResult GetConnectionRealTimeStatus( HSteamNetConnection hConn, SteamNetConnectionRealTimeStatus_t *pStatus,
+		int nLanes, SteamNetConnectionRealTimeLaneStatus_t *pLanes ) = 0;
 
 	/// Returns detailed connection stats in text format.  Useful
 	/// for dumping to a log, etc.
@@ -441,13 +454,12 @@ public:
 	/// 
 	/// Return value:
 	/// - k_EResultNoConnection - bad hConn
-	/// - k_EResultInvalidParam - Invalid number of channels, bad weights, or you tried to reduce the number of lanes
+	/// - k_EResultInvalidParam - Invalid number of lanes, bad weights, or you tried to reduce the number of lanes
 	/// - k_EResultInvalidState - Connection is already dead, etc
 	/// 
 	/// See also:
 	/// SteamNetworkingMessage_t::m_idxLane
-	// FIXME - WIP
-	//virtual EResult ConfigureConnectionLanes( HSteamNetConnection hConn, int nNumLanes, const int *pLanePriorities, const uint16 *pLaneWeights ) = 0;
+	virtual EResult ConfigureConnectionLanes( HSteamNetConnection hConn, int nNumLanes, const int *pLanePriorities, const uint16 *pLaneWeights ) = 0;
 
 	//
 	// Identity and authentication
@@ -903,27 +915,27 @@ public:
 protected:
 	~ISteamNetworkingSockets(); // Silence some warnings
 };
-#define STEAMNETWORKINGSOCKETS_INTERFACE_VERSION "SteamNetworkingSockets011"
+#define STEAMNETWORKINGSOCKETS_INTERFACE_VERSION "SteamNetworkingSockets012"
 
 // Global accessors
 // Using standalone lib
 #ifdef STEAMNETWORKINGSOCKETS_STANDALONELIB
 
 	// Standalone lib.
-	static_assert( STEAMNETWORKINGSOCKETS_INTERFACE_VERSION[24] == '1', "Version mismatch" );
-	STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets *SteamNetworkingSockets_LibV11();
-	inline ISteamNetworkingSockets *SteamNetworkingSockets_Lib() { return SteamNetworkingSockets_LibV11(); }
+	static_assert( STEAMNETWORKINGSOCKETS_INTERFACE_VERSION[24] == '2', "Version mismatch" );
+	STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets *SteamNetworkingSockets_LibV12();
+	inline ISteamNetworkingSockets *SteamNetworkingSockets_Lib() { return SteamNetworkingSockets_LibV12(); }
 
 	// If running in context of steam, we also define a gameserver instance.
 	#ifdef STEAMNETWORKINGSOCKETS_STEAM
-		STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets *SteamGameServerNetworkingSockets_LibV11();
-		inline ISteamNetworkingSockets *SteamGameServerNetworkingSockets_Lib() { return SteamGameServerNetworkingSockets_LibV11(); }
+		STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets *SteamGameServerNetworkingSockets_LibV12();
+		inline ISteamNetworkingSockets *SteamGameServerNetworkingSockets_Lib() { return SteamGameServerNetworkingSockets_LibV12(); }
 	#endif
 
 	#ifndef STEAMNETWORKINGSOCKETS_STEAMAPI
-		inline ISteamNetworkingSockets *SteamNetworkingSockets() { return SteamNetworkingSockets_LibV11(); }
+		inline ISteamNetworkingSockets *SteamNetworkingSockets() { return SteamNetworkingSockets_LibV12(); }
 		#ifdef STEAMNETWORKINGSOCKETS_STEAM
-			inline ISteamNetworkingSockets *SteamGameServerNetworkingSockets() { return SteamGameServerNetworkingSockets_LibV11(); }
+			inline ISteamNetworkingSockets *SteamGameServerNetworkingSockets() { return SteamGameServerNetworkingSockets_LibV12(); }
 		#endif
 	#endif
 #endif

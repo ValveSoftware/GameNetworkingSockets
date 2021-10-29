@@ -33,7 +33,6 @@ CMAKE_ARGS=(
 	-G Ninja
 	-DCMAKE_CXX_COMPILER_LAUNCHER=ccache
 	-DCMAKE_C_COMPILER_LAUNCHER=ccache
-	-DLIGHT_TESTS:BOOL=ON
 	-DWERROR=ON
 )
 
@@ -165,23 +164,23 @@ build-cmake-ref/bin/test_crypto
 [[ $BUILD_LIBSODIUM -ne 0 ]] && build-cmake-sodium/bin/test_crypto
 build-cmake-sodium25519/bin/test_crypto
 build-cmake/bin/test_crypto
-build-cmake/bin/test_connection
+build-cmake/bin/test_connection identity lane_basics quick
 build-cmake-debug/bin/test_crypto
-build-cmake-debug/bin/test_connection
+build-cmake-debug/bin/test_connection identity lane_basics quick
 
 # Run sanitized builds
 if [[ $BUILD_SANITIZERS -ne 0 ]]; then
 	for SANITIZER in asan ubsan tsan; do
 		[[ -d build-${SANITIZER} ]] || continue
 		build-${SANITIZER}/bin/test_crypto
-		build-${SANITIZER}/bin/test_connection
+		build-${SANITIZER}/bin/test_connection identity lane_basics quick
 	done
 fi
 
 # Run LTO binaries to ensure they work
 if [[ $LTO_BUILT -ne 0 ]]; then
 	build-cmake-lto/bin/test_crypto
-	build-cmake-lto/bin/test_connection
+	build-cmake-lto/bin/test_connection identity lane_basics quick
 fi
 
 # FIXME Run P2P tests?

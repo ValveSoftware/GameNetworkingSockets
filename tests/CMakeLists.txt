@@ -1,6 +1,3 @@
-if(LIGHT_TESTS)
-	add_definitions(-DLIGHT_TESTS)
-endif()
 if(SANITIZE)
 	add_definitions(-DSANITIZER)
 	set( GAMENETWORKINGSOCKETS_LIB GameNetworkingSockets_s )

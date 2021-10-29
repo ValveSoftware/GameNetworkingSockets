@@ -122,7 +122,7 @@ public:
 	/// you do not need the corresponding details.  Note that sessions time out after a while,
 	/// so if a connection fails, or SendMessageToUser returns k_EResultNoConnection, you cannot wait
 	/// indefinitely to obtain the reason for failure.
-	virtual ESteamNetworkingConnectionState GetSessionConnectionInfo( const SteamNetworkingIdentity &identityRemote, SteamNetConnectionInfo_t *pConnectionInfo, SteamNetworkingQuickConnectionStatus *pQuickStatus ) = 0;
+	virtual ESteamNetworkingConnectionState GetSessionConnectionInfo( const SteamNetworkingIdentity &identityRemote, SteamNetConnectionInfo_t *pConnectionInfo, SteamNetConnectionRealTimeStatus_t *pQuickStatus ) = 0;
 };
 #define STEAMNETWORKINGMESSAGES_INTERFACE_VERSION "SteamNetworkingMessages002"
 

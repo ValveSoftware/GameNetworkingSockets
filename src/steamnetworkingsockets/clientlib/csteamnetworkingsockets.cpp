@@ -1131,6 +1131,18 @@ bool CSteamNetworkingSockets::GetConnectionName( HSteamNetConnection hPeer, char
 	return true;
 }
 
+EResult CSteamNetworkingSockets::ConfigureConnectionLanes( HSteamNetConnection hConn, int nNumLanes, const int *pLanePriorities, const uint16 *pLaneWeights )
+{
+	//SteamNetworkingGlobalLock scopeLock( "ConfigureConnectionLanes" ); // NO, not necessary!
+	ConnectionScopeLock connectionLock;
+	CSteamNetworkConnectionBase *pConn = GetConnectionByHandleForAPI( hConn, connectionLock, "ConfigureConnectionLanes" );
+	if ( !pConn )
+		return k_EResultNoConnection;
+	if ( !pConn->BStateIsActive() )
+		return k_EResultInvalidState;
+	return pConn->SNP_ConfigureLanes( nNumLanes, pLanePriorities, pLaneWeights );
+}
+
 EResult CSteamNetworkingSockets::SendMessageToConnection( HSteamNetConnection hConn, const void *pData, uint32 cbData, int nSendFlags, int64 *pOutMessageNumber )
 {
 	//SteamNetworkingGlobalLock scopeLock( "SendMessageToConnection" ); // NO, not necessary!
@@ -1372,16 +1384,17 @@ bool CSteamNetworkingSockets::GetConnectionInfo( HSteamNetConnection hConn, Stea
 	return true;
 }
 
-bool CSteamNetworkingSockets::GetQuickConnectionStatus( HSteamNetConnection hConn, SteamNetworkingQuickConnectionStatus *pStats )
-{
+EResult CSteamNetworkingSockets::GetConnectionRealTimeStatus(
+	HSteamNetConnection hConn,
+	SteamNetConnectionRealTimeStatus_t *pStatus,
+	int nLanes, SteamNetConnectionRealTimeLaneStatus_t *pLanes
+) {
 	//SteamNetworkingGlobalLock scopeLock( "GetQuickConnectionStatus" ); // NO, not necessary!
 	ConnectionScopeLock connectionLock;
-	CSteamNetworkConnectionBase *pConn = GetConnectionByHandleForAPI( hConn, connectionLock, "GetQuickConnectionStatus" );
+	CSteamNetworkConnectionBase *pConn = GetConnectionByHandleForAPI( hConn, connectionLock, "GetConnectionRealTimeStatus" );
 	if ( !pConn )
-		return false;
-	if ( pStats )
-		pConn->APIGetQuickConnectionStatus( *pStats );
-	return true;
+		return k_EResultNoConnection;
+	return pConn->APIGetRealTimeStatus( pStatus, nLanes, pLanes );
 }
 
 int CSteamNetworkingSockets::GetDetailedConnectionStatus( HSteamNetConnection hConn, char *pszBuf, int cbBuf )
@@ -2385,7 +2398,7 @@ STEAMNETWORKINGSOCKETS_INTERFACE void GameNetworkingSockets_Kill()
 	}
 }
 
-STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets *SteamNetworkingSockets_LibV11()
+STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets *SteamNetworkingSockets_LibV12()
 {
 	return s_pSteamNetworkingSockets;
 }

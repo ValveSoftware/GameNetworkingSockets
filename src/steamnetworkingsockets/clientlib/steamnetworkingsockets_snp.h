@@ -72,6 +72,16 @@ class CSteamNetworkConnectionBase;
 class CConnectionTransport;
 struct SteamNetworkingMessageQueue;
 
+/// We implement priority groups using Weighted Fair Queueing.
+/// https://en.wikipedia.org/wiki/Weighted_fair_queueing
+/// The idea is to assign a virtual "timestamp" when the message
+/// would finish sending, and each time we have an opportunity to
+/// send, we select the group with the earliest finish time.
+/// Virtual time is essentially an arbitrary counter that increases
+/// at a fixed rate per outbound byte sent.
+typedef int64 VirtualSendTime;
+static constexpr VirtualSendTime k_virtSendTime_Infinite = std::numeric_limits<VirtualSendTime>::max();
+
 /// Actual implementation of SteamNetworkingMessage_t, which is the API
 /// visible type.  Has extra fields needed to put the message into intrusive
 /// linked lists.
@@ -90,9 +100,14 @@ public:
 	inline SteamNetworkingMicroseconds SNPSend_UsecNagle() const { return m_usecTimeReceived; }
 	inline void SNPSend_SetUsecNagle( SteamNetworkingMicroseconds x ) { m_usecTimeReceived = x; }
 
+	/// "Virtual finish time".  This is the "virtual time" when we
+	/// wound have finished sending the current message, if any,
+	/// if all priority groups were busy and we got our proportionate
+	/// share.
+	inline VirtualSendTime SNPSend_VirtualFinishTime() const { return m_nConnUserData; }
+	inline void SNPSend_SetVirtualFinishTime( VirtualSendTime x ) { m_nConnUserData = x; }
+
 	/// Offset in reliable stream of the header byte.  0 if we're not reliable.
-	inline int64 SNPSend_ReliableStreamPos() const { return m_nConnUserData; }
-	inline void SNPSend_SetReliableStreamPos( int64 x ) { m_nConnUserData = x; }
 	inline int SNPSend_ReliableStreamSize() const
 	{
 		DbgAssert( m_nFlags & k_nSteamNetworkingSend_Reliable && m_nConnUserData > 0 && ReliableSendInfo().m_cbHdr > 0 && m_cbSize >= ReliableSendInfo().m_cbHdr );
@@ -103,17 +118,20 @@ public:
 	{
 		if ( m_nFlags & k_nSteamNetworkingSend_Reliable )
 		{
-			DbgAssert( m_nConnUserData > 0 && m_cbSize >= ((ReliableSendInfo_t *)&m_identityPeer)->m_cbHdr );
+			DbgAssert( ((ReliableSendInfo_t *)&m_identityPeer)->m_nStreamPos > 0 && m_cbSize >= ((ReliableSendInfo_t *)&m_identityPeer)->m_cbHdr );
 			return true;
 		}
-		DbgAssert( m_nConnUserData == 0 );
 		return false;
 	}
+
+	inline int64 SNPSend_ReliableStreamPos() const { Assert( m_nFlags & k_nSteamNetworkingSend_Reliable ); return ReliableSendInfo().m_nStreamPos; }
+	inline void SNPSend_SetReliableStreamPos( int64 x ) { Assert( m_nFlags & k_nSteamNetworkingSend_Reliable ); ReliableSendInfo().m_nStreamPos = x; }
 
 	// Working data for reliable messages.
 	// !KLUDGE! Reuse the identity field
 	struct ReliableSendInfo_t
 	{
+		int64 m_nStreamPos;
 		int m_nSentReliableSegRefCount;
 		int m_cbHdr;
 		byte m_hdr[16];
@@ -307,15 +325,12 @@ struct SSNPSenderState
 	}
 	void Shutdown();
 
-	/// We implement priority groups using Weighted Fair Queueing.
-	/// https://en.wikipedia.org/wiki/Weighted_fair_queueing
-	/// The idea is to assign a virtual "timestamp" when the message
-	/// would finish sending, and each time we have an opportunity to
-	/// send, we select the group with the earliest finish time.
-	/// Virtual time is essentially an arbitrary counter that increases
-	/// at a fixed rate per outbound byte sent.
-	typedef int64 VirtualTime;
-	static constexpr VirtualTime k_virtTime_Infinite = std::numeric_limits<VirtualTime>::max();
+	/// Constant conversion factor for bytes -> virtual time.  This
+	/// represents the amount of virtual time that will elapse when
+	/// ALL lanes within a given priority class send one byte.  The
+	/// large value is used to avoid precision loss when dealing
+	/// in integral values.
+	static constexpr float k_flVirtalTimePerByteAllLanes = 65536.0f;
 
 	/// Each priority classes has its own virtual timer for weighted fair queuing
 	struct PriorityClass
@@ -323,7 +338,10 @@ struct SSNPSenderState
 
 		/// Current virtual timestamp.  This is used when a message
 		/// is queued to calculate its virtual finish time.
-		VirtualTime m_virtTimeCurrent = 0;
+		VirtualSendTime m_virtTimeCurrent = 0;
+
+		/// Indices of lanes that belong to this priority class
+		vstd::small_vector<int,4<STEAMNETWORKINGSOCKETS_MAX_LANES ? 4 : STEAMNETWORKINGSOCKETS_MAX_LANES> m_vecLaneIdx;
 	};
 	vstd::small_vector<PriorityClass,4<STEAMNETWORKINGSOCKETS_MAX_LANES ? 4 : STEAMNETWORKINGSOCKETS_MAX_LANES> m_vecPriorityClasses;
 
@@ -340,19 +358,6 @@ struct SSNPSenderState
 		/// We use the CSteamNetworkingMessage::m_linksSecondaryQueue
 		SteamNetworkingMessageQueue m_messagesQueued;
 
-		/// "Virtual finish time".  This is the "virtual time" when we
-		/// wound have finished sending the current message, if any,
-		/// if all priority groups were busy and we got our proportionate
-		/// share.  It is calculated as virtual_time_start + message_size*m_nBytesToVirtualTime
-		VirtualTime m_virtTimeEstFinish;
-
-		/// Index of the priority class we belong to.  Priority classes
-		/// are sorted, and so a lower m_idxPriorityClass means lower priority.
-		int m_idxPriorityClass;
-
-		/// Multiplier used to calculate virtual finish time.
-		float m_flBytesToVirtualTime;
-
 		/// Current "write" position in the reliable stream for this lane.
 		/// The next reliable message will begin at this address.
 		int64 m_nReliableStreamNextSendPos = 1;
@@ -360,17 +365,28 @@ struct SSNPSenderState
 		/// Last message number we sent on this channel
 		int64 m_nLastSendMsgNumReliable = 0;
 
-		/// How many bytes into the first message in the queue have we put on the wire?
-		int m_cbCurrentSendMessageSent = 0;
-
 		// Current message number, we ++ when adding a message
 		int64 m_nLastSentMsgNum = 0; // Will increment to 1 with first message
+
+		/// How many bytes into the first message in the queue have we put on the wire?
+		int m_cbCurrentSendMessageSent = 0;
 
 		// Amount of buffered data in this lane
 		int m_cbPendingUnreliable = 0;
 		int m_cbPendingReliable = 0;
 		int m_cbSentUnackedReliable = 0;
 		inline int PendingBytesTotal() const { return m_cbPendingUnreliable + m_cbPendingReliable; }
+
+		/// Multiplier used to calculate virtual finish time.
+		float m_flBytesToVirtualTime;
+
+		/// Index of the priority class we belong to.  Priority classes
+		/// are sorted, and so a lower m_idxPriorityClass means lower priority.
+		uint16 m_idxPriorityClass;
+
+		/// Weight value they used.  This is only meaningful
+		/// relative to the other lanes with the same priority class
+		uint16 m_nWeight;
 	};
 	#if STEAMNETWORKINGSOCKETS_MAX_LANES > 4
 		std_vector<Lane> m_vecLanes;
@@ -447,45 +463,6 @@ struct SSNPSenderState
 	/// Oldest packet sequence number that we are still asking peer
 	/// to send acks for.
 	int64 m_nMinPktWaitingOnAck = 0;
-
-	/// Called when a packet is queued, to calculate the estimated finish time
-	void CalculateLaneEstimatedVirtualFinishTime( Lane &lane )
-	{
-		Assert( lane.m_cbCurrentSendMessageSent == 0 );
-		const CSteamNetworkingMessage *pMsg = lane.m_messagesQueued.m_pFirst;
-		lane.m_virtTimeEstFinish = m_vecPriorityClasses[ lane.m_idxPriorityClass ].m_virtTimeCurrent + (VirtualTime)( (float)pMsg->m_cbSize * lane.m_flBytesToVirtualTime );
-	}
-
-	void AdvanceVirtualTime( Lane &sendLane, int nBytes )
-	{
-		PriorityClass &priClass = m_vecPriorityClasses[ sendLane.m_idxPriorityClass ];
-		priClass.m_virtTimeCurrent += nBytes * sendLane.m_flBytesToVirtualTime;
-
-		/// Check if the current virtual time is getting pretty big, then shift everything
-		/// down.  This only happens after we've been running for a pretty long time.
-		// NOTE: Intentionally using a lower limit than strictly necessary, just so that my
-		// soak test would actually hit this code and I could make sure it works.
-		// 64-bit numbers are HUUUUGE.
-		constexpr VirtualTime kThresh = 0x0020000000000000ULL;
-		if ( likely( priClass.m_virtTimeCurrent < kThresh ) )
-			return;
-
-		VirtualTime shift = priClass.m_virtTimeCurrent - 0x000100000000ULL;
-		for ( Lane &l: m_vecLanes )
-		{
-			if ( l.m_messagesQueued.empty() )
-			{
-				l.m_virtTimeEstFinish = k_virtTime_Infinite;
-			}
-			else
-			{
-				Assert( l.m_virtTimeEstFinish < kThresh*2 );
-				Assert( l.m_virtTimeEstFinish >= shift );
-				l.m_virtTimeEstFinish -= shift;
-			}
-		}
-		priClass.m_virtTimeCurrent -= shift;
-	}
 
 	/// Check invariants in debug.
 	#if STEAMNETWORKINGSOCKETS_SNP_PARANOIA == 0 

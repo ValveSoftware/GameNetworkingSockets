@@ -379,8 +379,8 @@ public:
 	EResult APIAcceptConnection();
 	virtual EResult AcceptConnection( SteamNetworkingMicroseconds usecNow );
 
-	/// Fill in quick connection stats
-	void APIGetQuickConnectionStatus( SteamNetworkingQuickConnectionStatus &stats );
+	/// Fill in realtime connection stats
+	EResult APIGetRealTimeStatus( SteamNetConnectionRealTimeStatus_t *pStatus, int nLanes, SteamNetConnectionRealTimeLaneStatus_t *pLanes );
 
 	/// Fill in detailed connection stats
 	virtual void APIGetDetailedConnectionStatus( SteamNetworkingDetailedConnectionStatus &stats, SteamNetworkingMicroseconds usecNow );
@@ -821,7 +821,7 @@ protected:
 	bool SNP_ReceiveReliableSegment( int64 nPktNum, int64 nSegBegin, const uint8 *pSegmentData, int cbSegmentSize, int idxLane, SteamNetworkingMicroseconds usecNow );
 	int SNP_ClampSendRate();
 	void SNP_PopulateDetailedStats( SteamDatagramLinkStats &info );
-	void SNP_PopulateQuickStats( SteamNetworkingQuickConnectionStatus &info, SteamNetworkingMicroseconds usecNow );
+	void SNP_PopulateRealTimeStatus( SteamNetConnectionRealTimeStatus_t *pStatus, int nLanes, SteamNetConnectionRealTimeLaneStatus_t *pLanes, SteamNetworkingMicroseconds usecNow );
 	void SNP_RecordReceivedPktNum( int64 nPktNum, SteamNetworkingMicroseconds usecNow, bool bScheduleAck );
 	EResult SNP_FlushMessage( SteamNetworkingMicroseconds usecNow );
 
@@ -858,7 +858,7 @@ private:
 	uint8 *SNP_SerializeSegments_MultiLane( uint8 *pPayloadPtr, SNPPacketSerializeHelper &helper, SNPSegmentCollector<k_bUnreliableOnly, false> &segmentCollector );
 
 	template<bool k_bUnreliableOnly>
-	uint8 *SNP_SerializeSegmentArray( uint8 *pPayloadPtr, SNPPacketSerializeHelper &helper, SNPEncodedSegment *pSegBegin, SNPEncodedSegment *pSegEnd );
+	uint8 *SNP_SerializeSegmentArray( uint8 *pPayloadPtr, SNPPacketSerializeHelper &helper, SNPEncodedSegment *pSegBegin, SNPEncodedSegment *pSegEnd, bool bLastLane );
 
 	uint8 *SNP_SerializeAckBlocks( const SNPPacketSerializeHelper &helper, uint8 *pOut, const uint8 *pOutEnd );
 	uint8 *SNP_SerializeStopWaitingFrame( SNPPacketSerializeHelper &helper, uint8 *pOut );

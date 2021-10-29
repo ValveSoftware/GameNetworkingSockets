@@ -166,8 +166,9 @@ void SSNPSenderState::DebugCheckReliable() const
 	for ( int i = 0 ; i < nLanes ; ++i )
 	{
 		const Lane &l = m_vecLanes[i];
-		for ( const CSteamNetworkingMessage *pMsg = l.m_messagesQueued.m_pFirst ; pMsg ; pMsg = pMsg->m_links.m_pNext )
+		for ( const CSteamNetworkingMessage *pMsg = l.m_messagesQueued.m_pFirst ; pMsg ; pMsg = pMsg->m_linksSecondaryQueue.m_pNext )
 		{
+			Assert( pMsg->m_linksSecondaryQueue.m_pQueue == &l.m_messagesQueued );
 			Assert( pMsg->m_idxLane == i );
 			if ( !pMsg->SNPSend_IsReliable() )
 				continue;
@@ -378,8 +379,6 @@ int64 CSteamNetworkConnectionBase::SNP_SendMessage( CSteamNetworkingMessage *pSe
 	}
 	else
 	{
-		pSendMessage->SNPSend_SetReliableStreamPos( 0 );
-
 		++m_senderState.m_nMessagesSentUnreliable;
 		Assert( m_senderState.m_cbPendingUnreliable >= lane.m_cbPendingUnreliable );
 		m_senderState.m_cbPendingUnreliable += pSendMessage->m_cbSize;
@@ -411,16 +410,18 @@ int64 CSteamNetworkConnectionBase::SNP_SendMessage( CSteamNetworkingMessage *pSe
 
 	// Add it to the list for the lane.
 	// Was lane previously idle?
-	bool bWasEmpty = lane.m_messagesQueued.empty();
+	CSteamNetworkingMessage *pLastMsg = lane.m_messagesQueued.m_pLast;
 	pSendMessage->LinkToQueueTail(&CSteamNetworkingMessage::m_linksSecondaryQueue, &lane.m_messagesQueued );
-	if ( bWasEmpty )
+	VirtualSendTime virtTimeMsg = (VirtualSendTime)( (float)pSendMessage->m_cbSize * lane.m_flBytesToVirtualTime );
+	if ( pLastMsg )
 	{
-		m_senderState.CalculateLaneEstimatedVirtualFinishTime( lane );
+		virtTimeMsg += pLastMsg->SNPSend_VirtualFinishTime();
 	}
 	else
 	{
-		Assert( lane.m_virtTimeEstFinish < SSNPSenderState::k_virtTime_Infinite );
+		virtTimeMsg += m_senderState.m_vecPriorityClasses[ lane.m_idxPriorityClass ].m_virtTimeCurrent;
 	}
+	pSendMessage->SNPSend_SetVirtualFinishTime( virtTimeMsg );
 
 	if ( pSendMessage->m_nFlags & k_nSteamNetworkingSend_Reliable )
 		m_senderState.MaybeCheckReliable();
@@ -577,30 +578,43 @@ EResult CSteamNetworkConnectionBase::SNP_ConfigureLanes( int nLanes, const int *
 	for ( int idxLane = 0 ; idxLane < nLanes ; ++idxLane )
 	{
 		SSNPSenderState::Lane &l = m_senderState.m_vecLanes[idxLane];
+		SSNPSenderState::PriorityClass &pc = m_senderState.m_vecPriorityClasses[ l.m_idxPriorityClass ];
+		pc.m_vecLaneIdx.push_back( idxLane );
 
-		// Calculate multiplier to convert from bytes to
-		// virtual time.  The scale factor is so that we
-		// don't lose precision.
-		unsigned nLaneWeight = pLaneWeights ? pLaneWeights[idxLane] : 1;
-		l.m_flBytesToVirtualTime = 65536.0f * (float)pPriorityClass[ l.m_idxPriorityClass ].m_nTotalWeight / (float)nLaneWeight;
+		// Calculate multiplier to convert from bytes to virtual time.
+		l.m_nWeight = pLaneWeights ? pLaneWeights[idxLane] : 1;
+		l.m_flBytesToVirtualTime = SSNPSenderState::k_flVirtalTimePerByteAllLanes * (float)pPriorityClass[ l.m_idxPriorityClass ].m_nTotalWeight / (float)l.m_nWeight;
+		VirtualSendTime virtTime = pc.m_virtTimeCurrent;
 
-		// Reset virtual time.  This only matters if we actually have
-		// something queued.
-		l.m_virtTimeEstFinish = (SSNPSenderState::VirtualTime)l.m_flBytesToVirtualTime;
-
-		// !KLUDGE! Messages in a queue have a pointer to the queue
-		// That pointer may currently be dangling when we resized the
-		// array.  Go through and fix them all up
+		// Anything queued?
 		CSteamNetworkingMessage *pMsg = l.m_messagesQueued.m_pFirst;
 		if ( pMsg )
 		{
+
+			// (Re)calculate virtual finish time
+			const int cbRemaininInThisMessage = pMsg->GetSize() - l.m_cbCurrentSendMessageSent;
+			virtTime += (VirtualSendTime)( l.m_flBytesToVirtualTime * cbRemaininInThisMessage );
+			pMsg->SNPSend_SetVirtualFinishTime( virtTime );
+
+			// Iterate queued messages and fixup
 			void *const pCheckQueue = pMsg->m_linksSecondaryQueue.m_pQueue;
-			do
+			for (;;)
 			{
+
+				// !KLUDGE! Messages in a queue have a pointer to the queue
+				// That pointer may currently be dangling when we resized the array.
 				Assert( pMsg->m_linksSecondaryQueue.m_pQueue == pCheckQueue );
 				pMsg->m_linksSecondaryQueue.m_pQueue = &l.m_messagesQueued;
+
+				// Next msg
 				pMsg = pMsg->m_linksSecondaryQueue.m_pNext;
-			} while ( pMsg );
+				if ( !pMsg )
+					break;
+
+				// Advance estimated virtual finish time
+				virtTime += (VirtualSendTime)( l.m_flBytesToVirtualTime * pMsg->m_cbSize );
+				pMsg->SNPSend_SetVirtualFinishTime( virtTime );
+			}
 		}
 
 	}
@@ -1291,7 +1305,7 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLa
 				m_senderState.m_nMinPktWaitingOnAck = nLatestRecvSeqNum;
 			}
 		}
-		else if ( ( nFrameType & 0xf4 ) == 0x84 )
+		else if ( ( nFrameType & 0xf8 ) == 0x88 )
 		{
 
 			//
@@ -1990,7 +2004,7 @@ template<bool k_bUnreliableOnly> struct SNPSegmentCollector<k_bUnreliableOnly,fa
 			if ( nLaneID <= 7 )
 			{
 				pNewLane->m_cbHdr = 1;
-				pNewLane->m_hdr[0] = (uint8)( 0x83 + nLaneID );
+				pNewLane->m_hdr[0] = (uint8)( 0x87 + nLaneID );
 			} else {
 				pNewLane->m_hdr[0] = 0x8f;
 				uint8 *p = SerializeVarInt( &pNewLane->m_hdr[1], (unsigned)nLaneID );
@@ -2020,7 +2034,7 @@ template<bool k_bUnreliableOnly> struct SNPSegmentCollector<k_bUnreliableOnly,fa
 };
 
 template<bool k_bUnreliableOnly>
-inline uint8 *CSteamNetworkConnectionBase::SNP_SerializeSegmentArray( uint8 *pPayloadPtr, SNPPacketSerializeHelper &helper, SNPEncodedSegment *pSegBegin, SNPEncodedSegment *pSegEnd )
+inline uint8 *CSteamNetworkConnectionBase::SNP_SerializeSegmentArray( uint8 *pPayloadPtr, SNPPacketSerializeHelper &helper, SNPEncodedSegment *pSegBegin, SNPEncodedSegment *pSegEnd, bool bLastLane )
 {
 	DbgAssert( pSegBegin < pSegEnd );
 	SNPEncodedSegment *pSeg = pSegBegin;
@@ -2034,7 +2048,7 @@ inline uint8 *CSteamNetworkConnectionBase::SNP_SerializeSegmentArray( uint8 *pPa
 		DbgAssert( pSeg->m_pMsg->m_idxLane == idxLane );
 
 		// Finish the segment size byte
-		if ( pSeg+1 < pSegEnd )
+		if ( !bLastLane || pSeg+1 < pSegEnd )
 		{
 			// Stash upper 3 bits into the header
 			int nUpper3Bits = ( pSeg->m_cbSegSize>>8 );
@@ -2147,14 +2161,16 @@ inline uint8 *CSteamNetworkConnectionBase::SNP_SerializeSegmentArray( uint8 *pPa
 			// We should only encode an empty segment if the message itself is empty
 			Assert( pSeg->m_cbSegSize > 0 || ( pSeg->m_cbSegSize == 0 && pSeg->m_pMsg->m_cbSize == 0 ) );
 
-			// Check if this message is still sitting in the queue
-			bool bStillInQueue = ( pSeg->m_pMsg->m_links.m_pQueue != nullptr );
+			// Check if this message is still sitting in the lane send queue
+			bool bStillInQueue = ( pSeg->m_pMsg->m_linksSecondaryQueue.m_pQueue != nullptr );
 
 			// Check some stuff
+			Assert( bStillInQueue == ( pSeg->m_pMsg->m_links.m_pQueue != nullptr ) ); // Still in the global connection queue
 			Assert( bStillInQueue == ( pSeg->m_nOffset + pSeg->m_cbSegSize < pSeg->m_pMsg->m_cbSize ) ); // If we ended the message, we should have removed it from the queue
 			Assert( bStillInQueue == ( ( pSeg->m_hdr[0] & 0x20 ) == 0 ) );
 			Assert( bStillInQueue || pSeg->m_pMsg->m_links.m_pNext == nullptr ); // If not in the queue, we should be detached
-			Assert( pSeg->m_pMsg->m_links.m_pPrev == nullptr ); // We should either be at the head of the queue, or detached
+			Assert( bStillInQueue || pSeg->m_pMsg->m_linksSecondaryQueue.m_pNext == nullptr ); // If not in the queue, we should be detached
+			Assert( pSeg->m_pMsg->m_linksSecondaryQueue.m_pPrev == nullptr ); // We should either be at the head of the queue, or detached
 
 			// Copy the unreliable segment into the packet
 			memcpy( pPayloadPtr, (char*)pSeg->m_pMsg->m_pData + pSeg->m_nOffset, pSeg->m_cbSegSize );
@@ -2190,25 +2206,32 @@ uint8 *CSteamNetworkConnectionBase::SNP_SerializeSegments_MultiLane( uint8 *pPay
 	using Lane = typename SNPSegmentCollector<k_bUnreliableOnly, false>::TaggedLane;
 
 	// If any data was sent on lane 0, serialize it first (with no lane select header)
-	// NOTE: We write the test this way in case we added lane 0 and then removed it.
 	if ( segmentCollector.m_idxLane0 >= 0 )
 	{
 		Lane &lane0 = segmentCollector.m_vecLanes[segmentCollector.m_idxLane0];
-		pPayloadPtr = SNP_SerializeSegmentArray<k_bUnreliableOnly>( pPayloadPtr, helper, lane0.m_vecSegments.begin(), lane0.m_vecSegments.end() );
+		bool bOneLane = len( segmentCollector.m_vecLanes ) == 1;
+		pPayloadPtr = SNP_SerializeSegmentArray<k_bUnreliableOnly>( pPayloadPtr, helper, lane0.m_vecSegments.begin(), lane0.m_vecSegments.end(), bOneLane );
+		if ( bOneLane )
+			return pPayloadPtr;
 	}
 
+	int idxLastLane = len( segmentCollector.m_vecLanes ) - 1;
+	if ( idxLastLane == segmentCollector.m_idxLane0 )
+		--idxLastLane;
+
 	// Now serialize the other lanes
-	for ( Lane &lane: segmentCollector.m_vecLanes )
+	for ( int idxLane = 0 ; idxLane <= idxLastLane ; ++idxLane )
 	{
+		Lane &lane = segmentCollector.m_vecLanes[ idxLane ];
 		if ( lane.m_nLaneID == 0 )
 		{
-			DbgAssert( &lane == &segmentCollector.m_vecLanes[ segmentCollector.m_idxLane0 ] );
+			DbgAssert( idxLane == segmentCollector.m_idxLane0 );
 		}
 		else
 		{
 			memcpy( pPayloadPtr, lane.m_hdr, lane.m_cbHdr );
 			pPayloadPtr += lane.m_cbHdr;
-			pPayloadPtr = SNP_SerializeSegmentArray<k_bUnreliableOnly>( pPayloadPtr, helper, lane.m_vecSegments.begin(), lane.m_vecSegments.end() );
+			pPayloadPtr = SNP_SerializeSegmentArray<k_bUnreliableOnly>( pPayloadPtr, helper, lane.m_vecSegments.begin(), lane.m_vecSegments.end(), idxLane == idxLastLane );
 			if ( !pPayloadPtr )
 				break;
 		}
@@ -2220,13 +2243,13 @@ uint8 *CSteamNetworkConnectionBase::SNP_SerializeSegments_MultiLane( uint8 *pPay
 template<>
 uint8 *CSteamNetworkConnectionBase::SNP_SerializeSegments<true, true>( uint8 *pPayloadPtr, SNPPacketSerializeHelper &helper, SNPSegmentCollector<true, true> &segmentCollector )
 {
-	return SNP_SerializeSegmentArray<true>( pPayloadPtr, helper, segmentCollector.m_singleLane.m_vecSegments.begin(), segmentCollector.m_singleLane.m_vecSegments.end() );
+	return SNP_SerializeSegmentArray<true>( pPayloadPtr, helper, segmentCollector.m_singleLane.m_vecSegments.begin(), segmentCollector.m_singleLane.m_vecSegments.end(), true );
 }
 
 template<>
 uint8 *CSteamNetworkConnectionBase::SNP_SerializeSegments<false, true>( uint8 *pPayloadPtr, SNPPacketSerializeHelper &helper, SNPSegmentCollector<false, true> &segmentCollector )
 {
-	return SNP_SerializeSegmentArray<false>( pPayloadPtr, helper, segmentCollector.m_singleLane.m_vecSegments.begin(), segmentCollector.m_singleLane.m_vecSegments.end() );
+	return SNP_SerializeSegmentArray<false>( pPayloadPtr, helper, segmentCollector.m_singleLane.m_vecSegments.begin(), segmentCollector.m_singleLane.m_vecSegments.end(), true );
 }
 
 template<>
@@ -2417,23 +2440,34 @@ int CSteamNetworkConnectionBase::SNP_SerializePacketInternal( SNPPacketSerialize
 		}
 		else
 		{
-			SSNPSenderState::VirtualTime virtTimeMinEstFinish = SSNPSenderState::k_virtTime_Infinite;
-			for ( SSNPSenderState::Lane &l: m_senderState.m_vecLanes )
+
+			// Check priority classes in order
+			// NOTE: We could avoid these loops by putting the lanes into
+			// a priority queue
+			for ( SSNPSenderState::PriorityClass &pc: m_senderState.m_vecPriorityClasses )
 			{
-				if ( l.m_virtTimeEstFinish < virtTimeMinEstFinish )
+
+				// Check the lanes in this class for the one
+				// with a queued message and the earliest virtual finish time.
+				VirtualSendTime virtTimeMinEstFinish = k_virtSendTime_Infinite;
+				for ( int idxLane: pc.m_vecLaneIdx )
 				{
-					if ( l.m_messagesQueued.m_pFirst )
+					SSNPSenderState::Lane &l = m_senderState.m_vecLanes[ idxLane ];
+					CSteamNetworkingMessage *pNextMsg = l.m_messagesQueued.m_pFirst;
+					if ( pNextMsg )
 					{
-						pSendMsg = l.m_messagesQueued.m_pFirst;
-						Assert( l.m_cbCurrentSendMessageSent < pSendMsg->m_cbSize );
-					}
-					else
-					{
-						// Lane is idle.  Mark a super high finish time, as a simple
-						// optimization for next time
-						l.m_virtTimeEstFinish = std::numeric_limits<SSNPSenderState::VirtualTime>::max();
+						Assert( l.m_cbCurrentSendMessageSent < pNextMsg->m_cbSize );
+						if ( pNextMsg->SNPSend_VirtualFinishTime() < virtTimeMinEstFinish )
+						{
+							pSendMsg = pNextMsg;
+							virtTimeMinEstFinish = pNextMsg->SNPSend_VirtualFinishTime();
+						}
 					}
 				}
+
+				// Once we find a message to send, we can stop checking higher numbered priority classes
+				if ( pSendMsg )
+					break;
 			}
 		}
 		if ( !pSendMsg )
@@ -2441,14 +2475,15 @@ int CSteamNetworkConnectionBase::SNP_SerializePacketInternal( SNPPacketSerialize
 			Assert( !m_senderState.m_messagesQueued.m_pFirst );
 			break;
 		}
-		SSNPSenderState::Lane &sendLane = m_senderState.m_vecLanes[ pSendMsg->m_idxLane ];
+		const int idxLane = k_bSingleLane ? 0 : pSendMsg->m_idxLane;
+		SSNPSenderState::Lane &sendLane = m_senderState.m_vecLanes[ idxLane ];
 
 		// Start a new segment
 		SNPEncodedSegment *pSeg;
 
 		// Reliable?
 		bool bLastSegment = false;
-		CollectorLane *pCollectorLane = segmentCollector.GetLane( pSendMsg->m_idxLane );
+		CollectorLane *pCollectorLane = segmentCollector.GetLane( idxLane );
 		if ( pSendMsg->SNPSend_IsReliable() )
 		{
 			if ( k_bUnreliableOnly ) // We could optimize this slightly better, but let's keep in the test for the assert
@@ -2502,10 +2537,6 @@ int CSteamNetworkConnectionBase::SNP_SerializePacketInternal( SNPPacketSerialize
 				break;
 			}
 
-			// Advance fair queuing virtual time
-			if ( !k_bSingleLane )
-				m_senderState.AdvanceVirtualTime( sendLane, pSeg->m_cbSegSize );
-
 			#ifdef SNP_ENABLE_PACKETSENDLOG
 				++pLog->m_nSegmentsSent;
 			#endif
@@ -2515,6 +2546,21 @@ int CSteamNetworkConnectionBase::SNP_SerializePacketInternal( SNPPacketSerialize
 			sendLane.m_cbCurrentSendMessageSent += pSeg->m_cbSegSize;
 			Assert( sendLane.m_cbCurrentSendMessageSent < pSendMsg->m_cbSize );
 			segmentCollector.m_cbRemainingForSegments -= pSeg->m_cbHdr + pSeg->m_cbSegSize;
+
+			// Advance fair queuing virtual time
+			if ( !k_bSingleLane )
+			{
+				SSNPSenderState::PriorityClass &priClass = m_senderState.m_vecPriorityClasses[ sendLane.m_idxPriorityClass ];
+				priClass.m_virtTimeCurrent += (VirtualSendTime)( (float)pSeg->m_cbSegSize * sendLane.m_flBytesToVirtualTime );
+
+				//SpewMsg( "Msg in progress on lane %d.  Virtual time for priority class advanced by %d bytes to %lld, estimated finish time is %lld\n",
+				//	idxLane,
+				//	pSeg->m_cbSegSize,
+				//	priClass.m_virtTimeCurrent,
+				//	pSendMsg->SNPSend_VirtualFinishTime()
+				//);
+			}
+
 			break;
 		}
 
@@ -2523,25 +2569,49 @@ int CSteamNetworkConnectionBase::SNP_SerializePacketInternal( SNPPacketSerialize
 		Assert( sendLane.m_cbCurrentSendMessageSent + pSeg->m_cbSegSize == pSendMsg->m_cbSize );
 		sendLane.m_cbCurrentSendMessageSent = 0;
 
-		// Remove message from queue.  We have transfered ownership to the segment
-		// and will dispose of the message when we serialize the segments
-		pSendMsg->Unlink();
-
-		// Schedule next send for this lane
+		// Advance fair queuing virtual time
 		if ( !k_bSingleLane )
 		{
 			// Advance fair queuing virtual time
-			m_senderState.AdvanceVirtualTime( sendLane, pSeg->m_cbSegSize );
+			SSNPSenderState::PriorityClass &priClass = m_senderState.m_vecPriorityClasses[ sendLane.m_idxPriorityClass ];
+			priClass.m_virtTimeCurrent = pSendMsg->SNPSend_VirtualFinishTime();
 
-			if ( sendLane.m_messagesQueued.empty() )
+			//SpewMsg( "Msg finished on lane %d.  Virtual time for priority class advanced to %lld\n",
+			//	idxLane,
+			//	priClass.m_virtTimeCurrent
+			//);
+
+			/// Check if the current virtual time is getting pretty big, then shift everything
+			/// down.  This only happens after we've been running for a pretty long time.
+			// NOTE: Intentionally using a lower limit than strictly necessary, just so that my
+			// soak test would actually hit this code and I could make sure it works.
+			// 64-bit numbers are HUUUUGE.
+			constexpr VirtualSendTime kThresh = 0x0020000000000000ULL;
+			if ( unlikely( priClass.m_virtTimeCurrent > kThresh ) )
 			{
-				sendLane.m_virtTimeEstFinish = SSNPSenderState::k_virtTime_Infinite;
-			}
-			else
-			{
-				m_senderState.CalculateLaneEstimatedVirtualFinishTime( sendLane );
+				const VirtualSendTime shift = priClass.m_virtTimeCurrent - 0x000100000000ULL;
+				for ( SSNPSenderState::Lane &l: m_senderState.m_vecLanes )
+				{
+					if ( l.m_idxPriorityClass == sendLane.m_idxPriorityClass )
+					{
+						for ( CSteamNetworkingMessage *pMsg = sendLane.m_messagesQueued.m_pFirst ; pMsg ; pMsg = pMsg->m_linksSecondaryQueue.m_pNext )
+						{
+							Assert( pMsg->m_linksSecondaryQueue.m_pQueue == &sendLane.m_messagesQueued );
+							VirtualSendTime t = pMsg->SNPSend_VirtualFinishTime();
+							Assert( t < kThresh*2 );
+							Assert( t >= shift );
+							t -= shift;
+							pMsg->SNPSend_SetVirtualFinishTime( t );
+						}
+					}
+				}
+				priClass.m_virtTimeCurrent -= shift;
 			}
 		}
+
+		// Remove message from queue.  We have transfered ownership to the segment
+		// and will dispose of the message when we serialize the segments
+		pSendMsg->Unlink();
 
 		// Consume payload bytes
 		segmentCollector.m_cbRemainingForSegments -= pSeg->m_cbHdr + pSeg->m_cbSegSize;
@@ -4197,24 +4267,61 @@ void CSteamNetworkConnectionBase::SNP_PopulateDetailedStats( SteamDatagramLinkSt
 	info.m_lifetime.m_nMessagesRecvUnreliable  = m_receiverState.m_nMessagesRecvUnreliable;
 }
 
-void CSteamNetworkConnectionBase::SNP_PopulateQuickStats( SteamNetworkingQuickConnectionStatus &info, SteamNetworkingMicroseconds usecNow )
+void CSteamNetworkConnectionBase::SNP_PopulateRealTimeStatus( SteamNetConnectionRealTimeStatus_t *pStatus, int nLanes, SteamNetConnectionRealTimeLaneStatus_t *pLanes, SteamNetworkingMicroseconds usecNow )
 {
-	//
-	// FIXME - this API really needs to be rethought now that lanes are a thing
-	//
+	const int nSendRate = SNP_ClampSendRate();
 
-	info.m_nSendRateBytesPerSecond = SNP_ClampSendRate();
-	info.m_cbPendingUnreliable = m_senderState.m_cbPendingUnreliable;
-	info.m_cbPendingReliable = m_senderState.m_cbPendingReliable;
-	info.m_cbSentUnackedReliable = m_senderState.m_cbSentUnackedReliable;
-	if ( GetState() == k_ESteamNetworkingConnectionState_Connected )
+	if ( !pStatus && nLanes < 1 )
+	{
+		// Caller didn't actually ask for any of the info we provide here.
+		// Don't spend any effort here.
+		return;
+	}
+
+	const int nConfiguredLanes = len( m_senderState.m_vecLanes );
+	Assert( nLanes <= nConfiguredLanes ); // App args should be sanitized earlier
+
+	// Fill in global info
+	if ( pStatus )
+	{
+		pStatus->m_nSendRateBytesPerSecond = nSendRate;
+		pStatus->m_cbPendingUnreliable = m_senderState.m_cbPendingUnreliable;
+		pStatus->m_cbPendingReliable = m_senderState.m_cbPendingReliable;
+		pStatus->m_cbSentUnackedReliable = m_senderState.m_cbSentUnackedReliable;
+		pStatus->m_usecQueueTime = INT64_MAX; // Assume for now
+	}
+
+	// Fill in per-lane info
+	for ( int i = 0 ; i < nLanes ; ++i )
+	{
+		SteamNetConnectionRealTimeLaneStatus_t &d = pLanes[i];
+		const SSNPSenderState::Lane &s = m_senderState.m_vecLanes[i];
+		d.m_cbPendingUnreliable = s.m_cbPendingUnreliable;
+		d.m_cbPendingReliable = s.m_cbPendingReliable;
+		d.m_cbSentUnackedReliable = s.m_cbSentUnackedReliable;
+		d.m_usecQueueTime = INT64_MAX; // Assume for now
+	}
+
+	// If we're not connected, then we cannot estimate the queue time.
+	if ( GetState() != k_ESteamNetworkingConnectionState_Connected )
+		return;
+
+
+	const float flBytesToMicroseconds = 1e6 / nSendRate; // Used to convert from bytes -> microseconds
+
+	// Accumulate tokens so that we can properly predict when the next time we'll be able to send something is
+	SNP_TokenBucket_Accumulate( usecNow );
+
+	// Start with the time until we send the next packet
+	SteamNetworkingMicroseconds usecQueueTime = 0;
+	if ( m_sendRateData.m_flTokenBucket < 0.0f )
+		usecQueueTime -= (SteamNetworkingMicroseconds)m_sendRateData.m_flTokenBucket * flBytesToMicroseconds;
+
+	// Special case where we only have one lane configured, then it's easy
+	if ( nConfiguredLanes == 1 )
 	{
 
-		// Accumulate tokens so that we can properly predict when the next time we'll be able to send something is
-		SNP_TokenBucket_Accumulate( usecNow );
-
 		//
-		// Time until we can send the next packet
 		// If anything is already queued, then that will have to go out first.  Round it down
 		// to the nearest packet.
 		//
@@ -4224,24 +4331,127 @@ void CSteamNetworkConnectionBase::SNP_PopulateQuickStats( SteamNetworkingQuickCo
 		// Probably not worth it here, but if we had that number available, we'd use it.
 		int cbPendingTotal = m_senderState.PendingBytesTotal() / m_cbMaxMessageNoFragment * m_cbMaxMessageNoFragment;
 
-		// Adjust based on how many tokens we have to spend now (or if we are already
-		// over-budget and have to wait until we could spend another)
-		cbPendingTotal -= (int)m_sendRateData.m_flTokenBucket;
-		if ( cbPendingTotal <= 0 )
-		{
-			// We could send it right now.
-			info.m_usecQueueTime = 0;
-		}
-		else
-		{
-			info.m_usecQueueTime = (int64)cbPendingTotal * k_nMillion / SNP_ClampSendRate(); // NOTE: Always use the current estimated bandwidth, NOT
-		}
+		usecQueueTime = (SteamNetworkingMicroseconds)(cbPendingTotal * flBytesToMicroseconds );
+
+		if ( pStatus )
+			pStatus->m_usecQueueTime = usecQueueTime;
+
+		if ( nLanes>0 )
+			pLanes[0].m_usecQueueTime = usecQueueTime;
+
+		return;
 	}
-	else
+
+	// Multiple configured lanes.  We need to do a bit of work to try to
+	// predict how the data will be paced out and the bandwidth shared
+#if STEAMNETWORKINGSOCKETS_MAX_LANES > 1
+
+	struct LaneSort_t
 	{
-		// We'll never be able to send it.  (Or, we don't know when that will be.)
-		info.m_usecQueueTime = INT64_MAX;
+		VirtualSendTime m_virtTimeFinish;
+		int m_idxLane;
+		int m_nWeight;
+		inline bool operator<( const LaneSort_t &x ) const
+		{
+			return m_virtTimeFinish < x.m_virtTimeFinish;
+		}
+	};
+
+	// Allocate temporary working array.  Here we allocate one per lane, but
+	// that's actually the worst case.  We actually work on batches of lanes
+	// of the same priority class.
+	LaneSort_t *pLaneSort = (LaneSort_t *)alloca( m_senderState.m_vecLanes.size() * sizeof(LaneSort_t) );
+
+	// Process priority classes, in order
+	for ( const SSNPSenderState::PriorityClass &pc: m_senderState.m_vecPriorityClasses )
+	{
+
+		// Process all lanes in this priority class.
+		//
+		// !SPEED! Should we have a special case if there is
+		//         a single lane in the class?
+
+		LaneSort_t *p = pLaneSort;
+
+		int nTotalWeightActiveLanes = 0;
+		for ( int idxLane: pc.m_vecLaneIdx )
+		{
+			SSNPSenderState::Lane &l = m_senderState.m_vecLanes[ idxLane ];
+			p->m_idxLane = idxLane;
+			p->m_nWeight = l.m_nWeight;
+			nTotalWeightActiveLanes += p->m_nWeight;
+
+			// Is something queued for this lane?
+			CSteamNetworkingMessage *pLastMsg = l.m_messagesQueued.m_pLast;
+			if ( pLastMsg )
+			{
+
+				// Finish time for everything currently queued
+				p->m_virtTimeFinish = pLastMsg->SNPSend_VirtualFinishTime();
+			}
+			else
+			{
+				// Nothing queued, so if an infinitesimal amount
+				// was queued the virtual time would just a bit larger
+				// than the current virtual time for the priority class
+				p->m_virtTimeFinish = pc.m_virtTimeCurrent;
+			}
+
+			// Next lane in this priority class
+			++p;
+		}
+
+		// Sort lanes by virtual time
+		std::sort( pLaneSort, p );
+
+		// Process lanes in order of time when they will finish
+		for ( LaneSort_t *s = pLaneSort ; s < p ; ++s )
+		{
+			const int idxLane = s->m_idxLane;
+			SSNPSenderState::Lane &lane = m_senderState.m_vecLanes[ idxLane ];
+
+			// How many more bytes until this lane drains?  For the first lane,
+			// that's just the amount queued.  After that, we will use virtual time
+			float flBytesThisLane;
+			if ( s == pLaneSort )
+			{
+				flBytesThisLane = lane.m_cbPendingReliable + lane.m_cbPendingUnreliable;
+			}
+			else
+			{
+
+				// How much virtual time between estimated end times?
+				const VirtualSendTime nVirtTimeElapsed = s->m_virtTimeFinish - s[-1].m_virtTimeFinish;
+				Assert( nVirtTimeElapsed >= 0 ); // We sorted based on this!
+
+				// Convert virtual time to bytes
+				flBytesThisLane = (float)nVirtTimeElapsed / lane.m_flBytesToVirtualTime;
+			}
+
+			// While this lane is sending , we are also sending on the other lanes.
+			// How many bytes would we sent in total for all lanes that are still active,
+			// until the current lane drains?
+			const float flTotalBytesSent = flBytesThisLane * (float)nTotalWeightActiveLanes / (float)lane.m_nWeight;
+
+			// Convert to microseconds and step forward in time
+			usecQueueTime += (SteamNetworkingMicroseconds)( flTotalBytesSent * flBytesToMicroseconds );
+
+			// Return queue time to caller.  Make sure we don't overflow
+			// their array if they only asked for some lanes.
+			if ( s->m_idxLane < nLanes )
+				pLanes[ s->m_idxLane ].m_usecQueueTime = usecQueueTime;
+
+			// Subtract total active weight for next time
+			nTotalWeightActiveLanes -= lane.m_nWeight;
+		}
+		Assert( nTotalWeightActiveLanes == 0 );
+
+		// Next priority group
 	}
+
+#else
+	Assert( false );
+#endif
 }
 
 bool CSteamNetworkConnectionBase::SNP_BHasAnyBufferedRecvData() const

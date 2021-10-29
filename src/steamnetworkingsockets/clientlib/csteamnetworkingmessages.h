@@ -144,7 +144,7 @@ public:
 	virtual bool AcceptSessionWithUser( const SteamNetworkingIdentity &identityRemote ) override;
 	virtual bool CloseSessionWithUser( const SteamNetworkingIdentity &identityRemote ) override;
 	virtual bool CloseChannelWithUser( const SteamNetworkingIdentity &identityRemote, int nChannel ) override;
-	virtual ESteamNetworkingConnectionState GetSessionConnectionInfo( const SteamNetworkingIdentity &identityRemote, SteamNetConnectionInfo_t *pConnectionInfo, SteamNetworkingQuickConnectionStatus *pQuickStatus ) override;
+	virtual ESteamNetworkingConnectionState GetSessionConnectionInfo( const SteamNetworkingIdentity &identityRemote, SteamNetConnectionInfo_t *pConnectionInfo, SteamNetConnectionRealTimeStatus_t *pQuickStatus ) override;
 
 	#ifdef DBGFLAG_VALIDATE
 	virtual void Validate( CValidator &validator, const char *pchName ) override;
@@ -194,7 +194,7 @@ struct SteamNetworkingMessagesSession final : public CMessagesEndPointSession
 
 	/// Most recent info about the connection.
 	SteamNetConnectionInfo_t m_lastConnectionInfo;
-	SteamNetworkingQuickConnectionStatus m_lastQuickStatus;
+	SteamNetConnectionRealTimeStatus_t m_lastQuickStatus;
 
 	// Implements CMessagesEndPointSession
 	virtual void Think( SteamNetworkingMicroseconds usecNow ) override;
