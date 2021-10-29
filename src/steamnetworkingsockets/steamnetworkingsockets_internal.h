@@ -1381,7 +1381,7 @@ namespace vstd
 		if ( n > size_ )
 		{
 			reserve( n );
-			T *b = begin();
+			T *b = begin() + size_;
 			while ( size_ < n )
 			{
 				Construct<T>( b ); // NOTE: Does not use value initializer, so PODs are *not* initialized
