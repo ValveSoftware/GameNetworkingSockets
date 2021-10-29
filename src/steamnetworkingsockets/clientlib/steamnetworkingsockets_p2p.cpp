@@ -3330,7 +3330,7 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const CMsgSteamNetworki
 					if ( nLocalVirtualPort >= 0 )
 						SpewWarning( "%s set to_virtual_port in rendezvous when connecting by FakeIP; ignored", SteamNetworkingIdentityRender( identityRemote ).c_str() );
 					nLocalVirtualPort = k_nVirtualPort_GlobalFakePort0 + idxFakePort;
-					Assert( nLocalVirtualPort <= k_nVirtualPort_GlobalFakePortMax );
+					Assert( nLocalVirtualPort >= 0 && nLocalVirtualPort <= k_nVirtualPort_GlobalFakePortMax );
 				}
 				else
 				{
@@ -3444,8 +3444,8 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const CMsgSteamNetworki
 			else
 			{
 				// Old client using custom signaling that previously did not specify virtual ports.
-				// This is OK
-				Assert( !bDefaultSignaling );
+				// This is OK.  Otherwise, this is weird.
+				AssertMsg( !bDefaultSignaling, "P2P connect request with no to_virtual_port? /+/ %s", msgConnectRequest.ShortDebugString().c_str() );
 			}
 
 			// Special case for servers in known POPs
