@@ -1275,6 +1275,21 @@ void CSteamNetworkConnectionP2P::ThinkConnection( SteamNetworkingMicroseconds us
 	if ( !m_pSignaling )
 		return;
 
+	// We can't send our initial signals without certs, etc
+	if ( GetState() == k_ESteamNetworkingConnectionState_Connecting )
+	{
+		if ( !BThinkCryptoReady( usecNow ) )
+		{
+			EnsureMinThinkTime( usecNow + k_nMillion/20 );
+			return;
+		}
+
+		// If we're the server, then don't send any signals until
+		// the connection is actually accepted.
+		if ( m_bConnectionInitiatedRemotely )
+			return;
+	}
+
 	// Time to send a signal?
 	// Limit using really basic minimum spacing between successive calls
 	SteamNetworkingMicroseconds usecReliableRTO = GetSignalReliableRTO();
@@ -1284,16 +1299,6 @@ void CSteamNetworkConnectionP2P::ThinkConnection( SteamNetworkingMicroseconds us
 	{
 		EnsureMinThinkTime( usecNextSend );
 		return;
-	}
-
-	// We can't send our initial signals without certs, etc
-	if ( GetState() == k_ESteamNetworkingConnectionState_Connecting )
-	{
-		if ( !BThinkCryptoReady( usecNow ) )
-		{
-			EnsureMinThinkTime( usecNow + k_nMillion/20 );
-			return;
-		}
 	}
 
 	// Check if we should delay sending a signal until
