@@ -3401,6 +3401,22 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_DefaultPreFormatDeb
 	char *msgDest = buf;
 	if ( pstrFile )
 	{
+
+		// Skip to "/src/"
+		for (char const* s = pstrFile; *s; ++s)
+		{
+			if (
+				(s[0] == '/' || s[0] == '\\')
+				&& s[1] == 's'
+				&& s[2] == 'r'
+				&& s[3] == 'c'
+				&& (s[4] == '/' || s[4] == '\\')
+			) {
+				pstrFile = s + 1;
+				break;
+			}
+		}
+
 		int l = V_sprintf_safe( buf, "%s(%d): ", pstrFile, nLine );
 		szBuf -= l;
 		msgDest += l;
