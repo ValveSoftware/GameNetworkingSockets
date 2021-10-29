@@ -54,6 +54,16 @@ class CSteamNetworkListenSocketSDRServer;
 class CMessagesEndPoint;
 struct CachedRelayAuthTicket;
 
+// Handy class to render a debug description of a virtual port
+struct VirtualPortRender
+{
+	VirtualPortRender( int nVirtualPort );
+	const char *c_str() const { return m_buf; }
+
+private:
+	char m_buf[64];
+};
+
 //-----------------------------------------------------------------------------
 /// Base class for listen sockets where the client will connect to us using
 /// our identity and a "virtual port".
@@ -213,7 +223,7 @@ public:
 	// CSteamNetworkConnectionBase overrides
 	virtual void FreeResources() override;
 	virtual EResult AcceptConnection( SteamNetworkingMicroseconds usecNow ) override final;
-	virtual void GetConnectionTypeDescription( ConnectionTypeDescription_t &szDescription ) const override;
+	virtual void GetConnectionTypeDescription( ConnectionTypeDescription_t &szDescription ) const override final;
 	virtual void ThinkConnection( SteamNetworkingMicroseconds usecNow ) override;
 	virtual SteamNetworkingMicroseconds ThinkConnection_ClientConnecting( SteamNetworkingMicroseconds usecNow ) override;
 	virtual SteamNetworkingMicroseconds ThinkConnection_FindingRoute( SteamNetworkingMicroseconds usecNow ) override;
@@ -453,6 +463,9 @@ protected:
 	virtual void PopulateRendezvousMsgWithTransportInfo( CMsgSteamNetworkingP2PRendezvous &msg, SteamNetworkingMicroseconds usecNow );
 
 	virtual EResult P2PInternalAcceptConnection( SteamNetworkingMicroseconds usecNow );
+
+	// Get the identity and possibly fake IP for connection description purposes
+	virtual void GetConnectionTypeDescription_GetP2PType( ConnectionTypeDescription_t &szDescription ) const;
 
 private:
 

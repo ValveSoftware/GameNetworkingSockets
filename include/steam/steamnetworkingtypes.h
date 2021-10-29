@@ -656,6 +656,9 @@ const int k_cchSteamNetworkingMaxConnectionCloseReason = 128;
 /// of a connection.
 const int k_cchSteamNetworkingMaxConnectionDescription = 128;
 
+/// Max length of the app's part of the description
+const int k_cchSteamNetworkingMaxConnectionAppName = 32;
+
 const int k_nSteamNetworkConnectionInfoFlags_Unauthenticated = 1; // We don't have a certificate for the remote host.
 const int k_nSteamNetworkConnectionInfoFlags_Unencrypted = 2; // Information is being sent out over a wire unencrypted (by this library)
 const int k_nSteamNetworkConnectionInfoFlags_LoopbackBuffers = 4; // Internal loopback buffers.  Won't be true for localhost.  (You can check the address to determine that.)  This implies k_nSteamNetworkConnectionInfoFlags_FastLAN

@@ -32,7 +32,9 @@ const SteamNetworkingMicroseconds k_usecConnectRetryInterval = k_nMillion/2;
 const SteamNetworkingMicroseconds k_usecFinWaitTimeout = 5*k_nMillion;
 
 typedef char ConnectionEndDebugMsg[ k_cchSteamNetworkingMaxConnectionCloseReason ];
-typedef char ConnectionTypeDescription_t[64];
+
+// Connection-type-specific info of the connection description.
+typedef char ConnectionTypeDescription_t[80];
 
 class CSteamNetworkingSockets;
 class CSteamNetworkingMessages;
@@ -705,7 +707,7 @@ protected:
 	virtual void InitConnectionCrypto( SteamNetworkingMicroseconds usecNow );
 
 	/// Name assigned by app (for debugging)
-	char m_szAppName[ k_cchSteamNetworkingMaxConnectionDescription ];
+	char m_szAppName[ k_cchSteamNetworkingMaxConnectionAppName ];
 
 	/// More complete debug description (for debugging)
 	char m_szDescription[ k_cchSteamNetworkingMaxConnectionDescription ];
