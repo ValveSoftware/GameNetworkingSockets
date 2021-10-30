@@ -382,10 +382,10 @@ static void TestNetworkConditions( int rate, float loss, int lag, float reorderP
 
 	//SteamNetworkingMicroseconds usecLastNow = usecWhenStarted;
 
-	SteamNetworkingMicroseconds usecQuietDuration  = bQuickTest ? 500000 : 10000000;
-	SteamNetworkingMicroseconds usecActiveDuration = bQuickTest ? 500000 : 25000000;
-	float flWaitBetweenPrints = bQuickTest ? 1.0f : 5.0f;
-	int nIterations = bQuickTest ? 1 : 4;
+	SteamNetworkingMicroseconds usecQuietDuration  = SteamNetworkingMicroseconds( ( bQuickTest ? 1.0 :  8.0 ) * 1e6 );
+	SteamNetworkingMicroseconds usecActiveDuration = SteamNetworkingMicroseconds( ( bQuickTest ? 5.0 : 25.0 ) * 1e6 );
+	float flWaitBetweenPrints = bQuickTest ? 2.0f : 5.0f;
+	int nIterations = bQuickTest ? 2 : 4;
 
 	bool bQuiet = true;
 	SteamNetworkingMicroseconds usecWhenStateEnd = 0;
@@ -526,11 +526,17 @@ static void Test_Connection( bool bQuickTest )
 		TestNetworkConditions( rate, loss, lag, reorderPct, reorderLag, true, bQuickTest );
 	};
 
-	if ( !bQuickTest )
+	if ( bQuickTest )
+	{
+		// Quick test, just do two situations
+		Test(  128000, 10, 50, 2, 50 ); // Low bandwidth, high packet loss
+		Test( 1000000,  5, 10, 1, 10 ); // Medium bandwidth, still pretty bad packet loss
+	}
+	else
 	{
 		Test( 64000, 20, 100, 4, 50 ); // low bandwidth, terrible packet loss
 		Test( 1000000, 20, 100, 4, 10 ); // high bandwidth, terrible packet loss
-		Test( 1000000, 2, 5, 2, 1 ); // wifi (high bandwideth, low packet loss, occasional reordering with very small delay)
+		Test( 1000000, 2, 5, 2, 1 ); // wifi (high bandwidth, low packet loss, occasional reordering with very small delay)
 		Test( 2000000, 0, 0, 0, 0 ); // LAN (high bandwidth, negligible lag/loss)
 		Test( 128000, 20, 100, 4, 40 );
 		Test( 500000, 20, 100, 4, 30 );
@@ -545,9 +551,8 @@ static void Test_Connection( bool bQuickTest )
 		Test( 1000000, 1, 25, 1, 10 );
 
 		Test( 64000, 5, 50, 2, 50 );
+		Test( 1000000, 5, 50, 2, 10 );
 	}
-
-	Test( 1000000, 5, 50, 2, 10 );
 }
 
 // Some tests for identity string handling.  Doesn't really have anything to do with
