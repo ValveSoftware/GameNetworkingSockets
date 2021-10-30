@@ -445,10 +445,10 @@ public:
 	///   if no two lanes have the same priority value, and thus priority values are
 	///   irrelevant), you may use pLaneWeights=NULL
 	/// - Priorities and weights determine the order that messages are SENT on the wire.
-	///   This DOES NOT guarantee the order that messages are RECEIVED!  Due to packet
-	///   loss and out-of-order delivery, the messages might still be received out of
-	///   order.  Essentially the only guarantee is that *reliable* messages on the *same
-	///   lane* will be delivered in the order they are sent.
+	///   There are NO GUARANTEES on the order that messages are RECEIVED!  Due to packet
+	///   loss, out-of-order delivery, and subtle details of packet serialization, messages
+	///   might still be received slightly out-of-order!  The *only* strong guarantee is that
+	///   *reliable* messages on the *same lane* will be delivered in the order they are sent.
 	/// - Each host configures the lanes for the packets they send; the lanes for the flow
 	///   in one direction are completely unrelated to the lanes in the opposite direction.
 	/// 
