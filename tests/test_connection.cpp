@@ -555,9 +555,12 @@ static void Test_Connection( bool bQuickTest )
 	}
 }
 
+static void Test_quick() { Test_Connection( true ); }
+static void Test_soak() { Test_Connection( false ); }
+
 // Some tests for identity string handling.  Doesn't really have anything to do with
 // connectivity, this is just a conveinent place for this to live
-void TestSteamNetworkingIdentity()
+void Test_identity()
 {
 	SteamNetworkingIdentity id1, id2;
 	char tempBuf[ SteamNetworkingIdentity::k_cchMaxString ];
@@ -591,7 +594,7 @@ void TestSteamNetworkingIdentity()
 	}
 }
 
-void Test_LaneBasics()
+void Test_lane_basics()
 {
 	// Create a loopback connection, over the local network.
 	// (With a loopback over internal buffers, all messages
@@ -794,11 +797,22 @@ int main( int argc, const char **argv  )
 		const char *m_pszName;
 		FnTest m_func;
 	};
+
+	#define TEST(x) { #x, Test_ ## x }
+
 	static const Test_t tests[] = {
-		{ "identity", TestSteamNetworkingIdentity },
-		{ "quick", [](){ Test_Connection( true ); } },
-		{ "soak", [](){ Test_Connection( false ); } },
-		{ "lane_basics", Test_LaneBasics },
+		TEST(identity),
+		TEST(quick),
+		TEST(soak),
+		TEST(lane_basics),
+	};
+
+	struct Suite_t {
+		const char *m_pszName;
+		std::vector< Test_t > m_vecTests;
+	};
+	static const Suite_t test_suites[] = {
+		{ "suite-quick", { TEST(identity), TEST(quick), TEST(lane_basics) } }
 	};
 
 	if ( argc < 2 )
@@ -810,13 +824,16 @@ print_usage:
 				prog = strchr( prog, '/' ) + 1;
 			while ( strchr( prog, '\\' ) )
 				prog = strchr( prog, '\\' ) + 1;
-			printf( "Usage: %s <test_name>\n", prog );
+			printf( "Usage: %s test-or-suite-name ...\n", prog );
 		}
 print_available_tests_and_exit:
 		printf( "\n" );
 		printf( "Available tests:\n" );
 		for ( const Test_t &t: tests )
 			printf( "    %s\n", t.m_pszName );
+		printf( "Available test suites:\n" );
+		for ( const Suite_t &s: test_suites )
+			printf( "    %s\n", s.m_pszName );
 		return 1;
 	}
 
@@ -836,9 +853,19 @@ print_available_tests_and_exit:
 				break;
 			}
 		}
+		for ( const Suite_t &s: test_suites )
+		{
+			if ( !strcasecmp( argv[i], s.m_pszName ) )
+			{
+				for ( const Test_t &t: s.m_vecTests )
+					vecTestsToRun.push_back( t );
+				bFound = true;
+				break;
+			}
+		}
 		if ( !bFound )
 		{
-			printf( "Test '%s' not known\n", argv[i] );
+			printf( "No such test or suite named '%s' not known\n", argv[i] );
 			goto print_available_tests_and_exit;
 		}
 	}
