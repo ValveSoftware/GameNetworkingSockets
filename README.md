@@ -21,6 +21,11 @@ GameNetworkingSockets is a basic transport layer for games.  The features are:
   per-packet IV are based on the [design](https://docs.google.com/document/d/1g5nIXAIkN_Y-7XJW5K45IblHd_L2f5LTaDUDwvZ5L6g/edit?usp=sharing)
   used by Google's QUIC protocol.
 * Tools for simulating packet latency/loss, and detailed stats measurement
+* Head-of-line blocking control and bandwidth sharing of multiple message
+  streams ("lanes") on the same connection.  You can use strict priority
+  values, softer [weight values](https://en.wikipedia.org/wiki/Weighted_fair_queueing)
+  that control how bandwidth is shared, or some combination of the two methods.
+  See [``ISteamNetworkingSockets::ConfigureConnectionLanes``](include/steam/isteamnetworkingsockets.h).
 * IPv6 support
 * Peer-to-peer networking:
   * NAT traversal through google WebRTC's ICE implementation.
