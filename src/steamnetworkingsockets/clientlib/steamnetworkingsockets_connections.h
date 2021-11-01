@@ -862,6 +862,7 @@ private:
 
 	uint8 *SNP_SerializeAckBlocks( const SNPPacketSerializeHelper &helper, uint8 *pOut, const uint8 *pOutEnd );
 	uint8 *SNP_SerializeStopWaitingFrame( SNPPacketSerializeHelper &helper, uint8 *pOut );
+	void SNP_QueueReliableSegmentsForRetry( SNPInFlightPacket_t &pkt, int64 nPktNumForDebug, const char *pszDebug );
 
 	void SetState( ESteamNetworkingConnectionState eNewState, SteamNetworkingMicroseconds usecNow );
 	ESteamNetworkingConnectionState m_eConnectionState;

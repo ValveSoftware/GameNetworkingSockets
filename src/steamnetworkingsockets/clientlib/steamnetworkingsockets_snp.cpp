@@ -1408,6 +1408,11 @@ void CSteamNetworkConnectionBase::SNP_SenderProcessPacketNack( int64 nPktNum, SN
 	m_senderState.MaybeCheckReliable();
 
 	// Schedule any reliable segments for retry
+	SNP_QueueReliableSegmentsForRetry( pkt, nPktNum, pszDebug );
+}
+
+void CSteamNetworkConnectionBase::SNP_QueueReliableSegmentsForRetry( SNPInFlightPacket_t &pkt, int64 nPktNumForDebug, const char *pszDebug )
+{
 	for ( uint16 hSeg: pkt.m_vecReliableSegments )
 	{
 		SNPSendReliableSegment_t &relSeg = m_senderState.m_listSentReliableSegments[ hSeg ];
@@ -1444,7 +1449,7 @@ void CSteamNetworkConnectionBase::SNP_SenderProcessPacketNack( int64 nPktNum, SN
 
 		SpewMsgGroup( m_connectionConfig.m_LogLevel_PacketDecode.Get(), "[%s] pkt %lld %s, queueing retry of reliable range [%lld,%lld)\n", 
 			GetDescription(),
-			nPktNum,
+			nPktNumForDebug,
 			pszDebug,
 			relSeg.begin(), relSeg.begin() + cbSeg );
 
@@ -1830,7 +1835,12 @@ bool CSteamNetworkConnectionBase::SNP_SendPacket( CConnectionTransport *pTranspo
 		}
 	}
 	if ( nBytesSent <= 0 )
-		return false; // FIXME - We have transfered ownership of some messages to the segments in helper.m_insertInflightPkt.  We are gonna leak these?
+	{
+		// We have potentially transfered ownership of some reliable messages
+		// to the segments in helper.m_insertInflightPkt.  We must not leak those!
+		SNP_QueueReliableSegmentsForRetry( helper.m_insertInflightPkt.second, 0, "Send fail" );
+		return false; 
+	}
 
 	// We sent a packet.  Track it
 	auto pairInsertResult = m_senderState.m_mapInFlightPacketsByPktNum.insert( helper.m_insertInflightPkt );
