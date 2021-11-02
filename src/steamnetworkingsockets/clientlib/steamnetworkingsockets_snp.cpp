@@ -2679,22 +2679,31 @@ done_with_all_segments:
 
 		uint8 *pAfterAcks = SNP_SerializeAckBlocks( helper, pPayloadPtr, pAckEnd );
 		if ( pAfterAcks == nullptr )
-			return 0; // bug!  Abort
-
-		int cbAckBytesWritten = pAfterAcks - pPayloadPtr;
-		if ( cbAckBytesWritten > cbReserveForAcks )
 		{
-			// We used more space for acks than was strictly reserved.
-			// Update space remaining for data segments.  We should have the room!
-			segmentCollector.m_cbRemainingForSegments -= ( cbAckBytesWritten - cbReserveForAcks );
-			Assert( segmentCollector.m_cbRemainingForSegments >= -1 ); // remember we might go over by one byte
+			// !BUG!  We must either nuke the connection, or just
+			// forget about sending acks.  Because if we drop the packet,
+			// we will leak reliable messages and have other problems.
+			// The code above made changes to the state machine for
+			// reliable messages and we really easily abort here easily.
+			AssertMsg( false, "BUG serializing ack blocks" );
 		}
 		else
 		{
-			Assert( cbAckBytesWritten == cbReserveForAcks ); // The code above reserves space very carefuly.  So if we reserve it, we should fill it!
-		}
+			int cbAckBytesWritten = pAfterAcks - pPayloadPtr;
+			if ( cbAckBytesWritten > cbReserveForAcks )
+			{
+				// We used more space for acks than was strictly reserved.
+				// Update space remaining for data segments.  We should have the room!
+				segmentCollector.m_cbRemainingForSegments -= ( cbAckBytesWritten - cbReserveForAcks );
+				Assert( segmentCollector.m_cbRemainingForSegments >= -1 ); // remember we might go over by one byte
+			}
+			else
+			{
+				Assert( cbAckBytesWritten == cbReserveForAcks ); // The code above reserves space very carefuly.  So if we reserve it, we should fill it!
+			}
 
-		pPayloadPtr = pAfterAcks;
+			pPayloadPtr = pAfterAcks;
+		}
 	}
 
 	// We might have gone over exactly one byte, because we counted the size byte of the last
