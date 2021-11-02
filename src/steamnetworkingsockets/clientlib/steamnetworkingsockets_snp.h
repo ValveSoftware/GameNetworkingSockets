@@ -128,10 +128,12 @@ public:
 	inline void SNPSend_SetReliableStreamPos( int64 x ) { Assert( m_nFlags & k_nSteamNetworkingSend_Reliable ); ReliableSendInfo().m_nStreamPos = x; }
 
 	// Working data for reliable messages.
-	// !KLUDGE! Reuse the identity field
 	struct ReliableSendInfo_t
 	{
 		int64 m_nStreamPos;
+
+		// Number of reliable segments that refer to this message.
+		// Also while we are in the queue waiting to be sent the queue holds a reference
 		int m_nSentReliableSegRefCount;
 		int m_cbHdr;
 		byte m_hdr[16];
@@ -139,6 +141,8 @@ public:
 	const ReliableSendInfo_t &ReliableSendInfo() const
 	{
 		DbgAssert( m_nFlags & k_nSteamNetworkingSend_Reliable );
+		// !KLUDGE! Reuse the identity field.  We don't actually put this in a union because
+		//          this is internal stuff that doesn't need to be exposed in the API
 		COMPILE_TIME_ASSERT( sizeof(m_identityPeer) >= sizeof(ReliableSendInfo_t) );
 		return *(ReliableSendInfo_t *)&m_identityPeer;
 	}
@@ -412,11 +416,7 @@ struct SSNPSenderState
 	SteamNetworkingMessageQueue m_messagesQueued;
 
 	/// List of reliable messages that have been fully placed on the wire at least once,
-	/// but we're hanging onto because of the potential need to retry.  (Note that if we get
-	/// packet loss, it's possible that we hang onto a message even after it's been fully
-	/// acked, because a prior message is still needed.  We always operate on this list
-	/// like a queue, rather than seeking into the middle of the list and removing messages
-	/// as soon as they are no longer needed.)
+	/// but we're hanging onto because of the potential need to retry.
 	SteamNetworkingMessageQueue m_unackedReliableMessages;
 
 	// Buffered data counters.  See SteamNetworkingQuickConnectionStatus for more info

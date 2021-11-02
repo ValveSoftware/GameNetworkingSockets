@@ -216,6 +216,10 @@ void SSNPSenderState::RemoveRefCountReliableSegment( uint16 hSeg )
 	if ( --info.m_nSentReliableSegRefCount <= 0 )
 	{
 		DbgAssert( info.m_nSentReliableSegRefCount == 0 );
+
+		// We should not be in the lane send queue
+		Assert( pMsg->m_linksSecondaryQueue.m_pQueue == nullptr );
+
 		pMsg->Unlink();
 		pMsg->Release();
 	}
@@ -357,7 +361,7 @@ int64 CSteamNetworkConnectionBase::SNP_SendMessage( CSteamNetworkingMessage *pSe
 			hdrEnd = SerializeVarInt( hdrEnd, cbData>>5U );
 		}
 		reliableInfo.m_cbHdr = hdrEnd - hdr;
-		reliableInfo.m_nSentReliableSegRefCount = 0;
+		reliableInfo.m_nSentReliableSegRefCount = 1; // Initialize reference count to 1.  
 
 		// Grow the total size of the message by the header
 		pSendMessage->m_cbSize += reliableInfo.m_cbHdr;
@@ -2514,6 +2518,7 @@ int CSteamNetworkConnectionBase::SNP_SerializePacketInternal( SNPPacketSerialize
 				// sure that we don't make an excessively large
 				// one and then have a hard time retrying it later.
 				int cbDesiredSegSize = pSendMsg->m_cbSize - sendLane.m_cbCurrentSendMessageSent;
+				Assert( cbDesiredSegSize > 0 );
 				if ( cbDesiredSegSize > m_cbMaxReliableMessageSegment )
 				{
 					cbDesiredSegSize = m_cbMaxReliableMessageSegment;
@@ -2635,6 +2640,15 @@ int CSteamNetworkConnectionBase::SNP_SerializePacketInternal( SNPPacketSerialize
 		if ( !k_bUnreliableOnly && pSendMsg->SNPSend_IsReliable() )
 		{
 
+			// We hold a reference while in the lane send queue.  But
+			// we've been removed, so decrement that reference count now.
+			// Note that this might drop our reference count to zero.
+			// But there should be at least one segment ready to be serialized
+			// which will hold a reference to us.  We just haven't added it yet.
+			CSteamNetworkingMessage::ReliableSendInfo_t &relInfo = pSendMsg->ReliableSendInfo();
+			Assert( relInfo.m_nSentReliableSegRefCount > 0 );
+			--relInfo.m_nSentReliableSegRefCount;
+			
 			// Go ahead and add us to the end of the list of unacked messages
 			pSeg->m_pMsg->LinkToQueueTail( &CSteamNetworkingMessage::m_links, &m_senderState.m_unackedReliableMessages );
 		}
