@@ -594,7 +594,7 @@ void Test_identity()
 	}
 }
 
-void Test_lane_basics()
+void Test_lane_quick_queueanddrain()
 {
 	// Create a loopback connection, over the local network.
 	// (With a loopback over internal buffers, all messages
@@ -790,6 +790,172 @@ void Test_lane_basics()
 	SteamNetworkingSockets()->CloseConnection( hRecver, 0, nullptr, false );
 }
 
+void Test_netloopback_throughput()
+{
+	// Create a loopback connection, over the local network.
+	HSteamNetConnection hServer, hClient;
+	assert( SteamNetworkingSockets()->CreateSocketPair( &hServer, &hClient, true, nullptr, nullptr ) );
+
+	// Try several increasing send rates and make sure we can keep up
+	for ( int nSendRateKB: { 64, 256, 1000, 2000, 4000, 8000 } )
+	{
+		const int nSendRate = nSendRateKB*1000; // Use powers of 10 here, not 1024
+
+		TEST_Printf( "-- TESTING SEND RATE: %dKB/sec -------\n\n", nSendRateKB );
+
+		// Set the send rate to a fixed value
+		SteamNetworkingUtils()->SetConnectionConfigValueInt32( hServer, k_ESteamNetworkingConfig_SendRateMin, nSendRate );
+		SteamNetworkingUtils()->SetConnectionConfigValueInt32( hServer, k_ESteamNetworkingConfig_SendRateMax, nSendRate );
+		SteamNetworkingUtils()->SetConnectionConfigValueInt32( hClient, k_ESteamNetworkingConfig_SendRateMin, nSendRate );
+		SteamNetworkingUtils()->SetConnectionConfigValueInt32( hClient, k_ESteamNetworkingConfig_SendRateMax, nSendRate );
+
+		// For this test we'll try to keep about 200ms worth of data queued, so the pipe stays full
+		const int k_nBufferQueuedTarget = nSendRate / 5;
+
+		// Set the send buffer
+		SteamNetworkingUtils()->SetConnectionConfigValueInt32( hServer, k_ESteamNetworkingConfig_SendBufferSize, k_nBufferQueuedTarget*5/4 + 1024 );
+
+		// How long do we want to send?
+		constexpr SteamNetworkingMicroseconds k_usecSendTime = SteamNetworkingMicroseconds( 10 * 1e6 );
+
+		// Run at this send rate for several seconds
+		SteamNetworkingMicroseconds usecStartTime = SteamNetworkingUtils()->GetLocalTimestamp();
+		SteamNetworkingMicroseconds usecLastPrint = usecStartTime;
+		int64 cbBytesSent = 0;
+		int64 cbBytesRecv = 0;
+		bool bDrain = false;
+		for (;;)
+		{
+			TEST_PumpCallbacks();
+
+			// Query status
+			SteamNetConnectionRealTimeStatus_t serverStatus;
+			assert( k_EResultOK == SteamNetworkingSockets()->GetConnectionRealTimeStatus( hServer, &serverStatus, 0, nullptr ) );
+
+			SteamNetConnectionRealTimeStatus_t clientStatus;
+			assert( k_EResultOK == SteamNetworkingSockets()->GetConnectionRealTimeStatus( hClient, &clientStatus, 0, nullptr ) );
+
+			// Time to enter drain mode?
+			SteamNetworkingMicroseconds usecNow = SteamNetworkingUtils()->GetLocalTimestamp();
+			if ( !bDrain && usecNow > usecStartTime + k_usecSendTime )
+			{
+				TEST_Printf( "Entering drain mode\n" );
+				bDrain = true;
+				usecLastPrint = 0;
+			}
+
+			// Time to print status?
+			if ( usecLastPrint + 500*1000 < usecNow )
+			{
+				double flElapsedSeconds = ( usecNow - usecStartTime ) * 1e-6;
+				TEST_Printf( "Elapsed:%6.1fms   Sent:%7.1fK   Recv:%7.1fK = %5.1fK/sec\n",
+					flElapsedSeconds * 1e3,
+					cbBytesSent * 1e-3,
+					cbBytesRecv * 1e-3,
+					cbBytesRecv * 1e-3 / flElapsedSeconds
+				);
+				usecLastPrint = usecNow;
+			}
+
+			// On the server, try to keep the buffer full at a certain amount
+			if ( !bDrain )
+			{
+				while ( serverStatus.m_cbPendingReliable < k_nBufferQueuedTarget )
+				{
+					// How much is missing?
+					int cbSendMsg = std::min( k_nBufferQueuedTarget - serverStatus.m_cbPendingReliable, k_cbMaxSteamNetworkingSocketsMessageSizeSend );
+
+					// Don't send tiny messages, just wait until we can queue up some more
+					if ( cbSendMsg < 1024 )
+						break;
+
+					// Allocate a message.
+					SteamNetworkingMessage_t *pSendMsg = SteamNetworkingUtils()->AllocateMessage( cbSendMsg );
+					pSendMsg->m_conn = hServer;
+					pSendMsg->m_nFlags = k_nSteamNetworkingSend_Reliable;
+					// Don't bother initializing the body
+
+					int64 nMsgNumberOrResult;
+					SteamNetworkingSockets()->SendMessages( 1, &pSendMsg, &nMsgNumberOrResult );
+					assert( nMsgNumberOrResult > 0 );
+
+					serverStatus.m_cbPendingReliable += cbSendMsg;
+					cbBytesSent += cbSendMsg;
+				}
+			}
+
+			// On the client, we'll just periodically send small messages,
+			// just to keep some traffic going in the other direction.  This
+			// isn't necessary, but it's a slightly more realistic test
+			if ( clientStatus.m_cbPendingReliable+clientStatus.m_cbSentUnackedReliable == 0 )
+			{
+				char dummyMsg[ 1024 ];
+				EResult r = SteamNetworkingSockets()->SendMessageToConnection( hClient, dummyMsg, sizeof(dummyMsg), k_nSteamNetworkingSend_Reliable, nullptr );
+				assert( k_EResultOK == r );
+			}
+
+			// Receive server->client messages
+			SteamNetworkingMessage_t *pMsg[ 16 ];
+			for (;;)
+			{
+				int nMsg = SteamNetworkingSockets()->ReceiveMessagesOnConnection( hClient, pMsg, 16 );
+				if ( nMsg <= 0 )
+				{
+					assert( nMsg == 0 );
+					break;
+				}
+
+				for ( int i = 0 ; i < nMsg ; ++i )
+				{
+					cbBytesRecv += pMsg[i]->m_cbSize;
+					assert( cbBytesRecv <= cbBytesSent );
+					pMsg[i]->Release();
+				}
+
+				if ( nMsg < 16 )
+					break;
+			}
+
+			// Receive client->server messages
+			for (;;)
+			{
+				int nMsg = SteamNetworkingSockets()->ReceiveMessagesOnConnection( hServer, pMsg, 16 );
+				if ( nMsg <= 0 )
+				{
+					assert( nMsg == 0 );
+					break;
+				}
+
+				for ( int i = 0 ; i < nMsg ; ++i )
+					pMsg[i]->Release();
+
+				if ( nMsg < 16 )
+					break;
+			}
+
+			// Done?
+			if ( bDrain && cbBytesRecv == cbBytesSent )
+				break;
+		}
+
+		{
+			SteamNetworkingMicroseconds usecNow = SteamNetworkingUtils()->GetLocalTimestamp();
+			double flElapsedSeconds = ( usecNow - usecStartTime ) * 1e-6;
+			TEST_Printf( "TOTAL:%6.1fms   Sent:%7.1fK   Recv:%7.1fK = %5.1fK/sec\n\n",
+				flElapsedSeconds * 1e3,
+				cbBytesSent * 1e-3,
+				cbBytesRecv * 1e-3,
+				cbBytesRecv * 1e-3 / flElapsedSeconds
+			);
+		}
+
+	}
+
+	// Cleanup
+	SteamNetworkingSockets()->CloseConnection( hServer, 0, nullptr, false );
+	SteamNetworkingSockets()->CloseConnection( hClient, 0, nullptr, false );
+}
+
 int main( int argc, const char **argv  )
 {
 	typedef void (*FnTest)(void);
@@ -804,7 +970,8 @@ int main( int argc, const char **argv  )
 		TEST(identity),
 		TEST(quick),
 		TEST(soak),
-		TEST(lane_basics),
+		TEST(netloopback_throughput),
+		TEST(lane_quick_queueanddrain),
 	};
 
 	struct Suite_t {
@@ -812,7 +979,7 @@ int main( int argc, const char **argv  )
 		std::vector< Test_t > m_vecTests;
 	};
 	static const Suite_t test_suites[] = {
-		{ "suite-quick", { TEST(identity), TEST(quick), TEST(lane_basics) } }
+		{ "suite-quick", { TEST(identity), TEST(quick), TEST(lane_quick_queueanddrain), TEST(netloopback_throughput) } }
 	};
 
 	if ( argc < 2 )
