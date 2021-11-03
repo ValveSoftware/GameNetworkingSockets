@@ -1773,12 +1773,12 @@ bool CSteamNetworkConnectionBase::SNP_SendPacket( CConnectionTransport *pTranspo
 		#if STEAMNETWORKINGSOCKETS_MAX_LANES > 1
 			if ( m_senderState.m_vecLanes.size() > 1 )
 			{
-				cbPlainText = SNP_SerializePacketInternal<false,true>( helper );
+				cbPlainText = SNP_SerializePacketInternal<false,false>( helper );
 			}
 		else
 		#endif
 		{
-			cbPlainText = SNP_SerializePacketInternal<false,false>( helper );
+			cbPlainText = SNP_SerializePacketInternal<false,true>( helper );
 		}
 	}
 
@@ -2208,7 +2208,7 @@ inline uint8 *CSteamNetworkConnectionBase::SNP_SerializeSegmentArray( uint8 *pPa
 		++pSeg;
 	} while ( pSeg < pSegEnd );
 
-	if ( !k_bUnreliableOnly )
+	if ( !k_bUnreliableOnly && bLastLane )
 		m_senderState.MaybeCheckReliable();
 
 	return pPayloadPtr;
