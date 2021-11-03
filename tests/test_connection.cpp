@@ -790,6 +790,194 @@ void Test_lane_quick_queueanddrain()
 	SteamNetworkingSockets()->CloseConnection( hRecver, 0, nullptr, false );
 }
 
+// Test a particular use case that we have specifically been asked about:
+// Three lanes:
+// - Lane for most gameplay traffic.
+// - "Priority" lane for certain urgent messages
+// - "Background" land for content download
+void Test_lane_quick_priority_and_background()
+{
+	// Create a loopback connection, over the local network.
+	// (With a loopback over internal buffers, all messages
+	// are delivered instantly and lanes are irrelevant.)
+	HSteamNetConnection hServer, hClient;
+	assert( SteamNetworkingSockets()->CreateSocketPair( &hServer, &hClient, true, nullptr, nullptr ) );
+
+	// Set the send rate to a fixed value
+	const int k_nSendRate = 256*1024;
+	SteamNetworkingUtils()->SetConnectionConfigValueInt32( hServer, k_ESteamNetworkingConfig_SendRateMin, k_nSendRate );
+	SteamNetworkingUtils()->SetConnectionConfigValueInt32( hServer, k_ESteamNetworkingConfig_SendRateMax, k_nSendRate );
+
+	// Configure lanes.
+	constexpr int k_nLanes = 3;
+	constexpr int k_LaneGameplay = 0;
+	constexpr int k_LaneUrgent = 1;
+	constexpr int k_LaneBackground = 2;
+	int priorities[k_nLanes] = {  1, 0,  1 };
+	uint16 weights[k_nLanes] = { 75, 1, 25 };
+	assert( k_EResultOK == SteamNetworkingSockets()->ConfigureConnectionLanes( hServer, k_nLanes, priorities, weights ) );
+
+	// Allow us to buffer up a decent amount for background content download
+	constexpr int k_cbMaxBackgroundInFlight = 1024 * 1024;
+	SteamNetworkingUtils()->SetConnectionConfigValueInt32( hServer, k_ESteamNetworkingConfig_SendBufferSize, k_cbMaxBackgroundInFlight + 64*1024 );
+
+	// Remember when we sent all the messages
+	SteamNetworkingMicroseconds usecStartTime = SteamNetworkingUtils()->GetLocalTimestamp();
+	SteamNetworkingMicroseconds usecNextSendUrgent = 0;
+	SteamNetworkingMicroseconds usecNextSendGameplay = usecStartTime;
+
+	const int k_nFakeLag = 50;
+
+	// Set some reasonable network conditions
+	SteamNetworkingUtils()->SetGlobalConfigValueFloat( k_ESteamNetworkingConfig_FakePacketLoss_Send, 2.0 );
+	SteamNetworkingUtils()->SetGlobalConfigValueFloat( k_ESteamNetworkingConfig_FakePacketLoss_Recv, 0 );
+	SteamNetworkingUtils()->SetGlobalConfigValueInt32( k_ESteamNetworkingConfig_FakePacketLag_Send, k_nFakeLag );
+	SteamNetworkingUtils()->SetGlobalConfigValueInt32( k_ESteamNetworkingConfig_FakePacketLag_Recv, 0 );
+	SteamNetworkingUtils()->SetGlobalConfigValueFloat( k_ESteamNetworkingConfig_FakePacketReorder_Send, .5 );
+	SteamNetworkingUtils()->SetGlobalConfigValueInt32( k_ESteamNetworkingConfig_FakePacketReorder_Time, 25 );
+
+	int64 nMsgSent[ k_nLanes ] = {};
+	int64 nMsgRecv[ k_nLanes ] = {};
+	int64 nLatencyTotal[ k_nLanes ] = {};
+	int64 nLatencySqTotal[ k_nLanes ] = {};
+
+	for (;;)
+	{
+		SteamNetworkingMicroseconds usecNow = SteamNetworkingUtils()->GetLocalTimestamp();
+
+		// RUn the test for 60 seconds
+		if ( usecStartTime + 60*1000*1000 < usecNow )
+			break;
+
+		// Get back realtime status
+		SteamNetConnectionRealTimeStatus_t status;
+		SteamNetConnectionRealTimeLaneStatus_t laneStatus[k_nLanes];
+		assert( k_EResultOK == SteamNetworkingSockets()->GetConnectionRealTimeStatus( hServer, &status, k_nLanes, laneStatus ) );
+
+		// Keep the background download pipe full
+		if ( laneStatus[ k_LaneBackground ].m_cbPendingReliable + k_cbMaxSteamNetworkingSocketsMessageSizeSend <= k_cbMaxBackgroundInFlight )
+		{
+			SteamNetworkingMessage_t *pMsg = SteamNetworkingUtils()->AllocateMessage( k_cbMaxSteamNetworkingSocketsMessageSizeSend );
+			pMsg->m_conn = hServer;
+			pMsg->m_nFlags = k_nSteamNetworkingSend_Reliable;
+			pMsg->m_idxLane = k_LaneBackground;
+
+			// Shove the time when we sent it into the body,
+			// but otherwise leave the rest of the body unitialized
+			*(SteamNetworkingMicroseconds *)pMsg->m_pData = usecNow;
+
+			int64 nMsgNum;
+			SteamNetworkingSockets()->SendMessages( 1, &pMsg, &nMsgNum );
+			++nMsgSent[k_LaneBackground];
+			assert( nMsgNum == nMsgSent[k_LaneBackground] );
+		}
+
+		// Time to send a small priority message?
+		if ( usecNow >= usecNextSendUrgent )
+		{
+			SteamNetworkingMessage_t *pMsg = SteamNetworkingUtils()->AllocateMessage( std::uniform_int_distribution<>( 100, 500 )( g_rand ) );
+			pMsg->m_conn = hServer;
+			pMsg->m_nFlags = k_nSteamNetworkingSend_ReliableNoNagle;
+			pMsg->m_idxLane = k_LaneUrgent;
+
+			// Shove the time when we sent it into the body,
+			// but otherwise leave the rest of the body unitialized
+			*(SteamNetworkingMicroseconds *)pMsg->m_pData = usecNow;
+
+			int64 nMsgNum;
+			SteamNetworkingSockets()->SendMessages( 1, &pMsg, &nMsgNum );
+			++nMsgSent[k_LaneUrgent];
+			assert( nMsgNum == nMsgSent[k_LaneUrgent] );
+
+			// Schedule the next send at a random interval
+			usecNextSendUrgent = usecNow + std::uniform_int_distribution<>( 500, 1500 )( g_rand ) * 1000;
+		}
+
+		// Time to send a gameplay message
+		if ( usecNow >= usecNextSendGameplay )
+		{
+
+			// Send a gameplay message server->client
+			{
+				SteamNetworkingMessage_t *pMsg = SteamNetworkingUtils()->AllocateMessage( std::uniform_int_distribution<>( 1000, 5000 )( g_rand ) );
+				pMsg->m_conn = hServer;
+				pMsg->m_idxLane = k_LaneGameplay;
+
+				// Occasionally send reliable
+				pMsg->m_nFlags = std::uniform_int_distribution<>( 0, 100 )( g_rand ) < 30 ? k_nSteamNetworkingSend_ReliableNoNagle : k_nSteamNetworkingSend_UnreliableNoNagle;
+
+				// Shove the time when we sent it into the body,
+				// but otherwise leave the rest of the body unitialized
+				*(SteamNetworkingMicroseconds *)pMsg->m_pData = usecNow;
+
+				int64 nMsgNum;
+				SteamNetworkingSockets()->SendMessages( 1, &pMsg, &nMsgNum );
+				++nMsgSent[k_LaneGameplay];
+				assert( nMsgNum == nMsgSent[k_LaneGameplay] );
+			}
+
+			// Send a gameplay message client->server
+			{
+				SteamNetworkingMessage_t *pMsg = SteamNetworkingUtils()->AllocateMessage( std::uniform_int_distribution<>( 100, 2000 )( g_rand ) );
+				pMsg->m_conn = hClient;
+				pMsg->m_idxLane = k_LaneGameplay;
+
+				// Occasionally send reliable
+				pMsg->m_nFlags = std::uniform_int_distribution<>( 0, 100 )( g_rand ) < 30 ? k_nSteamNetworkingSend_ReliableNoNagle : k_nSteamNetworkingSend_UnreliableNoNagle;
+			}
+
+
+			// Schedule the next send at 30hz
+			usecNextSendGameplay += 1000*1000 / 30;
+		}
+
+		usecNow = SteamNetworkingUtils()->GetLocalTimestamp();
+
+		// Client receive messages
+		SteamNetworkingMessage_t *pMsg;
+		while ( SteamNetworkingSockets()->ReceiveMessagesOnConnection( hClient, &pMsg, 1 ) == 1 )
+		{
+			SteamNetworkingMicroseconds usecLatency = usecNow - *(SteamNetworkingMicroseconds*)pMsg->m_pData;
+			int idxLane = pMsg->m_idxLane;
+			if ( idxLane != k_LaneGameplay || pMsg->m_nMessageNumber%30 == 0 )
+				TEST_Printf( "RX lane %d one-way latency %6.1fms  #%lld\n", idxLane, usecLatency*1e-3, pMsg->m_nMessageNumber );
+
+			++nMsgRecv[ idxLane ];
+			if ( idxLane != k_LaneGameplay )
+				assert( pMsg->m_nMessageNumber == nMsgRecv[ idxLane ] );
+
+			int msLatency = (int)( usecLatency / 1000 );
+			nLatencyTotal[ idxLane ] += msLatency;
+			nLatencySqTotal[ idxLane ] += msLatency*msLatency;
+
+			pMsg->Release();
+		}
+		TEST_PumpCallbacks();
+	}
+	TEST_Printf( "\n\n" );
+
+	// Cleanup
+	SteamNetworkingSockets()->CloseConnection( hServer, 0, nullptr, false );
+	SteamNetworkingSockets()->CloseConnection( hClient, 0, nullptr, false );
+
+	float flAvgLatencyMS[ k_nLanes ];
+	float flRMSLatencyMS[ k_nLanes ];
+	for ( int i = 0 ; i < 3 ; ++i )
+	{
+		flAvgLatencyMS[i] = (float)nLatencyTotal[i] / (float)nMsgRecv[i];
+		flRMSLatencyMS[i] = sqrt( (float)nLatencySqTotal[i] / (float)nMsgRecv[i] );
+
+		// FIXME - print stddev?
+		TEST_Printf( "Lane %d: %6lld msgs, one-way latency avg %6.1fms, RMS %6.1fms\n",
+			i, nMsgRecv[i], flAvgLatencyMS[i], flRMSLatencyMS[i] );
+	}
+
+	// Check numbers...PIOMA
+	//assert( flRMSPingMS[k_LaneUrgent] < flRMSPingMS[k_LaneGameplay] ); // We are comparing pings of always reliable msgs to pings that might sometimes be unreliable, so not totally a fair comparison
+	//assert( flRMSPingMS[k_LaneGameplay] < k_nFakeLag*1.2 + 10 );
+
+}
+
 void Test_netloopback_throughput()
 {
 	// Create a loopback connection, over the local network.
@@ -972,6 +1160,7 @@ int main( int argc, const char **argv  )
 		TEST(soak),
 		TEST(netloopback_throughput),
 		TEST(lane_quick_queueanddrain),
+		TEST(lane_quick_priority_and_background)
 	};
 
 	struct Suite_t {
@@ -979,7 +1168,7 @@ int main( int argc, const char **argv  )
 		std::vector< Test_t > m_vecTests;
 	};
 	static const Suite_t test_suites[] = {
-		{ "suite-quick", { TEST(identity), TEST(quick), TEST(lane_quick_queueanddrain), TEST(netloopback_throughput) } }
+		{ "suite-quick", { TEST(identity), TEST(quick), TEST(lane_quick_queueanddrain), TEST(netloopback_throughput), TEST(lane_quick_priority_and_background) } }
 	};
 
 	if ( argc < 2 )
