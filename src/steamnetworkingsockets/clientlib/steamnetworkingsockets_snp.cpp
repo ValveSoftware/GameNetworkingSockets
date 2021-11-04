@@ -521,6 +521,15 @@ EResult CSteamNetworkConnectionBase::SNP_ConfigureLanes( int nLanes, const int *
 	if ( nLanes < len( m_senderState.m_vecLanes ) )
 		return k_EResultInvalidParam;
 
+	// Check if we know the protocol version of our peer, then we can only configure
+	// multiple lanes if they understand it.  If we don't know their version yet,
+	// we'll have to check again when we finish the handshake.
+	if ( nLanes > 1 && m_statsEndToEnd.m_nPeerProtocolVersion < 11 && m_statsEndToEnd.m_nPeerProtocolVersion != 0 )
+	{
+		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadProtocolVersion, "Peer is using old protocol and cannot receive multiple lanes" );
+		return k_EResultFail;
+	}
+
 	// Temporary list we'll use to count up the
 	// number of distinct priority classes and their
 	// total weight.

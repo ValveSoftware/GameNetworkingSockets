@@ -1493,6 +1493,13 @@ ESteamNetConnectionEnd CSteamNetworkConnectionBase::RecvCryptoHandshake(
 	}
 	m_statsEndToEnd.m_nPeerProtocolVersion = m_msgCryptRemote.protocol_version();
 
+	// Check if we have configured multiple lanes, then they must understand it
+	if ( len( m_senderState.m_vecLanes ) > 1 && m_statsEndToEnd.m_nPeerProtocolVersion < 11 )
+	{
+		V_strcpy_safe( errMsg, "Peer is using old protocol and cannot receive multiple lanes" );
+		return k_ESteamNetConnectionEnd_Remote_BadProtocolVersion;
+	}
+
 	// Starting with protocol 10, the connect request/OK packets always implicitly
 	// have a packet number of 1, and thus the next packet (often the first data packet)
 	// is assigned a sequence number of 2, at a minimum.
