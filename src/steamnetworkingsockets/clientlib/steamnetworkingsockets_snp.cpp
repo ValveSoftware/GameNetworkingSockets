@@ -4046,20 +4046,15 @@ SteamNetworkingMicroseconds CSteamNetworkConnectionBase::SNP_ThinkSendState( Ste
 	if ( usecNextThink > usecNow )
 		return usecNextThink;
 
+	// Limit number of packets sent at a time, even if the scheduler is really bad
+	// or somebody holds the lock for along time, or we wake up late for whatever reason
+	// Should this be a method of the transport?
+	COMPILE_TIME_ASSERT( 1 << 11 == 2048 );
+	int nMaxPacketsPerThinkRemaining = g_cbUDPSocketBufferSize >> 11;
+
 	// Keep sending packets until we run out of tokens
-	int nPacketsSent = 0;
 	while ( m_pTransport )
 	{
-
-		if ( nPacketsSent > k_nMaxPacketsPerThink )
-		{
-			// We're sending too much at one time.  Nuke token bucket so that
-			// we'll be ready to send again very soon, but not immediately.
-			// We don't want the outer code to complain that we are requesting
-			// a wakeup call in the past
-			m_sendRateData.m_flTokenBucket = m_sendRateData.m_flCurrentSendRateUsed * -0.0005f;
-			return usecNow + 1000;
-		}
 
 		// Check if we have anything to send.
 		if ( usecNow < m_receiverState.TimeWhenFlushAcks() && usecNow < SNP_TimeWhenWantToSendNextPacket() )
@@ -4086,9 +4081,16 @@ SteamNetworkingMicroseconds CSteamNetworkConnectionBase::SNP_ThinkSendState( Ste
 		if ( m_sendRateData.m_flTokenBucket < 0.0f )
 			break;
 
-		// Limit number of packets sent at a time, even if the scheduler is really bad
-		// or somebody holds the lock for along time, or we wake up late for whatever reason
-		++nPacketsSent;
+		// Sent too many packets in one burst?
+		if ( --nMaxPacketsPerThinkRemaining <= 0 )
+		{
+			// We're sending too much at one time.  Nuke token bucket so that
+			// we'll be ready to send again very soon, but not immediately.
+			// We don't want the outer code to complain that we are requesting
+			// a wakeup call in the past
+			m_sendRateData.m_flTokenBucket = m_sendRateData.m_flCurrentSendRateUsed * -0.0005f;
+			return usecNow + 1000;
+		}
 	}
 
 	// Return time when we need to check in again.

@@ -211,9 +211,6 @@ struct SteamNetworkingMessageQueue
 	void AssertLockHeld() const;
 };
 
-/// Maximum number of packets we will send in one Think() call.
-const int k_nMaxPacketsPerThink = 16;
-
 /// Max number of tokens we are allowed to store up in reserve, for a burst.
 const float k_flSendRateBurstOverageAllowance = k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend;
 

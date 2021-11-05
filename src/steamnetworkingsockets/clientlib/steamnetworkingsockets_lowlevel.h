@@ -298,6 +298,8 @@ private:
 	static void CallbackRecvPacket( const RecvPktInfo_t &info, CSharedSocket *pSock );
 };
 
+extern int g_cbUDPSocketBufferSize;
+
 /////////////////////////////////////////////////////////////////////////////
 //
 // Misc low level service thread stuff

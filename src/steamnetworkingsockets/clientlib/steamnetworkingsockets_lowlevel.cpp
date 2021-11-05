@@ -58,7 +58,7 @@ constexpr SteamNetworkingMicroseconds k_usecMaxTimestampDelta = k_msMaxPollWait 
 static void FlushSystemSpew();
 static void FlushSystemSpewLocked();
 
-int g_nSteamDatagramSocketBufferSize = 256*1024;
+int g_cbUDPSocketBufferSize = 256*1024;
 
 /// Global lock for all local data structures
 static Lock<RecursiveTimedMutexImpl> s_mutexGlobalLock( "global", 0 );
@@ -1452,14 +1452,14 @@ static SOCKET OpenUDPSocketBoundToSockAddr( const void *sockaddr, size_t len, St
 	#endif
 
 	// Set buffer sizes
-	opt = g_nSteamDatagramSocketBufferSize;
+	opt = g_cbUDPSocketBufferSize;
 	if ( setsockopt( sock, SOL_SOCKET, SO_SNDBUF, (char *)&opt, sizeof(opt) ) )
 	{
 		V_sprintf_safe( errMsg, "Failed to set socket send buffer size.  Error code 0x%08x.", GetLastSocketError() );
 		closesocket( sock );
 		return INVALID_SOCKET;
 	}
-	opt = g_nSteamDatagramSocketBufferSize;
+	opt = g_cbUDPSocketBufferSize;
 	if ( setsockopt( sock, SOL_SOCKET, SO_RCVBUF, (char *)&opt, sizeof(opt) ) == -1 )
 	{
 		V_sprintf_safe( errMsg, "Failed to set socket recv buffer size.  Error code 0x%08x.", GetLastSocketError() );
