@@ -1043,8 +1043,8 @@ void CSteamNetworkConnectionBase::ClearLocalCrypto()
 	m_msgCryptLocal.Clear();
 	m_msgSignedCryptLocal.Clear();
 	m_bCryptKeysValid = false;
-	m_cryptContextSend.Wipe();
-	m_cryptContextRecv.Wipe();
+	m_pCryptContextSend.reset();
+	m_pCryptContextRecv.reset();
 	m_cryptIVSend.Wipe();
 	m_cryptIVRecv.Wipe();
 }
@@ -1712,12 +1712,32 @@ ESteamNetConnectionEnd CSteamNetworkConnectionBase::FinishCryptoHandshake( bool 
 	}
 
 	// Set encryption keys into the contexts, and set parameters
-	if (
-		!m_cryptContextSend.Init( cryptKeySend.m_buf, cryptKeySend.k_nSize, m_cryptIVSend.k_nSize, k_cbAESGCMTagSize )
-		|| !m_cryptContextRecv.Init( cryptKeyRecv.m_buf, cryptKeyRecv.k_nSize, m_cryptIVRecv.k_nSize, k_cbAESGCMTagSize ) )
+	switch ( m_eNegotiatedCipher )
 	{
-		V_strcpy_safe( errMsg, "Error initializing crypto" );
-		return k_ESteamNetConnectionEnd_Remote_BadCrypt;
+		default:
+			Assert( false );
+			V_strcpy_safe( errMsg, "Internal error!" );
+			return k_ESteamNetConnectionEnd_Misc_InternalError;
+
+		case k_ESteamNetworkingSocketsCipher_NULL:
+			break;
+
+		case k_ESteamNetworkingSocketsCipher_AES_256_GCM:
+		{
+			auto *pSend = new AES_GCM_EncryptContext;
+			auto *pRecv = new AES_GCM_DecryptContext;
+			m_pCryptContextSend.reset( pSend );
+			m_pCryptContextRecv.reset( pRecv );
+
+			if (
+				!pSend->Init( cryptKeySend.m_buf, cryptKeySend.k_nSize, m_cryptIVSend.k_nSize, k_cbAESGCMTagSize )
+				|| !pRecv->Init( cryptKeyRecv.m_buf, cryptKeyRecv.k_nSize, m_cryptIVRecv.k_nSize, k_cbAESGCMTagSize ) )
+			{
+				V_strcpy_safe( errMsg, "Error initializing crypto" );
+				return k_ESteamNetConnectionEnd_Remote_BadCrypt;
+			}
+		} break;
+
 	}
 
 	//
@@ -2112,66 +2132,59 @@ bool CSteamNetworkConnectionBase::DecryptDataChunk( uint16 nWireSeqNum, int cbPa
 	}
 
 	// What cipher are we using?
-	switch ( m_eNegotiatedCipher )
+	if ( m_eNegotiatedCipher == k_ESteamNetworkingSocketsCipher_NULL )
 	{
-		default:
-			AssertMsg1( false, "Bogus cipher %d", m_eNegotiatedCipher );
-			return false;
+		// No encryption!
+		ctx.m_cbPlainText = cbChunk;
+		ctx.m_pPlainText = pChunk;
+	}
+	else if ( !m_pCryptContextRecv )
+	{
+		AssertMsg1( false, "Bogus cipher %d", m_eNegotiatedCipher );
+		return false;
+	}
+	else
+	{
+		// Adjust the IV by the packet number
+		*(uint64 *)&m_cryptIVRecv.m_buf += LittleQWord( ctx.m_nPktNum );
+		//SpewMsg( "Recv decrypt IV %llu + %02x%02x%02x%02x  encrypted %d %02x%02x%02x%02x\n",
+		//	*(uint64 *)&m_cryptIVRecv.m_buf,
+		//	m_cryptIVRecv.m_buf[8], m_cryptIVRecv.m_buf[9], m_cryptIVRecv.m_buf[10], m_cryptIVRecv.m_buf[11],
+		//	cbChunk,
+		//	*((byte*)pChunk + 0), *((byte*)pChunk + 1), *((byte*)pChunk + 2), *((byte*)pChunk + 3)
+		//);
 
-		case k_ESteamNetworkingSocketsCipher_NULL:
-		{
+		// Decrypt the chunk and check the auth tag
+		uint32 cbDecrypted = sizeof(ctx.m_decrypted);
+		bool bDecryptOK = m_pCryptContextRecv->Decrypt(
+			pChunk, cbChunk, // encrypted
+			m_cryptIVRecv.m_buf, // IV
+			ctx.m_decrypted, &cbDecrypted, // output
+			nullptr, 0 // no AAD
+		);
 
-			// No encryption!
-			ctx.m_cbPlainText = cbChunk;
-			ctx.m_pPlainText = pChunk;
-		}
-		break;
-
-		case k_ESteamNetworkingSocketsCipher_AES_256_GCM:
-		{
-
-			// Adjust the IV by the packet number
-			*(uint64 *)&m_cryptIVRecv.m_buf += LittleQWord( ctx.m_nPktNum );
-			//SpewMsg( "Recv decrypt IV %llu + %02x%02x%02x%02x  encrypted %d %02x%02x%02x%02x\n",
-			//	*(uint64 *)&m_cryptIVRecv.m_buf,
-			//	m_cryptIVRecv.m_buf[8], m_cryptIVRecv.m_buf[9], m_cryptIVRecv.m_buf[10], m_cryptIVRecv.m_buf[11],
-			//	cbChunk,
-			//	*((byte*)pChunk + 0), *((byte*)pChunk + 1), *((byte*)pChunk + 2), *((byte*)pChunk + 3)
-			//);
-
-			// Decrypt the chunk and check the auth tag
-			uint32 cbDecrypted = sizeof(ctx.m_decrypted);
-			bool bDecryptOK = m_cryptContextRecv.Decrypt(
-				pChunk, cbChunk, // encrypted
-				m_cryptIVRecv.m_buf, // IV
-				ctx.m_decrypted, &cbDecrypted, // output
-				nullptr, 0 // no AAD
-			);
-
-			// Restore the IV to the base value
-			*(uint64 *)&m_cryptIVRecv.m_buf -= LittleQWord( ctx.m_nPktNum );
+		// Restore the IV to the base value
+		*(uint64 *)&m_cryptIVRecv.m_buf -= LittleQWord( ctx.m_nPktNum );
 	
-			// Did decryption fail?
-			if ( !bDecryptOK ) {
+		// Did decryption fail?
+		if ( !bDecryptOK ) {
 
-				// Just drop packet.
-				// The assumption is that we either have a bug or some weird thing,
-				// or that somebody is spoofing / tampering.  If it's the latter
-				// we don't want to magnify the impact of their efforts
-				SpewWarningRateLimited( ctx.m_usecNow, "[%s] Packet %lld (0x%x) decrypt failed (tampering/spoofing/bug)! mpath%d",
-					GetDescription(), (long long)ctx.m_nPktNum, (unsigned)nWireSeqNum, ctx.m_idxMultiPath );
+			// Just drop packet.
+			// The assumption is that we either have a bug or some weird thing,
+			// or that somebody is spoofing / tampering.  If it's the latter
+			// we don't want to magnify the impact of their efforts
+			SpewWarningRateLimited( ctx.m_usecNow, "[%s] Packet %lld (0x%x) decrypt failed (tampering/spoofing/bug)! mpath%d",
+				GetDescription(), (long long)ctx.m_nPktNum, (unsigned)nWireSeqNum, ctx.m_idxMultiPath );
 
-				// Update raw packet counters numbers, but do not update any logical state such as reply timeouts, etc
-				m_statsEndToEnd.m_recv.ProcessPacket( cbPacketSize );
-				return false;
-			}
-
-			ctx.m_cbPlainText = (int)cbDecrypted;
-			ctx.m_pPlainText = ctx.m_decrypted;
-
-			//SpewVerbose( "Connection %u recv seqnum %lld (gap=%d) sz=%d %02x %02x %02x %02x\n", m_unConnectionID, unFullSequenceNumber, nGap, cbDecrypted, arDecryptedChunk[0], arDecryptedChunk[1], arDecryptedChunk[2], arDecryptedChunk[3] );
+			// Update raw packet counters numbers, but do not update any logical state such as reply timeouts, etc
+			m_statsEndToEnd.m_recv.ProcessPacket( cbPacketSize );
+			return false;
 		}
-		break;
+
+		ctx.m_cbPlainText = (int)cbDecrypted;
+		ctx.m_pPlainText = ctx.m_decrypted;
+
+		//SpewVerbose( "Connection %u recv seqnum %lld (gap=%d) sz=%d %02x %02x %02x %02x\n", m_unConnectionID, unFullSequenceNumber, nGap, cbDecrypted, arDecryptedChunk[0], arDecryptedChunk[1], arDecryptedChunk[2], arDecryptedChunk[3] );
 	}
 
 	// OK, we have high confidence that this packet is actually from our peer and has not

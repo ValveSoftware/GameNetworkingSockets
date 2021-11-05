@@ -779,15 +779,15 @@ protected:
 	bool m_bCertHasIdentity; // Does the cert contain the identity we will use for this connection?
 	ESteamNetworkingSocketsCipher m_eNegotiatedCipher;
 
-	// AES keys used in each direction
+	// Encryption/decryption contexts.  This has the negotiated key
 	bool m_bCryptKeysValid;
-	AES_GCM_EncryptContext m_cryptContextSend;
-	AES_GCM_DecryptContext m_cryptContextRecv;
+	std::unique_ptr<ISymmetricEncryptContext> m_pCryptContextSend;
+	std::unique_ptr<ISymmetricDecryptContext> m_pCryptContextRecv;
 
-	// Initialization vector for AES-GCM.  These are combined with
-	// the packet number so that the effective IV is unique per
-	// packet.  We use a 96-bit IV, which is what TLS uses (RFC5288),
-	// what NIST recommends (https://dl.acm.org/citation.cfm?id=2206251),
+	// Initialization vector for per-packet encryption.  These are
+	// combined with the packet number so that the effective IV is
+	// unique per packet.  We use a 96-bit IV, which is what TLS uses
+	// (RFC5288), what NIST recommends (https://dl.acm.org/citation.cfm?id=2206251),
 	// and what makes GCM the most efficient. 
 	AutoWipeFixedSizeBuffer<12> m_cryptIVSend;
 	AutoWipeFixedSizeBuffer<12> m_cryptIVRecv;
