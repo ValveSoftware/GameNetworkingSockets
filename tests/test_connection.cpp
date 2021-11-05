@@ -802,6 +802,8 @@ void Test_lane_quick_priority_and_background()
 	// are delivered instantly and lanes are irrelevant.)
 	HSteamNetConnection hServer, hClient;
 	assert( SteamNetworkingSockets()->CreateSocketPair( &hServer, &hClient, true, nullptr, nullptr ) );
+	SteamNetworkingSockets()->SetConnectionName( hServer, "server" );
+	SteamNetworkingSockets()->SetConnectionName( hClient, "client" );
 
 	// Set the send rate to a fixed value
 	const int k_nSendRate = 256*1024;
@@ -924,8 +926,11 @@ void Test_lane_quick_priority_and_background()
 
 				// Occasionally send reliable
 				pMsg->m_nFlags = std::uniform_int_distribution<>( 0, 100 )( g_rand ) < 30 ? k_nSteamNetworkingSend_ReliableNoNagle : k_nSteamNetworkingSend_UnreliableNoNagle;
-			}
 
+				int64 nMsgNum;
+				SteamNetworkingSockets()->SendMessages( 1, &pMsg, &nMsgNum );
+				assert( nMsgNum >= 0 );
+			}
 
 			// Schedule the next send at 30hz
 			usecNextSendGameplay += 1000*1000 / 30;
@@ -934,24 +939,37 @@ void Test_lane_quick_priority_and_background()
 		usecNow = SteamNetworkingUtils()->GetLocalTimestamp();
 
 		// Client receive messages
-		SteamNetworkingMessage_t *pMsg;
-		while ( SteamNetworkingSockets()->ReceiveMessagesOnConnection( hClient, &pMsg, 1 ) == 1 )
 		{
-			SteamNetworkingMicroseconds usecLatency = usecNow - *(SteamNetworkingMicroseconds*)pMsg->m_pData;
-			int idxLane = pMsg->m_idxLane;
-			if ( idxLane != k_LaneGameplay || pMsg->m_nMessageNumber%30 == 0 )
-				TEST_Printf( "RX lane %d one-way latency %6.1fms  #%lld\n", idxLane, usecLatency*1e-3, pMsg->m_nMessageNumber );
+			SteamNetworkingMessage_t *pMsg;
+			while ( SteamNetworkingSockets()->ReceiveMessagesOnConnection( hClient, &pMsg, 1 ) == 1 )
+			{
+				SteamNetworkingMicroseconds usecLatency = usecNow - *(SteamNetworkingMicroseconds*)pMsg->m_pData;
+				int idxLane = pMsg->m_idxLane;
+				if ( idxLane != k_LaneGameplay || pMsg->m_nMessageNumber%30 == 0 )
+					TEST_Printf( "RX lane %d one-way latency %6.1fms  #%lld\n", idxLane, usecLatency*1e-3, pMsg->m_nMessageNumber );
 
-			++nMsgRecv[ idxLane ];
-			if ( idxLane != k_LaneGameplay )
-				assert( pMsg->m_nMessageNumber == nMsgRecv[ idxLane ] );
+				++nMsgRecv[ idxLane ];
+				if ( idxLane != k_LaneGameplay )
+					assert( pMsg->m_nMessageNumber == nMsgRecv[ idxLane ] );
 
-			int msLatency = (int)( usecLatency / 1000 );
-			nLatencyTotal[ idxLane ] += msLatency;
-			nLatencySqTotal[ idxLane ] += msLatency*msLatency;
+				int msLatency = (int)( usecLatency / 1000 );
+				nLatencyTotal[ idxLane ] += msLatency;
+				nLatencySqTotal[ idxLane ] += msLatency*msLatency;
 
-			pMsg->Release();
+				pMsg->Release();
+			}
 		}
+
+		// Server receive messages
+		{
+			SteamNetworkingMessage_t *pMsg;
+			while ( SteamNetworkingSockets()->ReceiveMessagesOnConnection( hServer, &pMsg, 1 ) == 1 )
+			{
+				pMsg->Release();
+			}
+		}
+
+		// Background tasks, etc
 		TEST_PumpCallbacks();
 	}
 	TEST_Printf( "\n\n" );
