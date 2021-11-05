@@ -1001,9 +1001,11 @@ void Test_netloopback_throughput()
 	// Create a loopback connection, over the local network.
 	HSteamNetConnection hServer, hClient;
 	assert( SteamNetworkingSockets()->CreateSocketPair( &hServer, &hClient, true, nullptr, nullptr ) );
+	SteamNetworkingSockets()->SetConnectionName( hServer, "server" );
+	SteamNetworkingSockets()->SetConnectionName( hClient, "client" );
 
 	// Try several increasing send rates and make sure we can keep up
-	for ( int nSendRateKB: { 64, 256, 1000, 2000, 4000, 8000 } )
+	for ( int nSendRateKB: { 8000, 12000, 16000, 20000, 30000, 40000, 50000, 60000 } )
 	{
 		const int nSendRate = nSendRateKB*1000; // Use powers of 10 here, not 1024
 
@@ -1014,6 +1016,7 @@ void Test_netloopback_throughput()
 		SteamNetworkingUtils()->SetConnectionConfigValueInt32( hServer, k_ESteamNetworkingConfig_SendRateMax, nSendRate );
 		SteamNetworkingUtils()->SetConnectionConfigValueInt32( hClient, k_ESteamNetworkingConfig_SendRateMin, nSendRate );
 		SteamNetworkingUtils()->SetConnectionConfigValueInt32( hClient, k_ESteamNetworkingConfig_SendRateMax, nSendRate );
+		SteamNetworkingUtils()->SetGlobalConfigValueInt32( k_ESteamNetworkingConfig_LogLevel_PacketGaps, k_ESteamNetworkingSocketsDebugOutputType_Verbose );
 
 		// For this test we'll try to keep about 200ms worth of data queued, so the pipe stays full
 		const int k_nBufferQueuedTarget = nSendRate / 5;
@@ -1054,11 +1057,13 @@ void Test_netloopback_throughput()
 			if ( usecLastPrint + 500*1000 < usecNow )
 			{
 				double flElapsedSeconds = ( usecNow - usecStartTime ) * 1e-6;
-				TEST_Printf( "Elapsed:%6.1fms   Sent:%7.1fK   Recv:%7.1fK = %5.1fK/sec\n",
+				TEST_Printf( "Elapsed:%6.0fms   Sent:%7.0fK   Recv:%7.0fK = %5.0fK/sec  (Wire%6.3f kpkts/sec Qual %5.1f%%)\n",
 					flElapsedSeconds * 1e3,
 					cbBytesSent * 1e-3,
 					cbBytesRecv * 1e-3,
-					cbBytesRecv * 1e-3 / flElapsedSeconds
+					cbBytesRecv * 1e-3 / flElapsedSeconds,
+					clientStatus.m_flInPacketsPerSec * 1e-3,
+					clientStatus.m_flConnectionQualityLocal * 100.0f
 				);
 				usecLastPrint = usecNow;
 			}
@@ -1066,7 +1071,7 @@ void Test_netloopback_throughput()
 			// On the server, try to keep the buffer full at a certain amount
 			if ( !bDrain )
 			{
-				while ( serverStatus.m_cbPendingReliable < k_nBufferQueuedTarget )
+				while ( serverStatus.m_cbPendingReliable + 1024 < k_nBufferQueuedTarget )
 				{
 					// How much is missing?
 					int cbSendMsg = std::min( k_nBufferQueuedTarget - serverStatus.m_cbPendingReliable, k_cbMaxSteamNetworkingSocketsMessageSizeSend );
@@ -1083,9 +1088,14 @@ void Test_netloopback_throughput()
 
 					int64 nMsgNumberOrResult;
 					SteamNetworkingSockets()->SendMessages( 1, &pSendMsg, &nMsgNumberOrResult );
+					if ( nMsgNumberOrResult == -k_EResultLimitExceeded )
+					{
+						TEST_Printf( "SendMessage returned limit exceeded trying to queue %d + %d = %d\n", serverStatus.m_cbPendingReliable, cbSendMsg, serverStatus.m_cbPendingReliable + cbSendMsg );
+						break;
+					}
 					assert( nMsgNumberOrResult > 0 );
 
-					serverStatus.m_cbPendingReliable += cbSendMsg;
+					serverStatus.m_cbPendingReliable += cbSendMsg + 64;
 					cbBytesSent += cbSendMsg;
 				}
 			}
@@ -1147,7 +1157,7 @@ void Test_netloopback_throughput()
 		{
 			SteamNetworkingMicroseconds usecNow = SteamNetworkingUtils()->GetLocalTimestamp();
 			double flElapsedSeconds = ( usecNow - usecStartTime ) * 1e-6;
-			TEST_Printf( "TOTAL:%6.1fms   Sent:%7.1fK   Recv:%7.1fK = %5.1fK/sec\n\n",
+			TEST_Printf( "TOTAL:  %6.0fms   Sent:%7.0fK   Recv:%7.0fK = %5.0fK/sec\n\n",
 				flElapsedSeconds * 1e3,
 				cbBytesSent * 1e-3,
 				cbBytesRecv * 1e-3,
