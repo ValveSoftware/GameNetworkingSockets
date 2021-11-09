@@ -33,8 +33,14 @@ if(SANITIZE_ADDRESS OR SANITIZE_THREAD OR SANITIZE_MEMORY OR SANITIZE_UNDEFINED)
 	set(SANITIZE ON)
 endif()
 
+option(Protobuf_USE_STATIC_LIBS "Link with protobuf statically" OFF)
+
 include(FlagsMSVC)
-set(MSVC_RUNTIME "dynamic")
+if (Protobuf_USE_STATIC_LIBS)
+	set(MSVC_RUNTIME "static")
+else()
+	set(MSVC_RUNTIME "dynamic")
+endif()
 configure_msvc_runtime()
 print_default_msvc_flags()
 
@@ -48,7 +54,6 @@ endif()
 
 option(LTO "Enable Link-Time Optimization" OFF)
 option(USE_STEAMWEBRTC "Build Google's WebRTC library to get ICE support for P2P" OFF)
-option(Protobuf_USE_STATIC_LIBS "Link with protobuf statically" OFF)
 option(GAMENETWORKINGSOCKETS_BUILD_EXAMPLES "Build the included example chat program" ON)
 option(GAMENETWORKINGSOCKETS_BUILD_TESTS "Build crypto, pki and network connection tests" ON)
 
