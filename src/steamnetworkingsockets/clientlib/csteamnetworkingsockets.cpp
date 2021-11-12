@@ -2409,4 +2409,16 @@ STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingUtils *SteamNetworkingUtils_Lib
 	return &s_utils;
 }
 
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
+
+STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingMessages* SteamNetworkingMessages_LibV2()
+{
+	if ( !s_pSteamNetworkingSockets )
+		return nullptr;
+
+	return s_pSteamNetworkingSockets->GetSteamNetworkingMessages();
+}
+
+#endif//STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
+
 #endif
