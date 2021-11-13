@@ -194,30 +194,25 @@ struct PingTrackerDetailed : PingTracker
 	}
 };
 
-/// Before switching to a different route, we need to make sure that we have a ping
-/// sample in at least N recent time buckets.  (See PingTrackerForRouteSelection)
-const int k_nRecentValidTimeBucketsToSwitchRoute = 15;
-
 /// Ping tracker that tracks samples over several intervals.  This is used
 /// to make routing decisions in such a way to avoid route flapping when ping
 /// times on different routes are fluctuating.
 ///
 /// This class also has the concept of a user override, which is used to fake
 /// a particular ping time for debugging.
-struct PingTrackerForRouteSelection : PingTracker
+template<int N, SteamNetworkingMicroseconds W>
+struct PingTrackerBuckets : PingTracker
 {
-	COMPILE_TIME_ASSERT( k_nRecentValidTimeBucketsToSwitchRoute == 15 );
-	static constexpr int k_nTimeBucketCount = 17;
-	static constexpr SteamNetworkingMicroseconds k_usecTimeBucketWidth = k_nMillion; // Desired width of each time bucket
+	static constexpr int k_nTimeBucketCount = N;
+	static constexpr SteamNetworkingMicroseconds k_usecTimeBucketWidth = W; // Desired width of each time bucket
 	static constexpr int k_nPingOverride_None = -2; // Ordinary operation.  (-1 is a legit ping time, which means "ping failed")
-	static constexpr SteamNetworkingMicroseconds k_usecAntiFlapRouteCheckPingInterval = 200*1000;
 
 	struct TimeBucket
 	{
 		SteamNetworkingMicroseconds m_usecEnd; // End of this bucket.  The start of the bucket is m_usecEnd-k_usecTimeBucketWidth
 		int m_nPingCount;
-		int m_nMinPing; // INT_NAX if we have not received one
-		int m_nMaxPing; // INT_MIN
+		int m_nMinPing; // INT_MAX if we have not received one
+		int m_nMaxPing; // INT_MIN if we have not received one
 	};
 	TimeBucket m_arTimeBuckets[ k_nTimeBucketCount ];
 	int m_idxCurrentBucket;
@@ -301,15 +296,6 @@ struct PingTrackerForRouteSelection : PingTracker
 		curBucket.m_nMaxPing = nPing;
 	}
 
-	/// Return true if the next ping received will start a new bucket
-	SteamNetworkingMicroseconds TimeToSendNextAntiFlapRouteCheckPingRequest() const
-	{
-		return std::min(
-			m_arTimeBuckets[ m_idxCurrentBucket ].m_usecEnd, // time to start next bucket
-			m_usecTimeLastSentPingRequest + k_usecAntiFlapRouteCheckPingInterval // and then send them at a given rate
-		);
-	}
-
 	// Get the min/max ping value among recent buckets.
 	// Returns the number of valid buckets used to collect the data.
 	int GetPingRangeFromRecentBuckets( int &nOutMin, int &nOutMax, SteamNetworkingMicroseconds usecNow ) const
@@ -337,6 +323,27 @@ struct PingTrackerForRouteSelection : PingTracker
 		nOutMax = nMax;
 		return nBucketsValid;
 	}
+};
+
+/// Before switching to a different route, we need to make sure that we have a ping
+/// sample in at least N recent time buckets.
+const int k_nRecentValidTimeBucketsToSwitchRoute = 15;
+
+/// Ping tracker for making real-time routing decisions, taking care
+/// to avoid flapping due to temporary ping fluctuations
+struct PingTrackerForRouteSelection : PingTrackerBuckets<k_nRecentValidTimeBucketsToSwitchRoute+2,k_nMillion>
+{
+	static constexpr SteamNetworkingMicroseconds k_usecAntiFlapRouteCheckPingInterval = 200*1000;
+
+	/// Return true if the next ping received will start a new bucket
+	SteamNetworkingMicroseconds TimeToSendNextAntiFlapRouteCheckPingRequest() const
+	{
+		return std::min(
+			m_arTimeBuckets[ m_idxCurrentBucket ].m_usecEnd, // time to start next bucket
+			m_usecTimeLastSentPingRequest + k_usecAntiFlapRouteCheckPingInterval // and then send them at a given rate
+		);
+	}
+
 };
 
 /// Token bucket rate limiter
