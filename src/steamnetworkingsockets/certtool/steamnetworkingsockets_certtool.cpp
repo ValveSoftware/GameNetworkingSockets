@@ -79,6 +79,8 @@ std::vector<SteamNetworkingPOPID> s_vecPOPIDs;
 std::vector<AppId_t> s_vecAppIDs;
 int s_nExpiryDays = k_nDefaultExpiryDays;
 bool s_bOutputJSON;
+bool s_bOutputValveSrcds;
+bool s_bOutputTrimWhitespace;
 picojson::object s_jsonOutput;
 
 static void PrintArgSummaryAndExit( int returnCode = 1 )
@@ -114,6 +116,9 @@ Options:
   --app APPID[,APPID...]       Restrict to appid(s).
   --expiry DAYS                Cert will expire in N days (default=%d)
   --output-json                Output JSON.
+  --trim-whitespace            Remove excess whitespace from output
+  --output-valve-srcds         Output in format useful for srcds web config
+                               (Value internal use.  Implies --trim-whitespace)
 )usage",
 	k_nDefaultExpiryDays
 );
@@ -156,6 +161,31 @@ static std::string PublicKeyIDAsString()
 	uint64 nKeyID = CalculatePublicKeyID( s_keyCertPub );
 	DbgVerify( nKeyID != 0 );
 	return KeyIDAsString( nKeyID );
+}
+
+static std::string CompressWhitespace( const char *s )
+{
+	char *tmp = new char[ strlen( s ) + 1 ];
+	char *d = tmp;
+	while ( isspace( *s ) )
+		++s;
+	while ( *s )
+	{
+		if ( isspace( *s ) )
+		{
+			++s;
+			while ( isspace( *s ) )
+				++s;
+			if ( *s == '\0' )
+				break;
+			*(d++) = ' ';
+		}
+
+		*(d++) = *(s++);
+	}
+	std::string result( tmp, d - tmp );
+	delete [] tmp;
+	return result;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -206,7 +236,8 @@ void GenKeyPair()
 	char text[ 16000 ];
 
 	DbgVerify( s_keyCertPub.GetAsOpenSSHAuthorizedKeys( text, sizeof(text), &cbText, sComment.c_str() ) );
-	Printf( "\nPublic key: %s\n", text );
+	if ( !s_bOutputValveSrcds )
+		Printf( "\nPublic key: %s\n", text );
 	AddPublicKeyInfoToJSON();
 
 	// Round trip sanity check
@@ -217,7 +248,12 @@ void GenKeyPair()
 	}
 
 	DbgVerify( privKey.GetAsPEM( text, sizeof(text), &cbText ) );
-	Printf( "%s\n", text );
+	if ( s_bOutputTrimWhitespace )
+		V_strcpy_safe( text, CompressWhitespace( text ).c_str() );
+	if ( s_bOutputValveSrcds )
+		Printf( "sdr_private_key = %s\n", text );
+	else
+		Printf( "%s\n", text );
 
 	s_jsonOutput[ "private_key" ] = picojson::value( text );
 
@@ -360,7 +396,13 @@ void CreateCert()
 	msgSigned.set_ca_key_id( nCAKeyID );
 	msgSigned.set_ca_signature( &sig, sizeof(sig) );
 
-	Printf( "%s", CertToPEM( msgSigned ).c_str() );
+	std::string pem = CertToPEM( msgSigned );
+	if ( s_bOutputTrimWhitespace )
+		pem = CompressWhitespace( pem.c_str() );
+	if ( s_bOutputValveSrcds )
+		Printf( "sdr_cert = %s\n", pem.c_str() );
+	else
+		Printf( "%s", pem.c_str() );
 
 	std::string pem_json = CertToBase64( msgSigned, "" );
 	s_jsonOutput[ "cert" ] = picojson::value( pem_json );
@@ -543,6 +585,19 @@ int main( int argc, char **argv )
 		if ( !V_stricmp( pszSwitch, "--output-json" ) )
 		{
 			s_bOutputJSON = true;
+			continue;
+		}
+
+		if ( !V_stricmp( pszSwitch, "--trim-whitespace" ) )
+		{
+			s_bOutputTrimWhitespace = true;
+			continue;
+		}
+
+		if ( !V_stricmp( pszSwitch, "--output-valve-srcds" ) )
+		{
+			s_bOutputValveSrcds = true;
+			s_bOutputTrimWhitespace = true;
 			continue;
 		}
 
