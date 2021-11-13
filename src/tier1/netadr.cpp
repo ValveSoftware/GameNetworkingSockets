@@ -1,12 +1,7 @@
 //========= Copyright Valve Corporation, All rights reserved. =================//
-//
-// Purpose: 
-//
-// NetAdr.cpp: implementation of the CNetAdr class.
-//
-//=============================================================================//
 
 #include <functional>
+
 #include <tier1/netadr.h>
 
 #ifdef WIN32
@@ -24,39 +19,46 @@ const byte k_ipv6Bytes_LinkLocalAllNodes[16] = { 0xff, 0x02, 0x00, 0x00, 0x00, 0
 const byte k_ipv6Bytes_Loopback[16]          = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01 }; // ::1
 const byte k_ipv6Bytes_Any[16]               = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 }; // ::0
 
-//////////////////////////////////////////////////////////////////////
-// Construction/Destruction
-//////////////////////////////////////////////////////////////////////
 
-void netadr_t::ToString( char *pchBuffer, uint32 unBufferSize, bool baseOnly ) const
+//---------------------------------------------------------------------------------
+//
+// CIPAddress
+//
+//---------------------------------------------------------------------------------
+
+//-----------------------------------------------------------------------------
+// Purpose: Convert the given IP address to a string representation.
+//			Optionally will include the given port if punPort is not null.
+//-----------------------------------------------------------------------------
+void CIPAddress::ToString( char *pchBuffer, uint32 unBufferSize, const uint16 *punPort ) const
 {
-	if (type == NA_LOOPBACK_DEPRECATED)
+	if (m_usType == k_EIPTypeLoopbackDeprecated)
 	{
 		V_strncpy (pchBuffer, "loopback", unBufferSize );
 	}
-	else if (type == NA_BROADCAST_DEPRECATED)
+	else if (m_usType == k_EIPTypeBroadcastDeprecated)
 	{
 		V_strncpy (pchBuffer, "broadcast", unBufferSize );
 	}
-	else if (type == NA_IP)
+	else if (m_usType == k_EIPTypeV4)
 	{
-		if ( baseOnly)
+		if ( !punPort )
 		{
-			V_snprintf(pchBuffer, unBufferSize, "%i.%i.%i.%i", ipv4.b1, ipv4.b2, ipv4.b3, ipv4.b4 );
+			V_snprintf(pchBuffer, unBufferSize, "%i.%i.%i.%i", m_IPv4Bytes.b1, m_IPv4Bytes.b2, m_IPv4Bytes.b3, m_IPv4Bytes.b4 );
 		}
 		else
 		{
-			V_snprintf(pchBuffer, unBufferSize, "%i.%i.%i.%i:%i", ipv4.b1, ipv4.b2, ipv4.b3, ipv4.b4, port );
+			V_snprintf(pchBuffer, unBufferSize, "%i.%i.%i.%i:%i", m_IPv4Bytes.b1, m_IPv4Bytes.b2, m_IPv4Bytes.b3, m_IPv4Bytes.b4, *punPort );
 		}
 	}
-	else if (type == NA_IPV6)
+	else if (m_usType == k_EIPTypeV6)
 	{
 		// Format IP into a temp that we know is big enough
 		char temp[ k_ncchMaxIPV6AddrStringWithPort ];
-		if ( baseOnly )
-			IPv6IPToString( temp, ipv6Byte );
+		if ( !punPort )
+			IPv6IPToString( temp, m_rgubIPv6 );
 		else
-			IPv6AddrToString( temp, ipv6Byte, port, ipv6Scope );
+			IPv6AddrToString( temp, m_rgubIPv6, *punPort, m_unIPv6Scope );
 
 		// Now put into caller's buffer, and handle truncation
 		V_strncpy( pchBuffer, temp, unBufferSize );
@@ -67,23 +69,36 @@ void netadr_t::ToString( char *pchBuffer, uint32 unBufferSize, bool baseOnly ) c
 	}
 }
 
-// Is the IP part of one of the reserved blocks?
-bool netadr_t::IsReservedAdr () const
+
+//-----------------------------------------------------------------------------
+// Purpose: Is this IP part of one of the reserved blocks?
+//-----------------------------------------------------------------------------
+bool CIPAddress::IsReservedAdr () const
 {
-	switch ( type )
+	// The code below will be incorrect if we are a ipv4-mapped-to-ipv6 address
+	// So - unmap ourselves to a temp CIPAddress and ask it
+	if ( IsMappedIPv4() )
 	{
-		case NA_LOOPBACK_DEPRECATED:
+		CIPAddress ipTemp = *this;
+		ipTemp.BConvertMappedToIPv4();
+		return ipTemp.IsReservedAdr();
+	}
+
+	switch ( m_usType )
+	{
+		case k_EIPTypeLoopbackDeprecated:
 			return true;
 
-		case NA_BROADCAST_DEPRECATED:
+		case k_EIPTypeBroadcastDeprecated:
 			// Makes no sense to me, but this is what the old code did
 			return false;
 
-		case NA_IP:
-			if ( (ipv4.b1 == 10) ||									// 10.x.x.x is reserved
-				(ipv4.b1 == 127) ||									// 127.x.x.x 
-				(ipv4.b1 == 172 && ipv4.b2 >= 16 && ipv4.b2 <= 31) ||	// 172.16.x.x  - 172.31.x.x 
-				(ipv4.b1 == 192 && ipv4.b2 >= 168) ) 					// 192.168.x.x
+		case k_EIPTypeV4:
+			if ( (m_IPv4Bytes.b1 == 10) ||									// 10.x.x.x is reserved
+				(m_IPv4Bytes.b1 == 127) ||									// 127.x.x.x 
+				(m_IPv4Bytes.b1 == 169 && m_IPv4Bytes.b2 == 254) ||			// 169.254.x.x is link-local ipv4
+				(m_IPv4Bytes.b1 == 172 && m_IPv4Bytes.b2 >= 16 && m_IPv4Bytes.b2 <= 31) ||	// 172.16.x.x  - 172.31.x.x 
+				(m_IPv4Bytes.b1 == 192 && m_IPv4Bytes.b2 >= 168) ) 					// 192.168.x.x
 			{
 				return true;
 			}
@@ -92,18 +107,18 @@ bool netadr_t::IsReservedAdr () const
 				return false;
 			}
 
-		case NA_IPV6:
+		case k_EIPTypeV6:
 			// Private addresses, fc00::/7
 			// Range is fc00:: to fdff:ffff:etc
-			if ( ipv6Byte[0] >= 0xFC && ipv6Byte[1] <= 0xFD )
+			if ( m_rgubIPv6[0] >= 0xFC && m_rgubIPv6[1] <= 0xFD )
 			{
 				return true;
 			}
 			
 			// Link-local fe80::/10
 			// Range is fe80:: to febf::
-			if ( ipv6Byte[0] == 0xFE
-				&& ( ipv6Byte[1] >= 0x80 && ipv6Byte[1] <= 0xBF ) )
+			if ( m_rgubIPv6[0] == 0xFE
+				&& ( m_rgubIPv6[1] >= 0x80 && m_rgubIPv6[1] <= 0xBF ) )
 			{
 				return true;
 			}
@@ -116,20 +131,25 @@ bool netadr_t::IsReservedAdr () const
 	return false;
 }
 
-bool netadr_t::HasIP() const
+
+//-----------------------------------------------------------------------------
+// Purpose: Does this object have an IP value set
+//-----------------------------------------------------------------------------
+bool CIPAddress::HasIP() const
 {
-	switch ( type )
+	switch ( m_usType )
 	{
 		default:
 			Assert( false );
-		case NA_NULL:
+			// FALLTHROUGH
+		case k_EIPTypeInvalid:
 			return false;
-		case NA_IP:
-			if ( ip == 0 )
+		case k_EIPTypeV4:
+			if ( m_unIPv4 == 0 )
 				return false;
 			break;
-		case NA_IPV6:
-			if ( ipv6Qword[0] == 0 && ipv6Qword[1] == 0 )
+		case k_EIPTypeV6:
+			if ( m_ipv6Qword[0] == 0 && m_ipv6Qword[1] == 0 )
 				return false;
 			break;
 	}
@@ -137,336 +157,279 @@ bool netadr_t::HasIP() const
 	return true;
 }
 
-bool netadr_t::HasPort() const
+//-----------------------------------------------------------------------------
+// Purpose: Compare this IP address with another for equality
+//-----------------------------------------------------------------------------
+bool CIPAddress::operator==(const CIPAddress &a) const
 {
-	return ( port != 0 );
-}
-
-bool netadr_t::IsValid() const
-{
-	return HasIP() && HasPort();
-}
-
-bool netadr_t::CompareAdr(const netadr_t &a, bool onlyBase) const
-{
-	if ( a.type != type )
+	if ( a.m_usType != m_usType )
 		return false;
 
-	if ( type == NA_IP )
+	if ( m_usType == k_EIPTypeV4 )
 	{
-		if ( !onlyBase && (port != a.port) )
-			return false;
-
-		if ( a.ip == ip )
+		if ( a.m_unIPv4 == m_unIPv4 )
 			return true;
 	}
-	else if ( type == NA_IPV6 )
+	else if ( m_usType == k_EIPTypeV6 )
 	{
-		if ( !onlyBase )
-		{
-			if ( port != a.port )
-				return false;
+		// NOTE: We are intentionally not comparing the scope here.
+		//       The examples where comparing the scope breaks simple
+		//       stuff in unexpected ways seems more common than examples
+		//       where you need to compare the scope.  If you need to compare
+		//       them, then do it yourself.
 
-			// NOTE: We are intentionally not comparing the scope here.
-			//       The examples where comparing the scope breaks simple
-			//       stuff in unexpected ways seems more common than examples
-			//       where you need to compare the scope.  If you need to compare
-			//       them, then do it yourself.
-		}
-
-		if ( a.ipv6Qword[0] == ipv6Qword[0] && a.ipv6Qword[1] == ipv6Qword[1] )
+		if ( a.m_ipv6Qword[0] == m_ipv6Qword[0] && a.m_ipv6Qword[1] == m_ipv6Qword[1] )
 			return true;
 	}
 
 	return false;
 }
 
-bool netadr_t::operator<(const netadr_t &netadr) const
+//-----------------------------------------------------------------------------
+// Purpose: Inequality comparison
+//-----------------------------------------------------------------------------
+bool CIPAddress::operator!=(const CIPAddress &netadr) const
 {
-	// NOTE: This differs from behaviour in Steam branch,
-	//       because Steam has some legacy behaviour it needed
-	//       to maintain.  We don't have this baggage and can
-	//       do the sane thing.
-	if ( type < netadr.type ) return true;
-	if ( type > netadr.type ) return false;
-	switch ( type )
-	{
-		case NA_IPV6:
-		{
-			int c = memcmp( ipv6Byte, netadr.ipv6Byte, sizeof(ipv6Byte) );
-			if ( c < 0 ) return true;
-			if ( c > 0 ) return false;
-				
-			// NOTE: Do not compare scope
-			break;
-		}
-			
-		case NA_IP:
-			if ( ip < netadr.ip ) return true;
-			if ( ip > netadr.ip ) return false;
-			break;
-	}
-
-	// Break tie using port
-	return port < netadr.port;
+	return !operator==(netadr);
 }
 
-unsigned int netadr_t::GetHashKey( const netadr_t &netadr )
+
+//-----------------------------------------------------------------------------
+// Purpose: For sorting lists/trees of IP addresses
+//-----------------------------------------------------------------------------
+bool CIPAddress::operator<(const CIPAddress &netadr) const
+{
+	if ( m_usType < netadr.m_usType ) return true;
+	if ( m_usType > netadr.m_usType ) return false;
+
+	// Types match
+	if ( m_usType == k_EIPTypeV6 )
+	{
+		int c = memcmp( m_rgubIPv6, netadr.m_rgubIPv6, sizeof(m_rgubIPv6) );
+		if ( c < 0 ) return true;
+		if ( c > 0 ) return false;
+	}
+	else
+	{
+		if ( m_unIPv4 < netadr.m_unIPv4 ) return true;
+		if ( m_unIPv4 > netadr.m_unIPv4 ) return false;
+	}
+
+	// equal
+	return false;
+}
+
+unsigned int CIPAddress::GetHashKey( const CIPAddress &netadr )
 {
 	// See: boost::hash_combine
 	size_t result;
-	switch ( netadr.type )
+	switch ( netadr.m_usType )
 	{
 		default:
-			result = std::hash<int>{}( netadr.type );
+			result = std::hash<int>{}( netadr.m_usType );
 			break;
 
-		case NA_IP:
-			result = std::hash<uint32>{}( netadr.ip );
-			result ^= std::hash<uint16>{}( netadr.port ) + 0x9e3779b9 + (result << 6) + (result >> 2);
+		case k_EIPTypeV4:
+			result = std::hash<uint32>{}( netadr.m_unIPv4 );
 			break;
 
-		case NA_IPV6:
-			result = std::hash<uint64>{}( netadr.ipv6Qword[0] );
-			result ^= std::hash<uint64>{}( netadr.ipv6Qword[1] ) + 0x9e3779b9 + (result << 6) + (result >> 2);
-			result ^= std::hash<uint16>{}( netadr.port ) + 0x9e3779b9 + (result << 6) + (result >> 2);
+		case k_EIPTypeV6:
+			result = std::hash<uint64>{}( netadr.m_ipv6Qword[0] );
+			result ^= std::hash<uint64>{}( netadr.m_ipv6Qword[1] ) + 0x9e3779b9 + (result << 6) + (result >> 2);
 			break;
 	}
 
 	return (unsigned int)result;
 }
 
-bool netadr_t::IsLoopback() const
+//-----------------------------------------------------------------------------
+// Purpose: Legacy - just returns HasIP()
+//-----------------------------------------------------------------------------
+bool CIPAddress::IsValid() const
 {
-	switch ( type )
+	return HasIP();
+}
+
+//-----------------------------------------------------------------------------
+// Purpose: Is this IP address a "loopback" special address, such as 127.0.0.1?
+//-----------------------------------------------------------------------------
+bool CIPAddress::IsLoopback() const
+{
+	// The code below will be incorrect if we are a ipv4-mapped-to-ipv6 address
+	// So - unmap ourselves to a temp CIPAddress and ask it
+	if ( IsMappedIPv4() )
 	{
-		case NA_NULL:
-		case NA_BROADCAST_DEPRECATED:
+		CIPAddress ipTemp = *this;
+		ipTemp.BConvertMappedToIPv4();
+		return ipTemp.IsLoopback();
+	}
+
+	switch ( m_usType )
+	{
+		case k_EIPTypeInvalid:
+		case k_EIPTypeBroadcastDeprecated:
 			return false;
-		case NA_LOOPBACK_DEPRECATED:
+		case k_EIPTypeLoopbackDeprecated:
 			return true;
-		case NA_IP:
-			return ( ip & 0xff000000 ) == 0x7f000000; // 127.x.x.x
-		case NA_IPV6:
-			return ipv6Qword[0] == 0 &&
+		case k_EIPTypeV4:
+			return ( m_unIPv4 & 0xff000000 ) == 0x7f000000; // 127.x.x.x
+		case k_EIPTypeV6:
+			return m_ipv6Qword[0] == 0 &&
 			#ifdef VALVE_BIG_ENDIAN
-				ipv6Qword[1] == 1;
+				m_ipv6Qword[1] == 1;
 			#else
-				ipv6Qword[1] == 0x0100000000000000ull;
+				m_ipv6Qword[1] == 0x0100000000000000ull;
 			#endif
 	}
 	Assert( false );
 	return false;
 }
 
-bool netadr_t::IsBroadcast() const
+//-----------------------------------------------------------------------------
+// Purpose: Is this IP address a broadcast address?
+//-----------------------------------------------------------------------------
+bool CIPAddress::IsBroadcast() const
 {
-	switch ( type )
+	// The code below will be incorrect if we are a ipv4-mapped-to-ipv6 address
+	// So - unmap ourselves to a temp CIPAddress and return it
+	if ( IsMappedIPv4() )
 	{
-		case NA_NULL:
-		case NA_LOOPBACK_DEPRECATED:
+		CIPAddress ipTemp = *this;
+		ipTemp.BConvertMappedToIPv4();
+		return ipTemp.IsBroadcast();
+	}
+
+	switch ( m_usType )
+	{
+		case k_EIPTypeInvalid:
+		case k_EIPTypeLoopbackDeprecated:
 			return false;
-		case NA_BROADCAST_DEPRECATED:
+		case k_EIPTypeBroadcastDeprecated:
 			return true;
-		case NA_IP:
-			return ip == 0xffffffff; // 255.255.255.255
-		case NA_IPV6:
+		case k_EIPTypeV4:
+			return m_unIPv4 == 0xffffffff; // 255.255.255.255
+		case k_EIPTypeV6:
 			// There might other IPs than could be construed as "broadcast",
 			// but just check for the one used by SetIPV6Broadcast()
-			return memcmp( ipv6Byte, k_ipv6Bytes_LinkLocalAllNodes, 16 ) == 0;
+			return memcmp( m_rgubIPv6, k_ipv6Bytes_LinkLocalAllNodes, 16 ) == 0;
 	}
 	Assert( false );
 	return false;
 }
 
-size_t netadr_t::ToSockadr(void *addr, size_t addr_size) const
+//-----------------------------------------------------------------------------
+// Purpose: Get the ipv6 bytes (network byte order) of this address. Works even
+//			if this is an m_IPv4Bytes address, it will return a "mapped" ipv6 address.
+//-----------------------------------------------------------------------------
+void CIPAddress::GetIPV6( byte *result ) const
 {
-	size_t struct_size = 0;
-	memset( addr, 0, addr_size);
-
-	switch ( type )
-	{
-		default:
-		case NA_NULL:
-			Assert( false );
-			break;
-
-		case NA_LOOPBACK_DEPRECATED:
-		{
-			if ( addr_size < sizeof(sockaddr_in) )
-			{
-				AssertMsg( false, "Address too small!" );
-				return struct_size;
-			}
-			auto *s = (struct sockaddr_in*)addr;
-			s->sin_family = AF_INET;
-			COMPILE_TIME_ASSERT( (uint32)INADDR_LOOPBACK == INADDR_LOOPBACK ); // Defined as a 64-bit value on some platforms.
-			s->sin_addr.s_addr = BigDWord( (uint32)INADDR_LOOPBACK );
-			s->sin_port = BigWord( port );
-			struct_size = sizeof(sockaddr_in);
-		}
-		break;
-
-		case NA_BROADCAST_DEPRECATED:
-		{
-			if ( addr_size < sizeof(sockaddr_in) )
-			{
-				AssertMsg( false, "Address too small!" );
-				return struct_size;
-			}
-			auto *s = (struct sockaddr_in*)addr;
-			s->sin_family = AF_INET;
-			COMPILE_TIME_ASSERT( (uint32)INADDR_BROADCAST == INADDR_BROADCAST ); // Defined as a 64-bit value on some platforms.
-			s->sin_addr.s_addr = BigDWord( (uint32)INADDR_BROADCAST );
-			s->sin_port = BigWord( port );
-			struct_size = sizeof(sockaddr_in);
-		}
-		break;
-
-		case NA_IP:
-		{
-			if ( addr_size < sizeof(sockaddr_in) )
-			{
-				AssertMsg( false, "Address too small!" );
-				return struct_size;
-			}
-			auto *s = (struct sockaddr_in*)addr;
-			s->sin_family = AF_INET;
-			s->sin_addr.s_addr = BigDWord( ip );
-			s->sin_port = BigWord( port );
-			struct_size = sizeof(sockaddr_in);
-		}
-		break;
-
-		case NA_IPV6:
-		{
-			if ( addr_size < sizeof(sockaddr_in6) )
-			{
-				AssertMsg( false, "Address too small!" );
-				return struct_size;
-			}
-			auto *s = (struct sockaddr_in6*)addr;
-			s->sin6_family = AF_INET6;
-			COMPILE_TIME_ASSERT( sizeof(s->sin6_addr) == sizeof(ipv6Byte) );
-			memcpy( &s->sin6_addr, ipv6Byte, sizeof(s->sin6_addr) );
-			s->sin6_scope_id = ipv6Scope;
-			s->sin6_port = BigWord( port );
-			struct_size = sizeof(sockaddr_in6);
-		}
-		break;
-	}
-
-	return struct_size;
-}
-
-void netadr_t::GetIPV6( byte *result ) const
-{
-	switch ( type )
+	switch ( m_usType )
 	{
 		default:
 			Assert( false );
-		case NA_NULL:
+			// FALLTHROUGH
+		case k_EIPTypeInvalid:
 			// ::
 			memset( result, 0, 16 );
 			break;
 
-		case NA_LOOPBACK_DEPRECATED:
+		case k_EIPTypeLoopbackDeprecated:
 			// ::1
 			memset( result, 0, 16 );
 			result[15] = 1;
 			return;
 
-		case NA_BROADCAST_DEPRECATED:
+		case k_EIPTypeBroadcastDeprecated:
 			memcpy( result, k_ipv6Bytes_LinkLocalAllNodes, 16 );
 			break;
 
-		case NA_IP:
+		case k_EIPTypeV4:
 			// ::ffff:aabb.ccdd
 			memset( result, 0, 10 );
 			result[10] = 0xff;
 			result[11] = 0xff;
-			result[12] = ipv4.b1;
-			result[13] = ipv4.b2;
-			result[14] = ipv4.b3;
-			result[15] = ipv4.b4;
+			result[12] = m_IPv4Bytes.b1;
+			result[13] = m_IPv4Bytes.b2;
+			result[14] = m_IPv4Bytes.b3;
+			result[15] = m_IPv4Bytes.b4;
 			break;
 
-		case NA_IPV6:
-			memcpy( result, ipv6Byte, 16 );
+		case k_EIPTypeV6:
+			memcpy( result, m_rgubIPv6, 16 );
 			break;
 	}
 }
 
-bool netadr_t::IsMappedIPv4() const
+
+//-----------------------------------------------------------------------------
+// Purpose: Is this an ipv6 address that is actually a mapped m_IPv4Bytes address
+//-----------------------------------------------------------------------------
+bool CIPAddress::IsMappedIPv4() const
 {
-	if ( type != NA_IPV6 )
+	if ( m_usType != k_EIPTypeV6 )
 		return false;
 	if (
-		ipv6Qword[0] != 0 // 0...7
-		|| ipv6Byte[8] != 0
-		|| ipv6Byte[9] != 0
-		|| ipv6Byte[10] != 0xff
-		|| ipv6Byte[11] != 0xff
+		m_ipv6Qword[0] != 0 // 0...7
+		|| m_rgubIPv6[8] != 0
+		|| m_rgubIPv6[9] != 0
+		|| m_rgubIPv6[10] != 0xff
+		|| m_rgubIPv6[11] != 0xff
 	) {
 		return false;
 	}
 	return true;
 }
 
-bool netadr_t::BConvertMappedToIPv4()
+
+//-----------------------------------------------------------------------------
+// Purpose: For an "m_IPv4Bytes address mapped into ipv6 space", this will internally 
+//			convert it to a plain m_IPv4Bytes address.
+//-----------------------------------------------------------------------------
+bool CIPAddress::BConvertMappedToIPv4()
 {
 	if ( !IsMappedIPv4() )
 		return false;
-	SetIPv4( ipv6Byte[12], ipv6Byte[13], ipv6Byte[14], ipv6Byte[15] );
+	SetIPv4( m_rgubIPv6[12], m_rgubIPv6[13], m_rgubIPv6[14], m_rgubIPv6[15] );
 	return true;
 }
 
-bool netadr_t::BConvertIPv4ToMapped()
+//-----------------------------------------------------------------------------
+// Purpose: For an m_IPv4Bytes address, this will internally convert it into a mapped
+//			address in ipv6 space.
+//-----------------------------------------------------------------------------
+bool CIPAddress::BConvertIPv4ToMapped()
 {
-	if ( type != NA_IP )
+	if ( m_usType != k_EIPTypeV4 )
 		return false;
 
 	// Copy off IPv4 address, since it shares the same memory
 	// as the IPv6 bytes.  And we don't want to write code that depends
 	// on how the memory is laid out or try to be clever.
-	uint8 b1 = ipv4.b1;
-	uint8 b2 = ipv4.b2;
-	uint8 b3 = ipv4.b3;
-	uint8 b4 = ipv4.b4;
+	uint8 b1 = m_IPv4Bytes.b1;
+	uint8 b2 = m_IPv4Bytes.b2;
+	uint8 b3 = m_IPv4Bytes.b3;
+	uint8 b4 = m_IPv4Bytes.b4;
 
-	type = NA_IPV6;
+	m_usType = k_EIPTypeV6;
 
 	// ::ffff:aabb.ccdd
-	memset( ipv6Byte, 0, 10 );
-	ipv6Byte[10] = 0xff;
-	ipv6Byte[11] = 0xff;
-	ipv6Byte[12] = b1;
-	ipv6Byte[13] = b2;
-	ipv6Byte[14] = b3;
-	ipv6Byte[15] = b4;
+	memset( m_rgubIPv6, 0, 10 );
+	m_rgubIPv6[10] = 0xff;
+	m_rgubIPv6[11] = 0xff;
+	m_rgubIPv6[12] = b1;
+	m_rgubIPv6[13] = b2;
+	m_rgubIPv6[14] = b3;
+	m_rgubIPv6[15] = b4;
 
-	ipv6Scope = 0;
+	m_unIPv6Scope = 0;
 
 	return true;
 }
 
-void netadr_t::ToSockadrIPV6(void *addr, size_t addr_size) const
-{
-	memset( addr, 0, addr_size);
-	if ( addr_size < sizeof(sockaddr_in6) )
-	{
-		AssertMsg( false, "Address too small!" );
-		return;
-	}
-	auto *s = (struct sockaddr_in6*)addr;
-	s->sin6_family = AF_INET6;
-	GetIPV6( s->sin6_addr.s6_addr );
-	if ( type == NA_IPV6 )
-		s->sin6_scope_id = ipv6Scope;
-	s->sin6_port = BigWord( port );
-}
-
-bool netadr_t::SetFromSockadr(const void *addr, size_t addr_size)
+//-----------------------------------------------------------------------------
+// Purpose: Initialize the object from a sockaddr structure. May be m_IPv4Bytes or ipv6.
+//-----------------------------------------------------------------------------
+bool CIPAddress::SetFromSockadr(const void *addr, size_t addr_size, uint16 *punPort )
 {
 	Clear();
 	const auto *s = (const sockaddr *)addr;
@@ -485,9 +448,11 @@ bool netadr_t::SetFromSockadr(const void *addr, size_t addr_size)
 				return false;
 			}
 			const auto *sin = (const sockaddr_in *)addr;
-			type = NA_IP;
-			ip = BigDWord( sin->sin_addr.s_addr );
-			port = BigWord( sin->sin_port );
+			m_usType = k_EIPTypeV4;
+			m_unIPv4 = ntohl ( sin->sin_addr.s_addr );
+			if ( punPort )
+				*punPort = ntohs( sin->sin_port );
+
 			return true;
 		}
 
@@ -499,11 +464,13 @@ bool netadr_t::SetFromSockadr(const void *addr, size_t addr_size)
 				return false;
 			}
 			const auto *sin6 = (const sockaddr_in6 *)addr;
-			type = NA_IPV6;
-			COMPILE_TIME_ASSERT( sizeof(sin6->sin6_addr) == sizeof(ipv6Byte) );
-			memcpy( ipv6Byte, &sin6->sin6_addr, sizeof(ipv6Byte) );
-			ipv6Scope = sin6->sin6_scope_id;
-			port = BigWord( sin6->sin6_port );
+			m_usType = k_EIPTypeV6;
+			COMPILE_TIME_ASSERT( sizeof(sin6->sin6_addr) == sizeof(m_rgubIPv6) );
+			memcpy( m_rgubIPv6, &sin6->sin6_addr, sizeof(m_rgubIPv6) );
+			m_unIPv6Scope = sin6->sin6_scope_id;
+			if ( punPort )
+				*punPort = ntohs( sin6->sin6_port );
+
 			return true;
 		}
 	}
@@ -511,33 +478,37 @@ bool netadr_t::SetFromSockadr(const void *addr, size_t addr_size)
 }
 
 
-bool netadr_t::SetFromString( const char *pch )
+//-----------------------------------------------------------------------------
+// Purpose: Initialize from a string representation of either an m_IPv4Bytes or ipv6
+//			address. Optionally can return the port number, if any was found 
+//			in the string.
+//-----------------------------------------------------------------------------
+bool CIPAddress::SetFromString( const char *pch, uint16 *punPort )
 {
+
 	Clear();
+
+	if ( punPort )
+		*punPort = 0;
 
 	if ( !pch || pch[0] == 0 )			// but let's not crash
 		return false;
 
 	if ( pch[0] >= '0' && pch[0] <= '9' && strchr( pch, '.' ) )
 	{
-		int n1, n2, n3, n4, n5;
+		int n1, n2, n3, n4, n5 = 0;
 		int nRes = sscanf( pch, "%d.%d.%d.%d:%d", &n1, &n2, &n3, &n4, &n5 );
 		if ( nRes >= 4 )
 		{
-			// Assume 0 for port, if we weren't able to parse one.
-			// Note that we could be accepting some bad IP addresses
-			// here that we probably should reject.  E.g. "1.2.3.4:garbage"
-			if ( nRes < 5 )
-				n5 = 0;
-			else if ( (uint16)n5 != n5 )
-				return false; // port number not 16-bit value
-
-			// Make sure octets are in range 0...255
-			if ( ( n1 | n2 | n3 | n4 ) & ~0xff )
+			// Make sure octets are in range 0...255 and port number is legit
+			if ( ( ( n1 | n2 | n3 | n4 ) & ~0xff ) || (uint16)n5 != n5 )
 				return false;
 
 			SetIPv4( n1, n2, n3, n4 );
-			SetPort( ( uint16 ) n5 );
+			if ( punPort )
+			{
+				*punPort = (uint16) n5;
+			}
 			return true;
 		}
 	}
@@ -545,12 +516,12 @@ bool netadr_t::SetFromString( const char *pch )
 	// IPv6?
 	int tmpPort;
 	uint32_t tmpScope;
-	if ( ParseIPv6Addr( pch, ipv6Byte, &tmpPort, &tmpScope ) )
+	if ( ParseIPv6Addr( pch, m_rgubIPv6, &tmpPort, &tmpScope ) )
 	{
-		type = NA_IPV6;
-		if ( tmpPort >= 0 )
-			port = (uint16)tmpPort;
-        ipv6Scope = tmpScope;
+		m_usType = k_EIPTypeV6;
+		if ( tmpPort >= 0 && punPort )
+			*punPort = (uint16)tmpPort;
+        m_unIPv6Scope = tmpScope;
 		return true;
 	}
 
@@ -558,4 +529,202 @@ bool netadr_t::SetFromString( const char *pch )
 	Clear();
 
 	return false;
+}
+//---------------------------------------------------------------------------------
+//
+// CIPAndPort
+//
+//---------------------------------------------------------------------------------
+
+//-----------------------------------------------------------------------------
+// Purpose: Convert the given IP+port combination to a string representation.
+//-----------------------------------------------------------------------------
+void CIPAndPort::ToString( char *pchBuffer, uint32 unBufferSize, bool baseOnly ) const
+{
+	CIPAddress::ToString( pchBuffer, unBufferSize, baseOnly ? nullptr : &m_usPort );
+}
+
+
+//-----------------------------------------------------------------------------
+// Purpose: Has a port value been set
+//-----------------------------------------------------------------------------
+bool CIPAndPort::HasPort() const
+{
+	return ( m_usPort != 0 );
+}
+
+//-----------------------------------------------------------------------------
+// Purpose: Legacy - only valid if both the IP and the Port are set
+//-----------------------------------------------------------------------------
+bool CIPAndPort::IsValid() const
+{
+	return HasIP() && HasPort();
+}
+
+
+
+
+
+//-----------------------------------------------------------------------------
+// Purpose: Compare m_unIPv4+port combo for equality
+//-----------------------------------------------------------------------------
+bool CIPAndPort::CompareAdr(const CIPAndPort &a, bool onlyBase) const
+{
+	if ( CIPAddress::operator==(a) )
+	{
+		if ( onlyBase )
+			return true;
+		else
+			return m_usPort == a.m_usPort;
+	}
+	else
+	{
+		return false;
+	}
+}
+
+
+//-----------------------------------------------------------------------------
+// Purpose: For sorting lists/trees of IP+port combinations
+//-----------------------------------------------------------------------------
+bool CIPAndPort::operator<(const CIPAndPort &netadr) const
+{
+	// If either address is IPv6, use sane behaviour
+	if ( m_usType == k_EIPTypeV6 || netadr.m_usType == k_EIPTypeV6 )
+	{
+		if ( m_usType < netadr.m_usType ) return true;
+		if ( m_usType > netadr.m_usType ) return false;
+		Assert( m_usType == k_EIPTypeV6 && netadr.m_usType == k_EIPTypeV6 );
+		int c = memcmp( m_rgubIPv6, netadr.m_rgubIPv6, sizeof(m_rgubIPv6) );
+		if ( c < 0 ) return true;
+		if ( c > 0 ) return false;
+	}
+	else
+	{
+		// Even if types differ, just compare the IP portion?
+		// This seems wrong to me, but I'm scared to change it
+		// in case I break existing behaviour
+		if ( m_unIPv4 < netadr.m_unIPv4 ) return true;
+		if ( m_unIPv4 > netadr.m_unIPv4 ) return false;
+	}
+
+	// port breaks the tie
+	return m_usPort < netadr.m_usPort;
+}
+
+unsigned int CIPAndPort::GetHashKey( const CIPAndPort &netadr )
+{
+	// See: boost::hash_combine
+	size_t result = CIPAddress::GetHashKey( netadr );
+	if ( netadr.m_usType != k_EIPTypeInvalid )
+	{
+		result ^= std::hash<uint16>{}( netadr.m_usPort ) + 0x9e3779b9 + (result << 6) + (result >> 2);
+	}
+
+	return (unsigned int)result;
+}
+
+
+
+//-----------------------------------------------------------------------------
+// Purpose: Convert this m_unIPv4+port to a 'sockaddr' structure
+//-----------------------------------------------------------------------------
+size_t CIPAndPort::ToSockadr(void *addr, size_t addr_size) const
+{
+	size_t struct_size = 0;
+	memset( addr, 0, addr_size);
+
+	switch ( m_usType )
+	{
+		default:
+		case k_EIPTypeInvalid:
+			Assert( false );
+			break;
+
+		case k_EIPTypeLoopbackDeprecated:
+		{
+			if ( addr_size < sizeof(sockaddr_in) )
+			{
+				AssertMsg( false, "Address too small!" );
+				return struct_size;
+			}
+			auto *s = (struct sockaddr_in*)addr;
+			s->sin_family = AF_INET;
+			s->sin_addr.s_addr =  htonl( INADDR_LOOPBACK );
+			s->sin_port = htons( m_usPort );
+			struct_size = sizeof(sockaddr_in);
+		}
+		break;
+
+		case k_EIPTypeBroadcastDeprecated:
+		{
+			if ( addr_size < sizeof(sockaddr_in) )
+			{
+				AssertMsg( false, "Address too small!" );
+				return struct_size;
+			}
+			auto *s = (struct sockaddr_in*)addr;
+			s->sin_family = AF_INET;
+			s->sin_addr.s_addr =  htonl( INADDR_BROADCAST );
+			s->sin_port = htons( m_usPort );
+			struct_size = sizeof(sockaddr_in);
+		}
+		break;
+
+		case k_EIPTypeV4:
+		{
+			if ( addr_size < sizeof(sockaddr_in) )
+			{
+				AssertMsg( false, "Address too small!" );
+				return struct_size;
+			}
+			auto *s = (struct sockaddr_in*)addr;
+			s->sin_family = AF_INET;
+			s->sin_addr.s_addr = htonl( m_unIPv4 );
+			s->sin_port = htons( m_usPort );
+			struct_size = sizeof(sockaddr_in);
+		}
+		break;
+
+		case k_EIPTypeV6:
+		{
+			if ( addr_size < sizeof(sockaddr_in6) )
+			{
+				AssertMsg( false, "Address too small!" );
+				return struct_size;
+			}
+			auto *s = (struct sockaddr_in6*)addr;
+			s->sin6_family = AF_INET6;
+			COMPILE_TIME_ASSERT( sizeof(s->sin6_addr) == sizeof(m_rgubIPv6) );
+			memcpy( &s->sin6_addr, m_rgubIPv6, sizeof(s->sin6_addr) );
+			s->sin6_scope_id = m_unIPv6Scope;
+			s->sin6_port = htons( m_usPort );
+			struct_size = sizeof(sockaddr_in6);
+		}
+		break;
+	}
+
+	return struct_size;
+}
+
+
+
+
+//-----------------------------------------------------------------------------
+// Purpose: Convert to an ipv6 sockaddr structure
+//-----------------------------------------------------------------------------
+void CIPAndPort::ToSockadrIPV6(void *addr, size_t addr_size) const
+{
+	memset( addr, 0, addr_size);
+	if ( addr_size < sizeof(sockaddr_in6) )
+	{
+		AssertMsg( false, "Address too small!" );
+		return;
+	}
+	auto *s = (struct sockaddr_in6*)addr;
+	s->sin6_family = AF_INET6;
+	GetIPV6( s->sin6_addr.s6_addr );
+	if ( m_usType == k_EIPTypeV6 )
+		s->sin6_scope_id = m_unIPv6Scope;
+	s->sin6_port = htons( m_usPort );
 }
