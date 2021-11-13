@@ -86,6 +86,9 @@ public:
 	/// and we should clean it up.
 	SteamNetworkingMicroseconds m_usecIdleTimeout;
 
+	/// Try if the app scheduled cleanup
+	bool m_bAppScheduledTimeout;
+
 	/// True if the current connection ever managed to go fully connected
 	bool m_bConnectionWasEverConnected;
 

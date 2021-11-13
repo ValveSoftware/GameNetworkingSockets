@@ -167,6 +167,7 @@ CMessagesEndPointSession::CMessagesEndPointSession(
 	, m_messageEndPointOwner( endPoint )
 {
 	m_pConnection = nullptr;
+	m_bAppScheduledTimeout = false;
 	m_bConnectionWasEverConnected = false;
 
 	MarkUsed( SteamNetworkingSockets_GetLocalTimestamp() );
@@ -183,6 +184,7 @@ CMessagesEndPointSession::~CMessagesEndPointSession()
 void CMessagesEndPointSession::MarkUsed( SteamNetworkingMicroseconds usecNow )
 {
 	m_usecIdleTimeout = usecNow + k_usecSteamNetworkingP2PSessionIdleTimeout;
+	m_bAppScheduledTimeout = false;
 	ScheduleThink();
 }
 
