@@ -1056,7 +1056,9 @@ void Test_netloopback_throughput()
 			// Time to print status?
 			if ( usecLastPrint + 500*1000 < usecNow )
 			{
-				double flElapsedSeconds = ( usecNow - usecStartTime ) * 1e-6;
+				SteamNetworkingMicroseconds usecElapsed = usecNow - usecStartTime;
+				assert( usecElapsed < k_usecSendTime * 2 );
+				double flElapsedSeconds = usecElapsed * 1e-6;
 				TEST_Printf( "Elapsed:%6.0fms   Sent:%7.0fK   Recv:%7.0fK = %5.0fK/sec  (Wire%6.3f kpkts/sec Qual %5.1f%%)\n",
 					flElapsedSeconds * 1e3,
 					cbBytesSent * 1e-3,
