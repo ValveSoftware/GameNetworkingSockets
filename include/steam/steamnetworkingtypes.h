@@ -1708,6 +1708,8 @@ inline void GetSteamNetworkingLocationPOPStringFromID( SteamNetworkingPOPID id, 
 /// The POPID "dev" is used in non-production environments for testing.
 const SteamNetworkingPOPID k_SteamDatagramPOPID_dev = ( (uint32)'d' << 16U ) | ( (uint32)'e' << 8U ) | (uint32)'v';
 
+#ifndef API_GEN
+
 /// Utility class for printing a SteamNetworkingPOPID.
 struct SteamNetworkingPOPIDRender
 {
@@ -1717,6 +1719,7 @@ private:
 	char buf[ 8 ];
 };
 
+#endif
 
 ///////////////////////////////////////////////////////////////////////////////
 //
