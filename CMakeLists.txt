@@ -34,10 +34,6 @@ if(SANITIZE_ADDRESS OR SANITIZE_THREAD OR SANITIZE_MEMORY OR SANITIZE_UNDEFINED)
 endif()
 
 include(FlagsMSVC)
-set(MSVC_RUNTIME "dynamic")
-configure_msvc_runtime()
-print_default_msvc_flags()
-
 add_definitions( -DVALVE_CRYPTO_ENABLE_25519 )
 if(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
 	add_definitions(
@@ -46,11 +42,18 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
 		)
 endif()
 
+option(BUILD_STATIC_LIB "Build the static link version of the client library" ON)
+option(BUILD_SHARED_LIB "Build the shared library version of the client library" ON)
+option(BUILD_EXAMPLES "Build the included examples" OFF)
+option(BUILD_TESTS "Build crypto, pki and network connection tests" OFF)
 option(LTO "Enable Link-Time Optimization" OFF)
 option(USE_STEAMWEBRTC "Build Google's WebRTC library to get ICE support for P2P" OFF)
 option(Protobuf_USE_STATIC_LIBS "Link with protobuf statically" OFF)
-option(GAMENETWORKINGSOCKETS_BUILD_EXAMPLES "Build the included example chat program" ON)
-option(GAMENETWORKINGSOCKETS_BUILD_TESTS "Build crypto, pki and network connection tests" ON)
+if(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
+	option(MSVC_CRT_STATIC "Link the MSVC CRT statically" OFF)
+	configure_msvc_runtime()
+	print_default_msvc_flags()
+endif()
 
 #
 # Primary crypto library (for AES, SHA256, etc)
@@ -213,11 +216,11 @@ function(set_target_common_gns_properties TGT)
 	)
 endfunction()
 
-if(GAMENETWORKINGSOCKETS_BUILD_EXAMPLES)
+if(BUILD_EXAMPLES)
 	add_subdirectory(examples)
 endif()
 
-if(GAMENETWORKINGSOCKETS_BUILD_TESTS)
+if(BUILD_TESTS)
 	add_subdirectory(tests)
 endif()
 

@@ -1,9 +1,5 @@
 macro(configure_msvc_runtime)
 	if(MSVC)
-		# Default to statically-linked runtime.
-		if("${MSVC_RUNTIME}" STREQUAL "")
-			set(MSVC_RUNTIME "static")
-		endif()
 		# Set compiler options.
 		set(variables
 			CMAKE_C_FLAGS_DEBUG
@@ -15,7 +11,7 @@ macro(configure_msvc_runtime)
 			CMAKE_CXX_FLAGS_RELEASE
 			CMAKE_CXX_FLAGS_RELWITHDEBINFO
 		)
-		if(${MSVC_RUNTIME} STREQUAL "static")
+		if(MSVC_CRT_STATIC)
 			message(STATUS "MSVC -> forcing use of statically-linked runtime.")
 			foreach(variable ${variables})
 				if(${variable} MATCHES "/MD")
