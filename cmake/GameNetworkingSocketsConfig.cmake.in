@@ -28,19 +28,35 @@ if(${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.11.0")
     # Also, setting IMPORTED_GLOBAL from another directory from where it was first set blows up
     # so we can only set it once.
 
-    get_target_property(GNS_IMPORTED_GLOBAL_SET GameNetworkingSockets::GameNetworkingSockets IMPORTED_GLOBAL)
+    if(@BUILD_SHARED_LIB@)
+        get_target_property(GNS_IMPORTED_GLOBAL_SET GameNetworkingSockets::GameNetworkingSockets IMPORTED_GLOBAL)
 
-    if(NOT ${GNS_IMPORTED_GLOBAL_SET})
-        set_target_properties(
-            GameNetworkingSockets::GameNetworkingSockets GameNetworkingSockets::GameNetworkingSockets_s
-            PROPERTIES IMPORTED_GLOBAL True
-        )
+        if(NOT ${GNS_IMPORTED_GLOBAL_SET})
+            set_target_properties(
+                GameNetworkingSockets::GameNetworkingSockets
+                PROPERTIES IMPORTED_GLOBAL True
+            )
+        endif()
+
+        unset(GNS_IMPORTED_GLOBAL_SET)
+
+        add_library(GameNetworkingSockets::shared ALIAS GameNetworkingSockets::GameNetworkingSockets)
     endif()
 
-    unset(GNS_IMPORTED_GLOBAL_SET)
+    if(@BUILD_STATIC_LIB@)
+        get_target_property(GNS_IMPORTED_GLOBAL_SET GameNetworkingSockets::GameNetworkingSockets_s IMPORTED_GLOBAL)
 
-    add_library(GameNetworkingSockets::shared ALIAS GameNetworkingSockets::GameNetworkingSockets)
-    add_library(GameNetworkingSockets::static ALIAS GameNetworkingSockets::GameNetworkingSockets_s)
+        if(NOT ${GNS_IMPORTED_GLOBAL_SET})
+            set_target_properties(
+                GameNetworkingSockets::GameNetworkingSockets_s
+                PROPERTIES IMPORTED_GLOBAL True
+            )
+        endif()
+
+        unset(GNS_IMPORTED_GLOBAL_SET)
+
+        add_library(GameNetworkingSockets::static ALIAS GameNetworkingSockets::GameNetworkingSockets_s)
+    endif()
 endif()
 
 check_required_components(GameNetworkingSockets)
