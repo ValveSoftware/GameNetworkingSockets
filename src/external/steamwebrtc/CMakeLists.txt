@@ -11,6 +11,7 @@ find_package(absl QUIET)
 
 if(NOT absl_FOUND)
 	set(STEAMWEBRTC_ABSL_SOURCE submodule PARENT_SCOPE)
+	set(STEAMWEBRTC_ABSL_SOURCE submodule)
 
 	set(abseil_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../abseil)
 	if(NOT EXISTS ${abseil_SOURCE_DIR}/CMakeLists.txt)
@@ -22,6 +23,7 @@ if(NOT absl_FOUND)
 	endif()
 else()
 	set(STEAMWEBRTC_ABSL_SOURCE package PARENT_SCOPE)
+	set(STEAMWEBRTC_ABSL_SOURCE package)
 endif()
 
 set(webrtc_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../webrtc)
@@ -783,7 +785,16 @@ set_property(TARGET steamwebrtc PROPERTY POSITION_INDEPENDENT_CODE ON)
 install(
 	TARGETS
 		steamwebrtc webrtc-lite
+	EXPORT steamwebrtc
 	LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
 	ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
 	RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 	)
+
+if (NOT STEAMWEBRTC_ABSL_SOURCE STREQUAL submodule)
+	install(
+		EXPORT steamwebrtc
+		DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/GameNetworkingSockets
+		NAMESPACE GameNetworkingSockets::
+		)
+endif()

@@ -16,6 +16,10 @@ if(@STEAMWEBRTC_ABSL_SOURCE@ STREQUAL "package")
     find_dependency(absl REQUIRED)
 endif()
 
+if(@USE_STEAMWEBRTC@)
+    include(${CMAKE_CURRENT_LIST_DIR}/steamwebrtc.cmake)
+endif()
+
 include(${CMAKE_CURRENT_LIST_DIR}/GameNetworkingSockets.cmake)
 
 if(${CMAKE_VERSION} VERSION_GREATER_EQUAL "3.11.0")
