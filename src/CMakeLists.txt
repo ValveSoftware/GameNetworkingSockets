@@ -189,7 +189,8 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 			STEAMWEBRTC_USE_STATIC_LIBS
 			)
 		target_link_libraries(${GNS_TARGET} PUBLIC
-			steamwebrtc
+			$<BUILD_INTERFACE:steamwebrtc>
+			$<INSTALL_INTERFACE:GameNetworkingSockets::steamwebrtc>
 			)
 	endif()
 
@@ -308,36 +309,33 @@ endif()
 install(DIRECTORY ../include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/GameNetworkingSockets)
 
 # Export file required for find_package(GameNetworkingSockets CONFIG) to work
-# There's some issues around getting this to work properly when WebRTC is enabled.
-if(NOT (USE_STEAMWEBRTC))
-	install(
-		EXPORT GameNetworkingSockets
-		DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/GameNetworkingSockets
-		NAMESPACE GameNetworkingSockets::
-		)
+install(
+	EXPORT GameNetworkingSockets
+	DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/GameNetworkingSockets
+	NAMESPACE GameNetworkingSockets::
+	)
 
-	include(CMakePackageConfigHelpers)
+include(CMakePackageConfigHelpers)
 
-	# Ensure that variables used in GameNetworkingSocketsConfig.cmake.in have some value
-	# rather than an empty string.
-	if(NOT USE_CRYPTO)
-		set(USE_CRYPTO USE_CRYPTO-NOTFOUND)
-	endif()
-
-	if(NOT STEAMWEBRTC_ABSL_SOURCE)
-		set(STEAMWEBRTC_ABSL_SOURCE STEAMWEBRTC_ABSL_SOURCE-NOTFOUND)
-	endif()
-
-	configure_package_config_file(../cmake/GameNetworkingSocketsConfig.cmake.in
-		${CMAKE_CURRENT_BINARY_DIR}/GameNetworkingSocketsConfig.cmake
-		INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/GameNetworkingSockets
-		PATH_VARS CMAKE_INSTALL_FULL_INCLUDEDIR
-		)
-
-	install(FILES 
-		${CMAKE_CURRENT_BINARY_DIR}/GameNetworkingSocketsConfig.cmake
-		DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/GameNetworkingSockets
-		)
+# Ensure that variables used in GameNetworkingSocketsConfig.cmake.in have some value
+# rather than an empty string.
+if(NOT USE_CRYPTO)
+	set(USE_CRYPTO USE_CRYPTO-NOTFOUND)
 endif()
+
+if(NOT STEAMWEBRTC_ABSL_SOURCE)
+	set(STEAMWEBRTC_ABSL_SOURCE STEAMWEBRTC_ABSL_SOURCE-NOTFOUND)
+endif()
+
+configure_package_config_file(../cmake/GameNetworkingSocketsConfig.cmake.in
+	${CMAKE_CURRENT_BINARY_DIR}/GameNetworkingSocketsConfig.cmake
+	INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/GameNetworkingSockets
+	PATH_VARS CMAKE_INSTALL_FULL_INCLUDEDIR
+	)
+
+install(FILES 
+	${CMAKE_CURRENT_BINARY_DIR}/GameNetworkingSocketsConfig.cmake
+	DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/GameNetworkingSockets
+	)
 
 # vim: set ts=4 sts=4 sw=4 noet:
