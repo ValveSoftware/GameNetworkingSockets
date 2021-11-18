@@ -15,7 +15,8 @@ Building
     minor changes, so the source is included in this project.)
   * libsodium
   * [bcrypt](https://docs.microsoft.com/en-us/windows/desktop/api/bcrypt/)
-    (windows only)
+    (Windows only.  Note the primary reason this is supported is to satisfy
+    an Xbox requuirement.)
 * Google protobuf 2.6.1+
 * Google [webrtc](https://opensource.google/projects/webrtc) is used for
   NAT piercing (ICE) for P2P connections.  The relevant code is linked in as a
@@ -64,6 +65,8 @@ The following instructions assume that you will follow the vcpkg recommendations
 vcpkg as a subfolder.  If you want to install vcpkg somewhere else, you're on your own.
 See the [quick start](https://github.com/microsoft/vcpkg/#quick-start-windows) for more info.
 
+If you don't want to use vcpkg, try the [manual instructions](BUILDING_WINDOWS_MANUAL.md)
+
 First, bootstrap vcpkg.  From the root folder of your GameNetworkingSockets workspace:
 
 ```
@@ -84,9 +87,89 @@ The library should be immediately available in Visual Studio projects if
 the vcpkg integration is installed, or the vcpkg CMake toolchain file can
 be used for CMake-based projects.
 
-### Manual setup
+## Mac OS X
 
-Setting up the dependencies by hand is a bit of an arduous gauntlet.
+Using [Homebrew](https://brew.sh)
+
+### OpenSSL
+
+```
+$ brew install openssl
+$ export PKG_CONFIG_PATH=$PKG_CONFIG_PATH:/usr/local/opt/openssl/lib/pkgconfig
+```
+GameNetworkingSockets requries openssl version 1.1+, so if you install and link openssl but at compile you see the error ```Dependency libcrypto found: NO (tried cmake and framework)``` you'll need to force Brew to install openssl 1.1. You can do that like this:
+```
+$ brew install openssl@1.1
+$ export PKG_CONFIG_PATH=$PKG_CONFIG_PATH:/usr/local/opt/openssl@1.1/lib/pkgconfig
+```
+
+### protobuf
+
+```
+$ brew install protobuf
+```
+
+## MSYS2
+
+You can also build this project on [MSYS2](https://www.msys2.org). First,
+follow the [instructions](https://github.com/msys2/msys2/wiki/MSYS2-installation) on the
+MSYS2 website for updating your MSYS2 install.
+
+**Be sure to follow the instructions at the site above to update MSYS2 before
+you continue. A fresh install is *not* up to date by default.**
+
+Next install the dependencies for building GameNetworkingSockets (if you want
+a 32-bit build, install the i686 versions of these packages):
+
+```
+$ pacman -S \
+    git \
+    mingw-w64-x86_64-gcc \
+    mingw-w64-x86_64-openssl \
+    mingw-w64-x86_64-pkg-config \
+    mingw-w64-x86_64-protobuf
+```
+
+And finally, clone the repository and build it:
+
+```
+$ git clone https://github.com/ValveSoftware/GameNetworkingSockets.git
+$ cd GameNetworkingSockets
+$ mkdir build
+$ cd build
+$ cmake -G Ninja ..
+$ ninja
+```
+
+**NOTE:** When building with MSYS2, be sure you launch the correct version of
+the MSYS2 terminal, as the three different Start menu entries will give you
+different environment variables that will affect the build.  You should run the
+Start menu item named `MSYS2 MinGW 64-bit` or `MSYS2 MinGW 32-bit`, depending
+on the packages you've installed and what architecture you want to build
+GameNetworkingSockets for.
+
+
+## Visual Studio Code
+If you're using Visual Studio Code, we have a few extensions to recommend
+installing, which will help build the project. Once you have these extensions
+installed, open up the .code-workspace file in Visual Studio Code.
+
+### C/C++ by Microsoft
+This extension provides IntelliSense support for C/C++.
+
+VS Marketplace Link: https://marketplace.visualstudio.com/items?itemName=ms-vscode.cpptools
+
+### CMake Tools by vector-of-bool
+This extension allows for configuring the CMake project and building it from
+within the Visual Studio Code IDE.
+
+VS Marketplace Link: https://marketplace.visualstudio.com/items?itemName=vector-of-bool.cmake-tools
+
+### Windows Manual setup
+
+If you are on Windows and don't want to use vcpkg, you might try these instructions.
+This is a bit of an arduous gauntlet, and this method is no longer supported, but
+we didn't delete these instructions in case somebody finds them useful.
 
 #### OpenSSL
 
@@ -197,80 +280,4 @@ Finally, perform the build
 C:\dev\GameNetworkingSockets\build> ninja
 ```
 
-## Mac OS X
 
-Using [Homebrew](https://brew.sh)
-
-### OpenSSL
-
-```
-$ brew install openssl
-$ export PKG_CONFIG_PATH=$PKG_CONFIG_PATH:/usr/local/opt/openssl/lib/pkgconfig
-```
-GameNetworkingSockets requries openssl version 1.1+, so if you install and link openssl but at compile you see the error ```Dependency libcrypto found: NO (tried cmake and framework)``` you'll need to force Brew to install openssl 1.1. You can do that like this:
-```
-$ brew install openssl@1.1
-$ export PKG_CONFIG_PATH=$PKG_CONFIG_PATH:/usr/local/opt/openssl@1.1/lib/pkgconfig
-```
-
-### protobuf
-
-```
-$ brew install protobuf
-```
-
-## MSYS2
-
-You can also build this project on [MSYS2](https://www.msys2.org). First,
-follow the [instructions](https://github.com/msys2/msys2/wiki/MSYS2-installation) on the
-MSYS2 website for updating your MSYS2 install.
-
-**Be sure to follow the instructions at the site above to update MSYS2 before
-you continue. A fresh install is *not* up to date by default.**
-
-Next install the dependencies for building GameNetworkingSockets (if you want
-a 32-bit build, install the i686 versions of these packages):
-
-```
-$ pacman -S \
-    git \
-    mingw-w64-x86_64-gcc \
-    mingw-w64-x86_64-openssl \
-    mingw-w64-x86_64-pkg-config \
-    mingw-w64-x86_64-protobuf
-```
-
-And finally, clone the repository and build it:
-
-```
-$ git clone https://github.com/ValveSoftware/GameNetworkingSockets.git
-$ cd GameNetworkingSockets
-$ mkdir build
-$ cd build
-$ cmake -G Ninja ..
-$ ninja
-```
-
-**NOTE:** When building with MSYS2, be sure you launch the correct version of
-the MSYS2 terminal, as the three different Start menu entries will give you
-different environment variables that will affect the build.  You should run the
-Start menu item named `MSYS2 MinGW 64-bit` or `MSYS2 MinGW 32-bit`, depending
-on the packages you've installed and what architecture you want to build
-GameNetworkingSockets for.
-
-
-## Visual Studio Code
-If you're using Visual Studio Code, we have a few extensions to recommend
-installing, which will help build the project. Once you have these extensions
-installed, open up the .code-workspace file in Visual Studio Code.
-
-### C/C++ by Microsoft
-This extension provides IntelliSense support for C/C++.
-
-VS Marketplace Link: https://marketplace.visualstudio.com/items?itemName=ms-vscode.cpptools
-
-### CMake Tools by vector-of-bool
-This extension allows for configuring the CMake project and building it from
-within the Visual Studio Code IDE.
-
-VS Marketplace Link: https://marketplace.visualstudio.com/items?itemName=vector-of-bool.cmake-tools

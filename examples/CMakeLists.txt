@@ -43,7 +43,7 @@ if(${CMAKE_PROJECT_NAME} STREQUAL "gns_example")
 	find_package(GameNetworkingSockets CONFIG REQUIRED)
 endif()
 
-target_link_libraries(example_chat GameNetworkingSockets::GameNetworkingSockets)
+target_link_libraries(example_chat GameNetworkingSockets::shared)
 
 if(COMMAND add_sanitizers)
 	add_sanitizers(example_chat)

@@ -1,9 +1,11 @@
 if(SANITIZE)
 	add_definitions(-DSANITIZER)
-	set( GAMENETWORKINGSOCKETS_LIB GameNetworkingSockets_s )
-else()
-	set( GAMENETWORKINGSOCKETS_LIB GameNetworkingSockets )
 endif()
+
+# Let's always link all tests statically with the lib
+# To keep things simple.  (Since some of the tests MUST
+# link statically)
+set( GAMENETWORKINGSOCKETS_LIB "GameNetworkingSockets::static" )
 
 add_executable(
 	test_connection
@@ -19,7 +21,7 @@ add_executable(
 	)
 set_target_common_gns_properties( test_crypto )
 target_include_directories(test_crypto PRIVATE ../src ../src/public ../src/common ../include)
-target_link_libraries(test_crypto GameNetworkingSockets_s)
+target_link_libraries(test_crypto GameNetworkingSockets::static)
 add_sanitizers(test_crypto)
 
 # Test data for the crypto test when the project is built

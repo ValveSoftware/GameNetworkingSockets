@@ -62,7 +62,7 @@ set(useCryptoOptions OpenSSL libsodium BCrypt)
 set(USE_CRYPTO "OpenSSL" CACHE STRING "Crypto library to use for AES/SHA256")
 set_property(CACHE USE_CRYPTO PROPERTY STRINGS ${useCryptoOptions})
 
-list(FIND useCryptoOptions ${USE_CRYPTO} useCryptoIndex)
+list(FIND useCryptoOptions "${USE_CRYPTO}" useCryptoIndex)
 if(useCryptoIndex EQUAL -1)
 	message(FATAL_ERROR "USE_CRYPTO must be one of: ${useCryptoOptions}")
 endif()
@@ -217,10 +217,18 @@ function(set_target_common_gns_properties TGT)
 endfunction()
 
 if(BUILD_EXAMPLES)
+	if ( NOT BUILD_SHARED_LIB )
+		# See also portfile.cmake
+		message(FATAL_ERROR "Must build shared lib (-DBUILD_SHARED_LIB=ON) to build examples")
+	endif()
 	add_subdirectory(examples)
 endif()
 
 if(BUILD_TESTS)
+	if ( NOT BUILD_STATIC_LIB )
+		# See also portfile.cmake
+		message(FATAL_ERROR "Must build static lib (-DBUILD_STATIC_LIB=ON) to build tests")
+	endif()
 	add_subdirectory(tests)
 endif()
 
