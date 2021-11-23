@@ -225,9 +225,9 @@ void CConnectionTransportP2PICE::Init()
 			}
 		}
 		if (vecTurnServers.empty())
-			SpewWarningGroup(LogLevel_P2PRendezvous(), "[%s] Reflexive candidates enabled by P2P_Transport_ICE_Enable, but P2P_STUN_ServerList is empty\n", ConnectionDescription());
+			SpewWarningGroup(LogLevel_P2PRendezvous(), "[%s] Reflexive candidates enabled by P2P_Transport_ICE_Enable, but P2P_TURN_ServerList is empty\n", ConnectionDescription());
 		else
-			SpewVerboseGroup(LogLevel_P2PRendezvous(), "[%s] Using STUN server list: %s\n", ConnectionDescription(), m_connection.m_connectionConfig.m_P2P_TURN_ServerList.Get().c_str());
+			SpewVerboseGroup(LogLevel_P2PRendezvous(), "[%s] Using TURN server list: %s\n", ConnectionDescription(), m_connection.m_connectionConfig.m_P2P_TURN_ServerList.Get().c_str());
 
 		// If turn arrays lengths (servers, users and passes) are not match, treat all TURN servers as unauthenticated
 		if (vecTurnServers.size() != vecTurnUsers.size() || vecTurnServers.size() != vecTurnPasses.size())
@@ -238,7 +238,7 @@ void CConnectionTransportP2PICE::Init()
 	}
 	else
 	{
-		SpewVerboseGroup(LogLevel_P2PRendezvous(), "[%s] Not using STUN servers as per P2P_Transport_ICE_Enable\n", ConnectionDescription());
+		SpewVerboseGroup(LogLevel_P2PRendezvous(), "[%s] Not using TURN servers as per P2P_Transport_ICE_Enable\n", ConnectionDescription());
 	}
 
 	// Populate TurnServers configs
