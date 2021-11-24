@@ -2660,7 +2660,7 @@ void CSteamNetworkConnectionBase::PostConnectionStateChangedCallback( ESteamNetw
 	// Send API callback for this state change?
 	// Do not post if connection state has not changed from an API perspective.
 	// And don't post notifications for internal connections used by ad-hoc-style endpoints.
-	if ( eOldAPIState != eNewAPIState && !m_pMessagesEndPointSessionOwner )
+	if ( eOldAPIState != eNewAPIState )
 	{
 
 		SteamNetConnectionStatusChangedCallback_t c;
