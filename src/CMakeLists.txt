@@ -7,31 +7,19 @@ include(GNUInstallDirs)
 find_package(Protobuf REQUIRED)
 find_package(Threads REQUIRED)
 
-set(GNS_PROTOS
+set(GNS_COMMON_PROTOS
 	"common/steamnetworkingsockets_messages_certs.proto"
 	"common/steamnetworkingsockets_messages.proto"
+	)
+set(GNS_CLIENTLIB_PROTOS
 	"common/steamnetworkingsockets_messages_udp.proto"
 	)
 
-set(GNS_SRCS
-	"common/crypto.cpp"
-	"common/crypto_textencode.cpp"
-	"common/keypair.cpp"
+set(GNS_COMMON_SRCS
 	"common/steamid.cpp"
-	"steamnetworkingsockets/clientlib/csteamnetworkingsockets.cpp"
-	"steamnetworkingsockets/clientlib/csteamnetworkingmessages.cpp"
-	"steamnetworkingsockets/clientlib/steamnetworkingsockets_flat.cpp"
-	"steamnetworkingsockets/clientlib/steamnetworkingsockets_connections.cpp"
-	"steamnetworkingsockets/clientlib/steamnetworkingsockets_lowlevel.cpp"
-	"steamnetworkingsockets/clientlib/steamnetworkingsockets_p2p.cpp"
-	"steamnetworkingsockets/clientlib/steamnetworkingsockets_p2p_ice.cpp"
-	"steamnetworkingsockets/clientlib/steamnetworkingsockets_snp.cpp"
-	"steamnetworkingsockets/clientlib/steamnetworkingsockets_udp.cpp"
 	"steamnetworkingsockets/steamnetworkingsockets_certs.cpp"
 	"steamnetworkingsockets/steamnetworkingsockets_certstore.cpp"
 	"steamnetworkingsockets/steamnetworkingsockets_shared.cpp"
-	"steamnetworkingsockets/steamnetworkingsockets_stats.cpp"
-	"steamnetworkingsockets/steamnetworkingsockets_thinker.cpp"
 	"tier0/dbg.cpp"
 	"tier0/platformtime.cpp"
 	"tier1/netadr.cpp"
@@ -41,16 +29,36 @@ set(GNS_SRCS
 	"vstdlib/strtools.cpp"
 	)
 
+set(GNS_CLIENTLIB_SRCS
+	"steamnetworkingsockets/steamnetworkingsockets_stats.cpp"
+	"steamnetworkingsockets/steamnetworkingsockets_thinker.cpp"
+	"steamnetworkingsockets/clientlib/csteamnetworkingsockets.cpp"
+	"steamnetworkingsockets/clientlib/csteamnetworkingmessages.cpp"
+	"steamnetworkingsockets/clientlib/steamnetworkingsockets_flat.cpp"
+	"steamnetworkingsockets/clientlib/steamnetworkingsockets_connections.cpp"
+	"steamnetworkingsockets/clientlib/steamnetworkingsockets_lowlevel.cpp"
+	"steamnetworkingsockets/clientlib/steamnetworkingsockets_p2p.cpp"
+	"steamnetworkingsockets/clientlib/steamnetworkingsockets_p2p_ice.cpp"
+	"steamnetworkingsockets/clientlib/steamnetworkingsockets_snp.cpp"
+	"steamnetworkingsockets/clientlib/steamnetworkingsockets_udp.cpp"
+)
+
+set(GNS_CRYPTO_SRCS
+	"common/crypto.cpp"
+	"common/crypto_textencode.cpp"
+	"common/keypair.cpp"
+	)
+
 if(USE_CRYPTO STREQUAL "BCrypt")
 	set(GNS_CRYPTO_DEFINES ${GNS_CRYPTO_DEFINES} STEAMNETWORKINGSOCKETS_CRYPTO_BCRYPT ED25519_HASH_BCRYPT)
-	set(GNS_SRCS ${GNS_SRCS}
+	set(GNS_CRYPTO_SRCS ${GNS_CRYPTO_SRCS}
 		"common/crypto_bcrypt.cpp"
 		)
 endif()
 
 if(USE_CRYPTO STREQUAL "OpenSSL")
 	set(GNS_CRYPTO_DEFINES ${GNS_CRYPTO_DEFINES} STEAMNETWORKINGSOCKETS_CRYPTO_VALVEOPENSSL)
-	set(GNS_SRCS ${GNS_SRCS}
+	set(GNS_CRYPTO_SRCS ${GNS_CRYPTO_SRCS}
 		"common/crypto_openssl.cpp"
 		"common/opensslwrapper.cpp"
 		)
@@ -58,21 +66,21 @@ endif()
 
 if(USE_CRYPTO STREQUAL "libsodium")
 	set(GNS_CRYPTO_DEFINES ${GNS_CRYPTO_DEFINES} STEAMNETWORKINGSOCKETS_CRYPTO_LIBSODIUM)
-	set(GNS_SRCS ${GNS_SRCS}
+	set(GNS_CRYPTO_SRCS ${GNS_CRYPTO_SRCS}
 		"common/crypto_libsodium.cpp")
 endif()
 
 # Use OpenSSL for 25519 if possible
 if(USE_CRYPTO25519 STREQUAL "OpenSSL")
 	set(GNS_CRYPTO_DEFINES  ${GNS_CRYPTO_DEFINES} STEAMNETWORKINGSOCKETS_CRYPTO_25519_OPENSSL)
-	set(GNS_SRCS ${GNS_SRCS}
+	set(GNS_CRYPTO_SRCS ${GNS_CRYPTO_SRCS}
 		"common/crypto_25519_openssl.cpp"
 		)
 endif()
 
 if(USE_CRYPTO25519 STREQUAL "libsodium")
 	set(GNS_CRYPTO_DEFINES ${GNS_CRYPTO_DEFINES} STEAMNETWORKINGSOCKETS_CRYPTO_25519_LIBSODIUM)
-	set(GNS_SRCS ${GNS_SRCS}
+	set(GNS_CRYPTO_SRCS ${GNS_CRYPTO_SRCS}
 		"common/crypto_25519_libsodium.cpp"
 		)
 endif()
@@ -80,7 +88,7 @@ endif()
 # Use reference 25519 crypto implementation?
 if(USE_CRYPTO25519 STREQUAL "Reference")
 	set(GNS_CRYPTO_DEFINES ${GNS_CRYPTO_DEFINES} VALVE_CRYPTO_25519_DONNA)
-	set(GNS_SRCS ${GNS_SRCS}
+	set(GNS_CRYPTO_SRCS ${GNS_CRYPTO_SRCS}
 		"common/crypto_25519_donna.cpp"
 		"external/curve25519-donna/curve25519.c"
 		"external/curve25519-donna/curve25519_VALVE_sse2.c"
@@ -146,12 +154,64 @@ if(NOT SANITIZE_UNDEFINED)
 		)
 endif()
 
-protobuf_generate_cpp(GNS_PROTO_SRCS GNS_PROTO_HDRS ${GNS_PROTOS})
+protobuf_generate_cpp(GNS_COMMON_PROTO_SRCS GNS_COMMON_PROTO_HDRS ${GNS_COMMON_PROTOS})
+protobuf_generate_cpp(GNS_CLIENTLIB_PROTO_SRCS GNS_CLIENTLIB_PROTO_HDRS ${GNS_CLIENTLIB_PROTOS})
 
-macro(gamenetworkingsockets_common GNS_TARGET)
+function(gns_set_target_protobuf_properties TGT )
+	target_include_directories(${TGT} PRIVATE
 
-	target_sources(${GNS_TARGET} PRIVATE ${GNS_SRCS})
-	target_sources(${GNS_TARGET} PRIVATE ${GNS_PROTO_SRCS})
+		# Only necessary if we're not using protobuf::libprotobuf
+		# But that's not supported until CMake 3.9
+		${Protobuf_INCLUDE_DIRS}
+		)
+
+	target_link_libraries(${TGT} PUBLIC
+		# protobuf::libprotobuf
+		${PROTOBUF_LIBRARIES}
+		Threads::Threads
+		)
+endfunction()
+
+# Set the target properties (sources, link libs, defines) based on crypto settings
+function(gns_set_target_crypto_properties TGT)
+	if(USE_CRYPTO STREQUAL "OpenSSL" OR USE_CRYPTO25519 STREQUAL "OpenSSL")
+		target_link_libraries(${TGT} PUBLIC
+			OpenSSL::Crypto
+			)
+		if(WIN32 AND OPENSSL_USE_STATIC_LIBS)
+			target_link_libraries(${TGT} PUBLIC
+				ws2_32
+				crypt32
+				)
+		endif()
+	endif()
+
+	if(USE_CRYPTO STREQUAL "libsodium" OR USE_CRYPTO25519 STREQUAL "libsodium")
+		target_link_libraries(${TGT} PUBLIC
+			sodium
+			)
+	endif()
+
+	target_compile_definitions(${TGT} PRIVATE
+		ENABLE_OPENSSLCONNECTION # !KLUDGE! This is for some weird 25519 thing, somebody using the wrong define
+		${GNS_CRYPTO_DEFINES}
+		)
+
+	target_sources(${TGT} PRIVATE ${GNS_CRYPTO_SRCS})
+
+	if(SANITIZE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+		target_compile_definitions(${TGT} PRIVATE ED25519_NO_INLINE_ASM)
+	endif()
+endfunction()
+
+# Set properties on a clientlib target (either shared or static library)
+macro(set_clientlib_target_properties GNS_TARGET)
+
+	target_sources(${GNS_TARGET} PRIVATE
+		${GNS_COMMON_SRCS}
+		${GNS_CLIENTLIB_SRCS}
+		${GNS_COMMON_PROTO_SRCS}
+		${GNS_CLIENTLIB_PROTO_SRCS})
 
 	set_target_common_gns_properties( ${GNS_TARGET} )
 
@@ -164,17 +224,13 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 		"common"
 		"public"
 		${CMAKE_CURRENT_BINARY_DIR}
-
-		# Only necessary if we're not using protobuf::libprotobuf
-		# But that's not supported until CMake 3.9
-		${Protobuf_INCLUDE_DIRS}
 		)
 
-	target_link_libraries(${GNS_TARGET} PUBLIC
-		# protobuf::libprotobuf
-		${PROTOBUF_LIBRARIES}
-		Threads::Threads
-		)
+	gns_set_target_protobuf_properties(${GNS_TARGET})
+	gns_set_target_crypto_properties(${GNS_TARGET})
+
+	target_compile_definitions(${GNS_TARGET} PRIVATE
+		STEAMNETWORKINGSOCKETS_FOREXPORT )
 
 	# Enable ICE?
 	if(USE_STEAMWEBRTC)
@@ -194,34 +250,6 @@ macro(gamenetworkingsockets_common GNS_TARGET)
 			)
 	endif()
 
-	if(USE_CRYPTO STREQUAL "OpenSSL" OR USE_CRYPTO25519 STREQUAL "OpenSSL")
-		target_link_libraries(${GNS_TARGET} PUBLIC
-			OpenSSL::Crypto
-			)
-		if(WIN32 AND OPENSSL_USE_STATIC_LIBS)
-			target_link_libraries(${GNS_TARGET} PUBLIC
-				ws2_32
-				crypt32
-				)
-		endif()
-	endif()
-
-	if(USE_CRYPTO STREQUAL "libsodium" OR USE_CRYPTO25519 STREQUAL "libsodium")
-		target_link_libraries(${GNS_TARGET} PUBLIC
-			sodium
-			)
-	endif()
-
-	target_compile_definitions(${GNS_TARGET} PRIVATE
-		STEAMNETWORKINGSOCKETS_FOREXPORT
-		ENABLE_OPENSSLCONNECTION
-		CRYPTO_DISABLE_ENCRYPT_WITH_PASSWORD
-		${GNS_CRYPTO_DEFINES}
-		)
-
-	if(SANITIZE AND CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-		target_compile_definitions(${GNS_TARGET} PRIVATE ED25519_NO_INLINE_ASM)
-	endif()
 
 	## Needs CMake 3.8, then we could get rid of the workaround below it.
 	#target_compile_features(${GNS_TARGET} PUBLIC c_std_99 cxx_std_11)
@@ -295,7 +323,7 @@ if (BUILD_SHARED_LIB)
 	add_library(GameNetworkingSockets SHARED "")
 	add_library(GameNetworkingSockets::GameNetworkingSockets ALIAS GameNetworkingSockets)
 	add_library(GameNetworkingSockets::shared ALIAS GameNetworkingSockets)
-	gamenetworkingsockets_common(GameNetworkingSockets)
+	set_clientlib_target_properties(GameNetworkingSockets)
 endif()
 
 if (BUILD_STATIC_LIB)
@@ -303,7 +331,32 @@ if (BUILD_STATIC_LIB)
 	add_library(GameNetworkingSockets::GameNetworkingSockets_s ALIAS GameNetworkingSockets_s)
 	add_library(GameNetworkingSockets::static ALIAS GameNetworkingSockets_s)
 	target_compile_definitions(GameNetworkingSockets_s INTERFACE STEAMNETWORKINGSOCKETS_STATIC_LINK)
-	gamenetworkingsockets_common(GameNetworkingSockets_s)
+	set_clientlib_target_properties(GameNetworkingSockets_s)
+endif()
+
+if (BUILD_TOOLS)
+	add_executable(steamnetworkingsockets_certtool
+		"steamnetworkingsockets/certtool/steamnetworkingsockets_certtool.cpp"
+		)
+	target_sources(steamnetworkingsockets_certtool PRIVATE
+		${GNS_COMMON_SRCS}
+		${GNS_COMMON_PROTO_SRCS})
+
+	set_target_common_gns_properties( steamnetworkingsockets_certtool )
+
+	target_include_directories(steamnetworkingsockets_certtool PUBLIC
+		"$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>"
+		"$<INSTALL_INTERFACE:$<INSTALL_PREFIX>/${CMAKE_INSTALL_INCLUDEDIR}/GameNetworkingSockets>"
+		)
+
+	target_include_directories(steamnetworkingsockets_certtool PRIVATE
+		"common"
+		"public"
+		${CMAKE_CURRENT_BINARY_DIR}
+		)
+
+	gns_set_target_protobuf_properties(steamnetworkingsockets_certtool)
+	gns_set_target_crypto_properties(steamnetworkingsockets_certtool)
 endif()
 
 install(DIRECTORY ../include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/GameNetworkingSockets)
@@ -317,8 +370,8 @@ install(
 
 include(CMakePackageConfigHelpers)
 
-# Ensure that variables used in GameNetworkingSocketsConfig.cmake.in have some value
-# rather than an empty string.
+# Ensure that variables used in GameNetworkingSocketsConfig.cmake.in have some value
+# rather than an empty string.
 if(NOT USE_CRYPTO)
 	set(USE_CRYPTO USE_CRYPTO-NOTFOUND)
 endif()
@@ -338,4 +391,3 @@ install(FILES
 	DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/GameNetworkingSockets
 	)
 
-# vim: set ts=4 sts=4 sw=4 noet:
