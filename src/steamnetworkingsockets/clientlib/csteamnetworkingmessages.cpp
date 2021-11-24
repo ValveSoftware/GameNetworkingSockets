@@ -416,16 +416,10 @@ CSteamNetworkingMessages::~CSteamNetworkingMessages()
 
 EResult CSteamNetworkingMessages::SendMessageToUser( const SteamNetworkingIdentity &identityRemote, const void *pubData, uint32 cubData, int nSendFlags, int nRemoteChannel )
 {
-	// FIXME SteamNetworkingIdentity
-	if ( identityRemote.GetSteamID64() == 0 )
+	if ( identityRemote.IsInvalid() )
 	{
-		AssertMsg1( false, "Identity %s isn't valid for Messages sessions.  (Only SteamIDs currently supported).", SteamNetworkingIdentityRender( identityRemote ).c_str() );
-		return k_EResultInvalidSteamID;
-	}
-	if ( !IsValidSteamIDForIdentity( identityRemote.GetSteamID() ) )
-	{
-		AssertMsg1( false, "%s isn't valid SteamID for identity.", identityRemote.GetSteamID().Render() );
-		return k_EResultInvalidSteamID;
+		AssertMsg( false, "Identity isn't valid for Messages sessions." );
+		return k_EResultFail;
 	}
 
 	SteamNetworkingGlobalLock scopeLock( "SendMessageToUser" ); // !SPEED! Can we avoid this?
