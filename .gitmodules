@@ -5,3 +5,6 @@
 [submodule "src/external/webrtc"]
 	path = src/external/webrtc
 	url = https://webrtc.googlesource.com/src
+[submodule "src/external/picojson"]
+	path = src/external/picojson
+	url = https://github.com/kazuho/picojson.git

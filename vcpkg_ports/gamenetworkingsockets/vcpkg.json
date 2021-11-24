@@ -24,6 +24,9 @@
 		},
 		"tests": {
 			"description": "Build the tests."
+		},
+		"tools": {
+			"description": "Build cert management tool."
 		}
 	}
 }

@@ -46,6 +46,7 @@ option(BUILD_STATIC_LIB "Build the static link version of the client library" ON
 option(BUILD_SHARED_LIB "Build the shared library version of the client library" ON)
 option(BUILD_EXAMPLES "Build the included examples" OFF)
 option(BUILD_TESTS "Build crypto, pki and network connection tests" OFF)
+option(BUILD_TOOLS "Build cert management tool" OFF)
 option(LTO "Enable Link-Time Optimization" OFF)
 option(USE_STEAMWEBRTC "Build Google's WebRTC library to get ICE support for P2P" OFF)
 option(Protobuf_USE_STATIC_LIBS "Link with protobuf statically" OFF)

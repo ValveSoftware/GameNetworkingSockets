@@ -334,7 +334,19 @@ if (BUILD_STATIC_LIB)
 	set_clientlib_target_properties(GameNetworkingSockets_s)
 endif()
 
+#
+# Cert tool
+#
 if (BUILD_TOOLS)
+
+	# The cert tool requires picojson
+	# FIXME - somebody might be able to help figure this out
+	#find_package( picojson )
+	set(picojson_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/picojson)
+	if(NOT EXISTS ${picojson_SOURCE_DIR}/picojson.h)
+		message(FATAL_ERROR "picojson submodule not initialized.\n(Try: 'git submodule update src/external/picojson')" )
+	endif()
+
 	add_executable(steamnetworkingsockets_certtool
 		"steamnetworkingsockets/certtool/steamnetworkingsockets_certtool.cpp"
 		)
@@ -347,6 +359,7 @@ if (BUILD_TOOLS)
 	target_include_directories(steamnetworkingsockets_certtool PUBLIC
 		"$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>"
 		"$<INSTALL_INTERFACE:$<INSTALL_PREFIX>/${CMAKE_INSTALL_INCLUDEDIR}/GameNetworkingSockets>"
+		${picojson_SOURCE_DIR}
 		)
 
 	target_include_directories(steamnetworkingsockets_certtool PRIVATE

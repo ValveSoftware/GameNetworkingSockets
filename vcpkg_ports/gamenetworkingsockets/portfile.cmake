@@ -13,13 +13,15 @@ if ( ( "${CRYPTO_BACKEND}" STREQUAL "" ) OR ( "openssl" IN_LIST FEATURES ) )
     set(CRYPTO_BACKEND "OpenSSL")
 endif()
 
-# 
+# Handle some simple options that we can just
+# pass straight through to cmake
 vcpkg_check_features(
     OUT_FEATURE_OPTIONS FEATURE_OPTIONS
     FEATURES
 		webrtc USE_STEAMWEBRTC
 		examples BUILD_EXAMPLES
 		tests BUILD_TESTS
+		tools BUILD_TOOLS
 )
 
 # Check static versus dynamic in the triple.  Our cmakefile can build both
