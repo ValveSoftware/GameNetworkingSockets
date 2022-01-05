@@ -884,6 +884,9 @@ private:
 	/// timeouts.
 	SteamNetworkingMicroseconds m_usecWhenEnteredConnectionState;
 
+	/// Return true if we're ready to exit the linger state and go to FinWait
+	bool BReadyToExitLingerState() const;
+
 	// !DEBUG! Log of packets we sent.
 	#ifdef SNP_ENABLE_PACKETSENDLOG
 	struct PacketSendLog

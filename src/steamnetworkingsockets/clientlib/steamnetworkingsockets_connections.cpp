@@ -2323,7 +2323,8 @@ void CSteamNetworkConnectionBase::APICloseConnection( int nReason, const char *p
 		}
 	}
 
-	// Check our state
+	// Check our state to see how to spew, and handle a few exceptional cases
+	// where we don't transition to FinWait
 	switch ( GetState() )
 	{
 		case k_ESteamNetworkingConnectionState_Dead:
@@ -2337,29 +2338,41 @@ void CSteamNetworkConnectionBase::APICloseConnection( int nReason, const char *p
 		case k_ESteamNetworkingConnectionState_ClosedByPeer:
 		case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
 			SpewVerbose( "[%s] cleaned up\n", GetDescription() );
-			ConnectionState_FinWait();
 			break;
 
 		case k_ESteamNetworkingConnectionState_Connecting:
 		case k_ESteamNetworkingConnectionState_FindingRoute:
 			SpewMsg( "[%s] closed by app before we got connected (%d) %s\n", GetDescription(), (int)m_eEndReason, m_szEndDebug );
-			ConnectionState_FinWait();
 			break;
 
 		case k_ESteamNetworkingConnectionState_Connected:
 			if ( bEnableLinger )
 			{
-				SpewMsg( "[%s] closed by app, entering linger state (%d) %s\n", GetDescription(), (int)m_eEndReason, m_szEndDebug );
-				SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
-				SetState( k_ESteamNetworkingConnectionState_Linger, usecNow );
+				if ( BReadyToExitLingerState() )
+				{
+					SpewMsg( "[%s] closed by app, linger requested but not needed (%d) %s\n", GetDescription(), (int)m_eEndReason, m_szEndDebug );
+				}
+				else
+				{
+					SpewMsg( "[%s] closed by app, entering linger state (%d) %s\n", GetDescription(), (int)m_eEndReason, m_szEndDebug );
+					SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
+					SetState( k_ESteamNetworkingConnectionState_Linger, usecNow );
+					SetNextThinkTimeASAP();
+					return;
+				}
 			}
 			else
 			{
 				SpewMsg( "[%s] closed by app (%d) %s\n", GetDescription(), (int)m_eEndReason, m_szEndDebug );
-				ConnectionState_FinWait();
 			}
 			break;
 	}
+
+	// Enter the FinWait state.  Connection-specific and transport code should
+	// watch for this transition and will send any cleanup packets, and enter
+	// a state where we wait for the peer to acknowledge and/or retry the
+	// close message.
+	ConnectionState_FinWait();
 }
 
 void CSteamNetworkConnectionBase::SetState( ESteamNetworkingConnectionState eNewState, SteamNetworkingMicroseconds usecNow )
@@ -3327,9 +3340,8 @@ void CSteamNetworkConnectionBase::Think( SteamNetworkingMicroseconds usecNow )
 		case k_ESteamNetworkingConnectionState_Linger:
 
 			// Have we sent everything we wanted to?
-			if ( m_senderState.m_cbPendingReliable == 0 && m_senderState.m_cbSentUnackedReliable == 0 )
+			if ( BReadyToExitLingerState() )
 			{
-				Assert( m_senderState.m_listReadyRetryReliableRange.IsEmpty() );
 
 				// Close the connection ASAP
 				ConnectionState_FinWait();
@@ -3466,6 +3478,16 @@ void CSteamNetworkConnectionBase::Think( SteamNetworkingMicroseconds usecNow )
 	EnsureMinThinkTime( usecMinNextThinkTime );
 
 	#undef UpdateMinThinkTime
+}
+
+bool CSteamNetworkConnectionBase::BReadyToExitLingerState() const
+{
+	if ( m_senderState.m_cbPendingReliable == 0 && m_senderState.m_cbSentUnackedReliable == 0 )
+	{
+		Assert( m_senderState.m_listReadyRetryReliableRange.IsEmpty() );
+		return true;
+	}
+	return false;
 }
 
 void CSteamNetworkConnectionBase::ThinkConnection( SteamNetworkingMicroseconds usecNow )
