@@ -2336,7 +2336,7 @@ void CSteamNetworkConnectionBase::APICloseConnection( int nReason, const char *p
 
 		case k_ESteamNetworkingConnectionState_ClosedByPeer:
 		case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
-			SpewVerbose( "[%s] cleaned up by app\n", GetDescription() );
+			SpewVerbose( "[%s] cleaned up\n", GetDescription() );
 			ConnectionState_FinWait();
 			break;
 
