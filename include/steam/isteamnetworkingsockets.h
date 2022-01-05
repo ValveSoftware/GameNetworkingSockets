@@ -834,18 +834,20 @@ public:
 	/// may often occur in practice.
 	///
 	/// Returns false if a request was already in progress, true if a new request
-	/// was started.  A SteamNetworkingFakeIP_t will be posted when the request
+	/// was started.  A SteamNetworkingFakeIPResult_t will be posted when the request
 	/// completes.
 	///
-	/// You can call this before you are logged in.  For gameservers, doing so is
-	/// *required*, and all places where your public IP appears (such as the server
-	/// browser) will be replaced by the FakeIP, and the fake port at index 0.
-	/// A failure will not be posted (using SteamNetworkingFakeIP_t) unless we get
-	/// logged in, and then the request fails.  Furthermore, it is assumed that
-	/// FakeIP allocation is essential for your application to function, and so
-	/// failure will not be reported until *several* retries have been attempted,
-	/// possibly lasting several minutes.  It is highly recommended to treat failure
-	/// as fatal.
+	/// For gameservers, you *must* call this after initializing the SDK but before
+	/// beginning login.  Steam needs to know in advance that FakeIP will be used.
+	/// Everywhere your public IP would normally appear (such as the server browser) will be
+	/// replaced by the FakeIP, and the fake port at index 0.  The request is actually queued
+	/// until the logon completes, so you must not wait until the allocation completes
+	/// before logging in.  Except for trivial failures that can be detected locally
+	/// (e.g. invalid parameter), a SteamNetworkingFakeIPResult_t callback (whether success or
+	/// failure) will not be posted until after we have logged in.  Furthermore, it is assumed
+	/// that FakeIP allocation is essential for your application to function, and so failure
+	/// will not be reported until *several* retries have been attempted.  This process may
+	/// last several minutes.  It is *highly* recommended to treat failure as fatal.
 	///
 	/// To communicate using a connection-oriented (TCP-style) API:
 	/// - Server creates a listen socket using CreateListenSocketP2PFakeIP
