@@ -2160,6 +2160,7 @@ void DualWifiShutdown()
 	s_ifaceDualWifiSecondary = -1;
 }
 
+#if WDK_NTDDI_VERSION < 0x0A00000B	// These definitions are available in wlanapi.h in Windows SDK 10.0.22000.0
 // !KLUDGE! Pasted from an early version of wlan.h.
 namespace wlan_new
 {
@@ -2201,6 +2202,7 @@ typedef enum _WLAN_INTF_OPCODE {
 }
 const WLAN_INTF_OPCODE wlan_intf_opcode_secondary_sta_synchronized_connections = (WLAN_INTF_OPCODE)wlan_new::wlan_intf_opcode_secondary_sta_synchronized_connections;
 const WLAN_INTF_OPCODE wlan_intf_opcode_secondary_sta_interfaces = (WLAN_INTF_OPCODE)wlan_new::wlan_intf_opcode_secondary_sta_interfaces;
+#endif // WDK_NTDDI_VERSION < 0x0A00000B
 
 static void DualWifiInitFailed( const char *fmt, ... )
 {
