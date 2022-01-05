@@ -2292,7 +2292,7 @@ void CSteamNetworkConnectionBase::APICloseConnection( int nReason, const char *p
 	AssertLocksHeldByCurrentThread();
 
 	// If we already know the reason for the problem, we should ignore theirs
-	if ( m_eEndReason == k_ESteamNetConnectionEnd_Invalid || GetState() == k_ESteamNetworkingConnectionState_Connecting || GetState() == k_ESteamNetworkingConnectionState_FindingRoute || GetState() == k_ESteamNetworkingConnectionState_Connected )
+	if ( m_eEndReason == k_ESteamNetConnectionEnd_Invalid || BStateIsActive() )
 	{
 		if ( nReason == 0 )
 		{
@@ -2330,7 +2330,6 @@ void CSteamNetworkConnectionBase::APICloseConnection( int nReason, const char *p
 		case k_ESteamNetworkingConnectionState_Dead:
 		case k_ESteamNetworkingConnectionState_None:
 		case k_ESteamNetworkingConnectionState_FinWait:
-		case k_ESteamNetworkingConnectionState_Linger:
 		default:
 			Assert( false );
 			return;
@@ -2343,6 +2342,17 @@ void CSteamNetworkConnectionBase::APICloseConnection( int nReason, const char *p
 		case k_ESteamNetworkingConnectionState_Connecting:
 		case k_ESteamNetworkingConnectionState_FindingRoute:
 			SpewMsg( "[%s] closed by app before we got connected (%d) %s\n", GetDescription(), (int)m_eEndReason, m_szEndDebug );
+			break;
+
+		case k_ESteamNetworkingConnectionState_Linger:
+			if ( BReadyToExitLingerState() )
+			{
+				SpewMsg( "[%s] Leaving linger state. (%d) %s\n", GetDescription(), (int)m_eEndReason, m_szEndDebug );
+			}
+			else
+			{
+				SpewWarning( "[%s] Destroying connection before all data is flushed! (%d) %s\n", GetDescription(), (int)m_eEndReason, m_szEndDebug );
+			}
 			break;
 
 		case k_ESteamNetworkingConnectionState_Connected:

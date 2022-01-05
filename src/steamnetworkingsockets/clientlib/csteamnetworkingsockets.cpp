@@ -482,6 +482,15 @@ void CSteamNetworkingSockets::KillConnections()
 		if ( pConn->m_pSteamNetworkingSocketsInterface == this )
 		{
 			ConnectionScopeLock connectionLock( *pConn );
+
+			// Check if it was left open, then do what we can to clean it up.
+			// (If we can fire off a quick cleanup packet to our peer, do that.)
+			if ( pConn->BStateIsActive() )
+			{
+				SpewMsg( "[%s] Cleaning up open connection on system shutdown", pConn->GetDescription() );
+				pConn->APICloseConnection( k_ESteamNetConnectionEnd_AppException_Max, "SteamNetworkingSockets shutdown", false );
+			}
+
 			pConn->ConnectionQueueDestroy();
 		}
 	}
