@@ -4,6 +4,7 @@ on: [push, pull_request]
 jobs:
 
   build-and-test-ubuntu:
+    #if: false  # Temporarily disable
     name: Build And Test Ubuntu
     runs-on: ubuntu-latest
     env:
@@ -22,7 +23,55 @@ jobs:
       - name: Build and run tests
         run: bash .github/build.sh
 
+  build-and-test-windows:
+    #if: false  # Temporarily disable
+    name: Build And Test Windows
+    runs-on: windows-latest
+    env:
+      VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+    steps:
+      - uses: actions/checkout@master
+
+      - uses: lukka/get-cmake@latest
+
+      - name: Restore artifacts, setup vcpkg
+        uses: lukka/run-vcpkg@v10
+        with:
+          vcpkgGitCommitId: b41cc261730535f05cc1d0efbcaa821f2162f49e
+          vcpkgDirectory: '${{env.VCPKG_ROOT}}'
+          vcpkgJsonGlob: vcpkg.json
+          runVcpkgInstall: false
+
+      # Setup MSVC command prompt environment vars
+      - uses: ilammy/msvc-dev-cmd@v1
+
+      - name: vcpkg check / install dependencies
+        working-directory: '${{ github.workspace }}'
+        run: '${{env.VCPKG_ROOT}}/vcpkg install'
+
+      - name: Install dependencies and generate project files
+        run: |
+          mkdir build
+          cd build
+          cmake -S .. -G Ninja -DBUILD_TESTS=ON -DBUILD_EXAMPLES=ON -DBUILD_TOOLS=ON
+
+      - name: Build projects
+        working-directory: '${{ github.workspace }}/build'
+        run: ninja
+
+      - name: Test crypto
+        working-directory: '${{ github.workspace }}/build/bin'
+        run: test_crypto.exe
+        shell: cmd
+
+      - name: Test connection
+        working-directory: '${{ github.workspace }}/build/bin'
+        #run: test_connection.exe suite-quick  # Loopback throughput test not performing on github hosted runners for some reason
+        run: test_connection.exe identity quick lane_quick_queueanddrain lane_quick_priority_and_background
+        shell: cmd
+
   build-and-test-flavors:
+    #if: false  # Temporarily disable
     name: Build And Test Unix Flavors
     runs-on: ${{ matrix.os }}
     needs: build-and-test-ubuntu  # Don't both running flavors until after ubuntu has passed
