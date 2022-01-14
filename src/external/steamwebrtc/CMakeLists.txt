@@ -14,9 +14,8 @@ if(NOT absl_FOUND)
 	set(STEAMWEBRTC_ABSL_SOURCE submodule)
 
 	set(abseil_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../abseil)
-	if(NOT EXISTS ${abseil_SOURCE_DIR}/CMakeLists.txt)
-		message(FATAL_ERROR "abeil submodule not initialized.\n(Try 'git submodule update src/external/abseil')" )
-	endif()
+	check_submodule( ${abseil_SOURCE_DIR} ${abseil_SOURCE_DIR}/CMakeLists.txt )
+
 	add_subdirectory(${abseil_SOURCE_DIR} ${CMAKE_BINARY_DIR}/abseil EXCLUDE_FROM_ALL)
 	if(LTO)
 		set_property(DIRECTORY ${abseil_SOURCE_DIR} PROPERTY INTERPROCEDURAL_OPTIMIZATION ON)
@@ -27,10 +26,9 @@ else()
 endif()
 
 set(webrtc_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../webrtc)
+check_submodule( ${webrtc_SOURCE_DIR} ${webrtc_SOURCE_DIR}/rtc_base )
+
 #FIXME set(webrtc_BUILD_DIR ????? )
-if(NOT EXISTS ${webrtc_SOURCE_DIR}/rtc_base)
-	message(FATAL_ERROR "webrtc submodule not initialized.\n(Try: 'git submodule update src/external/webrtc')" )
-endif()
 
 include (CheckTypeSize)
 CHECK_TYPE_SIZE("void*" CMAKE_SIZEOF_VOID_P)

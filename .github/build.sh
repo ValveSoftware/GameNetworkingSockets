@@ -58,7 +58,7 @@ export CCACHE_DIR=$PWD/build-ci-ccache
 ccache -M4G
 
 # Use shallow clones of submodules for space/time efficiency.
-git submodule update --init --depth=1 2>&1 | cat
+#git submodule update --init --depth=1 2>&1 | cat
 
 if has_clang; then
 	msg "Beginning build tests with Clang"

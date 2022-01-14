@@ -1,4 +1,4 @@
-set(SOURCE_PATH "${CMAKE_CURRENT_LIST_DIR}/../..")
+set(SOURCE_PATH ".")
 
 # Select crypto backend based on the selected crypto "feature"
 # WE ARE NOT SUPPOSED TO BE DOING THIS.
@@ -33,11 +33,14 @@ string(COMPARE EQUAL "${VCPKG_LIBRARY_LINKAGE}" "static" BUILD_STATIC_LIB)
 # lib, we will link the CRT statically.  Otherwise, link dynamically.
 string(COMPARE EQUAL "${VCPKG_LIBRARY_LINKAGE}" "static" MSVC_CRT_STATIC)
 
-if ( BUILD_EXAMPLES AND NOT BUILD_SHARED_LIB )
-	message(FATAL_ERROR "Examples must be built with shared linkage")
+# Examples require linking with the shared lib
+if (BUILD_EXAMPLES)
+	set(BUILD_SHARED_LIB true)
 endif()
-if ( BUILD_TESTS AND NOT BUILD_STATIC_LIB )
-	message(FATAL_ERROR "Tests must be built with static linkage")
+
+# Tests and tools require linking with the static lib
+if (BUILD_TESTS OR BUILD_TOOLS)
+	set(BUILD_STATIC_LIB true)
 endif()
 
 vcpkg_configure_cmake(
@@ -51,8 +54,7 @@ vcpkg_configure_cmake(
     ${FEATURE_OPTIONS}
 )
 
-vcpkg_install_cmake()
-#vcpkg_fixup_cmake_targets(CONFIG_PATH "lib/cmake/GameNetworkingSockets")
+vcpkg_cmake_install()
 
 # Copy some files
 

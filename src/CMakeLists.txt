@@ -97,6 +97,27 @@ if(USE_CRYPTO25519 STREQUAL "Reference")
 		)
 endif()
 
+macro(check_submodule SUBMODULE_PATH TESTFILE)
+	if (NOT EXISTS ${TESTFILE} AND EXISTS "${CMAKE_SOURCE_DIR}/.git" )
+		find_package(Git QUIET)
+		if(GIT_FOUND)
+
+			# Update submodules as needed
+			message(STATUS "git submodule update --init ${SUBMODULE_PATH}")
+			execute_process(COMMAND "${GIT_EXECUTABLE}" submodule update --init ${SUBMODULE_PATH}
+							WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+							RESULT_VARIABLE GIT_SUBMOD_RESULT)
+			if(NOT GIT_SUBMOD_RESULT EQUAL "0")
+				message(FATAL_ERROR "'git submodule update --init ${SUBMODULE_PATH}' failed with ${GIT_SUBMOD_RESULT}, please checkout submodules")
+			endif()
+		endif()
+	endif()
+	if (NOT EXISTS ${TESTFILE})
+		message(FATAL_ERROR "${TESTFILE} not found; submodule ${SUBMODULE_PATH} not initialized and we failed to initialized it.\nTry: 'git submodule update ${SUBMODULE_PATH}'" )
+	endif()
+endmacro()
+
+
 # If WebRTC enabled, build the thin wrapper library
 if(USE_STEAMWEBRTC)
 	add_subdirectory(external/steamwebrtc)
@@ -339,13 +360,9 @@ endif()
 #
 if (BUILD_TOOLS)
 
-	# The cert tool requires picojson
-	# FIXME - somebody might be able to help figure this out
-	#find_package( picojson )
+	# The cert tool requires picojson.
 	set(picojson_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/picojson)
-	if(NOT EXISTS ${picojson_SOURCE_DIR}/picojson.h)
-		message(FATAL_ERROR "picojson submodule not initialized.\n(Try: 'git submodule update src/external/picojson')" )
-	endif()
+	check_submodule( ${picojson_SOURCE_DIR} ${picojson_SOURCE_DIR}/picojson.h )
 
 	add_executable(steamnetworkingsockets_certtool
 		"steamnetworkingsockets/certtool/steamnetworkingsockets_certtool.cpp"

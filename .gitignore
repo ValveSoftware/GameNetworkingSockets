@@ -36,6 +36,7 @@ perf.data.old
 # Default/recommended install directory for vcpkg
 /vcpkg
 
+# Other misc stuff
 *.VC.*
 /.vscode
 /build
@@ -47,7 +48,9 @@ perf.data.old
 /src/steamnetworkingsockets/clientlib/win64/*
 *.swp
 /.github/build-ci-ccache
+*.log
 *partner*
+*build-ci-ccache*
 
 # We use cmake, so no Visual studio project files should be in git
 *.sln
