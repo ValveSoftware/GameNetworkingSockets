@@ -2,21 +2,41 @@ name: CI
 on: [push, pull_request]
 
 jobs:
-  test:
-    name: BuildAndTest
+
+  build-and-test-ubuntu:
+    name: Build And Test Ubuntu
+    runs-on: ubuntu-latest
+    env:
+      CI_BUILD: 1
+      IMAGE: ubuntu
+      IMAGE_TAG: latest
+    steps:
+      - uses: actions/checkout@master
+      # Note only alpine needs "preinstall" step
+      - name: Update packages
+        run: sudo -E bash .github/update-packages.sh
+      - name: Install dependencies
+        run: |
+          sudo -E bash .github/install.sh
+          sudo -E bash .github/install-post.sh
+      - name: Build and run tests
+        run: bash .github/build.sh
+
+  build-and-test-flavors:
+    name: Build And Test Unix Flavors
     runs-on: ${{ matrix.os }}
+    needs: build-and-test-ubuntu  # Don't both running flavors until after ubuntu has passed
     strategy:
       matrix:
-        build: [alpine-latest, ubuntu-bionic, ubuntu-latest, ubuntu-rolling, fedora-latest]
         include:
           - build: ubuntu-bionic
             os: ubuntu-latest
             docker_image: ubuntu
             docker_tag: bionic
-          - build: ubuntu-latest
-            os: ubuntu-latest
-            docker_image: ubuntu
-            docker_tag: latest
+          #- build: ubuntu-latest
+          #  os: ubuntu-latest
+          #  docker_image: ubuntu
+          #  docker_tag: latest
           - build: ubuntu-rolling
             os: ubuntu-latest
             docker_image: ubuntu
@@ -38,19 +58,19 @@ jobs:
             docker_image: alpine
             docker_tag: latest
     steps:
-    - uses: actions/checkout@master
-    - name: Launch container
-      run: |
-        docker run -d --rm --name github-docker-builder -e LC_ALL="C" -e LANG="C" -v ${{ github.workspace }}:/build -w /build ${{ matrix.docker_image }}:${{ matrix.docker_tag }} tail -f /dev/null
-        docker ps
-        docker exec -e CI_BUILD=1 -e IMAGE=${{ matrix.docker_image }} -e IMAGE_TAG=${{ matrix.docker_tag }} -t github-docker-builder sh .github/preinstall.sh
-    - name: Update packages
-      run: |
-        docker exec -e CI_BUILD=1 -e IMAGE=${{ matrix.docker_image }} -e IMAGE_TAG=${{ matrix.docker_tag }} -t github-docker-builder bash .github/update-packages.sh
-    - name: Install dependencies
-      run: |
-        docker exec -e CI_BUILD=1 -e IMAGE=${{ matrix.docker_image }} -e IMAGE_TAG=${{ matrix.docker_tag }} -t github-docker-builder bash .github/install.sh
-        docker exec -e CI_BUILD=1 -e IMAGE=${{ matrix.docker_image }} -e IMAGE_TAG=${{ matrix.docker_tag }} -t github-docker-builder bash .github/install-post.sh
-    - name: Build and run project
-      run: |
-        docker exec -e CI_BUILD=1 -e IMAGE=${{ matrix.docker_image }} -e IMAGE_TAG=${{ matrix.docker_tag }} -t github-docker-builder bash .github/build.sh
+      - uses: actions/checkout@master
+      - name: Launch container
+        run: |
+          docker run -d --rm --name github-docker-builder -e LC_ALL="C" -e LANG="C" -v ${{ github.workspace }}:/build -w /build ${{ matrix.docker_image }}:${{ matrix.docker_tag }} tail -f /dev/null
+          docker ps
+          docker exec -e CI_BUILD=1 -e IMAGE=${{ matrix.docker_image }} -e IMAGE_TAG=${{ matrix.docker_tag }} -t github-docker-builder sh .github/preinstall.sh
+      - name: Update packages
+        run: |
+          docker exec -e CI_BUILD=1 -e IMAGE=${{ matrix.docker_image }} -e IMAGE_TAG=${{ matrix.docker_tag }} -t github-docker-builder bash .github/update-packages.sh
+      - name: Install dependencies
+        run: |
+          docker exec -e CI_BUILD=1 -e IMAGE=${{ matrix.docker_image }} -e IMAGE_TAG=${{ matrix.docker_tag }} -t github-docker-builder bash .github/install.sh
+          docker exec -e CI_BUILD=1 -e IMAGE=${{ matrix.docker_image }} -e IMAGE_TAG=${{ matrix.docker_tag }} -t github-docker-builder bash .github/install-post.sh
+      - name: Build and run project
+        run: |
+          docker exec -e CI_BUILD=1 -e IMAGE=${{ matrix.docker_image }} -e IMAGE_TAG=${{ matrix.docker_tag }} -t github-docker-builder bash .github/build.sh
