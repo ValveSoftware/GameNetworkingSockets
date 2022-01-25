@@ -755,8 +755,10 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 
 	// Initialize ICE.
 	// WARNING: if this fails, it might set m_pTransportICE=NULL
-	m_pTransportICE = new CConnectionTransportP2PICE( *this );
-	m_pTransportICE->Init();
+	// FIXME - select ICE implementation here
+	auto *pICEWebRTC = new CConnectionTransportP2PICE_WebRTC( *this );
+	m_pTransportICE = pICEWebRTC;
+	pICEWebRTC->Init();
 
 	// Process any rendezvous messages that were pended
 	for ( int i = 0 ; i < len( m_vecPendingICEMessages ) && m_pTransportICE ; ++i )

@@ -17,15 +17,13 @@ namespace SteamNetworkingSocketsLib {
 
 /////////////////////////////////////////////////////////////////////////////
 //
-// CConnectionTransportP2PSDR
+// CConnectionTransportP2PICE
 //
 /////////////////////////////////////////////////////////////////////////////
 
 CConnectionTransportP2PICE::CConnectionTransportP2PICE( CSteamNetworkConnectionP2P &connection )
 : CConnectionTransportUDPBase( connection )
 , CConnectionTransportP2PBase( "ICE", this )
-, m_pICESession( nullptr )
-, m_mutexPacketQueue( "ice_packet_queue" )
 {
 	m_nAllowedCandidateTypes = 0;
 	m_eCurrentRouteKind = k_ESteamNetTransport_Unknown;
@@ -34,7 +32,6 @@ CConnectionTransportP2PICE::CConnectionTransportP2PICE( CSteamNetworkConnectionP
 
 CConnectionTransportP2PICE::~CConnectionTransportP2PICE()
 {
-	Assert( !m_pICESession );
 }
 
 void CConnectionTransportP2PICE::TransportPopulateConnectionInfo( SteamNetConnectionInfo_t &info ) const
@@ -99,7 +96,174 @@ static std::string Base64EncodeLower30Bits( uint32 nNum )
 	return std::string( result );
 }
 
-void CConnectionTransportP2PICE::TransportFreeResources()
+void CConnectionTransportP2PICE::PopulateRendezvousMsg( CMsgSteamNetworkingP2PRendezvous &msg, SteamNetworkingMicroseconds usecNow )
+{
+	msg.set_ice_enabled( true );
+}
+
+void CConnectionTransportP2PICE::P2PTransportUpdateRouteMetrics( SteamNetworkingMicroseconds usecNow )
+{
+	if ( !BCanSendEndToEndData() || m_pingEndToEnd.m_nSmoothedPing < 0 )
+	{
+		m_routeMetrics.SetInvalid();
+		return;
+	}
+
+	int nPingMin, nPingMax;
+	m_routeMetrics.m_nBucketsValid = m_pingEndToEnd.GetPingRangeFromRecentBuckets( nPingMin, nPingMax, usecNow );
+	m_routeMetrics.m_nTotalPenalty = 0;
+
+	// Set ping as the score
+	m_routeMetrics.m_nScoreCurrent = m_pingEndToEnd.m_nSmoothedPing;
+	m_routeMetrics.m_nScoreMin = nPingMin;
+	m_routeMetrics.m_nScoreMax = nPingMax;
+
+	// Local route?
+	if ( nPingMin < k_nMinPingTimeLocalTolerance && m_eCurrentRouteKind == k_ESteamNetTransport_UDPProbablyLocal )
+	{
+
+		// Whoo whoo!  Probably NAT punched LAN
+
+	}
+	else
+	{
+		// Update score based on the fraction that we are going over the Internet,
+		// instead of dedicated backbone links.  (E.g. all of it)
+		// This should match CalculateRoutePingScorein the SDR code
+		m_routeMetrics.m_nScoreCurrent += m_pingEndToEnd.m_nSmoothedPing/10;
+		m_routeMetrics.m_nScoreMin += nPingMin/10;
+		m_routeMetrics.m_nScoreMax += nPingMax/10;
+
+		// And add a penalty that everybody who is not LAN uses
+		m_routeMetrics.m_nTotalPenalty += k_nRoutePenaltyNotLan;
+	}
+
+	// Debug penalty
+	m_routeMetrics.m_nTotalPenalty += m_connection.m_connectionConfig.m_P2P_Transport_ICE_Penalty.Get();
+
+	// Check for recording the initial scoring data used to make the initial decision
+	CMsgSteamNetworkingICESessionSummary &ice_summary = Connection().m_msgICESessionSummary;
+	uint32 nScore = m_routeMetrics.m_nScoreCurrent + m_routeMetrics.m_nTotalPenalty;
+	if (
+		ConnectionState() == k_ESteamNetworkingConnectionState_FindingRoute
+		|| !ice_summary.has_initial_ping()
+		|| ( nScore < ice_summary.initial_score() && usecNow < Connection().m_usecWhenCreated + 15*k_nMillion )
+	) {
+		ice_summary.set_initial_score( nScore );
+		ice_summary.set_initial_ping( m_pingEndToEnd.m_nSmoothedPing );
+		ice_summary.set_initial_route_kind( m_eCurrentRouteKind );
+	}
+
+	if ( !ice_summary.has_best_score() || nScore < ice_summary.best_score() )
+	{
+		ice_summary.set_best_score( nScore );
+		ice_summary.set_best_ping( m_pingEndToEnd.m_nSmoothedPing );
+		ice_summary.set_best_route_kind( m_eCurrentRouteKind );
+		ice_summary.set_best_time( ( usecNow - Connection().m_usecWhenCreated + 500*1000 ) / k_nMillion );
+	}
+}
+
+#define ParseProtobufBody( pvMsg, cbMsg, CMsgCls, msgVar ) \
+	CMsgCls msgVar; \
+	if ( !msgVar.ParseFromArray( pvMsg, cbMsg ) ) \
+	{ \
+		ReportBadUDPPacketFromConnectionPeer( # CMsgCls, "Protobuf parse failed." ); \
+		return; \
+	}
+
+#define ParsePaddedPacket( pvPkt, cbPkt, CMsgCls, msgVar ) \
+	CMsgCls msgVar; \
+	{ \
+		if ( cbPkt < k_cbSteamNetworkingMinPaddedPacketSize ) \
+		{ \
+			ReportBadUDPPacketFromConnectionPeer( # CMsgCls, "Packet is %d bytes, must be padded to at least %d bytes.", cbPkt, k_cbSteamNetworkingMinPaddedPacketSize ); \
+			return; \
+		} \
+		const UDPPaddedMessageHdr *hdr =  (const UDPPaddedMessageHdr *)( pvPkt ); \
+		int nMsgLength = LittleWord( hdr->m_nMsgLength ); \
+		if ( nMsgLength <= 0 || int(nMsgLength+sizeof(UDPPaddedMessageHdr)) > cbPkt ) \
+		{ \
+			ReportBadUDPPacketFromConnectionPeer( # CMsgCls, "Invalid encoded message length %d.  Packet is %d bytes.", nMsgLength, cbPkt ); \
+			return; \
+		} \
+		if ( !msgVar.ParseFromArray( hdr+1, nMsgLength ) ) \
+		{ \
+			ReportBadUDPPacketFromConnectionPeer( # CMsgCls, "Protobuf parse failed." ); \
+			return; \
+		} \
+	}
+
+void CConnectionTransportP2PICE::ProcessPacket( const uint8_t *pPkt, int cbPkt, SteamNetworkingMicroseconds usecNow )
+{
+	Assert( cbPkt >= 1 ); // Caller should have checked this
+	ETW_ICEProcessPacket( m_connection.m_hConnectionSelf, cbPkt );
+
+	// Data packet is the most common, check for it first.  Also, does stat tracking.
+	if ( *pPkt & 0x80 )
+	{
+		Received_Data( pPkt, cbPkt, usecNow );
+		return;
+	}
+
+	// Track stats for other packet types.
+	m_connection.m_statsEndToEnd.TrackRecvPacket( cbPkt, usecNow );
+
+	if ( *pPkt == k_ESteamNetworkingUDPMsg_ConnectionClosed )
+	{
+		ParsePaddedPacket( pPkt, cbPkt, CMsgSteamSockets_UDP_ConnectionClosed, msg )
+		Received_ConnectionClosed( msg, usecNow );
+	}
+	else if ( *pPkt == k_ESteamNetworkingUDPMsg_NoConnection )
+	{
+		ParseProtobufBody( pPkt+1, cbPkt-1, CMsgSteamSockets_UDP_NoConnection, msg )
+		Received_NoConnection( msg, usecNow );
+	}
+	else
+	{
+		ReportBadUDPPacketFromConnectionPeer( "packet", "Lead byte 0x%02x not a known message ID", *pPkt );
+	}
+}
+
+void CConnectionTransportP2PICE::TrackSentStats( UDPSendPacketContext_t &ctx )
+{
+	CConnectionTransportUDPBase::TrackSentStats( ctx );
+
+	// Does this count as a ping request?
+	if ( ctx.msg.has_stats() || ( ctx.msg.flags() & ctx.msg.ACK_REQUEST_E2E ) )
+	{
+		bool bAllowDelayedReply = ( ctx.msg.flags() & ctx.msg.ACK_REQUEST_IMMEDIATE ) == 0;
+		P2PTransportTrackSentEndToEndPingRequest( ctx.m_usecNow, bAllowDelayedReply );
+	}
+}
+
+void CConnectionTransportP2PICE::RecvValidUDPDataPacket( UDPRecvPacketContext_t &ctx )
+{
+	if ( !ctx.m_pStatsIn || !( ctx.m_pStatsIn->flags() & ctx.m_pStatsIn->NOT_PRIMARY_TRANSPORT_E2E ) )
+		Connection().SetPeerSelectedTransport( this );
+	P2PTransportTrackRecvEndToEndPacket( ctx.m_usecNow );
+	if ( m_bNeedToConfirmEndToEndConnectivity && BCanSendEndToEndData() )
+		P2PTransportEndToEndConnectivityConfirmed( ctx.m_usecNow );
+}
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// CConnectionTransportP2PICE_WebRTC
+//
+/////////////////////////////////////////////////////////////////////////////
+
+CConnectionTransportP2PICE_WebRTC::CConnectionTransportP2PICE_WebRTC( CSteamNetworkConnectionP2P &connection )
+: CConnectionTransportP2PICE( connection )
+, m_pICESession( nullptr )
+, m_mutexPacketQueue( "ice_packet_queue" )
+{
+}
+
+CConnectionTransportP2PICE_WebRTC::~CConnectionTransportP2PICE_WebRTC()
+{
+	Assert( !m_pICESession );
+}
+
+void CConnectionTransportP2PICE_WebRTC::TransportFreeResources()
 {
 	if ( m_pICESession )
 	{
@@ -110,7 +274,7 @@ void CConnectionTransportP2PICE::TransportFreeResources()
 	CConnectionTransport::TransportFreeResources();
 }
 
-void CConnectionTransportP2PICE::Init()
+void CConnectionTransportP2PICE_WebRTC::Init()
 {
 	AssertLocksHeldByCurrentThread( "P2PICE::Init" );
 
@@ -303,187 +467,7 @@ void CConnectionTransportP2PICE::Init()
 	}
 }
 
-void CConnectionTransportP2PICE::PopulateRendezvousMsg( CMsgSteamNetworkingP2PRendezvous &msg, SteamNetworkingMicroseconds usecNow )
-{
-	msg.set_ice_enabled( true );
-}
-
-void CConnectionTransportP2PICE::RecvRendezvous( const CMsgICERendezvous &msg, SteamNetworkingMicroseconds usecNow )
-{
-	AssertLocksHeldByCurrentThread( "P2PICE::RecvRendezvous" );
-
-	// Safety
-	if ( !m_pICESession )
-	{
-		Connection().ICEFailed( k_ESteamNetConnectionEnd_Misc_InternalError, "No IICESession?" );
-		return;
-	}
-
-	if ( msg.has_add_candidate() )
-	{
-		const CMsgICERendezvous_Candidate &c = msg.add_candidate();
-		EICECandidateType eType = m_pICESession->AddRemoteIceCandidate( c.candidate().c_str() );
-		if ( eType != k_EICECandidate_Invalid )
-		{
-			SpewVerboseGroup( LogLevel_P2PRendezvous(), "[%s] Processed remote Ice Candidate '%s' (type %d)\n", ConnectionDescription(), c.candidate().c_str(), eType );
-			Connection().m_msgICESessionSummary.set_remote_candidate_types( Connection().m_msgICESessionSummary.remote_candidate_types() | eType );
-		}
-		else
-		{
-			SpewWarning( "[%s] Ignoring candidate %s\n", ConnectionDescription(), c.ShortDebugString().c_str() );
-		}
-	}
-
-	if ( msg.has_auth() )
-	{
-		std::string sUfragRemote = Base64EncodeLower30Bits( ConnectionIDRemote() );
-		const char *pszPwdFrag = msg.auth().pwd_frag().c_str();
-		SpewVerboseGroup( LogLevel_P2PRendezvous(), "[%s] Set remote auth to %s / %s\n", ConnectionDescription(), sUfragRemote.c_str(), pszPwdFrag );
-		m_pICESession->SetRemoteAuth( sUfragRemote.c_str(), pszPwdFrag );
-	}
-}
-
-void CConnectionTransportP2PICE::P2PTransportThink( SteamNetworkingMicroseconds usecNow )
-{
-	// Are we dead?
-	if ( !m_pICESession || Connection().m_pTransportICEPendingDelete )
-	{
-		// If we're a zombie, we should be queued for destruction
-		Assert( Connection().m_pTransportICE != this );
-		Assert( Connection().m_pTransportICEPendingDelete == this );
-
-		// Make sure connection wakes up to do this
-		Connection().SetNextThinkTimeASAP();
-		return;
-	}
-
-	CConnectionTransportP2PBase::P2PTransportThink( usecNow );
-}
-
-void CConnectionTransportP2PICE::P2PTransportUpdateRouteMetrics( SteamNetworkingMicroseconds usecNow )
-{
-	if ( !BCanSendEndToEndData() || m_pingEndToEnd.m_nSmoothedPing < 0 )
-	{
-		m_routeMetrics.SetInvalid();
-		return;
-	}
-
-	int nPingMin, nPingMax;
-	m_routeMetrics.m_nBucketsValid = m_pingEndToEnd.GetPingRangeFromRecentBuckets( nPingMin, nPingMax, usecNow );
-	m_routeMetrics.m_nTotalPenalty = 0;
-
-	// Set ping as the score
-	m_routeMetrics.m_nScoreCurrent = m_pingEndToEnd.m_nSmoothedPing;
-	m_routeMetrics.m_nScoreMin = nPingMin;
-	m_routeMetrics.m_nScoreMax = nPingMax;
-
-	// Local route?
-	if ( nPingMin < k_nMinPingTimeLocalTolerance && m_eCurrentRouteKind == k_ESteamNetTransport_UDPProbablyLocal )
-	{
-
-		// Whoo whoo!  Probably NAT punched LAN
-
-	}
-	else
-	{
-		// Update score based on the fraction that we are going over the Internet,
-		// instead of dedicated backbone links.  (E.g. all of it)
-		// This should match CalculateRoutePingScorein the SDR code
-		m_routeMetrics.m_nScoreCurrent += m_pingEndToEnd.m_nSmoothedPing/10;
-		m_routeMetrics.m_nScoreMin += nPingMin/10;
-		m_routeMetrics.m_nScoreMax += nPingMax/10;
-
-		// And add a penalty that everybody who is not LAN uses
-		m_routeMetrics.m_nTotalPenalty += k_nRoutePenaltyNotLan;
-	}
-
-	// Debug penalty
-	m_routeMetrics.m_nTotalPenalty += m_connection.m_connectionConfig.m_P2P_Transport_ICE_Penalty.Get();
-
-	// Check for recording the initial scoring data used to make the initial decision
-	CMsgSteamNetworkingICESessionSummary &ice_summary = Connection().m_msgICESessionSummary;
-	uint32 nScore = m_routeMetrics.m_nScoreCurrent + m_routeMetrics.m_nTotalPenalty;
-	if (
-		ConnectionState() == k_ESteamNetworkingConnectionState_FindingRoute
-		|| !ice_summary.has_initial_ping()
-		|| ( nScore < ice_summary.initial_score() && usecNow < Connection().m_usecWhenCreated + 15*k_nMillion )
-	) {
-		ice_summary.set_initial_score( nScore );
-		ice_summary.set_initial_ping( m_pingEndToEnd.m_nSmoothedPing );
-		ice_summary.set_initial_route_kind( m_eCurrentRouteKind );
-	}
-
-	if ( !ice_summary.has_best_score() || nScore < ice_summary.best_score() )
-	{
-		ice_summary.set_best_score( nScore );
-		ice_summary.set_best_ping( m_pingEndToEnd.m_nSmoothedPing );
-		ice_summary.set_best_route_kind( m_eCurrentRouteKind );
-		ice_summary.set_best_time( ( usecNow - Connection().m_usecWhenCreated + 500*1000 ) / k_nMillion );
-	}
-}
-
-#define ParseProtobufBody( pvMsg, cbMsg, CMsgCls, msgVar ) \
-	CMsgCls msgVar; \
-	if ( !msgVar.ParseFromArray( pvMsg, cbMsg ) ) \
-	{ \
-		ReportBadUDPPacketFromConnectionPeer( # CMsgCls, "Protobuf parse failed." ); \
-		return; \
-	}
-
-#define ParsePaddedPacket( pvPkt, cbPkt, CMsgCls, msgVar ) \
-	CMsgCls msgVar; \
-	{ \
-		if ( cbPkt < k_cbSteamNetworkingMinPaddedPacketSize ) \
-		{ \
-			ReportBadUDPPacketFromConnectionPeer( # CMsgCls, "Packet is %d bytes, must be padded to at least %d bytes.", cbPkt, k_cbSteamNetworkingMinPaddedPacketSize ); \
-			return; \
-		} \
-		const UDPPaddedMessageHdr *hdr =  (const UDPPaddedMessageHdr *)( pvPkt ); \
-		int nMsgLength = LittleWord( hdr->m_nMsgLength ); \
-		if ( nMsgLength <= 0 || int(nMsgLength+sizeof(UDPPaddedMessageHdr)) > cbPkt ) \
-		{ \
-			ReportBadUDPPacketFromConnectionPeer( # CMsgCls, "Invalid encoded message length %d.  Packet is %d bytes.", nMsgLength, cbPkt ); \
-			return; \
-		} \
-		if ( !msgVar.ParseFromArray( hdr+1, nMsgLength ) ) \
-		{ \
-			ReportBadUDPPacketFromConnectionPeer( # CMsgCls, "Protobuf parse failed." ); \
-			return; \
-		} \
-	}
-
-void CConnectionTransportP2PICE::ProcessPacket( const uint8_t *pPkt, int cbPkt, SteamNetworkingMicroseconds usecNow )
-{
-	Assert( cbPkt >= 1 ); // Caller should have checked this
-	ETW_ICEProcessPacket( m_connection.m_hConnectionSelf, cbPkt );
-
-	// Data packet is the most common, check for it first.  Also, does stat tracking.
-	if ( *pPkt & 0x80 )
-	{
-		Received_Data( pPkt, cbPkt, usecNow );
-		return;
-	}
-
-	// Track stats for other packet types.
-	m_connection.m_statsEndToEnd.TrackRecvPacket( cbPkt, usecNow );
-
-	if ( *pPkt == k_ESteamNetworkingUDPMsg_ConnectionClosed )
-	{
-		ParsePaddedPacket( pPkt, cbPkt, CMsgSteamSockets_UDP_ConnectionClosed, msg )
-		Received_ConnectionClosed( msg, usecNow );
-	}
-	else if ( *pPkt == k_ESteamNetworkingUDPMsg_NoConnection )
-	{
-		ParseProtobufBody( pPkt+1, cbPkt-1, CMsgSteamSockets_UDP_NoConnection, msg )
-		Received_NoConnection( msg, usecNow );
-	}
-	else
-	{
-		ReportBadUDPPacketFromConnectionPeer( "packet", "Lead byte 0x%02x not a known message ID", *pPkt );
-	}
-}
-
-bool CConnectionTransportP2PICE::SendPacket( const void *pkt, int cbPkt )
+bool CConnectionTransportP2PICE_WebRTC::SendPacket( const void *pkt, int cbPkt )
 {
 	if ( !m_pICESession )
 		return false;
@@ -497,7 +481,7 @@ bool CConnectionTransportP2PICE::SendPacket( const void *pkt, int cbPkt )
 	return true;
 }
 
-bool CConnectionTransportP2PICE::SendPacketGather( int nChunks, const iovec *pChunks, int cbSendTotal )
+bool CConnectionTransportP2PICE_WebRTC::SendPacketGather( int nChunks, const iovec *pChunks, int cbSendTotal )
 {
 	if ( nChunks == 1 )
 	{
@@ -527,7 +511,7 @@ bool CConnectionTransportP2PICE::SendPacketGather( int nChunks, const iovec *pCh
 	return SendPacket( pkt, p-pkt );
 }
 
-bool CConnectionTransportP2PICE::BCanSendEndToEndData() const
+bool CConnectionTransportP2PICE_WebRTC::BCanSendEndToEndData() const
 {
 	if ( !m_pICESession )
 		return false;
@@ -536,28 +520,7 @@ bool CConnectionTransportP2PICE::BCanSendEndToEndData() const
 	return true;
 }
 
-void CConnectionTransportP2PICE::TrackSentStats( UDPSendPacketContext_t &ctx )
-{
-	CConnectionTransportUDPBase::TrackSentStats( ctx );
-
-	// Does this count as a ping request?
-	if ( ctx.msg.has_stats() || ( ctx.msg.flags() & ctx.msg.ACK_REQUEST_E2E ) )
-	{
-		bool bAllowDelayedReply = ( ctx.msg.flags() & ctx.msg.ACK_REQUEST_IMMEDIATE ) == 0;
-		P2PTransportTrackSentEndToEndPingRequest( ctx.m_usecNow, bAllowDelayedReply );
-	}
-}
-
-void CConnectionTransportP2PICE::RecvValidUDPDataPacket( UDPRecvPacketContext_t &ctx )
-{
-	if ( !ctx.m_pStatsIn || !( ctx.m_pStatsIn->flags() & ctx.m_pStatsIn->NOT_PRIMARY_TRANSPORT_E2E ) )
-		Connection().SetPeerSelectedTransport( this );
-	P2PTransportTrackRecvEndToEndPacket( ctx.m_usecNow );
-	if ( m_bNeedToConfirmEndToEndConnectivity && BCanSendEndToEndData() )
-		P2PTransportEndToEndConnectivityConfirmed( ctx.m_usecNow );
-}
-
-void CConnectionTransportP2PICE::UpdateRoute()
+void CConnectionTransportP2PICE_WebRTC::UpdateRoute()
 {
 	if ( !m_pICESession )
 		return;
@@ -611,7 +574,7 @@ void CConnectionTransportP2PICE::UpdateRoute()
 	RouteOrWritableStateChanged();
 }
 
-void CConnectionTransportP2PICE::RouteOrWritableStateChanged()
+void CConnectionTransportP2PICE_WebRTC::RouteOrWritableStateChanged()
 {
 
 	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
@@ -629,6 +592,58 @@ void CConnectionTransportP2PICE::RouteOrWritableStateChanged()
 	Connection().TransportEndToEndConnectivityChanged( this, usecNow );
 }
 
+void CConnectionTransportP2PICE_WebRTC::RecvRendezvous( const CMsgICERendezvous &msg, SteamNetworkingMicroseconds usecNow )
+{
+	AssertLocksHeldByCurrentThread( "P2PICE::RecvRendezvous" );
+
+	// Safety
+	if ( !m_pICESession )
+	{
+		Connection().ICEFailed( k_ESteamNetConnectionEnd_Misc_InternalError, "No IICESession?" );
+		return;
+	}
+
+	if ( msg.has_add_candidate() )
+	{
+		const CMsgICERendezvous_Candidate &c = msg.add_candidate();
+		EICECandidateType eType = m_pICESession->AddRemoteIceCandidate( c.candidate().c_str() );
+		if ( eType != k_EICECandidate_Invalid )
+		{
+			SpewVerboseGroup( LogLevel_P2PRendezvous(), "[%s] Processed remote Ice Candidate '%s' (type %d)\n", ConnectionDescription(), c.candidate().c_str(), eType );
+			Connection().m_msgICESessionSummary.set_remote_candidate_types( Connection().m_msgICESessionSummary.remote_candidate_types() | eType );
+		}
+		else
+		{
+			SpewWarning( "[%s] Ignoring candidate %s\n", ConnectionDescription(), c.ShortDebugString().c_str() );
+		}
+	}
+
+	if ( msg.has_auth() )
+	{
+		std::string sUfragRemote = Base64EncodeLower30Bits( ConnectionIDRemote() );
+		const char *pszPwdFrag = msg.auth().pwd_frag().c_str();
+		SpewVerboseGroup( LogLevel_P2PRendezvous(), "[%s] Set remote auth to %s / %s\n", ConnectionDescription(), sUfragRemote.c_str(), pszPwdFrag );
+		m_pICESession->SetRemoteAuth( sUfragRemote.c_str(), pszPwdFrag );
+	}
+}
+
+void CConnectionTransportP2PICE_WebRTC::P2PTransportThink( SteamNetworkingMicroseconds usecNow )
+{
+	// Are we dead?
+	if ( !m_pICESession || Connection().m_pTransportICEPendingDelete )
+	{
+		// If we're a zombie, we should be queued for destruction
+		Assert( Connection().m_pTransportICE != this );
+		Assert( Connection().m_pTransportICEPendingDelete == this );
+
+		// Make sure connection wakes up to do this
+		Connection().SetNextThinkTimeASAP();
+		return;
+	}
+
+	CConnectionTransportP2PICE::P2PTransportThink( usecNow );
+}
+
 /////////////////////////////////////////////////////////////////////////////
 //
 // IICESessionDelegate handlers
@@ -640,27 +655,27 @@ void CConnectionTransportP2PICE::RouteOrWritableStateChanged()
 
 /// A glue object used to take a callback from ICE, which might happen in
 /// any thread, and execute it with the proper locks.
-class IConnectionTransportP2PICERunWithLock : private CQueuedTaskOnTarget<CConnectionTransportP2PICE>
+class IConnectionTransportP2PICERunWithLock : private CQueuedTaskOnTarget<CConnectionTransportP2PICE_WebRTC>
 {
 public:
 
 	/// Execute the callback.  The global lock and connection locks will be held.
-	virtual void RunTransportP2PICE( CConnectionTransportP2PICE *pTransport ) = 0;
+	virtual void RunTransportP2PICE( CConnectionTransportP2PICE_WebRTC *pTransport ) = 0;
 
-	inline void Queue( CConnectionTransportP2PICE *pTransport, const char *pszTag )
+	inline void Queue( CConnectionTransportP2PICE_WebRTC *pTransport, const char *pszTag )
 	{
 		DbgVerify( Setup( pTransport ) ); // Caller should have already checked
 		QueueToRunWithGlobalLock( pszTag );
 	}
 
-	inline void RunOrQueue( CConnectionTransportP2PICE *pTransport, const char *pszTag )
+	inline void RunOrQueue( CConnectionTransportP2PICE_WebRTC *pTransport, const char *pszTag )
 	{
 		if ( Setup( pTransport ) )
 			RunWithGlobalLockOrQueue( pszTag );
 	}
 
 private:
-	inline bool Setup( CConnectionTransportP2PICE *pTransport )
+	inline bool Setup( CConnectionTransportP2PICE_WebRTC *pTransport )
 	{
 		CSteamNetworkConnectionP2P &conn = pTransport->Connection();
 		if ( conn.m_pTransportICE != pTransport )
@@ -675,7 +690,7 @@ private:
 
 	virtual void Run()
 	{
-		CConnectionTransportP2PICE *pTransport = Target();
+		CConnectionTransportP2PICE_WebRTC *pTransport = Target();
 		CSteamNetworkConnectionP2P &conn = pTransport->Connection();
 
 		ConnectionScopeLock connectionLock( conn );
@@ -687,7 +702,7 @@ private:
 };
 
 
-void CConnectionTransportP2PICE::Log( IICESessionDelegate::ELogPriority ePriority, const char *pszMessageFormat, ... )
+void CConnectionTransportP2PICE_WebRTC::Log( IICESessionDelegate::ELogPriority ePriority, const char *pszMessageFormat, ... )
 {
 	ESteamNetworkingSocketsDebugOutputType eType;
 	switch ( ePriority )
@@ -716,14 +731,14 @@ void CConnectionTransportP2PICE::Log( IICESessionDelegate::ELogPriority ePriorit
 	ReallySpewTypeFmt( eType, "ICE: %s", buf ); // FIXME would like to get the connection description, but that's not threadsafe
 }
 
-void CConnectionTransportP2PICE::OnLocalCandidateGathered( EICECandidateType eType, const char *pszCandidate )
+void CConnectionTransportP2PICE_WebRTC::OnLocalCandidateGathered( EICECandidateType eType, const char *pszCandidate )
 {
 
 	struct RunIceCandidateAdded : IConnectionTransportP2PICERunWithLock
 	{
 		EICECandidateType eType;
 		CMsgSteamNetworkingP2PRendezvous_ReliableMessage msg;
-		virtual void RunTransportP2PICE( CConnectionTransportP2PICE *pTransport )
+		virtual void RunTransportP2PICE( CConnectionTransportP2PICE_WebRTC *pTransport )
 		{
 			CSteamNetworkConnectionP2P &conn = pTransport->Connection();
 			CMsgSteamNetworkingICESessionSummary &sum = conn.m_msgICESessionSummary;
@@ -739,7 +754,7 @@ void CConnectionTransportP2PICE::OnLocalCandidateGathered( EICECandidateType eTy
 	pRun->RunOrQueue( this, "ICE OnIceCandidateAdded" );
 }
 
-void CConnectionTransportP2PICE::DrainPacketQueue( SteamNetworkingMicroseconds usecNow )
+void CConnectionTransportP2PICE_WebRTC::DrainPacketQueue( SteamNetworkingMicroseconds usecNow )
 {
 	// Quickly swap into temp
 	CUtlBuffer buf;
@@ -747,7 +762,7 @@ void CConnectionTransportP2PICE::DrainPacketQueue( SteamNetworkingMicroseconds u
 	buf.Swap( m_bufPacketQueue );
 	m_mutexPacketQueue.unlock();
 
-	//SpewMsg( "CConnectionTransportP2PICE::DrainPacketQueue: %d bytes queued\n", buf.TellPut() );
+	//SpewMsg( "CConnectionTransportP2PICE_WebRTC::DrainPacketQueue: %d bytes queued\n", buf.TellPut() );
 
 	// Process all the queued packets
 	uint8 *p = (uint8*)buf.Base();
@@ -772,11 +787,11 @@ void CConnectionTransportP2PICE::DrainPacketQueue( SteamNetworkingMicroseconds u
 	}
 }
 
-void CConnectionTransportP2PICE::OnWritableStateChanged()
+void CConnectionTransportP2PICE_WebRTC::OnWritableStateChanged()
 {
 	struct RunWritableStateChanged : IConnectionTransportP2PICERunWithLock
 	{
-		virtual void RunTransportP2PICE( CConnectionTransportP2PICE *pTransport )
+		virtual void RunTransportP2PICE( CConnectionTransportP2PICE_WebRTC *pTransport )
 		{
 			// Are we writable right now?
 			if ( pTransport->BCanSendEndToEndData() )
@@ -808,11 +823,11 @@ void CConnectionTransportP2PICE::OnWritableStateChanged()
 	pRun->RunOrQueue( this, "ICE OnWritableStateChanged" );
 }
 
-void CConnectionTransportP2PICE::OnRouteChanged()
+void CConnectionTransportP2PICE_WebRTC::OnRouteChanged()
 {
 	struct RunRouteStateChanged : IConnectionTransportP2PICERunWithLock
 	{
-		virtual void RunTransportP2PICE( CConnectionTransportP2PICE *pTransport )
+		virtual void RunTransportP2PICE( CConnectionTransportP2PICE_WebRTC *pTransport )
 		{
 			pTransport->UpdateRoute();
 		}
@@ -822,7 +837,7 @@ void CConnectionTransportP2PICE::OnRouteChanged()
 	pRun->RunOrQueue( this, "ICE OnRouteChanged" );
 }
 
-void CConnectionTransportP2PICE::OnData( const void *pPkt, size_t nSize )
+void CConnectionTransportP2PICE_WebRTC::OnData( const void *pPkt, size_t nSize )
 {
 	if ( Connection().m_pTransportICE != this )
 		return;
@@ -844,7 +859,7 @@ void CConnectionTransportP2PICE::OnData( const void *pPkt, size_t nSize )
 		// We can process the data now!  Grab the connection lock.
 		ConnectionScopeLock connectionLock( m_connection );
 
-		//SpewMsg( "CConnectionTransportP2PICE::OnData %d bytes, process immediate\n", (int)nSize );
+		//SpewMsg( "CConnectionTransportP2PICE_WebRTC::OnData %d bytes, process immediate\n", (int)nSize );
 
 		// Check if queue is empty.  Note that no race conditions here.  We hold the lock,
 		// which means we aren't messing with it in some other thread.  And we are in WebRTC's
@@ -877,10 +892,10 @@ void CConnectionTransportP2PICE::OnData( const void *pPkt, size_t nSize )
 	// the buffer lock when we checked if the queue was empty.
 	if ( nSaveTellPut == 0 )
 	{
-		//SpewMsg( "CConnectionTransportP2PICE::OnData %d bytes, queued, added drain queue task\n", (int)nSize );
+		//SpewMsg( "CConnectionTransportP2PICE_WebRTC::OnData %d bytes, queued, added drain queue task\n", (int)nSize );
 		struct RunDrainQueue : IConnectionTransportP2PICERunWithLock
 		{
-			virtual void RunTransportP2PICE( CConnectionTransportP2PICE *pTransport )
+			virtual void RunTransportP2PICE( CConnectionTransportP2PICE_WebRTC *pTransport )
 			{
 				pTransport->DrainPacketQueue( SteamNetworkingSockets_GetLocalTimestamp() );
 			}
@@ -896,11 +911,11 @@ void CConnectionTransportP2PICE::OnData( const void *pPkt, size_t nSize )
 	{
 		if ( nSaveTellPut > 30000 )
 		{
-			SpewMsg( "CConnectionTransportP2PICE::OnData %d bytes, queued, %d previously queued LOCK PROBLEM!\n", (int)nSize, nSaveTellPut );
+			SpewMsg( "CConnectionTransportP2PICE_WebRTC::OnData %d bytes, queued, %d previously queued LOCK PROBLEM!\n", (int)nSize, nSaveTellPut );
 		}
 		else
 		{
-			//SpewMsg( "CConnectionTransportP2PICE::OnData %d bytes, queued, %d previously queued\n", (int)nSize, nSaveTellPut );
+			//SpewMsg( "CConnectionTransportP2PICE_WebRTC::OnData %d bytes, queued, %d previously queued\n", (int)nSize, nSaveTellPut );
 		}
 	}
 }
