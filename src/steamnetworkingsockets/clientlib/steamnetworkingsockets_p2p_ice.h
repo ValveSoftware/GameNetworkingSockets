@@ -60,8 +60,8 @@ protected:
 	void ProcessPacket( const uint8_t *pData, int cbPkt, SteamNetworkingMicroseconds usecNow );
 
 	// Implements CConnectionTransportUDPBase
-	virtual bool SendPacket( const void *pkt, int cbPkt ) = 0;
-	virtual bool SendPacketGather( int nChunks, const iovec *pChunks, int cbSendTotal ) = 0;
+	virtual bool SendPacket( const void *pkt, int cbPkt ) override = 0;
+	virtual bool SendPacketGather( int nChunks, const iovec *pChunks, int cbSendTotal ) override = 0;
 	virtual void TrackSentStats( UDPSendPacketContext_t &ctx ) override;
 	virtual void RecvValidUDPDataPacket( UDPRecvPacketContext_t &ctx ) override;
 };
