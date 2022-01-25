@@ -1761,12 +1761,12 @@ ESteamNetConnectionEnd CSteamNetworkConnectionBase::FinishCryptoHandshake( bool 
 
 EUnsignedCert CSteamNetworkConnectionBase::AllowLocalUnsignedCert()
 {
-	#ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
-		// We don't have a cert authority.  We probably ought to make this customizable
+	// Base class - we will not attempt connections without a local cert,
+	// unless we are running in a way that is configured without one
+	if ( !m_pSteamNetworkingSocketsInterface->BCanRequestCert() )
 		return k_EUnsignedCert_Allow;
-	#else
+	else
 		return k_EUnsignedCert_Disallow;
-	#endif
 }
 
 EUnsignedCert CSteamNetworkConnectionBase::AllowRemoteUnsignedCert()

@@ -157,6 +157,11 @@ public:
 	//
 
 #ifdef STEAMNETWORKINGSOCKETS_CAN_REQUEST_CERT
+	// Return true if we're running in a mode where we actually
+	// can request certs
+	virtual bool BCanRequestCert() { return true; }
+
+	// Check if a cert request is already in progress
 	virtual bool BCertRequestInFlight() = 0;
 
 	ScheduledMethodThinker<CSteamNetworkingSockets> m_scheduleCheckRenewCert;
@@ -164,6 +169,7 @@ public:
 	/// Platform-specific code to actually obtain a cert
 	virtual void BeginFetchCertAsync() = 0;
 #else
+	inline bool BCanRequestCert() { return false; }
 	inline bool BCertRequestInFlight() { return false; }
 #endif
 
@@ -233,7 +239,7 @@ protected:
 	/// Figure out the current authentication status.  And if it has changed, send out callbacks
 	virtual void DeduceAuthenticationStatus();
 
-	void InternalInitIdentity();
+	void InternalClearIdentity();
 	void KillConnections();
 
 	SteamNetworkingIdentity m_identity;

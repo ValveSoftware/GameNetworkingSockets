@@ -3382,7 +3382,8 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const CMsgSteamNetworki
 			// Are we ready with authentication?
 			// This is actually not really correct to use a #define here.  Really, we ought
 			// to create a connection and check AllowLocalUnsignedCert/AllowRemoteUnsignedCert.
-			#ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
+			if ( BCanRequestCert() )
+			{
 
 				// Make sure we have a recent cert.  Start requesting another if needed.
 				AuthenticationNeeded();
@@ -3395,7 +3396,7 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const CMsgSteamNetworki
 						SteamNetworkingIdentityRender( identityRemote ).c_str() );
 					return true; // Return true because the signal is valid, we just cannot do anything with it right now
 				}
-			#endif
+			}
 
 			// Determine virtual ports, and locate the listen socket, if any
 			// Connecting by FakeIP?

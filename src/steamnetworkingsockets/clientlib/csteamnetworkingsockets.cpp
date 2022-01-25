@@ -394,10 +394,10 @@ CSteamNetworkingSockets::CSteamNetworkingSockets( CSteamNetworkingUtils *pSteamN
 , m_mutexPendingCallbacks( "pending_callbacks" )
 {
 	m_connectionConfig.Init( nullptr );
-	InternalInitIdentity();
+	InternalClearIdentity();
 }
 
-void CSteamNetworkingSockets::InternalInitIdentity()
+void CSteamNetworkingSockets::InternalClearIdentity()
 {
 	m_identity.Clear();
 	m_msgSignedCert.Clear();
@@ -538,7 +538,7 @@ void CSteamNetworkingSockets::FreeResources()
 
 	// Clear identity and crypto stuff.
 	// If we are re-initialized, we might get new ones
-	InternalInitIdentity();
+	InternalClearIdentity();
 
 	// Mark us as no longer being setup
 	if ( m_bHaveLowLevelRef )
@@ -765,14 +765,11 @@ bool CSteamNetworkingSockets::SetCertificate( const void *pCertificate, int cbCe
 
 void CSteamNetworkingSockets::ResetIdentity( const SteamNetworkingIdentity *pIdentity )
 {
-#ifdef STEAMNETWORKINGSOCKETS_STEAM
-	Assert( !"Not supported on steam" );
-#else
+	SteamNetworkingGlobalLock scopeLock( "ResetIdentity" );
 	KillConnections();
-	InternalInitIdentity();
+	InternalClearIdentity();
 	if ( pIdentity )
 		m_identity = *pIdentity;
-#endif
 }
 
 ESteamNetworkingAvailability CSteamNetworkingSockets::InitAuthentication()
@@ -790,6 +787,9 @@ void CSteamNetworkingSockets::CheckAuthenticationPrerequisites( SteamNetworkingM
 {
 #ifdef STEAMNETWORKINGSOCKETS_CAN_REQUEST_CERT
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
+
+	if ( !BCanRequestCert() )
+		return;
 
 	// Check if we're in flight already.
 	bool bInFlight = BCertRequestInFlight();
