@@ -46,7 +46,7 @@ perf.data.old
 /src/steamnetworkingsockets/certtool/win64/*
 /src/steamnetworkingsockets/clientlib/win64/*
 *.swp
-
+/.github/build-ci-ccache
 *partner*
 
 # We use cmake, so no Visual studio project files should be in git
