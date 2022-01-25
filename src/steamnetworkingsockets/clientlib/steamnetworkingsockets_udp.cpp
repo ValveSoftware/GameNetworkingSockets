@@ -1766,7 +1766,7 @@ void CConnectionTransportUDP::SendConnectOK( SteamNetworkingMicroseconds usecNow
 EUnsignedCert CSteamNetworkConnectionUDP::AllowRemoteUnsignedCert()
 {
 	// NOTE: No special override for localhost.
-	// Should we add a seperate convar for this?
+	// Should we add a separate convar for this?
 	// For the CSteamNetworkConnectionlocalhostLoopback connection,
 	// we know both ends are us.  but if they are just connecting to
 	// 127.0.0.1, it's not clear that we should handle this any
