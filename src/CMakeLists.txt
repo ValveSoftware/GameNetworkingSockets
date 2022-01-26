@@ -371,6 +371,7 @@ if (BUILD_TOOLS)
 		${GNS_COMMON_SRCS}
 		${GNS_COMMON_PROTO_SRCS})
 
+	target_compile_definitions(steamnetworkingsockets_certtool PUBLIC STEAMNETWORKINGSOCKETS_STATIC_LINK)
 	set_target_common_gns_properties( steamnetworkingsockets_certtool )
 
 	target_include_directories(steamnetworkingsockets_certtool PUBLIC
