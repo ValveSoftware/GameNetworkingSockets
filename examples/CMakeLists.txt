@@ -1,6 +1,3 @@
-cmake_minimum_required(VERSION 3.9)
-project(gns_example C CXX)
-
 #
 # Trivial signaling server, written in go
 #
@@ -34,17 +31,6 @@ add_executable(
 	example_chat
 	example_chat.cpp)
 
-if(COMMAND set_target_common_gns_properties)
-	set_target_common_gns_properties( example_chat )
-endif()
-
-# If building the example as a standalone project, need to find GameNetworkingSockets
-if(${CMAKE_PROJECT_NAME} STREQUAL "gns_example")
-	find_package(GameNetworkingSockets CONFIG REQUIRED)
-endif()
-
 target_link_libraries(example_chat GameNetworkingSockets::shared)
 
-if(COMMAND add_sanitizers)
-	add_sanitizers(example_chat)
-endif()
+add_sanitizers(example_chat)
