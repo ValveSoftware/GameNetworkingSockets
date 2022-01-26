@@ -449,9 +449,9 @@ bool CIPAddress::SetFromSockadr(const void *addr, size_t addr_size, uint16 *punP
 			}
 			const auto *sin = (const sockaddr_in *)addr;
 			m_usType = k_EIPTypeV4;
-			m_unIPv4 = ntohl ( sin->sin_addr.s_addr );
+			m_unIPv4 = BigDWord( sin->sin_addr.s_addr );
 			if ( punPort )
-				*punPort = ntohs( sin->sin_port );
+				*punPort = BigWord( sin->sin_port );
 
 			return true;
 		}
@@ -469,7 +469,7 @@ bool CIPAddress::SetFromSockadr(const void *addr, size_t addr_size, uint16 *punP
 			memcpy( m_rgubIPv6, &sin6->sin6_addr, sizeof(m_rgubIPv6) );
 			m_unIPv6Scope = sin6->sin6_scope_id;
 			if ( punPort )
-				*punPort = ntohs( sin6->sin6_port );
+				*punPort = BigWord( sin6->sin6_port );
 
 			return true;
 		}
@@ -650,8 +650,8 @@ size_t CIPAndPort::ToSockadr(void *addr, size_t addr_size) const
 			}
 			auto *s = (struct sockaddr_in*)addr;
 			s->sin_family = AF_INET;
-			s->sin_addr.s_addr =  htonl( INADDR_LOOPBACK );
-			s->sin_port = htons( m_usPort );
+			s->sin_addr.s_addr = BigDWord( INADDR_LOOPBACK );
+			s->sin_port = BigWord( m_usPort );
 			struct_size = sizeof(sockaddr_in);
 		}
 		break;
@@ -665,8 +665,8 @@ size_t CIPAndPort::ToSockadr(void *addr, size_t addr_size) const
 			}
 			auto *s = (struct sockaddr_in*)addr;
 			s->sin_family = AF_INET;
-			s->sin_addr.s_addr =  htonl( INADDR_BROADCAST );
-			s->sin_port = htons( m_usPort );
+			s->sin_addr.s_addr = BigDWord( INADDR_BROADCAST );
+			s->sin_port = BigWord( m_usPort );
 			struct_size = sizeof(sockaddr_in);
 		}
 		break;
@@ -680,8 +680,8 @@ size_t CIPAndPort::ToSockadr(void *addr, size_t addr_size) const
 			}
 			auto *s = (struct sockaddr_in*)addr;
 			s->sin_family = AF_INET;
-			s->sin_addr.s_addr = htonl( m_unIPv4 );
-			s->sin_port = htons( m_usPort );
+			s->sin_addr.s_addr = BigDWord( m_unIPv4 );
+			s->sin_port = BigWord( m_usPort );
 			struct_size = sizeof(sockaddr_in);
 		}
 		break;
@@ -698,7 +698,7 @@ size_t CIPAndPort::ToSockadr(void *addr, size_t addr_size) const
 			COMPILE_TIME_ASSERT( sizeof(s->sin6_addr) == sizeof(m_rgubIPv6) );
 			memcpy( &s->sin6_addr, m_rgubIPv6, sizeof(s->sin6_addr) );
 			s->sin6_scope_id = m_unIPv6Scope;
-			s->sin6_port = htons( m_usPort );
+			s->sin6_port = BigWord( m_usPort );
 			struct_size = sizeof(sockaddr_in6);
 		}
 		break;
@@ -726,5 +726,5 @@ void CIPAndPort::ToSockadrIPV6(void *addr, size_t addr_size) const
 	GetIPV6( s->sin6_addr.s6_addr );
 	if ( m_usType == k_EIPTypeV6 )
 		s->sin6_scope_id = m_unIPv6Scope;
-	s->sin6_port = htons( m_usPort );
+	s->sin6_port = BigWord( m_usPort );
 }
