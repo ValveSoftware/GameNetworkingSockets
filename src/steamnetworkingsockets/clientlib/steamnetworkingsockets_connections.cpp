@@ -632,7 +632,7 @@ CSteamNetworkConnectionBase::~CSteamNetworkConnectionBase()
 	}
 }
 
-static std_vector<CSteamNetworkConnectionBase *> s_vecPendingDeleteConnections;
+static std::vector<CSteamNetworkConnectionBase *> s_vecPendingDeleteConnections;
 static ShortDurationLock s_lockPendingDeleteConnections( "connection_delete_queue" );
 
 void CSteamNetworkConnectionBase::ConnectionQueueDestroy()
@@ -661,7 +661,7 @@ void CSteamNetworkConnectionBase::ProcessDeletionList()
 	// want us to take a ShortDurationLock and then take any
 	// other locks.
 	s_lockPendingDeleteConnections.lock();
-	std_vector<CSteamNetworkConnectionBase *> vecTemp( std::move( s_vecPendingDeleteConnections ) );
+	std::vector<CSteamNetworkConnectionBase *> vecTemp( std::move( s_vecPendingDeleteConnections ) );
 	s_vecPendingDeleteConnections.clear();
 	s_lockPendingDeleteConnections.unlock();
 
