@@ -576,17 +576,6 @@ struct LinkStatsTrackerBase
 	/// Time when we last received a sequenced packet
 	SteamNetworkingMicroseconds m_usecTimeLastRecvSeq;
 
-	/// Called when we receive any packet, with or without a sequence number.
-	/// Does not perform any rate limiting checks
-	inline void TrackRecvPacket( int cbPktSize, SteamNetworkingMicroseconds usecNow )
-	{
-		m_recv.ProcessPacket( cbPktSize );
-		m_usecTimeLastRecv = usecNow;
-		m_usecInFlightReplyTimeout = 0;
-		m_nReplyTimeoutsSinceLastRecv = 0;
-		m_usecWhenTimeoutStarted = 0;
-	}
-
 	// For multi-path, we track some extra stats
 	uint64 m_recvPktNumberMaskMultiPath[2][2]; // Bitmask that we have received on either path
 	int64 m_nMultiPathRecvLater[2];
@@ -855,6 +844,18 @@ protected:
 		pThis->m_ping.ReceivedPing( nPingMS, usecNow );
 	}
 
+	/// Called when we receive any packet, with or without a sequence number.
+	/// Does not perform any rate limiting checks
+	template <typename TLinkStatsTracker>
+	inline static void TrackRecvPacketInternal( TLinkStatsTracker *pThis, int cbPktSize, SteamNetworkingMicroseconds usecNow )
+	{
+		pThis->m_recv.ProcessPacket( cbPktSize );
+		pThis->m_usecTimeLastRecv = usecNow;
+		pThis->m_usecInFlightReplyTimeout = 0;
+		pThis->m_nReplyTimeoutsSinceLastRecv = 0;
+		pThis->m_usecWhenTimeoutStarted = 0;
+	}
+
 	inline bool BInternalNeedToSendPingImmediate( SteamNetworkingMicroseconds usecNow, SteamNetworkingMicroseconds &inOutNextThinkTime )
 	{
 		if ( m_nReplyTimeoutsSinceLastRecv == 0 )
@@ -1072,6 +1073,7 @@ struct LinkStatsTracker final : public TLinkStatsTracker
 	inline void TrackSentMessageExpectingSeqNumAck( SteamNetworkingMicroseconds usecNow, bool bAllowDelayedReply ) { TLinkStatsTracker::TrackSentMessageExpectingSeqNumAckInternal( this, usecNow, bAllowDelayedReply ); }
 	inline void TrackSentPingRequest( SteamNetworkingMicroseconds usecNow, bool bAllowDelayedReply ) { TLinkStatsTracker::TrackSentPingRequestInternal( this, usecNow, bAllowDelayedReply ); }
 	inline void ReceivedPing( int nPingMS, SteamNetworkingMicroseconds usecNow ) { TLinkStatsTracker::ReceivedPingInternal( this, nPingMS, usecNow ); }
+	inline void TrackRecvPacket( int cbPktSize, SteamNetworkingMicroseconds usecNow ) { TLinkStatsTracker::TrackRecvPacketInternal( this, cbPktSize, usecNow ); }
 	inline void InFlightReplyTimeout( SteamNetworkingMicroseconds usecNow ) { TLinkStatsTracker::InFlightReplyTimeoutInternal( this, usecNow ); }
 
 	/// Called after we actually send connection data.  Note that we must have consumed the outgoing sequence
