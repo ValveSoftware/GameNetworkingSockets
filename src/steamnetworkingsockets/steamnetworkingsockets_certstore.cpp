@@ -662,7 +662,8 @@ const CertAuthScope *CertStore_CheckCert( const CMsgSteamDatagramCertificateSign
 	// Check expiry
 	if ( (time_t)outMsgCert.time_expiry() < timeNow )
 	{
-		V_sprintf_safe( errMsg, "Cert expired %lld seconds ago", (long long)( timeNow - outMsgCert.time_expiry() ) );
+		V_sprintf_safe( errMsg, "Cert expired %lld seconds ago at %lld (current time %lld)",
+			(long long)( timeNow - outMsgCert.time_expiry() ), (long long)outMsgCert.time_expiry(), (long long)timeNow );
 		return nullptr;
 	}
 
