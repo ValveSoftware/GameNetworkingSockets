@@ -137,6 +137,7 @@ enum EResult
 	k_EResultInvalidSignature = 121,			// signature check did not match
 	k_EResultParseFailure = 122,				// Failed to parse input
 	k_EResultNoVerifiedPhone = 123,				// account does not have a verified phone number
+	k_EResultInsufficientBattery = 124,			// user device doesn't have enough battery charge currently to complete the action
 };
 
 // Error codes for use with the voice functions
@@ -592,37 +593,6 @@ public:
 		m_steamid.m_comp.m_unAccountInstance = 0;
 	}
 
-
-#if defined( INCLUDED_STEAM2_USERID_STRUCTS ) 
-	//-----------------------------------------------------------------------------
-	// Purpose: Initializes a steam ID from a Steam2 ID structure
-	// Input:	pTSteamGlobalUserID -	Steam2 ID to convert
-	//			eUniverse -				universe this ID belongs to
-	//-----------------------------------------------------------------------------
-	void SetFromSteam2( TSteamGlobalUserID *pTSteamGlobalUserID, EUniverse eUniverse )
-	{
-		m_steamid.m_comp.m_unAccountID = pTSteamGlobalUserID->m_SteamLocalUserID.Split.Low32bits * 2 + 
-			pTSteamGlobalUserID->m_SteamLocalUserID.Split.High32bits;
-		m_steamid.m_comp.m_EUniverse = eUniverse;		// set the universe
-		m_steamid.m_comp.m_EAccountType = k_EAccountTypeIndividual; // Steam 2 accounts always map to account type of individual
-		m_steamid.m_comp.m_unAccountInstance = k_unSteamUserDefaultInstance; // Steam2 only knew one instance
-	}
-
-	//-----------------------------------------------------------------------------
-	// Purpose: Fills out a Steam2 ID structure
-	// Input:	pTSteamGlobalUserID -	Steam2 ID to write to
-	//-----------------------------------------------------------------------------
-	void ConvertToSteam2( TSteamGlobalUserID *pTSteamGlobalUserID ) const
-	{
-		// only individual accounts have any meaning in Steam 2, only they can be mapped
-		// Assert( m_steamid.m_comp.m_EAccountType == k_EAccountTypeIndividual );
-
-		pTSteamGlobalUserID->m_SteamInstanceID = 0;
-		pTSteamGlobalUserID->m_SteamLocalUserID.Split.High32bits = m_steamid.m_comp.m_unAccountID % 2;
-		pTSteamGlobalUserID->m_SteamLocalUserID.Split.Low32bits = m_steamid.m_comp.m_unAccountID / 2;
-	}
-#endif // defined( INCLUDED_STEAM_COMMON_STEAMCOMMON_H )
-
 	//-----------------------------------------------------------------------------
 	// Purpose: Converts steam ID to its 64-bit representation
 	// Output : 64-bit representation of a Steam ID
@@ -794,7 +764,6 @@ public:
     // and is preferred when the caller knows it's safe to be strict.
     // Returns whether the string parsed correctly.
 	bool SetFromStringStrict( const char *pchSteamID, EUniverse eDefaultUniverse );
-	bool SetFromSteam2String( const char *pchSteam2ID, EUniverse eUniverse );
 
 	inline bool operator==( const CSteamID &val ) const { return m_steamid.m_unAll64Bits == val.m_steamid.m_unAll64Bits; } 
 	inline bool operator!=( const CSteamID &val ) const { return !operator==( val ); }
@@ -862,6 +831,41 @@ inline bool CSteamID::IsValid() const
 	}
 	return true;
 }
+
+#if defined( INCLUDED_STEAM2_USERID_STRUCTS ) 
+
+//-----------------------------------------------------------------------------
+// Purpose: Initializes a steam ID from a Steam2 ID structure
+// Input:	pTSteamGlobalUserID -	Steam2 ID to convert
+//			eUniverse -				universe this ID belongs to
+//-----------------------------------------------------------------------------
+inline CSteamID SteamIDFromSteam2UserID( TSteamGlobalUserID *pTSteamGlobalUserID, EUniverse eUniverse )
+{
+	uint32 unAccountID = pTSteamGlobalUserID->m_SteamLocalUserID.Split.Low32bits * 2 + 
+		pTSteamGlobalUserID->m_SteamLocalUserID.Split.High32bits;
+
+	return CSteamID( unAccountID, k_unSteamUserDefaultInstance, eUniverse, k_EAccountTypeIndividual );
+}
+
+bool SteamIDFromSteam2String( const char *pchSteam2ID, EUniverse eUniverse, CSteamID *pSteamIDOut );
+
+//-----------------------------------------------------------------------------
+// Purpose: Fills out a Steam2 ID structure
+// Input:	pTSteamGlobalUserID -	Steam2 ID to write to
+//-----------------------------------------------------------------------------
+inline TSteamGlobalUserID SteamIDToSteam2UserID( CSteamID steamID )
+{
+	TSteamGlobalUserID steamGlobalUserID;
+
+	steamGlobalUserID.m_SteamInstanceID = 0;
+	steamGlobalUserID.m_SteamLocalUserID.Split.High32bits = steamID.GetAccountID() % 2;
+	steamGlobalUserID.m_SteamLocalUserID.Split.Low32bits = steamID.GetAccountID() / 2;
+
+	return steamGlobalUserID;
+}
+
+
+#endif
 
 // generic invalid CSteamID
 #define k_steamIDNil CSteamID()
