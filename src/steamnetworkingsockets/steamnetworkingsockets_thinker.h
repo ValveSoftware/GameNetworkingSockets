@@ -132,10 +132,15 @@ public:
 	inline void EnsureMinScheduleTime( SteamNetworkingMicroseconds usecWhen ) { Assert( m_pOuter && m_method ); EnsureMinThinkTime( usecWhen ); }
 	inline void EnsureMinScheduleTime( TOuter *pOuter, TMethod method, SteamNetworkingMicroseconds usecWhen )
 	{
-		Cancel(); // !SPEED! If we wrapped this whole thing with the thinker lock, we could avoid this
-		m_pOuter = pOuter;
-		m_method = method;
-		EnsureMinScheduleTime( usecWhen );
+		if ( usecWhen >= IThinker::GetNextThinkTime() )
+		{
+			Assert( m_pOuter == pOuter );
+			Assert( m_method == method );
+		}
+		else
+		{
+			Schedule( pOuter, method, usecWhen );
+		}
 	}
 
 	/// If currently scheduled, cancel it
