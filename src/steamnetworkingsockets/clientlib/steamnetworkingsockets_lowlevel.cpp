@@ -972,7 +972,20 @@ public:
 			bool bResult = ( r == 0 );
 			if ( !bResult )
 			{
-				SpewWarning( "WSASendTo %s failed, returned %d, last error=0x%x\n", CUtlNetAdrRender( adrTo ).String(), r, GetLastSocketError() );
+		        const char *lpMsgBuf = nullptr;
+				FormatMessage(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, 
+							NULL, GetLastSocketError(), MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), 
+							// Default language
+							(LPTSTR) & lpMsgBuf, 0, NULL);
+				if ( lpMsgBuf == nullptr )
+				{
+					SpewWarning( "WSASendTo %s failed, returned %d, last error=0x%x\n", CUtlNetAdrRender( adrTo ).String(), r, GetLastSocketError() );
+				}
+				else
+				{
+					SpewWarning( "WSASendTo %s failed, returned %d, last error=0x%x %s", CUtlNetAdrRender( adrTo ).String(), r, GetLastSocketError(), lpMsgBuf );
+					LocalFree( (LPVOID)lpMsgBuf );
+				}
 			}
 		#else
 			msghdr msg;
