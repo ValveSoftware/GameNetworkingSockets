@@ -487,8 +487,14 @@ public:
 			val /= 1000;
 		}
 		int iVal = int( val ); // make sure compiler knows it can do 32-bit math
-		if ( iVal >= 100 ) { *(d++) = char( iVal/100 + '0' ); iVal %= 100; }
-		if ( iVal >= 10 ) { *(d++) = char( iVal/10 + '0' ); iVal %= 10; }
+		if ( iVal >= 10 )
+		{
+			if ( iVal >= 100 )
+			{
+				*(d++) = char( iVal/100 + '0' ); iVal %= 100;
+			}
+			*(d++) = char( iVal/10 + '0' ); iVal %= 10;
+		}
 		*(d++) = char( iVal + '0' );
 		while ( nGroupsOfThree > 0 )
 		{
