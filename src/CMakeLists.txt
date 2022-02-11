@@ -388,6 +388,9 @@ if (BUILD_TOOLS)
 
 	gns_set_target_protobuf_properties(steamnetworkingsockets_certtool)
 	gns_set_target_crypto_properties(steamnetworkingsockets_certtool)
+
+	install(TARGETS steamnetworkingsockets_certtool DESTINATION ${CMAKE_INSTALL_BINDIR} )
+
 endif()
 
 install(DIRECTORY ../include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/GameNetworkingSockets)
