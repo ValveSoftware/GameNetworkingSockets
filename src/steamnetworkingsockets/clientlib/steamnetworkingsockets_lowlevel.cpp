@@ -18,6 +18,9 @@
 #ifdef POSIX
 #include <pthread.h>
 #include <sched.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netdb.h>
 #endif
 
 #include "steamnetworkingsockets_lowlevel.h"
@@ -3319,6 +3322,145 @@ SteamNetworkingMicroseconds SteamNetworkingSockets_GetLocalTimestamp()
 
 	return usecResult;
 }
+
+bool ResolveHostname( const char* pszHostname, CUtlVector< SteamNetworkingIPAddr > *pAddrs )
+{
+	char pszHostnameBuffer[256];
+	const char* pszPortStr = V_strchr( (char*)pszHostname, ':' );
+	if ( pszPortStr != nullptr )
+	{
+		const int nChars = ( pszPortStr - pszHostname );
+		if( nChars > ( V_ARRAYSIZE( pszHostnameBuffer ) + 1 ))
+			return false;
+		V_memcpy( pszHostnameBuffer, pszHostname, nChars );
+		pszHostnameBuffer[ nChars ] = '\0';
+		pszPortStr = pszPortStr + 1;
+		pszHostname = pszHostnameBuffer;
+	}
+
+	addrinfo hints;
+	V_memset( &hints, 0, sizeof( hints ) );
+	hints.ai_flags = AI_V4MAPPED | AI_ADDRCONFIG;
+	hints.ai_family = AF_UNSPEC;
+	hints.ai_socktype = 0;
+	hints.ai_protocol = 0;
+
+	addrinfo *result = NULL;
+	int nResult = getaddrinfo( pszHostname, pszPortStr, NULL, &result );
+
+	if ( nResult != 0 )
+	{
+		const char* errMsg = gai_strerror( nResult );
+		SpewError( "Name lookup for \"%s\" failed - %s\n", pszHostname, errMsg );
+		return false;
+	}
+	
+	int nPort = 0;
+	if ( pszPortStr != nullptr )
+		nPort = atoi( pszPortStr );
+	for( addrinfo *pInfo = result; pInfo != NULL; pInfo = pInfo->ai_next )
+	{
+		if ( pInfo->ai_addr->sa_family == AF_INET6 )
+		{
+			SteamNetworkingIPAddr ipV6Addr;
+			ipV6Addr.SetIPv6( (const uint8*)&((const sockaddr_in6  *)pInfo->ai_addr)->sin6_addr, nPort );
+			pAddrs->AddToTail( ipV6Addr );
+		}
+		else if ( pInfo->ai_addr->sa_family == AF_INET )
+		{
+			SteamNetworkingIPAddr ipV4Addr;
+			ipV4Addr.SetIPv4( BigDWord( ((sockaddr_in*)pInfo->ai_addr)->sin_addr.s_addr ), nPort );
+			pAddrs->AddToTail( ipV4Addr );
+		}
+	}
+
+	freeaddrinfo( result );
+	return true;	
+}
+
+#ifdef WIN32
+bool GetLocalAddresses( CUtlVector< SteamNetworkingIPAddr >* pAddrs )
+{
+	if ( pAddrs == nullptr )
+		return false;
+
+    PIP_ADAPTER_ADDRESSES_LH pAddrInfo = nullptr;
+    ULONG dwSize = 16 * 1024;
+    ULONG dwResult = 0;
+
+    // GetAdaptersAddresses can't allocate memory for us, but it will tell us how much memory it wanted for the result,
+    // so the suggested calling method is to iterate like this with an alloc (with the size fed back from the GetAdaptersAddresses call).
+    for ( int i = 0; i < 10; ++i )
+    {
+        pAddrInfo = (IP_ADAPTER_ADDRESSES_LH*)malloc( dwSize );
+        if ( pAddrInfo == nullptr )
+            return false;
+
+        dwResult = GetAdaptersAddresses( AF_UNSPEC, GAA_FLAG_SKIP_ANYCAST | GAA_FLAG_SKIP_MULTICAST | GAA_FLAG_SKIP_DNS_SERVER | GAA_FLAG_INCLUDE_PREFIX, NULL, pAddrInfo, &dwSize );
+        if ( dwResult == NO_ERROR )
+            break;
+        free( pAddrInfo );
+        pAddrInfo = nullptr;
+        if ( dwResult != ERROR_BUFFER_OVERFLOW )
+            break;
+    }
+
+    if ( dwResult != NO_ERROR )
+    {
+        const char *lpMsgBuf = nullptr;
+        if ( FormatMessage(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, 
+                    NULL, dwResult, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), 
+                    // Default language
+                    (LPTSTR) & lpMsgBuf, 0, NULL) )
+        {
+            SpewError( "GetAdaptersAddresses failed - %s", lpMsgBuf );
+            LocalFree( (LPVOID)lpMsgBuf );
+        }
+        return false;
+    }
+    
+    for( PIP_ADAPTER_ADDRESSES_LH pThisInfo = pAddrInfo; pThisInfo != nullptr; pThisInfo = pThisInfo->Next )
+    {
+        for ( PIP_ADAPTER_UNICAST_ADDRESS_LH pThisAddr = pThisInfo->FirstUnicastAddress; pThisAddr != nullptr; pThisAddr = pThisAddr->Next )
+        {
+            if ( pThisAddr->Address.lpSockaddr == nullptr )
+                continue;
+
+            SteamNetworkingIPAddr ipAddr;
+            if ( pThisAddr->Address.lpSockaddr->sa_family == AF_INET )
+            {
+                sockaddr_in* pAddrIN = ( sockaddr_in* )( pThisAddr->Address.lpSockaddr );
+                ipAddr.SetIPv4( ntohl( pAddrIN->sin_addr.s_addr ), pAddrIN->sin_port );
+            }
+            else if ( pThisAddr->Address.lpSockaddr->sa_family == AF_INET6 )
+            {
+                sockaddr_in6* pAddrIN6 = ( sockaddr_in6* )( pThisAddr->Address.lpSockaddr );
+                ipAddr.SetIPv6( pAddrIN6->sin6_addr.u.Byte, pAddrIN6->sin6_port );
+            }
+            else
+            {
+                continue;
+            }
+
+            // Skip loopback addresses (127.0.0.1 and ::1 )
+            if ( ipAddr.IsLocalHost() )
+                continue;
+
+            // Got a host address, record it!
+            pAddrs->AddToTail( ipAddr );
+        }
+    }
+
+    free( pAddrInfo );
+	return true;
+}
+#else
+bool GetLocalAddresses( CUtlVector< SteamNetworkingIPAddr >* pAddrs )
+{
+	return false;
+}
+#endif
+
 
 } // namespace SteamNetworkingSocketsLib
 

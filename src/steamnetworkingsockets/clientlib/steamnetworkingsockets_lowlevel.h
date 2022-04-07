@@ -762,6 +762,9 @@ extern void SteamNetworkingSockets_SetDebugOutputFunction( ESteamNetworkingSocke
 /// Return true if it looks like the address is a local address
 extern bool IsRouteToAddressProbablyLocal( netadr_t addr );
 
+extern bool ResolveHostname( const char* pszHostname, CUtlVector< SteamNetworkingIPAddr > *pAddrs );
+extern bool GetLocalAddresses( CUtlVector< SteamNetworkingIPAddr >* pAddrs );
+
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_ETW
 	extern void ETW_Init();
 	extern void ETW_Kill();
