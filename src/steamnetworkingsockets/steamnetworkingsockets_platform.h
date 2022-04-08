@@ -44,6 +44,11 @@
 		#define ioctlsocket ioctl
 	#endif
 	#define WSAEWOULDBLOCK EWOULDBLOCK
+
+	#ifndef __APPLE__
+		#define EPOLL_SUPPORTED
+		#include <sys/epoll.h>
+	#endif
 #endif
 
 // Windows is the worst

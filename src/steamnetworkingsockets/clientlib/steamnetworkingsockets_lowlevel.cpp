@@ -1091,12 +1091,6 @@ static CUtlVector<CRawUDPSocketImpl *> s_vecRawSockets;
 /// Are any sockets pending destruction?
 static bool s_bRawSocketPendingDestruction;
 
-/// POSIX polling.  This list will be recreated any time a socket is created or destroyed
-#ifndef _WIN32
-static CUtlVector<pollfd> s_vecPollFDs;
-static bool s_bRecreatePollList = true;
-#endif
-
 /// Track packets that have fake lag applied and are pending to be sent/received
 class CPacketLagger : private IThinker
 {
@@ -1282,9 +1276,42 @@ static CPacketLaggerRecv s_packetLagQueueRecv;
 	static HANDLE s_hEventWakeThread = INVALID_HANDLE_VALUE;
 #elif defined( NN_NINTENDO_SDK )
 	static int s_hEventWakeThread = INVALID_SOCKET;
+	#define USE_POLL
 #else
 	static SOCKET s_hSockWakeThreadRead = INVALID_SOCKET;
 	static SOCKET s_hSockWakeThreadWrite = INVALID_SOCKET;
+
+	#ifdef EPOLL_SUPPORTED
+		#define USE_EPOLL
+		static int s_epollfd = -1;
+
+		static bool AddFDToEPoll( int fd, CRawUDPSocketImpl *pSock, SteamNetworkingErrMsg &errMsg )
+		{
+			struct epoll_event ev = {};
+
+			ev.events = EPOLLIN; // We only care about sockets with data ready read
+			ev.data.ptr = pSock; // epoll can give us back some userdata.
+
+			if ( epoll_ctl( s_epollfd, EPOLL_CTL_ADD, fd, &ev) != 0 )
+			{
+				V_sprintf_safe( errMsg, "epoll_ctl failed, errno=%d", errno );
+				return false;
+			}
+			return true;
+		}
+
+	#else
+		#define USE_POLL
+	#endif
+
+#endif
+
+// POSIX polling using poll().  (Or something that has extremely similar semantics that we can
+// make work with a bit of compatibility glue.)  This list will be recreated any time a socket
+// is created or destroyed
+#ifdef USE_POLL
+static CUtlVector<pollfd> s_vecPollFDs;
+static bool s_bRecreatePollList = true;
 #endif
 
 static std::thread *s_pThreadSteamDatagram = nullptr;
@@ -1387,6 +1414,14 @@ void CRawUDPSocketImpl::InternalAddToCleanupQueue()
 	// Clean up lagged packets, if any
 	s_packetLagQueueSend.AboutToDestroySocket( this );
 	s_packetLagQueueRecv.AboutToDestroySocket( this );
+
+	// We can immediately remove from the epoll, even if some other
+	// thread is polling on it.
+	#ifdef USE_EPOLL
+		int r = epoll_ctl( s_epollfd, EPOLL_CTL_DEL, m_socket, nullptr );
+		(void)r;
+		AssertMsg( r == 0, "epoll_ctl failed with errno=%d", errno );
+	#endif
 }
 
 void CRawUDPSocketImpl::Close()
@@ -1421,10 +1456,10 @@ void CRawUDPSocketImpl::Close()
 		}
 	#endif
 
-	// Make sure we don't delay doing this too long
-	if ( s_bManualPollMode || ( s_pThreadSteamDatagram && s_pThreadSteamDatagram->get_id() != std::this_thread::get_id() ) )
+	// Don't try to clean it up right now if we might be in the middle of polling.
+	if ( s_bManualPollMode || s_pThreadSteamDatagram )
 	{
-		// Another thread might be polling right now
+		// Make sure we don't delay doing this too long
 		WakeSteamDatagramThread();
 	}
 	else
@@ -1715,8 +1750,15 @@ static CRawUDPSocketImpl *OpenRawUDPSocketInternal( CRecvPacketCallback callback
 	pSock->m_callback = callback;
 	pSock->m_nAddressFamilies = nAddressFamilies;
 
-	// On windows, tell the socket to set our global "wake" event whenever there is data to read
-	#ifdef _WIN32
+	// How will we wait efficiently for this socket?
+	#ifdef USE_EPOLL
+		if ( !AddFDToEPoll( sock, pSock, errMsg ) )
+		{
+			delete pSock;
+			return nullptr;
+		}
+	#elif defined( _WIN32 )
+		// On windows, tell the socket to set our global "wake" event whenever there is data to read
 		Assert( s_hEventWakeThread != INVALID_HANDLE_VALUE );
 		if ( WSAEventSelect( pSock->m_socket, s_hEventWakeThread, FD_READ ) != 0 )
 		{
@@ -1724,15 +1766,14 @@ static CRawUDPSocketImpl *OpenRawUDPSocketInternal( CRecvPacketCallback callback
 			V_sprintf_safe( errMsg, "WSAEventSelect() failed.  Error code 0x%08X.", GetLastSocketError() );
 			return nullptr;
 		}
+	#elif defined( USE_POLL )
+		// Rebuild our pollfd list next time
+		s_bRecreatePollList = true;
 	#endif
 
 	// Add to master list.  (Hopefully we usually won't have that many.)
 	s_vecRawSockets.AddToTail( pSock );
 
-	// Rebuild our pollfd list next time
-	#ifndef _WIN32
-		s_bRecreatePollList = true;
-	#endif
 
 	// Wake up background thread so we can start receiving packets on this socket immediately
 	WakeSteamDatagramThread();
@@ -1758,28 +1799,160 @@ static inline void AssertGlobalLockHeldExactlyOnce()
 	#endif
 }
 
-/// Wait on our events / sockets.
-/// Returns true if wake event is set or some socket is ready to be read.
-/// Otherwise, we are idle, and returns false.
-static bool WaitForSocketsOrWakeEvent( int nMaxTimeoutMS )
+/// Draw one specific UDP socket.  Returns false if we detect a
+/// global shutdown attempt and abort
+static bool DrainSocket( CRawUDPSocketImpl *pSock )
 {
 
-	// Wait for data on one of the sockets, or for us to be asked to wake up
-	#if defined( WIN32 )
-		DWORD r = WaitForSingleObject( s_hEventWakeThread, nMaxTimeoutMS );
-		if ( r == WAIT_TIMEOUT )
-			return false; // Idle
-		Assert( r == WAIT_OBJECT_0 );
-		return true;
-	#else
-		int r = poll( s_vecPollFDs.Base(), s_vecPollFDs.Count(), nMaxTimeoutMS );
-		if ( r == 0 )
-			return false; // Idle
-		Assert( r >= 0 );
-		return true;
-	#endif
-}
+	// If the callback gets cleared, that indicates that the socket is pending
+	// destruction and is logically closed, even if the underlying UDP socket
+	// still exists.
+	while ( pSock->m_callback.m_fnCallback )
+	{
+		if ( s_nLowLevelSupportRefCount.load(std::memory_order_acquire) <= 0 )
+			return true; // Abort
 
+		#ifdef STEAMNETWORKINGSOCKETS_LOWLEVEL_TIME_SOCKET_CALLS
+			SteamNetworkingMicroseconds usecRecvFromStart = SteamNetworkingSockets_GetLocalTimestamp();
+		#endif
+
+		char buf[ k_cbSteamNetworkingSocketsMaxUDPMsgLen + 1024 ];
+
+		sockaddr_storage from;
+		socklen_t fromlen = sizeof(from);
+		int ret = ::recvfrom( pSock->m_socket, buf, sizeof( buf ), 0, (sockaddr *)&from, &fromlen );
+		SteamNetworkingMicroseconds usecRecvFromEnd = SteamNetworkingSockets_GetLocalTimestamp();
+
+		#ifdef STEAMNETWORKINGSOCKETS_LOWLEVEL_TIME_SOCKET_CALLS
+			if ( usecRecvFromEnd > s_usecIgnoreLongLockWaitTimeUntil )
+			{
+				SteamNetworkingMicroseconds usecRecvFromElapsed = usecRecvFromEnd - usecRecvFromStart;
+				if ( usecRecvFromElapsed > 1000 )
+				{
+					SpewWarning( "recvfrom took %.1fms\n", usecRecvFromElapsed*1e-3 );
+					ETW_LongOp( "UDP recvfrom", usecRecvFromElapsed );
+				}
+			}
+		#endif
+
+		// Negative value means nothing more to read.
+		//
+		// NOTE 1: We're not checking the cause of failure.  Usually it would be "EWOULDBLOCK",
+		// meaning no more data.  However if there was some socket error (i.e. somebody did something
+		// to reset the network stack, etc) we could make the code more robust by detecting this.
+		// It would require us plumbing through this failure somehow, and all we have here is a callback
+		// for processing packets.  Probably not worth the effort to handle this relatively common case.
+		// It will just appear to the app that the cord is cut on this socket.
+		//
+		// NOTE 2: 0 byte datagram is possible, and in this case recvfrom will return 0.
+		// (But all of our protocols enforce a minimum packet size, so if we get a zero byte packet,
+		// it's a bogus.  We could drop it here but let's send it through the normal mechanism to
+		// be handled/reported in the same way as any other bogus packet.)
+		if ( ret < 0 )
+			break;
+
+		// Add a tag.  If we end up holding the lock for a long time, this tag
+		// will tell us how many packets were processed
+		SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "RecvUDPPacket" );
+
+		// Check simulated global rate limit.  Make sure this is fast
+		// when the limit is not in use
+		if ( unlikely( g_Config_FakeRateLimit_Recv_Rate.Get() > 0 ) )
+		{
+
+			// Check if bucket already has tokens in it, which
+			// will be common.  If so, we can avoid reading the
+			// timer
+			if ( s_flFakeRateLimit_Recv_tokens <= 0.0f )
+			{
+
+				// Update bucket with tokens
+				UpdateFakeRateLimitTokenBuckets( usecRecvFromEnd );
+
+				// Still empty?
+				if ( s_flFakeRateLimit_Recv_tokens <= 0.0f )
+					continue;
+			}
+
+			// Spend tokens
+			s_flFakeRateLimit_Recv_tokens -= ret;
+		}
+
+		// Check for simulating random packet loss
+		if ( RandomBoolWithOdds( g_Config_FakePacketLoss_Recv.Get() ) )
+			continue;
+
+		RecvPktInfo_t info;
+		info.m_adrFrom.SetFromSockadr( &from );
+
+		// If we're dual stack, convert mapped IPv4 back to ordinary IPv4
+		if ( pSock->m_nAddressFamilies == k_nAddressFamily_DualStack )
+			info.m_adrFrom.BConvertMappedToIPv4();
+
+		// Check for tracing
+		if ( g_Config_PacketTraceMaxBytes.Get() >= 0 )
+		{
+			iovec tmp;
+			tmp.iov_base = buf;
+			tmp.iov_len = ret;
+			pSock->TracePkt( false, info.m_adrFrom, 1, &tmp );
+		}
+
+		int32 nPacketFakeLagTotal = g_Config_FakePacketLag_Recv.Get();
+
+		// Check for simulating random packet reordering
+		if ( RandomBoolWithOdds( g_Config_FakePacketReorder_Recv.Get() ) )
+		{
+			nPacketFakeLagTotal += g_Config_FakePacketReorder_Time.Get();
+		}
+
+		// Check for simulating random packet duplication
+		if ( RandomBoolWithOdds( g_Config_FakePacketDup_Recv.Get() ) )
+		{
+			int32 nDupLag = nPacketFakeLagTotal + WeakRandomInt( 0, g_Config_FakePacketDup_TimeMax.Get() );
+			nDupLag = std::max( 1, nDupLag );
+			iovec temp;
+			temp.iov_len = ret;
+			temp.iov_base = buf;
+			s_packetLagQueueRecv.LagPacket( pSock, info.m_adrFrom, nDupLag, 1, &temp );
+		}
+
+		// Check for simulating lag
+		if ( nPacketFakeLagTotal > 0 )
+		{
+			iovec temp;
+			temp.iov_len = ret;
+			temp.iov_base = buf;
+			s_packetLagQueueRecv.LagPacket( pSock, info.m_adrFrom, nPacketFakeLagTotal, 1, &temp );
+		}
+		else
+		{
+			ETW_UDPRecvPacket( info.m_adrFrom, ret );
+
+			info.m_pPkt = buf;
+			info.m_cbPkt = ret;
+			info.m_usecNow = usecRecvFromEnd;
+			info.m_pSock = pSock;
+			pSock->m_callback( info );
+		}
+
+		#ifdef STEAMNETWORKINGSOCKETS_LOWLEVEL_TIME_SOCKET_CALLS
+			SteamNetworkingMicroseconds usecProcessPacketEnd = SteamNetworkingSockets_GetLocalTimestamp();
+			if ( usecProcessPacketEnd > s_usecIgnoreLongLockWaitTimeUntil )
+			{
+				SteamNetworkingMicroseconds usecProcessPacketElapsed = usecProcessPacketEnd - usecRecvFromEnd;
+				if ( usecProcessPacketElapsed > 1000 )
+				{
+					SpewWarning( "process packet took %.1fms\n", usecProcessPacketElapsed*1e-3 );
+					ETW_LongOp( "process packet", usecProcessPacketElapsed );
+				}
+			}
+		#endif
+	}
+
+	// Continue normal operations
+	return true;
+}
 
 /// Poll all of our sockets, and dispatch the packets received.
 /// This will return true if we own the lock, or false if we detected
@@ -1796,10 +1969,12 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 		Assert( pSock->m_callback.m_fnCallback );
 	}
 
-	const int nSocketsToPoll = s_vecRawSockets.Count();
+	#ifndef USE_EPOLL
+		const int nSocketsToPoll = s_vecRawSockets.Count();
+	#endif
 
 	// Recreate pollfd list if needed
-	#ifndef _WIN32
+	#ifdef USE_POLL
 		if ( s_bRecreatePollList )
 		{
 			s_bRecreatePollList = false;
@@ -1841,7 +2016,16 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 		return false; // ABORT THREAD
 
 	// Wait for data on one of the sockets, or for us to be asked to wake up
-	WaitForSocketsOrWakeEvent( nMaxTimeoutMS );
+	#if defined( USE_EPOLL )
+		struct epoll_event epoll_events[ 32 ];
+		int num_epoll_events = epoll_wait( s_epollfd, epoll_events, V_ARRAYSIZE( epoll_events ), nMaxTimeoutMS );
+	#elif defined( USE_POLL )
+		poll( s_vecPollFDs.Base(), s_vecPollFDs.Count(), nMaxTimeoutMS );
+	#elif defined( _WIN32 )
+		WaitForSingleObject( s_hEventWakeThread, nMaxTimeoutMS );
+	#else
+		#error "How do?"
+	#endif
 
 	// We're back awake.  Grab the lock again
 	SteamNetworkingMicroseconds usecStartedLocking = SteamNetworkingSockets_GetLocalTimestamp();
@@ -1870,197 +2054,103 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 			"SteamnetworkingSockets service thread waited %dms for lock!  This directly adds to network latency!  It could be a bug, but it's usually caused by general performance problem such as thread starvation or a debug output handler taking too long.", int( usecElapsedWaitingForLock/1000 ) );
 	}
 
-	// Recv socket data from any sockets that might have data, and execute the callbacks.
-	char buf[ k_cbSteamNetworkingSocketsMaxUDPMsgLen + 1024 ];
+	// Now check on sockets.  When using epoll, we can do this more efficiently
+	#ifdef USE_EPOLL
 
-	// Iterate all sockets
-	for ( int idx = 0 ; idx < nSocketsToPoll ; ++idx )
-	{
-		CRawUDPSocketImpl *pSock = s_vecRawSockets[ idx ];
-
-		// Check if this socket has anything
-		#ifdef _WIN32
-			WSANETWORKEVENTS wsaEvents;
-			if ( WSAEnumNetworkEvents( pSock->m_socket, NULL, &wsaEvents ) != 0 )
-			{
-				AssertMsg1( false, "WSAEnumNetworkEvents failed.  Error code %08x", WSAGetLastError() );
-				continue;
-			}
-			if ( !(wsaEvents.lNetworkEvents & FD_READ) )
-				continue;
-		#else
-			if ( !( s_vecPollFDs[ idx ].revents & POLLRDNORM ) )
-				continue;
-			Assert( s_vecPollFDs[ idx ].revents != -1 ); // Make sure kernel actually populated this
-		#endif
-
-		// Drain the socket.  But if the callback gets cleared, that
-		// indicates that the socket is pending destruction and is
-		// logically closed to the calling code.
-		while ( pSock->m_callback.m_fnCallback )
+		int tries = 0;
+		while ( num_epoll_events > 0 )
 		{
-			if ( s_nLowLevelSupportRefCount.load(std::memory_order_acquire) <= 0 )
-				return true; // current thread owns the lock
 
-			#ifdef STEAMNETWORKINGSOCKETS_LOWLEVEL_TIME_SOCKET_CALLS
-				SteamNetworkingMicroseconds usecRecvFromStart = SteamNetworkingSockets_GetLocalTimestamp();
-			#endif
-
-			sockaddr_storage from;
-			socklen_t fromlen = sizeof(from);
-			int ret = ::recvfrom( pSock->m_socket, buf, sizeof( buf ), 0, (sockaddr *)&from, &fromlen );
-			SteamNetworkingMicroseconds usecRecvFromEnd = SteamNetworkingSockets_GetLocalTimestamp();
-
-			#ifdef STEAMNETWORKINGSOCKETS_LOWLEVEL_TIME_SOCKET_CALLS
-				if ( usecRecvFromEnd > s_usecIgnoreLongLockWaitTimeUntil )
-				{
-					SteamNetworkingMicroseconds usecRecvFromElapsed = usecRecvFromEnd - usecRecvFromStart;
-					if ( usecRecvFromElapsed > 1000 )
-					{
-						SpewWarning( "recvfrom took %.1fms\n", usecRecvFromElapsed*1e-3 );
-						ETW_LongOp( "UDP recvfrom", usecRecvFromElapsed );
-					}
-				}
-			#endif
-
-			// Negative value means nothing more to read.
-			//
-			// NOTE 1: We're not checking the cause of failure.  Usually it would be "EWOULDBLOCK",
-			// meaning no more data.  However if there was some socket error (i.e. somebody did something
-			// to reset the network stack, etc) we could make the code more robust by detecting this.
-			// It would require us plumbing through this failure somehow, and all we have here is a callback
-			// for processing packets.  Probably not worth the effort to handle this relatively common case.
-			// It will just appear to the app that the cord is cut on this socket.
-			//
-			// NOTE 2: 0 byte datagram is possible, and in this case recvfrom will return 0.
-			// (But all of our protocols enforce a minimum packet size, so if we get a zero byte packet,
-			// it's a bogus.  We could drop it here but let's send it through the normal mechanism to
-			// be handled/reported in the same way as any other bogus packet.)
-			if ( ret < 0 )
+			// Make sure we don't get stuck with a bug
+			if ( ++tries > 500 )
+			{
+				AssertMsg( false, "Failed to drain all sockets after iterating %d times?", tries );
 				break;
+			}
 
-			// Add a tag.  If we end up holding the lock for a long time, this tag
-			// will tell us how many packets were processed
-			SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "RecvUDPPacket" );
-
-			// Check simulated global rate limit.  Make sure this is fast
-			// when the limit is not in use
-			if ( unlikely( g_Config_FakeRateLimit_Recv_Rate.Get() > 0 ) )
+			// Process all the reported events
+			for ( int i = 0 ; i < num_epoll_events ; ++i )
 			{
+				// Epoll will pass back our userdata.  We put the pointer
+				// to the socket there.
+				auto pSock = (CRawUDPSocketImpl *)epoll_events[ i ].data.ptr;
 
-				// Check if bucket already has tokens in it, which
-				// will be common.  If so, we can avoid reading the
-				// timer
-				if ( s_flFakeRateLimit_Recv_tokens <= 0.0f )
+				// Is it for a real socket, or just a wakuip call?
+				if ( pSock )
 				{
-
-					// Update bucket with tokens
-					UpdateFakeRateLimitTokenBuckets( usecRecvFromEnd );
-
-					// Still empty?
-					if ( s_flFakeRateLimit_Recv_tokens <= 0.0f )
-						continue;
+					if ( !DrainSocket( pSock ) )
+						goto exit_polling;
 				}
-
-				// Spend tokens
-				s_flFakeRateLimit_Recv_tokens -= ret;
-			}
-
-			// Check for simulating random packet loss
-			if ( RandomBoolWithOdds( g_Config_FakePacketLoss_Recv.Get() ) )
-				continue;
-
-			RecvPktInfo_t info;
-			info.m_adrFrom.SetFromSockadr( &from );
-
-			// If we're dual stack, convert mapped IPv4 back to ordinary IPv4
-			if ( pSock->m_nAddressFamilies == k_nAddressFamily_DualStack )
-				info.m_adrFrom.BConvertMappedToIPv4();
-
-			// Check for tracing
-			if ( g_Config_PacketTraceMaxBytes.Get() >= 0 )
-			{
-				iovec tmp;
-				tmp.iov_base = buf;
-				tmp.iov_len = ret;
-				pSock->TracePkt( false, info.m_adrFrom, 1, &tmp );
-			}
-
-			int32 nPacketFakeLagTotal = g_Config_FakePacketLag_Recv.Get();
-
-			// Check for simulating random packet reordering
-			if ( RandomBoolWithOdds( g_Config_FakePacketReorder_Recv.Get() ) )
-			{
-				nPacketFakeLagTotal += g_Config_FakePacketReorder_Time.Get();
-			}
-
-			// Check for simulating random packet duplication
-			if ( RandomBoolWithOdds( g_Config_FakePacketDup_Recv.Get() ) )
-			{
-				int32 nDupLag = nPacketFakeLagTotal + WeakRandomInt( 0, g_Config_FakePacketDup_TimeMax.Get() );
-				nDupLag = std::max( 1, nDupLag );
-				iovec temp;
-				temp.iov_len = ret;
-				temp.iov_base = buf;
-				s_packetLagQueueRecv.LagPacket( pSock, info.m_adrFrom, nDupLag, 1, &temp );
-			}
-
-			// Check for simulating lag
-			if ( nPacketFakeLagTotal > 0 )
-			{
-				iovec temp;
-				temp.iov_len = ret;
-				temp.iov_base = buf;
-				s_packetLagQueueRecv.LagPacket( pSock, info.m_adrFrom, nPacketFakeLagTotal, 1, &temp );
-			}
-			else
-			{
-				ETW_UDPRecvPacket( info.m_adrFrom, ret );
-
-				info.m_pPkt = buf;
-				info.m_cbPkt = ret;
-				info.m_usecNow = usecRecvFromEnd;
-				info.m_pSock = pSock;
-				pSock->m_callback( info );
-			}
-
-			#ifdef STEAMNETWORKINGSOCKETS_LOWLEVEL_TIME_SOCKET_CALLS
-				SteamNetworkingMicroseconds usecProcessPacketEnd = SteamNetworkingSockets_GetLocalTimestamp();
-				if ( usecProcessPacketEnd > s_usecIgnoreLongLockWaitTimeUntil )
+				else
 				{
-					SteamNetworkingMicroseconds usecProcessPacketElapsed = usecProcessPacketEnd - usecRecvFromEnd;
-					if ( usecProcessPacketElapsed > 1000 )
-					{
-						SpewWarning( "process packet took %.1fms\n", usecProcessPacketElapsed*1e-3 );
-						ETW_LongOp( "process packet", usecProcessPacketElapsed );
-					}
+					// It's a wake request.  Just eat one request for now.
+					// I think it's probably safe to eat all of them, but
+					// it's a small optimization and I don't want to debug
+					// it is that's not true.
+					char buf[8];
+					::recv( s_hSockWakeThreadRead, buf, sizeof(buf), 0 );
 				}
-			#endif
+			}
+
+			// Poll again, but don't block
+			num_epoll_events = epoll_wait( s_epollfd, epoll_events, V_ARRAYSIZE( epoll_events ), 0 );
 		}
-	}
 
-	// On POSIX, check for draining the thread wake "socket"
-	#ifndef _WIN32
-		pollfd &wake = s_vecPollFDs[ nSocketsToPoll ];
-		if ( wake.revents & POLLRDNORM )
+	#else
+
+		// Not using epoll, just check all sockets
+		for ( int idx = 0 ; idx < nSocketsToPoll ; ++idx )
 		{
-			Assert( wake.revents != -1 );
+			CRawUDPSocketImpl *pSock = s_vecRawSockets[ idx ];
 
-			// It's a wake request.  Pull a single packet out of the queue.
-			// We want one wake request to always result in exactly one wake up.
-			// Wake request are relatively rare, and we don't want to skip any
-			// or combine them.  That would result in complicated race conditions
-			// where we stay asleep a lot longer than we should.
-			#ifdef NN_NINTENDO_SDK
-				// Sorry, but this code is covered under NDA with Nintendo, and
-				// we don't have permission to distribute it.
+			// Check if this socket has anything
+			#ifdef _WIN32
+				WSANETWORKEVENTS wsaEvents;
+				if ( WSAEnumNetworkEvents( pSock->m_socket, NULL, &wsaEvents ) != 0 )
+				{
+					AssertMsg1( false, "WSAEnumNetworkEvents failed.  Error code %08x", WSAGetLastError() );
+					continue;
+				}
+				if ( !(wsaEvents.lNetworkEvents & FD_READ) )
+					continue;
 			#else
-				Assert( wake.fd == s_hSockWakeThreadRead );
-				::recv( s_hSockWakeThreadRead, buf, sizeof(buf), 0 );
+				if ( !( s_vecPollFDs[ idx ].revents & POLLRDNORM ) )
+					continue;
+				Assert( s_vecPollFDs[ idx ].revents != -1 ); // Make sure kernel actually populated this
 			#endif
-		}
-	#endif
 
+			// Process all packets on this socket.  Bail if we detect
+			// a global shutdown request.
+			if ( !DrainSocket( pSock ) )
+				goto exit_polling;
+		}
+
+		// On POSIX, check for draining the thread wake "socket"
+		#ifdef USE_POLL
+		{
+			pollfd &wake = s_vecPollFDs[ nSocketsToPoll ];
+			if ( wake.revents & POLLRDNORM )
+			{
+				Assert( wake.revents != -1 );
+				#ifdef NN_NINTENDO_SDK
+					// Sorry, but this code is covered under NDA with Nintendo, and
+					// we don't have permission to distribute it.
+				#else
+					Assert( wake.fd == s_hSockWakeThreadRead );
+
+					// Just eat one request for now.
+					// I think it's probably safe to eat all of them, but
+					// it's a small optimization and I don't want to debug
+					// it is that's not true.
+					char buf[8];
+					::recv( s_hSockWakeThreadRead, buf, sizeof(buf), 0 );
+				#endif
+			}
+		}
+		#endif
+	#endif // USE_EPOLL, else
+
+exit_polling:
 	// We retained the lock
 	return true;
 }
@@ -2083,7 +2173,7 @@ void ProcessPendingDestroyClosedRawUDPSockets()
 	}
 	Assert( !s_bRawSocketPendingDestruction );
 
-	#ifndef _WIN32
+	#ifdef USE_POLL
 		s_bRecreatePollList = true;
 	#endif
 
@@ -3124,6 +3214,7 @@ bool BSteamNetworkingSocketsLowLevelAddRef( SteamDatagramErrMsg &errMsg )
 			// Sorry, but this code is covered under NDA with Nintendo, and
 			// we don't have permission to distribute it.
 		#else
+		{
 			Assert( s_hSockWakeThreadRead == INVALID_SOCKET );
 			Assert( s_hSockWakeThreadWrite == INVALID_SOCKET );
 			int sockType = SOCK_DGRAM;
@@ -3151,6 +3242,28 @@ bool BSteamNetworkingSocketsLowLevelAddRef( SteamDatagramErrMsg &errMsg )
 			{
 				AssertMsg1( false, "Failed to set socket nonblocking mode.  Error code 0x%08x.", GetLastSocketError() );
 			}
+		}
+		#endif
+
+		#ifdef USE_EPOLL
+		{
+			int flags = 0;
+			#ifdef LINUX
+				flags |= EPOLL_CLOEXEC;
+			#endif
+
+			s_epollfd = epoll_create1( flags );
+			if ( s_epollfd == -1 )
+			{
+				V_sprintf_safe( errMsg, "epoll_create1() failed, errno=%d", errno );
+				return false;
+			}
+
+			// Add the wake socket to our epoll list.  Set the userdata to NULL.
+			// That's how we know it's just the wake event
+			if ( !AddFDToEPoll( s_hSockWakeThreadRead, nullptr, errMsg ) )
+				return false;
+		}
 		#endif
 
 		SpewMsg( "Initialized low level socket/threading support.\n" );
@@ -3227,6 +3340,14 @@ void SteamNetworkingSocketsLowLevelDecRef()
 		{
 			closesocket( s_hSockWakeThreadWrite );
 			s_hSockWakeThreadWrite = INVALID_SOCKET;
+		}
+	#endif
+
+	#ifdef USE_EPOLL
+		if ( s_epollfd != -1 )
+		{
+			close( s_epollfd );
+			s_epollfd = -1;
 		}
 	#endif
 
