@@ -95,25 +95,7 @@ if (WIN32)
 	endif()
 endif()
 
-if (USE_CRYPTO STREQUAL "BCrypt")
-	set(useCrypto25519Default "Reference")
-else()
-	set(useCrypto25519Default "OpenSSL")
-endif()
-
-#
-# Secondary crypto library (for ed25519/curve25519).
-#
-set(useCrypto25519Options OpenSSL libsodium Reference)
-set(USE_CRYPTO25519 "${useCrypto25519Default}" CACHE STRING "Crypto library to use for ed25519/curve25519")
-set_property(CACHE USE_CRYPTO25519 PROPERTY STRINGS ${useCrypto25519Options})
-
-list(FIND useCrypto25519Options ${USE_CRYPTO25519} useCrypto25519Index)
-if(useCrypto25519Index EQUAL -1)
-	message(FATAL_ERROR "USE_CRYPTO25519 must be one of: ${useCrypto25519Options}")
-endif()
-
-if (USE_CRYPTO25519 STREQUAL "OpenSSL" OR USE_CRYPTO STREQUAL "OpenSSL")
+if (USE_CRYPTO STREQUAL "OpenSSL")
 	find_package(OpenSSL REQUIRED)
 	message( STATUS "OPENSSL_INCLUDE_DIR = ${OPENSSL_INCLUDE_DIR}" )
 

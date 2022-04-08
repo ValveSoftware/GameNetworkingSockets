@@ -4,11 +4,11 @@ include(CMakeFindDependencyMacro)
 
 find_dependency(Threads)
 
-if(@USE_CRYPTO@ STREQUAL "OpenSSL" OR @USE_CRYPTO25519@ STREQUAL "OpenSSL")
+if(@USE_CRYPTO@ STREQUAL "OpenSSL")
     find_dependency(OpenSSL)
 endif()
 
-if(@USE_CRYPTO@ STREQUAL "libsodium" OR @USE_CRYPTO25519@ STREQUAL "libsodium")
+if(@USE_CRYPTO@ STREQUAL "libsodium")
     find_dependency(sodium)
 endif()
 

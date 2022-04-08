@@ -11,8 +11,6 @@ Building
   * Visual Studio 2017 or later
 * One of the following crypto solutions:
   * OpenSSL 1.1.1 or later
-  * OpenSSL 1.1.x, plus ed25519-donna and curve25519-donna.  (We've made some
-    minor changes, so the source is included in this project.)
   * libsodium
   * [bcrypt](https://docs.microsoft.com/en-us/windows/desktop/api/bcrypt/)
     (Windows only.  Note the primary reason this is supported is to satisfy

@@ -51,50 +51,34 @@ set(GNS_CRYPTO_SRCS
 	)
 
 if(USE_CRYPTO STREQUAL "BCrypt")
-	set(GNS_CRYPTO_DEFINES ${GNS_CRYPTO_DEFINES} STEAMNETWORKINGSOCKETS_CRYPTO_BCRYPT ED25519_HASH_BCRYPT)
+	set(GNS_CRYPTO_DEFINES ${GNS_CRYPTO_DEFINES} STEAMNETWORKINGSOCKETS_CRYPTO_BCRYPT VALVE_CRYPTO_25519_DONNA ED25519_HASH_BCRYPT)
 	set(GNS_CRYPTO_SRCS ${GNS_CRYPTO_SRCS}
 		"common/crypto_bcrypt.cpp"
-		)
-endif()
 
-if(USE_CRYPTO STREQUAL "OpenSSL")
-	set(GNS_CRYPTO_DEFINES ${GNS_CRYPTO_DEFINES} STEAMNETWORKINGSOCKETS_CRYPTO_VALVEOPENSSL)
-	set(GNS_CRYPTO_SRCS ${GNS_CRYPTO_SRCS}
-		"common/crypto_openssl.cpp"
-		"common/opensslwrapper.cpp"
-		)
-endif()
-
-if(USE_CRYPTO STREQUAL "libsodium")
-	set(GNS_CRYPTO_DEFINES ${GNS_CRYPTO_DEFINES} STEAMNETWORKINGSOCKETS_CRYPTO_LIBSODIUM)
-	set(GNS_CRYPTO_SRCS ${GNS_CRYPTO_SRCS}
-		"common/crypto_libsodium.cpp")
-endif()
-
-# Use OpenSSL for 25519 if possible
-if(USE_CRYPTO25519 STREQUAL "OpenSSL")
-	set(GNS_CRYPTO_DEFINES  ${GNS_CRYPTO_DEFINES} STEAMNETWORKINGSOCKETS_CRYPTO_25519_OPENSSL)
-	set(GNS_CRYPTO_SRCS ${GNS_CRYPTO_SRCS}
-		"common/crypto_25519_openssl.cpp"
-		)
-endif()
-
-if(USE_CRYPTO25519 STREQUAL "libsodium")
-	set(GNS_CRYPTO_DEFINES ${GNS_CRYPTO_DEFINES} STEAMNETWORKINGSOCKETS_CRYPTO_25519_LIBSODIUM)
-	set(GNS_CRYPTO_SRCS ${GNS_CRYPTO_SRCS}
-		"common/crypto_25519_libsodium.cpp"
-		)
-endif()
-
-# Use reference 25519 crypto implementation?
-if(USE_CRYPTO25519 STREQUAL "Reference")
-	set(GNS_CRYPTO_DEFINES ${GNS_CRYPTO_DEFINES} VALVE_CRYPTO_25519_DONNA)
-	set(GNS_CRYPTO_SRCS ${GNS_CRYPTO_SRCS}
+		# Does bcrypt have a 25519 implementation?
+		# For now we'll use the reference
 		"common/crypto_25519_donna.cpp"
 		"external/curve25519-donna/curve25519.c"
 		"external/curve25519-donna/curve25519_VALVE_sse2.c"
 		"external/ed25519-donna/ed25519_VALVE.c"
 		"external/ed25519-donna/ed25519_VALVE_sse2.c"
+		)
+endif()
+
+if(USE_CRYPTO STREQUAL "OpenSSL")
+	set(GNS_CRYPTO_DEFINES ${GNS_CRYPTO_DEFINES} STEAMNETWORKINGSOCKETS_CRYPTO_VALVEOPENSSL VALVE_CRYPTO_25519_OPENSSL)
+	set(GNS_CRYPTO_SRCS ${GNS_CRYPTO_SRCS}
+		"common/crypto_openssl.cpp"
+		"common/crypto_25519_openssl.cpp"
+		"common/opensslwrapper.cpp"
+		)
+endif()
+
+if(USE_CRYPTO STREQUAL "libsodium")
+	set(GNS_CRYPTO_DEFINES ${GNS_CRYPTO_DEFINES} STEAMNETWORKINGSOCKETS_CRYPTO_LIBSODIUM STEAMNETWORKINGSOCKETS_CRYPTO_25519_LIBSODIUM)
+	set(GNS_CRYPTO_SRCS ${GNS_CRYPTO_SRCS}
+		"common/crypto_libsodium.cpp"
+		"common/crypto_25519_libsodium.cpp"
 		)
 endif()
 

@@ -7,6 +7,8 @@
 #include <tier0/dbg.h>
 #include "opensslwrapper.h"
 #include <openssl/crypto.h>
+//#include <openssl/err.h>
+#include <openssl/evp.h>
 #include <openssl/rand.h>
 #include "crypto.h"
 
@@ -31,34 +33,21 @@ struct CRYPTO_dynlock_value
 };
 
 
-#ifdef _WIN32
-//-----------------------------------------------------------------------------
-// Purpose: define a thin wrapper around RtlGenRandom (Windows XP and above)
-// that OpenSSL can use instead of its own md_rand system, which seriously sucks
-// on win32 as it gathers "entropy" from a toolhelp32 snapshot and GDI functions
-// while keeping the entire random generator state in process memory. better to
-// let the OS hide the PRNG state from our process and just give us the result.
-// (RtlGenRandom is also faster, at less than 1 microsecond per 16 byte output.)
-//-----------------------------------------------------------------------------
-static int RAND_Win32CryptoGenRandom_bytes( unsigned char *buf, int num ) {
+#ifndef ANDROID
+static int RAND_CryptoGenRandom_bytes( unsigned char *buf, int num ) {
 	CCrypto::GenerateRandomBlock( buf, num );
 	return 1;
 }
-static int RAND_Win32CryptoGenRandom_status() { return 1; }
-static const RAND_METHOD RAND_Win32CryptoGenRandom = 
+static int RAND_CryptoGenRandom_status() { return 1; }
+static const RAND_METHOD RAND_CryptoGenRandom = 
 {
-	NULL,								// seed entropy
-	RAND_Win32CryptoGenRandom_bytes,	// generate random
-	NULL,								// cleanup
-	NULL,								// add entropy
-	RAND_Win32CryptoGenRandom_bytes,	// generate pseudo-random
-	RAND_Win32CryptoGenRandom_status	// status
+	NULL,						// seed entropy
+	RAND_CryptoGenRandom_bytes,	// generate random
+	NULL,						// cleanup
+	NULL,						// add entropy
+	RAND_CryptoGenRandom_bytes,	// generate pseudo-random
+	RAND_CryptoGenRandom_status	// status
 };
-#endif
-
-#ifdef ANDROID
-// This isn't in the headers, but is implemented for Android 2.4 and newer
-extern "C" int pthread_atfork(void (*prepare)(void), void (*parent)(void), void(*child)(void));
 #endif
 
 //-----------------------------------------------------------------------------
@@ -80,14 +69,8 @@ void COpenSSLWrapper::Initialize()
 		CRYPTO_set_dynlock_destroy_callback( COpenSSLWrapper::OpenSSLDynLockDestroyCallback );
 		CRYPTO_set_dynlock_lock_callback( COpenSSLWrapper::OpenSSLDynLockLockCallback );
 
-#ifdef _WIN32
-		RAND_set_rand_method( &RAND_Win32CryptoGenRandom );
-#endif
-
-#ifdef OSX
-		pthread_atfork( NULL, NULL, []{ arc4random_stir(); RAND_poll(); } );
-#elif defined(POSIX)
-		pthread_atfork( NULL, NULL, []{ RAND_poll(); } );
+#ifndef ANDROID
+		RAND_set_rand_method( &RAND_CryptoGenRandom );
 #endif
 
 		iStatus = RAND_status();
@@ -104,13 +87,12 @@ void COpenSSLWrapper::Shutdown()
 	// If this is the last instance, then we can do some one time cleanup of the library
 	if ( m_nInstances-- == 1 )
 	{
-//SDR_PUBLIC		EVP_cleanup();
-//SDR_PUBLIC
-//SDR_PUBLIC		/* Don't call ERR_free_strings here; ERR_load_*_strings only
-//SDR_PUBLIC		 * actually load the error strings once per process due to static
-//SDR_PUBLIC		 * variable abuse in OpenSSL. */
-//SDR_PUBLIC		ERR_free_strings();
-//SDR_PUBLIC		ERR_remove_state(0);
+		EVP_cleanup();
+
+		///* Don't call ERR_free_strings here; ERR_load_*_strings only
+		// * actually load the error strings once per process due to static
+		// * variable abuse in OpenSSL. */
+		//ERR_free_strings();
 		CRYPTO_cleanup_all_ex_data();
 
 		CRYPTO_set_locking_callback( NULL );
