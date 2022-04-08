@@ -138,6 +138,8 @@ enum EResult
 	k_EResultParseFailure = 122,				// Failed to parse input
 	k_EResultNoVerifiedPhone = 123,				// account does not have a verified phone number
 	k_EResultInsufficientBattery = 124,			// user device doesn't have enough battery charge currently to complete the action
+	k_EResultChargerRequired = 125,				// The operation requires a charger to be plugged in, which wasn't present
+	k_EResultCachedCredentialInvalid = 126,		// Cached credential was invalid - user must reauthenticate
 };
 
 // Error codes for use with the voice functions
