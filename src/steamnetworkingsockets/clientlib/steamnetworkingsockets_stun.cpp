@@ -1992,8 +1992,8 @@ void CSteamNetworkingICESession::STUNRequestCallback_PeerConnectivityCheck( cons
     if ( pPair == nullptr )
         return;
 
-	const SteamNetworkingMicroseconds usPing = Max( SteamNetworkingMicroseconds( 1 ), info.m_usecNow - info.m_pRequest->m_usecLastSentTime );
-	pPair->m_nLastRecordedPing = Max( 1, (int)( usPing / 1000 ) );
+    const SteamNetworkingMicroseconds usPing = Max( SteamNetworkingMicroseconds( 1 ), info.m_usecNow - info.m_pRequest->m_usecLastSentTime );
+    pPair->m_nLastRecordedPing = Max( 1, (int)( usPing / 1000 ) );
 
     // Stale request on a pair we're not using? Ignore.
     if ( m_pSelectedCandidatePair != nullptr && m_pSelectedCandidatePair != pPair )
