@@ -308,6 +308,7 @@ namespace SteamNetworkingSocketsLib {
         // Implements CConnectionTransportUDPBase
         virtual bool SendPacket( const void *pkt, int cbPkt ) override;
         virtual bool SendPacketGather( int nChunks, const iovec *pChunks, int cbSendTotal ) override;
+		virtual void P2PTransportUpdateRouteMetrics( SteamNetworkingMicroseconds usecNow ) override;
 
     protected:
         virtual void OnLocalCandidateDiscovered( const CSteamNetworkingICESession::ICECandidate& candidate ) override;
