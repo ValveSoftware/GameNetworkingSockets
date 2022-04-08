@@ -38,6 +38,7 @@ set(GNS_CLIENTLIB_SRCS
 	"steamnetworkingsockets/clientlib/steamnetworkingsockets_connections.cpp"
 	"steamnetworkingsockets/clientlib/steamnetworkingsockets_lowlevel.cpp"
 	"steamnetworkingsockets/clientlib/steamnetworkingsockets_p2p.cpp"
+	"steamnetworkingsockets/clientlib/steamnetworkingsockets_stun.cpp"
 	"steamnetworkingsockets/clientlib/steamnetworkingsockets_p2p_ice.cpp"
 	"steamnetworkingsockets/clientlib/steamnetworkingsockets_snp.cpp"
 	"steamnetworkingsockets/clientlib/steamnetworkingsockets_udp.cpp"

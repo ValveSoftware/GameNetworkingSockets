@@ -1479,6 +1479,7 @@ enum ESteamNetworkingConfigValue
 	k_ESteamNetworkingConfig_P2P_TURN_UserList = 108,
 	k_ESteamNetworkingConfig_P2P_TURN_PassList = 109,
 	//k_ESteamNetworkingConfig_P2P_Transport_LANBeacon_Penalty = 107,
+	k_ESteamNetworkingConfig_P2P_Transport_ICE_Implementation = 110,
 
 //
 // Settings for SDR relayed connections

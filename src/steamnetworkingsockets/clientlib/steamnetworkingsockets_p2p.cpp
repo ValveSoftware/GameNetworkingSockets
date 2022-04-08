@@ -25,6 +25,7 @@
 
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
 	#include "steamnetworkingsockets_p2p_ice.h"
+	#include "steamnetworkingsockets_stun.h"
 	#ifdef STEAMWEBRTC_USE_STATIC_LIBS
 		extern "C" IICESession *CreateWebRTCICESession( const ICESessionConfig &cfg, IICESessionDelegate *pDelegate, int nInterfaceVersion );
 	#endif
@@ -688,17 +689,24 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 	}
 
 	m_msgICESessionSummary.set_ice_enable_var( P2P_Transport_ICE_Enable );
+	if ( m_connectionConfig.m_P2P_Transport_ICE_Implementation.Get() == 1 ) 
+	{
+		auto pICEValve = new CConnectionTransportP2PICE_Valve( *this );
+		m_pTransportICE = pICEValve;
+		pICEValve->Init();
+	}
 
 
 #ifdef STEAMWEBRTC_USE_STATIC_LIBS
 	g_SteamNetworkingSockets_CreateICESessionFunc = (CreateICESession_t)CreateWebRTCICESession;
 #else
+
 	// No ICE factory?
-	if ( !g_SteamNetworkingSockets_CreateICESessionFunc )
+	if ( m_pTransportICE == nullptr && !g_SteamNetworkingSockets_CreateICESessionFunc )
 	{
 		// Just try to load up the dll directly
 		static bool tried;
-		if ( !tried )
+		if ( m_pTransportICE == nullptr && !tried )
 		{
 			SteamNetworkingErrMsg errMsg;
 			tried = true;
@@ -743,7 +751,7 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 				return;
 			}
 		}
-		if ( !g_SteamNetworkingSockets_CreateICESessionFunc )
+		if ( !g_SteamNetworkingSockets_CreateICESessionFunc && m_pTransportICE == nullptr )
 		{
 			ICEFailed( k_nICECloseCode_Local_NotCompiled, "No ICE session factory" );
 			return;
@@ -756,9 +764,12 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 	// Initialize ICE.
 	// WARNING: if this fails, it might set m_pTransportICE=NULL
 	// FIXME - select ICE implementation here
-	auto *pICEWebRTC = new CConnectionTransportP2PICE_WebRTC( *this );
-	m_pTransportICE = pICEWebRTC;
-	pICEWebRTC->Init();
+	if ( m_pTransportICE == nullptr )
+	{
+		auto pICEWebRTC = new CConnectionTransportP2PICE_WebRTC( *this );
+		m_pTransportICE = pICEWebRTC;
+		pICEWebRTC->Init();
+	}
 
 	// Process any rendezvous messages that were pended
 	for ( int i = 0 ; i < len( m_vecPendingICEMessages ) && m_pTransportICE ; ++i )

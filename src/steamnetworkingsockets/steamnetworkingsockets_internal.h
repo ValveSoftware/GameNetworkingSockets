@@ -871,6 +871,7 @@ struct ConnectionConfig
 		ConfigValue<std::string> m_P2P_TURN_ServerList;
 		ConfigValue<std::string> m_P2P_TURN_UserList;
 		ConfigValue<std::string> m_P2P_TURN_PassList;
+		ConfigValue<int32> m_P2P_Transport_ICE_Implementation;
 	#endif
 
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR

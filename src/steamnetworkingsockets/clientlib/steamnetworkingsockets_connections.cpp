@@ -2481,6 +2481,7 @@ void CSteamNetworkConnectionBase::SetState( ESteamNetworkingConnectionState eNew
 		#endif
 		#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
 			m_connectionConfig.m_P2P_Transport_ICE_Enable.Lock();
+			m_connectionConfig.m_P2P_Transport_ICE_Implementation.Lock();
 		#endif
 	}
 

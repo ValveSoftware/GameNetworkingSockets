@@ -110,6 +110,8 @@ private:
 	virtual void OnRouteChanged() override;
 };
 
+std::string Base64EncodeLower30Bits( uint32 nNum );
+
 } // namespace SteamNetworkingSocketsLib
 
 #endif // #ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE

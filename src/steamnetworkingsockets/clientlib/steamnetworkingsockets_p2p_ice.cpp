@@ -81,7 +81,7 @@ void CConnectionTransportP2PICE::GetDetailedConnectionStatus( SteamNetworkingDet
 
 // Base-64 encode the least significant 30 bits.
 // Returns a 5-character base-64 string
-static std::string Base64EncodeLower30Bits( uint32 nNum )
+std::string Base64EncodeLower30Bits( uint32 nNum )
 {
 	static const char szBase64Chars[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 

@@ -103,6 +103,7 @@ DEFINE_CONNECTON_DEFAULT_CONFIGVAL( std::string, P2P_STUN_ServerList, "" );
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( std::string, P2P_TURN_ServerList, "" );
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( std::string, P2P_TURN_UserList, "" );
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( std::string, P2P_TURN_PassList, "" );
+DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, P2P_Transport_ICE_Implementation, 0, 0, 1 );
 
 COMPILE_TIME_ASSERT( k_nSteamNetworkingConfig_P2P_Transport_ICE_Enable_Default == -1 );
 COMPILE_TIME_ASSERT( k_nSteamNetworkingConfig_P2P_Transport_ICE_Enable_Disable == 0 );
