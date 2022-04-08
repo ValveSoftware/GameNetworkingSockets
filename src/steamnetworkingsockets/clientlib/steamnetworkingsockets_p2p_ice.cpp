@@ -192,7 +192,7 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 	{
 		auto pICEValve = new CConnectionTransportP2PICE_Valve( *this );
 		m_pTransportICE = pICEValve;
-		pICEValve->Init();
+		pICEValve->Init( cfg );
 	}
 	else if ( ICE_Implementation == 2 )
 	{

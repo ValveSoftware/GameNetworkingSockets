@@ -1044,66 +1044,13 @@ bool CSteamNetworkingSocketsSTUNRequest::OnPacketReceived( const RecvPktInfo_t &
     return kPacketProcessed;
 }
 
-namespace {
-    static void TESTRequestReceivedFromUnknownHost( const RecvPktInfo_t &info, void *pContext )
-    {
-        SpewMsg( "Got an unknown response??" );
-    }
-
-    static void TESTRequestReceivedSTUNCallback( const RecvSTUNPktInfo_t &info, void *pContext )
-    {
-        SteamNetworkingIPAddr bindResult;        
-        bindResult.Clear();
-        ReadAnyMappedAddress( info.m_pAttributes, info.m_nAttributes, info.m_pHeader, &bindResult );
-        SpewMsg( "Got a stun response! %s", SteamNetworkingIPAddrRender( bindResult, true ).c_str() );
-    }
-} // namespace <anonymous>
-
-
-void CSteamNetworkingSocketsSTUNRequest::Test()
-{    
-    SteamDatagramErrMsg errMsg;
-
-    CUtlVector< SteamNetworkingIPAddr > vecAddrs;
-    if ( !GetLocalAddresses( &vecAddrs ) )
-        return;
-
-    SteamNetworkingIPAddr bindAddr;
-    bindAddr.Clear();
-    for ( int i = 0; i < vecAddrs.Count(); ++i )
-    {
-        if ( vecAddrs[i].IsIPv4() )
-        {
-            bindAddr = vecAddrs[i];
-            break;
-        }
-    }
-    bindAddr.m_port = 18000;
-    CSharedSocket *pTestSocket = new CSharedSocket;
-    if ( !pTestSocket->BInit( bindAddr, CRecvPacketCallback( TESTRequestReceivedFromUnknownHost, (void*)nullptr ), errMsg ) )
-    {
-        SpewError( "pTestSocket->BInit failed %s", errMsg );
-        delete pTestSocket;
-        return;
-    }
-
-    CUtlVector< SteamNetworkingIPAddr > stunAddrs;
-    //ResolveHostname( "stun2.l.google.com:3478", &stunAddrs );
-    ResolveHostname( "172.16.145.120:3478", &stunAddrs );
-    if ( stunAddrs.IsEmpty() )
-    {
-        return;
-    }
-    CSteamNetworkingSocketsSTUNRequest::SendBindRequest( pTestSocket, stunAddrs[0], CRecvSTUNPktCallback( TESTRequestReceivedSTUNCallback, (void*)nullptr ), kSTUNPacketEncodingFlags_NoFingerprint|kSTUNPacketEncodingFlags_MappedAddress );
-}
-
 
 /////////////////////////////////////////////////////////////////////////////
 //
 // CSteamNetworkingICESession
 //
 /////////////////////////////////////////////////////////////////////////////
-CSteamNetworkingICESession::CSteamNetworkingICESession( ICERole role, CSteamNetworkingICESessionCallbacks *pCallbacks, int nEncoding )
+CSteamNetworkingICESession::CSteamNetworkingICESession( EICERole role, CSteamNetworkingICESessionCallbacks *pCallbacks, int nEncoding )
 {
     m_nEncoding = nEncoding;
     m_pCallbacks = pCallbacks;
@@ -1114,7 +1061,41 @@ CSteamNetworkingICESession::CSteamNetworkingICESession( ICERole role, CSteamNetw
     m_pSelectedCandidatePair = nullptr;
     m_pSelectedSocket = nullptr;
     m_vecInterfaces.EnsureCapacity( 16 );
+	m_nPermittedCandidateTypes = k_EICECandidate_Any;
 }
+
+CSteamNetworkingICESession::CSteamNetworkingICESession( const ICESessionConfig& cfg, CSteamNetworkingICESessionCallbacks *pCallbacks )
+{
+	m_nEncoding = kSTUNPacketEncodingFlags_MessageIntegrity;
+	m_pCallbacks = pCallbacks;
+	m_bInterfaceListStale = true;
+    m_sessionState = kICESessionState_Idle;
+    m_nextKeepalive = 0;
+    m_role = cfg.m_eRole;
+    m_pSelectedCandidatePair = nullptr;
+    m_pSelectedSocket = nullptr;
+    m_vecInterfaces.EnsureCapacity( 16 );
+
+	m_vecSTUNServers.EnsureCapacity( cfg.m_nStunServers );
+	
+	{
+		CUtlVector< SteamNetworkingIPAddr > stunServers;
+		for ( int i = 0; i < cfg.m_nStunServers; ++i )
+		{
+			const char *pszHostname = cfg.m_pStunServers[i];
+			if ( V_strnicmp( pszHostname, "stun:", 5 ) == 0 )
+				pszHostname = pszHostname + 5;
+			ResolveHostname( pszHostname, &stunServers );
+			if ( !stunServers.IsEmpty() )
+				m_vecSTUNServers.AddMultipleToTail( stunServers.Count(), stunServers.Base() );				
+		}
+	}
+    
+	m_nPermittedCandidateTypes = cfg.m_nCandidateTypes;
+	m_strLocalUsernameFragment = cfg.m_pszLocalUserFrag;
+	m_strLocalPassword = cfg.m_pszLocalPwd;
+}
+
 
 CSteamNetworkingICESession::~CSteamNetworkingICESession()
 {
@@ -1160,12 +1141,6 @@ SteamNetworkingIPAddr CSteamNetworkingICESession::GetSelectedDestination()
         return result;
     }
     return m_pSelectedCandidatePair->m_remoteCandidate.m_addr;
-}
-
-void CSteamNetworkingICESession::SetSTUNServers( const CUtlVector< SteamNetworkingIPAddr >& servers )
-{
-    m_vecSTUNServers.RemoveAll();
-    m_vecSTUNServers.AddMultipleToTail( servers.Count(), servers.Base() );
 }
 
 bool CSteamNetworkingICESession::GetCandidates( CUtlVector< ICECandidate > *pOutVecCandidates )
@@ -1228,21 +1203,12 @@ void CSteamNetworkingICESession::SetSelectedCandidatePair( ICECandidatePair *pPa
 }
 
 
-void CSteamNetworkingICESession::StartSession( const char *pszUsernameFragment )
+void CSteamNetworkingICESession::StartSession()
 {
     m_nextKeepalive = 0;
     m_pSelectedCandidatePair = nullptr;
     m_pSelectedSocket = nullptr;
     CCrypto::GenerateRandomBlock( &m_nRoleTiebreaker, sizeof( m_nRoleTiebreaker ) );
-
-    m_strLocalUsernameFragment = pszUsernameFragment;
-    char charTable[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-    byte passwordBits[ 33 ];
-    CCrypto::GenerateRandomBlock( passwordBits, V_ARRAYSIZE( passwordBits ) );
-    for ( int i = 0; i < V_ARRAYSIZE( passwordBits ); ++i )
-    {
-        m_strLocalPassword += charTable[ passwordBits[i] % ( V_ARRAYSIZE( charTable ) - 1 ) ];
-    }
     SetNextThinkTimeASAP();
 }
 
@@ -1629,6 +1595,72 @@ void CSteamNetworkingICESession::UpdateHostCandidates()
     }
 }
 
+enum EICECandidateType : int
+{
+	k_EICECandidate_Invalid = 0,
+
+	k_EICECandidate_IPv4_Relay = 0x01,
+	k_EICECandidate_IPv4_HostPrivate = 0x02,
+	k_EICECandidate_IPv4_HostPublic = 0x04,
+	k_EICECandidate_IPv4_Reflexive = 0x08,
+
+	k_EICECandidate_IPv6_Relay = 0x100,
+	k_EICECandidate_IPv6_HostPrivate_Unsupported = 0x200, // NOTE: Not currently used.  All IPv6 addresses (even fc00::/7) are considered "public"
+	k_EICECandidate_IPv6_HostPublic = 0x400,
+	k_EICECandidate_IPv6_Reflexive = 0x800,
+};
+
+static bool IsPrivateIPv4( const uint8 m_ip[ 4 ] )
+{
+	/*	Class A: 10.0. 0.0 to 10.255. 255.255.
+		Class B: 172.16. 0.0 to 172.31. 255.255.
+		Class C: 192.168. 0.0 to 192.168. 255.255. */
+	if ( m_ip[0] == 10 )
+		return true;
+	if ( m_ip[0] == 172 && m_ip[1] >= 16 && m_ip[1] <= 31 )
+		return true;
+	if ( m_ip[0] == 192 && m_ip[1] == 168 )
+		return true;
+	return false;
+}
+
+bool CSteamNetworkingICESession::IsCandidatePermitted( const ICECandidate& localCandidate)
+{
+	int nCandidateType = 0;
+	switch ( localCandidate.m_type )
+	{
+	case kICECandidateType_Host:
+		if ( localCandidate.m_base.IsIPv4() )
+		{
+			if ( IsPrivateIPv4( localCandidate.m_base.m_ipv4.m_ip ) )
+				nCandidateType = k_EICECandidate_IPv4_HostPrivate;
+			else
+				nCandidateType = k_EICECandidate_IPv4_HostPublic;
+		}
+		else
+			nCandidateType = k_EICECandidate_IPv6_HostPublic;
+		break;
+	case kICECandidateType_ServerReflexive:
+	case kICECandidateType_PeerReflexive:
+		if ( localCandidate.m_base.IsIPv4() )
+			nCandidateType = k_EICECandidate_IPv4_Reflexive;
+		else
+			nCandidateType = k_EICECandidate_IPv6_Reflexive;
+		break;
+
+	/* case kICECandidateType_Relayed:
+		if ( localCandidate.m_base.IsIPv4() )
+			nCandidateType = k_EICECandidate_IPv4_Relay;
+		else
+			nCandidateType = k_EICECandidate_IPv6_Relay;
+		break;
+	*/
+	default:
+		break;
+	}
+	return ( m_nPermittedCandidateTypes & nCandidateType ) == nCandidateType;
+}
+
 
 void CSteamNetworkingICESession::STUNRequestCallback_ServerReflexiveCandidate( const RecvSTUNPktInfo_t &info )
 {
@@ -1808,6 +1840,9 @@ void CSteamNetworkingICESession::Think_TestPeerConnectivity()
         // For every peer, for every local candidate, make sure the pair is present in the pairs list...
         for ( ICECandidate &localCandidate : m_vecCandidates )
         {
+			if ( !IsCandidatePermitted( localCandidate ) )
+				continue;
+
             for ( ICEPeerCandidate &remoteCandidate : m_vecPeerCandidates )
             {
                 bool bFound = false;
@@ -1918,7 +1953,7 @@ void CSteamNetworkingICESession::Think_TestPeerConnectivity()
             pPairToCheck->m_pPeerRequest->m_vecExtraAttrs.AddToTail( attrPriority );
         }
 
-        if ( m_role == kICERole_Controlling )
+        if ( m_role == k_EICERole_Controlling )
         {
             STUNAttribute attrControlling;
             attrControlling.m_nType = k_nSTUN_Attr_ICEControlling;
@@ -1939,7 +1974,7 @@ void CSteamNetworkingICESession::Think_TestPeerConnectivity()
 				pPairToCheck->m_pPeerRequest->m_vecExtraAttrs.AddToTail( attrUseCandidate );
 			}
         }
-        else if ( m_role == kICERole_Controlled )
+        else if ( m_role == k_EICERole_Controlled )
         {
             STUNAttribute attrControlled;
             attrControlled.m_nType = k_nSTUN_Attr_ICEControlled;
@@ -1994,7 +2029,7 @@ void CSteamNetworkingICESession::STUNRequestCallback_PeerConnectivityCheck( cons
     {
         SetSelectedCandidatePair( pPair );
     }
-	else if ( m_role == kICERole_Controlling )
+	else if ( m_role == k_EICERole_Controlling )
     {
 		bool bAlreadyHaveANomination = false;
         for ( ICECandidatePair *pOtherPair : m_vecCandidatePairs )
@@ -2123,31 +2158,17 @@ void CSteamNetworkingICESession::ICECandidate::CalcCandidateAttribute( char *psz
 // CSteamNetworkingICESession::ICECandidatePair
 //
 /////////////////////////////////////////////////////////////////////////////
-CSteamNetworkingICESession::ICECandidatePair::ICECandidatePair( const ICECandidate& localCandidate, const ICEPeerCandidate& remoteCandidate, ICERole role )
+CSteamNetworkingICESession::ICECandidatePair::ICECandidatePair( const ICECandidate& localCandidate, const ICEPeerCandidate& remoteCandidate, EICERole role )
     : m_localCandidate( localCandidate ),
       m_remoteCandidate( remoteCandidate ),
       m_nState( kICECandidatePairState_Frozen ),
       m_bNominated( false )
 {
-    const uint64 D = ( role == kICERole_Controlling ) ? localCandidate.m_nPriority : remoteCandidate.m_nPriority;
-    const uint64 G = ( role == kICERole_Controlling ) ? remoteCandidate.m_nPriority : localCandidate.m_nPriority;
+    const uint64 D = ( role == k_EICERole_Controlling ) ? localCandidate.m_nPriority : remoteCandidate.m_nPriority;
+    const uint64 G = ( role == k_EICERole_Controlling ) ? remoteCandidate.m_nPriority : localCandidate.m_nPriority;
     m_nPriority = ( 1ull << 32 ) * MIN( G, D ) + 2 * MAX( G, D ) + ( G > D ? 1 : 0 );
     m_pPeerRequest = nullptr;
 }
-
-void CSteamNetworkingICESession::Test()
-{
-    CSteamNetworkingICESession *pSession = new CSteamNetworkingICESession( kICERole_Controlling, nullptr, kSTUNPacketEncodingFlags_None );
-
-    CUtlVector< SteamNetworkingIPAddr > stunAddrs;
-    ResolveHostname( "stun1.l.google.com:3478", &stunAddrs );
-    ResolveHostname( "stun2.l.google.com:3478", &stunAddrs );
-    ResolveHostname( "stun3.l.google.com:3478", &stunAddrs );
-    ResolveHostname( "stun4.l.google.com:3478", &stunAddrs );
-    pSession->SetSTUNServers( stunAddrs );
-    pSession->StartSession( "tEsTNM");
-}
-
 
 /////////////////////////////////////////////////////////////////////////////
 //
@@ -2160,29 +2181,14 @@ CConnectionTransportP2PICE_Valve::CConnectionTransportP2PICE_Valve( CSteamNetwor
     m_pICESession = nullptr;
 }
 
-void CConnectionTransportP2PICE_Valve::Init()
+void CConnectionTransportP2PICE_Valve::Init( const ICESessionConfig& cfg )
 {
     if ( m_pICESession == nullptr )
     {
-        const CSteamNetworkingICESession::ICERole role = ( Connection().IsControllingAgent() ? CSteamNetworkingICESession::kICERole_Controlling : CSteamNetworkingICESession::kICERole_Controlled );
-        m_pICESession = new CSteamNetworkingICESession( role, this, kSTUNPacketEncodingFlags_MessageIntegrity );
-
-        CUtlVector< SteamNetworkingIPAddr > stunServers;
-        CUtlVectorAutoPurge<char *> tempStunServers;
-        V_AllocAndSplitString( m_connection.m_connectionConfig.m_P2P_STUN_ServerList.Get().c_str(), ",", tempStunServers );
-        for ( const char *pszAddress: tempStunServers )
-        {
-            const char *pszHostname = pszAddress;
-            if ( V_strnicmp( pszHostname, "stun:", 5 ) == 0 )
-                pszHostname = pszHostname + 5;
-            SpewMsg( "Using stun server \'%s\'", pszHostname );     
-            ResolveHostname( pszHostname, &stunServers );
-            if ( !stunServers.IsEmpty() )
-                SpewMsg( "Resolved to \'%s\'", SteamNetworkingIPAddrRender( stunServers[0] ).c_str() );
-        }
-        m_pICESession->SetSTUNServers( stunServers );  
+        const EICERole role = ( Connection().IsControllingAgent() ? k_EICERole_Controlling : k_EICERole_Controlled );
+        m_pICESession = new CSteamNetworkingICESession( cfg, this );
     }
-    m_pICESession->StartSession( Base64EncodeLower30Bits( ConnectionIDLocal() ).c_str() );
+    m_pICESession->StartSession();
 
     {
         CMsgSteamNetworkingP2PRendezvous_ReliableMessage msg;

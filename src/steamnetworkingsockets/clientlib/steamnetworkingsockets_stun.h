@@ -7,6 +7,7 @@
 #include "steamnetworkingsockets_connections.h"
 #include "../steamnetworkingsockets_thinker.h"
 #include "steamnetworkingsockets_p2p_ice.h"
+#include "external/steamwebrtc/ice_session.h"
 
 namespace SteamNetworkingSocketsLib {
     class CSharedSocket;
@@ -94,8 +95,6 @@ namespace SteamNetworkingSocketsLib {
     class CSteamNetworkingSocketsSTUNRequest : private IThinker
     {
     public:
-        static void Test();
-
         IBoundUDPSocket *m_pSocket;
         SteamNetworkingIPAddr m_localAddr;
         SteamNetworkingIPAddr m_remoteAddr;
@@ -136,30 +135,12 @@ namespace SteamNetworkingSocketsLib {
 
     class CSteamNetworkingICESession : private IThinker
     {
-    public:
-        static void Test();
+    public:       
+        CSteamNetworkingICESession( EICERole role, CSteamNetworkingICESessionCallbacks *pCallbacks, int nEncoding );
+		CSteamNetworkingICESession( const ICESessionConfig& cfg, CSteamNetworkingICESessionCallbacks *pCallbacks );
+		~CSteamNetworkingICESession();
 
-        enum ICERole
-        {
-            kICERole_Controlling,
-            kICERole_Controlled,
-            kICERole_None
-        };
-        CSteamNetworkingICESession( ICERole role, CSteamNetworkingICESessionCallbacks *pCallbacks, int nEncoding );
-        ~CSteamNetworkingICESession();
-
-        ICERole GetRole() { return m_role; }
-        void SetSTUNServers( const CUtlVector< SteamNetworkingIPAddr >& pServers );
-
-        enum ICESessionState
-        {
-            kICESessionState_Idle,
-            kICESessionState_GatheringCandidates,
-            kICESessionState_TestingPeerConnectivity
-        };
-        ICESessionState GetSessionState();
-
-        void StartSession( const char *pszUsernameFragment );
+        void StartSession();
         void InvalidateInterfaceList();
 
         enum ICECandidateType
@@ -183,12 +164,20 @@ namespace SteamNetworkingSocketsLib {
             uint32 CalcPriority( uint32 nLocalPreference );
             void CalcCandidateAttribute( char *pszBuffer, size_t nBufferSize ) const;
         };
-        
-        bool GetCandidates( CUtlVector< ICECandidate >* pOutVecCandidates );
+        EICERole GetRole() { return m_role; }
+        enum ICESessionState
+        {
+            kICESessionState_Idle,
+            kICESessionState_GatheringCandidates,
+            kICESessionState_TestingPeerConnectivity
+        };
+        ICESessionState GetSessionState();
         void AddPeerCandidate( const ICECandidate& peerCandidate, const char* pszFoundation );
-        const char* GetLocalPassword() { return m_strLocalPassword.c_str(); }
         void SetRemoteUsername( const char *pszUsername );
-        void SetRemotePassword( const char *pszPassword );
+		void SetRemotePassword( const char *pszPassword );
+
+        bool GetCandidates( CUtlVector< ICECandidate >* pOutVecCandidates );
+        const char* GetLocalPassword() { return m_strLocalPassword.c_str(); }
         CSharedSocket *GetSelectedSocket() { return m_pSelectedSocket; }
         SteamNetworkingIPAddr GetSelectedDestination();
 
@@ -227,11 +216,11 @@ namespace SteamNetworkingSocketsLib {
             ICECandidate m_localCandidate;
             ICEPeerCandidate m_remoteCandidate;
             CSteamNetworkingSocketsSTUNRequest *m_pPeerRequest;
-            ICECandidatePair( const ICECandidate& localCandidate, const ICEPeerCandidate& remoteCandidate, ICERole role );
+            ICECandidatePair( const ICECandidate& localCandidate, const ICEPeerCandidate& remoteCandidate, EICERole role );
         };
 
         CSteamNetworkingICESessionCallbacks *m_pCallbacks;
-        ICERole m_role;
+        EICERole m_role;
         uint64 m_nRoleTiebreaker;
         ICESessionState m_sessionState;
         bool m_bInterfaceListStale;
@@ -243,6 +232,7 @@ namespace SteamNetworkingSocketsLib {
         std::string m_strIncomingUsername;
         std::string m_strOutgoingUsername;
         bool m_bCandidatePairsNeedUpdate;
+		int m_nPermittedCandidateTypes;
 
         SteamNetworkingMicroseconds m_nextKeepalive;
         ICECandidatePair *m_pSelectedCandidatePair;
@@ -263,6 +253,7 @@ namespace SteamNetworkingSocketsLib {
         void UpdateHostCandidates();
         void UpdateKeepalive( const ICECandidate& c );
         uint32 GetInterfaceLocalPreference( const SteamNetworkingIPAddr& addr );
+		bool IsCandidatePermitted( const ICECandidate& localCandidate );
 
         void Think_KeepAliveOnCandidates( SteamNetworkingMicroseconds usecNow );
         void Think_DiscoverServerReflexiveCandidates();
@@ -295,7 +286,7 @@ namespace SteamNetworkingSocketsLib {
     {
     public:
         CConnectionTransportP2PICE_Valve( CSteamNetworkConnectionP2P &connection );
-    	void Init();
+    	void Init( const ICESessionConfig& cfg );
 
     private:
         CSteamNetworkingICESession *m_pICESession;
