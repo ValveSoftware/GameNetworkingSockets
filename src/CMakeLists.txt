@@ -75,10 +75,16 @@ if(USE_CRYPTO STREQUAL "OpenSSL")
 endif()
 
 if(USE_CRYPTO STREQUAL "libsodium")
-	set(GNS_CRYPTO_DEFINES ${GNS_CRYPTO_DEFINES} STEAMNETWORKINGSOCKETS_CRYPTO_LIBSODIUM STEAMNETWORKINGSOCKETS_CRYPTO_25519_LIBSODIUM)
+	set(GNS_CRYPTO_DEFINES ${GNS_CRYPTO_DEFINES} STEAMNETWORKINGSOCKETS_CRYPTO_LIBSODIUM STEAMNETWORKINGSOCKETS_CRYPTO_25519_LIBSODIUM STEAMNETWORKINGSOCKETS_CRYPTO_SHA1_WPA)
 	set(GNS_CRYPTO_SRCS ${GNS_CRYPTO_SRCS}
 		"common/crypto_libsodium.cpp"
 		"common/crypto_25519_libsodium.cpp"
+
+		# libsodium lacks SHA1 / HMAC-SHA1 implementations
+		# Use a reference implementation
+		"common/crypto_sha1_wpa.cpp"
+		"external/sha1-wpa/sha1-internal.c"
+		"external/sha1-wpa/sha1.c"
 		)
 endif()
 
