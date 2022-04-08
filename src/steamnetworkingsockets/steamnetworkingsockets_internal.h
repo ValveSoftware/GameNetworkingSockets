@@ -60,7 +60,7 @@
 	#include "steamdatagram_fakeip.h"
 #endif
 
-#if !defined( STEAMNETWORKINGSOCKETS_OPENSOURCE ) && !defined( STEAMNETWORKINGSOCKETS_STREAMINGCLIENT )
+#ifdef STEAMNETWORKINGSOCKETS_STEAM
 	// STEAMNETWORKINGSOCKETS_CAN_REQUEST_CERT means we know how to make a cert request from some sort of certificate authority
 	#define STEAMNETWORKINGSOCKETS_CAN_REQUEST_CERT
 #endif
