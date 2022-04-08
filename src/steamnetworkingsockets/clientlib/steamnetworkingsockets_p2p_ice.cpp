@@ -39,6 +39,7 @@ namespace SteamNetworkingSocketsLib {
 
 void CSteamNetworkConnectionP2P::CheckInitICE()
 {
+	AssertLocksHeldByCurrentThread( "CSteamNetworkConnectionP2P::CheckInitICE" );
 
 	// Did we already fail?
 	if ( GetICEFailureCode() != 0 )
@@ -271,19 +272,6 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 			auto pICEWebRTC = new CConnectionTransportP2PICE_WebRTC( *this );
 			m_pTransportICE = pICEWebRTC;
 			pICEWebRTC->Init( cfg );
-
-			// Queue a message to inform peer about our auth credentials.  It should
-			// go out in the first signal.
-			// FIXME - should move this below to do for all transports, once we have
-			//         refactored the Valve ICE client to also take the config
-			if ( m_pTransportICE )
-			{
-				CMsgSteamNetworkingP2PRendezvous_ReliableMessage msg;
-				*msg.mutable_ice()->mutable_auth()->mutable_pwd_frag() = std::move( sPwdFragLocal );
-				QueueSignalReliableMessage( std::move( msg ), "Initial ICE auth" );
-			}
-
-
 		#endif
 
 	}
@@ -291,6 +279,15 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 	{
 		ICEFailed( k_ESteamNetConnectionEnd_Misc_Generic, "Invalid P2P_Transport_ICE_Implementation value" );
 		return;
+	}
+
+	// Queue a message to inform peer about our auth credentials.  It should
+	// go out in the first signal.
+	if ( m_pTransportICE )
+	{
+		CMsgSteamNetworkingP2PRendezvous_ReliableMessage msg;
+		*msg.mutable_ice()->mutable_auth()->mutable_pwd_frag() = std::move( sPwdFragLocal );
+		QueueSignalReliableMessage( std::move( msg ), "Initial ICE auth" );
 	}
 
 	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();

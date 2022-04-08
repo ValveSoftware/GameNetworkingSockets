@@ -899,6 +899,8 @@ CSteamNetworkingSocketsSTUNRequest::CSteamNetworkingSocketsSTUNRequest()
 
 CSteamNetworkingSocketsSTUNRequest::~CSteamNetworkingSocketsSTUNRequest()
 {
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
+
     if ( m_pSocket != nullptr )
     {
         m_pSocket->Close();
@@ -925,6 +927,8 @@ void CSteamNetworkingSocketsSTUNRequest::Send( SteamNetworkingIPAddr remoteAddr,
 
 CSteamNetworkingSocketsSTUNRequest *CSteamNetworkingSocketsSTUNRequest::SendBindRequest( IBoundUDPSocket *pBoundSock, SteamNetworkingIPAddr remoteAddr, CRecvSTUNPktCallback cb, int nEncoding ) 
 {
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "CSteamNetworkingSocketsSTUNRequest::SendBindRequest" );
+
     if ( pBoundSock == nullptr || pBoundSock->GetRawSock() == nullptr )
         return nullptr;
 
@@ -940,6 +944,8 @@ CSteamNetworkingSocketsSTUNRequest *CSteamNetworkingSocketsSTUNRequest::SendBind
 
 CSteamNetworkingSocketsSTUNRequest *CSteamNetworkingSocketsSTUNRequest::SendBindRequest( CSharedSocket *pSharedSock, SteamNetworkingIPAddr remoteAddr, CRecvSTUNPktCallback cb, int nEncoding ) 
 {
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "CSteamNetworkingSocketsSTUNRequest::SendBindRequest" );
+
     if ( pSharedSock == nullptr )
         return nullptr;
 
@@ -961,6 +967,8 @@ CSteamNetworkingSocketsSTUNRequest *CSteamNetworkingSocketsSTUNRequest::SendBind
 
 CSteamNetworkingSocketsSTUNRequest *CSteamNetworkingSocketsSTUNRequest::CreatePeerConnectivityCheckRequest( CSharedSocket *pSharedSock, SteamNetworkingIPAddr remoteAddr, CRecvSTUNPktCallback cb, int nEncoding ) 
 {
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "CSteamNetworkingSocketsSTUNRequest::CreatePeerConnectivityCheckRequest" );
+
     if ( pSharedSock == nullptr )
         return nullptr;
 
@@ -996,6 +1004,8 @@ void CSteamNetworkingSocketsSTUNRequest::Cancel()
 
 void CSteamNetworkingSocketsSTUNRequest::Think( SteamNetworkingMicroseconds usecNow )
 {        
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "CSteamNetworkingSocketsSTUNRequest::Think" );
+
     if ( m_nRetryCount == m_nMaxRetries )
     {   // Call the callback to notify that we've timed out.
         Cancel();
@@ -1099,6 +1109,8 @@ CSteamNetworkingICESession::CSteamNetworkingICESession( const ICESessionConfig& 
 
 CSteamNetworkingICESession::~CSteamNetworkingICESession()
 {
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
+
     m_sessionState = kICESessionState_Idle;
     for ( int i = m_vecPendingServerReflexiveRequests.Count() - 1; i >= 0; --i )
     {
@@ -1145,6 +1157,8 @@ SteamNetworkingIPAddr CSteamNetworkingICESession::GetSelectedDestination()
 
 bool CSteamNetworkingICESession::GetCandidates( CUtlVector< ICECandidate > *pOutVecCandidates )
 {
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
+
     if ( pOutVecCandidates == nullptr )
         return false;
 
@@ -1171,6 +1185,8 @@ void CSteamNetworkingICESession::SetRemotePassword( const char *pszPassword )
 
 void CSteamNetworkingICESession::AddPeerCandidate( const ICECandidate& candidate, const char* pszFoundation )
 {
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
+
     // Do we already have a candidate for this peer? If so, just update the foundation and move on.
     for ( ICEPeerCandidate& c : m_vecPeerCandidates )
     {
@@ -1214,6 +1230,8 @@ void CSteamNetworkingICESession::StartSession()
 
 void CSteamNetworkingICESession::GatherInterfaces()
 {
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "CSteamNetworkingICESession::GatherInterfaces" );
+
     m_vecInterfaces.RemoveAll();
     CUtlVector< SteamNetworkingIPAddr > vecAddrs;
     if ( !GetLocalAddresses( &vecAddrs ) )
@@ -1243,6 +1261,8 @@ CSharedSocket* CSteamNetworkingICESession::FindSharedSocketForCandidate( const S
 
 void CSteamNetworkingICESession::OnPacketReceived( const RecvPktInfo_t &info )
 {   
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "CSteamNetworkingICESession::OnPacketReceived" );
+
     STUNHeader header;
     CUtlVector< STUNAttribute > vecAttrs;
     if ( !DecodeSTUNPacket( info.m_pPkt, info.m_cbPkt, nullptr, (const uint8*)m_strLocalPassword.c_str(), (uint32)m_strLocalPassword.size(), &header, &vecAttrs ) )
@@ -1413,8 +1433,7 @@ void CSteamNetworkingICESession::StaticPacketReceived( const RecvPktInfo_t &info
 
 void CSteamNetworkingICESession::Think( SteamNetworkingMicroseconds usecNow )
 {
-	// FIXME Need to sort out locks
-	//AssertLocksHeldByCurrentThread( "CSteamNetworkingICESession::Think" );
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "CSteamNetworkingICESession::Think" );
 
     SetNextThinkTime( usecNow + SteamNetworkingMicroseconds( 50000 ) ); // 50ms think rate
 
@@ -1510,8 +1529,7 @@ void CSteamNetworkingICESession::Think_DiscoverServerReflexiveCandidates()
 
 void CSteamNetworkingICESession::UpdateHostCandidates()
 {
-	// FIXME Need to sort out locks
-	//AssertLocksHeldByCurrentThread( "CSteamNetworkingICESession::UpdateHostCandidates" );
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "CSteamNetworkingICESession::UpdateHostCandidates" );
 
     CUtlVector< ICECandidate > vecPreviousCandidates;
     vecPreviousCandidates.Swap( m_vecCandidates );
@@ -1779,6 +1797,8 @@ void CSteamNetworkingICESession::Think_KeepAliveOnCandidates( SteamNetworkingMic
 
 void CSteamNetworkingICESession::Think_TestPeerConnectivity()
 {
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "CSteamNetworkingICESession::Think_TestPeerConnectivity" );
+
     if ( m_bCandidatePairsNeedUpdate )
     {
         m_bCandidatePairsNeedUpdate = false;
@@ -2180,21 +2200,17 @@ CConnectionTransportP2PICE_Valve::CConnectionTransportP2PICE_Valve( CSteamNetwor
 
 void CConnectionTransportP2PICE_Valve::Init( const ICESessionConfig& cfg )
 {
-    if ( m_pICESession == nullptr )
-    {
-        m_pICESession = new CSteamNetworkingICESession( cfg, this );
-    }
-    m_pICESession->StartSession();
+	AssertLocksHeldByCurrentThread( "CConnectionTransportP2PICE_Valve::Init" );
 
-    {
-        CMsgSteamNetworkingP2PRendezvous_ReliableMessage msg;
-        msg.mutable_ice()->mutable_auth()->set_pwd_frag( m_pICESession->GetLocalPassword() );
-		Connection().QueueSignalReliableMessage( std::move(msg), "TransmitCredentials" );		
-    }
+    Assert( m_pICESession == nullptr );
+	m_pICESession = new CSteamNetworkingICESession( cfg, this );
+    m_pICESession->StartSession();
 }
 
 void CConnectionTransportP2PICE_Valve::TransportFreeResources()
 {
+	CConnectionTransport::TransportFreeResources();
+
     if ( m_pICESession != nullptr )
     {
         delete m_pICESession;
@@ -2204,13 +2220,12 @@ void CConnectionTransportP2PICE_Valve::TransportFreeResources()
 
 bool CConnectionTransportP2PICE_Valve::BCanSendEndToEndData() const
 {
-    return ( m_pICESession != nullptr ) && ( m_pICESession->GetSelectedSocket() != nullptr );
+    return ( m_pICESession->GetSelectedSocket() != nullptr );
 }
 
 void CConnectionTransportP2PICE_Valve::RecvRendezvous( const CMsgICERendezvous &msg, SteamNetworkingMicroseconds usecNow )
 {
-    if ( m_pICESession == nullptr )
-        return;
+	AssertLocksHeldByCurrentThread( "CConnectionTransportP2PICE_Valve::RecvRendezvous" );
 
     if ( msg.has_auth() && msg.auth().has_pwd_frag() )
     {
@@ -2244,8 +2259,6 @@ void CConnectionTransportP2PICE_Valve::RecvRendezvous( const CMsgICERendezvous &
 
 bool CConnectionTransportP2PICE_Valve::SendPacket( const void *pkt, int cbPkt )
 {
-    if ( m_pICESession == nullptr )
-        return false;
     CSharedSocket *pSock = m_pICESession->GetSelectedSocket();
     if ( pSock == nullptr )
         return false;
@@ -2256,8 +2269,6 @@ bool CConnectionTransportP2PICE_Valve::SendPacket( const void *pkt, int cbPkt )
  
 bool CConnectionTransportP2PICE_Valve::SendPacketGather( int nChunks, const iovec *pChunks, int cbSendTotal )
 {
-    if ( m_pICESession == nullptr )
-        return false;
     CSharedSocket *pSock = m_pICESession->GetSelectedSocket();
     if ( pSock == nullptr )
         return false;
@@ -2270,7 +2281,7 @@ void CConnectionTransportP2PICE_Valve::OnLocalCandidateDiscovered( const CSteamN
     char chBuffer[512];
     candidate.CalcCandidateAttribute( chBuffer, V_ARRAYSIZE( chBuffer ) - 1 );
 
-    ConnectionScopeLock lock( Connection(), "Queuing send of local candidate.");
+    ConnectionScopeLock lock( Connection(), "OnLocalCandidateDiscovered");
 
     CMsgICECandidate c;
     c.set_candidate( chBuffer );
@@ -2279,7 +2290,7 @@ void CConnectionTransportP2PICE_Valve::OnLocalCandidateDiscovered( const CSteamN
 
 void CConnectionTransportP2PICE_Valve::OnConnectionSelected( const CSteamNetworkingICESession::ICECandidate& localCandidate, const CSteamNetworkingICESession::ICECandidate& remoteCandidate )
 {
-    AssertLocksHeldByCurrentThread( "CConnectionTransportP2PICE_Valve::OnConnectionSelected");
+    ConnectionScopeLock lock( Connection(), "OnConnectionSelected");
 
     m_currentRouteRemoteAddress = remoteCandidate.m_addr;
     if ( localCandidate.m_type == CSteamNetworkingICESession::kICECandidateType_Host && remoteCandidate.m_type == CSteamNetworkingICESession::kICECandidateType_Host ) 																						

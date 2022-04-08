@@ -91,6 +91,10 @@ namespace SteamNetworkingSocketsLib {
         kSTUNPacketEncodingFlags_MessageIntegrity = 8, // Use MessageIntegrity, not MessageIntegrity_SHA256
     };
 
+	/// Track an in-flight STUN request.  The thinker interface is used to handle
+	/// retry and timeout.  Note, that there is no list of in-flight requests,
+	/// we use the thinker system to extant requests.  All read and write access
+	/// to these objects require holding the global lock
     class CSteamNetworkingSocketsSTUNRequest : private IThinker
     {
     public:
@@ -132,6 +136,11 @@ namespace SteamNetworkingSocketsLib {
     
     class CSteamNetworkingICESessionCallbacks;
 
+	/// Main logic of establishing an ICE session with a peer.  In real-world
+	/// uses cases this is always associated one-to-one with a CConnectionTransportP2PICE_Valve.
+	/// But breaking it out into a separate object helps with testing.
+	/// Also, this object is only protected by the global lock, and accessing
+	/// the transport also requires the connection lock.
     class CSteamNetworkingICESession : private IThinker
     {
     public:       
@@ -281,6 +290,8 @@ namespace SteamNetworkingSocketsLib {
     };
 
 
+	/// Connection transport that sends datagrams using the route discovered
+	/// by our ICE client, CSteamNetworkingICESession
     class CConnectionTransportP2PICE_Valve final
         : public CConnectionTransportP2PICE, public CSteamNetworkingICESessionCallbacks
     {
