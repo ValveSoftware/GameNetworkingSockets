@@ -1103,8 +1103,7 @@ void CSteamNetworkingSocketsSTUNRequest::Test()
 // CSteamNetworkingICESession
 //
 /////////////////////////////////////////////////////////////////////////////
-CSteamNetworkingICESession::CSteamNetworkingICESession( uint16 nPort, ICERole role, CSteamNetworkingICESessionCallbacks *pCallbacks, int nEncoding )
-    : m_nPort( nPort )
+CSteamNetworkingICESession::CSteamNetworkingICESession( ICERole role, CSteamNetworkingICESessionCallbacks *pCallbacks, int nEncoding )
 {
     m_nEncoding = nEncoding;
     m_pCallbacks = pCallbacks;
@@ -1544,12 +1543,12 @@ void CSteamNetworkingICESession::UpdateHostCandidates()
 {
     CUtlVector< ICECandidate > vecPreviousCandidates;
     vecPreviousCandidates.Swap( m_vecCandidates );
-    
+
     for ( int i = 0; i < m_vecInterfaces.Count(); ++i )
     {
         SteamNetworkingIPAddr hostCandidateAddr = m_vecInterfaces[i].m_localaddr;
-		hostCandidateAddr.m_port = m_nPort;
-		
+		hostCandidateAddr.m_port = 0;
+
         const uint32 nLocalPriority = m_vecInterfaces[i].m_nPriority;
         bool bSawPrevCandidate = false;
         for( const ICECandidate& prevCandidate : vecPreviousCandidates )
@@ -2138,7 +2137,7 @@ CSteamNetworkingICESession::ICECandidatePair::ICECandidatePair( const ICECandida
 
 void CSteamNetworkingICESession::Test()
 {
-    CSteamNetworkingICESession *pSession = new CSteamNetworkingICESession( 18000, kICERole_Controlling, nullptr, kSTUNPacketEncodingFlags_None );
+    CSteamNetworkingICESession *pSession = new CSteamNetworkingICESession( kICERole_Controlling, nullptr, kSTUNPacketEncodingFlags_None );
 
     CUtlVector< SteamNetworkingIPAddr > stunAddrs;
     ResolveHostname( "stun1.l.google.com:3478", &stunAddrs );
@@ -2148,55 +2147,6 @@ void CSteamNetworkingICESession::Test()
     pSession->SetSTUNServers( stunAddrs );
     pSession->StartSession( "tEsTNM");
 }
-
-
-/// A glue object used to take a callback from ICE, which might happen in
-/// any thread, and execute it with the proper locks.
-class IConnectionTransportP2PICERunWithLock : private CQueuedTaskOnTarget<CConnectionTransportP2PICE_Valve>
-{
-public:
-
-	/// Execute the callback.  The global lock and connection locks will be held.
-	virtual void RunTransportP2PICE( CConnectionTransportP2PICE_Valve *pTransport ) = 0;
-
-	inline void Queue( CConnectionTransportP2PICE_Valve *pTransport, const char *pszTag )
-	{
-		DbgVerify( Setup( pTransport ) ); // Caller should have already checked
-		QueueToRunWithGlobalLock( pszTag );
-	}
-
-	inline void RunOrQueue( CConnectionTransportP2PICE_Valve *pTransport, const char *pszTag )
-	{
-		if ( Setup( pTransport ) )
-			RunWithGlobalLockOrQueue( pszTag );
-	}
-
-private:
-	inline bool Setup( CConnectionTransportP2PICE_Valve *pTransport )
-	{
-		CSteamNetworkConnectionP2P &conn = pTransport->Connection();
-		if ( conn.m_pTransportICE != pTransport )
-		{
-			delete this;
-			return false;
-		}
-
-		SetTarget( pTransport );
-		return true;
-	}
-
-	virtual void Run()
-	{
-		CConnectionTransportP2PICE_Valve *pTransport = Target();
-		CSteamNetworkConnectionP2P &conn = pTransport->Connection();
-
-		ConnectionScopeLock connectionLock( conn );
-		if ( conn.m_pTransportICE != pTransport )
-			return;
-
-		RunTransportP2PICE( pTransport );
-	}
-};
 
 
 /////////////////////////////////////////////////////////////////////////////
@@ -2215,7 +2165,7 @@ void CConnectionTransportP2PICE_Valve::Init()
     if ( m_pICESession == nullptr )
     {
         const CSteamNetworkingICESession::ICERole role = ( Connection().IsControllingAgent() ? CSteamNetworkingICESession::kICERole_Controlling : CSteamNetworkingICESession::kICERole_Controlled );
-        m_pICESession = new CSteamNetworkingICESession( 0, role, this, kSTUNPacketEncodingFlags_MessageIntegrity );
+        m_pICESession = new CSteamNetworkingICESession( role, this, kSTUNPacketEncodingFlags_MessageIntegrity );
 
         CUtlVector< SteamNetworkingIPAddr > stunServers;
         CUtlVectorAutoPurge<char *> tempStunServers;

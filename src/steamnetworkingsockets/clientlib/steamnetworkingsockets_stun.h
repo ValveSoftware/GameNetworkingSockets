@@ -145,7 +145,7 @@ namespace SteamNetworkingSocketsLib {
             kICERole_Controlled,
             kICERole_None
         };
-        CSteamNetworkingICESession( uint16 nPort, ICERole role, CSteamNetworkingICESessionCallbacks *pCallbacks, int nEncoding );
+        CSteamNetworkingICESession( ICERole role, CSteamNetworkingICESessionCallbacks *pCallbacks, int nEncoding );
         ~CSteamNetworkingICESession();
 
         ICERole GetRole() { return m_role; }
@@ -235,7 +235,6 @@ namespace SteamNetworkingSocketsLib {
         uint64 m_nRoleTiebreaker;
         ICESessionState m_sessionState;
         bool m_bInterfaceListStale;
-        const uint16 m_nPort;
         int m_nEncoding;
         std::string m_strLocalUsernameFragment;
         std::string m_strLocalPassword;
