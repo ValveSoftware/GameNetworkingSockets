@@ -13,7 +13,9 @@
 	//#include <windows.h>
 	#include <winsock2.h>
 	#include <ws2tcpip.h>
-	#include <iphlpapi.h>
+	#ifndef _XBOX_ONE
+		#include <iphlpapi.h>
+	#endif
 	#define MSG_NOSIGNAL 0
 	#undef SetPort
 #elif defined( NN_NINTENDO_SDK )

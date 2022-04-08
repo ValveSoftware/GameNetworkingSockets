@@ -973,23 +973,25 @@ public:
 				nullptr // lpCompletionRoutine
 			);
 			bool bResult = ( r == 0 );
-			if ( !bResult )
-			{
-		        const char *lpMsgBuf = nullptr;
-				FormatMessage(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, 
-							NULL, GetLastSocketError(), MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), 
-							// Default language
-							(LPTSTR) & lpMsgBuf, 0, NULL);
-				if ( lpMsgBuf == nullptr )
+			#ifndef _XBOX_ONE
+				if ( !bResult )
 				{
-					SpewWarning( "WSASendTo %s failed, returned %d, last error=0x%x\n", CUtlNetAdrRender( adrTo ).String(), r, GetLastSocketError() );
+					const char *lpMsgBuf = nullptr;
+					FormatMessage(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, 
+								NULL, GetLastSocketError(), MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), 
+								// Default language
+								(LPTSTR) & lpMsgBuf, 0, NULL);
+					if ( lpMsgBuf == nullptr )
+					{
+						SpewWarning( "WSASendTo %s failed, returned %d, last error=0x%x\n", CUtlNetAdrRender( adrTo ).String(), r, GetLastSocketError() );
+					}
+					else
+					{
+						SpewWarning( "WSASendTo %s failed, returned %d, last error=0x%x %s", CUtlNetAdrRender( adrTo ).String(), r, GetLastSocketError(), lpMsgBuf );
+						LocalFree( (LPVOID)lpMsgBuf );
+					}
 				}
-				else
-				{
-					SpewWarning( "WSASendTo %s failed, returned %d, last error=0x%x %s", CUtlNetAdrRender( adrTo ).String(), r, GetLastSocketError(), lpMsgBuf );
-					LocalFree( (LPVOID)lpMsgBuf );
-				}
-			}
+			#endif
 		#else
 			msghdr msg;
 			msg.msg_name = (sockaddr *)&destAddress;
@@ -2903,16 +2905,21 @@ void CSharedSocket::RemoteHost::Close()
 static ShortDurationLock s_systemSpewLock( "SystemSpew" );
 SteamNetworkingMicroseconds g_usecLastRateLimitSpew;
 int g_nRateLimitSpewCount;
-ESteamNetworkingSocketsDebugOutputType g_eSystemSpewLevel = k_ESteamNetworkingSocketsDebugOutputType_None; // Option selected by the "system" (environment variable, etc)
 ESteamNetworkingSocketsDebugOutputType g_eAppSpewLevel = k_ESteamNetworkingSocketsDebugOutputType_Msg; // Option selected by app
 ESteamNetworkingSocketsDebugOutputType g_eDefaultGroupSpewLevel = k_ESteamNetworkingSocketsDebugOutputType_Msg; // Effective value
 FSteamNetworkingSocketsDebugOutput g_pfnDebugOutput = nullptr;
 void (*g_pfnPreFormatSpewHandler)( ESteamNetworkingSocketsDebugOutputType eType, bool bFmt, const char* pstrFile, int nLine, const char *pMsg, va_list ap ) = SteamNetworkingSockets_DefaultPreFormatDebugOutputHandler;
 static bool s_bSpewInitted = false;
 
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SYSTEMSPEW
 static FILE *g_pFileSystemSpew;
 static SteamNetworkingMicroseconds g_usecSystemLogFileOpened;
-static bool s_bNeedToFlushSystemSpew = false;;
+static bool s_bNeedToFlushSystemSpew = false;
+static ESteamNetworkingSocketsDebugOutputType g_eSystemSpewLevel = k_ESteamNetworkingSocketsDebugOutputType_None; // Option selected by the "system" (environment variable, etc)
+#else
+constexpr ESteamNetworkingSocketsDebugOutputType g_eSystemSpewLevel = k_ESteamNetworkingSocketsDebugOutputType_None; // Option selected by the "system" (environment variable, etc)
+constexpr bool s_bNeedToFlushSystemSpew = false;
+#endif
 
 static void InitSpew()
 {
@@ -2923,53 +2930,55 @@ static void InitSpew()
 	{
 		s_bSpewInitted = true;
 
-		const char *STEAMNETWORKINGSOCKETS_LOG_LEVEL = getenv( "STEAMNETWORKINGSOCKETS_LOG_LEVEL" );
-		if ( !V_isempty( STEAMNETWORKINGSOCKETS_LOG_LEVEL ) )
-		{
-			switch ( atoi( STEAMNETWORKINGSOCKETS_LOG_LEVEL ) )
+		#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SYSTEMSPEW
+			const char *STEAMNETWORKINGSOCKETS_LOG_LEVEL = getenv( "STEAMNETWORKINGSOCKETS_LOG_LEVEL" );
+			if ( !V_isempty( STEAMNETWORKINGSOCKETS_LOG_LEVEL ) )
 			{
-				case 0: g_eSystemSpewLevel = k_ESteamNetworkingSocketsDebugOutputType_None; break;
-				case 1: g_eSystemSpewLevel = k_ESteamNetworkingSocketsDebugOutputType_Warning; break;
-				case 2: g_eSystemSpewLevel = k_ESteamNetworkingSocketsDebugOutputType_Msg; break;
-				case 3: g_eSystemSpewLevel = k_ESteamNetworkingSocketsDebugOutputType_Verbose; break;
-				case 4: g_eSystemSpewLevel = k_ESteamNetworkingSocketsDebugOutputType_Debug; break;
-				case 5: g_eSystemSpewLevel = k_ESteamNetworkingSocketsDebugOutputType_Everything; break;
-			}
-
-			if ( g_eSystemSpewLevel > k_ESteamNetworkingSocketsDebugOutputType_None )
-			{
-
-				// What log file to use?
-				const char *pszLogFile = getenv( "STEAMNETWORKINGSOCKETS_LOG_FILE" );
-				if ( !pszLogFile )
-					pszLogFile = "steamnetworkingsockets.log" ;
-
-				// Try to open file.  Use binary mode, since we want to make sure we control
-				// when it is flushed to disk
-				g_pFileSystemSpew = fopen( pszLogFile, "wb" );
-				if ( g_pFileSystemSpew )
+				switch ( atoi( STEAMNETWORKINGSOCKETS_LOG_LEVEL ) )
 				{
-					g_usecSystemLogFileOpened = SteamNetworkingSockets_GetLocalTimestamp();
-					time_t now = time(nullptr);
-					fprintf( g_pFileSystemSpew, "Log opened, time %lld %s", (long long)now, ctime( &now ) );
+					case 0: g_eSystemSpewLevel = k_ESteamNetworkingSocketsDebugOutputType_None; break;
+					case 1: g_eSystemSpewLevel = k_ESteamNetworkingSocketsDebugOutputType_Warning; break;
+					case 2: g_eSystemSpewLevel = k_ESteamNetworkingSocketsDebugOutputType_Msg; break;
+					case 3: g_eSystemSpewLevel = k_ESteamNetworkingSocketsDebugOutputType_Verbose; break;
+					case 4: g_eSystemSpewLevel = k_ESteamNetworkingSocketsDebugOutputType_Debug; break;
+					case 5: g_eSystemSpewLevel = k_ESteamNetworkingSocketsDebugOutputType_Everything; break;
+				}
 
-					// if they ask for verbose, turn on some other groups, by default
-					if ( g_eSystemSpewLevel >= k_ESteamNetworkingSocketsDebugOutputType_Verbose )
+				if ( g_eSystemSpewLevel > k_ESteamNetworkingSocketsDebugOutputType_None )
+				{
+
+					// What log file to use?
+					const char *pszLogFile = getenv( "STEAMNETWORKINGSOCKETS_LOG_FILE" );
+					if ( !pszLogFile )
+						pszLogFile = "steamnetworkingsockets.log" ;
+
+					// Try to open file.  Use binary mode, since we want to make sure we control
+					// when it is flushed to disk
+					g_pFileSystemSpew = fopen( pszLogFile, "wb" );
+					if ( g_pFileSystemSpew )
 					{
-						g_ConfigDefault_LogLevel_P2PRendezvous.m_value.m_defaultValue = g_eSystemSpewLevel;
-						g_ConfigDefault_LogLevel_P2PRendezvous.m_value.Set( g_eSystemSpewLevel );
+						g_usecSystemLogFileOpened = SteamNetworkingSockets_GetLocalTimestamp();
+						time_t now = time(nullptr);
+						fprintf( g_pFileSystemSpew, "Log opened, time %lld %s", (long long)now, ctime( &now ) );
 
-						g_ConfigDefault_LogLevel_PacketGaps.m_value.m_defaultValue = g_eSystemSpewLevel-1;
-						g_ConfigDefault_LogLevel_PacketGaps.m_value.Set( g_eSystemSpewLevel-1 );
+						// if they ask for verbose, turn on some other groups, by default
+						if ( g_eSystemSpewLevel >= k_ESteamNetworkingSocketsDebugOutputType_Verbose )
+						{
+							g_ConfigDefault_LogLevel_P2PRendezvous.m_value.m_defaultValue = g_eSystemSpewLevel;
+							g_ConfigDefault_LogLevel_P2PRendezvous.m_value.Set( g_eSystemSpewLevel );
+
+							g_ConfigDefault_LogLevel_PacketGaps.m_value.m_defaultValue = g_eSystemSpewLevel-1;
+							g_ConfigDefault_LogLevel_PacketGaps.m_value.Set( g_eSystemSpewLevel-1 );
+						}
+					}
+					else
+					{
+						// Failed
+						g_eSystemSpewLevel = k_ESteamNetworkingSocketsDebugOutputType_None;
 					}
 				}
-				else
-				{
-					// Failed
-					g_eSystemSpewLevel = k_ESteamNetworkingSocketsDebugOutputType_None;
-				}
 			}
-		}
+		#endif // #ifdef STEAMNETWORKINGSOCKETS_ENABLE_SYSTEMSPEW
 	}
 
 	g_eDefaultGroupSpewLevel = std::max( g_eSystemSpewLevel, g_eAppSpewLevel );
@@ -2979,17 +2988,22 @@ static void InitSpew()
 static void KillSpew()
 {
 	ShortDurationScopeLock scopeLock( s_systemSpewLock );
-	g_eDefaultGroupSpewLevel = g_eSystemSpewLevel = g_eAppSpewLevel = k_ESteamNetworkingSocketsDebugOutputType_None;
+	g_eDefaultGroupSpewLevel = g_eAppSpewLevel = k_ESteamNetworkingSocketsDebugOutputType_None;
 	g_pfnDebugOutput = nullptr;
 	s_bSpewInitted = false;
-	s_bNeedToFlushSystemSpew = false;
-	if ( g_pFileSystemSpew )
-	{
-		fclose( g_pFileSystemSpew );
-		g_pFileSystemSpew = nullptr;
-	}
+
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SYSTEMSPEW
+		g_eSystemSpewLevel = k_ESteamNetworkingSocketsDebugOutputType_None;
+		s_bNeedToFlushSystemSpew = false;
+		if ( g_pFileSystemSpew )
+		{
+			fclose( g_pFileSystemSpew );
+			g_pFileSystemSpew = nullptr;
+		}
+	#endif
 }
 
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SYSTEMSPEW
 static void FlushSystemSpewLocked()
 {
 	s_systemSpewLock.AssertHeldByCurrentThread();
@@ -3000,14 +3014,17 @@ static void FlushSystemSpewLocked()
 		s_bNeedToFlushSystemSpew = false;
 	}
 }
+#endif
 
 static void FlushSystemSpew()
 {
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SYSTEMSPEW
 	if ( s_bNeedToFlushSystemSpew ) // Read the flag without taking the lock first as an optimization, as most of the time it will not be set
 	{
 		ShortDurationScopeLock scopeLock( s_systemSpewLock );
 		FlushSystemSpewLocked();
 	}
+#endif
 }
 
 
@@ -3069,16 +3086,18 @@ bool BSteamNetworkingSocketsLowLevelAddRef( SteamDatagramErrMsg &errMsg )
 				return false;
 			}
 
-			#pragma comment( lib, "winmm.lib" )
-			if ( ::timeBeginPeriod( 1 ) != 0 )
-			{
-				::WSACleanup();
-				#ifdef _XBOX_ONE
-					::CoUninitialize();
-				#endif
-				V_strcpy_safe( errMsg, "timeBeginPeriod failed" );
-				return false;
-			}
+			#ifndef _XBOX_ONE
+				#pragma comment( lib, "winmm.lib" )
+				if ( ::timeBeginPeriod( 1 ) != 0 )
+				{
+					::WSACleanup();
+					#ifdef _XBOX_ONE
+						::CoUninitialize();
+					#endif
+					V_strcpy_safe( errMsg, "timeBeginPeriod failed" );
+					return false;
+				}
+			#endif
 		}
 		#endif
 
@@ -3236,7 +3255,9 @@ void SteamNetworkingSocketsLowLevelDecRef()
 
 	// Nuke sockets and COM
 	#ifdef _WIN32
-		::timeEndPeriod( 1 );
+		#ifndef _XBOX_ONE
+			::timeEndPeriod( 1 );
+		#endif
 		::WSACleanup();
 	#endif
 	#ifdef _XBOX_ONE
@@ -3325,6 +3346,7 @@ SteamNetworkingMicroseconds SteamNetworkingSockets_GetLocalTimestamp()
 
 bool ResolveHostname( const char* pszHostname, CUtlVector< SteamNetworkingIPAddr > *pAddrs )
 {
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_RESOLVEHOSTNAME
 	char pszHostnameBuffer[256];
 	const char* pszPortStr = V_strchr( (char*)pszHostname, ':' );
 	if ( pszPortStr != nullptr )
@@ -3375,10 +3397,17 @@ bool ResolveHostname( const char* pszHostname, CUtlVector< SteamNetworkingIPAddr
 	}
 
 	freeaddrinfo( result );
-	return true;	
+	return true;
+#else
+	SteamNetworkingIPAddr addr;
+	if ( !addr.ParseString( pszHostname ) )
+		return false;
+	pAddrs->AddToTail( addr );
+	return true;
+#endif
 }
 
-#ifdef WIN32
+#if defined( _WIN32 ) && !defined( _XBOX_ONE )
 bool GetLocalAddresses( CUtlVector< SteamNetworkingIPAddr >* pAddrs )
 {
 	if ( pAddrs == nullptr )
@@ -3588,24 +3617,26 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_DefaultPreFormatDeb
 	V_StripTrailingWhitespaceASCII( buf );
 
 	// Spew to log file?
-	if ( eType <= g_eSystemSpewLevel && g_pFileSystemSpew )
-	{
-		ShortDurationScopeLock scopeLock( s_systemSpewLock ); // WARNING - these locks are not re-entrant, so if we assert while holding it, we could deadlock!
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SYSTEMSPEW
 		if ( eType <= g_eSystemSpewLevel && g_pFileSystemSpew )
 		{
+			ShortDurationScopeLock scopeLock( s_systemSpewLock ); // WARNING - these locks are not re-entrant, so if we assert while holding it, we could deadlock!
+			if ( eType <= g_eSystemSpewLevel && g_pFileSystemSpew )
+			{
 
-			// Write
-			SteamNetworkingMicroseconds usecLogTime = SteamNetworkingSockets_GetLocalTimestamp() - g_usecSystemLogFileOpened;
-			fprintf( g_pFileSystemSpew, "%8.3f %s\n", usecLogTime*1e-6, buf );
+				// Write
+				SteamNetworkingMicroseconds usecLogTime = SteamNetworkingSockets_GetLocalTimestamp() - g_usecSystemLogFileOpened;
+				fprintf( g_pFileSystemSpew, "%8.3f %s\n", usecLogTime*1e-6, buf );
 
-			// Queue to flush when we we think we can afford to hit the disk synchronously
-			s_bNeedToFlushSystemSpew = true;
+				// Queue to flush when we we think we can afford to hit the disk synchronously
+				s_bNeedToFlushSystemSpew = true;
 
-			// Flush certain critical messages things immediately
-			if ( eType <= k_ESteamNetworkingSocketsDebugOutputType_Error )
-				FlushSystemSpewLocked();
+				// Flush certain critical messages things immediately
+				if ( eType <= k_ESteamNetworkingSocketsDebugOutputType_Error )
+					FlushSystemSpewLocked();
+			}
 		}
-	}
+	#endif
 
 	// Invoke callback
 	FSteamNetworkingSocketsDebugOutput pfnDebugOutput = g_pfnDebugOutput;

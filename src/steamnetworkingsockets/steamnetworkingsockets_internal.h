@@ -50,10 +50,17 @@
 	#define STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
 #endif
 
-// Auto-detect if we are compiling with or without support for talking to the
+// GAME_CONSOLE: Are we targeting a game console?
+#ifndef GAME_CONSOLE
+	#if defined( _XBOX_ONE )
+		#define GAME_CONSOLE
+	#endif
+#endif
+
+// STEAMNETWORKINGSOCKETS_STEAM: we have some capability of talking to the
 // running steam client.
 #if !defined( STEAMNETWORKINGSOCKETS_STEAM ) && !defined( STEAMNETWORKINGSOCKETS_NOSTEAM )
-	#if defined( STEAMNETWORKINGSOCKETS_OPENSOURCE ) || defined( STEAMNETWORKINGSOCKETS_STREAMINGCLIENT )
+	#if defined( STEAMNETWORKINGSOCKETS_OPENSOURCE ) || defined( STEAMNETWORKINGSOCKETS_STREAMINGCLIENT ) || defined( GAME_CONSOLE )
 		#define STEAMNETWORKINGSOCKETS_NOSTEAM
 	#else
 		#define STEAMNETWORKINGSOCKETS_STEAM
@@ -63,8 +70,10 @@
 	#error "Can't define both STEAMNETWORKINGSOCKETS_STEAM and STEAMNETWORKINGSOCKETS_NOSTEAM"
 #endif
 
-// FakeIP system can only be used on Steam
+// STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP: can we allocate or talk to FakeIP addresses?
 #ifndef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
+
+	// FakeIP system can only be used on Steam
 	#ifdef STEAMNETWORKINGSOCKETS_STEAM
 		#define STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
 	#endif
@@ -73,21 +82,43 @@
 	#include "steamdatagram_fakeip.h"
 #endif
 
+// STEAMNETWORKINGSOCKETS_CAN_REQUEST_CERT: We have some ability to request a cert
 #ifdef STEAMNETWORKINGSOCKETS_STEAM
 	// STEAMNETWORKINGSOCKETS_CAN_REQUEST_CERT means we know how to make a cert request from some sort of certificate authority
 	#define STEAMNETWORKINGSOCKETS_CAN_REQUEST_CERT
 #endif
 
-// Always #define STEAMNETWORKINGSOCKETS_ENABLE_ICE in a few places.
-// You can also define it on the command line
+// STEAMNETWORKINGSOCKETS_ENABLE_ICE: Enable NAT-punch for P2P connections
 #ifndef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+
+	// Always #define STEAMNETWORKINGSOCKETS_ENABLE_ICE in a few places.
+	// You can also define it on the command line
 	#if defined( STEAMNETWORKINGSOCKETS_STEAMCLIENT ) || defined( STEAMNETWORKINGSOCKETS_STREAMINGCLIENT )
 		#define STEAMNETWORKINGSOCKETS_ENABLE_ICE
 	#endif
 #endif
 
-// Enable diagnostics UI if there is a Steam client to display them
+// STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC: Enable WebRTC as the ICE client
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+	#if defined( STEAMNETWORKINGSOCKETS_STEAMCLIENT ) || defined( STEAMNETWORKINGSOCKETS_STREAMINGCLIENT )
+		#define STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
+	#endif
+#endif
+
+// STEAMNETWORKINGSOCKETS_ENABLE_RESOLVEHOSTNAME: Do we need to be able to
+// resolve hostnames using DNS?  Note that this is done synchronously, so
+// it should be avoided when possible, and only used for testing!
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+	#ifndef GAME_CONSOLE
+		#define STEAMNETWORKINGSOCKETS_ENABLE_RESOLVEHOSTNAME
+	#endif
+#endif
+
+// STEAMNETWORKINGSOCKETS_ENABLE_DIAGNOSTICSUI: The environment has some way to
+// display/consume realtime connection diagnostics
 #ifndef STEAMNETWORKINGSOCKETS_ENABLE_DIAGNOSTICSUI
+
+	// Currently only Steam knows what to do with these
 	#ifdef STEAMNETWORKINGSOCKETS_STEAM
 		#define STEAMNETWORKINGSOCKETS_ENABLE_DIAGNOSTICSUI
 	#endif
@@ -105,6 +136,11 @@
 // Enable DualSTA support on Windows
 #if defined(_WINDOWS) && !defined(STEAMNETWORKINGSOCKETS_OPENSOURCE)
 	#define STEAMNETWORKINGSOCKETS_ENABLE_DUALWIFI
+#endif
+
+// STEAMNETWORKINGSOCKETS_ENABLE_SYSTEMSPEW: Enable default logging and spew based on environment variables
+#ifndef GAME_CONSOLE
+	#define STEAMNETWORKINGSOCKETS_ENABLE_SYSTEMSPEW
 #endif
 
 enum EDualWifiEnable {
