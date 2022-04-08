@@ -380,10 +380,24 @@ public:
 		// Detailed failure reason string.
 		ConnectionEndDebugMsg m_szICECloseMsg;
 
+		// Check if user permissions for the remote host are allowed, then
+		// create ICE.  Also, if the connection was initiated remotely,
+		// we will create an offer.
+		void CheckInitICE();
+
+		/// Called when ICE connection fails.  Records the failure and queues
+		/// the transport to be cleaned up at a safe time by CheckCleanupICE
 		void ICEFailed( int nReasonCode, const char *pszReason );
+
+		/// If we don't already have a failure code for ice, set one now.
+		void EnsureICEFailureReasonSet( SteamNetworkingMicroseconds usecNow );
+
+		/// Return nonzero if ICE has already failed
 		inline int GetICEFailureCode() const { return m_msgICESessionSummary.failure_reason_code(); }
-		void GuessICEFailureReason( ESteamNetConnectionEnd &nReasonCode, ConnectionEndDebugMsg &msg, SteamNetworkingMicroseconds usecNow );
 	#else
+		// No ICE support.  Define some stubs
+		inline void CheckInitICE() {}
+		inline void EnsureICEFailureReasonSet( SteamNetworkingMicroseconds usecNow ) {}
 		inline int GetICEFailureCode() const { return k_nICECloseCode_Local_NotCompiled; }
 	#endif
 
@@ -412,16 +426,15 @@ public:
 	/// Initialize SDR transport, as appropriate
 	virtual bool BInitSDRTransport( SteamNetworkingErrMsg &errMsg );
 
-	// Check if user permissions for the remote host are allowed, then
-	// create ICE.  Also, if the connection was initiated remotely,
-	// we will create an offer
-	void CheckInitICE();
-
 	// Check if we pended ICE deletion, then do so now
-	void CheckCleanupICE();
+	void CheckCleanupICE()
+	{
+		#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+			if ( m_pTransportICEPendingDelete )
+				DestroyICENow();
+		#endif
+	}
 
-	// If we don't already have a failure code for ice, set one now.
-	void EnsureICEFailureReasonSet( SteamNetworkingMicroseconds usecNow );
 
 	//
 	// Transport evaluation and selection
@@ -484,15 +497,21 @@ private:
 	uint32 m_nLastSendRendesvousMessageID;
 	uint32 m_nLastRecvRendesvousMessageID;
 
-	// Really destroy ICE now
-	void DestroyICENow();
-
 	void PeerSelectedTransportChanged();
 
 	// Check if we should wait a bit for routing info to be
 	// ready, before sending the first signal to a peer.  This
 	// allows us to send fewer signals and speeds up negotiation.
 	SteamNetworkingMicroseconds CheckWaitForInitialRoutingReady( SteamNetworkingMicroseconds usecNow );
+
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+
+		/// If we don't already have a reason for failure, try to guess it
+		void GuessICEFailureReason( ESteamNetConnectionEnd &nReasonCode, ConnectionEndDebugMsg &msg, SteamNetworkingMicroseconds usecNow );
+
+		/// Really destroy ICE now
+		void DestroyICENow();
+	#endif
 };
 
 inline CSteamNetworkConnectionP2P &CConnectionTransportP2PBase::Connection() const
