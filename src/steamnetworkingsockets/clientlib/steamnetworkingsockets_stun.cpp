@@ -1,7 +1,12 @@
 //====== Copyright Valve Corporation, All rights reserved. ====================
+//
+// Implementaiton of (the most important subset of) the ICE protocol
+//
 // https://datatracker.ietf.org/doc/html/rfc8489
 
 #include "steamnetworkingsockets_stun.h"
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+
 #include "csteamnetworkingsockets.h"
 #include "../steamnetworkingsockets_platform.h"
 #include "crypto.h"
@@ -2331,3 +2336,5 @@ void CConnectionTransportP2PICE_Valve::OnPacketReceived( const RecvPktInfo_t &in
 }
 
 } // namespace SteamNetworkingSocketsLib
+
+#endif // #ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE

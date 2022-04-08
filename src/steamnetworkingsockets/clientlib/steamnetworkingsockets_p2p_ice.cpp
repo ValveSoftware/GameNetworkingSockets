@@ -1,5 +1,8 @@
 //====== Copyright Valve Corporation, All rights reserved. ====================
 
+#include "../steamnetworkingsockets_internal.h"
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+
 #include "steamnetworkingsockets_p2p_ice.h"
 #include "steamnetworkingsockets_udp.h"
 
@@ -26,7 +29,6 @@
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
 
-#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
 
 // Put everything in a namespace, so we don't violate the one definition rule
 namespace SteamNetworkingSocketsLib {

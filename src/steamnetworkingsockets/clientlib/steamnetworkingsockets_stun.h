@@ -8,6 +8,8 @@
 #include "../steamnetworkingsockets_thinker.h"
 #include "steamnetworkingsockets_p2p_ice.h"
 
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+
 namespace SteamNetworkingSocketsLib {
     class CSharedSocket;
     class CSteamNetworkingSocketsSTUNRequest;
@@ -322,4 +324,6 @@ namespace SteamNetworkingSocketsLib {
 
 } // namespace SteamNetworkingSocketsLib
 
-#endif // STEAMNETWORKINGSOCKETS_STUN_H
+#endif // #ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+
+#endif // _H
