@@ -155,7 +155,7 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 	std_vector<ICESessionConfig::TurnServer> vecTurnServers;
 	if ( P2P_Transport_ICE_Enable & k_nSteamNetworkingConfig_P2P_Transport_ICE_Enable_Relay )
 	{
-		cfg.m_nCandidateTypes |= k_EICECandidate_Any_HostPublic | k_EICECandidate_Any_Reflexive;
+		cfg.m_nCandidateTypes |= k_EICECandidate_Any_Relay;
 
 		{
 			CUtlVectorAutoPurge<char*> tempTurnServers;
@@ -175,7 +175,7 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 
 		if (vecTurnServerAddrs.empty())
 		{
-			SpewWarningGroup(LogLevel_P2PRendezvous(), "[%s] Reflexive candidates enabled by P2P_Transport_ICE_Enable, but P2P_STUN_ServerList is empty\n", GetDescription());
+			SpewWarningGroup(LogLevel_P2PRendezvous(), "[%s] Relay candidates enabled by P2P_Transport_ICE_Enable, but P2P_TURN_ServerList is empty\n", GetDescription());
 		}
 		else
 		{
@@ -221,7 +221,7 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 	}
 	else
 	{
-		SpewVerboseGroup(LogLevel_P2PRendezvous(), "[%s] Not using STUN servers as per P2P_Transport_ICE_Enable\n", GetDescription());
+		SpewVerboseGroup(LogLevel_P2PRendezvous(), "[%s] Not using TURN servers as per P2P_Transport_ICE_Enable\n", GetDescription());
 	}
 
 
