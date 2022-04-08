@@ -47,6 +47,7 @@ namespace SteamNetworkingSocketsLib {
     struct RecvSTUNPktInfo_t
     {
         CSteamNetworkingSocketsSTUNRequest *m_pRequest;
+		SteamNetworkingMicroseconds m_usecNow;
         STUNHeader *m_pHeader;
         uint32 m_nAttributes;
         STUNAttribute *m_pAttributes;
@@ -108,6 +109,7 @@ namespace SteamNetworkingSocketsLib {
         int m_nEncoding;
         CUtlVector< STUNAttribute > m_vecExtraAttrs;
         std::string m_strPassword;
+		SteamNetworkingMicroseconds m_usecLastSentTime;
 
         static CSteamNetworkingSocketsSTUNRequest *SendBindRequest( CSharedSocket *pSharedSock, SteamNetworkingIPAddr remoteAddr, CRecvSTUNPktCallback cb, int nEncoding );   
         static CSteamNetworkingSocketsSTUNRequest *SendBindRequest( IBoundUDPSocket *pBoundSock, SteamNetworkingIPAddr remoteAddr, CRecvSTUNPktCallback cb, int nEncoding );   
@@ -189,6 +191,7 @@ namespace SteamNetworkingSocketsLib {
         const char* GetLocalPassword() { return m_strLocalPassword.c_str(); }
         CSharedSocket *GetSelectedSocket() { return m_pSelectedSocket; }
         SteamNetworkingIPAddr GetSelectedDestination();
+		int GetPing() const;
 
     protected:
         void Think( SteamNetworkingMicroseconds usecNow ) override;
@@ -225,6 +228,7 @@ namespace SteamNetworkingSocketsLib {
             ICECandidate m_localCandidate;
             ICEPeerCandidate m_remoteCandidate;
             CSteamNetworkingSocketsSTUNRequest *m_pPeerRequest;
+			int m_nLastRecordedPing;
             ICECandidatePair( const ICECandidate& localCandidate, const ICEPeerCandidate& remoteCandidate, EICERole role );
         };
 
@@ -309,7 +313,6 @@ namespace SteamNetworkingSocketsLib {
         // Implements CConnectionTransportUDPBase
         virtual bool SendPacket( const void *pkt, int cbPkt ) override;
         virtual bool SendPacketGather( int nChunks, const iovec *pChunks, int cbSendTotal ) override;
-		virtual void P2PTransportUpdateRouteMetrics( SteamNetworkingMicroseconds usecNow ) override;
 
     protected:
         virtual void OnLocalCandidateDiscovered( const CSteamNetworkingICESession::ICECandidate& candidate ) override;

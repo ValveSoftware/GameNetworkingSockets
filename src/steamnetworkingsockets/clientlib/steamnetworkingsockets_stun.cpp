@@ -921,6 +921,7 @@ void CSteamNetworkingSocketsSTUNRequest::Send( SteamNetworkingIPAddr remoteAddr,
     m_nRetryCount = 0;
     m_nMaxRetries = 7;
     m_callback = cb;
+	m_usecLastSentTime = 0;
     CCrypto::GenerateRandomBlock( m_nTransactionID, 12 );
     SetNextThinkTimeASAP();
 }
@@ -997,6 +998,7 @@ void CSteamNetworkingSocketsSTUNRequest::Cancel()
     subInfo.m_pHeader = nullptr;
     subInfo.m_nAttributes = 0;
     subInfo.m_pAttributes = nullptr;
+	subInfo.m_usecNow = SteamNetworkingSockets_GetLocalTimestamp();
     m_callback( subInfo );
 
     delete this;
@@ -1023,8 +1025,13 @@ void CSteamNetworkingSocketsSTUNRequest::Think( SteamNetworkingMicroseconds usec
     const int nByteCount = EncodeSTUNPacket( messageBuffer, k_nSTUN_BindingRequest, m_nEncoding, m_nTransactionID, m_pSocket->GetRawSock()->m_boundAddr, (const uint8*)m_strPassword.c_str(), (uint32)m_strPassword.size(), m_vecExtraAttrs.Base(), m_vecExtraAttrs.Count() );
     if ( !m_pSocket->BSendRawPacket( messageBuffer, nByteCount ) )
     {        
+		m_usecLastSentTime = 0;
         Cancel();
     }
+	else
+	{
+		m_usecLastSentTime = usecNow;
+	}
 }
 
 void CSteamNetworkingSocketsSTUNRequest::StaticPacketReceived( const RecvPktInfo_t &info, CSteamNetworkingSocketsSTUNRequest *pContext )
@@ -1042,6 +1049,7 @@ bool CSteamNetworkingSocketsSTUNRequest::OnPacketReceived( const RecvPktInfo_t &
 
     RecvSTUNPktInfo_t subInfo;
     subInfo.m_pRequest = this;
+	subInfo.m_usecNow = info.m_usecNow;
     subInfo.m_pHeader = &header;
     subInfo.m_nAttributes = vecAttributes.Count();
     subInfo.m_pAttributes = vecAttributes.Base();
@@ -1218,6 +1226,12 @@ void CSteamNetworkingICESession::SetSelectedCandidatePair( ICECandidatePair *pPa
         m_pCallbacks->OnConnectionSelected( pPair->m_localCandidate, pPair->m_remoteCandidate );
 }
 
+int CSteamNetworkingICESession::GetPing() const
+{
+	if ( m_pSelectedCandidatePair == nullptr )
+		return -1;
+	return m_pSelectedCandidatePair->m_nLastRecordedPing;
+}
 
 void CSteamNetworkingICESession::StartSession()
 {
@@ -1978,6 +1992,9 @@ void CSteamNetworkingICESession::STUNRequestCallback_PeerConnectivityCheck( cons
     if ( pPair == nullptr )
         return;
 
+	const SteamNetworkingMicroseconds usPing = Max( SteamNetworkingMicroseconds( 1 ), info.m_usecNow - info.m_pRequest->m_usecLastSentTime );
+	pPair->m_nLastRecordedPing = Max( 1, (int)( usPing / 1000 ) );
+
     // Stale request on a pair we're not using? Ignore.
     if ( m_pSelectedCandidatePair != nullptr && m_pSelectedCandidatePair != pPair )
     {
@@ -2185,6 +2202,7 @@ CSteamNetworkingICESession::ICECandidatePair::ICECandidatePair( const ICECandida
     const uint64 G = ( role == k_EICERole_Controlling ) ? remoteCandidate.m_nPriority : localCandidate.m_nPriority;
     m_nPriority = ( 1ull << 32 ) * MIN( G, D ) + 2 * MAX( G, D ) + ( G > D ? 1 : 0 );
     m_pPeerRequest = nullptr;
+	m_nLastRecordedPing = -1;
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -2290,7 +2308,7 @@ void CConnectionTransportP2PICE_Valve::OnLocalCandidateDiscovered( const CSteamN
 
 void CConnectionTransportP2PICE_Valve::OnConnectionSelected( const CSteamNetworkingICESession::ICECandidate& localCandidate, const CSteamNetworkingICESession::ICECandidate& remoteCandidate )
 {
-    ConnectionScopeLock lock( Connection(), "OnConnectionSelected");
+    ConnectionScopeLock lock( Connection(), "CConnectionTransportP2PICE_Valve::OnConnectionSelected");
 
     m_currentRouteRemoteAddress = remoteCandidate.m_addr;
     if ( localCandidate.m_type == CSteamNetworkingICESession::kICECandidateType_Host && remoteCandidate.m_type == CSteamNetworkingICESession::kICECandidateType_Host ) 																						
@@ -2301,34 +2319,14 @@ void CConnectionTransportP2PICE_Valve::OnConnectionSelected( const CSteamNetwork
     {
         m_eCurrentRouteKind = k_ESteamNetTransport_UDP;
     }
+	m_pingEndToEnd.Reset();
+	m_pingEndToEnd.ReceivedPing( m_pICESession->GetPing(), SteamNetworkingSockets_GetLocalTimestamp() );
 	Connection().TransportEndToEndConnectivityChanged( this, SteamNetworkingSockets_GetLocalTimestamp() );
 }
 
-
-void CConnectionTransportP2PICE_Valve::P2PTransportUpdateRouteMetrics( SteamNetworkingMicroseconds usecNow )
-{
-	if ( !BCanSendEndToEndData() )
-	{
-		m_routeMetrics.SetInvalid();
-		return;
-	}
-	m_routeMetrics.m_nBucketsValid = 1;
-	m_routeMetrics.m_nTotalPenalty = 0;
-
-	// Fake out a really low score to prefer this over SDR when we don't actually have ping information at this level.
-	m_routeMetrics.m_nScoreCurrent = 1;
-	m_routeMetrics.m_nScoreMin = 1;
-	m_routeMetrics.m_nScoreMax = 1;
-}
-
-
 void CConnectionTransportP2PICE_Valve::OnPacketReceived( const RecvPktInfo_t &info )
 {
-    ConnectionScopeLock lock( Connection(), "CConnectionTransportP2PICE_Valve::OnPacketReceived");
-
-	// FIXME - bogus - need to figure out ping measurement
-	m_pingEndToEnd.ReceivedPing( 1, SteamNetworkingSockets_GetLocalTimestamp() );
-
+    ConnectionScopeLock lock( Connection(), "CConnectionTransportP2PICE_Valve::OnPacketReceived");	
     ProcessPacket( (const uint8_t*)info.m_pPkt, info.m_cbPkt, info.m_usecNow );
 }
 
