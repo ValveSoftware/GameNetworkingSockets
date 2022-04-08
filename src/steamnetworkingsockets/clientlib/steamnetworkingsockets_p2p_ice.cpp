@@ -149,10 +149,81 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 	cfg.m_pStunServers = vecStunServersPsz.data();
 
 	// Get the TURN server list
+	std_vector<std::string> vecTurnServerAddrs;
+	CUtlVectorAutoPurge<char*> vecTurnUsers;
+	CUtlVectorAutoPurge<char*> vecTurnPasses;
+	std_vector<ICESessionConfig::TurnServer> vecTurnServers;
 	if ( P2P_Transport_ICE_Enable & k_nSteamNetworkingConfig_P2P_Transport_ICE_Enable_Relay )
 	{
-		// FIXME
+		cfg.m_nCandidateTypes |= k_EICECandidate_Any_HostPublic | k_EICECandidate_Any_Reflexive;
+
+		{
+			CUtlVectorAutoPurge<char*> tempTurnServers;
+			V_AllocAndSplitString( m_connectionConfig.m_P2P_TURN_ServerList.Get().c_str(), ",", tempTurnServers, true );
+			for (const char* pszAddress : tempTurnServers)
+			{
+				std::string server;
+
+				// Add prefix, unless they already supplied it
+				if (V_strnicmp(pszAddress, "turn:", 5) != 0)
+					server = "turn:";
+				server.append(pszAddress);
+
+				vecTurnServerAddrs.push_back(std::move(server));
+			}
+		}
+
+		if (vecTurnServerAddrs.empty())
+		{
+			SpewWarningGroup(LogLevel_P2PRendezvous(), "[%s] Reflexive candidates enabled by P2P_Transport_ICE_Enable, but P2P_STUN_ServerList is empty\n", GetDescription());
+		}
+		else
+		{
+			SpewVerboseGroup(LogLevel_P2PRendezvous(), "[%s] Using TURN server list: %s\n", GetDescription(), m_connectionConfig.m_P2P_TURN_ServerList.Get().c_str());
+			cfg.m_nTurnServers = len(vecTurnServerAddrs);
+
+			// populate usernames
+			V_AllocAndSplitString( m_connectionConfig.m_P2P_TURN_UserList.Get().c_str(), ",", vecTurnUsers, true) ;
+
+			// populate passwords
+			V_AllocAndSplitString( m_connectionConfig.m_P2P_TURN_PassList.Get().c_str(), ",", vecTurnPasses, true );
+
+			// If turn arrays lengths (servers, users and passes) are not match, treat all TURN servers as unauthenticated
+			if ( !vecTurnUsers.IsEmpty() > 0 || !vecTurnPasses.IsEmpty() )
+			{
+				if ( cfg.m_nTurnServers != vecTurnUsers.Count() || cfg.m_nTurnServers != vecTurnPasses.Count() )
+				{
+					vecTurnUsers.PurgeAndDeleteElements();
+					vecTurnPasses.PurgeAndDeleteElements();
+					SpewWarningGroup(LogLevel_P2PRendezvous(), "[%s] TURN user/pass list is not same length as address list.  Treating all servers as unauthenticated!\n", GetDescription() );
+				}
+			}
+
+			// Populate TurnServers configs
+			for (int i = 0; i < cfg.m_nTurnServers; i++)
+			{
+				ICESessionConfig::TurnServer* turn = push_back_get_ptr( vecTurnServers );
+				turn->m_pszHost = vecTurnServerAddrs[i].c_str();
+
+				if ( vecTurnUsers.Count() > i)
+					turn->m_pszUsername = vecTurnUsers[i];
+				else
+					turn->m_pszUsername = "";
+
+				if ( vecTurnPasses.Count() > i)
+					turn->m_pszPwd = vecTurnPasses[i];
+				else
+					turn->m_pszPwd = "";
+			}
+
+			cfg.m_pTurnServers = vecTurnServers.data();
+		}
 	}
+	else
+	{
+		SpewVerboseGroup(LogLevel_P2PRendezvous(), "[%s] Not using STUN servers as per P2P_Transport_ICE_Enable\n", GetDescription());
+	}
+
 
 	if ( cfg.m_nStunServers == 0 )
 		cfg.m_nCandidateTypes &= ~k_EICECandidate_Any_Reflexive;
