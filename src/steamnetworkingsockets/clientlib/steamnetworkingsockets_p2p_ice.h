@@ -6,13 +6,10 @@
 
 #include "steamnetworkingsockets_p2p.h"
 #include "steamnetworkingsockets_udp.h"
-#include <mutex>
 
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
 
-#include "../../external/steamwebrtc/ice_session.h"
-
-extern "C" CreateICESession_t g_SteamNetworkingSockets_CreateICESessionFunc;
+#include "ice_client_types.h"
 
 namespace SteamNetworkingSocketsLib {
 
@@ -66,51 +63,7 @@ protected:
 	virtual void RecvValidUDPDataPacket( UDPRecvPacketContext_t &ctx ) override;
 };
 
-class CConnectionTransportP2PICE_WebRTC final
-: public CConnectionTransportP2PICE
-, private IICESessionDelegate
-{
-public:
-	CConnectionTransportP2PICE_WebRTC( CSteamNetworkConnectionP2P &connection );
-	virtual ~CConnectionTransportP2PICE_WebRTC();
-
-	// In certain circumstances we may need to buffer packets
-	ShortDurationLock m_mutexPacketQueue;
-	CUtlBuffer m_bufPacketQueue;
-
-	void Init();
-
-private:
-	IICESession *m_pICESession;
-
-	void RouteOrWritableStateChanged();
-	void UpdateRoute();
-
-	void DrainPacketQueue( SteamNetworkingMicroseconds usecNow );
-
-	// CConnectionTransport overrides
-	virtual bool BCanSendEndToEndData() const override;
-	virtual void TransportFreeResources() override;
-
-	// CConnectionTransportP2PBase
-	virtual void P2PTransportThink( SteamNetworkingMicroseconds usecNow ) override;
-
-	// CConnectionTransportP2PICE overrides
-	virtual void RecvRendezvous( const CMsgICERendezvous &msg, SteamNetworkingMicroseconds usecNow ) override;
-
-	// CConnectionTransportUDPBase overrides
-	virtual bool SendPacket( const void *pkt, int cbPkt ) override;
-	virtual bool SendPacketGather( int nChunks, const iovec *pChunks, int cbSendTotal ) override;
-
-	// Implements IICESessionDelegate
-	virtual void Log( IICESessionDelegate::ELogPriority ePriority, const char *pszMessageFormat, ... ) override;
-	virtual void OnData( const void *pData, size_t nSize ) override;
-	virtual void OnLocalCandidateGathered( EICECandidateType eType, const char *pszCandidate ) override;
-	virtual void OnWritableStateChanged() override;
-	virtual void OnRouteChanged() override;
-};
-
-std::string Base64EncodeLower30Bits( uint32 nNum );
+extern std::string Base64EncodeLower30Bits( uint32 nNum );
 
 } // namespace SteamNetworkingSocketsLib
 

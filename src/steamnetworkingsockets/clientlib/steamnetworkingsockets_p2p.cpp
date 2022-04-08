@@ -27,8 +27,12 @@
 	#include "steamnetworkingsockets_p2p_ice.h"
 	#include "steamnetworkingsockets_stun.h"
 
-	#if defined( STEAMWEBRTC_USE_STATIC_LIBS ) && defined( STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC )
-		extern "C" IICESession *CreateWebRTCICESession( const ICESessionConfig &cfg, IICESessionDelegate *pDelegate, int nInterfaceVersion );
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
+		#include "steamnetworkingsockets_p2p_webrtc.h"
+
+		#ifdef STEAMWEBRTC_USE_STATIC_LIBS
+			extern "C" IICESession *CreateWebRTCICESession( const ICESessionConfig &cfg, IICESessionDelegate *pDelegate, int nInterfaceVersion );
+		#endif
 	#endif
 #endif
 
@@ -690,86 +694,120 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 	}
 
 	m_msgICESessionSummary.set_ice_enable_var( P2P_Transport_ICE_Enable );
-	if ( m_connectionConfig.m_P2P_Transport_ICE_Implementation.Get() == 1 ) 
+
+	//
+	// Select ICE client implementation and create the transport
+	// WARNING: if we fail, the ICE transport will call ICEFailed, which sets m_pTransportICE=NULL
+	//
+	int ICE_Implementation = m_connectionConfig.m_P2P_Transport_ICE_Implementation.Get();
+
+	// Apply default
+	if ( ICE_Implementation == 0 )
+	{
+		// Current default is WebRTC=2
+		#ifdef STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
+			ICE_Implementation = 2;
+		#else
+			ICE_Implementation = 1;
+		#endif
+	}
+
+	// Lock it in
+	m_connectionConfig.m_P2P_Transport_ICE_Implementation.Set( ICE_Implementation );
+	m_connectionConfig.m_P2P_Transport_ICE_Implementation.Lock();
+
+	// "Native" ICE client?
+	if ( ICE_Implementation == 1 ) 
 	{
 		auto pICEValve = new CConnectionTransportP2PICE_Valve( *this );
 		m_pTransportICE = pICEValve;
 		pICEValve->Init();
 	}
-
-// Check for using WebRTC ICE client
-#ifdef STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
-	if ( m_pTransportICE == nullptr )
+	else if ( ICE_Implementation == 2 )
 	{
-
-		// Locate the factory, loading the DLL if we need to
-		#ifdef STEAMWEBRTC_USE_STATIC_LIBS
-			g_SteamNetworkingSockets_CreateICESessionFunc = (CreateICESession_t)CreateWebRTCICESession;
+		#ifndef STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
+			ICEFailed( k_nICECloseCode_Local_NotCompiled, "WebRTC support not enabled" );
+			return;
 		#else
 
-			// No ICE factory?
-			if ( !g_SteamNetworkingSockets_CreateICESessionFunc )
-			{
-				// Just try to load up the dll directly
-				static bool tried;
-				if ( m_pTransportICE == nullptr && !tried )
-				{
-					SteamNetworkingErrMsg errMsg;
-					tried = true;
-					SteamNetworkingGlobalLock::SetLongLockWarningThresholdMS( "LoadICEDll", 500 );
-					static const char pszExportFunc[] = "CreateWebRTCICESession";
+			// Make sure we have an interface to the WebRTC code, which might
+			// live in another DLL
+			#ifdef STEAMWEBRTC_USE_STATIC_LIBS
+				// Static linkage, just set the pointer
+				g_SteamNetworkingSockets_CreateICESessionFunc = (CreateICESession_t)CreateWebRTCICESession;
+			#else
 
-					#if defined( _WINDOWS )
-						#ifdef _WIN64
-							static const char pszModule[] = "steamwebrtc64.dll";
+				// Try to load Load up the DLL the first time we need this
+				if ( !g_SteamNetworkingSockets_CreateICESessionFunc )
+				{
+
+					// Only try one time
+					static bool tried;
+					if ( !tried )
+					{
+						SteamNetworkingErrMsg errMsg;
+						tried = true;
+						SteamNetworkingGlobalLock::SetLongLockWarningThresholdMS( "LoadICEDll", 500 );
+						static const char pszExportFunc[] = "CreateWebRTCICESession";
+
+						#if defined( _WINDOWS )
+							#ifdef _WIN64
+								static const char pszModule[] = "steamwebrtc64.dll";
+							#else
+								static const char pszModule[] = "steamwebrtc.dll";
+							#endif
+							HMODULE h = ::LoadLibraryA( pszModule );
+							if ( h == NULL )
+							{
+								V_sprintf_safe( errMsg, "Failed to load %s.", pszModule ); // FIXME - error code?  Debugging DLL issues is so busted on Windows
+								ICEFailed( k_nICECloseCode_Local_NotCompiled, errMsg );
+								return;
+							}
+							g_SteamNetworkingSockets_CreateICESessionFunc = (CreateICESession_t)::GetProcAddress( h, pszExportFunc );
+						#elif defined( POSIX )
+							#if defined( OSX ) || defined( IOS ) || defined( TVOS )
+								static const char pszModule[] = "libsteamwebrtc.dylib";
+							#else
+								static const char pszModule[] = "libsteamwebrtc.so";
+							#endif
+							void* h = dlopen(pszModule, RTLD_LAZY);
+							if ( h == NULL )
+							{
+								V_sprintf_safe( errMsg, "Failed to dlopen %s.  %s", pszModule, dlerror() );
+								ICEFailed( k_nICECloseCode_Local_NotCompiled, errMsg );
+								return;
+							}
+							g_SteamNetworkingSockets_CreateICESessionFunc = (CreateICESession_t)dlsym( h, pszExportFunc );
 						#else
-							static const char pszModule[] = "steamwebrtc.dll";
+							#error Need steamwebrtc for this platform
 						#endif
-						HMODULE h = ::LoadLibraryA( pszModule );
-						if ( h == NULL )
+						if ( !g_SteamNetworkingSockets_CreateICESessionFunc )
 						{
-							V_sprintf_safe( errMsg, "Failed to load %s.", pszModule ); // FIXME - error code?  Debugging DLL issues is so busted on Windows
+							V_sprintf_safe( errMsg, "%s not found in %s.", pszExportFunc, pszModule );
 							ICEFailed( k_nICECloseCode_Local_NotCompiled, errMsg );
 							return;
 						}
-						g_SteamNetworkingSockets_CreateICESessionFunc = (CreateICESession_t)::GetProcAddress( h, pszExportFunc );
-					#elif defined( POSIX )
-						#if defined( OSX ) || defined( IOS ) || defined( TVOS )
-							static const char pszModule[] = "libsteamwebrtc.dylib";
-						#else
-							static const char pszModule[] = "libsteamwebrtc.so";
-						#endif
-						void* h = dlopen(pszModule, RTLD_LAZY);
-						if ( h == NULL )
-						{
-							V_sprintf_safe( errMsg, "Failed to dlopen %s.  %s", pszModule, dlerror() );
-							ICEFailed( k_nICECloseCode_Local_NotCompiled, errMsg );
-							return;
-						}
-						g_SteamNetworkingSockets_CreateICESessionFunc = (CreateICESession_t)dlsym( h, pszExportFunc );
-					#else
-						#error Need steamwebrtc for this platform
-					#endif
+					}
 					if ( !g_SteamNetworkingSockets_CreateICESessionFunc )
 					{
-						V_sprintf_safe( errMsg, "%s not found in %s.", pszExportFunc, pszModule );
-						ICEFailed( k_nICECloseCode_Local_NotCompiled, errMsg );
+						ICEFailed( k_nICECloseCode_Local_NotCompiled, "No ICE session factory" );
 						return;
 					}
 				}
-				if ( !g_SteamNetworkingSockets_CreateICESessionFunc && m_pTransportICE == nullptr )
-				{
-					ICEFailed( k_nICECloseCode_Local_NotCompiled, "No ICE session factory" );
-					return;
-				}
-			}
+			#endif
+
+			// Initialize WebRTC ICE client
+			auto pICEWebRTC = new CConnectionTransportP2PICE_WebRTC( *this );
+			m_pTransportICE = pICEWebRTC;
+			pICEWebRTC->Init();
 		#endif
 
-		auto pICEWebRTC = new CConnectionTransportP2PICE_WebRTC( *this );
-		m_pTransportICE = pICEWebRTC;
-		pICEWebRTC->Init();
 	}
-#endif // #ifdef STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
+	else
+	{
+		ICEFailed( k_ESteamNetConnectionEnd_Misc_Generic, "Invalid P2P_Transport_ICE_Implementation value" );
+		return;
+	}
 
 	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 
