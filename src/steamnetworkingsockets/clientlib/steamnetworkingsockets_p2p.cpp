@@ -696,6 +696,83 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 	m_msgICESessionSummary.set_ice_enable_var( P2P_Transport_ICE_Enable );
 
 	//
+	// Configure ICE client options
+	//
+
+	ICESessionConfig cfg;
+
+	// Generate local ufrag and password
+	std::string sUfragLocal = Base64EncodeLower30Bits( m_unConnectionIDLocal );
+	uint32 nPwdFrag;
+	CCrypto::GenerateRandomBlock( &nPwdFrag, sizeof(nPwdFrag) );
+	std::string sPwdFragLocal = Base64EncodeLower30Bits( nPwdFrag );
+	cfg.m_pszLocalUserFrag = sUfragLocal.c_str();
+	cfg.m_pszLocalPwd = sPwdFragLocal.c_str();
+
+	// Set role
+	cfg.m_eRole = IsControllingAgent() ? k_EICERole_Controlling : k_EICERole_Controlled;
+
+	cfg.m_nCandidateTypes = 0;
+	if ( P2P_Transport_ICE_Enable & k_nSteamNetworkingConfig_P2P_Transport_ICE_Enable_Private )
+		cfg.m_nCandidateTypes |= k_EICECandidate_Any_HostPrivate;
+
+	// Get the STUN server list
+	std_vector<std::string> vecStunServers;
+	std_vector<const char *> vecStunServersPsz;
+	if ( P2P_Transport_ICE_Enable & k_nSteamNetworkingConfig_P2P_Transport_ICE_Enable_Public )
+	{
+		cfg.m_nCandidateTypes |= k_EICECandidate_Any_HostPublic|k_EICECandidate_Any_Reflexive;
+
+		{
+			CUtlVectorAutoPurge<char *> tempStunServers;
+			V_AllocAndSplitString( m_connectionConfig.m_P2P_STUN_ServerList.Get().c_str(), ",", tempStunServers );
+			for ( const char *pszAddress: tempStunServers )
+			{
+				std::string server;
+
+				// Add prefix, unless they already supplied it
+				if ( V_strnicmp( pszAddress, "stun:", 5 ) != 0 )
+					server = "stun:";
+				server.append( pszAddress );
+
+				vecStunServers.push_back( std::move( server ) );
+				vecStunServersPsz.push_back( vecStunServers.rbegin()->c_str() );
+			}
+		}
+		if ( vecStunServers.empty() )
+			SpewWarningGroup( LogLevel_P2PRendezvous(), "[%s] Reflexive candidates enabled by P2P_Transport_ICE_Enable, but P2P_STUN_ServerList is empty\n", GetDescription() );
+		else
+			SpewVerboseGroup( LogLevel_P2PRendezvous(), "[%s] Using STUN server list: %s\n", GetDescription(), m_connectionConfig.m_P2P_STUN_ServerList.Get().c_str() );
+	}
+	else
+	{
+		SpewVerboseGroup( LogLevel_P2PRendezvous(), "[%s] Not using STUN servers as per P2P_Transport_ICE_Enable\n", GetDescription() );
+	}
+	cfg.m_nStunServers = len( vecStunServersPsz );
+	cfg.m_pStunServers = vecStunServersPsz.data();
+
+	// Get the TURN server list
+	if ( P2P_Transport_ICE_Enable & k_nSteamNetworkingConfig_P2P_Transport_ICE_Enable_Relay )
+	{
+		// FIXME
+	}
+
+	if ( cfg.m_nStunServers == 0 )
+		cfg.m_nCandidateTypes &= ~k_EICECandidate_Any_Reflexive;
+	if ( cfg.m_nTurnServers == 0 )
+		cfg.m_nCandidateTypes &= ~k_EICECandidate_Any_Relay;
+
+	m_msgICESessionSummary.set_local_candidate_types_allowed( cfg.m_nCandidateTypes );
+	SpewVerboseGroup( LogLevel_P2PRendezvous(), "[%s] P2P_Transport_ICE_Enable=0x%x, AllowedCandidateTypes=0x%x\n", GetDescription(), P2P_Transport_ICE_Enable, cfg.m_nCandidateTypes );
+
+	// No candidates possible?
+	if ( cfg.m_nCandidateTypes == 0 )
+	{
+		ICEFailed( k_nICECloseCode_Local_UserNotEnabled, "No local candidate types are allowed by user settings and configured servers" );
+		return;
+	}
+
+	//
 	// Select ICE client implementation and create the transport
 	// WARNING: if we fail, the ICE transport will call ICEFailed, which sets m_pTransportICE=NULL
 	//
@@ -799,7 +876,20 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 			// Initialize WebRTC ICE client
 			auto pICEWebRTC = new CConnectionTransportP2PICE_WebRTC( *this );
 			m_pTransportICE = pICEWebRTC;
-			pICEWebRTC->Init();
+			pICEWebRTC->Init( cfg );
+
+			// Queue a message to inform peer about our auth credentials.  It should
+			// go out in the first signal.
+			// FIXME - should move this below to do for all transports, once we have
+			//         refactored the Valve ICE client to also take the config
+			if ( m_pTransportICE )
+			{
+				CMsgSteamNetworkingP2PRendezvous_ReliableMessage msg;
+				*msg.mutable_ice()->mutable_auth()->mutable_pwd_frag() = std::move( sPwdFragLocal );
+				QueueSignalReliableMessage( std::move( msg ), "Initial ICE auth" );
+			}
+
+
 		#endif
 
 	}
@@ -889,7 +979,7 @@ void CSteamNetworkConnectionP2P::GuessICEFailureReason( ESteamNetConnectionEnd &
 	}
 
 	// OK, looks like we never pierced NAT.  Try to figure out why.
-	const int nAllowedTypes = m_pTransportICE ? m_pTransportICE->m_nAllowedCandidateTypes : 0;
+	const int nAllowedTypes = m_msgICESessionSummary.local_candidate_types_allowed();
 	const int nGatheredTypes = m_msgICESessionSummary.local_candidate_types();
 	const int nFailedToGatherTypes = nAllowedTypes & ~nGatheredTypes;
 	const int nRemoteTypes = m_msgICESessionSummary.remote_candidate_types();

@@ -31,7 +31,7 @@ public:
 	ShortDurationLock m_mutexPacketQueue;
 	CUtlBuffer m_bufPacketQueue;
 
-	void Init();
+	void Init( const ICESessionConfig &cfg );
 
 private:
 	IICESession *m_pICESession;

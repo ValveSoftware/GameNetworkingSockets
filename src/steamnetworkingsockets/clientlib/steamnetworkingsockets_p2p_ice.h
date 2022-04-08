@@ -49,7 +49,6 @@ public:
 	//EICECandidateType m_eCurrentRouteRemoteCandidateType;
 	SteamNetworkingIPAddr m_currentRouteRemoteAddress;
 	ESteamNetTransportKind m_eCurrentRouteKind;
-	int m_nAllowedCandidateTypes; // k_EICECandidate_xxx
 
 protected:
 	CConnectionTransportP2PICE( CSteamNetworkConnectionP2P &connection );
