@@ -93,11 +93,11 @@ void TEST_Init( const SteamNetworkingIdentity *pIdentity )
 	#else
 		//SteamAPI_Init();
 
-		SteamDatagramClient_SetAppID( 570 ); // Just set something, doesn't matter what
-		SteamDatagramClient_SetUniverse( k_EUniverseDev, false );
+		SteamDatagram_SetUniverse();
+		SteamDatagram_SetAppID( 570 ); // Just set something, doesn't matter what
 
 		SteamDatagramErrMsg errMsg;
-		if ( !SteamDatagramClient_Init( true, errMsg ) )
+		if ( !SteamDatagramClient_Init( errMsg ) )
 		{
 			fprintf( stderr, "SteamDatagramClient_Init failed.  %s", errMsg );
 			exit(1);

@@ -97,11 +97,11 @@ static void InitSteamDatagramConnectionSockets()
 		if ( !GameNetworkingSockets_Init( nullptr, errMsg ) )
 			FatalError( "GameNetworkingSockets_Init failed.  %s", errMsg );
 	#else
-		SteamDatagramClient_SetAppID( 570 ); // Just set something, doesn't matter what
-		//SteamDatagramClient_SetUniverse( k_EUniverseDev );
+		SteamDatagram_SetAppID( 570 ); // Just set something, doesn't matter what
+		SteamDatagram_SetUniverse( false, k_EUniverseDev );
 
 		SteamDatagramErrMsg errMsg;
-		if ( !SteamDatagramClient_Init( true, errMsg ) )
+		if ( !SteamDatagramClient_Init( errMsg ) )
 			FatalError( "SteamDatagramClient_Init failed.  %s", errMsg );
 
 		// Disable authentication when running with Steam, for this

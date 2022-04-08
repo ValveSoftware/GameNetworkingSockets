@@ -25,9 +25,6 @@
 // End SteamNetworkingSockets config.
 //-----------------------------------------------------------------------------
 
-#if !defined( STEAMNETWORKINGSOCKETS_OPENSOURCE ) && !defined( STEAMNETWORKINGSOCKETS_STREAMINGCLIENT )
-	#define STEAMNETWORKINGSOCKETS_STEAM
-#endif
 #ifdef NN_NINTENDO_SDK // We always static link on Nintendo
 	#define STEAMNETWORKINGSOCKETS_STATIC_LINK
 #endif
