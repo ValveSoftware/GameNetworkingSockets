@@ -253,8 +253,8 @@ void CConnectionTransportP2PICE::RecvValidUDPDataPacket( UDPRecvPacketContext_t 
 
 CConnectionTransportP2PICE_WebRTC::CConnectionTransportP2PICE_WebRTC( CSteamNetworkConnectionP2P &connection )
 : CConnectionTransportP2PICE( connection )
-, m_pICESession( nullptr )
 , m_mutexPacketQueue( "ice_packet_queue" )
+, m_pICESession( nullptr )
 {
 }
 

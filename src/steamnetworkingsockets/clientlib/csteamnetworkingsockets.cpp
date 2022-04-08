@@ -387,11 +387,11 @@ CSteamNetworkingSockets::CSteamNetworkingSockets( CSteamNetworkingUtils *pSteamN
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
 , m_pSteamNetworkingMessages( nullptr )
 #endif
-, m_bEverTriedToGetCert( false )
-, m_bEverGotCert( false )
 #ifdef STEAMNETWORKINGSOCKETS_CAN_REQUEST_CERT
 , m_scheduleCheckRenewCert( this, &CSteamNetworkingSockets::CheckAuthenticationPrerequisites )
 #endif
+, m_bEverTriedToGetCert( false )
+, m_bEverGotCert( false )
 , m_mutexPendingCallbacks( "pending_callbacks" )
 {
 	m_connectionConfig.Init( nullptr );

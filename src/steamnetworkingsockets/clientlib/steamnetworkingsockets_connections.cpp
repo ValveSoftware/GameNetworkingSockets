@@ -318,8 +318,8 @@ void CSteamNetworkPollGroup::AssignHandleAndAddToGlobalTable()
 /////////////////////////////////////////////////////////////////////////////
 
 CSteamNetworkListenSocketBase::CSteamNetworkListenSocketBase( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface )
-: m_pSteamNetworkingSocketsInterface( pSteamNetworkingSocketsInterface )
-, m_hListenSocketSelf( k_HSteamListenSocket_Invalid )
+: m_hListenSocketSelf( k_HSteamListenSocket_Invalid )
+, m_pSteamNetworkingSocketsInterface( pSteamNetworkingSocketsInterface )
 {
 	m_connectionConfig.Init( &pSteamNetworkingSocketsInterface->m_connectionConfig );
 }
