@@ -3194,7 +3194,7 @@ void CSteamNetworkConnectionBase::Think( SteamNetworkingMicroseconds usecNow )
 {
 	// NOTE: Lock has already been taken by ILockableThinker.  So we need to unlock it when we're done
 	ConnectionScopeLock scopeLock;
-	scopeLock.TakeLockOwnership( m_pLock );
+	scopeLock.TakeLockOwnership( m_pLock, "CSteamNetworkConnectionBase::Think" );
 
 	// Safety check against leaving callbacks suppressed.  If this fires, there's a good chance
 	// we have already suppressed a callback that we should have posted, which is very bad

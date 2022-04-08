@@ -544,6 +544,11 @@ public:
 	// Almost all connections use this default lock.  (A few special cases use a different lock
 	// so that they are locked at the same time as other objects.)
 	ConnectionLock m_defaultLock;
+
+	/// Make sure the global lock and this lock are both held
+	/// by the current thread.  Don't call this directly, use
+	/// the AssertLocksHeldByCurrentThread macro to provide
+	/// the file and line number.
 	void _AssertLocksHeldByCurrentThread( const char *pszFile, int line, const char *pszTag = nullptr ) const
 	{
 		SteamNetworkingGlobalLock::_AssertHeldByCurrentThread( pszFile, line, pszTag );
