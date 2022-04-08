@@ -24,6 +24,7 @@
 #include "tier0/memdbgoff.h"
 #include <openssl/evp.h>
 #include <openssl/pem.h>
+#include <openssl/hmac.h>
 #include "tier0/memdbgon.h"
 
 #include "opensslwrapper.h"
@@ -451,6 +452,27 @@ void CCrypto::GenerateHMAC256( const uint8 *pubData, uint32 cubData, const uint8
 
 	size_t needed = sizeof(SHA256Digest_t);
 	VerifyFatal(EVP_DigestSignFinal(mdctx.ctx, *pOutputDigest, &needed) == 1);
+}
+
+//-----------------------------------------------------------------------------
+// Purpose: Generate a keyed-hash MAC using SHA1
+// Input:	pubData -			Plaintext data to digest
+//			cubData -			length of data
+//			pubKey -			key to use in HMAC
+//			cubKey -			length of key
+//			pOutDigest -		Pointer to receive hashed digest output
+//-----------------------------------------------------------------------------
+void CCrypto::GenerateHMAC( const uint8 *pubData, uint32 cubData, const uint8 *pubKey, uint32 cubKey, SHADigest_t *pOutputDigest )
+{
+	VPROF_BUDGET( "CCrypto::GenerateHMAC", VPROF_BUDGETGROUP_ENCRYPTION );
+	Assert( pubData );
+	Assert( cubData > 0 );
+	Assert( pubKey );
+	Assert( cubKey > 0 );
+	Assert( pOutputDigest );
+	
+	unsigned int needed = (unsigned int)sizeof(SHADigest_t);
+	HMAC( EVP_sha1(), pubKey, cubKey, pubData, cubData, (unsigned char*)pOutputDigest, &needed );
 }
 
 #endif //STEAMNETWORKINGSOCKETS_CRYPTO_VALVEOPENSSL

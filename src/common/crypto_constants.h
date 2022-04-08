@@ -29,6 +29,10 @@ const int k_cchMaxPassphrase = 128;				// maximum size of a license passphrase
 
 const int k_nSHAHashStringLen = 40;				// length of SHA1 hash when stored as a hex string
 
+const unsigned int k_cubSHA1Hash = 20;
+const unsigned int k_cubSHAHash = 20;
+typedef unsigned char SHADigest_t[ k_cubSHAHash ];
+
 const unsigned int k_cubMD5Hash = 16;
 typedef	unsigned char MD5Digest_t[k_cubMD5Hash];
 
