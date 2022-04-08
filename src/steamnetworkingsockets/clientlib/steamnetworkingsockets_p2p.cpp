@@ -3532,11 +3532,27 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const CMsgSteamNetworki
 
 					if ( bSearchDuplicateConnections )
 					{
-						CSteamNetworkConnectionP2P *pMatchingConnection = CSteamNetworkConnectionP2P::FindDuplicateConnection( this, nLocalVirtualPort, identityRemote, nRemoteVirtualPort, nUseSymmetricConnection > 0, nullptr );
+
+						// If this connection is symmetric, then we want to match any other connection.
+						// (Although it really ought to also be symmetric if they are using the API
+						// properly.)  If this connection is NOT symmetric, then only match another
+						// symmetric connection.  (Again, this is not the best practices use of the API.)
+						bool bMatchOnlySymmetricConnections = ( nUseSymmetricConnection <= 0 );
+
+						CSteamNetworkConnectionP2P *pMatchingConnection = CSteamNetworkConnectionP2P::FindDuplicateConnection( this, nLocalVirtualPort, identityRemote, nRemoteVirtualPort, nUseSymmetricConnection <= 0, nullptr );
 						if ( pMatchingConnection )
 						{
 							ConnectionScopeLock lockMatchingConnection( *pMatchingConnection );
 							Assert( pMatchingConnection->m_pParentListenSocket == nullptr ); // This conflict should only happen for connections we initiate!
+
+							// Check if they are mixing symmetric and asymmetric connections.
+							// That's not good.
+							if ( bMatchOnlySymmetricConnections )
+							{
+								SpewWarning( "[%s] Outbound symmetric connection (local vport %d, remote vport %d) and matched to incoming connect request remote cxn ID #%u.  You should configure the listen socket in symmetric mode\n",
+									pMatchingConnection->GetDescription(), pMatchingConnection->LocalVirtualPort(), pMatchingConnection->m_nRemoteVirtualPort, msg.from_connection_id() );
+							}
+
 							int cmp = CompareSymmetricConnections( pMatchingConnection->m_unConnectionIDLocal, pMatchingConnection->GetSignedCertLocal().cert(), msg.from_connection_id(), msgConnectRequest.cert().cert() );
 
 							// Check if we prefer for our connection to act as the "client"
