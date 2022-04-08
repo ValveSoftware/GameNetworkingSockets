@@ -43,7 +43,7 @@ public:
 
 	inline int LogLevel_P2PRendezvous() const { return m_connection.m_connectionConfig.m_LogLevel_P2PRendezvous.Get(); }
 
-	void LocalCandidateGathered( EICECandidateType eType, const char *pszCandidate );
+	void LocalCandidateGathered( EICECandidateType eType, CMsgICECandidate &&msgCandidate );
 
 	//EICECandidateType m_eCurrentRouteLocalCandidateType;
 	//EICECandidateType m_eCurrentRouteRemoteCandidateType;

@@ -201,6 +201,14 @@ message CMsgSteamDatagramConnectionQuality
 	//optional uint32 seqnum_ack_lifetime = 3;
 };
 
+/// Describe an ICE candidate address
+message CMsgICECandidate
+{
+	//optional string sdpm_id = 1;
+	//optional uint32 sdpm_line_index = 2;
+	optional string candidate = 3;
+}
+
 // ICE rendezvous message, sent reliably
 // FIXME - should use oneof when it is available in all branches we care about
 message CMsgICERendezvous
@@ -214,13 +222,7 @@ message CMsgICERendezvous
 	optional Auth auth = 2;
 
 	// ICE candidate
-	message Candidate
-	{
-		//optional string sdpm_id = 1;
-		//optional uint32 sdpm_line_index = 2;
-		optional string candidate = 3;
-	}
-	optional Candidate add_candidate = 1;
+	optional CMsgICECandidate add_candidate = 1;
 	//optional Candidate remove_candidate = 2;
 };
 

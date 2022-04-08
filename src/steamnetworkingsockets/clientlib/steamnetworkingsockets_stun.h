@@ -162,6 +162,7 @@ namespace SteamNetworkingSocketsLib {
             ICECandidate( ICECandidateType t, const SteamNetworkingIPAddr& addr, const SteamNetworkingIPAddr& base, const SteamNetworkingIPAddr& stunServer );
             uint32 CalcPriority( uint32 nLocalPreference );
             void CalcCandidateAttribute( char *pszBuffer, size_t nBufferSize ) const;
+			EICECandidateType CalcType() const;
         };
         EICERole GetRole() { return m_role; }
         enum ICESessionState

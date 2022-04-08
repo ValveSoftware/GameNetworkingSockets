@@ -727,6 +727,24 @@ void CConnectionTransportP2PICE::RecvValidUDPDataPacket( UDPRecvPacketContext_t 
 		P2PTransportEndToEndConnectivityConfirmed( ctx.m_usecNow );
 }
 
+void CConnectionTransportP2PICE::LocalCandidateGathered( EICECandidateType eType, CMsgICECandidate &&msgCandidate )
+{
+	CSteamNetworkConnectionP2P &conn = Connection();
+	CMsgSteamNetworkingICESessionSummary &sum = conn.m_msgICESessionSummary;
+
+	// Make sure candidate type makes sense and is allowed
+	Assert( ( (int)eType & ((int)eType-1) ) == 0 ); // Should be a single bit set
+	AssertMsg( eType & sum.local_candidate_types_allowed(), "We gathered candidate type 0x%x, but 0x%x is allowed", eType, sum.local_candidate_types_allowed() );
+
+	// Update bookkeeping about what types of candidates we gathered
+	sum.set_local_candidate_types( sum.local_candidate_types() | eType );
+
+	// Queue a message to inform peer
+	CMsgSteamNetworkingP2PRendezvous_ReliableMessage msg;
+	*msg.mutable_ice()->mutable_add_candidate() = std::move( msgCandidate );
+	Connection().QueueSignalReliableMessage( std::move(msg), "LocalCandidateAdded" );
+}
+
 } // namespace SteamNetworkingSocketsLib
 
 #endif // #ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE

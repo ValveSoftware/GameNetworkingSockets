@@ -1413,6 +1413,9 @@ void CSteamNetworkingICESession::StaticPacketReceived( const RecvPktInfo_t &info
 
 void CSteamNetworkingICESession::Think( SteamNetworkingMicroseconds usecNow )
 {
+	// FIXME Need to sort out locks
+	//AssertLocksHeldByCurrentThread( "CSteamNetworkingICESession::Think" );
+
     SetNextThinkTime( usecNow + SteamNetworkingMicroseconds( 50000 ) ); // 50ms think rate
 
     if ( m_bInterfaceListStale )
@@ -1507,6 +1510,9 @@ void CSteamNetworkingICESession::Think_DiscoverServerReflexiveCandidates()
 
 void CSteamNetworkingICESession::UpdateHostCandidates()
 {
+	// FIXME Need to sort out locks
+	//AssertLocksHeldByCurrentThread( "CSteamNetworkingICESession::UpdateHostCandidates" );
+
     CUtlVector< ICECandidate > vecPreviousCandidates;
     vecPreviousCandidates.Swap( m_vecCandidates );
 
@@ -1595,69 +1601,9 @@ void CSteamNetworkingICESession::UpdateHostCandidates()
     }
 }
 
-enum EICECandidateType : int
-{
-	k_EICECandidate_Invalid = 0,
-
-	k_EICECandidate_IPv4_Relay = 0x01,
-	k_EICECandidate_IPv4_HostPrivate = 0x02,
-	k_EICECandidate_IPv4_HostPublic = 0x04,
-	k_EICECandidate_IPv4_Reflexive = 0x08,
-
-	k_EICECandidate_IPv6_Relay = 0x100,
-	k_EICECandidate_IPv6_HostPrivate_Unsupported = 0x200, // NOTE: Not currently used.  All IPv6 addresses (even fc00::/7) are considered "public"
-	k_EICECandidate_IPv6_HostPublic = 0x400,
-	k_EICECandidate_IPv6_Reflexive = 0x800,
-};
-
-static bool IsPrivateIPv4( const uint8 m_ip[ 4 ] )
-{
-	/*	Class A: 10.0. 0.0 to 10.255. 255.255.
-		Class B: 172.16. 0.0 to 172.31. 255.255.
-		Class C: 192.168. 0.0 to 192.168. 255.255. */
-	if ( m_ip[0] == 10 )
-		return true;
-	if ( m_ip[0] == 172 && m_ip[1] >= 16 && m_ip[1] <= 31 )
-		return true;
-	if ( m_ip[0] == 192 && m_ip[1] == 168 )
-		return true;
-	return false;
-}
-
 bool CSteamNetworkingICESession::IsCandidatePermitted( const ICECandidate& localCandidate)
 {
-	int nCandidateType = 0;
-	switch ( localCandidate.m_type )
-	{
-	case kICECandidateType_Host:
-		if ( localCandidate.m_base.IsIPv4() )
-		{
-			if ( IsPrivateIPv4( localCandidate.m_base.m_ipv4.m_ip ) )
-				nCandidateType = k_EICECandidate_IPv4_HostPrivate;
-			else
-				nCandidateType = k_EICECandidate_IPv4_HostPublic;
-		}
-		else
-			nCandidateType = k_EICECandidate_IPv6_HostPublic;
-		break;
-	case kICECandidateType_ServerReflexive:
-	case kICECandidateType_PeerReflexive:
-		if ( localCandidate.m_base.IsIPv4() )
-			nCandidateType = k_EICECandidate_IPv4_Reflexive;
-		else
-			nCandidateType = k_EICECandidate_IPv6_Reflexive;
-		break;
-
-	/* case kICECandidateType_Relayed:
-		if ( localCandidate.m_base.IsIPv4() )
-			nCandidateType = k_EICECandidate_IPv4_Relay;
-		else
-			nCandidateType = k_EICECandidate_IPv6_Relay;
-		break;
-	*/
-	default:
-		break;
-	}
+	int nCandidateType = localCandidate.CalcType();
 	return ( m_nPermittedCandidateTypes & nCandidateType ) == nCandidateType;
 }
 
@@ -2151,7 +2097,58 @@ void CSteamNetworkingICESession::ICECandidate::CalcCandidateAttribute( char *psz
     V_snprintf( pszBuffer, nBufferSize, "candidate:%u 0 udp %u %s %d typ %s", nFoundation, m_nPriority, connectionAddr, m_addr.m_port, pszType );
 }
 
+static bool IsPrivateIPv4( const uint8 m_ip[ 4 ] )
+{
+	/*	Class A: 10.0. 0.0 to 10.255. 255.255.
+		Class B: 172.16. 0.0 to 172.31. 255.255.
+		Class C: 192.168. 0.0 to 192.168. 255.255. */
+	if ( m_ip[0] == 10 )
+		return true;
+	if ( m_ip[0] == 172 && m_ip[1] >= 16 && m_ip[1] <= 31 )
+		return true;
+	if ( m_ip[0] == 192 && m_ip[1] == 168 )
+		return true;
+	return false;
+}
 
+EICECandidateType CSteamNetworkingICESession::ICECandidate::CalcType() const
+{
+	switch ( m_type )
+	{
+	case kICECandidateType_Host:
+		if ( m_base.IsIPv4() )
+		{
+			if ( IsPrivateIPv4( m_base.m_ipv4.m_ip ) )
+				return k_EICECandidate_IPv4_HostPrivate;
+			else
+				return k_EICECandidate_IPv4_HostPublic;
+		}
+		else
+		{
+			return k_EICECandidate_IPv6_HostPublic;
+		}
+		break;
+	case kICECandidateType_ServerReflexive:
+	case kICECandidateType_PeerReflexive:
+		if ( m_base.IsIPv4() )
+			return k_EICECandidate_IPv4_Reflexive;
+		else
+			return k_EICECandidate_IPv6_Reflexive;
+		break;
+
+	/* case kICECandidateType_Relayed:
+		if ( localCandidate.m_base.IsIPv4() )
+			nCandidateType = k_EICECandidate_IPv4_Relay;
+		else
+			nCandidateType = k_EICECandidate_IPv6_Relay;
+		break;
+	*/
+	default:
+		break;
+	}
+
+	return k_EICECandidate_Invalid;
+}
 
 /////////////////////////////////////////////////////////////////////////////
 //
@@ -2273,20 +2270,17 @@ void CConnectionTransportP2PICE_Valve::OnLocalCandidateDiscovered( const CSteamN
     char chBuffer[512];
     candidate.CalcCandidateAttribute( chBuffer, V_ARRAYSIZE( chBuffer ) - 1 );
 
-    SpewMsg( "Sent local candidate \'%s\'\n", chBuffer );
+    ConnectionScopeLock lock( Connection(), "Queuing send of local candidate.");
 
-    {
-        ConnectionScopeLock lock( Connection(), "Queuing send of local candidate.");
-        CMsgSteamNetworkingP2PRendezvous_ReliableMessage msg;
-        CMsgICERendezvous_Candidate &c = *msg.mutable_ice()->mutable_add_candidate();
-        c.set_candidate( chBuffer );
-        Connection().QueueSignalReliableMessage( std::move(msg), "OnLocalCandidateDiscovered" );
-    }
+    CMsgICECandidate c;
+    c.set_candidate( chBuffer );
+	LocalCandidateGathered( candidate.CalcType(), std::move( c ) );
 }
 
 void CConnectionTransportP2PICE_Valve::OnConnectionSelected( const CSteamNetworkingICESession::ICECandidate& localCandidate, const CSteamNetworkingICESession::ICECandidate& remoteCandidate )
 {
-	Connection().TryLock();
+    AssertLocksHeldByCurrentThread( "CConnectionTransportP2PICE_Valve::OnConnectionSelected");
+
     m_currentRouteRemoteAddress = remoteCandidate.m_addr;
     if ( localCandidate.m_type == CSteamNetworkingICESession::kICECandidateType_Host && remoteCandidate.m_type == CSteamNetworkingICESession::kICECandidateType_Host ) 																						
     {
@@ -2297,7 +2291,6 @@ void CConnectionTransportP2PICE_Valve::OnConnectionSelected( const CSteamNetwork
         m_eCurrentRouteKind = k_ESteamNetTransport_UDP;
     }
 	Connection().TransportEndToEndConnectivityChanged( this, SteamNetworkingSockets_GetLocalTimestamp() );
-	Connection().Unlock();
 }
 
 
@@ -2321,7 +2314,10 @@ void CConnectionTransportP2PICE_Valve::P2PTransportUpdateRouteMetrics( SteamNetw
 void CConnectionTransportP2PICE_Valve::OnPacketReceived( const RecvPktInfo_t &info )
 {
     ConnectionScopeLock lock( Connection(), "CConnectionTransportP2PICE_Valve::OnPacketReceived");
+
+	// FIXME - bogus - need to figure out ping measurement
 	m_pingEndToEnd.ReceivedPing( 1, SteamNetworkingSockets_GetLocalTimestamp() );
+
     ProcessPacket( (const uint8_t*)info.m_pPkt, info.m_cbPkt, info.m_usecNow );
 }
 

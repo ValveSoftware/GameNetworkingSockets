@@ -208,7 +208,7 @@ void CConnectionTransportP2PICE_WebRTC::RecvRendezvous( const CMsgICERendezvous 
 
 	if ( msg.has_add_candidate() )
 	{
-		const CMsgICERendezvous_Candidate &c = msg.add_candidate();
+		const CMsgICECandidate &c = msg.add_candidate();
 		EICECandidateType eType = m_pICESession->AddRemoteIceCandidate( c.candidate().c_str() );
 		if ( eType != k_EICECandidate_Invalid )
 		{
@@ -340,20 +340,16 @@ void CConnectionTransportP2PICE_WebRTC::OnLocalCandidateGathered( EICECandidateT
 	struct RunIceCandidateAdded : IConnectionTransportP2PICERunWithLock
 	{
 		EICECandidateType eType;
-		CMsgSteamNetworkingP2PRendezvous_ReliableMessage msg;
+		CMsgICECandidate msgCandidate;
 		virtual void RunTransportP2PICE( CConnectionTransportP2PICE_WebRTC *pTransport )
 		{
-			CSteamNetworkConnectionP2P &conn = pTransport->Connection();
-			CMsgSteamNetworkingICESessionSummary &sum = conn.m_msgICESessionSummary;
-			sum.set_local_candidate_types( sum.local_candidate_types() | eType );
-			pTransport->Connection().QueueSignalReliableMessage( std::move(msg), "LocalCandidateAdded" );
+			pTransport->LocalCandidateGathered( eType, std::move( msgCandidate ) );
 		}
 	};
 
 	RunIceCandidateAdded *pRun = new RunIceCandidateAdded;
 	pRun->eType = eType;
-	CMsgICERendezvous_Candidate &c = *pRun->msg.mutable_ice()->mutable_add_candidate();
-	c.set_candidate( pszCandidate );
+	pRun->msgCandidate.set_candidate( pszCandidate );
 	pRun->RunOrQueue( this, "ICE OnIceCandidateAdded" );
 }
 
