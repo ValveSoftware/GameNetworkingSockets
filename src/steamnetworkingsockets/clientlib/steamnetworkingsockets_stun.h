@@ -7,7 +7,6 @@
 #include "steamnetworkingsockets_connections.h"
 #include "../steamnetworkingsockets_thinker.h"
 #include "steamnetworkingsockets_p2p_ice.h"
-#include "external/steamwebrtc/ice_session.h"
 
 namespace SteamNetworkingSocketsLib {
     class CSharedSocket;

@@ -2185,7 +2185,6 @@ void CConnectionTransportP2PICE_Valve::Init( const ICESessionConfig& cfg )
 {
     if ( m_pICESession == nullptr )
     {
-        const EICERole role = ( Connection().IsControllingAgent() ? k_EICERole_Controlling : k_EICERole_Controlled );
         m_pICESession = new CSteamNetworkingICESession( cfg, this );
     }
     m_pICESession->StartSession();
