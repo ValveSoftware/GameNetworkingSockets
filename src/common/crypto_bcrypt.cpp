@@ -25,6 +25,10 @@
 static BCRYPT_ALG_HANDLE hAlgRandom = INVALID_HANDLE_VALUE;
 static BCRYPT_ALG_HANDLE hAlgSHA256 = INVALID_HANDLE_VALUE;
 static BCRYPT_ALG_HANDLE hAlgHMACSHA256 = INVALID_HANDLE_VALUE;
+static BCRYPT_ALG_HANDLE hAlgHMACSHA1 = INVALID_HANDLE_VALUE;
+static ULONG cbBufferSHA256 = 0;
+static ULONG cbBufferHMACSHA256 = 0;
+static ULONG cbBufferHMACSHA1 = 0;
 
 typedef struct _BCryptContext {
 	BCRYPT_ALG_HANDLE hAlgAES;
@@ -49,6 +53,8 @@ typedef struct _BCryptContext {
 
 void CCrypto::Init()
 {
+	ULONG garbage;
+
 	BCryptOpenAlgorithmProvider(
 			&hAlgRandom,
 			BCRYPT_RNG_ALGORITHM,
@@ -56,6 +62,7 @@ void CCrypto::Init()
 			0
 			);
 	AssertFatal( hAlgRandom != INVALID_HANDLE_VALUE );
+
 	BCryptOpenAlgorithmProvider(
 			&hAlgSHA256,
 			BCRYPT_SHA256_ALGORITHM,
@@ -63,6 +70,9 @@ void CCrypto::Init()
 			0
 			);
 	AssertFatal( hAlgSHA256 != INVALID_HANDLE_VALUE );
+	BCryptGetProperty(hAlgSHA256, BCRYPT_OBJECT_LENGTH, (PUCHAR)&cbBufferSHA256, sizeof(cbBufferSHA256), &garbage, 0 );
+	AssertFatal( cbBufferSHA256 > 0 && cbBufferSHA256 < 16 * 1024 * 1024 );
+
 	BCryptOpenAlgorithmProvider(
 			&hAlgHMACSHA256,
 			BCRYPT_SHA256_ALGORITHM,
@@ -70,6 +80,19 @@ void CCrypto::Init()
 			BCRYPT_ALG_HANDLE_HMAC_FLAG
 			);
 	AssertFatal( hAlgHMACSHA256 != INVALID_HANDLE_VALUE );
+	BCryptGetProperty(hAlgHMACSHA256, BCRYPT_OBJECT_LENGTH, (PUCHAR)&cbBufferHMACSHA256, sizeof(cbBufferHMACSHA256), &garbage, 0 );
+	AssertFatal( cbBufferHMACSHA256 > 0 && cbBufferHMACSHA256 < 16 * 1024 * 1024 );
+
+	BCryptOpenAlgorithmProvider(
+			&hAlgHMACSHA1,
+			BCRYPT_SHA1_ALGORITHM,
+			nullptr,
+			BCRYPT_ALG_HANDLE_HMAC_FLAG
+			);
+	AssertFatal( hAlgHMACSHA1 != INVALID_HANDLE_VALUE );
+	BCryptGetProperty(hAlgHMACSHA1, BCRYPT_OBJECT_LENGTH, (PUCHAR)&cbBufferHMACSHA1, sizeof(cbBufferHMACSHA1), &garbage, 0 );
+	AssertFatal( cbBufferHMACSHA1 > 0 && cbBufferHMACSHA1 < 16 * 1024 * 1024 );
+
 }
 
 SymmetricCryptContextBase::SymmetricCryptContextBase()
@@ -203,16 +226,9 @@ void CCrypto::GenerateSHA256Digest( const void *pInput, size_t cbInput, SHA256Di
 	BCRYPT_HASH_HANDLE hHashSHA256 = INVALID_HANDLE_VALUE;
 	PUCHAR pbBuffer = NULL;
 	NTSTATUS status;
-	static ULONG cbBuffer = 0;
-	if (!cbBuffer) {
-		ULONG garbage;
-		status = BCryptGetProperty(hAlgSHA256, BCRYPT_OBJECT_LENGTH, (PUCHAR)&cbBuffer, sizeof(cbBuffer), &garbage, 0 );
-		AssertFatal(NT_SUCCESS(status));
-	}
-	Assert( cbBuffer > 0 && cbBuffer < 16 * 1024 * 1024 );
-	pbBuffer = (PUCHAR)HeapAlloc(GetProcessHeap(), 0, cbBuffer);
+	pbBuffer = (PUCHAR)HeapAlloc(GetProcessHeap(), 0, cbBufferSHA256);
 	AssertFatal( pbBuffer );
-	status = BCryptCreateHash(hAlgSHA256, &hHashSHA256, pbBuffer, cbBuffer, NULL, 0, 0);
+	status = BCryptCreateHash(hAlgSHA256, &hHashSHA256, pbBuffer, cbBufferSHA256, NULL, 0, 0);
 	AssertFatal(NT_SUCCESS(status));
 	status = BCryptHashData(hHashSHA256, (PUCHAR)pInput, (ULONG)cbInput, 0);
 	AssertFatal(NT_SUCCESS(status));
@@ -253,26 +269,46 @@ void CCrypto::GenerateHMAC256( const uint8 *pubData, uint32 cubData, const uint8
 	Assert( cubKey > 0 );
 	Assert( pOutputDigest );
 
-	BCRYPT_HASH_HANDLE hHashHMACSHA256 = INVALID_HANDLE_VALUE;
+	BCRYPT_HASH_HANDLE hHash = INVALID_HANDLE_VALUE;
 	PUCHAR pbBuffer = NULL;
 	NTSTATUS status;
-	static ULONG cbBuffer = 0;
-	if (!cbBuffer) {
-		ULONG garbage;
-		status = BCryptGetProperty(hAlgHMACSHA256, BCRYPT_OBJECT_LENGTH, (PUCHAR)&cbBuffer, sizeof(cbBuffer), &garbage, 0 );
-		AssertFatal(NT_SUCCESS(status));
-	}
-	Assert( cbBuffer > 0 && cbBuffer < 16 * 1024 * 1024 );
-	pbBuffer = (PUCHAR)HeapAlloc(GetProcessHeap(), 0, cbBuffer);
+	pbBuffer = (PUCHAR)HeapAlloc(GetProcessHeap(), 0, cbBufferHMACSHA256);
 	AssertFatal( pbBuffer );
-	status = BCryptCreateHash(hAlgHMACSHA256, &hHashHMACSHA256, pbBuffer, cbBuffer, (PUCHAR)pubKey, cubKey, 0);
+	status = BCryptCreateHash(hAlgHMACSHA256, &hHash, pbBuffer, cbBufferHMACSHA256, (PUCHAR)pubKey, cubKey, 0);
 	AssertFatal(NT_SUCCESS(status));
-	status = BCryptHashData(hHashHMACSHA256, (PUCHAR)pubData, (ULONG)cubData, 0);
+	status = BCryptHashData(hHash, (PUCHAR)pubData, (ULONG)cubData, 0);
 	AssertFatal(NT_SUCCESS(status));
-	status = BCryptFinishHash(hHashHMACSHA256, *pOutputDigest, sizeof(SHA256Digest_t), 0);
+	status = BCryptFinishHash(hHash, *pOutputDigest, sizeof(SHA256Digest_t), 0);
 	AssertFatal(NT_SUCCESS(status));
-	status = BCryptDestroyHash(hHashHMACSHA256);
+	status = BCryptDestroyHash(hHash);
 	AssertFatal(NT_SUCCESS(status));
 }
 
-#endif // GNS_CRYPTO_AES_BCRYPT
+//-----------------------------------------------------------------------------
+// Purpose: Generate a keyed-hash MAC using SHA1
+//-----------------------------------------------------------------------------
+void CCrypto::GenerateHMAC( const uint8 *pubData, uint32 cubData, const uint8 *pubKey, uint32 cubKey, SHADigest_t *pOutputDigest )
+{
+	VPROF_BUDGET( "CCrypto::GenerateHMAC256", VPROF_BUDGETGROUP_ENCRYPTION );
+	Assert( pubData );
+	Assert( cubData > 0 );
+	Assert( pubKey );
+	Assert( cubKey > 0 );
+	Assert( pOutputDigest );
+
+	BCRYPT_HASH_HANDLE hHash = INVALID_HANDLE_VALUE;
+	PUCHAR pbBuffer = NULL;
+	NTSTATUS status;
+	pbBuffer = (PUCHAR)HeapAlloc(GetProcessHeap(), 0, cbBufferHMACSHA1);
+	AssertFatal( pbBuffer );
+	status = BCryptCreateHash(hAlgHMACSHA1, &hHash, pbBuffer, cbBufferHMACSHA1, (PUCHAR)pubKey, cubKey, 0);
+	AssertFatal(NT_SUCCESS(status));
+	status = BCryptHashData(hHash, (PUCHAR)pubData, (ULONG)cubData, 0);
+	AssertFatal(NT_SUCCESS(status));
+	status = BCryptFinishHash(hHash, *pOutputDigest, sizeof(SHA256Digest_t), 0);
+	AssertFatal(NT_SUCCESS(status));
+	status = BCryptDestroyHash(hHash);
+	AssertFatal(NT_SUCCESS(status));
+}
+
+#endif // STEAMNETWORKINGSOCKETS_CRYPTO_BCRYPT
