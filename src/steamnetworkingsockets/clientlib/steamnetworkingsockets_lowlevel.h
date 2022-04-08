@@ -250,6 +250,11 @@ public:
 	{
 		return m_pRawSock->BSendRawPacket( pPkt, cbPkt, adrTo );
 	}
+	
+	bool BSendRawPacketGather( int nChunks, const iovec *pChunks, const SteamNetworkingIPAddr &adrTo ) const
+	{
+		return m_pRawSock->BSendRawPacketGather( nChunks, pChunks, adrTo );
+	}
 
 	const SteamNetworkingIPAddr *GetBoundAddr() const
 	{
