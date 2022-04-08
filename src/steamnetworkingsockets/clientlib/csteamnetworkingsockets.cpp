@@ -622,6 +622,12 @@ bool CSteamNetworkingSockets::GetCertificateRequest( int *pcbBlob, void *pBlob, 
 		SteamNetworkingIdentityToProtobuf( m_identity, msgCert, identity_string, legacy_identity_binary, legacy_steam_id );
 	}
 
+	// Are we a hosted server running in a data center?
+	// Then cert should be restricted to that PoP
+	SteamNetworkingPOPID popid = GetHostedDedicatedServerPOPID();
+	if ( popid )
+		msgCert.add_gameserver_datacenter_ids( popid );
+
 	// Check size
 	int cb = ProtoMsgByteSize( msgRequest );
 	if ( !pBlob )
