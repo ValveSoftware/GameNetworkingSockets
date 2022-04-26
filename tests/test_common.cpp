@@ -106,6 +106,9 @@ void TEST_Init( const SteamNetworkingIdentity *pIdentity )
 		if ( pIdentity )
 			SteamNetworkingSockets()->ResetIdentity( pIdentity );
 
+		// Disable auth
+		SteamNetworkingUtils()->SetGlobalConfigValueInt32( k_ESteamNetworkingConfig_IP_AllowWithoutAuth, 2 );
+
     #endif
 }
 
