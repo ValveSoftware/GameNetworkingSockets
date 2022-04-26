@@ -23,8 +23,10 @@ using namespace SteamNetworkingSocketsLib;
 #include <assert.h>
 
 #ifdef POSIX
-#include <unistd.h>
-#include <signal.h>
+	#include <unistd.h>
+	#if !IsPS5()
+		#include <signal.h>
+	#endif
 #endif // POSIX
 
 #ifdef LINUX
@@ -78,12 +80,15 @@ bool Plat_IsInDebugSession()
 		}
 	}
 	return (nTracePid != 0);
-#elif defined( _PS3 )
-#ifdef _CERT
+#elif IsPS5()
+	// There might be a way to tell.  Do we care?
 	return false;
-#else
-	return snIsDebuggerPresent();
-#endif
+#elif defined( _PS3 )
+	#ifdef _CERT
+		return false;
+	#else
+		return snIsDebuggerPresent();
+	#endif
 #endif
 }
 

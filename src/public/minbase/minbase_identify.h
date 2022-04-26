@@ -127,16 +127,17 @@
 	#endif
 	#define IsNintendoSwitch() true
 	#define IsConsole() true
+#elif defined( _PS5 )
+	#ifndef POSIX
+		#define POSIX
+	#endif
+	#define IsPS5() true
+	#define IsConsole() true
 #elif defined( _WIN32 )
 	#define IsWindows() true
 	#define IsPC() true
-#elif defined( _PS3 )
-	#define IsConsole() true
-	#define IsPosix() true
-	#define IsPS3() true
 #elif defined(POSIX)
 	#define IsPC() true
-	#define IsPosix() true
 	#ifdef LINUX
 		#define IsLinux() true
 	#endif
@@ -163,20 +164,19 @@
 #ifndef IsXboxOne
 	#define IsXboxOne() false
 #endif
+#ifndef IsPS5
+	#define IsPS5() false
+#endif
 #ifndef IsLinux
 	#define IsLinux() false
 #endif
-#ifndef IsPosix
+#ifdef POSIX
+	#define IsPosix() true
+#else
 	#define IsPosix() false
 #endif
 #ifndef IsOSX
 	#define IsOSX() false
-#endif
-#ifndef IsPS3
-	#define IsPS3() false
-#endif
-#ifndef IsX360
-	#define IsX360() false
 #endif
 #ifndef IsARM
 	#ifdef __arm__

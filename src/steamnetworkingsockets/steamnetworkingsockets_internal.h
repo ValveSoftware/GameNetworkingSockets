@@ -50,17 +50,10 @@
 	#define STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
 #endif
 
-// GAME_CONSOLE: Are we targeting a game console?
-#ifndef GAME_CONSOLE
-	#if defined( _XBOX_ONE )
-		#define GAME_CONSOLE
-	#endif
-#endif
-
 // STEAMNETWORKINGSOCKETS_STEAM: we have some capability of talking to the
 // running steam client.
 #if !defined( STEAMNETWORKINGSOCKETS_STEAM ) && !defined( STEAMNETWORKINGSOCKETS_NOSTEAM )
-	#if defined( STEAMNETWORKINGSOCKETS_OPENSOURCE ) || defined( STEAMNETWORKINGSOCKETS_STREAMINGCLIENT ) || defined( GAME_CONSOLE )
+	#if defined( STEAMNETWORKINGSOCKETS_OPENSOURCE ) || defined( STEAMNETWORKINGSOCKETS_STREAMINGCLIENT ) || IsConsole()
 		#define STEAMNETWORKINGSOCKETS_NOSTEAM
 	#else
 		#define STEAMNETWORKINGSOCKETS_STEAM
@@ -109,7 +102,7 @@
 // resolve hostnames using DNS?  Note that this is done synchronously, so
 // it should be avoided when possible, and only used for testing!
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
-	#ifndef GAME_CONSOLE
+	#if !IsConsole()
 		#define STEAMNETWORKINGSOCKETS_ENABLE_RESOLVEHOSTNAME
 	#endif
 #endif
@@ -139,7 +132,7 @@
 #endif
 
 // STEAMNETWORKINGSOCKETS_ENABLE_SYSTEMSPEW: Enable default logging and spew based on environment variables
-#ifndef GAME_CONSOLE
+#if !IsConsole()
 	#define STEAMNETWORKINGSOCKETS_ENABLE_SYSTEMSPEW
 #endif
 
