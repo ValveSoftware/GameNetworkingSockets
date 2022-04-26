@@ -230,9 +230,21 @@ void SSNPSenderState::RemoveRefCountReliableSegment( uint16 hSeg )
 //-----------------------------------------------------------------------------
 SSNPReceiverState::SSNPReceiverState()
 {
+	// Initialize our sentinel
+	InitPacketGapMap( 0, 0 );
+
+	// Start with one lane
+	m_vecLanes.resize(1);
+}
+
+//-----------------------------------------------------------------------------
+void SSNPReceiverState::InitPacketGapMap( int64 nMaxRecvPktNum, SteamNetworkingMicroseconds usecRecvTime )
+{
 	// Init packet gaps with a sentinel
-	SSNPPacketGap &sentinel = m_mapPacketGaps[INT64_MAX];
-	sentinel.m_nEnd = INT64_MAX; // Fixed value
+	m_mapPacketGaps.clear();
+	SSNPPacketGap &sentinel = m_mapPacketGaps[nMaxRecvPktNum+1];
+	sentinel.m_nEnd = INT64_MAX; // Used to identify the sentinel
+	sentinel.m_usecWhenReceivedPktBefore = usecRecvTime;
 	sentinel.m_usecWhenOKToNack = INT64_MAX; // Fixed value, for when there is nothing left to nack
 	sentinel.m_usecWhenAckPrior = INT64_MAX; // Time when we need to flush a report on all lower-numbered packets
 
@@ -240,9 +252,6 @@ SSNPReceiverState::SSNPReceiverState()
 	m_itPendingAck = m_mapPacketGaps.end();
 	--m_itPendingAck;
 	m_itPendingNack = m_itPendingAck;
-
-	// Start with one lane
-	m_vecLanes.resize(1);
 }
 
 //-----------------------------------------------------------------------------
@@ -1005,7 +1014,7 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLa
 				h = m_receiverState.m_mapPacketGaps.erase(h);
 			}
 
-			m_receiverState.DebugCheckPackGapMap();
+			SNP_DebugCheckPacketGapMap();
 		}
 		else if ( ( nFrameType & 0xf0 ) == 0x90 )
 		{
@@ -1357,6 +1366,15 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLa
 		}
 	}
 
+	// Track end-to-end flow.  Even if we decided to tell our peer that
+	// we did not receive this, we want our own stats to reflect
+	// that we did.  (And we want to be able to quickly reject a
+	// packet with this same number, calculate jitter stats properly, etc.)
+	//
+	// Note: order of operations is important between these two calls.
+	// SNP_RecordReceivedPktNum assumes that TrackProcessSequencedPacket is always called first
+	m_statsEndToEnd.TrackProcessSequencedPacket( nPktNum, usecNow, usecTimeSinceLast, ctx.m_idxMultiPath );
+
 	// Should we record that we received it?
 	if ( bInhibitMarkReceived )
 	{
@@ -1367,6 +1385,17 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLa
 		// Act as if the packet was dropped.  This will cause the
 		// peer's sender logic to interpret this as additional packet
 		// loss and back off.  That's a feature, not a bug.
+
+		// Make sure we are communicating with the peer and letting
+		// them know about the fragmentation.  This is really a blunt
+		// instrument, and it would be better if we had some timers
+		// based on the stop waiting value.  But if we get here
+		// we are already in pretty bad shape and these finer
+		// points are probably not going to make much of a difference
+		int nPingMs = m_statsEndToEnd.m_ping.m_nSmoothedPing;
+		if ( nPingMs < 0 || nPingMs > 100 )
+			nPingMs = 100;
+		QueueFlushAllAcks( usecNow + ( nPingMs + 5 ) * 2000 );
 	}
 	else
 	{
@@ -1376,15 +1405,6 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLa
 		bool bScheduleAck = nDecodeReliablePos > 0;
 		SNP_RecordReceivedPktNum( nPktNum, usecNow, bScheduleAck );
 	}
-
-	// Track end-to-end flow.  Even if we decided to tell our peer that
-	// we did not receive this, we want our own stats to reflect
-	// that we did.  (And we want to be able to quickly reject a
-	// packet with this same number.)
-	//
-	// Also, note that order of operations is important.  This call must
-	// happen after the SNP_RecordReceivedPktNum call above
-	m_statsEndToEnd.TrackProcessSequencedPacket( nPktNum, usecNow, usecTimeSinceLast, ctx.m_idxMultiPath );
 
 	// Packet can be processed further
 	return true;
@@ -2752,7 +2772,7 @@ void CSteamNetworkConnectionBase::SNP_GatherAckBlocks( SNPPacketSerializeHelper 
 	if ( n <= 0 )
 		return;
 
-	m_receiverState.DebugCheckPackGapMap();
+	SNP_DebugCheckPacketGapMap();
 
 	// Let's not just flush the acks that are due right now.  Let's flush all of them
 	// that will be due any time before we have the bandwidth to send the next packet.
@@ -2800,25 +2820,12 @@ void CSteamNetworkConnectionBase::SNP_GatherAckBlocks( SNPPacketSerializeHelper 
 		SNPAckSerializerHelper::Block &block = helper.m_acks.m_arBlocks[ helper.m_acks.m_nBlocks ];
 		block.m_nNack = uint32( itCur->second.m_nEnd - itCur->first );
 
-		int64 nAckEnd;
-		SteamNetworkingMicroseconds usecWhenSentLast;
-		if ( itNext->first == INT64_MAX )
-		{
-			// We hit the sentinel, so this should be the last block
-			Assert( n == 0 );
-			nAckEnd = m_statsEndToEnd.m_nMaxRecvPktNum+1;
-			usecWhenSentLast = m_statsEndToEnd.m_usecTimeLastRecvSeq;
-		}
-		else
-		{
-			nAckEnd = itNext->first;
-			usecWhenSentLast = itNext->second.m_usecWhenReceivedPktBefore;
-		}
+		int64 nAckEnd = itNext->first;
 		Assert( itCur->second.m_nEnd < nAckEnd );
 		block.m_nAck = uint32( nAckEnd - itCur->second.m_nEnd );
 
 		block.m_nLatestPktNum = uint32( nAckEnd-1 );
-		block.m_nEncodedTimeSinceLatestPktNum = SNPAckSerializerHelper::EncodeTimeSince( helper.UsecNow(), usecWhenSentLast );
+		block.m_nEncodedTimeSinceLatestPktNum = SNPAckSerializerHelper::EncodeTimeSince( helper.UsecNow(), itNext->second.m_usecWhenReceivedPktBefore );
 
 		// When we encode 7+ blocks, the header grows by one byte
 		// to store an explicit count
@@ -2874,16 +2881,23 @@ uint8 *CSteamNetworkConnectionBase::SNP_SerializeAckBlocks( const SNPPacketSeria
 		PacketSendLog *pLog = &m_vecSendLog[ m_vecSendLog.size()-1 ];
 	#endif
 
+	// Locate the sentinel and get the latest packet we should ack, and its timestamp
+	auto itSentinel = m_receiverState.m_mapPacketGaps.rbegin();
+	const int64 nLastPktToAck = itSentinel->first-1;
+	const SteamNetworkingMicroseconds usecWhenRecvLastPktToAck = itSentinel->second.m_usecWhenReceivedPktBefore;
+	Assert( nLastPktToAck <= m_statsEndToEnd.m_nMaxRecvPktNum );
+	//Assert( usecWhenRecvLastPktToAck <= m_statsEndToEnd.m_usecTimeLastRecvSeq ); // Not true if packets are receiver out of order
+	Assert( nLastPktToAck < m_statsEndToEnd.m_nMaxRecvPktNum || usecWhenRecvLastPktToAck == m_statsEndToEnd.m_usecTimeLastRecvSeq );
+
 	// Fast case for no packet loss we need to ack, which will (hopefully!) be a common case
 	if ( m_receiverState.m_mapPacketGaps.size() == 1 )
 	{
-		int64 nLastRecvPktNum = m_statsEndToEnd.m_nMaxRecvPktNum;
-		*pLatestPktNum = LittleWord( (uint16)nLastRecvPktNum );
-		*pTimeSinceLatestPktNum = LittleWord( (uint16)SNPAckSerializerHelper::EncodeTimeSince( helper.UsecNow(), m_statsEndToEnd.m_usecTimeLastRecvSeq ) );
+		*pLatestPktNum = LittleWord( (uint16)nLastPktToAck );
+		*pTimeSinceLatestPktNum = LittleWord( (uint16)SNPAckSerializerHelper::EncodeTimeSince( helper.UsecNow(), usecWhenRecvLastPktToAck ) );
 
 		SpewDebugGroup( nLogLevelPacketDecode, "[%s]   encode pkt %lld last recv %lld (no loss)\n",
 			GetDescription(),
-			(long long)m_statsEndToEnd.m_nNextSendSequenceNumber, (long long)nLastRecvPktNum
+			(long long)m_statsEndToEnd.m_nNextSendSequenceNumber, (long long)nLastPktToAck
 		);
 		m_receiverState.m_mapPacketGaps.rbegin()->second.m_usecWhenAckPrior = INT64_MAX; // Clear timer, we wrote everything we needed to
 
@@ -2912,9 +2926,9 @@ uint8 *CSteamNetworkConnectionBase::SNP_SerializeAckBlocks( const SNPPacketSeria
 			*pLatestPktNum = LittleWord( uint16( nLastRecvPktNum ) );
 			*pTimeSinceLatestPktNum = LittleWord( (uint16)SNPAckSerializerHelper::EncodeTimeSince( helper.UsecNow(), itOldestGap->second.m_usecWhenReceivedPktBefore ) );
 
-			SpewDebugGroup( nLogLevelPacketDecode, "[%s]   encode pkt %lld last recv %lld (no blocks, actual last recv=%lld)\n",
+			SpewDebugGroup( nLogLevelPacketDecode, "[%s]   encode pkt %lld last recv %lld (no blocks, actual last to ack=%lld)\n",
 				GetDescription(),
-				(long long)m_statsEndToEnd.m_nNextSendSequenceNumber, (long long)nLastRecvPktNum, (long long)m_statsEndToEnd.m_nMaxRecvPktNum
+				(long long)m_statsEndToEnd.m_nNextSendSequenceNumber, (long long)nLastRecvPktNum, (long long)nLastPktToAck
 			);
 
 			#ifdef SNP_ENABLE_PACKETSENDLOG
@@ -2928,7 +2942,7 @@ uint8 *CSteamNetworkConnectionBase::SNP_SerializeAckBlocks( const SNPPacketSeria
 				// Mark it as sent
 				m_receiverState.m_itPendingAck->second.m_usecWhenAckPrior = INT64_MAX;
 				++m_receiverState.m_itPendingAck;
-				m_receiverState.DebugCheckPackGapMap();
+				SNP_DebugCheckPacketGapMap();
 			}
 
 			// NOTE: We did NOT nack anything just now
@@ -2964,8 +2978,9 @@ uint8 *CSteamNetworkConnectionBase::SNP_SerializeAckBlocks( const SNPPacketSeria
 	*pLatestPktNum = LittleWord( uint16( pBlock->m_nLatestPktNum ) );
 	*pTimeSinceLatestPktNum = LittleWord( pBlock->m_nEncodedTimeSinceLatestPktNum );
 
-	// Full packet number, for spew
-	int64 nAckEnd = ( m_statsEndToEnd.m_nMaxRecvPktNum & ~(int64)(~(uint32)0) ) | pBlock->m_nLatestPktNum;
+	// Last packet number, for spew
+	int64 nAckEnd = NearestWithSameLowerBits( (int32)pBlock->m_nLatestPktNum, nLastPktToAck );
+	Assert( nAckEnd <= nLastPktToAck );
 	++nAckEnd;
 
 	#ifdef SNP_ENABLE_PACKETSENDLOG
@@ -2973,24 +2988,24 @@ uint8 *CSteamNetworkConnectionBase::SNP_SerializeAckBlocks( const SNPPacketSeria
 		pLog->m_nAckEnd = nAckEnd;
 	#endif
 
-	SpewDebugGroup( nLogLevelPacketDecode, "[%s]   encode pkt %lld last recv %lld (%d blocks, actual last recv=%lld)\n",
+	SpewDebugGroup( nLogLevelPacketDecode, "[%s]   encode pkt %lld last recv %lld (%d blocks, actual last to ack=%lld)\n",
 		GetDescription(),
-		(long long)m_statsEndToEnd.m_nNextSendSequenceNumber, (long long)(nAckEnd-1), nBlocks, (long long)m_statsEndToEnd.m_nMaxRecvPktNum
+		(long long)m_statsEndToEnd.m_nNextSendSequenceNumber, (long long)(nAckEnd-1), nBlocks, (long long)nLastPktToAck
 	);
 
 	// Check for a common case where we report on everything
-	if ( nAckEnd > m_statsEndToEnd.m_nMaxRecvPktNum )
+	if ( nAckEnd > nLastPktToAck )
 	{
-		Assert( nAckEnd == m_statsEndToEnd.m_nMaxRecvPktNum+1 );
+		Assert( nAckEnd == nLastPktToAck+1 );
 		for (;;)
 		{
 			m_receiverState.m_itPendingAck->second.m_usecWhenAckPrior = INT64_MAX;
-			if ( m_receiverState.m_itPendingAck->first == INT64_MAX )
+			if ( m_receiverState.m_itPendingAck->second.m_nEnd == INT64_MAX )
 				break;
 			++m_receiverState.m_itPendingAck;
 		}
 		m_receiverState.m_itPendingNack = m_receiverState.m_itPendingAck;
-		m_receiverState.DebugCheckPackGapMap();
+		SNP_DebugCheckPacketGapMap();
 	}
 	else
 	{
@@ -3010,7 +3025,7 @@ uint8 *CSteamNetworkConnectionBase::SNP_SerializeAckBlocks( const SNPPacketSeria
 		// we are about to nack.
 		while ( m_receiverState.m_itPendingNack->first < nAckEnd )
 			++m_receiverState.m_itPendingNack;
-		m_receiverState.DebugCheckPackGapMap();
+		SNP_DebugCheckPacketGapMap();
 	}
 
 	// Serialize the blocks into the packet, from newest to oldest
@@ -3687,9 +3702,20 @@ void CSteamNetworkConnectionBase::SNP_RecordReceivedPktNum( int64 nPktNum, Steam
 	if ( unlikely( nPktNum < m_receiverState.m_nMinPktNumToSendAcks ) )
 		return;
 
+	// Locate the sentinel in the packet gap map, which records the last packet
+	// number that we will ack.
+	auto itSentinel = m_receiverState.m_mapPacketGaps.rbegin();
+	const int64 nExpectedNextPktNum = itSentinel->first;
+
 	// Fast path for the (hopefully) most common case of packets arriving in order
-	if ( likely( nPktNum == m_statsEndToEnd.m_nMaxRecvPktNum+1 ) )
+	if ( likely( nPktNum == nExpectedNextPktNum ) )
 	{
+		// Update the sentinel.  Since the sentinel is always the highest numbered
+		// entry in the map, it should always be legal to increase its key without
+		// violating std::map sorting invariants
+		const_cast<int64&>( itSentinel->first ) = nPktNum+1;
+		itSentinel->second.m_usecWhenReceivedPktBefore = usecNow;
+
 		if ( bScheduleAck ) // fast path for all unreliable data (common when we are just being used for transport)
 		{
 			// Schedule ack of this packet (since we are the highest numbered
@@ -3700,64 +3726,64 @@ void CSteamNetworkConnectionBase::SNP_RecordReceivedPktNum( int64 nPktNum, Steam
 	}
 
 	// At this point, ack invariants should be met
-	m_receiverState.DebugCheckPackGapMap();
+	SNP_DebugCheckPacketGapMap();
 
 	// Latest time that this packet should be acked.
 	// (We might already be scheduled to send and ack that would include this packet.)
 	SteamNetworkingMicroseconds usecScheduleAck = bScheduleAck ? usecNow + k_usecMaxDataAckDelay : INT64_MAX;
 
 	// Check if this introduced a gap since the last sequence packet we have received
-	if ( nPktNum > m_statsEndToEnd.m_nMaxRecvPktNum )
+	if ( nPktNum > nExpectedNextPktNum )
 	{
 
-		// Protect against malicious sender!
-		if ( len( m_receiverState.m_mapPacketGaps ) >= k_nMaxPacketGaps )
-			return; // Nope, we will *not* actually mark the packet as received
-
-		// Add a gap for the skipped packet(s).
-		int64 nBegin = m_statsEndToEnd.m_nMaxRecvPktNum+1;
+		// Setup a gap for the skipped packet(s).
 		std::pair<int64,SSNPPacketGap> x;
-		x.first = nBegin;
+		x.first = nExpectedNextPktNum;
 		x.second.m_nEnd = nPktNum;
-		x.second.m_usecWhenReceivedPktBefore = m_statsEndToEnd.m_usecTimeLastRecvSeq;
-		x.second.m_usecWhenAckPrior = m_receiverState.m_mapPacketGaps.rbegin()->second.m_usecWhenAckPrior;
+		x.second.m_usecWhenReceivedPktBefore = itSentinel->second.m_usecWhenReceivedPktBefore;
+		x.second.m_usecWhenAckPrior = itSentinel->second.m_usecWhenAckPrior;
 
 		// When should we nack this?
 		x.second.m_usecWhenOKToNack = usecNow;
 		if ( nPktNum < m_statsEndToEnd.m_nMaxRecvPktNum + 3 )
 			x.second.m_usecWhenOKToNack += k_usecNackFlush;
 
+		// Update the sentinel.  Since the sentinel is always the highest numbered
+		// entry in the map, it should always be legal to increase its key without
+		// violating std::map sorting invariants
+		const_cast<int64&>( itSentinel->first ) = nPktNum+1;
+		itSentinel->second.m_usecWhenReceivedPktBefore = usecNow;
+
+		// Insert the gap
 		auto iter = m_receiverState.m_mapPacketGaps.insert( x ).first;
 
 		SpewMsgGroup( m_connectionConfig.m_LogLevel_PacketGaps.Get(), "[%s] drop %d pkts [%lld-%lld)",
 			GetDescription(),
-			(int)( nPktNum - nBegin ),
-			(long long)nBegin, (long long)nPktNum );
+			(int)( nPktNum - nExpectedNextPktNum ),
+			(long long)nExpectedNextPktNum, (long long)nPktNum );
 
 		// Remember that we need to send a NACK
-		if ( m_receiverState.m_itPendingNack->first == INT64_MAX )
+		if ( m_receiverState.m_itPendingNack->second.m_nEnd == INT64_MAX )
 		{
 			m_receiverState.m_itPendingNack = iter;
 		}
 		else
 		{
 			// Pending nacks should be for older packet, not newer
-			Assert( m_receiverState.m_itPendingNack->first < nBegin );
+			Assert( m_receiverState.m_itPendingNack->first < nExpectedNextPktNum );
 		}
 
 		// Back up if we we had a flush of everything scheduled
-		if ( m_receiverState.m_itPendingAck->first == INT64_MAX && m_receiverState.m_itPendingAck->second.m_usecWhenAckPrior < INT64_MAX )
+		if ( m_receiverState.m_itPendingAck->second.m_nEnd == INT64_MAX && m_receiverState.m_itPendingAck->second.m_usecWhenAckPrior < INT64_MAX )
 		{
 			Assert( iter->second.m_usecWhenAckPrior == m_receiverState.m_itPendingAck->second.m_usecWhenAckPrior );
 			m_receiverState.m_itPendingAck = iter;
 		}
 
-		// At this point, ack invariants should be met
-		m_receiverState.DebugCheckPackGapMap();
-
 		// Schedule ack of this packet (since we are the highest numbered
 		// packet, that means reporting on everything) by the requested
 		// time
+		// Note: this also checks the packet gap invariants
 		QueueFlushAllAcks( usecScheduleAck );
 	}
 	else
@@ -3836,14 +3862,14 @@ void CSteamNetworkConnectionBase::SNP_RecordReceivedPktNum( int64 nPktNum, Steam
 					{
 						m_receiverState.m_itPendingAck = m_receiverState.m_mapPacketGaps.end();
 						--m_receiverState.m_itPendingAck;
-						Assert( m_receiverState.m_itPendingAck->first == INT64_MAX );
+						Assert( m_receiverState.m_itPendingAck->second.m_nEnd == INT64_MAX );
 					}
 				}
 
 				SpewVerboseGroup( m_connectionConfig.m_LogLevel_PacketGaps.Get(), "[%s] decode pkt %lld, single pkt gap filled", GetDescription(), (long long)nPktNum );
 
 				// At this point, ack invariants should be met
-				m_receiverState.DebugCheckPackGapMap();
+				SNP_DebugCheckPacketGapMap();
 			}
 			else
 			{
@@ -3858,7 +3884,7 @@ void CSteamNetworkConnectionBase::SNP_RecordReceivedPktNum( int64 nPktNum, Steam
 				++itGap;
 
 				// At this point, ack invariants should be met
-				m_receiverState.DebugCheckPackGapMap();
+				SNP_DebugCheckPacketGapMap();
 			}
 		}
 		else if ( itGap->first == nPktNum )
@@ -3875,14 +3901,11 @@ void CSteamNetworkConnectionBase::SNP_RecordReceivedPktNum( int64 nPktNum, Steam
 				(long long)nPktNum, (long long)itGap->first, (long long)itGap->second.m_nEnd );
 
 			// At this point, ack invariants should be met
-			m_receiverState.DebugCheckPackGapMap();
+			SNP_DebugCheckPacketGapMap();
 		}
 		else
 		{
 			// Packet is in the middle of the gap.  We'll need to fragment this gap
-			// Protect against malicious sender!
-			if ( len( m_receiverState.m_mapPacketGaps ) >= k_nMaxPacketGaps )
-				return; // Nope, we will *not* actually mark the packet as received
 
 			// Locate the next block so we can set the schedule time
 			auto itNext = itGap;
@@ -3911,7 +3934,7 @@ void CSteamNetworkConnectionBase::SNP_RecordReceivedPktNum( int64 nPktNum, Steam
 			itGap = m_receiverState.m_mapPacketGaps.insert( upper ).first;
 
 			// At this point, ack invariants should be met
-			m_receiverState.DebugCheckPackGapMap();
+			SNP_DebugCheckPacketGapMap();
 		}
 
 		Assert( itGap != m_receiverState.m_mapPacketGaps.end() );
@@ -3978,13 +4001,111 @@ void CSteamNetworkConnectionBase::SNP_RecordReceivedPktNum( int64 nPktNum, Steam
 			}
 
 			// Make sure we didn't screw things up
-			m_receiverState.DebugCheckPackGapMap();
+			SNP_DebugCheckPacketGapMap();
 		}
 
 		// Make sure are scheduled to wake up
 		if ( bScheduleAck )
 			EnsureMinThinkTime( m_receiverState.TimeWhenFlushAcks() );
 	}
+
+	// FIXME if we are getting fragmented, we should start being more
+	// aggressive at making sure we are sending back acks on a regular basis
+	// so that the peer is aware of the problem.  If they are only sending
+	// unreliable data and we are mostly quiet, we might not be scheduling
+	// acks at a sufficient frequency.
+
+	// Check if our we are very badly fragmented and need to protect
+	// against a malicious sender.
+	if ( unlikely( len( m_receiverState.m_mapPacketGaps ) >= k_nMaxPacketGaps ) )
+	{
+
+		// Tune this code if this changes
+		COMPILE_TIME_ASSERT( k_nMaxPacketGaps == 62 );
+
+		// We are tracking too many gaps.  Find two of the older
+		// gaps and merge them.  This is the same as converting a
+		// block of packets that we previously received and marking
+		// them as not received.  For older blocks, it's very likely
+		// that we have actually already acked them, and this is no
+		// loss.  If the peer has received those acks, it has advanced
+		// its m_nMinPktWaitingOnAck, and won't care about the fact that
+		// now we are nacking some packets we previously acked.  If we
+		// have not acked them, then will have to be resent.  But since
+		// we are very badly fragmented if we get here, that's somewhat
+		// of a feature, not a bug.  Look for the smallest range we can
+		// find, and if there's a tie, prefer the older one.
+		auto itProbe = m_receiverState.m_mapPacketGaps.begin();
+		auto itGapToExtend = itProbe;
+		int64 nBestNewNacks = INT64_MAX;
+		for ( int nProbe = 0 ; nProbe < 10 ; ++nProbe )
+		{
+			auto itNext = itProbe;
+			++itNext;
+
+			// How many packets are between these two gaps?  These
+			// are packets we actually received, and might have to be
+			// retransmitted if we nack them.
+			int64 nNewNacks = itNext->first - itProbe->second.m_nEnd;
+			Assert( nNewNacks > 0 );
+			if ( nNewNacks < nBestNewNacks )
+			{
+				itGapToExtend = itProbe;
+				nBestNewNacks = nNewNacks;
+			}
+
+			itProbe = itNext;
+		}
+		Assert( nBestNewNacks < INT64_MAX );
+
+		auto itGapToDelete = itGapToExtend;
+		++itGapToDelete;
+
+		// Locate the next gap after the one we're deleting, and fix it up
+		auto itGapNext = itGapToDelete;
+		++itGapNext;
+		itGapNext->second.m_usecWhenReceivedPktBefore = itGapToDelete->second.m_usecWhenReceivedPktBefore;
+		Assert( itGapNext->second.m_usecWhenOKToNack >= itGapToDelete->second.m_usecWhenOKToNack );
+		itGapNext->second.m_usecWhenOKToNack = itGapToDelete->second.m_usecWhenOKToNack;
+		if ( itGapToDelete->second.m_usecWhenAckPrior < INT64_MAX )
+		{
+			Assert( itGapNext->second.m_usecWhenAckPrior < INT64_MAX );
+			Assert( itGapNext->second.m_usecWhenAckPrior >= itGapToDelete->second.m_usecWhenAckPrior );
+			itGapNext->second.m_usecWhenAckPrior = itGapToDelete->second.m_usecWhenAckPrior;
+
+			if ( itGapToDelete == m_receiverState.m_itPendingAck )
+			{
+				++m_receiverState.m_itPendingAck;
+			}
+			else
+			{
+				Assert( itGapToDelete->first < m_receiverState.m_itPendingAck->first );
+				Assert( itGapToDelete->second.m_usecWhenAckPrior <= m_receiverState.m_itPendingAck->second.m_usecWhenAckPrior );
+			}
+		}
+		else
+		{
+			Assert( itGapToDelete != m_receiverState.m_itPendingAck );
+		}
+
+		if ( itGapToDelete == m_receiverState.m_itPendingNack )
+			++m_receiverState.m_itPendingNack;
+
+		SpewWarningRateLimited( usecNow, "[%s] recv packet gap map badly fragmented, discarding gap [%lld,%lld).  %lld pkts [%lld,%lld] were received, but will now be nacked.  May trigger re-transmission!\n",
+			GetDescription(),
+			(long long)itGapToDelete->first, (long long)itGapToDelete->second.m_nEnd,
+			(long long)nBestNewNacks,
+			(long long)itGapToExtend->second.m_nEnd, (long long)itGapToDelete->first
+		);
+
+		// Extend the previous range
+		itGapToExtend->second.m_nEnd = itGapToDelete->second.m_nEnd;
+		m_receiverState.m_mapPacketGaps.erase(itGapToDelete);
+
+		// Make sure we didn't screw things up
+		SNP_DebugCheckPacketGapMap();
+	}
+
 }
 
 int CSteamNetworkConnectionBase::SNP_ClampSendRate()
@@ -4116,7 +4237,7 @@ void CSteamNetworkConnectionBase::SNP_TokenBucket_Accumulate( SteamNetworkingMic
 
 void SSNPReceiverState::QueueFlushAllAcks( SteamNetworkingMicroseconds usecWhen )
 {
-	DebugCheckPackGapMap();
+	DebugCheckPacketGapMap();
 
 	Assert( usecWhen > 0 ); // zero is reserved and should never be used as a requested wake time
 
@@ -4138,31 +4259,50 @@ void SSNPReceiverState::QueueFlushAllAcks( SteamNetworkingMicroseconds usecWhen 
 			m_itPendingAck->second.m_usecWhenAckPrior = INT64_MAX;
 			++m_itPendingAck;
 		} while ( m_itPendingAck != it );
-		DebugCheckPackGapMap();
+		DebugCheckPacketGapMap();
 	}
 	else
 	{
 		// Maintain invariant
 		while ( (--it)->second.m_usecWhenAckPrior >= usecWhen )
 			it->second.m_usecWhenAckPrior = usecWhen;
-		DebugCheckPackGapMap();
+		DebugCheckPacketGapMap();
 	}
 }
 
+#if STEAMNETWORKINGSOCKETS_SNP_PARANOIA > 0
+void CSteamNetworkConnectionBase::SNP_DebugCheckPacketGapMapSentinel() const
+{
+
+	// Locate the sentinel and get the latest packet we should ack, and its timestamp
+	auto itSentinel = m_receiverState.m_mapPacketGaps.rbegin();
+	const int64 nLastPktToAck = itSentinel->first-1;
+	const SteamNetworkingMicroseconds usecWhenRecvLastPktToAck = itSentinel->second.m_usecWhenReceivedPktBefore;
+	Assert( nLastPktToAck <= m_statsEndToEnd.m_nMaxRecvPktNum );
+	//Assert( usecWhenRecvLastPktToAck <= m_statsEndToEnd.m_usecTimeLastRecvSeq ); // Not true if packets are receiver out of order
+	Assert( nLastPktToAck < m_statsEndToEnd.m_nMaxRecvPktNum || usecWhenRecvLastPktToAck == m_statsEndToEnd.m_usecTimeLastRecvSeq );
+}
+#endif
+
 #if STEAMNETWORKINGSOCKETS_SNP_PARANOIA > 1
-void SSNPReceiverState::DebugCheckPackGapMap() const
+
+void SSNPReceiverState::DebugCheckPacketGapMap() const
 {
 	int64 nPrevEnd = 0;
 	SteamNetworkingMicroseconds usecPrevAck = 0;
 	bool bFoundPendingAck = false;
+	bool bFoundPendingNack = false;
 	for ( auto it: m_mapPacketGaps )
 	{
 		Assert( it.first > nPrevEnd );
+		Assert( it.first < it.second.m_nEnd );
 		if ( it.first == m_itPendingAck->first )
 		{
 			Assert( !bFoundPendingAck );
 			bFoundPendingAck = true;
-			if ( it.first < INT64_MAX )
+
+			// If it isn't the sentinel, then we should have a schedule time set to flush this!
+			if ( it.second.m_nEnd < INT64_MAX )
 				Assert( it.second.m_usecWhenAckPrior < INT64_MAX );
 		}
 		else if ( !bFoundPendingAck )
@@ -4173,18 +4313,19 @@ void SSNPReceiverState::DebugCheckPackGapMap() const
 		{
 			Assert( it.second.m_usecWhenAckPrior >= usecPrevAck );
 		}
+
+		if ( it.first == m_itPendingNack->first )
+		{
+			Assert( !bFoundPendingNack );
+			bFoundPendingNack = true;
+		}
+
 		usecPrevAck = it.second.m_usecWhenAckPrior;
-		if ( it.first == INT64_MAX )
-		{
-			Assert( it.second.m_nEnd == INT64_MAX );
-		}
-		else
-		{
-			Assert( it.first < it.second.m_nEnd );
-		}
 		nPrevEnd = it.second.m_nEnd;
 	}
 	Assert( nPrevEnd == INT64_MAX );
+	Assert( bFoundPendingAck );
+	Assert( bFoundPendingNack );
 }
 #endif
 

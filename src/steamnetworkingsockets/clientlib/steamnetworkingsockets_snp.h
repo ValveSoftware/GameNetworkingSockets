@@ -500,7 +500,7 @@ struct SSNPRecvUnreliableSegmentData
 
 struct SSNPPacketGap
 {
-	int64 m_nEnd; // just after the last packet received
+	int64 m_nEnd; // just after the last packet in the gap.  This is the first in a block of packets that was received.
 	SteamNetworkingMicroseconds m_usecWhenReceivedPktBefore; // So we can send RTT data in our acks
 	SteamNetworkingMicroseconds m_usecWhenAckPrior; // We need to send an ack for everything with lower packet numbers than this gap by this time.  (Earlier is OK.)
 	SteamNetworkingMicroseconds m_usecWhenOKToNack; // Don't give up on the gap being filed before this time
@@ -558,13 +558,20 @@ struct SSNPReceiverState
 	/// Since these must never overlap, we store them using begin as the
 	/// key and the end in the value.
 	///
-	/// The last item in the list is a sentinel with
-	/// begin and end set to INT64_MAX, and m_usecWhenAckPrior is
-	/// the time when we need to flush acks/backs for all packets,
-	/// including those received after the last gap (if any --
-	/// INT64_MAX means nothing scheduled).  Remember, our wire
-	/// protocol cannot report on packet N without also reporting
-	/// on all packets numbered < N.
+	/// We always have at least one item in the list.  The last item is
+	/// a special sentinel:
+	/// - The key (the "begin" packet number) is one
+	///   higher than the highest packet number that we want to ack.
+	///   (Important: this might not be the highest packet number we have
+	///   received.  Sometimes we choose to not ack packets, as a mitigation
+	///   against malicious senders blowing up our data structures.)
+	/// - m_usecWhenReceivedPktBefore tracks the time when we received this
+	///   packet.
+	/// - m_usecWhenAckPrior is the time when we need to flush acks/nacks for
+	///   *all* packets, including those received after the last gap (if any --
+	///   INT64_MAX means nothing scheduled).  Remember, our wire
+	///   protocol cannot report on packet N without also reporting
+	///   on all packets numbered < N.
 	///
 	/// !SPEED! We should probably use a small fixed-sized, sorted vector here,
 	/// since in most cases the list will be small, and the cost of dynamic memory
@@ -628,10 +635,13 @@ struct SSNPReceiverState
 
 	/// Check invariants in debug.
 	#if STEAMNETWORKINGSOCKETS_SNP_PARANOIA > 1
-		void DebugCheckPackGapMap() const;
+		void DebugCheckPacketGapMap() const;
 	#else
-		inline void DebugCheckPackGapMap() const {}
+		inline void DebugCheckPacketGapMap() const {}
 	#endif
+
+	/// Setup the sentinel
+	void InitPacketGapMap( int64 nMaxRecvPktNum, SteamNetworkingMicroseconds usecRecvTime );
 
 	// Stats.  FIXME - move to LinkStatsEndToEnd and track rate counters
 	int64 m_nMessagesRecvReliable = 0;

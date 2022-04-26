@@ -611,6 +611,7 @@ public:
 	{
 		if ( bImmediate )
 		{
+			SNP_DebugCheckPacketGapMapSentinel();
 			m_receiverState.QueueFlushAllAcks( k_nThinkTime_ASAP );
 			SetNextThinkTimeASAP();
 		}
@@ -622,6 +623,7 @@ public:
 
 	void QueueFlushAllAcks( SteamNetworkingMicroseconds usecWhen )
 	{
+		SNP_DebugCheckPacketGapMapSentinel();
 		m_receiverState.QueueFlushAllAcks( usecWhen );
 		EnsureMinThinkTime( m_receiverState.TimeWhenFlushAcks() );
 	}
@@ -917,6 +919,19 @@ private:
 		int m_cbSent;
 	};
 	std_vector<PacketSendLog> m_vecSendLog;
+	#endif
+
+	/// Check invariants in debug.
+	#if STEAMNETWORKINGSOCKETS_SNP_PARANOIA > 0
+		inline void SNP_DebugCheckPacketGapMap() const
+		{
+			SNP_DebugCheckPacketGapMapSentinel();
+			m_receiverState.DebugCheckPacketGapMap();
+		}
+		void SNP_DebugCheckPacketGapMapSentinel() const;
+	#else
+		inline void SNP_DebugCheckPacketGapMap() const {}
+		inline void SNP_DebugCheckPacketGapMapSentinel() const {}
 	#endif
 
 	// Implements IThinker.

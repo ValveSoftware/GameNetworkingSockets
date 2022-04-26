@@ -1051,16 +1051,19 @@ void CSteamNetworkConnectionBase::ClearLocalCrypto()
 
 void CSteamNetworkConnectionBase::RecvNonDataSequencedPacket( int64 nPktNum, SteamNetworkingMicroseconds usecNow )
 {
-	// Note: order of operations is important betwen these two calls
+	SNP_DebugCheckPacketGapMap();
+
+	// Note: order of operations is important between these two calls.
+	// SNP_RecordReceivedPktNum assumes that TrackProcessSequencedPacket is always called first
+
+	// Update general sequence number/stats tracker for the end-to-end flow.
+	int idxMultiPath = 0; // Assume for now
+	m_statsEndToEnd.TrackProcessSequencedPacket( nPktNum, usecNow, 0, idxMultiPath );
 
 	// Let SNP know when we received it, so we can track loss events and send acks.  We do
 	// not schedule acks to be sent at this time, but when they are sent, we will implicitly
 	// ack this one
 	SNP_RecordReceivedPktNum( nPktNum, usecNow, false );
-
-	// Update general sequence number/stats tracker for the end-to-end flow.
-	int idxMultiPath = 0; // Assume for now
-	m_statsEndToEnd.TrackProcessSequencedPacket( nPktNum, usecNow, 0, idxMultiPath );
 }
 
 bool CSteamNetworkConnectionBase::BThinkCryptoReady( SteamNetworkingMicroseconds usecNow )
@@ -1512,6 +1515,7 @@ ESteamNetConnectionEnd CSteamNetworkConnectionBase::RecvCryptoHandshake(
 		if ( m_statsEndToEnd.m_nMaxRecvPktNum == 0 )
 			m_statsEndToEnd.InitMaxRecvPktNum( 1 );
 	}
+	m_receiverState.InitPacketGapMap( m_statsEndToEnd.m_nMaxRecvPktNum, m_statsEndToEnd.m_usecTimeLastRecvSeq );
 
 	// Check for legacy client that didn't send a list of ciphers
 	if ( m_msgCryptRemote.ciphers_size() == 0 )
