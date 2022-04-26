@@ -16,12 +16,43 @@
 	#ifndef _XBOX_ONE
 		#include <iphlpapi.h>
 	#endif
-	#define MSG_NOSIGNAL 0
+
+	// Windows is the worst
+	#undef min
+	#undef max
 	#undef SetPort
-#elif defined( NN_NINTENDO_SDK )
-	// Sorry, but this code is covered under NDA with Nintendo, and
-	// we don't have permission to distribute it.
+
+	#define MSG_NOSIGNAL 0
+
+	inline bool SetSocketNonBlocking( SOCKET s )
+	{
+		unsigned long opt = 1;
+		return ioctlsocket( s, FIONBIO, &opt ) == 0;
+	}
+
+	#define WAKE_THREAD_USING_EVENT
+	typedef HANDLE ThreadWakeEvent;
+	#define INVALID_THREAD_WAKE_EVENT INVALID_HANDLE_VALUE
+	inline void SetWakeThreadEvent( ThreadWakeEvent hEvent )
+	{
+		::SetEvent( hEvent );
+	}
+
+	inline int GetLastSocketError()
+	{
+		return (int)WSAGetLastError();
+	}
+
+#elif IsNintendoSwitch()
+	// NDA-protected material, so all this is in a separate file
+	#include "clientlib/nswitch/steamnetworkingsockets_platform_nswitch.h"
+#elif IsPS5()
+	// NDA-protected material, so all this is in a separate file
+	#include "clientlib/ps5/steamnetworkingsockets_platform_ps5.h"
+
 #else
+
+	// POSIX-ish platform (Linux, OSX, Android, IOS)
 	#include <sys/types.h>
 	#include <sys/socket.h>
 	#include <netinet/in.h>
@@ -30,41 +61,58 @@
 	#include <poll.h>
 	#include <errno.h>
 
-	#include <sys/types.h>
 	#ifndef ANDROID
 		#include <ifaddrs.h>
 	#endif
-	#include <sys/ioctl.h>
 	#include <net/if.h>
 
 	#ifndef closesocket
 		#define closesocket close
 	#endif
-	#ifndef ioctlsocket
-		#define ioctlsocket ioctl
-	#endif
 	#define WSAEWOULDBLOCK EWOULDBLOCK
 
-	#ifndef __APPLE__
-		#define EPOLL_SUPPORTED
+	#define WAKE_THREAD_USING_SOCKET_PAIR
+
+	inline bool SetSocketNonBlocking( SOCKET s )
+	{
+		unsigned long opt = 1;
+		return ioctl( s, FIONBIO, &opt ) == 0;
+	}
+
+	inline int GetLastSocketError()
+	{
+		return errno;
+	}
+
+	#ifdef __APPLE__
+		#define USE_POLL
+	#else
+		#define USE_EPOLL
 		#include <sys/epoll.h>
+
+		typedef int EPollHandle;
+		constexpr EPollHandle INVALID_EPOLL_HANDLE = -1;
+		inline EPollHandle EPollCreate( SteamNetworkingErrMsg &errMsg )
+		{
+			int flags = 0;
+			#ifdef LINUX
+				flags |= EPOLL_CLOEXEC;
+			#endif
+			EPollHandle e = epoll_create1( flags );
+			if ( e == -1 )
+			{
+				V_sprintf_safe( errMsg, "epoll_create1() failed, errno=%d", errno );
+				return INVALID_EPOLL_HANDLE;
+			}
+			return e;
+		}
+
+		#define EPollClose(x) close(x)
+
+		// FIXME - should we try to use eventfd() here
+		// instead of a socket pair?
+
 	#endif
 #endif
-
-// Windows is the worst
-#undef min
-#undef max
-
-inline int GetLastSocketError()
-{
-	#if defined( _WIN32 )
-		return (int)WSAGetLastError();
-	#elif defined( NN_NINTENDO_SDK )
-		// Sorry, but this code is covered under NDA with Nintendo, and
-		// we don't have permission to distribute it.
-	#else
-		return errno;
-	#endif
-}
 
 #endif // #ifndef STEAMNETWORKINGSOCKETS_PLATFORM_H

@@ -601,7 +601,7 @@ extern void SteamNetworkingSocketsLowLevelValidate( CValidator &validator );
 
 /// Wake up the service thread ASAP.  Intended to be called from other threads,
 /// but is safe to call from the service thread as well.
-extern void WakeSteamDatagramThread();
+extern void WakeServiceThread();
 
 class CQueuedTask;
 

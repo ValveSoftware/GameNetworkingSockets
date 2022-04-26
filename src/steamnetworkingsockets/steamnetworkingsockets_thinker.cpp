@@ -151,7 +151,7 @@ void IThinker::InternalSetNextThinkTime( SteamNetworkingMicroseconds usecTargetT
 		// waking up the service thread just to re-schedule when it should
 		// wake up for real.
 		if ( m_usecNextThinkTime < usecNextWake )
-			WakeSteamDatagramThread();
+			WakeServiceThread();
 	#endif
 }
 

@@ -59,7 +59,6 @@ constexpr int k_msMaxPollWait = 1000;
 constexpr SteamNetworkingMicroseconds k_usecMaxTimestampDelta = k_msMaxPollWait * 1100;
 
 static void FlushSystemSpew();
-static void FlushSystemSpewLocked();
 
 int g_cbUDPSocketBufferSize = 256*1024;
 
@@ -707,7 +706,7 @@ void CQueuedTask::QueueToRunWithGlobalLock( const char *pszTag )
 	g_taskListRunWithGlobalLock.QueueTask( this );
 
 	// Make sure service thread will wake up to do something with this
-	WakeSteamDatagramThread();
+	WakeServiceThread();
 
 	// NOTE: At this point we are subject to being run or deleted at any time!
 }
@@ -717,7 +716,7 @@ void CQueuedTask::QueueToRunInBackground()
 	g_taskListRunInBackground.QueueTask( this );
 
 	//if ( s_bManualPollMode || ( s_pThreadSteamDatagram && s_pThreadSteamDatagram->get_id() != std::this_thread::get_id() ) )
-	WakeSteamDatagramThread();
+	WakeServiceThread();
 }
 
 // Try to guess if the route the specified address is probably "local".
@@ -1272,38 +1271,11 @@ static CPacketLaggerSend s_packetLagQueueSend;
 static CPacketLaggerRecv s_packetLagQueueRecv;
 
 /// Object used to wake our background thread efficiently
-#if defined( _WIN32 )
-	static HANDLE s_hEventWakeThread = INVALID_HANDLE_VALUE;
-#elif defined( NN_NINTENDO_SDK )
-	static int s_hEventWakeThread = INVALID_SOCKET;
-	#define USE_POLL
-#else
+#if defined( WAKE_THREAD_USING_EVENT )
+	static ThreadWakeEvent s_hEventWakeThread = INVALID_THREAD_WAKE_EVENT;
+#elif defined( WAKE_THREAD_USING_SOCKET_PAIR )
 	static SOCKET s_hSockWakeThreadRead = INVALID_SOCKET;
 	static SOCKET s_hSockWakeThreadWrite = INVALID_SOCKET;
-
-	#ifdef EPOLL_SUPPORTED
-		#define USE_EPOLL
-		static int s_epollfd = -1;
-
-		static bool AddFDToEPoll( int fd, CRawUDPSocketImpl *pSock, SteamNetworkingErrMsg &errMsg )
-		{
-			struct epoll_event ev = {};
-
-			ev.events = EPOLLIN; // We only care about sockets with data ready read
-			ev.data.ptr = pSock; // epoll can give us back some userdata.
-
-			if ( epoll_ctl( s_epollfd, EPOLL_CTL_ADD, fd, &ev) != 0 )
-			{
-				V_sprintf_safe( errMsg, "epoll_ctl failed, errno=%d", errno );
-				return false;
-			}
-			return true;
-		}
-
-	#else
-		#define USE_POLL
-	#endif
-
 #endif
 
 // POSIX polling using poll().  (Or something that has extremely similar semantics that we can
@@ -1314,22 +1286,42 @@ static CUtlVector<pollfd> s_vecPollFDs;
 static bool s_bRecreatePollList = true;
 #endif
 
-static std::thread *s_pThreadSteamDatagram = nullptr;
+#ifdef USE_EPOLL
+static EPollHandle s_epollfd = INVALID_EPOLL_HANDLE;
 
-void WakeSteamDatagramThread()
+static bool AddFDToEPoll( int fd, CRawUDPSocketImpl *pSock, SteamNetworkingErrMsg &errMsg )
 {
-	#if defined( _WIN32 )
-		if ( s_hEventWakeThread != INVALID_HANDLE_VALUE )
-			SetEvent( s_hEventWakeThread );
-	#elif defined( NN_NINTENDO_SDK )
-		// Sorry, but this code is covered under NDA with Nintendo, and
-		// we don't have permission to distribute it.
-	#else
+	struct epoll_event ev = {};
+
+	ev.events = EPOLLIN; // We only care about sockets with data ready read
+	ev.data.ptr = pSock; // epoll can give us back some userdata.
+
+	if ( epoll_ctl( s_epollfd, EPOLL_CTL_ADD, fd, &ev) != 0 )
+	{
+		V_sprintf_safe( errMsg, "epoll_ctl failed, error 0x%x", GetLastSocketError() );
+		return false;
+	}
+	return true;
+}
+#endif
+
+static std::thread *s_pServiceThread = nullptr;
+
+void WakeServiceThread()
+{
+	#if defined( WAKE_THREAD_USING_EVENT )
+		if ( s_hEventWakeThread != INVALID_THREAD_WAKE_EVENT )
+			SetWakeThreadEvent( s_hEventWakeThread );
+	#elif defined( WAKE_THREAD_USING_SOCKET_PAIR )
 		if ( s_hSockWakeThreadWrite != INVALID_SOCKET )
 		{
 			char buf[1] = {0};
 			send( s_hSockWakeThreadWrite, buf, 1, 0 );
 		}
+	#elif defined( USE_EPOLL_ABORT )
+		EPollAbort( s_epollfd );
+	#else
+		#error "How do we wake the thread?"
 	#endif
 }
 
@@ -1457,10 +1449,10 @@ void CRawUDPSocketImpl::Close()
 	#endif
 
 	// Don't try to clean it up right now if we might be in the middle of polling.
-	if ( s_bManualPollMode || s_pThreadSteamDatagram )
+	if ( s_bManualPollMode || s_pServiceThread )
 	{
 		// Make sure we don't delay doing this too long
-		WakeSteamDatagramThread();
+		WakeServiceThread();
 	}
 	else
 	{
@@ -1469,7 +1461,7 @@ void CRawUDPSocketImpl::Close()
 	}
 }
 
-static SOCKET OpenUDPSocketBoundToSockAddr( const void *sockaddr, size_t len, SteamDatagramErrMsg &errMsg, int *pnIPv6AddressFamilies, int nBindInterface = -1 )
+static SOCKET OpenUDPSocketBoundToSockAddr( const void *sockaddr, size_t len, SteamNetworkingErrMsg &errMsg, int *pnIPv6AddressFamilies, int nBindInterface = -1 )
 {
 	unsigned int opt;
 
@@ -1481,7 +1473,7 @@ static SOCKET OpenUDPSocketBoundToSockAddr( const void *sockaddr, size_t len, St
 	#ifdef LINUX
 		sockType |= SOCK_CLOEXEC;
 	#endif
-	#if defined( NN_NINTENDO_SDK ) && !defined( _WIN32 )
+	#if IsNintendoSwitch() && !defined( _WIN32 )
 		sockType |= SOCK_NONBLOCK;
 	#endif
 
@@ -1494,9 +1486,8 @@ static SOCKET OpenUDPSocketBoundToSockAddr( const void *sockaddr, size_t len, St
 	}
 
 	// We always use nonblocking IO
-	#if !defined( NN_NINTENDO_SDK ) || defined( _WIN32 )
-		opt = 1;
-		if ( ioctlsocket( sock, FIONBIO, (unsigned long*)&opt ) == -1 )
+	#if !IsNintendoSwitch() || defined( _WIN32 )
+		if ( !SetSocketNonBlocking( sock ) )
 		{
 			V_sprintf_safe( errMsg, "Failed to set socket nonblocking mode.  Error code 0x%08x.", GetLastSocketError() );
 			closesocket( sock );
@@ -1606,7 +1597,7 @@ static SOCKET OpenUDPSocketBoundToSockAddr( const void *sockaddr, size_t len, St
 	return sock;
 }
 
-static CRawUDPSocketImpl *OpenRawUDPSocketInternal( CRecvPacketCallback callback, SteamDatagramErrMsg &errMsg, const SteamNetworkingIPAddr *pAddrLocal, int *pnAddressFamilies, int nBindInterface = -1 )
+static CRawUDPSocketImpl *OpenRawUDPSocketInternal( CRecvPacketCallback callback, SteamNetworkingErrMsg &errMsg, const SteamNetworkingIPAddr *pAddrLocal, int *pnAddressFamilies, int nBindInterface = -1 )
 {
 	// Creating a socket *should* be fast, but sometimes the OS might need to do some work.
 	// We shouldn't do this too often, give it a little extra time.
@@ -1769,6 +1760,8 @@ static CRawUDPSocketImpl *OpenRawUDPSocketInternal( CRecvPacketCallback callback
 	#elif defined( USE_POLL )
 		// Rebuild our pollfd list next time
 		s_bRecreatePollList = true;
+	#else
+		#error "How will we poll this socket?"
 	#endif
 
 	// Add to master list.  (Hopefully we usually won't have that many.)
@@ -1776,7 +1769,7 @@ static CRawUDPSocketImpl *OpenRawUDPSocketInternal( CRecvPacketCallback callback
 
 
 	// Wake up background thread so we can start receiving packets on this socket immediately
-	WakeSteamDatagramThread();
+	WakeServiceThread();
 
 	// Give back info on address families
 	if ( pnAddressFamilies )
@@ -1786,7 +1779,7 @@ static CRawUDPSocketImpl *OpenRawUDPSocketInternal( CRecvPacketCallback callback
 	return pSock;
 }
 
-IRawUDPSocket *OpenRawUDPSocket( CRecvPacketCallback callback, SteamDatagramErrMsg &errMsg, SteamNetworkingIPAddr *pAddrLocal, int *pnAddressFamilies )
+IRawUDPSocket *OpenRawUDPSocket( CRecvPacketCallback callback, SteamNetworkingErrMsg &errMsg, SteamNetworkingIPAddr *pAddrLocal, int *pnAddressFamilies )
 {
 	return OpenRawUDPSocketInternal( callback, errMsg, pAddrLocal, pnAddressFamilies );
 }
@@ -1991,10 +1984,12 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 			for ( CRawUDPSocketImpl *pSock: s_vecRawSockets )
 				ADD_POLL_FD( pSock->m_socket );
 
-			#ifdef NN_NINTENDO_SDK
+			#if defined( WAKE_THREAD_USING_EVENT )
 				ADD_POLL_FD( s_hEventWakeThread );
-			#else
+			#elif defined( WAKE_THREAD_USING_SOCKET_PAIR )
 				ADD_POLL_FD( s_hSockWakeThreadRead );
+			#else
+				#error "How will we cancel this poll?"
 			#endif
 		}
 		Assert( s_vecPollFDs.Count() == nSocketsToPoll+1 );
@@ -2083,12 +2078,18 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 				}
 				else
 				{
-					// It's a wake request.  Just eat one request for now.
-					// I think it's probably safe to eat all of them, but
-					// it's a small optimization and I don't want to debug
-					// it is that's not true.
-					char buf[8];
-					::recv( s_hSockWakeThreadRead, buf, sizeof(buf), 0 );
+					#ifdef WAKE_THREAD_USING_SOCKET_PAIR
+						// It's a wake request.  Just eat one request for now.
+						// I think it's probably safe to eat all of them, but
+						// it's a small optimization and I don't want to debug
+						// it is that's not true.
+						char buf[8];
+						::recv( s_hSockWakeThreadRead, buf, sizeof(buf), 0 );
+					#elif WAKE_THREAD_USING_EVENT
+						#error "Currently we never mix wake events with epoll"
+					#else
+						AssertMsg( false, "Invalid epoll context!" );
+					#endif
 				}
 			}
 
@@ -2113,10 +2114,12 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 				}
 				if ( !(wsaEvents.lNetworkEvents & FD_READ) )
 					continue;
-			#else
+			#elif defined( USE_POLL )
 				if ( !( s_vecPollFDs[ idx ].revents & POLLRDNORM ) )
 					continue;
 				Assert( s_vecPollFDs[ idx ].revents != -1 ); // Make sure kernel actually populated this
+			#else
+				#error "How to tell if we need to drain socket?"
 			#endif
 
 			// Process all packets on this socket.  Bail if we detect
@@ -2132,10 +2135,10 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 			if ( wake.revents & POLLRDNORM )
 			{
 				Assert( wake.revents != -1 );
-				#ifdef NN_NINTENDO_SDK
-					// Sorry, but this code is covered under NDA with Nintendo, and
-					// we don't have permission to distribute it.
-				#else
+				#if defined( WAKE_THREAD_USING_EVENT )
+					Assert( wake.fd == s_hEventWakeThread );
+					ClearWakeThreadEvent( wake, s_hEventWakeThread )
+				#elif defined( WAKE_THREAD_USING_SOCKET_PAIR )
 					Assert( wake.fd == s_hSockWakeThreadRead );
 
 					// Just eat one request for now.
@@ -2144,6 +2147,8 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 					// it is that's not true.
 					char buf[8];
 					::recv( s_hSockWakeThreadRead, buf, sizeof(buf), 0 );
+				#else
+					#error "How did we wake up?"
 				#endif
 			}
 		}
@@ -2514,7 +2519,7 @@ static int GetDualWifiSecondaryInterfaceIndex( int nSimulateMode )
 
 IRawUDPSocket *CRawUDPSocketImpl::GetDualWifiSecondarySocket( int nEnableSetting )
 {
-	SteamDatagramErrMsg errMsg;
+	SteamNetworkingErrMsg errMsg;
 
 	switch ( m_eDualWifiStatus )
 	{
@@ -2771,20 +2776,20 @@ static void SteamNetworkingThreadProc()
 	SpewVerbose( "Service thread exiting.\n" );
 }
 
-static void StopSteamDatagramThread()
+static void StopServiceThread()
 {
 	// They should have set some sort of flag that will cause us the thread to stop
 	Assert( s_nLowLevelSupportRefCount.load(std::memory_order_acquire) == 0 || s_bManualPollMode );
 
 	// Send wake up signal
-	WakeSteamDatagramThread();
+	WakeServiceThread();
 
 	// Wait for thread to finish
-	s_pThreadSteamDatagram->join();
+	s_pServiceThread->join();
 
 	// Clean up
-	delete s_pThreadSteamDatagram;
-	s_pThreadSteamDatagram = nullptr;
+	delete s_pServiceThread;
+	s_pServiceThread = nullptr;
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -2834,7 +2839,7 @@ static void DedicatedBoundSocketCallback( const RecvPktInfo_t &info, CDedicatedB
 	pSock->m_callback( info );
 }
 
-IBoundUDPSocket *OpenUDPSocketBoundToHost( const netadr_t &adrRemote, CRecvPacketCallback callback, SteamDatagramErrMsg &errMsg )
+IBoundUDPSocket *OpenUDPSocketBoundToHost( const netadr_t &adrRemote, CRecvPacketCallback callback, SteamNetworkingErrMsg &errMsg )
 {
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
 
@@ -2857,7 +2862,7 @@ IBoundUDPSocket *OpenUDPSocketBoundToHost( const netadr_t &adrRemote, CRecvPacke
 	return pBoundSock;
 }
 
-bool CreateBoundSocketPair( CRecvPacketCallback callback1, CRecvPacketCallback callback2, IBoundUDPSocket **ppOutSockets, SteamDatagramErrMsg &errMsg )
+bool CreateBoundSocketPair( CRecvPacketCallback callback1, CRecvPacketCallback callback2, IBoundUDPSocket **ppOutSockets, SteamNetworkingErrMsg &errMsg )
 {
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
 
@@ -2913,7 +2918,7 @@ void CSharedSocket::CallbackRecvPacket( const RecvPktInfo_t &info, CSharedSocket
 	callback( info );
 }
 
-bool CSharedSocket::BInit( const SteamNetworkingIPAddr &localAddr, CRecvPacketCallback callbackDefault, SteamDatagramErrMsg &errMsg )
+bool CSharedSocket::BInit( const SteamNetworkingIPAddr &localAddr, CRecvPacketCallback callbackDefault, SteamNetworkingErrMsg &errMsg )
 {
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
 
@@ -3008,7 +3013,6 @@ static bool s_bNeedToFlushSystemSpew = false;
 static ESteamNetworkingSocketsDebugOutputType g_eSystemSpewLevel = k_ESteamNetworkingSocketsDebugOutputType_None; // Option selected by the "system" (environment variable, etc)
 #else
 constexpr ESteamNetworkingSocketsDebugOutputType g_eSystemSpewLevel = k_ESteamNetworkingSocketsDebugOutputType_None; // Option selected by the "system" (environment variable, etc)
-constexpr bool s_bNeedToFlushSystemSpew = false;
 #endif
 
 static void InitSpew()
@@ -3126,7 +3130,7 @@ void ReallySpewTypeFmt( int eType, const char *pMsg, ... )
 	va_end( ap );
 }
 
-bool BSteamNetworkingSocketsLowLevelAddRef( SteamDatagramErrMsg &errMsg )
+bool BSteamNetworkingSocketsLowLevelAddRef( SteamNetworkingErrMsg &errMsg )
 {
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
 
@@ -3210,13 +3214,21 @@ bool BSteamNetworkingSocketsLowLevelAddRef( SteamDatagramErrMsg &errMsg )
 				V_sprintf_safe( errMsg, "CreateEvent() call failed.  Error code 0x%08x.", GetLastError() );
 				return false;
 			}
-		#elif defined( NN_NINTENDO_SDK )
-			// Sorry, but this code is covered under NDA with Nintendo, and
-			// we don't have permission to distribute it.
+		#elif IsNintendoSwitch()
+			Assert( s_hEventWakeThread == INVALID_SOCKET );
+			s_hEventWakeThread = nn::socket::EventFd( 0, nn::socket::EventFdFlags::Semaphore );
+			if ( s_hEventWakeThread == INVALID_SOCKET )
+			{
+				V_sprintf_safe( errMsg, "nn::socket::EventFd.  Error code 0x%08x.", GetLastError() );
+				return false;
+			}
+		#elif IsPS5()
+			// No additional setup needed here
 		#else
 		{
 			Assert( s_hSockWakeThreadRead == INVALID_SOCKET );
 			Assert( s_hSockWakeThreadWrite == INVALID_SOCKET );
+
 			int sockType = SOCK_DGRAM;
 			#ifdef LINUX
 				sockType |= SOCK_CLOEXEC;
@@ -3227,18 +3239,14 @@ bool BSteamNetworkingSocketsLowLevelAddRef( SteamDatagramErrMsg &errMsg )
 				V_sprintf_safe( errMsg, "socketpair() call failed.  Error code 0x%08x.", GetLastSocketError() );
 				return false;
 			}
-
 			s_hSockWakeThreadRead = sock[0];
 			s_hSockWakeThreadWrite = sock[1];
 
-			unsigned int opt;
-			opt = 1;
-			if ( ioctlsocket( s_hSockWakeThreadRead, FIONBIO, (unsigned long*)&opt ) != 0 )
+			if ( !SetSocketNonBlocking( s_hSockWakeThreadRead ) )
 			{
 				AssertMsg1( false, "Failed to set socket nonblocking mode.  Error code 0x%08x.", GetLastSocketError() );
 			}
-			opt = 1;
-			if ( ioctlsocket( s_hSockWakeThreadWrite, FIONBIO, (unsigned long*)&opt ) != 0 )
+			if ( !SetSocketNonBlocking( s_hSockWakeThreadWrite ) )
 			{
 				AssertMsg1( false, "Failed to set socket nonblocking mode.  Error code 0x%08x.", GetLastSocketError() );
 			}
@@ -3247,22 +3255,20 @@ bool BSteamNetworkingSocketsLowLevelAddRef( SteamDatagramErrMsg &errMsg )
 
 		#ifdef USE_EPOLL
 		{
-			int flags = 0;
-			#ifdef LINUX
-				flags |= EPOLL_CLOEXEC;
-			#endif
-
-			s_epollfd = epoll_create1( flags );
-			if ( s_epollfd == -1 )
-			{
-				V_sprintf_safe( errMsg, "epoll_create1() failed, errno=%d", errno );
+			s_epollfd = EPollCreate( errMsg );
+			if ( s_epollfd == INVALID_EPOLL_HANDLE )
 				return false;
-			}
 
 			// Add the wake socket to our epoll list.  Set the userdata to NULL.
 			// That's how we know it's just the wake event
-			if ( !AddFDToEPoll( s_hSockWakeThreadRead, nullptr, errMsg ) )
-				return false;
+			#if defined( WAKE_THREAD_USING_SOCKET_PAIR )
+				if ( !AddFDToEPoll( s_hSockWakeThreadRead, nullptr, errMsg ) )
+					return false;
+			#elif defined( USE_EPOLL_ABORT )
+				// nothing to do
+			#else
+				#error "How will we cancel this epoll?"
+			#endif
 		}
 		#endif
 
@@ -3275,8 +3281,8 @@ bool BSteamNetworkingSocketsLowLevelAddRef( SteamDatagramErrMsg &errMsg )
 	s_nLowLevelSupportRefCount.fetch_add(1, std::memory_order_acq_rel);
 
 	// Make sure the thread is running, if it should be
-	if ( !s_bManualPollMode && !s_pThreadSteamDatagram )
-		s_pThreadSteamDatagram = new std::thread( SteamNetworkingThreadProc );
+	if ( !s_bManualPollMode && !s_pServiceThread )
+		s_pServiceThread = new std::thread( SteamNetworkingThreadProc );
 
 	// Install an axexit handler, so that if static destruction is triggered without
 	// cleaning up the library properly, we won't crash.
@@ -3317,8 +3323,8 @@ void SteamNetworkingSocketsLowLevelDecRef()
 	SteamNetworkingGlobalLock::SetLongLockWarningThresholdMS( "SteamNetworkingSocketsLowLevelDecRef", 500 );
 
 	// Stop the service thread, if we have one
-	if ( s_pThreadSteamDatagram )
-		StopSteamDatagramThread();
+	if ( s_pServiceThread )
+		StopServiceThread();
 
 	// Destory wake communication objects
 	#if defined( _WIN32 )
@@ -3327,9 +3333,14 @@ void SteamNetworkingSocketsLowLevelDecRef()
 			CloseHandle( s_hEventWakeThread );
 			s_hEventWakeThread = INVALID_HANDLE_VALUE;
 		}
-	#elif defined( NN_NINTENDO_SDK )
-		// Sorry, but this code is covered under NDA with Nintendo, and
-		// we don't have permission to distribute it.
+	#elif IsNintendoSwitch()
+		if ( s_hEventWakeThread != INVALID_SOCKET )
+		{
+			nn::socket::Close( s_hEventWakeThread );
+			s_hEventWakeThread = INVALID_SOCKET;
+		}
+	#elif IsPS5()
+		// Nothing to do here
 	#else
 		if ( s_hSockWakeThreadRead != INVALID_SOCKET )
 		{
@@ -3344,10 +3355,10 @@ void SteamNetworkingSocketsLowLevelDecRef()
 	#endif
 
 	#ifdef USE_EPOLL
-		if ( s_epollfd != -1 )
+		if ( s_epollfd != INVALID_EPOLL_HANDLE )
 		{
-			close( s_epollfd );
-			s_epollfd = -1;
+			EPollClose( s_epollfd );
+			s_epollfd = INVALID_EPOLL_HANDLE;
 		}
 	#endif
 
@@ -3624,13 +3635,13 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetManualPollMode( 
 	s_bManualPollMode = bFlag;
 
 	// Check for starting/stopping the thread
-	if ( s_pThreadSteamDatagram )
+	if ( s_pServiceThread )
 	{
 		// Thread is active.  Should it be?
 		if ( s_nLowLevelSupportRefCount.load(std::memory_order_acquire) <= 0 || s_bManualPollMode )
 		{
 			SpewMsg( "Service thread is running, and manual poll mode actiavted.  Stopping service thread.\n" );
-			StopSteamDatagramThread();
+			StopServiceThread();
 		}
 	}
 	else
@@ -3639,7 +3650,7 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetManualPollMode( 
 		{
 			// Start up the thread
 			SpewMsg( "Service thread is not running, and manual poll mode was turned off, starting service thread.\n" );
-			s_pThreadSteamDatagram = new std::thread( SteamNetworkingThreadProc );
+			s_pServiceThread = new std::thread( SteamNetworkingThreadProc );
 		}
 	}
 }
