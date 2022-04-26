@@ -1287,6 +1287,7 @@ struct LinkStatsTracker final : public TLinkStatsTracker
 
 				// Reset the sequence number for packets going forward.
 				TLinkStatsTracker::InitMaxRecvPktNum( nPktNum );
+				TLinkStatsTracker::m_usecTimeLastRecvSeq = usecNow;
 				return;
 			}
 
