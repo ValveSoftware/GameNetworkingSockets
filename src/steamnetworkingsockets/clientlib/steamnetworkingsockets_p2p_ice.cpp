@@ -22,7 +22,7 @@
 	#undef min
 	#undef max
 #endif
-#ifdef POSIX
+#if defined( POSIX ) && defined( STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC )
 	#include <dlfcn.h>
 #endif
 
