@@ -49,14 +49,14 @@ struct SFakePeer
 
 	std::string m_sName;
 	int64 m_nReliableSendMsgCount;
-	int64 m_nSendMsgCount;
+	int64 m_nUnreliableSendMsgCount;
 	int64 m_nReliableExpectedRecvMsg;
 	int64 m_nExpectedRecvMsg;
 	float m_flReliableMsgDelay;
 	float m_flUnreliableMsgDelay;
 	HSteamNetConnection m_hSteamNetConnection;
 	bool m_bIsConnected;
-	int m_nMaxPendingBytes;
+	int m_cbSendBuffer;
 	SteamNetConnectionRealTimeStatus_t m_realtimeStatus;
 	float m_flSendRate;
 	float m_flRecvRate;
@@ -66,14 +66,14 @@ struct SFakePeer
 	void Reset()
 	{
 		m_nReliableSendMsgCount = 0;
-		m_nSendMsgCount = 0;
+		m_nUnreliableSendMsgCount = 0;
 		m_nReliableExpectedRecvMsg = 1;
 		m_nExpectedRecvMsg = 1;
 		m_flReliableMsgDelay = 0.0f;
 		m_flUnreliableMsgDelay = 0.0f;
 		m_hSteamNetConnection = k_HSteamNetConnection_Invalid;
 		m_bIsConnected = false;
-		m_nMaxPendingBytes = 384 * 1024;
+		m_cbSendBuffer = 384 * 1024;
 		memset( &m_realtimeStatus, 0, sizeof(m_realtimeStatus) );
 		m_flSendRate = 0.0f;
 		m_flRecvRate = 0.0f;
@@ -105,9 +105,14 @@ struct SFakePeer
 		SteamNetworkingSockets()->GetConnectionRealTimeStatus( m_hSteamNetConnection, &m_realtimeStatus, 0, nullptr );
 	}
 
+	void SetConnectionConfig()
+	{
+		SteamNetworkingUtils()->SetConnectionConfigValueInt32( m_hSteamNetConnection, k_ESteamNetworkingConfig_SendBufferSize, m_cbSendBuffer );
+	}
+
 	inline int GetQueuedSendBytes()
 	{
-		return m_realtimeStatus.m_cbPendingReliable + m_realtimeStatus.m_cbPendingUnreliable;
+		return m_realtimeStatus.m_cbPendingReliable + m_realtimeStatus.m_cbPendingUnreliable + m_realtimeStatus.m_cbSentUnackedReliable;
 	}
 
 	void SendRandomMessage( bool bReliable, int cbMaxSize )
@@ -119,7 +124,7 @@ struct SFakePeer
 		//bIsReliable = false;
 		//nBytes = 1200-13;
 
-		msg.m_nMsgNum = msg.m_bReliable ? ++m_nReliableSendMsgCount : ++m_nSendMsgCount;
+		msg.m_nMsgNum = msg.m_bReliable ? ++m_nReliableSendMsgCount : ++m_nUnreliableSendMsgCount;
 		for ( int n = 0; n < msg.m_cbSize; ++n )
 		{
 			msg.m_data[n] = (uint8)( msg.m_nMsgNum + n );
@@ -283,6 +288,7 @@ void OnSteamNetConnectionStatusChanged( SteamNetConnectionStatusChangedCallback_
 			g_peerServer.m_bIsConnected = true;
 			SteamNetworkingSockets()->AcceptConnection( pInfo->m_hConn );
 			SteamNetworkingSockets()->SetConnectionName( g_peerServer.m_hSteamNetConnection, "Server" );
+			g_peerServer.SetConnectionConfig();
 
 		}
 		break;
@@ -445,7 +451,7 @@ static void TestNetworkConditions( int rate, float loss, int lag, float reorderP
 
 		if ( !bQuiet )
 		{
-			if ( nServerPending < g_peerServer.m_nMaxPendingBytes )
+			if ( nServerPending < g_peerServer.m_cbSendBuffer - 16*1024 )
 			{
 				if ( bActLikeGame )
 				{
@@ -457,7 +463,7 @@ static void TestNetworkConditions( int rate, float loss, int lag, float reorderP
 					g_peerServer.Send();
 				}
 			}
-			if ( nClientPending < g_peerClient.m_nMaxPendingBytes )
+			if ( nClientPending < g_peerClient.m_cbSendBuffer - 16*1024 )
 			{
 				if ( bActLikeGame )
 				{
@@ -510,6 +516,8 @@ static void Test_Connection( bool bQuickTest )
 	g_hSteamListenSocket = pSteamSocketNetworking->CreateListenSocketIP( bindServerAddress, 0, nullptr );
 	g_peerClient.m_hSteamNetConnection = pSteamSocketNetworking->ConnectByIPAddress( connectToServerAddress, 0, nullptr );
 	pSteamSocketNetworking->SetConnectionName( g_peerClient.m_hSteamNetConnection, "Client" );
+
+	g_peerClient.SetConnectionConfig();
 
 //	// Send a few random message, before we get connected, just to test that case
 //	g_peerClient.SendRandomMessage( true );
