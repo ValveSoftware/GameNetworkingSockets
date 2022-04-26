@@ -1,26 +1,23 @@
 //========= Copyright Valve Corporation, All rights reserved. ============//
 #include "../public/tier0/platformtime.h"
 
-#ifdef WIN32
-#include "winlite.h"
 #include <time.h>
-#include <errno.h>
+
+#ifdef _WIN32
+	#include "winlite.h"
+	#include <errno.h>
 #else
-
-#include <sys/time.h>
-#include <unistd.h>
-#if defined OSX
-#include <mach/mach.h>
-#include <mach/mach_time.h>
-#endif
-#if defined(LINUX) || defined(ANDROID) || defined(NN_NINTENDO_SDK)
-#include <time.h>
-#endif
+	#include <sys/time.h>
+	#include <unistd.h>
+	#if defined OSX
+		#include <mach/mach.h>
+		#include <mach/mach_time.h>
+	#endif
 
 #endif
 
 
-#if defined( WIN32 ) || defined( OSX )
+#if defined( _WIN32 ) || IsOSX()
 	static uint64 g_TickFrequency;
 	static double g_TickFrequencyDouble;
 	static double g_TicksToUS;
@@ -38,7 +35,7 @@
 static uint64 InitTicks();
 static uint64 g_TickBase = InitTicks();
 
-#ifdef WIN32
+#ifdef _WIN32
 static uint64 g_TickLastReturned_XPWorkaround;
 #endif
 
@@ -47,7 +44,7 @@ static uint64 InitTicks()
 	if ( g_TickBase != 0 )
 		return g_TickBase;
 	
-#if defined(WIN32)
+#if defined(_WIN32)
 	LARGE_INTEGER Large;
 	QueryPerformanceFrequency(&Large);
 	g_TickFrequency = Large.QuadPart;
@@ -55,13 +52,13 @@ static uint64 InitTicks()
 	// Before Windows Vista, multicore system QPC can be non-monotonic 
 	QueryPerformanceCounter( &Large );
 	g_TickBase = g_TickLastReturned_XPWorkaround = Large.QuadPart;
-#elif defined(OSX)
+#elif IsOSX()
 	mach_timebase_info_data_t TimebaseInfo;
 	mach_timebase_info(&TimebaseInfo);
 	g_TickFrequencyDouble = (double) TimebaseInfo.denom / (double) TimebaseInfo.numer * 1.0e9;
 	g_TickFrequency = (uint64)( g_TickFrequencyDouble + 0.5 );
 	g_TickBase = mach_absolute_time();
-#elif defined(LINUX) || defined(ANDROID) || defined(NN_NINTENDO_SDK) || defined(FREEBSD)
+#elif IsPosix()
 	// TickFrequency is constant since clock_gettime always returns nanoseconds
 	timespec TimeSpec;
 	clock_gettime( CLOCK_MONOTONIC, &TimeSpec );
@@ -70,7 +67,7 @@ static uint64 InitTicks()
 #error Unknown platform
 #endif
 
-	#if defined( WIN32 ) || defined( OSX )
+	#if defined( _WIN32 ) || defined( OSX )
 		g_TicksToUS = 1.0e6 / g_TickFrequencyDouble;
 	#endif
 
@@ -84,7 +81,7 @@ uint64 Plat_RelativeTicks()
 	
 	uint64 Ticks;
 
-#if defined(WIN32)
+#if defined(_WIN32)
 	LARGE_INTEGER Large;
 	QueryPerformanceCounter(&Large);
 	Ticks = Large.QuadPart;
@@ -97,9 +94,9 @@ uint64 Plat_RelativeTicks()
 	{
 		g_TickLastReturned_XPWorkaround = Ticks;
 	}
-#elif defined(OSX)
+#elif IsOSX()
 	Ticks = mach_absolute_time();
-#elif defined(LINUX) || defined(ANDROID) || defined(NN_NINTENDO_SDK) || defined(FREEBSD)
+#elif IsPosix()
 	timespec TimeSpec;
 	clock_gettime( CLOCK_MONOTONIC, &TimeSpec );
 	Ticks = (uint64)TimeSpec.tv_sec * 1000000000 + TimeSpec.tv_nsec;
