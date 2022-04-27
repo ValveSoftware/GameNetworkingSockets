@@ -48,6 +48,7 @@ option(BUILD_EXAMPLES "Build the included examples" OFF)
 option(BUILD_TESTS "Build crypto, pki and network connection tests" OFF)
 option(BUILD_TOOLS "Build cert management tool" OFF)
 option(LTO "Enable Link-Time Optimization" OFF)
+option(ENABLE_ICE "Enable support for NAT-punched P2P connections using ICE protocol.  Build native ICE client" ON)
 option(USE_STEAMWEBRTC "Build Google's WebRTC library to get ICE support for P2P" OFF)
 option(Protobuf_USE_STATIC_LIBS "Link with protobuf statically" OFF)
 if(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
@@ -204,8 +205,8 @@ if(BUILD_EXAMPLES)
 		# See also portfile.cmake
 		message(FATAL_ERROR "Must build shared lib (-DBUILD_SHARED_LIB=ON) to build examples")
 	endif()
-	add_subdirectory(examples)
 endif()
+add_subdirectory(examples) # examples/CMakeLists will check what's defined and only add appropriate targets
 
 if(BUILD_TESTS)
 	if ( NOT BUILD_STATIC_LIB )

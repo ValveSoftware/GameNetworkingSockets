@@ -245,11 +245,15 @@ macro(set_clientlib_target_properties GNS_TARGET)
 		STEAMNETWORKINGSOCKETS_FOREXPORT )
 
 	# Enable ICE?
-	if(USE_STEAMWEBRTC)
+	if(ENABLE_ICE)
+		target_compile_definitions(${GNS_TARGET} PRIVATE STEAMNETWORKINGSOCKETS_ENABLE_ICE )
+	endif()
 
-		# Enable ICE
-		target_compile_definitions(${GNS_TARGET} PRIVATE
-			STEAMNETWORKINGSOCKETS_ENABLE_ICE )
+	# Enable WebRTC as ICE client?
+	if(USE_STEAMWEBRTC)
+		if(NOT ENABLE_ICE)
+			message(FATAL_ERROR "USE_STEAMWEBRTC requires ENABLE_ICE")
+		endif()
 
 		# Wrapper lib is always linked statically in the opensource code.
 		# We might link dynamically in other environments.
@@ -261,7 +265,6 @@ macro(set_clientlib_target_properties GNS_TARGET)
 			$<INSTALL_INTERFACE:GameNetworkingSockets::steamwebrtc>
 			)
 	endif()
-
 
 	## Needs CMake 3.8, then we could get rid of the workaround below it.
 	#target_compile_features(${GNS_TARGET} PUBLIC c_std_99 cxx_std_11)

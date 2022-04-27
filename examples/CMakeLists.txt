@@ -1,7 +1,7 @@
 #
 # Trivial signaling server, written in go
 #
-if( NOT WIN32 AND USE_STEAMWEBRTC )
+if( ENABLE_ICE AND ( BUILD_EXAMPLES OR BUILD_TESTS ) )
 	find_program( GO go )
 	if ( NOT GO )
 		message(WARNING "Could not find 'go' binary, will not build signaling server example program")
@@ -24,13 +24,20 @@ if( NOT WIN32 AND USE_STEAMWEBRTC )
 endif()
 
 #
-# Really simple client/server chat
+# Examples
 #
+if( BUILD_EXAMPLES )
 
-add_executable(
-	example_chat
-	example_chat.cpp)
+	#
+	# Really simple client/server chat
+	#
 
-target_link_libraries(example_chat GameNetworkingSockets::shared)
+	add_executable(
+		example_chat
+		example_chat.cpp)
 
-add_sanitizers(example_chat)
+	target_link_libraries(example_chat GameNetworkingSockets::shared)
+
+	add_sanitizers(example_chat)
+
+endif()
