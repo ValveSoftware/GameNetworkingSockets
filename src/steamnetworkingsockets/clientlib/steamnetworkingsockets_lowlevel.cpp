@@ -3540,6 +3540,9 @@ bool ResolveHostname( const char* pszHostname, CUtlVector< SteamNetworkingIPAddr
 }
 
 #if defined( _WIN32 ) && !defined( _XBOX_ONE )
+
+#pragma comment( lib, "iphlpapi.lib" )
+
 bool GetLocalAddresses( CUtlVector< SteamNetworkingIPAddr >* pAddrs )
 {
 	if ( pAddrs == nullptr )
