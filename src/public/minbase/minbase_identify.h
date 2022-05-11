@@ -193,5 +193,24 @@
 	#endif
 #endif
 
+// Detect if RTTI is enabled in the current compile
+#if defined(__clang__)
+  #if __has_feature(cxx_rtti)
+    #define RTTIEnabled() true
+  #endif
+#elif defined(__GNUC__)
+  #if defined(__GXX_RTTI)
+    #define RTTIEnabled() true
+  #endif
+#elif defined(_MSC_VER)
+  #if defined(_CPPRTTI)
+    #define RTTIEnabled() true
+  #endif
+#else
+  #error "How to tell if RTTI is enabled?")
+#endif
+#ifndef RTTIEnabled
+	#define RTTIEnabled() false
+#endif
 
 #endif // #ifndef MINBASE_IDENTIFY_H
