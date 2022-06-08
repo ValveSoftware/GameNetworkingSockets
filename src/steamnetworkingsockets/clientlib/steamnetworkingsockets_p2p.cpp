@@ -2874,7 +2874,7 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const CMsgSteamNetworki
 {
 	SteamDatagramErrMsg errMsg;
 
-	// Grab the lock now.  (We might not have previously held it.)
+	// Caller must take the lock.
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "InternalReceivedP2PSignal" );
 
 	// Parse remote identity
