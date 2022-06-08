@@ -19,6 +19,8 @@
 #include "platform.h"
 #include <vstdlib/strtools.h>
 
+BEGIN_TIER0_NAMESPACE
+
 // DBGFLAG_ASSERT is defined when we want Assert to do something.  By default,
 // we write our code so that most asserts can be compiled in without negatively
 // impacting performance, and so this is defined, even in release.  However,
@@ -156,5 +158,7 @@ inline DEST_POINTER_TYPE assert_cast(SOURCE_POINTER_TYPE* pSource)
 }
 
 #define Plat_FatalError( ... ) AssertFatalMsg( false, __VA_ARGS__ )
+
+END_TIER0_NAMESPACE
 
 #endif /* DBG_H */

@@ -21,7 +21,7 @@
 #define PATHSEPARATOR(c) ('/' == (c))
 #endif	//_WIN32
 
-
+BEGIN_TIER0_NAMESPACE
 
 static char* AllocString( const char *pStr, int nMaxChars )
 {
@@ -480,3 +480,5 @@ int V_StrTrim( char *pStr )
 
 	return pDest - pStart;
 }
+
+END_TIER0_NAMESPACE

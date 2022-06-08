@@ -213,4 +213,12 @@
 	#define RTTIEnabled() false
 #endif
 
+// SDR_PUBLIC wrap tier0 and tier1 symbols in a namespace to limit
+// the possibility of clashing when statically linking.  (Especially
+// with games that use the source engine!)
+#define BEGIN_TIER0_NAMESPACE namespace SteamNetworkingSocketsTier0 {
+#define END_TIER0_NAMESPACE } using namespace SteamNetworkingSocketsTier0;
+#define BEGIN_TIER1_NAMESPACE namespace SteamNetworkingSocketsTier1 {
+#define END_TIER1_NAMESPACE } using namespace SteamNetworkingSocketsTier1;
+
 #endif // #ifndef MINBASE_IDENTIFY_H

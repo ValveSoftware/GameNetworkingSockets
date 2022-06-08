@@ -16,6 +16,7 @@
 
 #endif
 
+BEGIN_TIER0_NAMESPACE
 
 #if defined( _WIN32 ) || IsOSX()
 	static uint64 g_TickFrequency;
@@ -122,3 +123,5 @@ uint64 Plat_USTime()
 	uint64 Ticks = Plat_RelativeTicks(); // NOTE: inits globals
 	return (uint64)( (Ticks - g_TickBase) * g_TicksToUS );
 }
+
+END_TIER0_NAMESPACE

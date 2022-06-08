@@ -18,6 +18,8 @@
 #include <stdarg.h>
 //SDR_PUBLIC #include "tier1/utlstring.h"
 
+BEGIN_TIER1_NAMESPACE
+
 //-----------------------------------------------------------------------------
 // Description of character conversions for string output
 // Here's an example of how to use the macros to define a character conversion
@@ -822,6 +824,8 @@ public:
 		CUtlBuffer::Purge();
 	}
 };
+
+END_TIER1_NAMESPACE
 
 #endif // UTLBUFFER_H
 

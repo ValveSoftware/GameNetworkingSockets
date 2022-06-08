@@ -34,6 +34,8 @@
 #define UTLMEMORY_TRACK_FREE()		((void)0)
 #endif
 
+BEGIN_TIER1_NAMESPACE
+
 //-----------------------------------------------------------------------------
 // The CUtlMemory class:
 // A growable memory class which doubles in size by default.
@@ -289,6 +291,8 @@ inline const T *CUtlMemory<T>::Base() const
 {
 	return (const T*)m_pMemory;
 }
+
+END_TIER1_NAMESPACE
 
 #include "tier0/memdbgoff.h"
 

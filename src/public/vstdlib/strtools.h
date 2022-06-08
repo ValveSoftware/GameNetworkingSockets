@@ -22,10 +22,16 @@
 #include <minbase/minbase_identify.h>
 #include <minbase/minbase_annotations.h>
 
+BEGIN_TIER1_NAMESPACE
+
 template< class T > class CUtlMemory;
 template< class T, class A > class CUtlVector;
 template < typename K, typename T, typename I, typename L > class CUtlMap;
 class CUtlBuffer;
+
+END_TIER1_NAMESPACE
+
+BEGIN_TIER0_NAMESPACE
 
 #ifdef _WIN64
 #define str_size unsigned int
@@ -135,5 +141,6 @@ extern int V_StrTrim( char *pStr );
 
 #endif // POSIX
 
+END_TIER0_NAMESPACE
 
 #endif	// VSTDLIB_STRTOOLS_H

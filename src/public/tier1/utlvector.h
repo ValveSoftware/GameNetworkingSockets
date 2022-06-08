@@ -34,6 +34,8 @@
 #define FOR_EACH_VEC_BACK( vecName, iteratorName ) \
 	for ( int iteratorName = (vecName).Count()-1; iteratorName >= 0; iteratorName-- )
 
+BEGIN_TIER1_NAMESPACE
+
 //-----------------------------------------------------------------------------
 // The CUtlVector class:
 // A growable array class which doubles in size by default.
@@ -1394,5 +1396,6 @@ inline void CUtlVector<T, A>::ValidateSelfAndElements( CValidator &validator, co
 
 #endif // DBGFLAG_VALIDATE
 
+END_TIER1_NAMESPACE
 
 #endif // CCVECTOR_H

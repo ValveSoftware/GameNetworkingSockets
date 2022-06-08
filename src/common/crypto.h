@@ -8,7 +8,9 @@
 //#include <tier1/passwordhash.h>
 #include "keypair.h"
 
+BEGIN_TIER1_NAMESPACE
 class CUtlBuffer;
+END_TIER1_NAMESPACE
 
 // Base class for symmetric encryption and decryption context.
 // A context is used when you want to use the same encryption
