@@ -128,7 +128,7 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingIPAddr_ToString( const Stea
 	}
 	else
 	{
-		char temp[ k_ncchMaxIPV6AddrStringWithoutPort ];
+		char temp[ k_cchMaxIPV6AddrStringWithoutPort ];
 		IPv6IPToString( temp, pAddr->m_ipv6 );
 		if ( bWithPort )
 		{

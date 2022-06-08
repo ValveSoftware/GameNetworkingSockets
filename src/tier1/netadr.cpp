@@ -54,7 +54,7 @@ void CIPAddress::ToString( char *pchBuffer, uint32 unBufferSize, const uint16 *p
 	else if (m_usType == k_EIPTypeV6)
 	{
 		// Format IP into a temp that we know is big enough
-		char temp[ k_ncchMaxIPV6AddrStringWithPort ];
+		char temp[ k_cchMaxIPV6AddrStringWithPort ];
 		if ( !punPort )
 			IPv6IPToString( temp, m_rgubIPv6 );
 		else
