@@ -120,8 +120,16 @@ public:
 	virtual uint32 GetRawData( void *pData ) const override;
 	virtual void Wipe() override;
 
+	// Access the raw data.  This might not be available, depending on the crypto
+	// implementation!  Avoid using this except for very specialized situations.
+	// Instead, prefer the base class functions such as GetRawData, BMatchesRawData, etc
 	const uint8 *GetRawDataPtr() const { return m_pData; }
 	uint32 GetRawDataSize() const { return m_cbData; }
+
+	// Make sure that we can call GetRawDataPtr(), perhaps making a copy
+	// of the key from the crypto provider into our local buffer if necessary.
+	// Returns false if the key is invalid or we fail to alloc memory.
+	bool EnsureRawDataPtrAvailable();
 
 #ifdef DBGFLAG_VALIDATE
 	virtual void Validate( CValidator &validator, const char *pchName ) const;		// Validate our internal structures

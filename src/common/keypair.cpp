@@ -457,6 +457,26 @@ void CCryptoKeyBase_RawBuffer::InternalWipeRawDataBuffer()
 	m_cbData = 0;
 }
 
+bool CCryptoKeyBase_RawBuffer::EnsureRawDataPtrAvailable()
+{
+	if ( !m_pData )
+	{
+		uint32 cbData = GetRawData(nullptr);
+		if ( cbData == 0 )
+			return false;
+		m_pData = (uint8*)malloc( cbData );
+		if ( !m_pData )
+			return false;
+		m_cbData = cbData;
+		if ( GetRawData( m_pData ) != cbData )
+		{
+			InternalWipeRawDataBuffer();
+			return false;
+		}
+	}
+	return true;
+}
+
 //-----------------------------------------------------------------------------
 // CEC25519PrivateKeyBase
 //-----------------------------------------------------------------------------
