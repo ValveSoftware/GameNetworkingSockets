@@ -391,7 +391,11 @@ bool CCryptoKeyBase::LoadFromAndWipeBuffer( void *pBuffer, size_t cBytes )
 
 CCryptoKeyBase_RawBuffer::~CCryptoKeyBase_RawBuffer()
 {
-	Wipe();
+	// Note that we don't call virtual Wipe() here.  We're in a
+	// destructor, so it would just call our own Wipe(),
+	// anyway, but that relies on a relatively subtle aspect
+	// ot C++ destructor semantics, and this is more clear.
+	InternalWipeRawDataBuffer();
 }
 
 bool CCryptoKeyBase_RawBuffer::IsValid() const
@@ -408,7 +412,12 @@ uint32 CCryptoKeyBase_RawBuffer::GetRawData( void *pData ) const
 
 bool CCryptoKeyBase_RawBuffer::SetRawData( const void *pData, size_t cbData )
 {
-	Wipe();
+	return InternalSetRawDataBuffer( pData, cbData );
+}
+
+bool CCryptoKeyBase_RawBuffer::InternalSetRawDataBuffer( const void *pData, size_t cbData )
+{
+	InternalWipeRawDataBuffer();
 	m_pData = (uint8*)malloc( cbData );
 	if ( !m_pData )
 		return false;
@@ -419,8 +428,14 @@ bool CCryptoKeyBase_RawBuffer::SetRawData( const void *pData, size_t cbData )
 
 void CCryptoKeyBase_RawBuffer::Wipe()
 {
+	InternalWipeRawDataBuffer();
+}
+
+void CCryptoKeyBase_RawBuffer::InternalWipeRawDataBuffer()
+{
 	if ( m_pData )
 	{
+		SecureZeroMemory( m_pData, m_cbData );
 		free( m_pData );
 		m_pData = nullptr;
 	}

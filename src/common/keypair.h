@@ -126,6 +126,8 @@ public:
 
 protected:
 	virtual bool SetRawData( const void *pData, size_t cbData ) override;
+	void InternalWipeRawDataBuffer();
+	bool InternalSetRawDataBuffer( const void *pData, size_t cbData );
 	inline CCryptoKeyBase_RawBuffer( ECryptoKeyType keyType ) : CCryptoKeyBase( keyType ), m_pData( nullptr ), m_cbData( 0 ) {}
 
 	uint8 *m_pData;
