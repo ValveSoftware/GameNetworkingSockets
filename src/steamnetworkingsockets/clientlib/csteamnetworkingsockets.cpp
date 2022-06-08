@@ -752,8 +752,7 @@ bool CSteamNetworkingSockets::InternalSetCertificate( const void *pCertificate, 
 			// We already chose a private key, so the cert must match.
 			// For the most common use cases, we choose a private
 			// key and it never leaves the current process.
-			if ( m_keyPrivateKey.GetRawDataSize() != private_key_data.length()
-				|| memcmp( m_keyPrivateKey.GetRawDataPtr(), private_key_data.c_str(), private_key_data.length() ) != 0 )
+			if ( !m_keyPrivateKey.BMatchesRawData( private_key_data.data(), private_key_data.length() ) )
 			{
 				V_strcpy_safe( errMsg, "Private key mismatch" );
 				return false;

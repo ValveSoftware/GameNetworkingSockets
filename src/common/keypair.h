@@ -83,6 +83,9 @@ public:
 	bool operator==( const CCryptoKeyBase &rhs ) const;
 	bool operator!=( const CCryptoKeyBase &rhs ) const { return !operator==( rhs ); }
 
+	// Return true if our raw data matches the specified buffer.
+	bool BMatchesRawData( const void *pData, size_t cbData ) const;
+
 	// Make a copy of the key, by using the raw data functions
 	void CopyFrom( const CCryptoKeyBase &x );
 

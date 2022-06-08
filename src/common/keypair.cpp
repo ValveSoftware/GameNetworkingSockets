@@ -364,6 +364,21 @@ bool CCryptoKeyBase::operator==( const CCryptoKeyBase &rhs ) const
 	return memcmp( bufLHS.Base(), bufRHS.Base(), cbRawData ) == 0;
 }
 
+
+//-----------------------------------------------------------------------------
+// Purpose: Return true if our raw data matches the the specified buffer
+//-----------------------------------------------------------------------------
+bool CCryptoKeyBase::BMatchesRawData( const void *pData, size_t cbData ) const
+{
+	uint32 cbMyRawData = GetRawData(nullptr);
+	if ( cbMyRawData != cbData ) return false;
+
+	CAutoWipeBuffer bufMyRawData( cbMyRawData );
+	DbgVerify( GetRawData( bufMyRawData.Base() ) == cbMyRawData );
+
+	return memcmp( bufMyRawData.Base(), pData, cbData ) == 0;
+}
+
 void CCryptoKeyBase::CopyFrom( const CCryptoKeyBase &x )
 {
 	Assert( m_eKeyType == x.m_eKeyType );
