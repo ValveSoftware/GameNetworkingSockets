@@ -1293,5 +1293,5 @@ print_available_tests_and_exit:
 }
 
 #ifdef NN_NINTENDO_SDK
-extern "C" void nnMain() { main(); }
+extern "C" void nnMain() { main( 0, nullptr ); }
 #endif
