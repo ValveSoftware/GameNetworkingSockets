@@ -112,7 +112,7 @@ public:
 	virtual int GetP2P_Transport_ICE_Enable( const SteamNetworkingIdentity &identityRemote, int *pOutUserFlags );
 
 	virtual bool GetCertificateRequest( int *pcbBlob, void *pBlob, SteamNetworkingErrMsg &errMsg ) override;
-	virtual bool SetCertificate( const void *pCertificate, int cbCertificate, SteamNetworkingErrMsg &errMsg ) override;
+	virtual bool SetCertificate( const void *pCertificate, int cbCertificate, SteamNetworkingErrMsg &errMsg ) override final; // Final.  Override InternalSetCertificate to customize
 	virtual void ResetIdentity( const SteamNetworkingIdentity *pIdentity ) override;
 
 	virtual HSteamListenSocket CreateListenSocketP2PFakeIP( int idxFakePort, int nOptions, const SteamNetworkingConfigValue_t *pOptions ) override;
@@ -239,7 +239,20 @@ protected:
 	/// Figure out the current authentication status.  And if it has changed, send out callbacks
 	virtual void DeduceAuthenticationStatus();
 
-	void InternalClearIdentity();
+	// Flags that specify what actions to take wrt to any durable cache, when we are assigned an identity or certificate.
+	static constexpr int k_nIdentitySetFlag_NoLoadCert = (1<<0);
+	static constexpr int k_nIdentitySetFlag_NoLoadTickets = (1<<1);
+	static constexpr int k_nIdentitySetFlag_NoLoad = k_nIdentitySetFlag_NoLoadCert | k_nIdentitySetFlag_NoLoadTickets;
+	static constexpr int k_nIdentitySetFlag_NoSave = (1<<2);
+	static constexpr int k_nIdentitySetFlag_NoCacheAccess = -1;
+
+	/// Called when we get a valid identity
+	virtual void InternalOnGotIdentity( int nIdentitySetFlags );
+
+	/// Set certificate and/or private key
+	virtual bool InternalSetCertificate( const void *pCertificate, int cbCertificate, SteamNetworkingErrMsg &errMsg, int nIdentitySetFlags );
+
+	virtual void InternalClearIdentity();
 	void KillConnections();
 
 	SteamNetworkingIdentity m_identity;

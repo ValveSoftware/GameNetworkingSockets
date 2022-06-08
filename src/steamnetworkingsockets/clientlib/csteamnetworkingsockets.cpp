@@ -442,6 +442,11 @@ void CSteamNetworkingSockets::InternalClearIdentity()
 	m_bEverGotCert = false;
 }
 
+void CSteamNetworkingSockets::InternalOnGotIdentity( int nIdentitySetFlags )
+{
+	// No base class action
+}
+
 CSteamNetworkingSockets::~CSteamNetworkingSockets()
 {
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
@@ -676,6 +681,15 @@ bool CSteamNetworkingSockets::GetCertificateRequest( int *pcbBlob, void *pBlob, 
 
 bool CSteamNetworkingSockets::SetCertificate( const void *pCertificate, int cbCertificate, SteamNetworkingErrMsg &errMsg )
 {
+	SteamNetworkingGlobalLock scopeLock( "SetCertificate" );
+	int nIdentitySetFlags = 0; // Allowing any reading/writing to the durable cache as appropriate
+	return InternalSetCertificate( pCertificate, cbCertificate, errMsg, nIdentitySetFlags );
+}
+
+bool CSteamNetworkingSockets::InternalSetCertificate( const void *pCertificate, int cbCertificate, SteamNetworkingErrMsg &errMsg, int nIdentitySetFlags )
+{
+ 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "InternalSetCertificate" );
+
 	// Crack the blob
 	CMsgSteamDatagramCertificateSigned msgCertSigned;
 	if ( !msgCertSigned.ParseFromArray( pCertificate, cbCertificate ) )
@@ -683,8 +697,6 @@ bool CSteamNetworkingSockets::SetCertificate( const void *pCertificate, int cbCe
 		V_strcpy_safe( errMsg, "CMsgSteamDatagramCertificateSigned failed protobuf parse" );
 		return false;
 	}
-
-	SteamNetworkingGlobalLock scopeLock( "SetCertificate" );
 
 	// Crack the cert, and check the signature.  If *we* aren't even willing
 	// to trust it, assume that our peers won't either
@@ -706,12 +718,26 @@ bool CSteamNetworkingSockets::SetCertificate( const void *pCertificate, int cbCe
 		return false;
 	}
 
+	// If we already have an identity, it must match the cert
+	bool bSetIdentity = false;
+	if ( m_identity.IsInvalid() || m_identity.IsLocalHost() )
+	{
+		bSetIdentity = true;
+	}
+	else if ( !( m_identity == certIdentity ) )
+	{
+		V_sprintf_safe( errMsg, "Cert is for identity '%s'.  We are '%s'", SteamNetworkingIdentityRender( certIdentity ).c_str(), SteamNetworkingIdentityRender( m_identity ).c_str() );
+		return false;
+	}
+
 	// We currently only support one key type
 	if ( msgCert.key_type() != CMsgSteamDatagramCertificate_EKeyType_ED25519 || msgCert.key_data().size() != 32 )
 	{
 		V_strcpy_safe( errMsg, "Cert has invalid public key" );
 		return false;
 	}
+
+	// FIXME - should we check if we already have a newer, equivalent cert?
 
 	// Does cert contain a private key?
 	if ( msgCertSigned.has_private_key_data() )
@@ -767,15 +793,10 @@ bool CSteamNetworkingSockets::SetCertificate( const void *pCertificate, int cbCe
 
 	// If we don't know our identity, then set it now.  Otherwise,
 	// it better match.
-	if ( m_identity.IsInvalid() || m_identity.IsLocalHost() )
+	if ( bSetIdentity )
 	{
 		m_identity = certIdentity;
 		SpewMsg( "Local identity established from certificate.  We are '%s'\n", SteamNetworkingIdentityRender( m_identity ).c_str() );
-	}
-	else if ( !( m_identity == certIdentity ) )
-	{
-		V_sprintf_safe( errMsg, "Cert is for identity '%s'.  We are '%s'", SteamNetworkingIdentityRender( certIdentity ).c_str(), SteamNetworkingIdentityRender( m_identity ).c_str() );
-		return false;
 	}
 
 	// Save it off
@@ -783,6 +804,11 @@ bool CSteamNetworkingSockets::SetCertificate( const void *pCertificate, int cbCe
 	m_msgCert = std::move( msgCert );
 	// If shouldn't already be expired.
 	AssertMsg( GetSecondsUntilCertExpiry() > 0, "Cert already invalid / expired?" );
+
+	// If we just got our identity, let derived classes take action.  But our caller is
+	// setting a specific cert, so don't try to load any other cert from the cache
+	if ( bSetIdentity )
+		InternalOnGotIdentity( nIdentitySetFlags | k_nIdentitySetFlag_NoLoadCert );
 
 	// We've got a valid cert
 	SetCertStatus( k_ESteamNetworkingAvailability_Current, "OK" );
@@ -801,7 +827,14 @@ void CSteamNetworkingSockets::ResetIdentity( const SteamNetworkingIdentity *pIde
 	KillConnections();
 	InternalClearIdentity();
 	if ( pIdentity )
+	{
 		m_identity = *pIdentity;
+		if ( m_identity.IsInvalid() || m_identity.IsLocalHost() )
+		{
+			int nIdentitySetFlags = k_nIdentitySetFlag_NoSave; // Allow us to check the durable cache for any credentials, but we know we are empty, so don't save anything
+			InternalOnGotIdentity( nIdentitySetFlags );
+		}
+	}
 }
 
 ESteamNetworkingAvailability CSteamNetworkingSockets::InitAuthentication()
