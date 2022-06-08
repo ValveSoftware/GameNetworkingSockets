@@ -1110,8 +1110,8 @@ extern CUtlHashMap<uint16, CSteamNetworkConnectionBase *, std::equal_to<uint16>,
 extern CUtlHashMap<int, CSteamNetworkPollGroup *, std::equal_to<int>, Identity<int> > g_mapPollGroups;
 
 // All of the tables above are projected by the same lock, since we expect to only access it briefly
-struct TableLock : Lock<RecursiveMutexImpl> {
-	TableLock() : Lock<RecursiveMutexImpl>( "table", LockDebugInfo::k_nFlag_Table ) {}
+struct TableLock : Lock<RecursiveTimedMutexImpl> {
+	TableLock() : Lock<RecursiveTimedMutexImpl>( "table", LockDebugInfo::k_nFlag_Table ) {}
 }; 
 using TableScopeLock = ScopeLock<TableLock>;
 extern TableLock g_tables_lock;

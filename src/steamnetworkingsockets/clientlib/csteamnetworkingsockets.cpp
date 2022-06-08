@@ -265,29 +265,43 @@ static CSteamNetworkConnectionBase *InternalGetConnectionByHandle( HSteamNetConn
 {
 	if ( sock == 0 )
 		return nullptr;
-	TableScopeLock tableScopeLock( g_tables_lock );
-	int idx = g_mapConnections.Find( uint16( sock ) );
-	if ( idx == g_mapConnections.InvalidIndex() )
-		return nullptr;
-	CSteamNetworkConnectionBase *pResult = g_mapConnections[ idx ];
-	if ( !pResult )
-	{
-		AssertMsg( false, "g_mapConnections corruption!" );
-		return nullptr;
-	}
-	if ( uint16( pResult->m_hConnectionSelf ) != uint16( sock ) )
-	{
-		AssertMsg( false, "Connection map corruption!" );
-		return nullptr;
-	}
 
-	// Make sure connection is not in the process of being self-destructed
-	bool bLocked = false;
+	// Take locks by "trying" and using a short timeout.  The table lock
+	// should only be held by any one thread for an extremely short period
+	// of time, so if we end up waiting/looping here, it should be blocked
+	// on the connection lock.  In general we should very seldom need
+	// to actually loop here, but doing this protects against a deadlock,
+	// because in rare situations we do need to take the locks in the
+	// opposite order.
 	for (;;)
 	{
 
+		// First take the table lock
+		TableScopeLock tableScopeLock;
+		if ( !tableScopeLock.TryLock( g_tables_lock, 1, nullptr ) )
+			continue;
+
+		int idx = g_mapConnections.Find( uint16( sock ) );
+		if ( idx == g_mapConnections.InvalidIndex() )
+			break;
+		CSteamNetworkConnectionBase *pResult = g_mapConnections[ idx ];
+		if ( !pResult )
+		{
+			AssertMsg( false, "g_mapConnections corruption!" );
+			break;
+		}
+		if ( uint16( pResult->m_hConnectionSelf ) != uint16( sock ) )
+		{
+			AssertMsg( false, "Connection map corruption!" );
+			break;
+		}
+
 		// Fetch the state of the connection.  This is OK to do
-		// even if we don't have the lock.
+		// even if we don't have the lock.  If the connection
+		// is already dead we can avoid even trying to take
+		// the lock.  That's good because cleaning up is one
+		// of the rare cases where we take locks in the opposite
+		// order, so we want to avoid that.
 		ESteamNetworkingConnectionState s = pResult->GetState();
 		if ( s == k_ESteamNetworkingConnectionState_Dead )
 			break;
@@ -297,25 +311,36 @@ static CSteamNetworkConnectionBase *InternalGetConnectionByHandle( HSteamNetConn
 				break;
 		}
 
-		// Have we locked already?  Then we're good
-		if ( bLocked )
-		{
-			// NOTE: We unlock the table lock here, OUT OF ORDER!
-			return pResult; 
-		}
-
 		// State looks good, try to lock the connection.
 		// NOTE: we still (briefly) hold the table lock!
-		// We *should* be able to totally block here
-		// without creating a deadlock, but looping here
-		// isn't so bad
-		bLocked = scopeLock.TryLock( *pResult->m_pLock, 5, pszLockTag );
-	}
+		// Taking the locks in this order (table, then connection)
+		// is the most common case by far, but in very rare
+		// cases we might need to take them in the opposite
+		// order, hence the loop
+		if ( !scopeLock.TryLock( *pResult->m_pLock, 1, pszLockTag ) )
+			continue;
 
-	// Connection found in table, but should not be returned to the caller.
-	// Unlock the connection, if we locked it
-	if ( bLocked )
+		// Re-check the connection state, in case something changed
+		// while we were waiting on the lock
+		s = pResult->GetState();
+		if ( s != k_ESteamNetworkingConnectionState_Dead )
+		{
+			if ( !bForAPI || BConnectionStateExistsToAPI( s ) )
+			{
+				// NOTE: Exiting this scope will invoke TableScopeLock destructor,
+				// which will unlock the table lock here, OUT OF ORDER of the order
+				// that we took the locks.  That's intentional!  We don't need that
+				// lock anymore, we have locked the connection that we want.
+				return pResult; 
+			}
+		}
+
+		// Connection found in table, but should not be returned to the caller.
+		// Go ahead and immediately unlock the connection lock, the caller should not
+		// need it.
 		scopeLock.Unlock();
+		break;
+	}
 	
 	return nullptr;
 }
