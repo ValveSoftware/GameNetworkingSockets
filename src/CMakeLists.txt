@@ -227,6 +227,10 @@ macro(set_clientlib_target_properties GNS_TARGET)
 
 	set_target_common_gns_properties( ${GNS_TARGET} )
 
+	set_target_properties(${GNS_TARGET} PROPERTIES
+		CXX_EXTENSIONS ON
+	)
+
 	target_include_directories(${GNS_TARGET} PUBLIC
 		"$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>"
 		"$<INSTALL_INTERFACE:$<INSTALL_PREFIX>/${CMAKE_INSTALL_INCLUDEDIR}/GameNetworkingSockets>"
