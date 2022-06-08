@@ -2302,8 +2302,6 @@ const char *CSteamNetworkingUtils::GetBuildString()
 {
 	#if defined( STEAMNETWORKINGSOCKETS_OPENSOURCE )
 		return "opensource " __DATE__ " " __TIME__;
-	#elif defined( STEAMNETWORKINGSOCKETS_PARTNER )
-		return "partner " __DATE__ " " __TIME__;
 	#elif defined( STEAMNETWORKINGSOCKETS_STANDALONELIB )
 		return "lib " __DATE__ " " __TIME__;
 	#elif defined( STEAMNETWORKINGSOCKETS_STEAMCLIENT )
