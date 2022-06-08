@@ -397,10 +397,9 @@ public:
 	/// lanes may be sent out of order.  Each lane has its own message number
 	/// sequence.  The first message sent on each lane will be assigned the number 1.
 	///
-	/// Each lane has a "priority".  Lower priority lanes will only be processed
-	/// when all higher-priority lanes are empty.  The magnitudes of the priority
-	/// values are not relevant, only their sort order.  Higher numeric values
-	/// take priority over lower numeric values.
+	/// Each lane has a "priority".  Lanes with higher numeric values will only be processed
+	/// when all lanes with lower number values are empty.  The magnitudes of the priority
+	/// values are not relevant, only their sort order.
 	/// 
 	/// Each lane also is assigned a weight, which controls the approximate proportion
 	/// of the bandwidth that will be consumed by the lane, relative to other lanes
