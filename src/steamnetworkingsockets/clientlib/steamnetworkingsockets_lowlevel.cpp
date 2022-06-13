@@ -3272,6 +3272,11 @@ bool BSteamNetworkingSocketsLowLevelAddRef( SteamNetworkingErrMsg &errMsg )
 		}
 		#endif
 
+		// Make sure poll list is recreated upon first use
+		#ifdef USE_POLL
+			s_bRecreatePollList = true;
+		#endif
+
 		SpewMsg( "Initialized low level socket/threading support.\n" );
 	}
 
@@ -3374,6 +3379,14 @@ void SteamNetworkingSocketsLowLevelDecRef()
 	{
 		AssertMsg( false, "Trying to close low level socket support, but we still have sockets open!" );
 	}
+
+	// Free any memory in poll list (the only thing that could be left is the read side of
+	// a socket pair used to wake the thread, which we just deleted).  And make sure we rebuild
+	// the list for first use if the library is re-initialized
+	#ifdef USE_POLL
+		s_vecPollFDs.Purge();
+		s_bRecreatePollList = true;
+	#endif
 
 	// Nuke packet lagger queues and make sure we are not registered to think
 	s_packetLagQueueRecv.Clear();
