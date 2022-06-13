@@ -97,6 +97,12 @@ if (WIN32)
 endif()
 
 if (USE_CRYPTO STREQUAL "OpenSSL")
+	# Match the OpenSSL runtime to our setting.
+	# Note that once found the library paths are cached and will not change if the option is changed.
+	if (MSVC)
+		set(OPENSSL_MSVC_STATIC_RT ${MSVC_CRT_STATIC})
+	endif()
+
 	find_package(OpenSSL REQUIRED)
 	message( STATUS "OPENSSL_INCLUDE_DIR = ${OPENSSL_INCLUDE_DIR}" )
 

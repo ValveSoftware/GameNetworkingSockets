@@ -48,6 +48,14 @@ easier. Be sure to pick the installers **without** the "Light"suffix. In this in
 For CMake to find the libraries, you may need to set the environment variable
 `OPENSSL_ROOT_DIR`.
 
+If you are linking statically with OpenSSL you will need to set `OPENSSL_USE_STATIC_LIBS` to `ON`.
+`OPENSSL_MSVC_STATIC_RT` is automatically matched to the value of `MSVC_CRT_STATIC`.
+
+Both need to be set before any calls to `find_package(OpenSSL REQUIRED)` because CMake caches the paths to libraries.
+When building GameNetworkingSockets by itself it is sufficient to set these variables on the command line or in the GUI before first configuration.
+
+See the documentation for [FindOpenSSL](https://cmake.org/cmake/help/latest/module/FindOpenSSL.html) for more information about CMake variables involing OpenSSL.
+
 #### Protobuf
 
 Instructions for getting a working installation of google protobuf on Windows can
