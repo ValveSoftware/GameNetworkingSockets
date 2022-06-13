@@ -4,7 +4,12 @@
 #include <tier0/dbg.h>
 
 #include "tier0/memdbgoff.h"
-#include <sodium.h>
+#include <sodium/core.h>
+#include <sodium/crypto_aead_aes256gcm.h>
+#include <sodium/crypto_auth_hmacsha256.h>
+#include <sodium/crypto_hash_sha256.h>
+#include <sodium/randombytes.h>
+#include <sodium/utils.h>
 #include "tier0/memdbgon.h"
 
 #ifdef STEAMNETWORKINGSOCKETS_CRYPTO_LIBSODIUM

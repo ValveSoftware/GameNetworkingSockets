@@ -5,7 +5,9 @@
 
 #ifdef STEAMNETWORKINGSOCKETS_CRYPTO_25519_LIBSODIUM
 
-#include <sodium.h>
+#include <sodium/crypto_scalarmult_curve25519.h>
+#include <sodium/crypto_sign_ed25519.h>
+#include <sodium/utils.h>
 
 CEC25519KeyBase::~CEC25519KeyBase()
 {
