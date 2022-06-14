@@ -15,16 +15,8 @@
 #include <mutex>
 #include <atomic>
 
-#ifdef POSIX
-#include <pthread.h>
-#include <sched.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netdb.h>
-#endif
-
 #include "steamnetworkingsockets_lowlevel.h"
-#include "../steamnetworkingsockets_platform.h"
+#include <tier0/platform_sockets.h>
 #include "../steamnetworkingsockets_internal.h"
 #include "../steamnetworkingsockets_thinker.h"
 #include "steamnetworkingsockets_connections.h"
@@ -32,6 +24,18 @@
 #include <tier1/utlpriorityqueue.h>
 #include <tier1/utllinkedlist.h>
 #include "crypto.h"
+
+#if IsPosix()
+	#include <pthread.h>
+	#include <sched.h>
+	#include <sys/types.h>
+	#if !IsNintendoSwitch()
+		#include <sys/socket.h>
+	#endif
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_RESOLVEHOSTNAME
+		#include <netdb.h>
+	#endif
+#endif
 
 #include <tier0/memdbgoff.h>
 
@@ -888,6 +892,33 @@ static void UpdateFakeRateLimitTokenBuckets( SteamNetworkingMicroseconds usecNow
 inline IRawUDPSocket::IRawUDPSocket() {}
 inline IRawUDPSocket::~IRawUDPSocket() {}
 
+
+// Perform gather-based send, on platform that doesn't have sendmsg
+#ifdef PLATFORM_NO_SENDMSG
+bool sendto_gather( int sockfd, int nChunks, const iovec *pChunks, sockaddr *pAddr, socklen_t addrSize )
+{
+	COMPILE_TIME_ASSERT( k_cbSteamNetworkingSocketsMaxUDPMsgLen < 1500 );
+	char pkt[ 2048 ];
+	char *max = pkt + sizeof(pkt);
+	char *d = pkt;
+	for ( int i = 0 ; i < nChunks ; ++i )
+	{
+		const iovec &chunk = pChunks[i];
+		if ( d + chunk.iov_len > max )
+		{
+			AssertMsg( false, "Gather send too big!" );
+			return false;
+		}
+		memcpy( d, chunk.iov_base, chunk.iov_len );
+		d += chunk.iov_len;
+	}
+
+	ssize_t cbTotal = d - pkt;
+	ssize_t r = sendto( sockfd, pkt, cbTotal, 0, pAddr, addrSize );
+	return ( r == cbTotal );
+}
+#endif
+
 class CRawUDPSocketImpl final : public IRawUDPSocket
 {
 public:
@@ -917,6 +948,7 @@ public:
 	inline bool BReallySendRawPacket( int nChunks, const iovec *pChunks, const netadr_t &adrTo ) const
 	{
 		Assert( m_socket != INVALID_SOCKET );
+		Assert( nChunks > 0 );
 
 		// Add a tag.  If we end up holding the lock for a long time, this tag
 		// will tell us how many packets were sent
@@ -927,8 +959,13 @@ public:
 		socklen_t addrSize;
 		if ( m_nAddressFamilies & k_nAddressFamily_IPv6 )
 		{
-			addrSize = sizeof(sockaddr_in6);
-			adrTo.ToSockadrIPV6( &destAddress );
+			#ifdef PLATFORM_NO_IPV6
+				Assert( false );
+				return false;
+			#else
+				addrSize = sizeof(sockaddr_in6);
+				adrTo.ToSockadrIPV6( &destAddress );
+			#endif
 		}
 		else
 		{
@@ -953,7 +990,7 @@ public:
 			SteamNetworkingMicroseconds usecSendStart = SteamNetworkingSockets_GetLocalTimestamp();
 		#endif
 
-		#ifdef WIN32
+		#ifdef _WIN32
 			// Confirm that iovec and WSABUF are indeed bitwise equivalent
 			COMPILE_TIME_ASSERT( sizeof( iovec ) == sizeof( WSABUF ) );
 			COMPILE_TIME_ASSERT( offsetof( iovec, iov_len ) == offsetof( WSABUF, len ) );
@@ -992,17 +1029,30 @@ public:
 				}
 			#endif
 		#else
-			msghdr msg;
-			msg.msg_name = (sockaddr *)&destAddress;
-			msg.msg_namelen = addrSize;
-			msg.msg_iov = const_cast<struct iovec *>( pChunks );
-			msg.msg_iovlen = nChunks;
-			msg.msg_control = nullptr;
-			msg.msg_controllen = 0;
-			msg.msg_flags = 0;
+			bool bResult;
+			if ( nChunks == 1 )
+			{
+				ssize_t r = sendto( m_socket, pChunks->iov_base, pChunks->iov_len, 0, (sockaddr *)&destAddress, addrSize );
+				bResult = ( r == (ssize_t)pChunks->iov_len );
+			}
+			else
+			{
+				#ifdef PLATFORM_NO_SENDMSG
+					bResult = sendto_gather( m_socket, nChunks, pChunks, (sockaddr *)&destAddress, addrSize );
+				#else
+					msghdr msg;
+					msg.msg_name = (sockaddr *)&destAddress;
+					msg.msg_namelen = addrSize;
+					msg.msg_iov = const_cast<struct iovec *>( pChunks );
+					msg.msg_iovlen = nChunks;
+					msg.msg_control = nullptr;
+					msg.msg_controllen = 0;
+					msg.msg_flags = 0;
 
-			int r = ::sendmsg( m_socket, &msg, 0 );
-			bool bResult = ( r >= 0 ); // just check for -1 for error, since we don't want to take the time here to scan the iovec and sum up the expected total number of bytes sent
+					ssize_t r = sendmsg( m_socket, &msg, 0 );
+					bResult = ( r >= 0 ); // just check for -1 for error, since we don't want to take the time here to scan the iovec and sum up the expected total number of bytes sent
+				#endif
+			}
 		#endif
 
 		#ifdef STEAMNETWORKINGSOCKETS_LOWLEVEL_TIME_SOCKET_CALLS
@@ -1284,6 +1334,11 @@ static CPacketLaggerRecv s_packetLagQueueRecv;
 #ifdef USE_POLL
 static CUtlVector<pollfd> s_vecPollFDs;
 static bool s_bRecreatePollList = true;
+
+#ifndef POLLEVENT_INVALID
+	#define POLLEVENT_INVALID (-1)
+#endif
+
 #endif
 
 #ifdef USE_EPOLL
@@ -1461,16 +1516,16 @@ void CRawUDPSocketImpl::Close()
 	}
 }
 
-static SOCKET OpenUDPSocketBoundToSockAddr( const void *sockaddr, size_t len, SteamNetworkingErrMsg &errMsg, int *pnIPv6AddressFamilies, int nBindInterface = -1 )
+static SOCKET OpenUDPSocketBoundToSockAddr( const void *pSockaddr, size_t len, SteamNetworkingErrMsg &errMsg, int *pnIPv6AddressFamilies, int nBindInterface = -1 )
 {
 	unsigned int opt;
 
-	const sockaddr_in *inaddr = (const sockaddr_in *)sockaddr;
+	const sockaddr_in *inaddr = (const sockaddr_in *)pSockaddr;
 
 	// Select socket type.  For linux, use the "close on exec" flag, so that the
 	// socket will not be inherited by any child process that we spawn.
 	int sockType = SOCK_DGRAM;
-	#ifdef LINUX
+	#if IsLinux()
 		sockType |= SOCK_CLOEXEC;
 	#endif
 	#if IsNintendoSwitch() && !defined( _WIN32 )
@@ -1514,36 +1569,43 @@ static SOCKET OpenUDPSocketBoundToSockAddr( const void *sockaddr, size_t len, St
 	// Handle IP v6 dual stack?
 	if ( pnIPv6AddressFamilies )
 	{
+		#ifdef PLATFORM_NO_IPV6
+			Assert( false ); // Caller should check this define
+			V_strcpy_safe( errMsg, "No IPV6 support" );
+			closesocket( sock );
+			return INVALID_SOCKET;
+		#else
 
-		// Enable dual stack?
-		opt = ( *pnIPv6AddressFamilies == k_nAddressFamily_IPv6 ) ? 1 : 0;
-		if ( setsockopt( sock, IPPROTO_IPV6, IPV6_V6ONLY, (char *)&opt, sizeof( opt ) ) != 0 )
-		{
-			if ( *pnIPv6AddressFamilies == k_nAddressFamily_IPv6 )
+			// Enable dual stack?
+			opt = ( *pnIPv6AddressFamilies == k_nAddressFamily_IPv6 ) ? 1 : 0;
+			if ( setsockopt( sock, IPPROTO_IPV6, IPV6_V6ONLY, (char *)&opt, sizeof( opt ) ) != 0 )
 			{
-				// Spew a warning, but continue
-				SpewWarning( "Failed to set socket for IPv6 only (IPV6_V6ONLY=1).  Error code 0x%08X.  Continuing anyway.\n", GetLastSocketError() );
+				if ( *pnIPv6AddressFamilies == k_nAddressFamily_IPv6 )
+				{
+					// Spew a warning, but continue
+					SpewWarning( "Failed to set socket for IPv6 only (IPV6_V6ONLY=1).  Error code 0x%08X.  Continuing anyway.\n", GetLastSocketError() );
+				}
+				else
+				{
+					// Dual stack required, or only requested?
+					if ( *pnIPv6AddressFamilies == k_nAddressFamily_DualStack )
+					{
+						V_sprintf_safe( errMsg, "Failed to set socket for dual stack (IPV6_V6ONLY=0).  Error code 0x%08X.", GetLastSocketError() );
+						closesocket( sock );
+						return INVALID_SOCKET;
+					}
+
+					// Let caller know we're IPv6 only, and spew about this.
+					SpewWarning( "Failed to set socket for dual stack (IPV6_V6ONLY=0).  Error code 0x%08X.  Continuing using IPv6 only!\n", GetLastSocketError() );
+					*pnIPv6AddressFamilies = k_nAddressFamily_IPv6;
+				}
 			}
 			else
 			{
-				// Dual stack required, or only requested?
-				if ( *pnIPv6AddressFamilies == k_nAddressFamily_DualStack )
-				{
-					V_sprintf_safe( errMsg, "Failed to set socket for dual stack (IPV6_V6ONLY=0).  Error code 0x%08X.", GetLastSocketError() );
-					closesocket( sock );
-					return INVALID_SOCKET;
-				}
-
-				// Let caller know we're IPv6 only, and spew about this.
-				SpewWarning( "Failed to set socket for dual stack (IPV6_V6ONLY=0).  Error code 0x%08X.  Continuing using IPv6 only!\n", GetLastSocketError() );
-				*pnIPv6AddressFamilies = k_nAddressFamily_IPv6;
+				// Tell caller what they've got
+				*pnIPv6AddressFamilies = opt ? k_nAddressFamily_IPv6 : k_nAddressFamily_DualStack;
 			}
-		}
-		else
-		{
-			// Tell caller what they've got
-			*pnIPv6AddressFamilies = opt ? k_nAddressFamily_IPv6 : k_nAddressFamily_DualStack;
-		}
+		#endif
 	}
 
 	// Bind to particular interface
@@ -1586,7 +1648,7 @@ static SOCKET OpenUDPSocketBoundToSockAddr( const void *sockaddr, size_t len, St
 	}
 
 	// Bind it to specific desired local port/IP
-	if ( bind( sock, (struct sockaddr *)sockaddr, (socklen_t)len ) == -1 )
+	if ( bind( sock, (struct sockaddr *)pSockaddr, (socklen_t)len ) == -1 )
 	{
 		V_sprintf_safe( errMsg, "Failed to bind socket.  Error code 0x%08X.", GetLastSocketError() );
 		closesocket( sock );
@@ -1659,31 +1721,33 @@ static CRawUDPSocketImpl *OpenRawUDPSocketInternal( CRecvPacketCallback callback
 
 	// Try IPv6?
 	SOCKET sock = INVALID_SOCKET;
-	if ( nAddressFamilies & k_nAddressFamily_IPv6 )
-	{
-		sockaddr_in6 address6;
-		memset( &address6, 0, sizeof(address6) );
-		address6.sin6_family = AF_INET6;
-		memcpy( address6.sin6_addr.s6_addr, addrLocal.m_ipv6, 16 );
-		address6.sin6_port = BigWord( addrLocal.m_port );
-
-		// Try to get socket
-		int nIPv6AddressFamilies = nAddressFamilies;
-		sock = OpenUDPSocketBoundToSockAddr( &address6, sizeof(address6), errMsg, &nIPv6AddressFamilies, nBindInterface );
-
-		if ( sock == INVALID_SOCKET )
+	#ifndef PLATFORM_NO_IPV6
+		if ( nAddressFamilies & k_nAddressFamily_IPv6 )
 		{
-			// Allowing fallback to IPv4?
-			if ( nAddressFamilies != k_nAddressFamily_Auto )
-				return nullptr;
+			sockaddr_in6 address6;
+			memset( &address6, 0, sizeof(address6) );
+			address6.sin6_family = AF_INET6;
+			memcpy( address6.sin6_addr.s6_addr, addrLocal.m_ipv6, 16 );
+			address6.sin6_port = BigWord( addrLocal.m_port );
 
-			// Continue below, we'll try IPv4
+			// Try to get socket
+			int nIPv6AddressFamilies = nAddressFamilies;
+			sock = OpenUDPSocketBoundToSockAddr( &address6, sizeof(address6), errMsg, &nIPv6AddressFamilies, nBindInterface );
+
+			if ( sock == INVALID_SOCKET )
+			{
+				// Allowing fallback to IPv4?
+				if ( nAddressFamilies != k_nAddressFamily_Auto )
+					return nullptr;
+
+				// Continue below, we'll try IPv4
+			}
+			else
+			{
+				nAddressFamilies = nIPv6AddressFamilies;
+			}
 		}
-		else
-		{
-			nAddressFamilies = nIPv6AddressFamilies;
-		}
-	}
+	#endif
 
 	// Try IPv4?
 	if ( sock == INVALID_SOCKET )
@@ -1721,11 +1785,13 @@ static CRawUDPSocketImpl *OpenRawUDPSocketInternal( CRecvPacketCallback callback
 		const sockaddr_in *boundaddr4 = (const sockaddr_in *)&addrBound;
 		addrLocal.SetIPv4( BigDWord( boundaddr4->sin_addr.s_addr ), BigWord( boundaddr4->sin_port ) );
 	}
+	#ifndef PLATFORM_NO_IPV6
 	else if ( addrBound.ss_family == AF_INET6 )
 	{
 		const sockaddr_in6 *boundaddr6 = (const sockaddr_in6 *)&addrBound;
 		addrLocal.SetIPv6( boundaddr6->sin6_addr.s6_addr, BigWord( boundaddr6->sin6_port ) );
 	}
+	#endif
 	else
 	{
 		Assert( false );
@@ -1978,7 +2044,7 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 				Assert( f != INVALID_SOCKET ); \
 				p.fd = f; \
 				p.events = POLLRDNORM; \
-				p.revents = -1; /* Make sure kernel is clearing events properly */ \
+				p.revents = POLLEVENT_INVALID; /* Make sure kernel is clearing events properly */ \
 			}
 
 			for ( CRawUDPSocketImpl *pSock: s_vecRawSockets )
@@ -2015,7 +2081,7 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 		struct epoll_event epoll_events[ 32 ];
 		int num_epoll_events = epoll_wait( s_epollfd, epoll_events, V_ARRAYSIZE( epoll_events ), nMaxTimeoutMS );
 	#elif defined( USE_POLL )
-		poll( s_vecPollFDs.Base(), s_vecPollFDs.Count(), nMaxTimeoutMS );
+		int poll_result = poll( s_vecPollFDs.Base(), s_vecPollFDs.Count(), nMaxTimeoutMS );
 	#elif defined( _WIN32 )
 		WaitForSingleObject( s_hEventWakeThread, nMaxTimeoutMS );
 	#else
@@ -2099,6 +2165,41 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 
 	#else
 
+		// On POSIX, check return value, and also handle the wake "fd"
+		#ifdef USE_POLL
+		{
+
+			// Make sure we actually got some descriptors with data
+			if ( poll_result <= 0 )
+			{
+				if ( poll_result < 0 )
+					SpewWarning( "poll() returned %d, errno %d\n", poll_result, errno );
+				goto exit_polling;
+			}
+
+			pollfd &wake = s_vecPollFDs[ nSocketsToPoll ];
+			if ( (int)( wake.revents & POLLRDNORM ) )
+			{
+				Assert( wake.revents != POLLEVENT_INVALID );
+				#if defined( WAKE_THREAD_USING_EVENT )
+					Assert( wake.fd == s_hEventWakeThread );
+					ClearWakeThreadEvent( wake, s_hEventWakeThread );
+				#elif defined( WAKE_THREAD_USING_SOCKET_PAIR )
+					Assert( wake.fd == s_hSockWakeThreadRead );
+
+					// Just eat one request for now.
+					// I think it's probably safe to eat all of them, but
+					// it's a small optimization and I don't want to debug
+					// it is that's not true.
+					char buf[8];
+					::recv( s_hSockWakeThreadRead, buf, sizeof(buf), 0 );
+				#else
+					#error "How did we wake up?"
+				#endif
+			}
+		}
+		#endif
+
 		// Not using epoll, just check all sockets
 		for ( int idx = 0 ; idx < nSocketsToPoll ; ++idx )
 		{
@@ -2117,7 +2218,7 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 			#elif defined( USE_POLL )
 				if ( !( s_vecPollFDs[ idx ].revents & POLLRDNORM ) )
 					continue;
-				Assert( s_vecPollFDs[ idx ].revents != -1 ); // Make sure kernel actually populated this
+				Assert( s_vecPollFDs[ idx ].revents != POLLEVENT_INVALID ); // Make sure kernel actually populated this
 			#else
 				#error "How to tell if we need to drain socket?"
 			#endif
@@ -2127,32 +2228,6 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 			if ( !DrainSocket( pSock ) )
 				goto exit_polling;
 		}
-
-		// On POSIX, check for draining the thread wake "socket"
-		#ifdef USE_POLL
-		{
-			pollfd &wake = s_vecPollFDs[ nSocketsToPoll ];
-			if ( wake.revents & POLLRDNORM )
-			{
-				Assert( wake.revents != -1 );
-				#if defined( WAKE_THREAD_USING_EVENT )
-					Assert( wake.fd == s_hEventWakeThread );
-					ClearWakeThreadEvent( wake, s_hEventWakeThread )
-				#elif defined( WAKE_THREAD_USING_SOCKET_PAIR )
-					Assert( wake.fd == s_hSockWakeThreadRead );
-
-					// Just eat one request for now.
-					// I think it's probably safe to eat all of them, but
-					// it's a small optimization and I don't want to debug
-					// it is that's not true.
-					char buf[8];
-					::recv( s_hSockWakeThreadRead, buf, sizeof(buf), 0 );
-				#else
-					#error "How did we wake up?"
-				#endif
-			}
-		}
-		#endif
 	#endif // USE_EPOLL, else
 
 exit_polling:
@@ -2687,7 +2762,7 @@ static void SteamNetworkingThreadProc()
 	// for packets to arrive.
 	#if defined(_WIN32)
 		DbgVerify( SetThreadPriority( GetCurrentThread(), THREAD_PRIORITY_HIGHEST ) );
-	#elif defined(POSIX)
+	#elif IsPosix()
 		// This probably won't work on Linux, because you cannot raise thread priority
 		// without being root.  But on some systems it works.  So we try, and if it
 		// works, great.
@@ -3222,7 +3297,7 @@ bool BSteamNetworkingSocketsLowLevelAddRef( SteamNetworkingErrMsg &errMsg )
 				V_sprintf_safe( errMsg, "nn::socket::EventFd.  Error code 0x%08x.", GetLastError() );
 				return false;
 			}
-		#elif IsPS5()
+		#elif IsPlaystation()
 			// No additional setup needed here
 		#else
 		{
@@ -3230,7 +3305,7 @@ bool BSteamNetworkingSocketsLowLevelAddRef( SteamNetworkingErrMsg &errMsg )
 			Assert( s_hSockWakeThreadWrite == INVALID_SOCKET );
 
 			int sockType = SOCK_DGRAM;
-			#ifdef LINUX
+			#if IsLinux()
 				sockType |= SOCK_CLOEXEC;
 			#endif
 			int sock[2];
@@ -3344,7 +3419,7 @@ void SteamNetworkingSocketsLowLevelDecRef()
 			nn::socket::Close( s_hEventWakeThread );
 			s_hEventWakeThread = INVALID_SOCKET;
 		}
-	#elif IsPS5()
+	#elif IsPlaystation()
 		// Nothing to do here
 	#else
 		if ( s_hSockWakeThreadRead != INVALID_SOCKET )

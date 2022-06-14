@@ -13,7 +13,7 @@
 // Forward declarations of tag types and some template helper classes
 //-----------------------------------------------------------------------------
 
-#if !defined( OSX ) && !defined( IOS ) && !defined( TVOS ) && !defined(COMPILER_CLANG)
+#if !IsOSX() && !defined( IOS ) && !defined( TVOS ) && !defined(COMPILER_CLANG)
 namespace std
 {
 	struct forward_iterator_tag;

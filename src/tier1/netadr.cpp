@@ -3,14 +3,7 @@
 #include <functional>
 
 #include <tier1/netadr.h>
-
-#ifdef WIN32
-	#include <ws2tcpip.h>
-	#undef SetPort
-#else
-	#include <sys/socket.h>
-	#include <netinet/in.h>
-#endif
+#include <tier0/platform_sockets.h>
 
 #include <vstdlib/strtools.h>
 #include "ipv6text.h"
@@ -456,6 +449,7 @@ bool CIPAddress::SetFromSockadr(const void *addr, size_t addr_size, uint16 *punP
 			return true;
 		}
 
+#ifndef PLATFORM_NO_IPV6
 		case AF_INET6:
 		{
 			if ( addr_size < sizeof(sockaddr_in6) )
@@ -473,6 +467,7 @@ bool CIPAddress::SetFromSockadr(const void *addr, size_t addr_size, uint16 *punP
 
 			return true;
 		}
+#endif
 	}
 	return false;
 }
@@ -686,6 +681,7 @@ size_t CIPAndPort::ToSockadr(void *addr, size_t addr_size) const
 		}
 		break;
 
+#ifndef PLATFORM_NO_IPV6
 		case k_EIPTypeV6:
 		{
 			if ( addr_size < sizeof(sockaddr_in6) )
@@ -702,6 +698,7 @@ size_t CIPAndPort::ToSockadr(void *addr, size_t addr_size) const
 			struct_size = sizeof(sockaddr_in6);
 		}
 		break;
+#endif // #ifndef PLATFORM_NO_IPV6
 	}
 
 	return struct_size;
@@ -713,6 +710,7 @@ size_t CIPAndPort::ToSockadr(void *addr, size_t addr_size) const
 //-----------------------------------------------------------------------------
 // Purpose: Convert to an ipv6 sockaddr structure
 //-----------------------------------------------------------------------------
+#ifndef PLATFORM_NO_IPV6
 void CIPAndPort::ToSockadrIPV6(void *addr, size_t addr_size) const
 {
 	memset( addr, 0, addr_size);
@@ -728,3 +726,4 @@ void CIPAndPort::ToSockadrIPV6(void *addr, size_t addr_size) const
 		s->sin6_scope_id = m_unIPv6Scope;
 	s->sin6_port = BigWord( m_usPort );
 }
+#endif // PLATFORM_NO_IPV6

@@ -14,7 +14,7 @@
 #include <steam/isteamnetworkingutils.h>
 #include <steam/steamnetworkingcustomsignaling.h>
 
-#ifdef POSIX
+#ifdef VALVE_POSIX
 	#include <unistd.h>
 	#include <sys/socket.h>
 	#include <sys/types.h>

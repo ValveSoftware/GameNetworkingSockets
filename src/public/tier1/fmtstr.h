@@ -19,7 +19,7 @@
 #pragma once
 #endif
 
-#if defined(POSIX)
+#ifdef __GNUC__
 // clang will error if the symbol visibility for an object changes between static libraries (and/or your main dylib)
 // so force the FmtStr templates and importantly the global scAsserted below to hidden (i.e don't escape the dll) forcefully
 #pragma GCC visibility push(hidden)
@@ -318,7 +318,7 @@ void CFmtStrN< SIZE_BUF, QT, ON_STACK >::Set( const char *pchValue, int nSize )
 	m_nLength = CopyStringLength( BaseClass::m_szBuf, pchValue, nMaxLength );
 }
 
-#if defined(POSIX)
+#ifdef __GNUC__
 #pragma GCC visibility pop
 #endif
 

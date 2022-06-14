@@ -1,12 +1,33 @@
 //====== Copyright Valve Corporation, All rights reserved. ====================
 //
-// Include the relevant platform-specific headers for socket-related stuff,
-// and declare some functions make them look similar
+// Include the relevant platform-specific headers for socket-related
+// stuff, and declare some functions make them look as similar to
+// plain BSD sockets as possible.
+// 
+// This includes a bunch of stuff.  DO NOT INCLUDE THIS FROM A HEADER
 //
+// Some things that will be defined by this file:
+// 
+// closesocket()
+// GetLastSocketError()
+// SetSocketNonBlocking()
+// 
+// USE_EPOLL or USE_POLL
+// If USE_EPOLL:
+//		EPollHandle, INVALID_EPOLL_HANDLE, EPollCreate()
+//
+// WAKE_THREAD_USING_EVENT or WAKE_THREAD_USING_SOCKET_PAIR
+// If WAKE_THREAD_USING_EVENT:
+//		ThreadWakeEvent, INVALID_THREAD_WAKE_EVENT, SetWakeThreadEvent()
 
-#ifndef STEAMNETWORKINGSOCKETS_PLATFORM_H
-#define STEAMNETWORKINGSOCKETS_PLATFORM_H
+#ifndef TIER0_PLATFORM_SOCKETS_H
+#define TIER0_PLATFORM_SOCKETS_H
 #pragma once
+
+#include "platform.h"
+
+// !KLUDGE!
+typedef char SteamNetworkingErrMsg[ 1024 ];
 
 // Socket headers
 #ifdef _WIN32
@@ -45,12 +66,11 @@
 
 #elif IsNintendoSwitch()
 	// NDA-protected material, so all this is in a separate file
-	#include "clientlib/nswitch/steamnetworkingsockets_platform_nswitch.h"
-#elif IsPS5()
+	#include "platform_sockets_nswitch.h"
+#elif IsPlaystation()
 	// NDA-protected material, so all this is in a separate file
-	#include "clientlib/ps5/steamnetworkingsockets_platform_ps5.h"
-
-#else
+	#include "platform_sockets_playstation.h"
+#elif IsPosix()
 
 	// POSIX-ish platform (Linux, OSX, Android, IOS)
 	#include <sys/types.h>
@@ -61,7 +81,7 @@
 	#include <poll.h>
 	#include <errno.h>
 
-	#ifndef ANDROID
+	#if !IsAndroid()
 		#include <ifaddrs.h>
 	#endif
 	#include <net/if.h>
@@ -95,7 +115,7 @@
 		inline EPollHandle EPollCreate( SteamNetworkingErrMsg &errMsg )
 		{
 			int flags = 0;
-			#ifdef LINUX
+			#if IsLinux()
 				flags |= EPOLL_CLOEXEC;
 			#endif
 			EPollHandle e = epoll_create1( flags );
@@ -113,6 +133,8 @@
 		// instead of a socket pair?
 
 	#endif
+#else
+	#error "How do?"
 #endif
 
-#endif // #ifndef STEAMNETWORKINGSOCKETS_PLATFORM_H
+#endif // _H

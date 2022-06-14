@@ -10,7 +10,7 @@
 #define _X86INTRIN_H_INCLUDED
 #endif
 #include "winlite.h"
-#elif defined(POSIX)
+#elif IsPosix()
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -397,7 +397,7 @@ void CCrypto::GenerateRandomBlock( void *pvDest, int cubDest )
 	bool bRtlGenRandomOK = s_pfnRtlGenRandom && ( s_pfnRtlGenRandom( pubDest, (unsigned long)cubDest ) == TRUE );
 	AssertFatal( bRtlGenRandomOK );
 
-#elif defined(POSIX)
+#elif IsPosix()
 
 	// Reading from /dev/urandom is threadsafe, but possibly slow due to a kernel
 	// spinlock or mutex protecting access to the internal PRNG state. In theory,

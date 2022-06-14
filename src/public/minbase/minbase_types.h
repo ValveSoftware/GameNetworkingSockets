@@ -75,7 +75,7 @@ typedef uint32 uint32_t;
 // NOTE: int64_t must match the compiler stdint.h definition
 // and so may not match the Steam int64.  Mixing the two is
 // error-prone so always use the Steam non-_t types in Steam code.
-#if defined(COMPILER_GCC) && defined(PLATFORM_64BITS) && !defined(__MINGW32__) && !defined(OSX) && !(defined(IOS) || defined(TVOS))
+#if defined(COMPILER_GCC) && defined(PLATFORM_64BITS) && !defined(__MINGW32__) && !IsOSX() && !(defined(IOS) || defined(TVOS))
 #define INT64_DIFFERENT_FROM_INT64_T 1
 typedef long int int64_t;
 typedef unsigned long int uint64_t;

@@ -8,7 +8,7 @@
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
 
 #include "csteamnetworkingsockets.h"
-#include "../steamnetworkingsockets_platform.h"
+#include <tier0/platform_sockets.h>
 #include "crypto.h"
 
 // Put everything in a namespace, so we don't violate the one definition rule

@@ -31,7 +31,7 @@ typedef unsigned char uint8;
 typedef unsigned char BYTE;
 typedef unsigned char byte;
 
-#ifdef WIN32
+#ifdef _WIN32
 #include <tchar.h>
 #include <wchar.h>
 #elif defined( _PS3 )
@@ -85,7 +85,7 @@ typedef char tchar;
 #endif
 
 
-#if defined( _MSC_VER ) || defined( WIN32 )
+#if defined( _MSC_VER ) || defined( _WIN32 )
 typedef wchar_t	uchar16;
 typedef unsigned int uchar32;
 #else

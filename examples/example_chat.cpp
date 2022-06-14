@@ -22,7 +22,7 @@
 #include <steam/steam_api.h>
 #endif
 
-#ifdef WIN32
+#ifdef _WIN32
 	#include <windows.h> // Ug, for NukeProcess -- see below
 #else
 	#include <unistd.h>
@@ -43,7 +43,7 @@ SteamNetworkingMicroseconds g_logTimeZero;
 // down the thread that is reading from stdin.
 static void NukeProcess( int rc )
 {
-	#ifdef WIN32
+	#ifdef _WIN32
 		ExitProcess( rc );
 	#else
 		(void)rc; // Unused formal parameter

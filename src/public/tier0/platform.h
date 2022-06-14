@@ -30,7 +30,7 @@
 #include "minbase/minbase_macros.h"
 #include "minbase/minbase_endian.h"
 
-#ifdef POSIX
+#if IsPosix()
 	typedef int SOCKET;
 	#define INVALID_SOCKET (-1)
 #else
@@ -53,7 +53,7 @@
 
 #include "platformtime.h"
 
-#if defined( POSIX )
+#if IsPosix()
 
 	// handle mapping windows names used in tier0 to posix names in one place
 	#define _snprintf snprintf //validator.cpp

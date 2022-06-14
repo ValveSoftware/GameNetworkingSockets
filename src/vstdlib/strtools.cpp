@@ -8,7 +8,7 @@
 #include "winlite.h"
 #endif
 
-#ifdef POSIX
+#if IsPosix()
 	#include <unistd.h>
 #endif
 

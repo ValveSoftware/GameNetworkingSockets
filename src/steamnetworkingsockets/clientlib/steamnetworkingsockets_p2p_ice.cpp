@@ -22,7 +22,7 @@
 	#undef min
 	#undef max
 #endif
-#if defined( POSIX ) && defined( STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC )
+#if IsPosix() && defined( STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC )
 	#include <dlfcn.h>
 #endif
 
@@ -309,8 +309,8 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 								return;
 							}
 							g_SteamNetworkingSockets_CreateICESessionFunc = (CreateICESession_t)::GetProcAddress( h, pszExportFunc );
-						#elif defined( POSIX )
-							#if defined( OSX ) || defined( IOS ) || defined( TVOS )
+						#elif IsPosix()
+							#if IsOSX() || defined( IOS ) || defined( TVOS )
 								static const char pszModule[] = "libsteamwebrtc.dylib";
 							#else
 								static const char pszModule[] = "libsteamwebrtc.so";

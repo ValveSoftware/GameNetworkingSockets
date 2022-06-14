@@ -9,16 +9,20 @@
 #else
 	#include <sys/time.h>
 	#include <unistd.h>
-	#if defined OSX
+	#if IsOSX()
 		#include <mach/mach.h>
 		#include <mach/mach_time.h>
 	#endif
 
 #endif
 
+#if IsNintendoSwitch()
+	// NDA material
+#endif
+
 BEGIN_TIER0_NAMESPACE
 
-#if defined( _WIN32 ) || IsOSX()
+#if defined( _WIN32 ) || IsOSX() || IsNintendoSwitch()
 	static uint64 g_TickFrequency;
 	static double g_TickFrequencyDouble;
 	static double g_TicksToUS;
@@ -59,6 +63,8 @@ static uint64 InitTicks()
 	g_TickFrequencyDouble = (double) TimebaseInfo.denom / (double) TimebaseInfo.numer * 1.0e9;
 	g_TickFrequency = (uint64)( g_TickFrequencyDouble + 0.5 );
 	g_TickBase = mach_absolute_time();
+#elif IsNintendoSwitch()
+	// NDA material
 #elif IsPosix()
 	// TickFrequency is constant since clock_gettime always returns nanoseconds
 	timespec TimeSpec;
@@ -68,7 +74,7 @@ static uint64 InitTicks()
 #error Unknown platform
 #endif
 
-	#if defined( _WIN32 ) || defined( OSX )
+	#if defined( _WIN32 ) || IsOSX() || IsNintendoSwitch()
 		g_TicksToUS = 1.0e6 / g_TickFrequencyDouble;
 	#endif
 
@@ -97,6 +103,8 @@ uint64 Plat_RelativeTicks()
 	}
 #elif IsOSX()
 	Ticks = mach_absolute_time();
+#elif IsNintendoSwitch()
+	// NDA material
 #elif IsPosix()
 	timespec TimeSpec;
 	clock_gettime( CLOCK_MONOTONIC, &TimeSpec );

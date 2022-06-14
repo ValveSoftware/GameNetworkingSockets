@@ -22,26 +22,30 @@ using namespace SteamNetworkingSocketsLib;
 
 #include <assert.h>
 
-#ifdef POSIX
+#if IsPosix()
 	#include <unistd.h>
-	#if !IsPS5()
+	#if !IsPlaystation()
 		#include <signal.h>
 	#endif
 #endif // POSIX
 
-#ifdef LINUX
+#if IsLinux()
 #include <sys/ptrace.h>
 #endif
 
-#ifdef OSX
+#if IsOSX()
 #include <sys/sysctl.h>
+#endif
+
+#if IsPlaystation() && defined(_DEBUG)
+// NDA material
 #endif
 
 bool Plat_IsInDebugSession()
 {
 #ifdef _WIN32
 	return (IsDebuggerPresent() != 0);
-#elif defined(OSX)
+#elif IsOSX()
 	int mib[4];
 	struct kinfo_proc info;
 	size_t size;
@@ -53,7 +57,7 @@ bool Plat_IsInDebugSession()
 	info.kp_proc.p_flag = 0;
 	sysctl(mib,4,&info,&size,NULL,0);
 	return ((info.kp_proc.p_flag & P_TRACED) == P_TRACED);
-#elif defined(LINUX)
+#elif IsLinux()
 	static FILE *fp;
 	if ( !fp )
 	{
@@ -80,15 +84,12 @@ bool Plat_IsInDebugSession()
 		}
 	}
 	return (nTracePid != 0);
-#elif IsPS5()
-	// There might be a way to tell.  Do we care?
+#elif IsPlaystation()
+	// NDA material
+#elif IsNintendoSwitch()
 	return false;
-#elif defined( _PS3 )
-	#ifdef _CERT
-		return false;
-	#else
-		return snIsDebuggerPresent();
-	#endif
+#else
+	#error "HALP"
 #endif
 }
 

@@ -48,10 +48,6 @@
 	#endif
 #endif
 
-#if ( defined(LINUX) || defined(OSX) || defined(ANDROID) ) && !defined(POSIX)
-	#define POSIX
-#endif
-
 #if defined(_WIN32) && !defined(WINDED)
 	#if defined(_M_IX86)
 		#define __i386__	1
@@ -110,6 +106,10 @@
 	#define IsRetail() false
 #endif
 
+#ifdef IsPosix
+	#error "Too soon"
+#endif
+
 #ifdef _DEBUG
 	#define IsRelease() false
 	#define IsDebug() true
@@ -122,29 +122,41 @@
 	#define IsXboxOne() true
 	#define IsConsole() true
 #elif defined( NN_NINTENDO_SDK )
-	#if !defined(POSIX) && !defined(_WIN32)
-		#define POSIX
+	#ifndef _WIN32
+		#define IsPosix() true
 	#endif
 	#define IsNintendoSwitch() true
 	#define IsConsole() true
-#elif defined( _PS5 )
-	#ifndef POSIX
-		#define POSIX
-	#endif
+#elif defined( __PROSPERO__ )
+	#define IsPosix() true
 	#define IsPS5() true
+	#define IsConsole() true
+#elif defined( __ORBIS__ )
+	#define IsPosix() true
+	#define IsPS4() true
 	#define IsConsole() true
 #elif defined( _WIN32 )
 	#define IsWindows() true
 	#define IsPC() true
-#elif defined(POSIX)
-	#define IsPC() true
-	#ifdef LINUX
-		#define IsLinux() true
-	#endif
-	#ifdef OSX
+#elif defined( __ANDROID__ ) || defined( ANDROID )
+	#define IsAndroid() true
+	#define IsPosix() true
+#elif defined(__APPLE__)
+	#include <TargetConditionals.h>
+	#if defined( TARGET_OS_MAC )
 		#define SUPPORTS_IOPOLLINGHELPER
 		#define IsOSX() true
+		#define IsPosix() true
+	//#elif defined( TARGET_OS_IPHONE )
+	#else
+		#error "Unsupported platform"
 	#endif
+#elif defined( LINUX ) || defined( __LINUX__ ) || defined(linux) || defined(__linux) || defined(__linux__)
+	#define IsLinux() true
+	#define IsPosix() true
+#elif defined( _POSIX_VERSION ) || defined( POSIX ) || defined( VALVE_POSIX )
+	#define IsPosix() true
+	#define IsPC() true
 #else
 	#error Undefined platform
 #endif
@@ -155,6 +167,9 @@
 #ifndef IsPC
 	#define IsPC() false
 #endif
+#ifndef IsAndroid
+	#define IsAndroid() false
+#endif
 #ifndef IsConsole
 	#define IsConsole() false
 #endif
@@ -164,15 +179,17 @@
 #ifndef IsXboxOne
 	#define IsXboxOne() false
 #endif
+#ifndef IsPS4
+	#define IsPS4() false
+#endif
 #ifndef IsPS5
 	#define IsPS5() false
 #endif
+#define IsPlaystation() ( IsPS4() || IsPS5() )
 #ifndef IsLinux
 	#define IsLinux() false
 #endif
-#ifdef POSIX
-	#define IsPosix() true
-#else
+#ifndef IsPosix
 	#define IsPosix() false
 #endif
 #ifndef IsOSX
@@ -183,13 +200,6 @@
 		#define IsARM() true
 	#else
 		#define IsARM() false
-	#endif
-#endif
-#ifndef IsAndroid
-	#ifdef ANDROID
-		#define IsAndroid() true
-	#else
-		#define IsAndroid() false
 	#endif
 #endif
 

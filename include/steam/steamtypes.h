@@ -17,11 +17,13 @@
 typedef unsigned char uint8;
 #endif
 
-#if defined( __GNUC__ ) && !defined(_WIN32) && !defined(POSIX)
+#if ( defined(POSIX) || defined(_POSIX_VERSION) || ( defined( __GNUC__ ) && !defined(_WIN32) ) ) && !defined(VALVE_POSIX)
+	#define VALVE_POSIX 1
+#endif
+#ifdef __GNUC__
 	#if __GNUC__ < 4
 		#error "Steamworks requires GCC 4.X (4.2 or 4.4 have been tested)"
 	#endif
-	#define POSIX 1
 #endif
 
 #if defined(__LP64__) || defined(__x86_64__) || defined(_WIN64) || defined(__aarch64__) || defined(__s390x__)

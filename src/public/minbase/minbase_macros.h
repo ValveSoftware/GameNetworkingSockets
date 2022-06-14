@@ -47,16 +47,18 @@
 
 #if defined(_WIN32)
 #define PLAT_DLL_EXT "dll"
-#elif defined(LINUX)
+#elif IsLinux()
 #define PLAT_DLL_EXT "so"
-#elif defined(OSX)
+#elif IsOSX()
 #define PLAT_DLL_EXT "dylib"
 #endif
 
 #if defined(_WIN32)
 #define PLAT_PATH_SLASH "\\"
-#elif defined(POSIX)
+#elif IsPosix()
 #define PLAT_PATH_SLASH "/"
+#else
+	#error "?"
 #endif
 
 #if defined( _PS3 )
@@ -64,7 +66,7 @@
 #define PATH_MAX CELL_GAME_PATH_MAX
 #endif
 
-#if (!defined(_WIN32) || defined(WINDED)) && defined(POSIX)
+#if (!defined(_WIN32) || defined(WINDED)) && IsPosix()
 #define MAX_PATH  PATH_MAX
 #define _MAX_PATH PATH_MAX
 #endif
@@ -149,7 +151,7 @@ FORCEINLINE unsigned __int64 PLAT_CPU_TIME()
 }
 
 
-#elif defined(POSIX)
+#elif IsPosix()
 
 #include <sys/time.h>
 
@@ -252,7 +254,7 @@ char (*RtlpNumberOf( UNALIGNED T (&)[N] ))[N];
 #endif
 #endif
 
-#elif defined(LINUX)
+#elif IsLinux()
 
 // On Linux/gcc, RtlpNumberOf doesn't work well with pointers to structs
 // that are defined function locally. Here we have an alternative implementation
@@ -318,7 +320,7 @@ struct ErrorIfIsPointerNotArrayGivenToARRAYSIZE<false>
 #endif
 
 // Don't define for Windows, since it is defined unconditionally in winnt.h.
-#if !defined( UNREFERENCED_PARAMETER ) && !defined( WIN32 )
+#if !defined( UNREFERENCED_PARAMETER ) && !defined( _WIN32 )
 #define UNREFERENCED_PARAMETER(parm) NOTE_UNUSED(parm)
 #endif
 

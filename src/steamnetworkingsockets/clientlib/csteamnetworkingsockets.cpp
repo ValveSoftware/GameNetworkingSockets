@@ -2384,7 +2384,7 @@ const char *CSteamNetworkingUtils::GetBuildString()
 
 const char *CSteamNetworkingUtils::GetPlatformString()
 {
-	#if defined( NN_NINTENDO_SDK )
+	#if IsNintendoSwitch()
 		return "nswitch";
 	#elif defined( _GAMECORE )
 		// Is this right?  This might actually require a system call.
@@ -2392,11 +2392,11 @@ const char *CSteamNetworkingUtils::GetPlatformString()
 	#elif defined( _STADIA )
 		// Not sure if this works.
 		return "stadia";
-	#elif defined( _XBOX_ONE )
+	#elif IsXboxOne()
 		return "xbone";
-	#elif defined( _PS4 )
+	#elif IsPS4()
 		return "ps4";
-	#elif defined( _PS5 )
+	#elif IsPS5()
 		return "ps5";
 	#elif defined( TVOS ) || defined( __TVOS__ )
 		return "tvos";
@@ -2408,13 +2408,13 @@ const char *CSteamNetworkingUtils::GetPlatformString()
 		#else
 			return "osx";
 		#endif
-	#elif defined( OSX )
+	#elif IsOSX()
 		return "osx";
-	#elif defined( ANDROID ) || defined( __ANDROID__ )
+	#elif IsAndroid()
 		return "android";
 	#elif defined( _WINDOWS )
 		return "windows";
-	#elif defined( LINUX ) || defined( __LINUX__ ) || defined(linux) || defined(__linux) || defined(__linux__)
+	#elif IsLinux()
 		return "linux";
 	#elif defined( FREEBSD ) || defined( __FreeBSD__ )
 		return "freebsd";

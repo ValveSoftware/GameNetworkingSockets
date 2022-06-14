@@ -85,7 +85,7 @@
 
 // Linux had a few areas where it didn't construct objects in the same order that Windows does.
 // So when CVProfile::CVProfile() would access g_pMemAlloc, it would crash because the allocator wasn't initalized yet.
-#if defined( GNUC ) || defined ( COMPILER_GCC ) || defined( COMPILER_SNC )
+#if defined( __GNUC__ ) || defined ( COMPILER_GCC ) || defined( COMPILER_SNC )
 	#define CONSTRUCT_EARLY __attribute__((init_priority(101)))
 #else
 	#define CONSTRUCT_EARLY
@@ -93,7 +93,7 @@
 
 #ifdef _WIN32
 	#define SELECTANY __declspec(selectany)
-#elif defined(GNUC) || defined ( COMPILER_GCC ) || defined( COMPILER_SNC )
+#elif defined(__GNUC__) || defined ( COMPILER_GCC ) || defined( COMPILER_SNC )
 	#define SELECTANY __attribute__((weak))
 #else
 	#define SELECTANY static
@@ -105,7 +105,7 @@
 #if defined(_WIN32) && !defined(_XBOX)
 #define PLAT_DECL_EXPORT __declspec( dllexport )
 #define PLAT_DECL_IMPORT __declspec( dllimport )
-#elif defined(GNUC) || defined(COMPILER_GCC)
+#elif defined(__GNUC__) || defined(COMPILER_GCC)
 #define PLAT_DECL_EXPORT __attribute__((visibility("default")))
 #define PLAT_DECL_IMPORT
 #elif defined(_XBOX) || defined(COMPILER_SNC)
@@ -156,7 +156,7 @@
 		#define  __stdcall			__attribute__ ((__stdcall__))
 	#endif
     #define FASTCALL
-#elif defined(POSIX)
+#elif IsPosix()
     #define __stdcall
     #define __cdecl
     #define STDCALL
@@ -167,7 +167,7 @@
 	#define NOINLINE			    __declspec(noinline)
 	#define NORETURN				__declspec(noreturn)
 	#define FORCEINLINE			    __forceinline
-#elif defined(GNUC) || defined(COMPILER_GCC) || defined(COMPILER_SNC)
+#elif defined(__GNUC__) || defined(COMPILER_GCC) || defined(COMPILER_SNC)
 	#define NOINLINE				__attribute__ ((noinline))
 	#define NORETURN				__attribute__ ((noreturn))
     #if defined(COMPILER_GCC) || defined(COMPILER_SNC)
