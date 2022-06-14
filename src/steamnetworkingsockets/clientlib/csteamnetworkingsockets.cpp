@@ -828,7 +828,7 @@ void CSteamNetworkingSockets::ResetIdentity( const SteamNetworkingIdentity *pIde
 	if ( pIdentity )
 	{
 		m_identity = *pIdentity;
-		if ( m_identity.IsInvalid() || m_identity.IsLocalHost() )
+		if ( !m_identity.IsInvalid() && !m_identity.IsLocalHost() )
 		{
 			int nIdentitySetFlags = k_nIdentitySetFlag_NoSave; // Allow us to check the durable cache for any credentials, but we know we are empty, so don't save anything
 			InternalOnGotIdentity( nIdentitySetFlags );
