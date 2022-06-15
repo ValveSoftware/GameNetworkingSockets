@@ -431,7 +431,7 @@ bool CIPAddress::SetFromSockadr(const void *addr, size_t addr_size, uint16 *punP
 		Assert( false );
 		return false;
 	}
-	switch ( s->sa_family )
+	switch ( (int)s->sa_family )
 	{
 		case AF_INET:
 		{
