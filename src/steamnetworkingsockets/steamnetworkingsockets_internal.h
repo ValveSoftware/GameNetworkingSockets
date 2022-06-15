@@ -44,9 +44,9 @@
 	#define STEAMNETWORKINGSOCKETS_ENABLE_SDR
 #endif
 
-// Always enable ISteamNetworkingMessages, unless it is specifically
-// disabled
-#ifndef STEAMNETWORKINGSOCKETS_DISABLE_STEAMNETWORKINGMESSAGES
+// Always enable ISteamNetworkingMessages on PC, unless it is specifically
+// disabled.  On console, it's opt *in*
+#if !defined( STEAMNETWORKINGSOCKETS_DISABLE_STEAMNETWORKINGMESSAGES ) && !defined( STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES ) && !IsConsole()
 	#define STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
 #endif
 
