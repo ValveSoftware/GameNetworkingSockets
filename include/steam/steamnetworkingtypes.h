@@ -31,7 +31,7 @@
 #if defined( STEAMNETWORKINGSOCKETS_STATIC_LINK )
 	#define STEAMNETWORKINGSOCKETS_INTERFACE extern "C"
 #elif defined( STEAMNETWORKINGSOCKETS_FOREXPORT )
-	#ifdef _WIN32
+	#if defined( _WIN32 ) || defined( __ORBIS__ ) || defined( __PROSPERO__ )
 		#define STEAMNETWORKINGSOCKETS_INTERFACE extern "C" __declspec( dllexport )
 	#else
 		#define STEAMNETWORKINGSOCKETS_INTERFACE extern "C" __attribute__((visibility("default")))

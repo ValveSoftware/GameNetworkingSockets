@@ -118,8 +118,11 @@
 	#define IsDebug() false
 #endif
 
-#if defined( _XBOX_ONE )
+#if defined( _XBOX_ONE ) || defined( _GAMING_XBOX_XBOXONE )
 	#define IsXboxOne() true
+	#define IsConsole() true
+#elif defined( _GAMING_XBOX_SCARLETT )
+	#define IsXboxScarlett() true
 	#define IsConsole() true
 #elif defined( NN_NINTENDO_SDK )
 	#ifndef _WIN32
@@ -147,7 +150,12 @@
 		#define SUPPORTS_IOPOLLINGHELPER
 		#define IsOSX() true
 		#define IsPosix() true
-	//#elif defined( TARGET_OS_IPHONE )
+	#elif defined( TARGET_OS_IPHONE )
+		#define IsIOS() true
+		#define IsPosix() true
+	#elif defined( TARGET_OS_TV )
+		#define IsTVOS() true
+		#define IsPosix() true
 	#else
 		#error "Unsupported platform"
 	#endif
@@ -179,6 +187,13 @@
 #ifndef IsXboxOne
 	#define IsXboxOne() false
 #endif
+#ifndef IsXboxScarlett
+	#define IsXboxScarlett() false
+#endif
+#define IsXbox() ( IsXboxOne() || IsXboxScarlett() )
+#if defined( _GAMING_XBOX ) && !IsXbox()
+	#error "_GAMING_XBOX_XBOXONE or _GAMING_XBOX_SCARLETT should be defined"
+#endif
 #ifndef IsPS4
 	#define IsPS4() false
 #endif
@@ -186,6 +201,18 @@
 	#define IsPS5() false
 #endif
 #define IsPlaystation() ( IsPS4() || IsPS5() )
+#ifndef IsIOS
+	#define IsIOS() false
+	#if defined(IOS) || defined(__IOS__)
+		#error "TVOS detection not working"
+	#endif
+#endif
+#ifndef IsTVOS
+	#define IsTVOS() false
+	#if defined(TVOS) || defined(__TVOS__)
+		#error "TVOS detection not working"
+	#endif
+#endif
 #ifndef IsLinux
 	#define IsLinux() false
 #endif

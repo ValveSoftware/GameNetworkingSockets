@@ -2386,9 +2386,8 @@ const char *CSteamNetworkingUtils::GetPlatformString()
 {
 	#if IsNintendoSwitch()
 		return "nswitch";
-	#elif defined( _GAMECORE )
-		// Is this right?  This might actually require a system call.
-		return "xboxx";
+	#elif IsXboxScarlett()
+		return "scarlett";
 	#elif defined( _STADIA )
 		// Not sure if this works.
 		return "stadia";
@@ -2398,16 +2397,10 @@ const char *CSteamNetworkingUtils::GetPlatformString()
 		return "ps4";
 	#elif IsPS5()
 		return "ps5";
-	#elif defined( TVOS ) || defined( __TVOS__ )
+	#elif IsTVOS()
 		return "tvos";
-	#elif defined( __APPLE__ )
-		#if TARGET_OS_TV
-			return "tvos";
-		#elif TARGET_OS_IPHONE
-			return "ios";
-		#else
-			return "osx";
-		#endif
+	#elif IsIOS()
+		return "ios";
 	#elif IsOSX()
 		return "osx";
 	#elif IsAndroid()
