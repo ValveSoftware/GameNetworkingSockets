@@ -17,6 +17,7 @@
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
 			    
+BEGIN_TIER1_NAMESPACE
 
 //-----------------------------------------------------------------------------
 // Character conversions for C strings
@@ -1807,3 +1808,5 @@ double CUtlBuffer::GetDouble()
 	GET_TYPE( double, d, "%f" );
 	return d;
 }
+
+END_TIER1_NAMESPACE
