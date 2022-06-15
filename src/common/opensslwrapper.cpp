@@ -32,8 +32,12 @@ struct CRYPTO_dynlock_value
 	std::recursive_mutex m_Mutex;
 };
 
+// Custom random number generation.  I am not sure why we are doing this.
+// Apparently it was important in earlier versions of OpenSSL, but I am
+// doubtful we still need it.  It's deprecated in 3.0.
+#if !IsAndroid() && ( OPENSSL_VERSION_NUMBER < 0x30000000 )
+#define OPENSSL_CUSTOM_RAND
 
-#ifndef ANDROID
 static int RAND_CryptoGenRandom_bytes( unsigned char *buf, int num ) {
 	CCrypto::GenerateRandomBlock( buf, num );
 	return 1;
@@ -48,6 +52,7 @@ static const RAND_METHOD RAND_CryptoGenRandom =
 	RAND_CryptoGenRandom_bytes,	// generate pseudo-random
 	RAND_CryptoGenRandom_status	// status
 };
+
 #endif
 
 //-----------------------------------------------------------------------------
@@ -69,9 +74,9 @@ void COpenSSLWrapper::Initialize()
 		CRYPTO_set_dynlock_destroy_callback( COpenSSLWrapper::OpenSSLDynLockDestroyCallback );
 		CRYPTO_set_dynlock_lock_callback( COpenSSLWrapper::OpenSSLDynLockLockCallback );
 
-#ifndef ANDROID
-		RAND_set_rand_method( &RAND_CryptoGenRandom );
-#endif
+		#ifdef OPENSSL_CUSTOM_RAND
+			RAND_set_rand_method( &RAND_CryptoGenRandom );
+		#endif
 
 		iStatus = RAND_status();
 		AssertMsg( iStatus == 1, "OpenSSL random number system reports not enough entropy" );
