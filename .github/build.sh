@@ -57,6 +57,10 @@ has_clang || has_gcc || die "No compiler available"
 export CCACHE_DIR=$PWD/build-ci-ccache
 ccache -M4G
 
+# Mark all directories as safe so checkouts performed in CMakeLists.txt don't cause "unsafe repository" errors.
+# See https://github.com/actions/checkout/issues/766
+git config --global --add safe.directory '*'
+
 # Use shallow clones of submodules for space/time efficiency.
 #git submodule update --init --depth=1 2>&1 | cat
 

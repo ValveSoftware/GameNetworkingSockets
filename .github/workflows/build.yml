@@ -55,6 +55,11 @@ jobs:
           cd build
           cmake -S .. -G Ninja -DBUILD_TESTS=ON -DBUILD_EXAMPLES=ON -DBUILD_TOOLS=ON
 
+      # Mark all directories as safe so checkouts performed in CMakeLists.txt don't cause "unsafe repository" errors.
+      # See https://github.com/actions/checkout/issues/766
+      - name: Configure Git
+        run: git config --global --add safe.directory '*'
+
       - name: Build projects
         working-directory: '${{ github.workspace }}/build'
         run: ninja
