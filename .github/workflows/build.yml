@@ -12,7 +12,7 @@ jobs:
       IMAGE: ubuntu
       IMAGE_TAG: latest
     steps:
-      - uses: actions/checkout@master
+      - uses: actions/checkout@main
       # Note only alpine needs "preinstall" step
       - name: Update packages
         run: sudo -E bash .github/update-packages.sh
@@ -30,7 +30,7 @@ jobs:
     env:
       VCPKG_ROOT: ${{ github.workspace }}/vcpkg
     steps:
-      - uses: actions/checkout@master
+      - uses: actions/checkout@main
 
       - uses: lukka/get-cmake@latest
 
@@ -107,7 +107,7 @@ jobs:
             docker_image: alpine
             docker_tag: latest
     steps:
-      - uses: actions/checkout@master
+      - uses: actions/checkout@main
       - name: Launch container
         run: |
           docker run -d --rm --name github-docker-builder -e LC_ALL="C" -e LANG="C" -v ${{ github.workspace }}:/build -w /build ${{ matrix.docker_image }}:${{ matrix.docker_tag }} tail -f /dev/null
