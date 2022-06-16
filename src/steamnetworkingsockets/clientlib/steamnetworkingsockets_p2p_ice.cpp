@@ -189,7 +189,7 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 			V_AllocAndSplitString( m_connectionConfig.m_P2P_TURN_PassList.Get().c_str(), ",", vecTurnPasses, true );
 
 			// If turn arrays lengths (servers, users and passes) are not match, treat all TURN servers as unauthenticated
-			if ( !vecTurnUsers.IsEmpty() > 0 || !vecTurnPasses.IsEmpty() )
+			if ( !vecTurnUsers.IsEmpty() || !vecTurnPasses.IsEmpty() )
 			{
 				if ( cfg.m_nTurnServers != vecTurnUsers.Count() || cfg.m_nTurnServers != vecTurnPasses.Count() )
 				{
