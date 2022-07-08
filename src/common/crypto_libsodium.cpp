@@ -21,9 +21,11 @@ SymmetricCryptContextBase::SymmetricCryptContextBase()
 
 void SymmetricCryptContextBase::Wipe()
 {
-	sodium_free(m_ctx);
-
-	m_ctx = nullptr;
+	if ( m_ctx )
+	{
+		sodium_free(m_ctx);
+		m_ctx = nullptr;
+	}
 	m_cbIV = 0;
 	m_cbTag = 0;
 }
@@ -35,16 +37,35 @@ bool AES_GCM_CipherContext::InitCipher( const void *pKey, size_t cbKey, size_t c
 	// November 2019 survey.
 	// Libsodium recommends ChaCha20-Poly1305 in software if you've not got AES support
 	// in hardware.
-	AssertMsg( crypto_aead_aes256gcm_is_available() == 1, "No hardware AES support on this CPU." );
-	AssertMsg( cbKey == crypto_aead_aes256gcm_KEYBYTES, "AES key sizes other than 256 are unsupported." );
-	AssertMsg( cbIV == crypto_aead_aes256gcm_NPUBBYTES, "Nonce size is unsupported" );
-
-	if(m_ctx == nullptr)
+	if ( crypto_aead_aes256gcm_is_available() != 1 )
 	{
-		m_ctx = sodium_malloc( sizeof(crypto_aead_aes256gcm_state) );
+		AssertMsg( false, "No hardware AES support on this CPU." );
+		return false;
+	}
+	if ( cbKey != crypto_aead_aes256gcm_KEYBYTES )
+	{
+		AssertMsg( false, "AES key sizes other than 256 are unsupported." );
+		return false;
+	}
+	if ( cbIV != crypto_aead_aes256gcm_NPUBBYTES )
+	{
+		AssertMsg( false, "Nonce size is unsupported" );
+		return false;
 	}
 
-	crypto_aead_aes256gcm_beforenm( static_cast<crypto_aead_aes256gcm_state*>( m_ctx ), static_cast<const unsigned char*>( pKey ) );
+	Wipe();
+
+	m_ctx = sodium_malloc( sizeof(crypto_aead_aes256gcm_state) );
+
+	if ( crypto_aead_aes256gcm_beforenm( static_cast<crypto_aead_aes256gcm_state*>( m_ctx ), static_cast<const unsigned char*>( pKey ) ) != 0 )
+	{
+		AssertMsg( false, "crypto_aead_aes256gcm_beforenm failed" ); // docs say this "should never happen"
+		return false;
+	}
+
+	m_cbIV = cbIV;
+	m_cbTag = crypto_aead_aes256gcm_ABYTES;
+	COMPILE_TIME_ASSERT( crypto_aead_aes256gcm_ABYTES == 16 );
 
 	return true;
 }
@@ -65,14 +86,19 @@ bool AES_GCM_EncryptContext::Encrypt(
 	}
 
 	unsigned long long cbEncryptedDataAndTag_longlong;
-	crypto_aead_aes256gcm_encrypt_afternm(
+	if ( crypto_aead_aes256gcm_encrypt_afternm(
 			static_cast<unsigned char*>( pEncryptedDataAndTag ), &cbEncryptedDataAndTag_longlong,
 			static_cast<const unsigned char*>( pPlaintextData ), cbPlaintextData,
 			static_cast<const unsigned char*>(pAdditionalAuthenticationData), cbAuthenticationData,
 			nullptr,
 			static_cast<const unsigned char*>( pIV ),
 			static_cast<const crypto_aead_aes256gcm_state*>( m_ctx )
-			);
+			) != 0
+	) {
+		AssertMsg( false, "crypto_aead_aes256gcm_encrypt_afternm failed" ); // docs say this "should never happen"
+		*pcbEncryptedDataAndTag = 0;
+		return false;
+	}
 
 	*pcbEncryptedDataAndTag = cbEncryptedDataAndTag_longlong;
 
@@ -93,7 +119,7 @@ bool AES_GCM_DecryptContext::Decrypt(
 		return false;
 	}
 
-	unsigned long long cbPlaintextData_longlong;
+	unsigned long long cbPlaintextData_longlong = 0;
 	const int nDecryptResult = crypto_aead_aes256gcm_decrypt_afternm(
 			static_cast<unsigned char*>( pPlaintextData ), &cbPlaintextData_longlong,
 			nullptr,
