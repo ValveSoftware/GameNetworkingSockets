@@ -53,46 +53,52 @@ typedef struct _BCryptContext {
 
 void CCrypto::Init()
 {
-	ULONG garbage;
+	// Init one time init.  This is threadsafe if we assume C++11 compliance
+	static bool once = [](){
+		ULONG garbage;
 
-	BCryptOpenAlgorithmProvider(
-			&hAlgRandom,
-			BCRYPT_RNG_ALGORITHM,
-			nullptr,
-			0
-			);
-	AssertFatal( hAlgRandom != INVALID_HANDLE_VALUE );
+		VPROF_BUDGET( "CCrypto::Init", VPROF_BUDGETGROUP_ENCRYPTION );
 
-	BCryptOpenAlgorithmProvider(
-			&hAlgSHA256,
-			BCRYPT_SHA256_ALGORITHM,
-			nullptr,
-			0
-			);
-	AssertFatal( hAlgSHA256 != INVALID_HANDLE_VALUE );
-	BCryptGetProperty(hAlgSHA256, BCRYPT_OBJECT_LENGTH, (PUCHAR)&cbBufferSHA256, sizeof(cbBufferSHA256), &garbage, 0 );
-	AssertFatal( cbBufferSHA256 > 0 && cbBufferSHA256 < 16 * 1024 * 1024 );
+		BCryptOpenAlgorithmProvider(
+				&hAlgRandom,
+				BCRYPT_RNG_ALGORITHM,
+				nullptr,
+				0
+				);
+		AssertFatal( hAlgRandom != INVALID_HANDLE_VALUE );
 
-	BCryptOpenAlgorithmProvider(
-			&hAlgHMACSHA256,
-			BCRYPT_SHA256_ALGORITHM,
-			nullptr,
-			BCRYPT_ALG_HANDLE_HMAC_FLAG
-			);
-	AssertFatal( hAlgHMACSHA256 != INVALID_HANDLE_VALUE );
-	BCryptGetProperty(hAlgHMACSHA256, BCRYPT_OBJECT_LENGTH, (PUCHAR)&cbBufferHMACSHA256, sizeof(cbBufferHMACSHA256), &garbage, 0 );
-	AssertFatal( cbBufferHMACSHA256 > 0 && cbBufferHMACSHA256 < 16 * 1024 * 1024 );
+		BCryptOpenAlgorithmProvider(
+				&hAlgSHA256,
+				BCRYPT_SHA256_ALGORITHM,
+				nullptr,
+				0
+				);
+		AssertFatal( hAlgSHA256 != INVALID_HANDLE_VALUE );
+		BCryptGetProperty(hAlgSHA256, BCRYPT_OBJECT_LENGTH, (PUCHAR)&cbBufferSHA256, sizeof(cbBufferSHA256), &garbage, 0 );
+		AssertFatal( cbBufferSHA256 > 0 && cbBufferSHA256 < 16 * 1024 * 1024 );
 
-	BCryptOpenAlgorithmProvider(
-			&hAlgHMACSHA1,
-			BCRYPT_SHA1_ALGORITHM,
-			nullptr,
-			BCRYPT_ALG_HANDLE_HMAC_FLAG
-			);
-	AssertFatal( hAlgHMACSHA1 != INVALID_HANDLE_VALUE );
-	BCryptGetProperty(hAlgHMACSHA1, BCRYPT_OBJECT_LENGTH, (PUCHAR)&cbBufferHMACSHA1, sizeof(cbBufferHMACSHA1), &garbage, 0 );
-	AssertFatal( cbBufferHMACSHA1 > 0 && cbBufferHMACSHA1 < 16 * 1024 * 1024 );
+		BCryptOpenAlgorithmProvider(
+				&hAlgHMACSHA256,
+				BCRYPT_SHA256_ALGORITHM,
+				nullptr,
+				BCRYPT_ALG_HANDLE_HMAC_FLAG
+				);
+		AssertFatal( hAlgHMACSHA256 != INVALID_HANDLE_VALUE );
+		BCryptGetProperty(hAlgHMACSHA256, BCRYPT_OBJECT_LENGTH, (PUCHAR)&cbBufferHMACSHA256, sizeof(cbBufferHMACSHA256), &garbage, 0 );
+		AssertFatal( cbBufferHMACSHA256 > 0 && cbBufferHMACSHA256 < 16 * 1024 * 1024 );
 
+		BCryptOpenAlgorithmProvider(
+				&hAlgHMACSHA1,
+				BCRYPT_SHA1_ALGORITHM,
+				nullptr,
+				BCRYPT_ALG_HANDLE_HMAC_FLAG
+				);
+		AssertFatal( hAlgHMACSHA1 != INVALID_HANDLE_VALUE );
+		BCryptGetProperty(hAlgHMACSHA1, BCRYPT_OBJECT_LENGTH, (PUCHAR)&cbBufferHMACSHA1, sizeof(cbBufferHMACSHA1), &garbage, 0 );
+		AssertFatal( cbBufferHMACSHA1 > 0 && cbBufferHMACSHA1 < 16 * 1024 * 1024 );
+
+		return true;
+	}();
 }
 
 SymmetricCryptContextBase::SymmetricCryptContextBase()
@@ -223,6 +229,9 @@ void CCrypto::GenerateSHA256Digest( const void *pInput, size_t cbInput, SHA256Di
 	//Assert( pubInput );
 	Assert( pOutDigest );
 
+	// Make sure algorithms are cached
+	CCrypto::Init();
+
 	BCRYPT_HASH_HANDLE hHashSHA256 = INVALID_HANDLE_VALUE;
 	PUCHAR pbBuffer = NULL;
 	NTSTATUS status;
@@ -247,6 +256,9 @@ void CCrypto::GenerateRandomBlock( void *pvDest, int cubDest )
 	VPROF_BUDGET( "CCrypto::GenerateRandomBlock", VPROF_BUDGETGROUP_ENCRYPTION );
 	AssertFatal( cubDest >= 0 );
 
+	// Make sure algorithms are cached
+	CCrypto::Init();
+
 	NTSTATUS status = BCryptGenRandom(
 			hAlgRandom,
 			(PUCHAR)pvDest,
@@ -268,6 +280,9 @@ void CCrypto::GenerateHMAC256( const uint8 *pubData, uint32 cubData, const uint8
 	Assert( pubKey );
 	Assert( cubKey > 0 );
 	Assert( pOutputDigest );
+
+	// Make sure algorithms are cached
+	CCrypto::Init();
 
 	BCRYPT_HASH_HANDLE hHash = INVALID_HANDLE_VALUE;
 	PUCHAR pbBuffer = NULL;
@@ -295,6 +310,9 @@ void CCrypto::GenerateHMAC( const uint8 *pubData, uint32 cubData, const uint8 *p
 	Assert( pubKey );
 	Assert( cubKey > 0 );
 	Assert( pOutputDigest );
+
+	// Make sure algorithms are cached
+	CCrypto::Init();
 
 	BCRYPT_HASH_HANDLE hHash = INVALID_HANDLE_VALUE;
 	PUCHAR pbBuffer = NULL;
