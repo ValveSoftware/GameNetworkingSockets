@@ -656,6 +656,7 @@ bool CUtlBuffer::GetString( char *pString, int nMaxChars )
 	{
 		char c = GetChar();
 		Assert( c == 0 );
+		(void)c; // Suppress warning if asserts aren't enabled
 	}
 	return true;
 }
@@ -1370,13 +1371,9 @@ void CUtlBuffer::PutDelimitedString( CUtlCharConversion *pConv, const char *pStr
 void CUtlBuffer::VaPrintf( const char* pFmt, va_list list )
 {
 	char temp[2048];
-#ifdef _DEBUG	
-	int nLen = 
-#endif
-		V_vsnprintf( temp, sizeof( temp ), pFmt, list );
-#ifdef _DEBUG	
+	int nLen = V_vsnprintf( temp, sizeof( temp ), pFmt, list );
 	Assert( nLen < 2048 );
-#endif
+	(void)nLen; // Suppress warning if asserts aren't enabled
 	PutString( temp );
 }
 

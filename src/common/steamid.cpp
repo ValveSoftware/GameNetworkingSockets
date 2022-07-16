@@ -219,6 +219,7 @@ void CSteamID::SetFromString( const char *pchSteamID, EUniverse eDefaultUniverse
     // Catch cases where we're allowing sloppy input that we
     // might not want to allow.
     AssertMsg1( this->operator==( StrictID ), "Steam ID does not pass strict parsing: '%s'", pchSteamIDString );
+	(void)pchSteamIDString; // Suppress warning if asserts aren't enabled
 }
 
 // SetFromString allows many partially-correct strings, constraining how

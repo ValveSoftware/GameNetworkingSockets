@@ -253,6 +253,7 @@ struct PublicKey
 		{
 			bool bOK = m_keyPublic.SetFromOpenSSHAuthorizedKeys( STEAMNETWORKINGSOCKETS_HARDCODED_ROOT_CA_KEY, sizeof(STEAMNETWORKINGSOCKETS_HARDCODED_ROOT_CA_KEY) );
 			Assert( bOK );
+			(void)bOK; // Suppress warning if asserts aren't enabled
 			m_eTrust = k_ETrust_Hardcoded;
 			m_effectiveAuthScope.SetAll();
 		}
@@ -806,11 +807,13 @@ void CertStore_Check()
 {
 	CertStore_EnsureTrustValid();
 
-	for ( auto item: s_mapPublicKeys.IterItems() )
-	{
-		const std::unique_ptr<PublicKey> &pKey = item.Element();
-		AssertMsg2( pKey->IsTrusted() || pKey->m_eTrust == k_ETrust_Revoked, "Key %llu not trusted: %s", (unsigned long long)item.Key(), pKey->m_status_msg.c_str() );
-	}
+	#ifdef DBGFLAG_ASSERT
+		for ( auto item: s_mapPublicKeys.IterItems() )
+		{
+			const std::unique_ptr<PublicKey> &pKey = item.Element();
+			AssertMsg2( pKey->IsTrusted() || pKey->m_eTrust == k_ETrust_Revoked, "Key %llu not trusted: %s", (unsigned long long)item.Key(), pKey->m_status_msg.c_str() );
+		}
+	#endif
 }
 
 void CertStore_Print( std::ostream &out )

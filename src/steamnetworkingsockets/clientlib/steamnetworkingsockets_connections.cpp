@@ -432,6 +432,7 @@ void CSteamNetworkListenSocketBase::Destroy()
 		int n = m_mapChildConnections.Count();
 		pChild->ConnectionQueueDestroy();
 		Assert( m_mapChildConnections.Count() == n-1 );
+		(void)n; // Suppress warning if asserts aren't enabled
 	}
 
 	#ifdef STEAMNETWORKINGSOCKETS_STEAMCLIENT
@@ -3468,6 +3469,7 @@ void CSteamNetworkConnectionBase::Think( SteamNetworkingMicroseconds usecNow )
 				usecStatsNextThinkTime = k_nThinkTime_Never;
 				const char *pszStatsReason2 = m_statsEndToEnd.GetSendReasonOrUpdateNextThinkTime( usecNow, eReplyRequested, usecStatsNextThinkTime );
 				AssertMsg1( pszStatsReason2 == nullptr && usecStatsNextThinkTime > usecNow, "Stats sending didn't clear stats need to send reason %s!", pszStatsReason2 ? pszStatsReason2 : "??" );
+				(void)pszStatsReason2; // Suppress warning if asserts aren't enabled
 			}
 
 			// Make sure we are scheduled to wake up the next time we need to take action

@@ -473,6 +473,7 @@ void CSteamNetworkListenSocketDirectUDP::SendMsg( uint8 nMsgID, const google::pr
 	}
 	uint8 *pEnd = msg.SerializeWithCachedSizesToArray( pkt+1 );
 	Assert( cbPkt == pEnd - pkt );
+	(void)pEnd; // Suppress warning if asserts aren't enabled
 
 	// Send the reply
 	m_pSock->BSendRawPacket( pkt, cbPkt, adrTo );
@@ -822,6 +823,7 @@ void CConnectionTransportUDPBase::SendMsg( uint8 nMsgID, const google::protobuf:
 	}
 	uint8 *pEnd = msg.SerializeWithCachedSizesToArray( pkt+1 );
 	Assert( cbPkt == pEnd - pkt );
+	(void)pEnd; // Suppress warning if asserts aren't enabled
 
 	SendPacket( pkt, cbPkt );
 }

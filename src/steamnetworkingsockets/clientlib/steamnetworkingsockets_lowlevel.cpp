@@ -2016,10 +2016,12 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 	AssertGlobalLockHeldExactlyOnce();
 
 	// Sanity check all of our sockets are alive
-	for ( CRawUDPSocketImpl *pSock: s_vecRawSockets )
-	{
-		Assert( pSock->m_callback.m_fnCallback );
-	}
+	#ifdef DBGFLAG_ASSERT
+		for ( CRawUDPSocketImpl *pSock: s_vecRawSockets )
+		{
+			Assert( pSock->m_callback.m_fnCallback );
+		}
+	#endif
 
 	#ifndef USE_EPOLL
 		const int nSocketsToPoll = s_vecRawSockets.Count();
@@ -2100,6 +2102,7 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 	}
 
 	// If we waited a long time, then that's probably bad.  Spew about it
+	#ifdef DBGFLAG_ASSERT
 	{
 		SteamNetworkingMicroseconds usecElapsedWaitingForLock = SteamNetworkingSockets_GetLocalTimestamp() - usecStartedLocking;
 		// Hm, if another thread indicated that they expected to hold the lock for a while,
@@ -2107,6 +2110,7 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 		AssertMsg1( usecElapsedWaitingForLock < 50*1000 || Plat_IsInDebugSession(),
 			"SteamnetworkingSockets service thread waited %dms for lock!  This directly adds to network latency!  It could be a bug, but it's usually caused by general performance problem such as thread starvation or a debug output handler taking too long.", int( usecElapsedWaitingForLock/1000 ) );
 	}
+	#endif
 
 	// Now check on sockets.  When using epoll, we can do this more efficiently
 	#ifdef USE_EPOLL

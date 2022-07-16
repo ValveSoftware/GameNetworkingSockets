@@ -135,6 +135,7 @@ bool CCrypto::HexDecode( const char *pchData, void *pDecodedData, uint32 *pcubDe
 
 	// Out of space.
 	AssertMsg2( false, "CCrypto::HexDecode: insufficient output buffer (input length %u, output size %u)", (uint) V_strlen( pchDataOrig ), cubOutMax );
+	(void)pchDataOrig; // Suppress warning if asserts aren't enabled
 	return false;
 }
 
@@ -167,8 +168,10 @@ uint32 CCrypto::Base64EncodeMaxOutput( const uint32 cubData, const char *pszLine
 bool CCrypto::Base64Encode( const void *pubData, uint32 cubData, char *pchEncodedData, uint32 cchEncodedData, bool bInsertLineBreaks )
 {
 	const char *pszLineBreak = bInsertLineBreaks ? "\n" : NULL;
-	uint32 cchRequired = Base64EncodeMaxOutput( cubData, pszLineBreak );
-	AssertMsg2( cchEncodedData >= cchRequired, "CCrypto::Base64Encode: insufficient output buffer for encoding, needed %d got %d\n", cchRequired, cchEncodedData );
+	#ifdef DBGFLAG_ASSERT
+		uint32 cchRequired = Base64EncodeMaxOutput( cubData, pszLineBreak );
+		AssertMsg2( cchEncodedData >= cchRequired, "CCrypto::Base64Encode: insufficient output buffer for encoding, needed %d got %d\n", cchRequired, cchEncodedData );
+	#endif
 	return Base64Encode( pubData, cubData, pchEncodedData, &cchEncodedData, pszLineBreak );
 }
 

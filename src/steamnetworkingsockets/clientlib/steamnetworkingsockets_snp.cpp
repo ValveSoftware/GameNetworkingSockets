@@ -625,7 +625,8 @@ EResult CSteamNetworkConnectionBase::SNP_ConfigureLanes( int nLanes, const int *
 
 				// !KLUDGE! Messages in a queue have a pointer to the queue
 				// That pointer may currently be dangling when we resized the array.
-				Assert( pMsg->m_linksSecondaryQueue.m_pQueue == pCheckQueue );
+				Assert( pMsg->m_linksSecondaryQueue.m_pQueue == pCheckQueue ); 
+				(void)pCheckQueue; // Suppress warning if asserts aren't enabled
 				pMsg->m_linksSecondaryQueue.m_pQueue = &l.m_messagesQueued;
 
 				// Next msg
