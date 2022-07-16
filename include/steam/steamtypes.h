@@ -1,25 +1,16 @@
-//========= Copyright © 1996-2008, Valve LLC, All rights reserved. ============
-//
-// Purpose:
-//
-//=============================================================================
+//========= Copyright 1996-2022, Valve LLC, All rights reserved. ============
 
 #ifndef STEAMTYPES_H
 #define STEAMTYPES_H
-#ifdef _WIN32
-#pragma once
-#endif
 
 #define S_CALLTYPE __cdecl
+// WARNING: __cdecl is potentially #defined away in steam_api_common.h
 
 // Steam-specific types. Defined here so this header file can be included in other code bases.
 #ifndef WCHARTYPES_H
 typedef unsigned char uint8;
 #endif
 
-#if ( defined(POSIX) || defined(_POSIX_VERSION) || ( defined( __GNUC__ ) && !defined(_WIN32) ) ) && !defined(VALVE_POSIX)
-	#define VALVE_POSIX 1
-#endif
 #ifdef __GNUC__
 	#if __GNUC__ < 4
 		#error "Steamworks requires GCC 4.X (4.2 or 4.4 have been tested)"
