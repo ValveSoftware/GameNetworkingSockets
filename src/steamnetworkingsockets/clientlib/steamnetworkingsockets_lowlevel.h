@@ -599,6 +599,9 @@ struct SteamNetworkingGlobalLock
 extern void SteamNetworkingSocketsLowLevelValidate( CValidator &validator );
 #endif
 
+/// Return true if the service thread is running
+extern bool IsServiceThreadRunning();
+
 /// Wake up the service thread ASAP.  Intended to be called from other threads,
 /// but is safe to call from the service thread as well.
 extern void WakeServiceThread();
@@ -738,6 +741,9 @@ public:
 
 	// Run the queued tasks
 	void RunTasks();
+
+	// Return true if the task list is empty
+	inline bool empty() const { return m_pFirstTask == nullptr; }
 
 private:
 	// List of queued tasks

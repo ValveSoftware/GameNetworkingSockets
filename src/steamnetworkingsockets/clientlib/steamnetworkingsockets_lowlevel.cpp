@@ -707,7 +707,7 @@ void CQueuedTask::QueueToRunInBackground()
 {
 	g_taskListRunInBackground.QueueTask( this );
 
-	//if ( s_bManualPollMode || ( s_pThreadSteamDatagram && s_pThreadSteamDatagram->get_id() != std::this_thread::get_id() ) )
+	//if ( s_bManualPollMode || ( s_pServiceThread && s_pServiceThread->get_id() != std::this_thread::get_id() ) )
 	WakeServiceThread();
 }
 
@@ -1349,6 +1349,11 @@ static bool AddFDToEPoll( int fd, CRawUDPSocketImpl *pSock, SteamNetworkingErrMs
 #endif
 
 static std::thread *s_pServiceThread = nullptr;
+
+bool IsServiceThreadRunning()
+{
+	return ( s_pServiceThread != nullptr );
+}
 
 void WakeServiceThread()
 {
