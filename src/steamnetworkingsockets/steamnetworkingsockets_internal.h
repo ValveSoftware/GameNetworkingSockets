@@ -1011,16 +1011,20 @@ inline ESteamNetworkingFakeIPType GetIPv4FakeIPType( uint32 nIPv4 ) { return k_E
 // 1 = sometimes
 // 2 = max
 #ifndef STEAMNETWORKINGSOCKETS_SNP_PARANOIA
-	#ifdef _DEBUG
+	#if defined( _CERT ) || defined( _RETAIL )
+		#define STEAMNETWORKINGSOCKETS_SNP_PARANOIA 0
+	#elif defined( _DEBUG )
 		#define STEAMNETWORKINGSOCKETS_SNP_PARANOIA 2
 	#else
-		#define STEAMNETWORKINGSOCKETS_SNP_PARANOIA 0
+		#define STEAMNETWORKINGSOCKETS_SNP_PARANOIA 1
 	#endif
 #endif
 
-#if ( STEAMNETWORKINGSOCKETS_SNP_PARANOIA > 0 ) && ( defined(__GNUC__ ) && defined( __linux__ ) && !defined( __ANDROID__ ) )
-	#define STEAMNETWORKINGSOCKETS_USE_GNU_DEBUG_MAP
-	#include <debug/map>
+#if defined(__GNUC__ ) && defined( __linux__ ) && !defined( __ANDROID__ )
+	#if ( STEAMNETWORKINGSOCKETS_SNP_PARANOIA == 2 ) || ( STEAMNETWORKINGSOCKETS_SNP_PARANOIA > 0 && !defined( _CERT ) && !defined( _RETAIL ) )
+		#define STEAMNETWORKINGSOCKETS_USE_GNU_DEBUG_MAP
+		#include <debug/map>
+	#endif
 #endif
 
 // Declare std_vector and std_map in our namespace.  They use debug versions when available,

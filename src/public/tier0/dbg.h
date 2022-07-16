@@ -26,7 +26,9 @@ BEGIN_TIER0_NAMESPACE
 // impacting performance, and so this is defined, even in release.  However,
 // no load-bearing code should appear in an Assert(), and so it *should* be legal
 // to turn this off if you wish.
-#define DBGFLAG_ASSERT
+#ifndef _CERT
+	#define DBGFLAG_ASSERT
+#endif
 
 // DBGFLAG_ASSERTFLAT is defined when AssertFatal should do something.  This
 // really must always be defined.
@@ -112,9 +114,9 @@ public:
 
 	// Stubs
 	#define  Assert( _exp )										((void)0)
+	#define  AssertMsg( _exp, _msg, ... )						((void)0)
 	#define  AssertOnce( _exp )									((void)0)
-	#define  AssertMsg( _exp, _msg )							((void)0)
-	#define  AssertMsgOnce( _exp, _msg )						((void)0)
+	#define  AssertMsgOnce( _exp, _msg, ... )					((void)0)
 
 #endif // DBGFLAG_ASSERT
 
