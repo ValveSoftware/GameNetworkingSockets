@@ -83,6 +83,8 @@ Third party language bindings:
   * <https://github.com/Facepunch/Facepunch.Steamworks>
 * Go:
   * <https://github.com/nielsAD/gns/>
+* Rust:
+  * <https://github.com/hussein-aitlahcen/gns-rs>
 
 ## Why do I see "Steam" everywhere?
 
