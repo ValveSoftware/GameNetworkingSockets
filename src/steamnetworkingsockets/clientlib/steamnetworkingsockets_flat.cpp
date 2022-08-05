@@ -83,7 +83,7 @@ STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_GetConnec
 {
 	return self->GetConnectionInfo( hConn,pInfo );
 }
-STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingSockets_GetConnectionRealTimeStatus( ISteamNetworkingSockets* self, HSteamNetConnection hConn, SteamNetConnectionRealTimeStatus_t * pStats, int nLanes, SteamNetConnectionRealTimeLaneStatus_t * pLanes )
+STEAMNETWORKINGSOCKETS_INTERFACE EResult SteamAPI_ISteamNetworkingSockets_GetConnectionRealTimeStatus( ISteamNetworkingSockets* self, HSteamNetConnection hConn, SteamNetConnectionRealTimeStatus_t * pStats, int nLanes, SteamNetConnectionRealTimeLaneStatus_t * pLanes )
 {
 	return self->GetConnectionRealTimeStatus( hConn,pStats,nLanes,pLanes );
 }
