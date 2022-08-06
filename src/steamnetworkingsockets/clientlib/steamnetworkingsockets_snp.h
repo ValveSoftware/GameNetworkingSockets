@@ -33,13 +33,6 @@ constexpr SteamNetworkingMicroseconds k_usecAckDelayPrecision = (1 << k_nAckDela
 // balance between false positive and false negative rates.
 constexpr SteamNetworkingMicroseconds k_usecNackFlush = 3*1000;
 
-// Max size of a message that we are wiling to *receive*.
-constexpr int k_cbMaxMessageSizeRecv = k_cbMaxSteamNetworkingSocketsMessageSizeSend*2;
-
-// The max we will look ahead and allocate data, ahead of the reliable
-// messages we have been able to decode.  We limit this to make sure that
-// a malicious sender cannot exploit us.
-constexpr int k_cbMaxBufferedReceiveReliableData = k_cbMaxMessageSizeRecv + 64*1024;
 constexpr int k_nMaxReliableStreamGaps_Extend = 30; // Discard reliable data past the end of the stream, if it would cause us to get too many gaps
 constexpr int k_nMaxReliableStreamGaps_Fragment = 20; // Discard reliable data that is filling in the middle of a hole, if it would cause the number of gaps to exceed this number
 constexpr int k_nMaxPacketGaps = 62; // Don't bother tracking more than N gaps.  Instead, we will end up NACKing some packets that we actually did receive.  This should not break the protocol, but it protects us from malicious sender
@@ -189,15 +182,21 @@ struct SteamNetworkingMessageQueue
 	CSteamNetworkingMessage *m_pFirst = nullptr;
 	CSteamNetworkingMessage *m_pLast = nullptr;
 	LockDebugInfo *m_pRequiredLock = nullptr; // Is there a lock that is required to be held while we access this queue?
+	int m_nMessageCount = 0;
+	int m_nMessageSize = 0;
+
 
 	inline bool empty() const
 	{
 		if ( m_pFirst )
 		{
 			Assert( m_pLast );
+			Assert( m_nMessageCount > 0 );
 			return false;
 		}
 		Assert( !m_pLast );
+		Assert( m_nMessageCount == 0 );
+		Assert( m_nMessageSize == 0 );
 		return true;
 	}
 
@@ -615,7 +614,7 @@ struct SSNPReceiverState
 
 	/// Queue a flush of ALL acks (and NACKs!) by the given time.
 	/// If anything is scheduled to happen earlier, that schedule
-	/// will still be honered.  We will ack up to that packet number,
+	/// will still be honored.  We will ack up to that packet number,
 	/// and then we we may report higher numbered blocks, or we may
 	/// stop and wait to report more acks until later.
 	void QueueFlushAllAcks( SteamNetworkingMicroseconds usecWhen );
@@ -667,6 +666,7 @@ inline void CSteamNetworkingMessage::LinkBefore( CSteamNetworkingMessage *pSucce
 	Assert( pQueue->m_pFirst );
 	Assert( pQueue->m_pLast );
 	Assert( (pSuccessor->*pMbrLinks).m_pQueue == pQueue );
+	Assert( pQueue->m_nMessageCount > 0 );
 
 	CSteamNetworkingMessage *pPrev = (pSuccessor->*pMbrLinks).m_pPrev;
 	if ( pPrev )
@@ -686,6 +686,11 @@ inline void CSteamNetworkingMessage::LinkBefore( CSteamNetworkingMessage *pSucce
 	}
 
 	// Finish up
+	Assert( pQueue->m_nMessageCount > 0 );
+	++pQueue->m_nMessageCount;
+	Assert( m_cbSize >= 0 );
+	pQueue->m_nMessageSize += m_cbSize;
+
 	(this->*pMbrLinks).m_pQueue = pQueue;
 	(this->*pMbrLinks).m_pNext = pSuccessor;
 	(pSuccessor->*pMbrLinks).m_pPrev = this;
@@ -705,11 +710,13 @@ inline void CSteamNetworkingMessage::LinkToQueueTail( CSteamNetworkingMessage::L
 	{
 		Assert( pQueue->m_pFirst );
 		Assert( !(pQueue->m_pLast->*pMbrLinks).m_pNext );
+		Assert( pQueue->m_nMessageCount > 0 );
 		(pQueue->m_pLast->*pMbrLinks).m_pNext = this;
 	}
 	else
 	{
 		Assert( !pQueue->m_pFirst );
+		Assert( pQueue->m_nMessageCount == 0 );
 		pQueue->m_pFirst = this;
 	}
 
@@ -721,6 +728,9 @@ inline void CSteamNetworkingMessage::LinkToQueueTail( CSteamNetworkingMessage::L
 	pQueue->m_pLast = this;
 
 	// Remember what queue we're in
+	++pQueue->m_nMessageCount;
+	Assert( m_cbSize >= 0 );
+	pQueue->m_nMessageSize += m_cbSize;
 	(this->*pMbrLinks).m_pQueue = pQueue;
 }
 
@@ -737,6 +747,7 @@ inline void CSteamNetworkingMessage::UnlinkFromQueue( CSteamNetworkingMessage::L
 	}
 	SteamNetworkingMessageQueue &q = *links.m_pQueue;
 	q.AssertLockHeld();
+	Assert( q.m_nMessageCount > 0 );
 
 	// Unlink from previous
 	if ( links.m_pPrev )
@@ -763,7 +774,10 @@ inline void CSteamNetworkingMessage::UnlinkFromQueue( CSteamNetworkingMessage::L
 		Assert( q.m_pLast == this );
 		q.m_pLast = links.m_pPrev;
 	}
-
+	--q.m_nMessageCount;
+	Assert( m_cbSize >= 0 );
+	Assert( q.m_nMessageSize >= m_cbSize );
+	q.m_nMessageSize -= m_cbSize;
 	// Clear links
 	links.m_pQueue = nullptr;
 	links.m_pPrev = nullptr;

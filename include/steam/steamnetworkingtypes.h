@@ -1135,6 +1135,28 @@ enum ESteamNetworkingConfigValue
 	/// Default is 512k (524288 bytes)
 	k_ESteamNetworkingConfig_SendBufferSize = 9,
 
+	/// [connection int32] Upper limit on total size (in bytes) of received messages
+	/// that will be buffered waiting to be processed by the application.  If this limit
+	/// is exceeded, packets will be dropped.  This is to protect us from a malicious
+	/// peer flooding us with messages faster than we can process them.
+	/// 
+	/// This must be bigger than k_ESteamNetworkingConfig_RecvMaxMessageSize
+	k_ESteamNetworkingConfig_RecvBufferSize = 47,
+
+	/// [connection int32] Upper limit on the number of received messages that will
+	/// that will be buffered waiting to be processed by the application.  If this limit
+	/// is exceeded, packets will be dropped.  This is to protect us from a malicious
+	/// peer flooding us with messages faster than we can pull them off the wire.
+	k_ESteamNetworkingConfig_RecvBufferMessages = 48,
+
+	/// [connection int32] Maximum message size that we are willing to receive.
+	/// if a client attempts to send us a message larger than this, the connection
+	/// will be immediately closed.
+	///
+	/// Default is 512k (524288 bytes).  Note that the peer needs to be able to
+	/// send a message this big.  (See k_cbMaxSteamNetworkingSocketsMessageSizeSend.)
+	k_ESteamNetworkingConfig_RecvMaxMessageSize = 49,
+
 	/// [connection int64] Get/set userdata as a configuration option.
 	/// The default value is -1.   You may want to set the user data as
 	/// a config value, instead of using ISteamNetworkingSockets::SetConnectionUserData

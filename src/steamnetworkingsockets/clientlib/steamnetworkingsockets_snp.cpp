@@ -3369,6 +3369,8 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 
 	// What do we expect to receive next?
 	const int64 nExpectNextStreamPos = lane.m_nReliableStreamPos + len( lane.m_bufReliableStream );
+	const int32 nMaxRecvBufferSize = m_connectionConfig.m_RecvBufferSize.Get();
+	const int32 nMaxMessageSize = m_connectionConfig.m_RecvMaxMessageSize.Get();
 
 	// Check if we need to grow the reliable buffer to hold the data
 	if ( nSegEnd > nExpectNextStreamPos )
@@ -3381,7 +3383,7 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 		// against a malicious sender trying to create big gaps.  If they
 		// are legit, they will notice that we go back and fill in the gaps
 		// and we will get caught up.
-		if ( cbNewSize > k_cbMaxBufferedReceiveReliableData )
+		if ( cbNewSize > nMaxRecvBufferSize )
 		{
 			// Stop processing the packet, and don't ack it.
 			// This indicates the connection is in pretty bad shape,
@@ -3650,7 +3652,7 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 			// Sanity check size.  Note that we do this check before we shift,
 			// to protect against overflow.
 			// (Although DeserializeVarInt doesn't detect overflow...)
-			if ( nMsgSizeUpperBits > (uint64)k_cbMaxMessageSizeRecv<<5 )
+			if ( nMsgSizeUpperBits > (((uint64)nMaxRecvBufferSize)<<5) )
 			{
 				ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_InternalError,
 					"Reliable message size too large.  (%llu<<5 + %d)",
@@ -3660,7 +3662,14 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 
 			// Compute total size, and check it again
 			cbMsgSize += int( nMsgSizeUpperBits<<5 );
-			if ( cbMsgSize > k_cbMaxMessageSizeRecv )
+			if ( cbMsgSize > nMaxRecvBufferSize )
+			{
+				ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_InternalError,
+					"Reliable message size %d too large.", cbMsgSize );
+				return false;
+			}
+
+			if ( cbMsgSize > nMaxMessageSize )
 			{
 				ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_InternalError,
 					"Reliable message size %d too large.", cbMsgSize );
@@ -3677,7 +3686,10 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 
 		// We have a full message!  Queue it
 		if ( !ReceivedMessageData( pReliableDecode, cbMsgSize, idxLane, nMsgNum, k_nSteamNetworkingSend_Reliable, usecNow ) )
-			return false; // Weird failure.  Most graceful response is to not ack this packet, and maybe we will work next on retry.
+		{
+			ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_InternalError, "Reliable message size %d too large for remaining space in message queue.", cbMsgSize );
+			return false;
+		}
 		pReliableDecode += cbMsgSize;
 		int cbStreamConsumed = pReliableDecode-pReliableStart;
 

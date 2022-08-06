@@ -170,7 +170,6 @@ void SteamNetworkingMessageQueue::AssertLockHeld() const
 
 void SteamNetworkingMessageQueue::PurgeMessages()
 {
-
 	AssertLockHeld();
 	while ( !empty() )
 	{
@@ -179,6 +178,7 @@ void SteamNetworkingMessageQueue::PurgeMessages()
 		Assert( m_pFirst != pMsg );
 		pMsg->Release();
 	}
+	Assert( m_nMessageCount == 0 );
 }
 
 int SteamNetworkingMessageQueue::RemoveMessages( SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages )
@@ -2104,6 +2104,7 @@ int CSteamNetworkConnectionBase::APIReceiveMessages( SteamNetworkingMessage_t **
 	m_pLock->AssertHeldByCurrentThread();
 
 	g_lockAllRecvMessageQueues.lock();
+	
 	int result = m_queueRecvMessages.RemoveMessages( ppOutMessages, nMaxMessages );
 	g_lockAllRecvMessageQueues.unlock();
 
@@ -2606,7 +2607,27 @@ void CSteamNetworkConnectionBase::ConnectionStateChanged( ESteamNetworkingConnec
 
 CSteamNetworkingMessage *CSteamNetworkConnectionBase::AllocateNewRecvMessage( uint32 cbSize, int nFlags, SteamNetworkingMicroseconds usecNow )
 {
+	//
+	// Check limits
+	//
+
+	// Max message size
+	if ( (uint32)m_connectionConfig.m_RecvMaxMessageSize.Get() < cbSize )
+	{
+		SpewMsg( "[%s] recv message of size %u too large for limit of %d.\n", GetDescription(), cbSize, m_connectionConfig.m_RecvMaxMessageSize.Get() );
+		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_InternalError, "Failed to allocate a buffer of size %u (limit is %d).", cbSize, m_connectionConfig.m_RecvMaxMessageSize.Get() );
+		return nullptr;
+	}
+
+	// Max number of messages buffered
+	if ( m_queueRecvMessages.m_nMessageCount >= m_connectionConfig.m_RecvBufferMessages.Get() )
+	{
+		SpewWarningRateLimited( usecNow, "[%s] recv queue overflow %d messages already queued.\n", GetDescription(), m_queueRecvMessages.m_nMessageCount );
+		return nullptr;
+	}
+
 	CSteamNetworkingMessage *pMsg = CSteamNetworkingMessage::New( cbSize );
+
 	if ( !pMsg )
 	{
 		// Failed!  if it's for a reliable message, then we must abort the connection.
@@ -2629,8 +2650,7 @@ bool CSteamNetworkConnectionBase::ReceivedMessageData( const void *pData, int cb
 	if ( !pMsg )
 	{
 		// Hm.  this failure really is probably a sign that we are in a pretty bad state,
-		// and we are unlikely to recover.  Should we just abort the connection?
-		// Right now, we'll try to muddle on.
+		// and we are unlikely to recover. Let the caller know about failure (this drops the connection).
 		return false;
 	}
 
@@ -2642,12 +2662,10 @@ bool CSteamNetworkConnectionBase::ReceivedMessageData( const void *pData, int cb
 	memcpy( pMsg->m_pData, pData, cbData );
 
 	// Receive it
-	ReceivedMessage( pMsg );
-
-	return true;
+	return ReceivedMessage( pMsg );
 }
 
-void CSteamNetworkConnectionBase::ReceivedMessage( CSteamNetworkingMessage *pMsg )
+bool CSteamNetworkConnectionBase::ReceivedMessage( CSteamNetworkingMessage *pMsg )
 {
 	m_pLock->AssertHeldByCurrentThread();
 
@@ -2661,7 +2679,7 @@ void CSteamNetworkConnectionBase::ReceivedMessage( CSteamNetworkingMessage *pMsg
 		if ( m_pMessagesEndPointSessionOwner )
 		{
 			m_pMessagesEndPointSessionOwner->ReceivedMessage( pMsg, this );
-			return;
+			return true;
 		}
 	#endif
 
@@ -2674,14 +2692,30 @@ void CSteamNetworkConnectionBase::ReceivedMessage( CSteamNetworkingMessage *pMsg
 	// which keeps this really simple.
 	g_lockAllRecvMessageQueues.lock();
 
+	Assert( pMsg->m_cbSize >= 0 );
+	if ( m_queueRecvMessages.m_nMessageCount >= m_connectionConfig.m_RecvBufferMessages.Get() )
+	{
+		g_lockAllRecvMessageQueues.unlock();
+		SpewWarningRateLimited ( SteamNetworkingSockets_GetLocalTimestamp(), "[%s] recv queue overflow %d messages already queued.\n", GetDescription(), m_queueRecvMessages.m_nMessageCount );
+		pMsg->Release();
+		return false;
+	}
+
+	if ( m_queueRecvMessages.m_nMessageSize + pMsg->m_cbSize > m_connectionConfig.m_RecvBufferSize.Get() )
+	{
+		g_lockAllRecvMessageQueues.unlock();
+		SpewWarningRateLimited ( SteamNetworkingSockets_GetLocalTimestamp(), "[%s] recv queue overflow %d + %d bytes exceeds limit of %d.\n", GetDescription(), m_queueRecvMessages.m_nMessageSize, pMsg->m_cbSize, m_connectionConfig.m_RecvBufferSize.Get() );
+		pMsg->Release();
+		return false;
+	}
+
 	// Add to end of my queue.
 	pMsg->LinkToQueueTail( &CSteamNetworkingMessage::m_links, &m_queueRecvMessages );
-
 	// Add to the poll group, if we are in one
 	if ( m_pPollGroup )
 		pMsg->LinkToQueueTail( &CSteamNetworkingMessage::m_linksSecondaryQueue, &m_pPollGroup->m_queueRecvMessages );
-
 	g_lockAllRecvMessageQueues.unlock();
+	return true;
 }
 
 void CSteamNetworkConnectionBase::PostConnectionStateChangedCallback( ESteamNetworkingConnectionState eOldAPIState, ESteamNetworkingConnectionState eNewAPIState )
@@ -3822,6 +3856,12 @@ CSteamNetworkConnectionPipe::CSteamNetworkConnectionPipe( CSteamNetworkingSocket
 	int nRate = 0x10000000;
 	m_connectionConfig.m_SendRateMin.Set( nRate );
 	m_connectionConfig.m_SendRateMax.Set( nRate );
+
+	// Don't limit the recv buffer.  (Send buffer doesn't
+	// matter since we immediately transfer.)
+	m_connectionConfig.m_RecvBufferSize.Set( 0x10000000 );
+	m_connectionConfig.m_RecvBufferMessages.Set( 0x10000000 );
+	m_connectionConfig.m_RecvMaxMessageSize.Set( 0x10000000 );
 
 	// Diagnostics usually not useful on these types of connections.
 	// (App can enable it or clear this override if it wants to.)

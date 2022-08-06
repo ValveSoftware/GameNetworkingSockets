@@ -753,7 +753,7 @@ protected:
 
 	/// Called when we receive a complete message.  Should allocate a message object and put it into the proper queues
 	bool ReceivedMessageData( const void *pData, int cbData, int idxLane, int64 nMsgNum, int nFlags, SteamNetworkingMicroseconds usecNow );
-	void ReceivedMessage( CSteamNetworkingMessage *pMsg );
+	bool ReceivedMessage( CSteamNetworkingMessage *pMsg );
 	CSteamNetworkingMessage *AllocateNewRecvMessage( uint32 cbSize, int nFlags, SteamNetworkingMicroseconds usecNow );
 
 	/// Timestamp when we last sent an end-to-end connection request packet

@@ -279,6 +279,10 @@ const int k_cbSteamNetworkingSocketsTypicalMaxPlaintextPayloadSend = k_cbSteamNe
 const int k_cbSteamNetworkingSocketsMaxEncryptedPayloadRecv = k_cbSteamNetworkingSocketsMaxUDPMsgLen;
 const int k_cbSteamNetworkingSocketsMaxPlaintextPayloadRecv = k_cbSteamNetworkingSocketsMaxUDPMsgLen;
 
+/// Max value that RecvMaxMessageSize can be set to.
+const int k_cbMaxMessageSizeRecv_Limit = k_cbMaxSteamNetworkingSocketsMessageSizeSend*2;
+COMPILE_TIME_ASSERT( k_cbMaxMessageSizeRecv_Limit >= k_cbMaxSteamNetworkingSocketsMessageSizeSend*2 );
+
 /// If we have a cert that is going to expire in <N seconds, try to renew it
 const int k_nSecCertExpirySeekRenew = 3600*2;
 
@@ -867,6 +871,9 @@ struct ConnectionConfig
 	ConfigValue<int32> m_TimeoutInitial;
 	ConfigValue<int32> m_TimeoutConnected;
 	ConfigValue<int32> m_SendBufferSize;
+	ConfigValue<int32> m_RecvBufferSize;
+	ConfigValue<int32> m_RecvBufferMessages;
+	ConfigValue<int32> m_RecvMaxMessageSize;
 	ConfigValue<int32> m_SendRateMin;
 	ConfigValue<int32> m_SendRateMax;
 	ConfigValue<int32> m_MTU_PacketSize;
