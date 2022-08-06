@@ -721,6 +721,14 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLa
 		do { pDecode = DeserializeVarInt( pDecode, pEnd, var ); if ( !pDecode ) { DECODE_ERROR( "SNP data chunk decode overflow, varint for %s", pszWhatFor ); } } while(false)
 
 	#define READ_SEGMENT_DATA_SIZE( is_reliable ) \
+		/* Check per-packet segment limit */ \
+		if ( unlikely( nSegmentLimitRemaining <= 0 ) ) \
+		{ \
+			SpewWarningRateLimited( ctx.m_usecNow, "[%s] too many segments, aborting packert decode\n", GetDescription() ); \
+			bInhibitMarkReceived = true; \
+			break; \
+		} \
+		--nSegmentLimitRemaining; \
 		int cbSegmentSize; \
 		{ \
 			int sizeFlags = nFrameType & 7; \
@@ -762,6 +770,7 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLa
 	int64 nCurMsgNumForUnreliable = 0;
 	int64 nDecodeReliablePos = 0;
 	int idxCurrentLane = 0;
+	int nSegmentLimitRemaining = m_connectionConfig.m_RecvMaxSegmentsPerPacket.Get();
 	SSNPReceiverState::Lane *pCurrentLane = &m_receiverState.m_vecLanes[idxCurrentLane];
 	while ( pDecode < pEnd )
 	{

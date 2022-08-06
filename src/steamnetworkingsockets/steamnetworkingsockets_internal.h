@@ -874,6 +874,7 @@ struct ConnectionConfig
 	ConfigValue<int32> m_RecvBufferSize;
 	ConfigValue<int32> m_RecvBufferMessages;
 	ConfigValue<int32> m_RecvMaxMessageSize;
+	ConfigValue<int32> m_RecvMaxSegmentsPerPacket;
 	ConfigValue<int32> m_SendRateMin;
 	ConfigValue<int32> m_SendRateMax;
 	ConfigValue<int32> m_MTU_PacketSize;
