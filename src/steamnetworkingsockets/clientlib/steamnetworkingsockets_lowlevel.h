@@ -324,7 +324,7 @@ inline bool BRateLimitSpew( SteamNetworkingMicroseconds usecNow )
 {
 	if ( g_nRateLimitSpewCount <= 0 )
 	{
-		if ( usecNow < g_usecLastRateLimitSpew + 300000 )
+		if ( usecNow < g_usecLastRateLimitSpew + k_nMillion*3 )
 			return false;
 		g_usecLastRateLimitSpew = usecNow;
 		g_nRateLimitSpewCount = 3; // Allow a short burst, because sometimes we need messages from different levels on the call stack
