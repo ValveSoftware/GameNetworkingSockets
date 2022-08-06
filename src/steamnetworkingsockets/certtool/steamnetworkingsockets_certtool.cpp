@@ -16,6 +16,14 @@
 #include <vstdlib/random.h>
 //#include "curl/curl.h"
 
+// Include Steam datagram related stuff?
+#ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
+	#define CERTTOOL_ENABLE_SDR
+	#include <steamdatagram_tickets.h>
+	#include "../steamdatagram_internal.h"
+	#include <steamdatagram_gamecoordinator.h>
+#endif
+
 #include <picojson.h>
 
 // Really?
@@ -35,12 +43,24 @@ using namespace SteamNetworkingSocketsLib;
 //
 ///////////////////////////////////////////////////////////////////////////////
 
+static void FatalError( const char *fmt, ... )
+{
+	fflush(stdout);
+	va_list ap;
+	va_start( ap, fmt );
+	vfprintf( stderr, fmt, ap );
+	va_end(ap);
+	fprintf( stderr, "\n" );
+	fflush(stderr);
+	exit(1);
+}
+
 static void LoadFileIntoBuffer( const char *pszFilename, CUtlBuffer &buf )
 {
 	// Try to open
 	FILE *f = fopen( pszFilename, "rb" );
 	if ( f == NULL )
-		Plat_FatalError( "Can't open file '%s'\n", pszFilename );
+		FatalError( "Can't open file '%s'\n", pszFilename );
 
 	// Determine file size by seeking around
 	fseek( f, 0, SEEK_END );
@@ -58,7 +78,7 @@ static void LoadFileIntoBuffer( const char *pszFilename, CUtlBuffer &buf )
 
 	// Check for failure
 	if ( r != cbFile )
-		Plat_FatalError( "Error reading from file '%s'\n", pszFilename );
+		FatalError( "Error reading from file '%s'\n", pszFilename );
 
 	// Set buffer file pointers
 	buf.SeekPut( CUtlBuffer::SEEK_HEAD, cbFile );
@@ -83,27 +103,57 @@ bool s_bOutputValveSrcds;
 bool s_bOutputTrimWhitespace;
 picojson::object s_jsonOutput;
 
-static void PrintArgSummaryAndExit( int returnCode = 1 )
+#ifdef CERTTOOL_ENABLE_SDR
+	SteamDatagramRelayAuthTicket s_hostedServerTicketProperties;
+#endif
+
+
+static void PrintUsage()
 {
-	printf( R"usage(Usage:
+	fflush(stderr);
+	printf( R"usage1(Usage:
 
 To generate a signing keypair (currently always Ed25519):
 
-	steamnetworkingsockets_certtool [options] gen_keypair
+  steamnetworkingsockets_certtool [options] gen_keypair
 
 To create a cert for a keypair:
 
-	steamnetworkingsockets_certtool [options] create_cert
+  steamnetworkingsockets_certtool [options] create_cert
 
-To do both steps at once:
+To generate a keypair and sign it in one step:
 
-	steamnetworkingsockets_certtool [options] gen_keypair create_cert
+  steamnetworkingsockets_certtool [options] gen_keypair create_cert
 
 To generate a Diffie-Hellman key exchange keypair (X25519, for sending
 private messages, not for signing):
 
-	steamnetworkingsockets_certtool [options] gen_keyexchange_keypair
+  steamnetworkingsockets_certtool [options] gen_keyexchange_keypair
+)usage1"
+#ifdef CERTTOOL_ENABLE_SDR
+R"usagesdr(
+To create a hosted server relay auth ticket and sign it:
 
+  steamnetworkingsockets_certtool [options] create_hostedserver_ticket
+
+  These tickets are presented by clients to SDR relays, and tell
+  the relay where to forward traffic.  This ticket allows you to
+  instruct the relay to send packets to an arbitrary IP address,
+  which is why authentication is important.
+
+  To use this ticket on the client, set the environment variable
+  SDR_DEVTICKET.
+
+  Required options:
+    --ca-priv-key[-file]        The key used to sign the ticket.
+    --app APPID                 (Exactly one AppID must be specified)
+    --gameserver-addr IP:PORT   Relay will forward packets to IP:PORT
+
+  Optional:
+    --client-identity TYPE:ID   The identity of the authorized client.
+)usagesdr"
+#endif
+R"usage2(
 Options:
 
   --help                       You're looking at it
@@ -119,11 +169,10 @@ Options:
   --trim-whitespace            Remove excess whitespace from output
   --output-valve-srcds         Output in format useful for srcds web config
                                (Value internal use.  Implies --trim-whitespace)
-)usage",
+)usage2",
 	k_nDefaultExpiryDays
 );
-
-	exit( returnCode );
+	fflush(stdout);
 }
 
 void Printf( const char *pszFmt, ... )
@@ -186,6 +235,21 @@ static std::string CompressWhitespace( const char *s )
 	std::string result( tmp, d - tmp );
 	delete [] tmp;
 	return result;
+}
+
+std::string Base64EncodeBuffer( const void *pBuf, size_t cbBuf, const char *pszNewline )
+{
+	uint32 cbText = CCrypto::Base64EncodeMaxOutput( (uint32)cbBuf, pszNewline ) + 1;
+	char *text = (char*)alloca( cbText );
+	DbgVerify( CCrypto::Base64Encode( (const uint8 *)pBuf, (uint32)cbBuf, text, &cbText, pszNewline ) );
+	V_StripTrailingWhitespaceASCII( text );
+	return std::string(text);
+}
+
+std::string Base64EncodeProtobuf( const google::protobuf::Message &msg, const char *pszNewline )
+{
+	std::string serialized = msg.SerializeAsString();
+	return Base64EncodeBuffer( serialized.data(), serialized.length(), pszNewline );
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -277,7 +341,7 @@ void PrintCertInfo( const CMsgSteamDatagramCertificateSigned &msgSigned, picojso
 
 	CECSigningPublicKey pubKey;
 	if ( !pubKey.SetRawDataWithoutWipingInput( msgCert.key_data().c_str(), msgCert.key_data().length() ) )
-		Plat_FatalError( "Cert has bad public key" );
+		FatalError( "Cert has bad public key" );
 
 	time_t timeCreated = msgCert.time_created();
 	time_t timeExpiry = msgCert.time_expiry();
@@ -348,29 +412,18 @@ void PrintCertInfo( const CMsgSteamDatagramCertificateSigned &msgSigned, picojso
 	}
 }
 
-std::string CertToBase64( const CMsgSteamDatagramCertificateSigned &msgCert, const char *pszNewline )
-{
-	std::string sSigned = msgCert.SerializeAsString();
-
-	char text[ 16000 ];
-	uint32 cbText = sizeof(text);
-	DbgVerify( CCrypto::Base64Encode( (const uint8 *)sSigned.c_str(), (uint32)sSigned.length(), text, &cbText, pszNewline ) );
-	V_StripTrailingWhitespaceASCII( text );
-	return std::string(text);
-}
-
 std::string CertToPEM( const CMsgSteamDatagramCertificateSigned &msgCert )
 {
-	std::string body = CertToBase64( msgCert, "\n" );
+	std::string body = Base64EncodeProtobuf( msgCert, "\n" );
 	return std::string( k_szSDRCertPEMHeader ) + '\n' + body + '\n' + k_szSDRCertPEMFooter + '\n';
 }
 
 void CreateCert()
 {
 	if ( !s_keyCAPriv.IsValid() )
-		Plat_FatalError( "CA private key not specified" );
+		FatalError( "CA private key not specified" );
 	if ( !s_keyCertPub.IsValid() )
-		Plat_FatalError( "Public key not specified" );
+		FatalError( "Public key not specified" );
 
 	CECSigningPublicKey caPubKey;
 	s_keyCAPriv.GetPublicKey( &caPubKey );
@@ -404,14 +457,14 @@ void CreateCert()
 	else
 		Printf( "%s", pem.c_str() );
 
-	std::string pem_json = CertToBase64( msgSigned, "" );
+	std::string pem_json = Base64EncodeProtobuf( msgSigned, "" );
 	s_jsonOutput[ "cert" ] = picojson::value( pem_json );
 
 	PrintCertInfo( msgSigned, s_jsonOutput );
 }
 
 template <typename TCryptoKey>
-void PrintHDKey( const TCryptoKey &key, const char *pszPlainTextHeader, const char *pszJSON )
+void PrintDHKey( const TCryptoKey &key, const char *pszPlainTextHeader, const char *pszJSON )
 {
 	CUtlBuffer bufTemp;
 	bufTemp.EnsureCapacity( key.GetRawData( nullptr ) );
@@ -440,9 +493,58 @@ void GenDHKeyPair()
 	CECKeyExchangePublicKey pubKey;
 	CCrypto::GenerateKeyExchangeKeyPair( &pubKey, &privKey );
 
-	PrintHDKey( privKey, "Private key . ", "private_key" );
-	PrintHDKey( pubKey,  "Public key. . ", "public_key" );
+	PrintDHKey( privKey, "Private key . ", "private_key" );
+	PrintDHKey( pubKey,  "Public key. . ", "public_key" );
 }
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Hosted server ticket generation
+//
+///////////////////////////////////////////////////////////////////////////////
+
+#ifdef CERTTOOL_ENABLE_SDR
+
+void CreateHostedServerTicket()
+{
+	if ( s_hostedServerTicketProperties.m_routing.m_cbSize == 0 )
+		FatalError( "Must specify gameserver address using --gameserver-addr");
+	//if ( s_hostedServerTicketProperties.m_identityAuthorizedClient.IsInvalid() )
+	//	FatalError( "Must specify client identity using --client-identity");
+	if ( s_vecAppIDs.size() != 1 )
+		FatalError( "Must specify exactly one appid --app");
+	if ( !s_keyCAPriv.IsValid() )
+		FatalError( "Must specify private key using --ca-priv-key or --ca-priv-key-file");
+
+	s_hostedServerTicketProperties.m_nAppID = s_vecAppIDs[0];
+	s_hostedServerTicketProperties.m_rtimeTicketExpiry = time( nullptr ) + s_nExpiryDays*24*3600;
+
+	CMsgSteamDatagramSignedRelayAuthTicket msgSignedTicket;
+	SteamDatagramErrMsg errMsg;
+	CECKeyExchangePublicKey publicKeyRelay_NotUsed;
+	if ( !SerializeAndSignRelayAuthTicket(
+		s_hostedServerTicketProperties,
+		s_keyCAPriv, 0,
+		publicKeyRelay_NotUsed,
+		msgSignedTicket,
+		errMsg
+	) ) {
+		FatalError( "Failed to generate ticket.  %s", errMsg );
+	}
+
+	// We are using a CA Key to sign this ticket.
+	CECSigningPublicKey caPubKey;
+	s_keyCAPriv.GetPublicKey( &caPubKey );
+	uint64 nCAKeyID = CalculatePublicKeyID( caPubKey );
+	Assert( nCAKeyID != 0 );
+	msgSignedTicket.set_key_id( nCAKeyID );
+
+	std::string ticket_base64 = Base64EncodeProtobuf( msgSignedTicket, "" );
+	Printf( "SDR_DEVTICKET=%s\n", ticket_base64.c_str() );
+	s_jsonOutput[ "ticket" ] = picojson::value( ticket_base64 );
+}
+
+#endif
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -478,21 +580,20 @@ int main( int argc, char **argv )
 		#define GET_ARG() \
 			if ( nCurArg >= argc ) \
 			{ \
-				printf( "Expected argument after %s\n", pszSwitch ); \
-				PrintArgSummaryAndExit(); \
+				FatalError( "Expected argument after %s", pszSwitch ); \
 			} \
 			const char *pszArg = argv[nCurArg++];
 
 		#define INVALID_ARG() \
 			{ \
-				printf( "Invalid value for %s: '%s'\n", pszSwitch, pszArg ); \
-				PrintArgSummaryAndExit(); \
+				FatalError( "Invalid value for %s: '%s'\n", pszSwitch, pszArg ); \
 			}
 
 		const char *pszSwitch = argv[nCurArg++];
-		if ( !V_stricmp( pszSwitch, "--help" ) || !V_stricmp( pszSwitch, "-h" ) || !V_stricmp( pszSwitch, "-?" ) )
+		if ( !V_stricmp( pszSwitch, "--help" ) || !V_stricmp( pszSwitch, "-h" ) || !V_stricmp( pszSwitch, "-?" ) || !V_stricmp( pszSwitch, "/h" ) || !V_stricmp( pszSwitch, "/?" ) )
 		{
-			PrintArgSummaryAndExit(0);
+			PrintUsage();
+			exit(0);
 		}
 
 		if ( !V_stricmp( pszSwitch, "--ca-priv-key-file" ) )
@@ -501,7 +602,7 @@ int main( int argc, char **argv )
 			CUtlBuffer buf;
 			LoadFileIntoBuffer( pszArg, buf );
 			if ( !s_keyCAPriv.LoadFromAndWipeBuffer( buf.Base(), buf.TellPut() ) )
-				Plat_FatalError( "File '%s' doesn't contain a valid private Ed25519 keyfile.  (Try exporting from OpenSSH)\n", pszArg );
+				FatalError( "File '%s' doesn't contain a valid private Ed25519 keyfile.  (Try exporting from OpenSSH)\n", pszArg );
 
 			continue;
 		}
@@ -510,7 +611,7 @@ int main( int argc, char **argv )
 		{
 			GET_ARG();
 			if ( !s_keyCAPriv.ParsePEM( pszArg, V_strlen(pszArg) ) )
-				Plat_FatalError( "Argument after --ca-priv-key is not a valid private Ed25519 keyfile.  (Try exporting from OpenSSH.  And did you remember to quote the argument?)\n" );
+				FatalError( "Argument after --ca-priv-key is not a valid private Ed25519 keyfile.  (Try exporting from OpenSSH.  And did you remember to quote the argument?)\n" );
 			continue;
 		}
 
@@ -520,7 +621,7 @@ int main( int argc, char **argv )
 			CUtlBuffer buf;
 			LoadFileIntoBuffer( pszArg, buf );
 			if ( !s_keyCertPub.LoadFromAndWipeBuffer( buf.Base(), buf.TellPut() ) )
-				Plat_FatalError( "File '%s' doesn't contain a valid authorized_keys style public Ed25519 keyfile.  (Try exporting from OpenSSH)\n", pszArg );
+				FatalError( "File '%s' doesn't contain a valid authorized_keys style public Ed25519 keyfile.  (Try exporting from OpenSSH)\n", pszArg );
 			AddPublicKeyInfoToJSON();
 			continue;
 		}
@@ -529,7 +630,7 @@ int main( int argc, char **argv )
 		{
 			GET_ARG();
 			if ( !s_keyCertPub.SetFromOpenSSHAuthorizedKeys( pszArg, V_strlen(pszArg) ) )
-				Plat_FatalError( "'%s' isn't a valid authorized_keys style public Ed25519 keyfile.  (Try exporting from OpenSSH)\n", pszArg );
+				FatalError( "'%s' isn't a valid authorized_keys style public Ed25519 keyfile.  (Try exporting from OpenSSH)\n", pszArg );
 			AddPublicKeyInfoToJSON();
 			continue;
 		}
@@ -541,13 +642,13 @@ int main( int argc, char **argv )
 			CUtlVectorAutoPurge<char *> vecCodes;
 			V_AllocAndSplitString( pszArg, ",", vecCodes );
 			if ( vecCodes.IsEmpty() )
-				Plat_FatalError( "'%s' isn't a valid comma-separated list of POPs\n", pszArg );
+				FatalError( "'%s' isn't a valid comma-separated list of POPs\n", pszArg );
 
 			for ( const char *pszCode: vecCodes )
 			{
 				int l = V_strlen( pszCode );
 				if ( l < 3 || l > 4 )
-					Plat_FatalError( "'%s' isn't a valid POP code\n", pszCode );
+					FatalError( "'%s' isn't a valid POP code\n", pszCode );
 				s_vecPOPIDs.push_back( CalculateSteamNetworkingPOPIDFromString( pszCode ) );
 			}
 			continue;
@@ -560,13 +661,13 @@ int main( int argc, char **argv )
 			CUtlVectorAutoPurge<char *> vecCodes;
 			V_AllocAndSplitString( pszArg, ",", vecCodes );
 			if ( vecCodes.IsEmpty() )
-				Plat_FatalError( "'%s' isn't a valid comma-separated list of AppIDs\n", pszArg );
+				FatalError( "'%s' isn't a valid comma-separated list of AppIDs\n", pszArg );
 
 			for ( const char *pszCode: vecCodes )
 			{
 				int nAppID;
 				if ( sscanf( pszCode, "%d", &nAppID) != 1 || nAppID < 0 )
-					Plat_FatalError( "'%s' isn't a valid AppID\n", pszCode );
+					FatalError( "'%s' isn't a valid AppID\n", pszCode );
 				s_vecAppIDs.push_back( AppId_t( nAppID ) );
 			}
 			continue;
@@ -578,7 +679,7 @@ int main( int argc, char **argv )
 			s_nExpiryDays = 0;
 			sscanf( pszArg, "%d", &s_nExpiryDays );
 			if ( s_nExpiryDays <= 0 )
-				Plat_FatalError( "Invalid expiry '%s'\n", pszArg );
+				FatalError( "Invalid expiry '%s'\n", pszArg );
 			continue;
 		}
 
@@ -600,6 +701,27 @@ int main( int argc, char **argv )
 			s_bOutputTrimWhitespace = true;
 			continue;
 		}
+
+#ifdef CERTTOOL_ENABLE_SDR
+		if ( !V_stricmp( pszSwitch, "--gameserver-addr" ) )
+		{
+			GET_ARG();
+			SteamNetworkingIPAddr addr;
+			if ( !addr.ParseString( pszArg ) || addr.GetIPv4() == 0 || addr.m_port < 1024 )
+				INVALID_ARG();
+			s_hostedServerTicketProperties.m_routing.SetDevAddress( addr.GetIPv4(), addr.m_port, k_SteamDatagramPOPID_dev );
+			continue;
+		}
+
+		if ( !V_stricmp( pszSwitch, "--client-identity" ) )
+		{
+			GET_ARG();
+			auto &ident = s_hostedServerTicketProperties.m_identityAuthorizedClient;
+			if ( !ident.ParseString( pszArg ) || ident.m_eType == k_ESteamNetworkingIdentityType_IPAddress )
+				INVALID_ARG();
+			continue;
+		}
+#endif
 
 		#undef GET_ARG
 		#undef INVALID_ARG
@@ -627,18 +749,28 @@ int main( int argc, char **argv )
 			continue;
 		}
 
+#ifdef CERTTOOL_ENABLE_SDR
+		if ( !V_stricmp( pszSwitch, "create_hostedserver_ticket" ) )
+		{
+			CreateHostedServerTicket();
+			bDidSomething = true;
+			continue;
+		}
+
+#endif
+
 		//
 		// Anything else?
 		//
 
-		fflush(stdout);
-		fprintf( stderr, "Unrecognized option '%s'\n", pszSwitch );
-		fflush(stderr);
-		PrintArgSummaryAndExit();
+		FatalError( "Unrecognized option '%s'\nTry 'steamnetworkingsockets_certtool -?' for usage", pszSwitch );
 	}
 
 	if ( !bDidSomething )
-		PrintArgSummaryAndExit( 0 );
+	{
+		printf( "No actions requested.  Try 'steamnetworkingsockets_certtool -?' for usage\n" );
+		exit(0);
+	}
 
 	if ( s_bOutputJSON )
 	{
