@@ -82,6 +82,8 @@ struct ThreadLockDebugInfo
 		int m_nCount;
 	};
 	Tag_t m_arTags[ k_nMaxTags ];
+
+	inline void AddTag( const char *pszTag );
 };
 
 static void (*s_fLockAcquiredCallback)( const char *tags, SteamNetworkingMicroseconds usecWaited );
@@ -131,29 +133,28 @@ static ThreadLockDebugInfo &GetThreadDebugInfo()
 /// If non-NULL, add a "tag" to the lock journal for the current thread.
 /// This is useful so that if we hold a lock for a long time, we can get
 /// an idea what sorts of operations were taking a long time.
-static void AddThreadLockTag( const char *pszTag )
+inline void ThreadLockDebugInfo::AddTag( const char *pszTag )
 {
 	if ( !pszTag )
 		return;
 
-	ThreadLockDebugInfo &t = GetThreadDebugInfo();
-	Assert( t.m_nHeldLocks > 0 ); // Can't add a tag unless we are locked!
+	Assert( m_nHeldLocks > 0 ); // Can't add a tag unless we are locked!
 
-	for ( int i = 0 ; i < t.m_nTags ; ++i )
+	for ( int i = 0 ; i < m_nTags ; ++i )
 	{
-		if ( t.m_arTags[i].m_pszTag == pszTag )
+		if ( m_arTags[i].m_pszTag == pszTag )
 		{
-			++t.m_arTags[i].m_nCount;
+			++m_arTags[i].m_nCount;
 			return;
 		}
 	}
 
-	if ( t.m_nTags >= ThreadLockDebugInfo::k_nMaxTags )
+	if ( m_nTags >= ThreadLockDebugInfo::k_nMaxTags )
 		return;
 
-	t.m_arTags[ t.m_nTags ].m_pszTag = pszTag;
-	t.m_arTags[ t.m_nTags ].m_nCount = 1;
-	++t.m_nTags;
+	m_arTags[ m_nTags ].m_pszTag = pszTag;
+	m_arTags[ m_nTags ].m_nCount = 1;
+	++m_nTags;
 }
 
 LockDebugInfo::~LockDebugInfo()
@@ -253,7 +254,7 @@ void LockDebugInfo::OnLocked( const char *pszTag )
 		t.m_usecOuterLockStartTime = usecNow;
 	}
 
-	AddThreadLockTag( pszTag );
+	t.AddTag( pszTag );
 }
 
 void LockDebugInfo::AboutToUnlock()
@@ -352,7 +353,7 @@ void LockDebugInfo::_AssertHeldByCurrentThread( const char *pszFile, int line, c
 	{
 		if ( t.m_arHeldLocks[i] == this )
 		{
-			AddThreadLockTag( pszTag );
+			t.AddTag( pszTag );
 			return;
 		}
 	}
@@ -374,13 +375,12 @@ void SteamNetworkingGlobalLock::SetLongLockWarningThresholdMS( const char *pszTa
 
 void SteamNetworkingGlobalLock::_AssertHeldByCurrentThread( const char *pszFile, int line )
 {
-	s_mutexGlobalLock._AssertHeldByCurrentThread( pszFile, line );
+	s_mutexGlobalLock._AssertHeldByCurrentThread( pszFile, line, nullptr );
 }
 
 void SteamNetworkingGlobalLock::_AssertHeldByCurrentThread( const char *pszFile, int line, const char *pszTag )
 {
-	s_mutexGlobalLock._AssertHeldByCurrentThread( pszFile, line );
-	AddThreadLockTag( pszTag );
+	s_mutexGlobalLock._AssertHeldByCurrentThread( pszFile, line, pszTag );
 }
 
 #endif // #if STEAMNETWORKINGSOCKETS_LOCK_DEBUG_LEVEL > 0
