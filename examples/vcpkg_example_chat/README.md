@@ -6,7 +6,7 @@ GameNetworkingSockets and its dependencies entirely using vcpkg.
 We assume that your project defines its dependences in a `vcpkg.json` file, and
 you are pulling in vcpkg's cmake toolchain file.  Then all you need to do is:
 
-* Add `gamenewtorkingsockets` as a dependency in your project's `vcpkg.json`
+* Add `gamenetworkingsockets` as a dependency in your project's `vcpkg.json`
 * In your cmake file, add `find_package( GameNetworkingSockets )`
 * Link your targets with the appropriate library:
   * `target_link_libraries(<your_target> GameNetworkingSockets::shared)`
