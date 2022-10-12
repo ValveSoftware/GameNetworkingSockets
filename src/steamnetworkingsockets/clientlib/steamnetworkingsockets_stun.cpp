@@ -966,6 +966,11 @@ CSteamNetworkingSocketsSTUNRequest *CSteamNetworkingSocketsSTUNRequest::SendBind
         netadr_t remoteNetAddr;
         ConvertSteamNetworkingIPAddrToNetAdr_t( remoteAddr, &remoteNetAddr );
         pRequest->m_pSocket = pSharedSock->AddRemoteHost( remoteNetAddr, CRecvPacketCallback( StaticPacketReceived, pRequest ) );
+		if ( pRequest->m_pSocket == nullptr )
+		{
+			delete pRequest;
+			return nullptr;
+		}
     }
     pRequest->Send( remoteAddr, cb );
     return pRequest;
@@ -989,13 +994,21 @@ CSteamNetworkingSocketsSTUNRequest *CSteamNetworkingSocketsSTUNRequest::CreatePe
         netadr_t remoteNetAddr;
         ConvertSteamNetworkingIPAddrToNetAdr_t( remoteAddr, &remoteNetAddr );
         pRequest->m_pSocket = pSharedSock->AddRemoteHost( remoteNetAddr, CRecvPacketCallback( StaticPacketReceived, pRequest ) );
+		if ( pRequest->m_pSocket == nullptr )
+		{
+			delete pRequest;
+			return nullptr;
+		}
     }
     return pRequest;
 }
 
 void CSteamNetworkingSocketsSTUNRequest::Cancel()
 {
-    m_pSocket->Close();
+	if ( m_pSocket != nullptr )
+	{
+		m_pSocket->Close();
+	}
     m_pSocket = nullptr;
 
     RecvSTUNPktInfo_t subInfo;
@@ -1059,7 +1072,8 @@ bool CSteamNetworkingSocketsSTUNRequest::OnPacketReceived( const RecvPktInfo_t &
     subInfo.m_nAttributes = vecAttributes.Count();
     subInfo.m_pAttributes = vecAttributes.Base();
 
-    m_pSocket->Close();
+	if ( m_pSocket != nullptr )
+		m_pSocket->Close();
     m_pSocket = nullptr;
     m_callback( subInfo );
 
@@ -1201,16 +1215,25 @@ void CSteamNetworkingICESession::AddPeerCandidate( const ICECandidate& candidate
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
 
     // Do we already have a candidate for this peer? If so, just update the foundation and move on.
+	bool bNeedsNewEntry = true;
     for ( ICEPeerCandidate& c : m_vecPeerCandidates )
     {
         if ( c.m_addr == candidate.m_addr )
         {
+			// If the foundation is the same, don't do anything - this is redundant.
+			if ( V_strcmp( c.m_sFoundation.c_str(), pszFoundation ) == 0 )
+				return;
+
             (ICECandidate&)c = candidate;
             c.m_sFoundation = pszFoundation;
+			bNeedsNewEntry = false;
             return;
         }
     }
-    m_vecPeerCandidates.AddToTail( ICEPeerCandidate( candidate, pszFoundation ) );
+	if ( bNeedsNewEntry )
+	{
+		m_vecPeerCandidates.AddToTail( ICEPeerCandidate( candidate, pszFoundation ) );
+	}
     m_bCandidatePairsNeedUpdate = true;
     if ( m_sessionState == kICESessionState_Idle || m_sessionState == kICESessionState_GatheringCandidates )
         m_sessionState = kICESessionState_TestingPeerConnectivity;
