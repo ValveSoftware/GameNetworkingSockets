@@ -3,6 +3,7 @@
 include(CMakeFindDependencyMacro)
 
 find_dependency(Threads)
+find_dependency(Protobuf)
 
 if(@USE_CRYPTO@ STREQUAL "OpenSSL")
     find_dependency(OpenSSL)
