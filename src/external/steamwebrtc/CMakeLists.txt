@@ -76,6 +76,12 @@ if(WIN32)
 			/wd4996   # src\external\webrtc\rtc_base\win32.cc(324): warning C4996: 'GetVersionExA': was declared deprecated
 			/wd4530   # C:\Program Files (x86)\Microsoft Visual Studio\2019\Professional\VC\Tools\MSVC\14.25.28610\include\ostream(281): warning C4530: C++ exception handler used, but unwind semantics are not enabled. Specify /EHsc
 		)
+elseif(CMAKE_SYSTEM_NAME MATCHES Darwin)
+	set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS}  -Wl,--no-undefined ")
+	add_definitions(
+		-DWEBRTC_POSIX
+		-DWEBRTC_MAC
+		)
 else(WIN32)
 	set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS}  -Wl,--no-undefined ")
 	add_definitions(
@@ -694,6 +700,18 @@ if(WIN32)
 		Secur32
 		Iphlpapi
 		)
+elseif(CMAKE_SYSTEM_NAME MATCHES Darwin)
+	target_sources(webrtc-lite PRIVATE
+		${webrtc_SOURCE_DIR}/rtc_base/synchronization/rw_lock_posix.cc
+		${webrtc_SOURCE_DIR}/rtc_base/synchronization/rw_lock_posix.h
+		${webrtc_SOURCE_DIR}/rtc_base/system/cocoa_threading.mm
+		${webrtc_SOURCE_DIR}/rtc_base/mac_ifaddrs_converter.cc
+		${webrtc_SOURCE_DIR}/rtc_base/ifaddrs_converter.cc
+		)
+	target_link_libraries(webrtc-lite
+		pthread
+		)
+	target_compile_options(webrtc-lite PRIVATE -Wno-attributes)
 else(WIN32)
 	target_sources(webrtc-lite PRIVATE
 		${webrtc_SOURCE_DIR}/rtc_base/synchronization/rw_lock_posix.cc
