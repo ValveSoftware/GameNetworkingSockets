@@ -81,6 +81,7 @@ bool Plat_IsInDebugSession()
 			}
 		}
 	}
+	fclose(fp);
 	return (nTracePid != 0);
 #elif IsPlaystation()
 	// NDA material
