@@ -59,20 +59,18 @@ bool Plat_IsInDebugSession()
 	return ((info.kp_proc.p_flag & P_TRACED) == P_TRACED);
 #elif IsLinux()
 	static FILE *fp;
-	if ( !fp )
-	{
-		char rgchProcStatusFile[256]; rgchProcStatusFile[0] = '\0';
-		snprintf( rgchProcStatusFile, sizeof(rgchProcStatusFile), "/proc/%d/status", getpid() );
-		fp = fopen( rgchProcStatusFile, "r" );
-	}
-
-	char rgchLine[256]; rgchLine[0] = '\0';
+	char rgchProcStatusFile[256] = { '\0' };
+	char rgchLine[256] = { '\0' };
 	int nTracePid = 0;
+
+	snprintf( rgchProcStatusFile, sizeof(rgchProcStatusFile), "/proc/%d/status", getpid() );
+	fp = fopen( rgchProcStatusFile, "r" );
+
 	if ( fp )
 	{
 		const char *pszSearchString = "TracerPid:";
 		const uint cchSearchString = strlen( pszSearchString );
-		rewind( fp );
+
 		while ( fgets( rgchLine, sizeof(rgchLine), fp ) )
 		{
 			if ( !strncasecmp( pszSearchString, rgchLine, cchSearchString ) )
