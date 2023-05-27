@@ -19,7 +19,7 @@
 
 struct SteamNetworkingIdentity;
 
-extern void TEST_Init();
+extern void TEST_InitLog( const char *pszFilename );
 extern void TEST_Printf( const char *fmt, ... );
 extern void TEST_Fatal( const char *fmt, ... );
 extern void TEST_Init( const SteamNetworkingIdentity *pIdentity );

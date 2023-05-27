@@ -21,6 +21,10 @@ static SteamNetworkingMicroseconds g_logTimeZero;
 
 static void DebugOutput( ESteamNetworkingSocketsDebugOutputType eType, const char *pszMsg )
 {
+	// !KLUDGE!
+	if ( strstr( pszMsg, "Send Nagle") )
+		return;
+
 	SteamNetworkingMicroseconds time = SteamNetworkingUtils()->GetLocalTimestamp() - g_logTimeZero;
 	if ( g_fpLog )
 		fprintf( g_fpLog, "%10.6f %s\n", time*1e-6, pszMsg );
@@ -72,16 +76,26 @@ void TEST_Fatal( const char *fmt, ... )
 	exit(1);
 }
 
-void TEST_Init( const SteamNetworkingIdentity *pIdentity )
+void TEST_InitLog( const char *pszFilename )
 {
-	g_fpLog = fopen( "log.txt", "wt" );
+	if ( g_logTimeZero )
+		return;
+
 	g_logTimeZero = SteamNetworkingUtils()->GetLocalTimestamp();
 
-	SteamNetworkingUtils()->SetDebugOutputFunction( k_ESteamNetworkingSocketsDebugOutputType_Debug, DebugOutput );
-	//SteamNetworkingUtils()->SetDebugOutputFunction( k_ESteamNetworkingSocketsDebugOutputType_Verbose, DebugOutput );
+	//SteamNetworkingUtils()->SetDebugOutputFunction( k_ESteamNetworkingSocketsDebugOutputType_Debug, DebugOutput );
+	SteamNetworkingUtils()->SetDebugOutputFunction( k_ESteamNetworkingSocketsDebugOutputType_Verbose, DebugOutput );
 	//SteamNetworkingUtils()->SetDebugOutputFunction( k_ESteamNetworkingSocketsDebugOutputType_Msg, DebugOutput );
 
-	SteamNetworkingUtils()->SetGlobalConfigValueInt32( k_ESteamNetworkingConfig_LogLevel_P2PRendezvous, k_ESteamNetworkingSocketsDebugOutputType_Debug );
+	SteamNetworkingUtils()->SetGlobalConfigValueInt32( k_ESteamNetworkingConfig_LogLevel_P2PRendezvous, k_ESteamNetworkingSocketsDebugOutputType_Verbose );
+
+	if ( !g_fpLog )
+		g_fpLog = fopen( pszFilename, "wt" );
+}
+
+void TEST_Init( const SteamNetworkingIdentity *pIdentity )
+{
+	TEST_InitLog( "log.txt" );
 
 	#ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
 		SteamDatagramErrMsg errMsg;
@@ -118,12 +132,18 @@ void TEST_Kill()
 		GameNetworkingSockets_Kill();
 	#else
 		SteamDatagramClient_Kill();
+		SteamDatagramServer_Kill();
 	#endif
 }
 
 void TEST_PumpCallbacks()
 {
-	SteamNetworkingSockets()->RunCallbacks();
+	if ( SteamNetworkingSockets() )
+		SteamNetworkingSockets()->RunCallbacks();
+	#ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
+		if ( SteamGameServerNetworkingSockets() )
+			SteamGameServerNetworkingSockets()->RunCallbacks();
+	#endif
 	std::this_thread::sleep_for( std::chrono::milliseconds( 2 ) );
 }
 

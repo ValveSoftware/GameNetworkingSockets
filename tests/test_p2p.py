@@ -10,16 +10,21 @@ import subprocess
 import threading
 import os
 import sys
+import copy
 
 g_failed = False
 
 # Thread class that runs a process and captures its output
 class RunProcessInThread(threading.Thread):
 
-    def __init__( self, tag, cmdline, **popen_kwargs ):
+    def __init__( self, tag, cmdline, env, **popen_kwargs ):
         threading.Thread.__init__( self, name=tag )
         self.tag = tag
         self.cmdline = cmdline
+        if env:
+            self.env = env
+        else:
+            self.env = dict( os.environ )
         self.popen_kwargs = popen_kwargs
         self.log = open( self.tag + ".log", "wt" )
 
@@ -30,18 +35,15 @@ class RunProcessInThread(threading.Thread):
 
     def run( self ):
 
-        # Make a copy of the environment
-        env = dict( os.environ )
-
         # Set LD_LIBRARY_PATH
         if os.name == 'posix':
-            LD_LIBRARY_PATH = env.get( 'LD_LIBRARY_PATH', '' )
+            LD_LIBRARY_PATH = self.env.get( 'LD_LIBRARY_PATH', '' )
             if LD_LIBRARY_PATH: LD_LIBRARY_PATH += ';'
-            env['LD_LIBRARY_PATH'] = LD_LIBRARY_PATH + "."
-            self.WriteLn( "LD_LIBRARY_PATH = '%s'" % env['LD_LIBRARY_PATH'])
+            self.env['LD_LIBRARY_PATH'] = LD_LIBRARY_PATH + "."
+            self.WriteLn( "LD_LIBRARY_PATH = '%s'" % self.env['LD_LIBRARY_PATH'])
 
         self.WriteLn( "Executing: " + ' '.join( self.cmdline ) )
-        self.process = subprocess.Popen( self.cmdline, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.STDOUT, env=env, **self.popen_kwargs )
+        self.process = subprocess.Popen( self.cmdline, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.STDOUT, env=self.env, **self.popen_kwargs )
         self.process.stdin.close()
         while True:
             sOutput = self.process.stdout.readline()
@@ -70,8 +72,8 @@ class RunProcessInThread(threading.Thread):
         self.process.terminate()
         self.join( 5 )
 
-def StartProcessInThread( tag, cmdline, **popen_kwargs ):
-    thread = RunProcessInThread( tag, cmdline, **popen_kwargs )
+def StartProcessInThread( tag, cmdline, env=None, **popen_kwargs ):
+    thread = RunProcessInThread( tag, cmdline, env, **popen_kwargs )
     thread.start()
     return thread
 
@@ -83,7 +85,16 @@ def StartClientInThread( role, local, remote ):
         "--identity-remote", "str:"+remote,
         "--signaling-server", "localhost:10000"
     ]
-    return StartProcessInThread( local, cmdline );
+
+    env = dict( os.environ )
+    if os.name == 'nt' and not os.path.exists( 'steamnetworkingsockets.dll' ):
+        bindir = os.path.abspath('../../../bin')
+        if not os.path.exists( bindir ):
+            print( "Can't find steamnetworkingsockets.dll" )
+            sys.exit(1)
+        env['PATH'] = os.path.join( bindir, 'win64' ) + ';' + os.path.join( bindir, 'win32' ) + ';' + env['PATH']
+
+    return StartProcessInThread( local, cmdline, env );
 
 # Run a standard client/server connection-oriented case.
 # where one peer is the "server" and "listens" and a "client" connects.
@@ -112,7 +123,13 @@ def SymmetricTest():
 #
 
 # Start the signaling server
-signaling = StartProcessInThread( "signaling", [ './trivial_signaling_server' ] )
+trivial_signaling_server = './trivial_signaling_server'
+if os.name == 'nt' and not os.path.exists( 'trivial_signaling_server.exe' ):
+    trivial_signaling_server = '../examples/trivial_signaling_server.exe'
+    if not os.path.exists( trivial_signaling_server ):
+        print( "Can't find trivial_signaling_server.exe" )
+        sys.exit(1)
+signaling = StartProcessInThread( "signaling", [ trivial_signaling_server ] )
 
 # Run the tests
 for test in [ ClientServerTest, SymmetricTest ]:
