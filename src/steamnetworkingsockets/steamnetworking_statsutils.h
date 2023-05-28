@@ -55,6 +55,14 @@ const SteamNetworkingMicroseconds k_usecAggressivePingInterval = 200*1000;
 const SteamNetworkingMicroseconds k_usecKeepAliveIntervalActive = 10*k_nMillion;
 const SteamNetworkingMicroseconds k_usecKeepAliveIntervalIdle = 60*k_nMillion;
 
+//
+// Pack/unpack C struct <-> protobuf message
+//
+extern void LinkStatsInstantaneousStructToMsg( const SteamDatagramLinkInstantaneousStats &s, CMsgSteamDatagramLinkInstantaneousStats &msg );
+extern void LinkStatsInstantaneousMsgToStruct( const CMsgSteamDatagramLinkInstantaneousStats &msg, SteamDatagramLinkInstantaneousStats &s );
+extern void LinkStatsLifetimeStructToMsg( const SteamDatagramLinkLifetimeStats &s, CMsgSteamDatagramLinkLifetimeStats &msg );
+extern void LinkStatsLifetimeMsgToStruct( const CMsgSteamDatagramLinkLifetimeStats &msg, SteamDatagramLinkLifetimeStats &s );
+
 /// Track the rate that something is happening
 struct Rate_t
 {
@@ -475,6 +483,7 @@ struct SequencedPacketCounters
 			--m_nDropped;
 	}
 
+	bool UpdateFromDiffInLifetimeStats( const CMsgSteamDatagramLinkLifetimeStats &msg, const SteamDatagramLinkLifetimeStats &latestLifetimeRemote );
 };
 
 /// Rough classification of the amount of activity we expect on a link.  This informs
@@ -693,9 +702,6 @@ struct LinkStatsTrackerBase
 	/// Called when we send any message for which we expect some sort of reply.  (But maybe not an ack.)
 	void TrackSentMessageExpectingReply( SteamNetworkingMicroseconds usecNow, bool bAllowDelayedReply );
 
-	/// Called when we receive stats from remote host
-	void ProcessMessage( const CMsgSteamDatagramConnectionQuality &msg, SteamNetworkingMicroseconds usecNow );
-
 	/// Received from remote host
 	SteamDatagramLinkInstantaneousStats m_latestRemote;
 	SteamNetworkingMicroseconds m_usecTimeRecvLatestRemote;
@@ -776,11 +782,35 @@ struct LinkStatsTrackerBase
 		m_bInFlightInstantaneous = m_bInFlightLifetime = false;
 	}
 
+	inline void RecvInstantaneousStats( const CMsgSteamDatagramLinkInstantaneousStats &msg, SteamNetworkingMicroseconds usecNow )
+	{
+		LinkStatsInstantaneousMsgToStruct( msg, m_latestRemote );
+		m_usecTimeRecvLatestRemote = usecNow;
+	}
+
+	inline void RecvLifetimeStats( const CMsgSteamDatagramLinkLifetimeStats &msg, SteamNetworkingMicroseconds usecNow )
+	{
+		LinkStatsLifetimeMsgToStruct( msg, m_lifetimeRemote );
+		m_usecTimeRecvLifetimeRemote = usecNow;
+	}
+
 	/// Get urgency level to send instantaneous/lifetime stats.
 	int GetStatsSendNeed( SteamNetworkingMicroseconds usecNow );
 
 	/// Describe this stats tracker, for debugging, asserts, etc
 	virtual std::string Describe() const = 0;
+
+	/// Called when we get a quality measurement sample, to increment the proper
+	/// entry in the histogram.
+	#ifdef IS_STEAMDATAGRAMROUTER
+		virtual
+	#else
+		inline
+	#endif
+	void AddQualityHistogramSample( QualityHistogram::EBucket eBucket )
+	{
+		++m_qualityHistogram.m_arBuckets[ eBucket ];
+	}
 
 protected:
 	// Make sure it's used as abstract base.  Note that we require you to call Init()
@@ -942,6 +972,16 @@ protected:
 	inline void InternalProcessSequencedPacket_Dropped( int nDropped )
 	{
 		m_seqPktCounters.OnDropped( nDropped );
+	}
+
+	/// Called when we receive stats message from remote host
+	template <typename TLinkStatsTracker>
+	inline static void InternalProcessMessage( TLinkStatsTracker *pThis, const CMsgSteamDatagramConnectionQuality &msg, SteamNetworkingMicroseconds usecNow )
+	{
+		if ( msg.has_instantaneous() )
+			pThis->RecvInstantaneousStats( msg.instantaneous(), usecNow );
+		if ( msg.has_lifetime() )
+			pThis->RecvLifetimeStats( msg.lifetime(), usecNow );
 	}
 
 private:
@@ -1115,6 +1155,7 @@ struct LinkStatsTracker final : public TLinkStatsTracker
 	inline void ReceivedPing( int nPingMS, SteamNetworkingMicroseconds usecNow ) { TLinkStatsTracker::ReceivedPingInternal( this, nPingMS, usecNow ); }
 	inline void TrackRecvPacket( int cbPktSize, SteamNetworkingMicroseconds usecNow ) { TLinkStatsTracker::TrackRecvPacketInternal( this, cbPktSize, usecNow ); }
 	inline void InFlightReplyTimeout( SteamNetworkingMicroseconds usecNow ) { TLinkStatsTracker::InFlightReplyTimeoutInternal( this, usecNow ); }
+	inline void ProcessMessage( const CMsgSteamDatagramConnectionQuality &msg, SteamNetworkingMicroseconds usecNow ) { TLinkStatsTracker::InternalProcessMessage( this, msg, usecNow ); }
 
 	/// Called after we actually send connection data.  Note that we must have consumed the outgoing sequence
 	/// for that packet (using GetNextSendSequenceNumber), but must *NOT* have consumed any more!
@@ -1325,15 +1366,6 @@ struct LinkStatsTracker final : public TLinkStatsTracker
 		TLinkStatsTracker::m_usecTimeLastRecvSeq = usecNow;
 	}
 };
-
-
-//
-// Pack/unpack C struct <-> protobuf message
-//
-extern void LinkStatsInstantaneousStructToMsg( const SteamDatagramLinkInstantaneousStats &s, CMsgSteamDatagramLinkInstantaneousStats &msg );
-extern void LinkStatsInstantaneousMsgToStruct( const CMsgSteamDatagramLinkInstantaneousStats &msg, SteamDatagramLinkInstantaneousStats &s );
-extern void LinkStatsLifetimeStructToMsg( const SteamDatagramLinkLifetimeStats &s, CMsgSteamDatagramLinkLifetimeStats &msg );
-extern void LinkStatsLifetimeMsgToStruct( const CMsgSteamDatagramLinkLifetimeStats &msg, SteamDatagramLinkLifetimeStats &s );
 
 } // namespace SteamNetworkingSocketsLib
 

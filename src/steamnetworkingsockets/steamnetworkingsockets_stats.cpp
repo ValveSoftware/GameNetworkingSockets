@@ -229,7 +229,7 @@ void LinkStatsTrackerBase::UpdateInterval( SteamNetworkingMicroseconds usecNow )
 			{
 				// Perfect connection.  This will hopefully be relatively common
 				m_qualitySample.AddSample( 100 );
-				++m_qualityHistogram.m_n100;
+				AddQualityHistogramSample( QualityHistogram::k_nBucket_100 );
 			}
 			else
 			{
@@ -244,28 +244,28 @@ void LinkStatsTrackerBase::UpdateInterval( SteamNetworkingMicroseconds usecNow )
 				if ( nQuality >= 99 )
 				{
 					m_qualitySample.AddSample( 99 );
-					++m_qualityHistogram.m_n99;
+					AddQualityHistogramSample( QualityHistogram::k_nBucket_99 );
 				}
 				else if ( nQuality <= 1 ) // in case accounting is hosed or every single packet was out of order, clamp.  0 means "totally dead connection"
 				{
 					m_qualitySample.AddSample( 1 );
-					++m_qualityHistogram.m_n1;
+					AddQualityHistogramSample( QualityHistogram::k_nBucket_1 );
 				}
 				else
 				{
 					m_qualitySample.AddSample( nQuality );
 					if ( nQuality >= 97 )
-						++m_qualityHistogram.m_n97;
+						AddQualityHistogramSample( QualityHistogram::k_nBucket_97 );
 					else if ( nQuality >= 95 )
-						++m_qualityHistogram.m_n95;
+						AddQualityHistogramSample( QualityHistogram::k_nBucket_95 );
 					else if ( nQuality >= 90 )
-						++m_qualityHistogram.m_n90;
+						AddQualityHistogramSample( QualityHistogram::k_nBucket_90 );
 					else if ( nQuality >= 75 )
-						++m_qualityHistogram.m_n75;
+						AddQualityHistogramSample( QualityHistogram::k_nBucket_75 );
 					else if ( nQuality >= 50 )
-						++m_qualityHistogram.m_n50;
+						AddQualityHistogramSample( QualityHistogram::k_nBucket_50 );
 					else
-						++m_qualityHistogram.m_n1;
+						AddQualityHistogramSample( QualityHistogram::k_nBucket_1 );
 				}
 			}
 		}
@@ -277,7 +277,7 @@ void LinkStatsTrackerBase::UpdateInterval( SteamNetworkingMicroseconds usecNow )
 			// because the connection is just idle or shutting down.  The connection has probably
 			// dropped.
 			m_qualitySample.AddSample(0);
-			++m_qualityHistogram.m_nDead;
+			AddQualityHistogramSample( QualityHistogram::k_nBucket_Dead );
 		}
 	}
 
@@ -530,20 +530,6 @@ void LinkStatsTrackerBase::TrackSentMessageExpectingReply( SteamNetworkingMicros
 	}
 	if ( !bAllowDelayedReply )
 		m_usecLastSendPacketExpectingImmediateReply = usecNow;
-}
-
-void LinkStatsTrackerBase::ProcessMessage( const CMsgSteamDatagramConnectionQuality &msg, SteamNetworkingMicroseconds usecNow )
-{
-	if ( msg.has_instantaneous() )
-	{
-		LinkStatsInstantaneousMsgToStruct( msg.instantaneous(), m_latestRemote );
-		m_usecTimeRecvLatestRemote = usecNow;
-	}
-	if ( msg.has_lifetime() )
-	{
-		LinkStatsLifetimeMsgToStruct( msg.lifetime(), m_lifetimeRemote );
-		m_usecTimeRecvLifetimeRemote = usecNow;
-	}
 }
 
 void LinkStatsTrackerBase::GetInstantaneousStats( SteamDatagramLinkInstantaneousStats &s ) const
@@ -855,15 +841,15 @@ void LinkStatsLifetimeStructToMsg( const SteamDatagramLinkLifetimeStats &s, CMsg
 	#define SET_HISTOGRAM( mbr, field ) if ( mbr > 0 ) msg.set_ ## field( mbr );
 	#define SET_NTILE( mbr, field ) if ( mbr >= 0 ) msg.set_ ## field( mbr );
 
-	SET_HISTOGRAM( s.m_qualityHistogram.m_n100 , quality_histogram_100  )
-	SET_HISTOGRAM( s.m_qualityHistogram.m_n99  , quality_histogram_99   )
-	SET_HISTOGRAM( s.m_qualityHistogram.m_n97  , quality_histogram_97   )
-	SET_HISTOGRAM( s.m_qualityHistogram.m_n95  , quality_histogram_95   )
-	SET_HISTOGRAM( s.m_qualityHistogram.m_n90  , quality_histogram_90   )
-	SET_HISTOGRAM( s.m_qualityHistogram.m_n75  , quality_histogram_75   )
-	SET_HISTOGRAM( s.m_qualityHistogram.m_n50  , quality_histogram_50   )
-	SET_HISTOGRAM( s.m_qualityHistogram.m_n1   , quality_histogram_1    )
-	SET_HISTOGRAM( s.m_qualityHistogram.m_nDead, quality_histogram_dead )
+	SET_HISTOGRAM( s.m_qualityHistogram.m_arBuckets[ QualityHistogram::k_nBucket_100  ], quality_histogram_100  )
+	SET_HISTOGRAM( s.m_qualityHistogram.m_arBuckets[ QualityHistogram::k_nBucket_99   ], quality_histogram_99   )
+	SET_HISTOGRAM( s.m_qualityHistogram.m_arBuckets[ QualityHistogram::k_nBucket_97   ], quality_histogram_97   )
+	SET_HISTOGRAM( s.m_qualityHistogram.m_arBuckets[ QualityHistogram::k_nBucket_95   ], quality_histogram_95   )
+	SET_HISTOGRAM( s.m_qualityHistogram.m_arBuckets[ QualityHistogram::k_nBucket_90   ], quality_histogram_90   )
+	SET_HISTOGRAM( s.m_qualityHistogram.m_arBuckets[ QualityHistogram::k_nBucket_75   ], quality_histogram_75   )
+	SET_HISTOGRAM( s.m_qualityHistogram.m_arBuckets[ QualityHistogram::k_nBucket_50   ], quality_histogram_50   )
+	SET_HISTOGRAM( s.m_qualityHistogram.m_arBuckets[ QualityHistogram::k_nBucket_1    ], quality_histogram_1    )
+	SET_HISTOGRAM( s.m_qualityHistogram.m_arBuckets[ QualityHistogram::k_nBucket_Dead ], quality_histogram_dead )
 
 	SET_NTILE( s.m_nQualityNtile50th, quality_ntile_50th )
 	SET_NTILE( s.m_nQualityNtile25th, quality_ntile_25th )
@@ -955,15 +941,15 @@ void LinkStatsLifetimeMsgToStruct( const CMsgSteamDatagramLinkLifetimeStats &msg
 	#define SET_HISTOGRAM( mbr, field ) mbr = msg.field();
 	#define SET_NTILE( mbr, field ) mbr = ( msg.has_ ## field() ? msg.field() : -1 );
 
-	SET_HISTOGRAM( s.m_qualityHistogram.m_n100 , quality_histogram_100  )
-	SET_HISTOGRAM( s.m_qualityHistogram.m_n99  , quality_histogram_99   )
-	SET_HISTOGRAM( s.m_qualityHistogram.m_n97  , quality_histogram_97   )
-	SET_HISTOGRAM( s.m_qualityHistogram.m_n95  , quality_histogram_95   )
-	SET_HISTOGRAM( s.m_qualityHistogram.m_n90  , quality_histogram_90   )
-	SET_HISTOGRAM( s.m_qualityHistogram.m_n75  , quality_histogram_75   )
-	SET_HISTOGRAM( s.m_qualityHistogram.m_n50  , quality_histogram_50   )
-	SET_HISTOGRAM( s.m_qualityHistogram.m_n1   , quality_histogram_1    )
-	SET_HISTOGRAM( s.m_qualityHistogram.m_nDead, quality_histogram_dead )
+	SET_HISTOGRAM( s.m_qualityHistogram.m_arBuckets[ QualityHistogram::k_nBucket_100  ], quality_histogram_100  )
+	SET_HISTOGRAM( s.m_qualityHistogram.m_arBuckets[ QualityHistogram::k_nBucket_99   ], quality_histogram_99   )
+	SET_HISTOGRAM( s.m_qualityHistogram.m_arBuckets[ QualityHistogram::k_nBucket_97   ], quality_histogram_97   )
+	SET_HISTOGRAM( s.m_qualityHistogram.m_arBuckets[ QualityHistogram::k_nBucket_95   ], quality_histogram_95   )
+	SET_HISTOGRAM( s.m_qualityHistogram.m_arBuckets[ QualityHistogram::k_nBucket_90   ], quality_histogram_90   )
+	SET_HISTOGRAM( s.m_qualityHistogram.m_arBuckets[ QualityHistogram::k_nBucket_75   ], quality_histogram_75   )
+	SET_HISTOGRAM( s.m_qualityHistogram.m_arBuckets[ QualityHistogram::k_nBucket_50   ], quality_histogram_50   )
+	SET_HISTOGRAM( s.m_qualityHistogram.m_arBuckets[ QualityHistogram::k_nBucket_1    ], quality_histogram_1    )
+	SET_HISTOGRAM( s.m_qualityHistogram.m_arBuckets[ QualityHistogram::k_nBucket_Dead ], quality_histogram_dead )
 
 	SET_NTILE( s.m_nQualityNtile50th, quality_ntile_50th )
 	SET_NTILE( s.m_nQualityNtile25th, quality_ntile_25th )
@@ -1190,27 +1176,27 @@ void LinkStatsPrintLifetimeToBuf( const char *pszLeader, const SteamDatagramLink
 			buf.Printf( "%s    perfect    99+  97-99  95-97  90-95  75-90  50-75    <50   dead\n", pszLeader );
 			buf.Printf( "%s    %7d%7d%7d%7d%7d%7d%7d%7d%7d\n",
 				pszLeader,
-				stats.m_qualityHistogram.m_n100,
-				stats.m_qualityHistogram.m_n99,
-				stats.m_qualityHistogram.m_n97,
-				stats.m_qualityHistogram.m_n95,
-				stats.m_qualityHistogram.m_n90,
-				stats.m_qualityHistogram.m_n75,
-				stats.m_qualityHistogram.m_n50,
-				stats.m_qualityHistogram.m_n1,
-				stats.m_qualityHistogram.m_nDead
+				stats.m_qualityHistogram.N100(),
+				stats.m_qualityHistogram.N99(),
+				stats.m_qualityHistogram.N97(),
+				stats.m_qualityHistogram.N95(),
+				stats.m_qualityHistogram.N90(),
+				stats.m_qualityHistogram.N75(),
+				stats.m_qualityHistogram.N50(),
+				stats.m_qualityHistogram.N1(),
+				stats.m_qualityHistogram.NDead()
 			);
 			buf.Printf( "%s    %6.1f%%%6.1f%%%6.1f%%%6.1f%%%6.1f%%%6.1f%%%6.1f%%%6.1f%%%6.1f%%\n",
 				pszLeader,
-				stats.m_qualityHistogram.m_n100 *flToPct,
-				stats.m_qualityHistogram.m_n99  *flToPct,
-				stats.m_qualityHistogram.m_n97  *flToPct,
-				stats.m_qualityHistogram.m_n95  *flToPct,
-				stats.m_qualityHistogram.m_n90  *flToPct,
-				stats.m_qualityHistogram.m_n75  *flToPct,
-				stats.m_qualityHistogram.m_n50  *flToPct,
-				stats.m_qualityHistogram.m_n1   *flToPct,
-				stats.m_qualityHistogram.m_nDead*flToPct
+				stats.m_qualityHistogram.N100 () *flToPct,
+				stats.m_qualityHistogram.N99  ()*flToPct,
+				stats.m_qualityHistogram.N97  ()*flToPct,
+				stats.m_qualityHistogram.N95  ()*flToPct,
+				stats.m_qualityHistogram.N90  ()*flToPct,
+				stats.m_qualityHistogram.N75  ()*flToPct,
+				stats.m_qualityHistogram.N50  ()*flToPct,
+				stats.m_qualityHistogram.N1   ()*flToPct,
+				stats.m_qualityHistogram.NDead()*flToPct
 			);
 
 			temp1[0] = '\0';
@@ -1360,6 +1346,71 @@ void LinkStatsPrintToBuf( const char *pszLeader, const SteamDatagramLinkStats &s
 		buf.Printf( "%sLifetime stats received from remote host %.1fs ago:\n", pszLeader, stats.m_flAgeLifetimeRemote );
 		LinkStatsPrintLifetimeToBuf( sIndent.c_str(), stats.m_lifetimeRemote, buf );
 	}
+}
+
+bool SequencedPacketCounters::UpdateFromDiffInLifetimeStats( const CMsgSteamDatagramLinkLifetimeStats &msg, const SteamDatagramLinkLifetimeStats &latestLifetimeRemote )
+{
+	// Calculate differences
+	int64 diffSequenced = msg.packets_recv_sequenced() - latestLifetimeRemote.m_nPktsRecvSequenced;
+	int64 diffDropped = msg.packets_recv_dropped() - latestLifetimeRemote.m_nPktsRecvDropped;
+	int64 diffOutOfOrder = msg.packets_recv_out_of_order() - latestLifetimeRemote.m_nPktsRecvOutOfOrder;
+	int64 diffDuplicate = msg.packets_recv_duplicate() - latestLifetimeRemote.m_nPktsRecvDuplicate;
+	int64 diffSequenceNumberLurch = msg.packets_recv_lurch() - latestLifetimeRemote.m_nPktsRecvSequenceNumberLurch;
+
+	// Make sure the change is sane.  This is data from a remote host,
+	// who might be doing weird stuff.  Make sure it doesn't totally hose our stats
+	if ( ( diffSequenced | diffDropped | diffOutOfOrder | diffDuplicate | diffSequenceNumberLurch ) & ~(int64)0xffff )
+	{
+		// Delta is negative or huge.  Some sort of accounting bug - discard.  Should we spew/assert?
+		return false;
+	}
+
+	// Update our amounts based on this delta
+	m_nRecv += (int)diffSequenced;
+	m_nDropped += (int)diffDropped;
+	m_nOutOfOrder += (int)diffOutOfOrder;
+	m_nDuplicate += (int)diffDuplicate;
+	m_nLurch += (int)diffSequenceNumberLurch;
+
+	return true;
+}
+
+bool QualityHistogram::UpdateFromDiffInLifetimeStats( const CMsgSteamDatagramLinkLifetimeStats &msg, const SteamDatagramLinkLifetimeStats &latestLifetimeRemote )
+{
+	// Calculate the differences
+	int diff_100  = msg.quality_histogram_100 () - latestLifetimeRemote.m_qualityHistogram.m_arBuckets[ k_nBucket_100  ];
+	int diff_99   = msg.quality_histogram_99  () - latestLifetimeRemote.m_qualityHistogram.m_arBuckets[ k_nBucket_99   ];
+	int diff_97   = msg.quality_histogram_97  () - latestLifetimeRemote.m_qualityHistogram.m_arBuckets[ k_nBucket_97   ];
+	int diff_95   = msg.quality_histogram_95  () - latestLifetimeRemote.m_qualityHistogram.m_arBuckets[ k_nBucket_95   ];
+	int diff_90   = msg.quality_histogram_90  () - latestLifetimeRemote.m_qualityHistogram.m_arBuckets[ k_nBucket_90   ];
+	int diff_75   = msg.quality_histogram_75  () - latestLifetimeRemote.m_qualityHistogram.m_arBuckets[ k_nBucket_75   ];
+	int diff_50   = msg.quality_histogram_50  () - latestLifetimeRemote.m_qualityHistogram.m_arBuckets[ k_nBucket_50   ];
+	int diff_1    = msg.quality_histogram_1   () - latestLifetimeRemote.m_qualityHistogram.m_arBuckets[ k_nBucket_1    ];
+	int diff_dead = msg.quality_histogram_dead() - latestLifetimeRemote.m_qualityHistogram.m_arBuckets[ k_nBucket_Dead ];
+
+	COMPILE_TIME_ASSERT( k_usecLinkStatsLifetimeReportMaxInterval < 300 * k_nMillion );
+	COMPILE_TIME_ASSERT( k_usecSteamDatagramLinkStatsDefaultInterval >= 5 * k_nMillion );
+
+	// Make sure the change is sane.  This is data from a remote host,
+	// who might be doing weird stuff.  Make sure it doesn't totally hose our stats
+	if ( ( diff_100 | diff_99 | diff_97 | diff_95 | diff_90 | diff_75 | diff_1 | diff_dead ) & ~0xff )
+	{
+		// Delta is negative or huge.  Some sort of accounting bug - discard.  Should we spew/assert?
+		return false;
+	}
+
+	// Update our amounts based on this delta
+	m_arBuckets[ k_nBucket_100  ] += diff_100 ;
+	m_arBuckets[ k_nBucket_99   ] += diff_99  ;
+	m_arBuckets[ k_nBucket_97   ] += diff_97  ;
+	m_arBuckets[ k_nBucket_95   ] += diff_95  ;
+	m_arBuckets[ k_nBucket_90   ] += diff_90  ;
+	m_arBuckets[ k_nBucket_75   ] += diff_75  ;
+	m_arBuckets[ k_nBucket_50   ] += diff_50  ;
+	m_arBuckets[ k_nBucket_1    ] += diff_1   ;
+	m_arBuckets[ k_nBucket_Dead ] += diff_dead;
+
+	return true;
 }
 
 ///////////////////////////////////////////////////////////////////////////////

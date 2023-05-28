@@ -13,6 +13,8 @@
 #include <steam/steamnetworkingtypes.h>
 #include "steamnetworkingsockets_internal.h"
 
+class CMsgSteamDatagramLinkLifetimeStats;
+
 #pragma pack(push)
 #pragma pack(8)
 
@@ -122,14 +124,48 @@ struct PingHistogram
 /// Count of quality measurement intervals by bucket
 struct QualityHistogram
 {
-	int m_n100, m_n99, m_n97, m_n95, m_n90, m_n75, m_n50, m_n1, m_nDead;
+	enum EBucket
+	{
+		k_nBucket_100, // Perfect, all packets received in order.  (If any imperfection occurs, it will be scored at most as 99.  E.g. we won't round 99.7% up)
+		k_nBucket_99,
+		k_nBucket_97,
+		k_nBucket_95,
+		k_nBucket_90,
+		k_nBucket_75,
+		k_nBucket_50,
+		k_nBucket_1,
+		k_nBucket_Dead,
+		k_cBuckets
+	};
+
+	int m_arBuckets[ k_cBuckets ];
 
 	void Reset() { memset( this, 0, sizeof(*this) ); }
 
+	inline int N100()  const { return m_arBuckets[ k_nBucket_100 ]; }
+	inline int N99()   const { return m_arBuckets[ k_nBucket_99  ]; }
+	inline int N97()   const { return m_arBuckets[ k_nBucket_97  ]; }
+	inline int N95()   const { return m_arBuckets[ k_nBucket_95  ]; }
+	inline int N90()   const { return m_arBuckets[ k_nBucket_90  ]; }
+	inline int N75()   const { return m_arBuckets[ k_nBucket_75  ]; }
+	inline int N50()   const { return m_arBuckets[ k_nBucket_50  ]; }
+	inline int N1()    const { return m_arBuckets[ k_nBucket_1   ]; }
+	inline int NDead() const { return m_arBuckets[ k_nBucket_Dead]; }
+
 	inline int TotalCount() const
 	{
-		return m_n100 + m_n99 + m_n97 + m_n95 + m_n90 + m_n75 + m_n50 + m_n1 + m_nDead;
+		return m_arBuckets[k_nBucket_100]
+			+ m_arBuckets[k_nBucket_99]
+			+ m_arBuckets[k_nBucket_97]
+			+ m_arBuckets[k_nBucket_95]
+			+ m_arBuckets[k_nBucket_90]
+			+ m_arBuckets[k_nBucket_75]
+			+ m_arBuckets[k_nBucket_50]
+			+ m_arBuckets[k_nBucket_1]
+			+ m_arBuckets[k_nBucket_Dead];
 	}
+
+	bool UpdateFromDiffInLifetimeStats( const CMsgSteamDatagramLinkLifetimeStats &msg, const SteamDatagramLinkLifetimeStats &latestLifetimeRemote );
 };
 
 /// Counts of jitter values by bucket
