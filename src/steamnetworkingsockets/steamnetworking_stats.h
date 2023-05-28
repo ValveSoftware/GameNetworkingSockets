@@ -164,8 +164,6 @@ struct QualityHistogram
 			+ m_arBuckets[k_nBucket_1]
 			+ m_arBuckets[k_nBucket_Dead];
 	}
-
-	bool UpdateFromDiffInLifetimeStats( const CMsgSteamDatagramLinkLifetimeStats &msg, const SteamDatagramLinkLifetimeStats &latestLifetimeRemote );
 };
 
 /// Counts of jitter values by bucket

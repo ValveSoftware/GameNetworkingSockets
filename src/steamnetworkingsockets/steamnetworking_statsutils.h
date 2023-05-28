@@ -482,8 +482,6 @@ struct SequencedPacketCounters
 		if ( m_nDropped > 0 ) // Might have marked it in the previous interval.  Our stats will be slightly off in this case.  Not worth it to try to get this exactly right.
 			--m_nDropped;
 	}
-
-	bool UpdateFromDiffInLifetimeStats( const CMsgSteamDatagramLinkLifetimeStats &msg, const SteamDatagramLinkLifetimeStats &latestLifetimeRemote );
 };
 
 /// Rough classification of the amount of activity we expect on a link.  This informs
