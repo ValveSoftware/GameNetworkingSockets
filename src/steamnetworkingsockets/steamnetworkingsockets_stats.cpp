@@ -138,6 +138,59 @@ int PingTracker::WorstPingInRecentSample() const
 	return nResult;
 }
 
+LinkStatsTrackerBase::~LinkStatsTrackerBase()
+{
+	if ( unlikely( m_pPossibleOutOfOrderPacket != nullptr ) )
+	{
+		m_pPossibleOutOfOrderPacket->Destroy();
+		Assert( m_pPossibleOutOfOrderPacket == nullptr );
+	}
+}
+
+void CPossibleOutOfOrderPacket::Destroy()
+{
+	Detach();
+	DoDestroy();
+}
+
+void CPossibleOutOfOrderPacket::Detach()
+{
+	if ( m_pOwner )
+	{
+		Assert( m_pOwner->m_pPossibleOutOfOrderPacket == this );
+		m_pOwner->m_pPossibleOutOfOrderPacket = nullptr;
+		m_pOwner = nullptr;
+	}
+}
+
+void CPossibleOutOfOrderPacket::DoDestroy()
+{
+	// Assume we were allocated on the heap
+	delete this;
+}
+
+void CPossibleOutOfOrderPacket::SetOwner( LinkStatsTrackerBase *pOwner )
+{
+	if ( m_pOwner )
+	{
+		Assert( false );
+		Detach();
+	}
+	if ( pOwner->m_pPossibleOutOfOrderPacket )
+	{
+		Assert( false );
+		pOwner->m_pPossibleOutOfOrderPacket->Detach();
+	}
+
+	m_pOwner = pOwner;
+	m_pOwner->m_pPossibleOutOfOrderPacket = this;
+}
+
+CPossibleOutOfOrderPacket::~CPossibleOutOfOrderPacket()
+{
+	Assert( m_pOwner == nullptr );
+}
+
 void LinkStatsTrackerBase::InitInternal( SteamNetworkingMicroseconds usecNow )
 {
 	m_nPeerProtocolVersion = 0;
@@ -161,6 +214,7 @@ void LinkStatsTrackerBase::InitInternal( SteamNetworkingMicroseconds usecNow )
 	m_nPktsRecvSequenced = 0;
 	m_nPktsRecvDroppedAccumulator = 0;
 	m_nPktsRecvOutOfOrderAccumulator = 0;
+	m_nPktsRecvOutOfOrderCorrectedAccumulator = 0;
 	m_nPktsRecvDuplicateAccumulator = 0;
 	m_nPktsRecvLurchAccumulator = 0;
 	m_qualitySample.Clear();
@@ -206,6 +260,7 @@ void LinkStatsTrackerBase::StartNextInterval( SteamNetworkingMicroseconds usecNo
 {
 	m_nPktsRecvDroppedAccumulator += m_seqPktCounters.m_nDropped;
 	m_nPktsRecvOutOfOrderAccumulator += m_seqPktCounters.m_nOutOfOrder;
+	m_nPktsRecvOutOfOrderCorrectedAccumulator += m_seqPktCounters.m_nOutOfOrderCorrected;
 	m_nPktsRecvDuplicateAccumulator += m_seqPktCounters.m_nDuplicate;
 	m_nPktsRecvLurchAccumulator += m_seqPktCounters.m_nLurch;
 	m_seqPktCounters.Reset();
@@ -382,6 +437,11 @@ void LinkStatsTrackerBase::InternalProcessSequencedPacket_OutOfOrder( int64 nPkt
 	m_seqPktCounters.OnOutOfOrder();
 }
 
+void LinkStatsTrackerBase::ProcessSequencedPacket_OutOfOrderCorrected()
+{
+	m_seqPktCounters.OnOutOfOrderCorrected();
+}
+
 bool LinkStatsTrackerBase::BCheckHaveDataToSendInstantaneous( SteamNetworkingMicroseconds usecNow )
 {
 	Assert( m_eActivityLevel == ELinkActivityLevel::Active );
@@ -553,6 +613,7 @@ void LinkStatsTrackerBase::GetLifetimeStats( SteamDatagramLinkLifetimeStats &s )
 	s.m_nPktsRecvSequenced = m_nPktsRecvSequenced;
 	s.m_nPktsRecvDropped = PktsRecvDropped();
 	s.m_nPktsRecvOutOfOrder = PktsRecvOutOfOrder();
+	s.m_nPktsRecvOutOfOrderCorrected = PktsRecvOutOfOrderCorrected();
 	s.m_nPktsRecvDuplicate = PktsRecvDuplicate();
 	s.m_nPktsRecvSequenceNumberLurch = PktsRecvLurch();
 
@@ -825,6 +886,7 @@ void LinkStatsLifetimeStructToMsg( const SteamDatagramLinkLifetimeStats &s, CMsg
 	msg.set_packets_recv_sequenced( s.m_nPktsRecvSequenced );
 	msg.set_packets_recv_dropped( s.m_nPktsRecvDropped );
 	msg.set_packets_recv_out_of_order( s.m_nPktsRecvOutOfOrder );
+	msg.set_packets_recv_out_of_order_corrected( s.m_nPktsRecvOutOfOrderCorrected );
 	msg.set_packets_recv_duplicate( s.m_nPktsRecvDuplicate );
 	msg.set_packets_recv_lurch( s.m_nPktsRecvSequenceNumberLurch );
 
@@ -929,6 +991,7 @@ void LinkStatsLifetimeMsgToStruct( const CMsgSteamDatagramLinkLifetimeStats &msg
 	s.m_nPktsRecvSequenced = msg.packets_recv_sequenced();
 	s.m_nPktsRecvDropped = msg.packets_recv_dropped();
 	s.m_nPktsRecvOutOfOrder = msg.packets_recv_out_of_order();
+	s.m_nPktsRecvOutOfOrderCorrected = msg.packets_recv_out_of_order_corrected();
 	s.m_nPktsRecvDuplicate = msg.packets_recv_duplicate();
 	s.m_nPktsRecvSequenceNumberLurch = msg.packets_recv_lurch();
 
@@ -1087,6 +1150,7 @@ void LinkStatsPrintLifetimeToBuf( const char *pszLeader, const SteamDatagramLink
 		float flToPct = 100.0f / ( stats.m_nPktsRecvSequenced + stats.m_nPktsRecvDropped );
 		buf.Printf( "%s    Dropped   :%11s pkts%7.2f%%\n", pszLeader, NumberPrettyPrinter( stats.m_nPktsRecvDropped ).String(), stats.m_nPktsRecvDropped * flToPct );
 		buf.Printf( "%s    OutOfOrder:%11s pkts%7.2f%%\n", pszLeader, NumberPrettyPrinter( stats.m_nPktsRecvOutOfOrder ).String(), stats.m_nPktsRecvOutOfOrder * flToPct );
+		buf.Printf( "%s    OOOFixed  :%11s pkts%7.2f%%\n", pszLeader, NumberPrettyPrinter( stats.m_nPktsRecvOutOfOrderCorrected ).String(), stats.m_nPktsRecvOutOfOrderCorrected * flToPct );
 		buf.Printf( "%s    Duplicate :%11s pkts%7.2f%%\n", pszLeader, NumberPrettyPrinter( stats.m_nPktsRecvDuplicate ).String(), stats.m_nPktsRecvDuplicate * flToPct );
 		buf.Printf( "%s    SeqLurch  :%11s pkts%7.2f%%\n", pszLeader, NumberPrettyPrinter( stats.m_nPktsRecvSequenceNumberLurch ).String(), stats.m_nPktsRecvSequenceNumberLurch * flToPct );
 

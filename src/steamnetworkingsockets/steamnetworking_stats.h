@@ -222,6 +222,7 @@ struct SteamDatagramLinkLifetimeStats
 	int64 m_nPktsRecvSequenced; // packets that we received that had a sequence number.
 	int64 m_nPktsRecvDropped;
 	int64 m_nPktsRecvOutOfOrder;
+	int64 m_nPktsRecvOutOfOrderCorrected;
 	int64 m_nPktsRecvDuplicate;
 	int64 m_nPktsRecvSequenceNumberLurch;
 

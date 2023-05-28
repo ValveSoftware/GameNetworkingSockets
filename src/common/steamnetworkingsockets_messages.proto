@@ -99,6 +99,7 @@ message CMsgSteamDatagramLinkLifetimeStats
 	optional uint64 packets_recv_sequenced = 7;
 	optional uint64 packets_recv_dropped = 8;
 	optional uint64 packets_recv_out_of_order = 9;
+	optional uint64 packets_recv_out_of_order_corrected = 15;
 	optional uint64 packets_recv_duplicate = 10;
 	optional uint64 packets_recv_lurch = 11;
 	repeated uint64 multipath_packets_recv_sequenced = 12; // If multipath send or receive was used, then the samples for how many we received on each path

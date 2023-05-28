@@ -25,6 +25,8 @@ class CMsgSteamDatagramConnectionQuality;
 // Internal stuff goes in a private namespace
 namespace SteamNetworkingSocketsLib {
 
+class CPossibleOutOfOrderPacket;
+
 /// Default interval for link stats rate measurement
 const SteamNetworkingMicroseconds k_usecSteamDatagramLinkStatsDefaultInterval = 5 * k_nMillion;
 
@@ -417,9 +419,10 @@ struct SequencedPacketCounters
 {
 	int m_nRecv; // packets successfully received containing a sequence number
 	int m_nDropped; // packets assumed to be dropped in the current interval
-	int m_nOutOfOrder; // any sequence number deviation other than a simple dropped packet.  (Most recent interval.)
-	int m_nLurch; // any sequence number deviation other than a simple dropped packet.  (Most recent interval.)
-	int m_nDuplicate; // any sequence number deviation other than a simple dropped packet.  (Most recent interval.)
+	int m_nOutOfOrder; // sequence number was smaller than previous packet.  (And we were not able to correct it.)
+	int m_nOutOfOrderCorrected; // out of order, but we corrected it at the packet level
+	int m_nLurch; // any sequence number deviation not accounted for by other fields.
+	int m_nDuplicate; // duplicate sequence number.
 	int m_usecMaxJitter;
 
 	void Reset()
@@ -427,6 +430,7 @@ struct SequencedPacketCounters
 		m_nRecv = 0;
 		m_nDropped = 0;
 		m_nOutOfOrder = 0;
+		m_nOutOfOrderCorrected = 0;
 		m_nLurch = 0;
 		m_nDuplicate = 0;
 		m_usecMaxJitter = -1;
@@ -437,6 +441,7 @@ struct SequencedPacketCounters
 		m_nRecv += x.m_nRecv;
 		m_nDropped += x.m_nDropped;
 		m_nOutOfOrder += m_nOutOfOrder;
+		m_nOutOfOrderCorrected += x.m_nOutOfOrderCorrected;
 		m_nLurch += m_nLurch;
 		m_nDuplicate += x.m_nDuplicate;
 		m_usecMaxJitter = std::max( m_usecMaxJitter, x.m_usecMaxJitter );
@@ -482,6 +487,12 @@ struct SequencedPacketCounters
 		if ( m_nDropped > 0 ) // Might have marked it in the previous interval.  Our stats will be slightly off in this case.  Not worth it to try to get this exactly right.
 			--m_nDropped;
 	}
+	inline void OnOutOfOrderCorrected()
+	{
+		++m_nOutOfOrderCorrected;
+		// NOTE - current out-of-order correction code does not increment the
+		// dropped count for the skipped packet while we await for it to arrive
+	}
 };
 
 /// Rough classification of the amount of activity we expect on a link.  This informs
@@ -518,7 +529,7 @@ enum class ELinkActivityLevel
 /// all of these small functions if appropriate, and no virtual function dispatch is used.
 struct LinkStatsTrackerBase
 {
-
+	~LinkStatsTrackerBase();
 
 	/// What version is the peer running?  It's 0 if we don't know yet.
 	uint32 m_nPeerProtocolVersion;
@@ -616,10 +627,12 @@ struct LinkStatsTrackerBase
 	int64 m_nPktsRecvSequenced;
 	int64 m_nPktsRecvDroppedAccumulator;
 	int64 m_nPktsRecvOutOfOrderAccumulator;
+	int64 m_nPktsRecvOutOfOrderCorrectedAccumulator;
 	int64 m_nPktsRecvDuplicateAccumulator;
 	int64 m_nPktsRecvLurchAccumulator;
 	inline int64 PktsRecvDropped() const { return m_nPktsRecvDroppedAccumulator + m_seqPktCounters.m_nDropped; }
 	inline int64 PktsRecvOutOfOrder() const { return m_nPktsRecvOutOfOrderAccumulator + m_seqPktCounters.m_nOutOfOrder; }
+	inline int64 PktsRecvOutOfOrderCorrected() const { return m_nPktsRecvOutOfOrderCorrectedAccumulator + m_seqPktCounters.m_nOutOfOrderCorrected; }
 	inline int64 PktsRecvDuplicate() const { return m_nPktsRecvDuplicateAccumulator + m_seqPktCounters.m_nDuplicate; }
 	inline int64 PktsRecvLurch() const { return m_nPktsRecvLurchAccumulator + m_seqPktCounters.m_nLurch; }
 
@@ -810,6 +823,11 @@ struct LinkStatsTrackerBase
 		++m_qualityHistogram.m_arBuckets[ eBucket ];
 	}
 
+	/// Get the pending out-of-order packet on this flow, if any
+	CPossibleOutOfOrderPacket *GetPossibleOutOfOrderPacket() const { return m_pPossibleOutOfOrderPacket; }
+
+	virtual void ProcessSequencedPacket_OutOfOrderCorrected();
+
 protected:
 	// Make sure it's used as abstract base.  Note that we require you to call Init()
 	// with a timestamp value, so the constructor is empty by default.
@@ -983,6 +1001,7 @@ protected:
 	}
 
 private:
+	friend class CPossibleOutOfOrderPacket;
 
 	// Number of lifetime sequenced packets received, and overall packets sent,
 	// the last time the peer acked stats
@@ -1004,6 +1023,10 @@ private:
 	void UpdateInterval( SteamNetworkingMicroseconds usecNow );
 
 	void StartNextInterval( SteamNetworkingMicroseconds usecNow );
+
+	// Certain flows have the ability to detect and
+	// repair a single out of order packet.
+	CPossibleOutOfOrderPacket *m_pPossibleOutOfOrderPacket = nullptr;
 };
 
 struct LinkStatsTrackerEndToEnd : public LinkStatsTrackerBase

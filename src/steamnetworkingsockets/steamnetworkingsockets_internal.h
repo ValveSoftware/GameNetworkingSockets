@@ -241,6 +241,7 @@ struct SteamDatagramLinkStats;
 struct SteamDatagramLinkLifetimeStats;
 struct SteamDatagramLinkInstantaneousStats;
 struct SteamNetworkingDetailedConnectionStatus;
+struct LinkStatsTrackerBase;
 
 // An identity operator that always returns its operand.
 // NOTE: std::hash is an identity operator on many compilers
@@ -1000,6 +1001,38 @@ inline ESteamNetworkingFakeIPType GetIPv4FakeIPType( uint32 nIPv4 )
 #else
 inline ESteamNetworkingFakeIPType GetIPv4FakeIPType( uint32 nIPv4 ) { return k_ESteamNetworkingFakeIPType_NotFake; }
 #endif
+
+// Helper class to store a packet that was received when it looks
+// like the packet might have been delivered out of order.
+class CPossibleOutOfOrderPacket
+{
+public:
+
+	// "Timeout" when this packet should be dispatched if we haven't
+	// received the skipped packet
+	SteamNetworkingMicroseconds m_usecFlush = 0;
+
+	// Detach from our owner and destroy this object.
+	void Destroy();
+
+	// Detach from our owner
+	void Detach();
+
+	LinkStatsTrackerBase *GetOwner() const { return m_pOwner; }
+	void SetOwner( LinkStatsTrackerBase *pOwner );
+
+protected:
+
+	// Link stats tracker that owns us
+	LinkStatsTrackerBase *m_pOwner = nullptr;
+
+	virtual void DoDestroy();
+
+	inline CPossibleOutOfOrderPacket() {}
+
+	// Destructor is protected, you should call Destroy()
+	virtual ~CPossibleOutOfOrderPacket();
+};
 
 } // namespace SteamNetworkingSocketsLib
 
