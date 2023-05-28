@@ -1029,7 +1029,7 @@ inline ESteamNetworkingFakeIPType GetIPv4FakeIPType( uint32 nIPv4 ) { return k_E
 #endif
 
 #if defined(__GNUC__ ) && defined( __linux__ ) && !defined( __ANDROID__ )
-	#if ( STEAMNETWORKINGSOCKETS_SNP_PARANOIA == 2 ) || ( STEAMNETWORKINGSOCKETS_SNP_PARANOIA > 0 && !defined( _CERT ) && !defined( _RETAIL ) )
+	#if STEAMNETWORKINGSOCKETS_SNP_PARANOIA >= 2
 		#define STEAMNETWORKINGSOCKETS_USE_GNU_DEBUG_MAP
 		#include <debug/map>
 	#endif
