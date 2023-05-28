@@ -151,7 +151,11 @@ struct SendPacketContext : SendPacketContext_t
 
 	void SlamFlagsAndCalcSize()
 	{
-		SetStatsMsgFlagsIfNotImplied( msg, m_nFlags );
+		const uint32 nImpliedFlags = StatsMsgImpliedFlags( msg );
+		if ( m_nFlags & ~nImpliedFlags ) // any flags present that are not implied?
+			msg.set_flags( m_nFlags | nImpliedFlags ); // set flags, explicit and implied, just for clarity
+		else
+			msg.clear_flags(); // All flags we needed to send are implied by message, no need to send explicitly.  We can save space and not send this
 		m_cbTotalSize = m_cbMsgSize = ProtoMsgByteSize( msg );
 		if ( m_cbMsgSize > 0 )
 			m_cbTotalSize += VarIntSerializedSize( (uint32)m_cbMsgSize );
