@@ -19,10 +19,10 @@
 /// to sub-sampling, that the resulting sample will be based on the entire
 /// data set you provide.  It will not be biased towards the first or last samples.
 template < typename T, int MAX_SAMPLES = 1000 >
-class PercentileGenerator
+class CPercentileGenerator
 {
 public:
-	PercentileGenerator() { Clear(); }
+	CPercentileGenerator() { Clear(); }
 
 	/// Throw away all samples and restart collection
 	void Clear() { m_nSamples = m_nSamplesTotal = 0; m_bNeedSort = false; }
@@ -67,9 +67,8 @@ private:
 	T m_arSamples[ MAX_SAMPLES ];
 };
 
-
 template < typename T, int MAX_SAMPLES >
-void PercentileGenerator<T,MAX_SAMPLES>::AddSample( T x )
+void CPercentileGenerator<T,MAX_SAMPLES>::AddSample( T x )
 {
 
 	// Still have room to keep all the samples?
@@ -100,7 +99,7 @@ void PercentileGenerator<T,MAX_SAMPLES>::AddSample( T x )
 }
 
 template < typename T, int MAX_SAMPLES >
-void PercentileGenerator<T,MAX_SAMPLES>::Sort( bool bForce ) const
+void CPercentileGenerator<T,MAX_SAMPLES>::Sort( bool bForce ) const
 {
 	if ( bForce || m_bNeedSort )
 	{
@@ -111,7 +110,7 @@ void PercentileGenerator<T,MAX_SAMPLES>::Sort( bool bForce ) const
 }
 
 template < typename T, int MAX_SAMPLES >
-T PercentileGenerator<T,MAX_SAMPLES>::GetPercentile( float flPct )const
+T CPercentileGenerator<T,MAX_SAMPLES>::GetPercentile( float flPct )const
 {
 	// Make sure percentile is reasonable.  If you want the min or
 	// max, don't use this method.

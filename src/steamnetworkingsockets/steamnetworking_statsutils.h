@@ -185,7 +185,7 @@ struct PingTrackerDetailed : PingTracker
 
 	/// Track sample of pings received so we can generate percentiles.
 	/// Also tracks how many pings we have received total
-	PercentileGenerator<uint16> m_sample;
+	CPercentileGenerator<uint16> m_sample;
 
 	/// Counts by bucket
 	PingHistogram m_histogram;
@@ -626,7 +626,7 @@ struct LinkStatsTrackerBase
 	inline int64 PktsRecvLurch() const { return m_nPktsRecvLurchAccumulator + m_seqPktCounters.m_nLurch; }
 
 	/// Lifetime quality statistics
-	PercentileGenerator<uint8> m_qualitySample;
+	CPercentileGenerator<uint8> m_qualitySample;
 
 	/// Histogram of quality intervals
 	QualityHistogram m_qualityHistogram;
@@ -1037,7 +1037,7 @@ struct LinkStatsTrackerEndToEnd : public LinkStatsTrackerBase
 	/// TX Speed, should match CMsgSteamDatagramLinkLifetimeStats 
 	int m_nTXSpeed; 
 	int m_nTXSpeedMax; 
-	PercentileGenerator<int> m_TXSpeedSample;
+	CPercentileGenerator<int> m_TXSpeedSample;
 	int m_nTXSpeedHistogram16; // Speed at kb/s
 	int m_nTXSpeedHistogram32; 
 	int m_nTXSpeedHistogram64;
@@ -1050,7 +1050,7 @@ struct LinkStatsTrackerEndToEnd : public LinkStatsTrackerBase
 	/// RX Speed, should match CMsgSteamDatagramLinkLifetimeStats 
 	int m_nRXSpeed;
 	int m_nRXSpeedMax;
-	PercentileGenerator<int> m_RXSpeedSample;
+	CPercentileGenerator<int> m_RXSpeedSample;
 	int m_nRXSpeedHistogram16; // Speed at kb/s
 	int m_nRXSpeedHistogram32; 
 	int m_nRXSpeedHistogram64;
