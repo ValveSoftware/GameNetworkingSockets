@@ -68,6 +68,11 @@ message CMsgSteamDatagramCertificate
 
 	// Restrict key to be used for a particular AppID(s)?
 	repeated uint32 app_ids = 10;
+
+	// Restrict key to be used for a particular IP address ranges?
+	// This is a list of strings.  At the time of this writing,
+	// each string must be a single IPv4 or a single IPv6.
+	repeated string ip_addresses = 13;
 };
 
 // Certificate signed by a certificate authority.
