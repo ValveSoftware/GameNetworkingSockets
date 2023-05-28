@@ -107,7 +107,7 @@
 #endif
 
 #ifdef IsPosix
-	#error "Too soon"
+	#error "Running platform detection twice, or defining IsPosix too soon"
 #endif
 
 #ifdef _DEBUG
@@ -118,6 +118,10 @@
 	#define IsDebug() false
 #endif
 
+//
+// Detect platform and set appropriate IsXxx() macros to true
+// We will set all the others to false below.
+//
 #if defined( _XBOX_ONE ) || defined( _GAMING_XBOX_XBOXONE )
 	#define IsXboxOne() true
 	#define IsConsole() true
@@ -125,6 +129,7 @@
 	#define IsXboxScarlett() true
 	#define IsConsole() true
 #elif defined( NN_NINTENDO_SDK )
+	// NOTE: _WIN32 != "Windows".  It means we have a WIN32-like set of APIs to access locks, files, etc.
 	#ifndef _WIN32
 		#define IsPosix() true
 	#endif
@@ -140,40 +145,38 @@
 	#define IsConsole() true
 #elif defined( _WIN32 )
 	#define IsWindows() true
-	#define IsPC() true
 #elif defined( __ANDROID__ ) || defined( ANDROID )
 	#define IsAndroid() true
 	#define IsPosix() true
 #elif defined(__APPLE__)
 	#include <TargetConditionals.h>
-	#if defined( TARGET_OS_MAC )
+	// https://stackoverflow.com/questions/12132933/preprocessor-macro-for-os-x-targets
+	#if TARGET_OS_TV
+		#define IsTVOS() true
+		#define IsPosix() true
+	#elif TARGET_OS_IOS
+		#define IsIOS() true
+		#define IsPosix() true
+	#else
+		// Assume OSX
 		#define SUPPORTS_IOPOLLINGHELPER
 		#define IsOSX() true
 		#define IsPosix() true
-	#elif defined( TARGET_OS_IPHONE )
-		#define IsIOS() true
-		#define IsPosix() true
-	#elif defined( TARGET_OS_TV )
-		#define IsTVOS() true
-		#define IsPosix() true
-	#else
-		#error "Unsupported platform"
 	#endif
 #elif defined( LINUX ) || defined( __LINUX__ ) || defined(linux) || defined(__linux) || defined(__linux__)
 	#define IsLinux() true
 	#define IsPosix() true
 #elif defined( _POSIX_VERSION ) || defined( POSIX ) || defined( VALVE_POSIX )
 	#define IsPosix() true
-	#define IsPC() true
 #else
 	#error Undefined platform
 #endif
 
+//
+// Now define as false any of the IsXxx functions not set true above
+//
 #ifndef IsWindows
 	#define IsWindows() false
-#endif
-#ifndef IsPC
-	#define IsPC() false
 #endif
 #ifndef IsAndroid
 	#define IsAndroid() false
@@ -184,6 +187,7 @@
 #ifndef IsNintendoSwitch
 	#define IsNintendoSwitch() false
 #endif
+#define IsX360() false
 #ifndef IsXboxOne
 	#define IsXboxOne() false
 #endif
@@ -194,6 +198,7 @@
 #if defined( _GAMING_XBOX ) && !IsXbox()
 	#error "_GAMING_XBOX_XBOXONE or _GAMING_XBOX_SCARLETT should be defined"
 #endif
+#define IsPS3() false
 #ifndef IsPS4
 	#define IsPS4() false
 #endif
@@ -203,12 +208,14 @@
 #define IsPlaystation() ( IsPS4() || IsPS5() )
 #ifndef IsIOS
 	#define IsIOS() false
+	// Make sure we didn't get hosed by order of checks above
 	#if defined(IOS) || defined(__IOS__)
-		#error "TVOS detection not working"
+		#error "IOS detection not working"
 	#endif
 #endif
 #ifndef IsTVOS
 	#define IsTVOS() false
+	// Make sure we didn't get hosed by order of checks above
 	#if defined(TVOS) || defined(__TVOS__)
 		#error "TVOS detection not working"
 	#endif
@@ -222,8 +229,10 @@
 #ifndef IsOSX
 	#define IsOSX() false
 #endif
+
+// Detect ARM
 #ifndef IsARM
-	#ifdef __arm__
+	#if defined( __arm__ ) || defined( _M_ARM ) || defined( _M_ARM64 ) || defined( PLATFORM_ARM )
 		#define IsARM() true
 	#else
 		#define IsARM() false
