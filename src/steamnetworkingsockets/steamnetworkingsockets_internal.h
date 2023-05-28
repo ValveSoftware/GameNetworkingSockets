@@ -1238,7 +1238,7 @@ inline int index_of( const V &vec, const typename vstd::LikeStdVectorTraits<V>::
 namespace vstd
 {
 	// Polyfill for is_trivially_copyable on older GCC.
-	#if defined( __GNUC__ ) && __GNUC__ < 5
+	#if defined( __GNUC__ ) && __GNUC__ < 5 && !defined(__clang__)
 		template <typename T> struct is_trivially_copyable
 		{
 			static constexpr bool value = __has_trivial_copy(T);
@@ -1247,10 +1247,7 @@ namespace vstd
 		using std::is_trivially_copyable;
 	#endif
 
-	// It's 2021 and the C++ language doesn't have a way for you to say,
-	// "My type can be safely memmoved".  We also don't have a decent
-	// associate array class.  But we do have concepts and a bunch of
-	// other crap nobody cares about.
+	// FIXME should I use is_trivially_move_constructible here?
 	template <typename T> struct is_relocatable : is_trivially_copyable<T> {};
 
 	// If they tell us it's OK to relocate the type, then ignore GCC warnings
