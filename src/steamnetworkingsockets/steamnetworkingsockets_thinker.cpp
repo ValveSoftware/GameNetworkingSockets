@@ -37,7 +37,7 @@ struct ThinkerLess
 class ThinkerSetIndex
 {
 public:
-	static void SetIndex( IThinker *p, int idx ) { p->m_queueIndex = idx; }
+	static void SetIndex( IThinker *p, int idx, void *pContext ) { p->m_queueIndex = idx; }
 };
 
 static CUtlPriorityQueue<IThinker*,ThinkerLess,ThinkerSetIndex> s_queueThinkers;
