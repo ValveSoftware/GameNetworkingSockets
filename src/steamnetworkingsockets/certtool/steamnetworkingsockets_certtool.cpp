@@ -400,7 +400,7 @@ void PrintCertInfo( const CMsgSteamDatagramCertificateSigned &msgSigned, picojso
 
 	Printf( "#Public key . . . : %s ID%s\n", PublicKeyAsAuthorizedKeys( pubKey ).c_str(), KeyIDAsString( key_id ).c_str() );
 	Printf( "#Created. . . . . : %s (%llu)\n", szTimeCreated, (unsigned long long)timeCreated );
-	Printf( "#Expires. . . . . : %s (%llu)\n", szTimeExpiry, (unsigned long long)timeCreated );
+	Printf( "#Expires. . . . . : %s (%llu)\n", szTimeExpiry, (unsigned long long)timeExpiry );
 	Printf( "#CA key ID. . . . : %s\n", KeyIDAsString( msgSigned.ca_key_id() ).c_str() );
 	if ( !sAppIDs.empty() )
 	{
