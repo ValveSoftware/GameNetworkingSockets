@@ -3,7 +3,7 @@
 
 #include <tier0/dbg.h>
 
-#ifdef STEAMNETWORKINGSOCKETS_CRYPTO_25519_LIBSODIUM
+#ifdef VALVE_CRYPTO_25519_LIBSODIUM
 
 #include <sodium/crypto_scalarmult_curve25519.h>
 #include <sodium/crypto_sign_ed25519.h>

@@ -12,7 +12,7 @@
 #include <sodium/utils.h>
 #include "tier0/memdbgon.h"
 
-#ifdef STEAMNETWORKINGSOCKETS_CRYPTO_LIBSODIUM
+#ifdef VALVE_CRYPTO_LIBSODIUM
 
 SymmetricCryptContextBase::SymmetricCryptContextBase()
 	: m_ctx(nullptr), m_cbIV(0), m_cbTag(0)

@@ -1,7 +1,7 @@
 //========= Copyright Valve LLC, All rights reserved. ========================
 
 #include "crypto.h"
-#ifdef STEAMNETWORKINGSOCKETS_CRYPTO_VALVEOPENSSL
+#ifdef VALVE_CRYPTO_OPENSSL
 
 #if defined(_WIN32)
 #ifdef __MINGW32__
@@ -475,4 +475,4 @@ void CCrypto::GenerateHMAC( const uint8 *pubData, uint32 cubData, const uint8 *p
 	HMAC( EVP_sha1(), pubKey, cubKey, pubData, cubData, (unsigned char*)pOutputDigest, &needed );
 }
 
-#endif //STEAMNETWORKINGSOCKETS_CRYPTO_VALVEOPENSSL
+#endif // VALVE_CRYPTO_OPENSSL

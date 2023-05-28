@@ -2,7 +2,7 @@
 #include <tier0/dbg.h>
 #include <tier0/vprof.h>
 
-#ifdef STEAMNETWORKINGSOCKETS_CRYPTO_SHA1_WPA
+#ifdef VALVE_CRYPTO_SHA1_WPA
 
 extern "C" {
 // external headers for sha1 and hmac-sha1 support
@@ -30,5 +30,5 @@ void CCrypto::GenerateHMAC( const uint8 *pubData, uint32 cubData, const uint8 *p
 	AssertFatal(status == 0);
 }
 
-#endif // #ifdef STEAMNETWORKINGSOCKETS_CRYPTO_SHA1_WPA
+#endif // #ifdef VALVE_CRYPTO_SHA1_WPA
 

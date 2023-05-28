@@ -1,7 +1,7 @@
 //========= Copyright Valve LLC, All rights reserved. ========================
 #include "crypto.h"
 
-#ifdef STEAMNETWORKINGSOCKETS_CRYPTO_BCRYPT
+#ifdef VALVE_CRYPTO_BCRYPT
 
 #include <tier0/vprof.h>
 #include <tier1/utlmemory.h>
@@ -329,4 +329,4 @@ void CCrypto::GenerateHMAC( const uint8 *pubData, uint32 cubData, const uint8 *p
 	AssertFatal(NT_SUCCESS(status));
 }
 
-#endif // STEAMNETWORKINGSOCKETS_CRYPTO_BCRYPT
+#endif // VALVE_CRYPTO_BCRYPT
