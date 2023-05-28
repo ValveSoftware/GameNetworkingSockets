@@ -137,13 +137,13 @@ namespace CCrypto
 	bool HexEncode( const void *pubData, const uint32 cubData, char *pchEncodedData, uint32 cchEncodedData );
 	bool HexDecode( const char *pchData, void *pubDecodedData, uint32 *pcubDecodedData );
 
-	uint32 Base64EncodeMaxOutput( uint32 cubData, const char *pszLineBreakOrNull );
-	bool Base64Encode( const void *pubData, uint32 cubData, char *pchEncodedData, uint32 cchEncodedData, bool bInsertLineBreaks = true ); // legacy, deprecated
-	bool Base64Encode( const void *pubData, uint32 cubData, char *pchEncodedData, uint32 *pcchEncodedData, const char *pszLineBreak = "\n" );
+	uint32 Base64EncodeMaxOutput( size_t cubData, const char *pszLineBreakOrNull );
+	bool Base64Encode_Legacy( const void *pubData, size_t cubData, char *pchEncodedData, size_t cchEncodedData, bool bInsertLineBreaks = true ); // legacy, deprecated
+	bool Base64Encode( const void *pubData, size_t cubData, char *pchEncodedData, uint32 *pcchEncodedData, const char *pszLineBreak = "\n" );
 
-	inline uint32 Base64DecodeMaxOutput( uint32 cubData ) { return ( (cubData + 3 ) / 4) * 3 + 1; }
-	bool Base64Decode( const char *pchEncodedData, void *pubDecodedData, uint32 *pcubDecodedData, bool bIgnoreInvalidCharacters = true ); // legacy, deprecated
-	bool Base64Decode( const char *pchEncodedData, uint32 cchEncodedData, void *pubDecodedData, uint32 *pcubDecodedData, bool bIgnoreInvalidCharacters = true );
+	inline uint32 Base64DecodeMaxOutput( size_t cubData ) { return (uint32)( ( (cubData + 3 ) / 4) * 3 + 1 ); }
+	bool Base64Decode_Legacy( const char *pchEncodedData, void *pubDecodedData, uint32 *pcubDecodedData, bool bIgnoreInvalidCharacters = true ); // legacy, deprecated
+	bool Base64Decode( const char *pchEncodedData, size_t cchEncodedData, void *pubDecodedData, uint32 *pcubDecodedData, bool bIgnoreInvalidCharacters = true );
 
 	/// Decode base64 into CUtlBuffer.  This precomputes the expetced size and does
 	/// only one allocation, so it's safe to use CAutoWipeBuffer.
@@ -161,7 +161,7 @@ namespace CCrypto
 	/// then we just check that the header and footer contain something vaguely PEM-like.
 	const char *LocatePEMBody( const char *pchPEM, uint32 *pcch, const char *pszExpectedType );
 
-	/// Decode base-64 encoded PEM-like thing into buffer.  it's safe to use CAutoWipeBuffer
+	/// Decode base-64 encoded PEM-like thing into buffer.  It's safe to use CAutoWipeBuffer
 	bool DecodePEMBody( const char *pszPem, uint32 cch, CUtlBuffer &buf, const char *pszExpectedType );
 
 	/// Use platform-dependency secure random number source of high entropy

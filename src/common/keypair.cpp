@@ -51,7 +51,7 @@ static void OpenSSHBinaryEd25519WriteKeyType( CUtlBuffer &buf )
 
 static bool BOpenSSHBinaryReadFixedSizeKey( CUtlBuffer &buf, void *pOut, uint32 cbExpectedSize )
 {
-	uint32 cbSize;
+	uint32 cbSize = 0;
 	if ( !BOpenSSHGetUInt32( buf, cbSize ) )
 		return false;
 	if ( cbSize != cbExpectedSize || buf.GetBytesRemaining() < (int)cbExpectedSize )
@@ -334,10 +334,11 @@ bool CCryptoKeyBase::SetFromHexEncodedString( const char *pchEncodedKey )
 bool CCryptoKeyBase::SetFromBase64EncodedString( const char *pchEncodedKey )
 {
 	Wipe();
-	uint32 cubKey = V_strlen( pchEncodedKey ) * 3 / 4 + 1;
+	const int cchEncodedKey = V_strlen( pchEncodedKey );
+	uint32 cubKey = cchEncodedKey * 3 / 4 + 1;
 
 	void *buf = alloca( cubKey );
-	if ( !CCrypto::Base64Decode( pchEncodedKey, buf, &cubKey ) )
+	if ( !CCrypto::Base64Decode( pchEncodedKey, cchEncodedKey, buf, &cubKey ) )
 	{
 		SecureZeroMemory( buf, cubKey );
 		return false;

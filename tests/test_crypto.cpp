@@ -118,12 +118,13 @@ void TestCryptoEncoding()
 	CHECK( cubDecodedData == 4 && rgubDecodedData[0] == 0x0F && rgubDecodedData[1] == 0xF0 && rgubDecodedData[2] == 0x12 && rgubDecodedData[3] == 0x0E );
 
 	// BASE64
-	bRet = CCrypto::Base64Encode( rgubData, cubData, rgchEncodedData, cchEncodedData );
+	cchEncodedData = V_ARRAYSIZE( rgchEncodedData );
+	bRet = CCrypto::Base64Encode( rgubData, cubData, rgchEncodedData, &cchEncodedData );
 	CHECK( bRet );		// must succeed
 
 	// decode the data
 	cubDecodedData = V_ARRAYSIZE( rgubDecodedData );
-	bRet = CCrypto::Base64Decode( rgchEncodedData, rgubDecodedData, &cubDecodedData );
+	bRet = CCrypto::Base64Decode( rgchEncodedData, cchEncodedData, rgubDecodedData, &cubDecodedData );
 	CHECK( bRet );						// must succeed
 	CHECK( cubDecodedData == cubData );	// must be of correct size
 
@@ -148,7 +149,7 @@ void TestCryptoEncoding()
 		CHECK_EQUAL( buf[0], 1 ); // shouldn't have written to buf at all
 
 		bufSize = sizeof(buf);
-		bRet = CCrypto::Base64Decode( "", buf, &bufSize, true );
+		bRet = CCrypto::Base64Decode( "", 0, buf, &bufSize, true );
 		CHECK( bRet );
 		CHECK_EQUAL( bufSize, 0 );
 		CHECK_EQUAL( buf[0], 1 ); // shouldn't have written to buf at all
@@ -158,7 +159,8 @@ void TestCryptoEncoding()
 	{
 		uint8 buf[4] = { 1, 1, 1, 1 };
 		uint32 bufSize = sizeof(buf);
-		bRet = CCrypto::Base64Decode( "AAAA!@#$%^&*()_+|<>?:;'[]{}\\/,.", buf, &bufSize, false );
+		const char pchEncodedBogus[] = "AAAA!@#$%^&*()_+|<>?:;'[]{}\\/,.";
+		bRet = CCrypto::Base64Decode( pchEncodedBogus, V_strlen(pchEncodedBogus), buf, &bufSize, false );
 		CHECK( bRet == false );
 		// Should have decoded 3 null bytes and then failed
 		CHECK_EQUAL( bufSize, 3 );
