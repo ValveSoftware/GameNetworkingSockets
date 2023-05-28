@@ -3,7 +3,7 @@
 #include "crypto_25519.h"
 #include <tier0/dbg.h>
 
-#ifdef VALVE_CRYPTO_25519_OPENSSL
+#ifdef VALVE_CRYPTO_25519_OPENSSLEVP
 
 #include <openssl/evp.h>
 
@@ -206,4 +206,4 @@ bool CEC25519PrivateKeyBase::CachePublicKey()
 	return true;
 }
 
-#endif // #ifdef VALVE_CRYPTO_25519_OPENSSL
+#endif // #ifdef VALVE_CRYPTO_25519_OPENSSLEVP
