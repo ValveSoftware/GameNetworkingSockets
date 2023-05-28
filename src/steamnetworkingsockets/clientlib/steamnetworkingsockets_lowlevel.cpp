@@ -3600,7 +3600,11 @@ bool ResolveHostname( const char* pszHostname, CUtlVector< SteamNetworkingIPAddr
 
 	if ( nResult != 0 )
 	{
+#ifdef _WIN32
+		const char* errMsg = gai_strerrorA( nResult );
+#else
 		const char* errMsg = gai_strerror( nResult );
+#endif
 		SpewError( "Name lookup for \"%s\" failed - %s\n", pszHostname, errMsg );
 		return false;
 	}
