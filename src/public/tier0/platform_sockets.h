@@ -25,6 +25,7 @@
 #pragma once
 
 #include "platform.h"
+#include <vstdlib/strtools.h>
 
 // !KLUDGE!
 typedef char SteamNetworkingErrMsg[ 1024 ];

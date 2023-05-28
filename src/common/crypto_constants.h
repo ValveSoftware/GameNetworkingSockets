@@ -39,4 +39,7 @@ typedef	unsigned char MD5Digest_t[k_cubMD5Hash];
 const unsigned int k_cubSHA256Hash = 32;
 typedef	unsigned char SHA256Digest_t[ k_cubSHA256Hash ];
 
+const unsigned int k_cubSHA512Hash = 64;
+typedef	unsigned char SHA512Digest_t[ k_cubSHA512Hash ];
+
 #endif // CRYPTO_CONSTANTS_H
