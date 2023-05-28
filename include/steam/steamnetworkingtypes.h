@@ -1206,9 +1206,12 @@ enum ESteamNetworkingConfigValue
 	//    ensure you have the current value.
 	k_ESteamNetworkingConfig_ConnectionUserData = 40,
 
-	/// [connection int32] Minimum/maximum send rate clamp, 0 is no limit.
-	/// This value will control the min/max allowed sending rate that 
-	/// bandwidth estimation is allowed to reach.  Default is 0 (no-limit)
+	/// [connection int32] Minimum/maximum send rate clamp, in bytes/sec.
+	/// At the time of this writing these two options should always be set to
+	/// the same value, to manually configure a specific send rate.  The default
+	/// value is 256K.  Eventually we hope to have the library estimate the bandwidth
+	/// of the channel and set the send rate to that estimated bandwidth, and these
+	/// values will only set limits on that send rate.
 	k_ESteamNetworkingConfig_SendRateMin = 10,
 	k_ESteamNetworkingConfig_SendRateMax = 11,
 
