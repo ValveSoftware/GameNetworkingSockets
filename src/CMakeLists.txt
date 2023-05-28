@@ -70,6 +70,7 @@ if(USE_CRYPTO STREQUAL "OpenSSL")
 	set(GNS_CRYPTO_SRCS ${GNS_CRYPTO_SRCS}
 		"common/crypto_openssl.cpp"
 		"common/crypto_25519_openssl.cpp"
+		"common/crypto_digest_opensslevp.cpp"
 		"common/crypto_symmetric_opensslevp.cpp"
 		"common/opensslwrapper.cpp"
 		)

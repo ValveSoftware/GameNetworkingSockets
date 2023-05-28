@@ -7,6 +7,8 @@
 #include "crypto_constants.h"
 #include "keypair.h"
 
+constexpr int k_cb25519KeySize = 32;
+
 class CEC25519KeyBase : public CCryptoKeyBase_RawBuffer
 {
 public:
@@ -53,6 +55,7 @@ public:
 	bool MatchesPublicKey( const CEC25519PublicKeyBase &pPublicKey ) const;
 
 	const uint8 *GetPublicKeyRawData() const { return m_publicKey; }
+	inline static constexpr int GetPublicKeyRawDataSize() { return k_cb25519KeySize; }
 
 protected:
 	CEC25519PrivateKeyBase( ECryptoKeyType eType ) : CEC25519KeyBase( eType ) { }
@@ -60,7 +63,7 @@ protected:
 	// We keep a copy of the public key cached.
 	// It is not considered part of the raw key data,
 	// as was previously the case.)
-	uint8 m_publicKey[32];
+	uint8 m_publicKey[k_cb25519KeySize];
 
 	bool CachePublicKey();
 	virtual bool SetRawData( const void *pData, size_t cbData ) override;
