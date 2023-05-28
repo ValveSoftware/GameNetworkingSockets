@@ -755,7 +755,7 @@ void CSteamNetworkConnectionBase::RemoveFromPollGroup()
 	// Scan all of our messages, and make sure they are not in the secondary queue
 	{
 		ShortDurationScopeLock lockMessageQueues( g_lockAllRecvMessageQueues );
-		for ( CSteamNetworkingMessage *pMsg = m_queueRecvMessages.m_pFirst ; pMsg ; pMsg = pMsg->m_linksSecondaryQueue.m_pNext )
+		for ( CSteamNetworkingMessage *pMsg = m_queueRecvMessages.m_pFirst ; pMsg ; pMsg = pMsg->m_links.m_pNext )
 		{
 			Assert( pMsg->m_links.m_pQueue == &m_queueRecvMessages );
 
