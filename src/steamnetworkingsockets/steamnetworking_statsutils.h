@@ -52,7 +52,8 @@ const SteamNetworkingMicroseconds k_usecLinkStatsLifetimeReportMaxInterval = 140
 const SteamNetworkingMicroseconds k_usecAggressivePingInterval = 200*1000;
 
 /// If we haven't heard from the peer in a while, send a keepalive
-const SteamNetworkingMicroseconds k_usecKeepAliveInterval = 10*k_nMillion;
+const SteamNetworkingMicroseconds k_usecKeepAliveIntervalActive = 10*k_nMillion;
+const SteamNetworkingMicroseconds k_usecKeepAliveIntervalIdle = 60*k_nMillion;
 
 /// Track the rate that something is happening
 struct Rate_t
@@ -476,6 +477,16 @@ struct SequencedPacketCounters
 
 };
 
+/// Rough classification of the amount of activity we expect on a link.  This informs
+/// the stats tracker how aggressive to be with sending keepalives, whether it should
+/// expect acks, etc.
+/// 
+enum class ELinkActivityLevel
+{
+	Active, // Expect acks, maintain stats, and use normal keepalive interval
+	Idle, // Expect acks, but greatly increase keepalive interval and don't send any stats since we expect the link to be idle.  (It is used for backup purposes, etc)
+	Disconnected // Don't send anything or expect any replies.  This is used before we go "connected", and also after we close.  In some situations we might track and send acknowledgments, depending on higher level requirements.
+};
 
 /// Base class used to handle link quality calculations.
 ///
@@ -632,7 +643,7 @@ struct LinkStatsTrackerBase
 	/// 2 - Yes, send one if possible
 	inline int ReadyToSendTracerPing( SteamNetworkingMicroseconds usecNow ) const
 	{
-		if ( m_bPassive )
+		if ( m_eActivityLevel != ELinkActivityLevel::Active ) // No inline tracer pings unless we are active
 			return 0;
 		SteamNetworkingMicroseconds usecTimeSince = usecNow - std::max( m_ping.m_usecTimeLastSentPingRequest, m_ping.TimeRecvMostRecentPing() );
 		if ( usecTimeSince > k_usecLinkStatsMaxPingRequestInterval )
@@ -648,8 +659,8 @@ struct LinkStatsTrackerBase
 	inline bool BNeedToSendPingImmediate( SteamNetworkingMicroseconds usecNow ) const
 	{
 		return
-			!m_bPassive
-			&& m_nReplyTimeoutsSinceLastRecv > 0 // We're timing out
+			unlikely( m_nReplyTimeoutsSinceLastRecv > 0 ) // We're timing out
+			&& m_eActivityLevel == ELinkActivityLevel::Active // no "aggressive" pings while idle.  We will use "keepalives" which do repeat, but are not quite as aggressive
 			&& m_usecLastSendPacketExpectingImmediateReply+k_usecAggressivePingInterval <= usecNow; // we haven't just recently sent an aggressive ping.
 	}
 
@@ -657,10 +668,21 @@ struct LinkStatsTrackerBase
 	/// but we don't have any reason to think there are any problems.
 	inline bool BNeedToSendKeepalive( SteamNetworkingMicroseconds usecNow ) const
 	{
-		return
-			!m_bPassive
-			&& m_usecInFlightReplyTimeout == 0 // not already tracking some other message for which we expect a reply (and which would confirm that the connection is alive)
-			&& m_usecTimeLastRecv + k_usecKeepAliveInterval <= usecNow; // haven't heard from the peer recently
+		// Most of the time this is called when we have heard from the peer recently
+		if ( likely( m_usecTimeLastRecv + k_usecKeepAliveIntervalActive > usecNow ) )
+			return false;
+		if ( m_usecInFlightReplyTimeout == 0 )
+			return false; // already tracking some other message for which we expect a reply (and which would confirm that the connection is alive)
+		if ( likely( m_eActivityLevel == ELinkActivityLevel::Active ) )
+			return true;
+		if ( likely( m_eActivityLevel == ELinkActivityLevel::Idle ) )
+		{
+			// We're idle
+			return m_usecTimeLastRecv + k_usecKeepAliveIntervalIdle <= usecNow; // haven't heard from the peer recently
+		}
+
+		Assert( m_eActivityLevel == ELinkActivityLevel::Disconnected );
+		return false;
 	}
 
 	/// Fill out message with everything we'd like to send.  We don't assume that we will
@@ -773,7 +795,7 @@ protected:
 	inline static void ThinkInternal( TLinkStatsTracker *pThis, SteamNetworkingMicroseconds usecNow )
 	{
 		// Check for ending the current QoS interval
-		if ( !pThis->m_bPassive && pThis->m_usecIntervalStart + k_usecSteamDatagramLinkStatsDefaultInterval <= usecNow )
+		if ( pThis->m_eActivityLevel == ELinkActivityLevel::Active && pThis->m_usecIntervalStart + k_usecSteamDatagramLinkStatsDefaultInterval <= usecNow )
 		{
 			pThis->UpdateInterval( usecNow );
 		}
@@ -813,15 +835,12 @@ protected:
 		pThis->TrackSentPingRequest( usecNow, bAllowDelayedReply );
 	}
 
-	/// Are we in "passive" state?  When we are "active", we expect that our peer is awake
-	/// and will reply to our messages, and that we should be actively sending our peer
-	/// connection quality statistics and keepalives.  When we are passive, we still measure
-	/// statistics and can receive messages from the peer, and send acknowledgments as necessary.
-	/// but we will indicate that keepalives or stats need to be sent to the peer.
-	bool m_bPassive;
+	/// How much activity is expected on this link, and what sorts of replies do we expect from our peer?
+	ELinkActivityLevel m_eActivityLevel;
 
-	/// Called to switch the passive state.  (Should only be called on an actual state change.)
-	void SetPassiveInternal( bool bFlag, SteamNetworkingMicroseconds usecNow );
+	/// Called to change our activity level.  (Will only be called on an actual state change,
+	/// with the exception of initialization)
+	void SetActivityLevelInternal( ELinkActivityLevel eActivityLevel, SteamNetworkingMicroseconds usecNow );
 
 	/// Check if we really need to flush out stats now.  Derived class should provide the reason strings.
 	/// (See the code.)
@@ -858,7 +877,9 @@ protected:
 
 	inline bool BInternalNeedToSendPingImmediate( SteamNetworkingMicroseconds usecNow, SteamNetworkingMicroseconds &inOutNextThinkTime )
 	{
-		if ( m_nReplyTimeoutsSinceLastRecv == 0 )
+		if ( likely( m_nReplyTimeoutsSinceLastRecv == 0 ) )
+			return false;
+		if ( m_eActivityLevel != ELinkActivityLevel::Active ) // No aggressive pings unless we are in the "normal" state.  If we're idle just use normal keepalives
 			return false;
 		SteamNetworkingMicroseconds usecUrgentPing = m_usecLastSendPacketExpectingImmediateReply+k_usecAggressivePingInterval;
 		if ( usecUrgentPing <= usecNow )
@@ -872,11 +893,26 @@ protected:
 	{
 		if ( m_usecInFlightReplyTimeout == 0 )
 		{
-			SteamNetworkingMicroseconds usecKeepAlive = m_usecTimeLastRecv + k_usecKeepAliveInterval;
-			if ( usecKeepAlive <= usecNow )
+			// Calculate timestampe when the next keepalive should be sent
+			SteamNetworkingMicroseconds usecWhenNextKeepAlive = m_usecTimeLastRecv;
+			if ( likely( m_eActivityLevel == ELinkActivityLevel::Active ) )
+			{
+				usecWhenNextKeepAlive += k_usecKeepAliveIntervalActive;
+			}
+			else
+			{
+				// Should not be called when we are disconnected
+				Assert( m_eActivityLevel == ELinkActivityLevel::Idle );
+				usecWhenNextKeepAlive += k_usecKeepAliveIntervalIdle;
+			}
+
+			// Due now?
+			if ( usecWhenNextKeepAlive <= usecNow )
 				return true;
-			if ( usecKeepAlive < inOutNextThinkTime )
-				inOutNextThinkTime = usecKeepAlive;
+
+			// Not yet, request a wakeup when it's time
+			if ( usecWhenNextKeepAlive < inOutNextThinkTime )
+				inOutNextThinkTime = usecWhenNextKeepAlive;
 		}
 		else
 		{
@@ -990,13 +1026,15 @@ struct LinkStatsTrackerEndToEnd : public LinkStatsTrackerBase
 	/// Do we need to send any stats?
 	inline const char *GetSendReasonOrUpdateNextThinkTime( SteamNetworkingMicroseconds usecNow, EStatsReplyRequest &eReplyRequested, SteamNetworkingMicroseconds &inOutNextThinkTime )
 	{
-		if ( m_bPassive )
+		if ( m_eActivityLevel == ELinkActivityLevel::Disconnected )
 		{
-			if ( m_usecInFlightReplyTimeout > 0 && m_usecInFlightReplyTimeout < inOutNextThinkTime )
-				inOutNextThinkTime = m_usecInFlightReplyTimeout;
 			eReplyRequested = k_EStatsReplyRequest_NothingToSend;
 			return nullptr;
 		}
+
+		// If we have a timeout active, request a wakeup on that time
+		if ( m_usecInFlightReplyTimeout > 0 && m_usecInFlightReplyTimeout < inOutNextThinkTime )
+			inOutNextThinkTime = m_usecInFlightReplyTimeout;
 
 		// Urgent ping?
 		if ( BInternalNeedToSendPingImmediate( usecNow, inOutNextThinkTime ) )
@@ -1062,14 +1100,16 @@ struct LinkStatsTracker final : public TLinkStatsTracker
 
 	// "Virtual functions" that we are "overriding" at compile time
 	// by the template argument
-	inline void Init( SteamNetworkingMicroseconds usecNow, bool bStartDisconnected = false )
+	inline void Init( SteamNetworkingMicroseconds usecNow, ELinkActivityLevel eLinkActivityLevel )
 	{
 		TLinkStatsTracker::InitInternal( usecNow );
-		TLinkStatsTracker::SetPassiveInternal( bStartDisconnected, usecNow );
+		TLinkStatsTracker::SetActivityLevelInternal( eLinkActivityLevel, usecNow );
 	}
-	inline void Think( SteamNetworkingMicroseconds usecNow ) { TLinkStatsTracker::ThinkInternal( this, usecNow ); }
-	inline void SetPassive( bool bFlag, SteamNetworkingMicroseconds usecNow ) { if ( TLinkStatsTracker::m_bPassive != bFlag ) TLinkStatsTracker::SetPassiveInternal( bFlag, usecNow ); }
-	inline bool IsPassive() const { return TLinkStatsTracker::m_bPassive; }
+	inline void Think( SteamNetworkingMicroseconds usecNow ) { if ( likely( TLinkStatsTracker::m_eActivityLevel != ELinkActivityLevel::Disconnected ) ) TLinkStatsTracker::ThinkInternal( this, usecNow ); }
+	inline void SetActivityLevel( ELinkActivityLevel eActivityLevel, SteamNetworkingMicroseconds usecNow ) { if ( TLinkStatsTracker::m_eActivityLevel != eActivityLevel ) TLinkStatsTracker::SetActivityLevelInternal( eActivityLevel, usecNow ); }
+	inline bool IsActive() const { return TLinkStatsTracker::m_eActivityLevel == ELinkActivityLevel::Active; }
+	inline bool IsDisconnected() const { return TLinkStatsTracker::m_eActivityLevel == ELinkActivityLevel::Disconnected; }
+	inline ELinkActivityLevel GetActivityLevel() const { return TLinkStatsTracker::m_eActivityLevel; }
 	inline void TrackSentMessageExpectingSeqNumAck( SteamNetworkingMicroseconds usecNow, bool bAllowDelayedReply ) { TLinkStatsTracker::TrackSentMessageExpectingSeqNumAckInternal( this, usecNow, bAllowDelayedReply ); }
 	inline void TrackSentPingRequest( SteamNetworkingMicroseconds usecNow, bool bAllowDelayedReply ) { TLinkStatsTracker::TrackSentPingRequestInternal( this, usecNow, bAllowDelayedReply ); }
 	inline void ReceivedPing( int nPingMS, SteamNetworkingMicroseconds usecNow ) { TLinkStatsTracker::ReceivedPingInternal( this, nPingMS, usecNow ); }
@@ -1080,30 +1120,15 @@ struct LinkStatsTracker final : public TLinkStatsTracker
 	/// for that packet (using GetNextSendSequenceNumber), but must *NOT* have consumed any more!
 	void TrackSentStats( const CMsgSteamDatagramConnectionQuality &msg, SteamNetworkingMicroseconds usecNow, bool bAllowDelayedReply )
 	{
+		Assert( TLinkStatsTracker::m_eActivityLevel != ELinkActivityLevel::Disconnected );
 
-		// Check if we expect our peer to know how to acknowledge this
-		if ( !TLinkStatsTracker::m_bPassive )
-		{
-			TLinkStatsTracker::m_pktNumInFlight = TLinkStatsTracker::m_nNextSendSequenceNumber-1;
-			TLinkStatsTracker::m_bInFlightInstantaneous = msg.has_instantaneous();
-			TLinkStatsTracker::m_bInFlightLifetime = msg.has_lifetime();
+		TLinkStatsTracker::m_pktNumInFlight = TLinkStatsTracker::m_nNextSendSequenceNumber-1;
+		TLinkStatsTracker::m_bInFlightInstantaneous = msg.has_instantaneous();
+		TLinkStatsTracker::m_bInFlightLifetime = msg.has_lifetime();
 
-			// They should ack.  Make a note of the sequence number that we used,
-			// so that we can measure latency when they reply, setup timeout bookkeeping, etc
-			TrackSentMessageExpectingSeqNumAck( usecNow, bAllowDelayedReply );
-		}
-		else
-		{
-			// Peer can't ack.  Just mark them as acking immediately
-			Assert( TLinkStatsTracker::m_pktNumInFlight == 0 );
-			TLinkStatsTracker::m_pktNumInFlight = 0;
-			TLinkStatsTracker::m_bInFlightInstantaneous = false;
-			TLinkStatsTracker::m_bInFlightLifetime = false;
-			if ( msg.has_instantaneous() )
-				TLinkStatsTracker::PeerAckedInstantaneous( usecNow );
-			if ( msg.has_lifetime() )
-				TLinkStatsTracker::PeerAckedLifetime( usecNow );
-		}
+		// They should ack.  Make a note of the sequence number that we used,
+		// so that we can measure latency when they reply, setup timeout bookkeeping, etc
+		TrackSentMessageExpectingSeqNumAck( usecNow, bAllowDelayedReply );
 	}
 
 	inline bool RecvPackedAcks( const google::protobuf::RepeatedField<google::protobuf::uint32> &msgField, SteamNetworkingMicroseconds usecNow )

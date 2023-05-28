@@ -141,60 +141,65 @@ int PingTracker::WorstPingInRecentSample() const
 void LinkStatsTrackerBase::InitInternal( SteamNetworkingMicroseconds usecNow )
 {
 	m_nPeerProtocolVersion = 0;
-	m_bPassive = false;
-	m_sent.Reset();
-	m_recv.Reset();
-	m_recvExceedRateLimit.Reset();
 	m_ping.Reset();
 	m_nNextSendSequenceNumber = 1;
+	m_sent.Reset();
 	m_usecTimeLastSentSeq = 0;
 	InitMaxRecvPktNum( 0 );
+	m_recv.Reset();
+	m_nDebugPktsRecvInOrder = 0;
+	m_recvExceedRateLimit.Reset();
+	m_usecTimeLastRecv = 0;
+	m_usecTimeLastRecvSeq = 0;
+	m_nMultiPathRecvLater[0] = m_nMultiPathRecvLater[1] = 0;
+	m_nMultiPathRecvSeq[0] = m_nMultiPathRecvSeq[1] = 0;
+	m_bMultiPathSendEnabled = false;
 	m_seqPktCounters.Reset();
 	m_flInPacketsDroppedPct = -1.0f;
 	m_flInPacketsWeirdSequencePct = -1.0f;
 	m_usecMaxJitterPreviousInterval = -1;
 	m_nPktsRecvSequenced = 0;
-	m_nMultiPathRecvSeq[0] = m_nMultiPathRecvSeq[1] = 0;
-	m_nMultiPathRecvLater[0] = m_nMultiPathRecvLater[1] = 0;
-	m_bMultiPathSendEnabled = false;
-	m_nDebugPktsRecvInOrder = 0;
 	m_nPktsRecvDroppedAccumulator = 0;
 	m_nPktsRecvOutOfOrderAccumulator = 0;
 	m_nPktsRecvDuplicateAccumulator = 0;
 	m_nPktsRecvLurchAccumulator = 0;
-	m_usecTimeLastRecv = 0;
-	m_usecTimeLastRecvSeq = 0;
-	memset( &m_latestRemote, 0, sizeof(m_latestRemote) );
-	m_usecTimeRecvLatestRemote = 0;
-	memset( &m_lifetimeRemote, 0, sizeof(m_lifetimeRemote) );
-	m_usecTimeRecvLifetimeRemote = 0;
-	//m_seqnumUnackedSentLifetime = -1;
-	//m_seqnumPendingAckRecvTimelife = -1;
-	m_qualityHistogram.Reset();
 	m_qualitySample.Clear();
+	m_qualityHistogram.Reset();
 	m_jitterHistogram.Reset();
+	m_latestRemote.Clear();
+	m_usecTimeRecvLatestRemote = 0;
+	m_lifetimeRemote.Clear();
+	m_usecTimeRecvLifetimeRemote = 0;
+	m_pktNumInFlight = 0;
+	m_bInFlightInstantaneous = false;
+	m_bInFlightLifetime = false;
+	m_usecIntervalStart = 0;
+	m_usecInFlightReplyTimeout = 0;
+	m_usecLastSendPacketExpectingImmediateReply = 0;
+	m_nReplyTimeoutsSinceLastRecv = 0;
+	m_usecWhenTimeoutStarted = 0;
+	m_eActivityLevel = ELinkActivityLevel::Disconnected;
 }
 
-void LinkStatsTrackerBase::SetPassiveInternal( bool bFlag, SteamNetworkingMicroseconds usecNow )
+void LinkStatsTrackerBase::SetActivityLevelInternal( ELinkActivityLevel eActivityLevel, SteamNetworkingMicroseconds usecNow )
 {
-	m_bPassive = bFlag;
+	// When entering or leaving the disconnected state, if we had a packet
+	// in flight that we were expecting a reply, clear it
+	if ( eActivityLevel == ELinkActivityLevel::Disconnected || m_eActivityLevel == ELinkActivityLevel::Disconnected )
+	{
+		m_usecInFlightReplyTimeout = 0;
+	}
 
+	m_eActivityLevel = eActivityLevel;
+
+	// Clear state that tracks when we have sent our stats and when they have acked it
 	m_pktNumInFlight = 0;
 	m_bInFlightInstantaneous = false;
 	m_bInFlightLifetime = false;
 	PeerAckedInstantaneous( usecNow );
 	PeerAckedLifetime( usecNow );
 
-	// Clear acks we expect, on either state change.
-	m_usecInFlightReplyTimeout = 0;
-	m_usecLastSendPacketExpectingImmediateReply = 0;
-	m_nReplyTimeoutsSinceLastRecv = 0;
-	m_usecWhenTimeoutStarted = 0;
-
-	if ( !bFlag )
-	{
-		StartNextInterval( usecNow );
-	}
+	StartNextInterval( usecNow );
 }
 
 void LinkStatsTrackerBase::StartNextInterval( SteamNetworkingMicroseconds usecNow )
@@ -379,7 +384,7 @@ void LinkStatsTrackerBase::InternalProcessSequencedPacket_OutOfOrder( int64 nPkt
 
 bool LinkStatsTrackerBase::BCheckHaveDataToSendInstantaneous( SteamNetworkingMicroseconds usecNow )
 {
-	Assert( !m_bPassive );
+	Assert( m_eActivityLevel == ELinkActivityLevel::Active );
 
 	// How many packets a second to we expect to send on an "active" connection?
 	const int64 k_usecActiveConnectionSendInterval = 3*k_nMillion;
@@ -405,7 +410,7 @@ bool LinkStatsTrackerBase::BCheckHaveDataToSendInstantaneous( SteamNetworkingMic
 
 bool LinkStatsTrackerBase::BCheckHaveDataToSendLifetime( SteamNetworkingMicroseconds usecNow )
 {
-	Assert( !m_bPassive );
+	Assert( m_eActivityLevel == ELinkActivityLevel::Active );
 
 	// Make sure we have something new to report since the last time we sent stats
 	if ( m_nPktsRecvSeqWhenPeerAckLifetime + 100 < m_nPktsRecvSequenced || m_nPktsSentWhenPeerAckLifetime + 100 < m_sent.m_packets.Total() )
@@ -426,7 +431,7 @@ int LinkStatsTrackerBase::GetStatsSendNeed( SteamNetworkingMicroseconds usecNow 
 	int nResult = 0;
 
 	// Message already in flight?
-	if ( m_pktNumInFlight == 0 && !m_bPassive )
+	if ( m_pktNumInFlight == 0 && m_eActivityLevel == ELinkActivityLevel::Active )
 	{
 		if ( m_usecPeerAckedInstaneous + k_usecLinkStatsInstantaneousReportInterval <= usecNow && BCheckHaveDataToSendInstantaneous( usecNow ) )
 		{
@@ -450,10 +455,14 @@ int LinkStatsTrackerBase::GetStatsSendNeed( SteamNetworkingMicroseconds usecNow 
 
 const char *LinkStatsTrackerBase::InternalGetSendStatsReasonOrUpdateNextThinkTime( SteamNetworkingMicroseconds usecNow, const char *const arpszReasonStrings[4], SteamNetworkingMicroseconds &inOutNextThinkTime )
 {
-	if ( m_bPassive )
-		return nullptr;
 	if ( m_usecInFlightReplyTimeout > 0 && m_usecInFlightReplyTimeout < inOutNextThinkTime )
 		inOutNextThinkTime = m_usecInFlightReplyTimeout;
+
+	if ( m_eActivityLevel != ELinkActivityLevel::Active )
+	{
+		Assert( m_eActivityLevel == ELinkActivityLevel::Idle ); // This function should not be called at all in the disconnected state
+		return nullptr;
+	}
 
 	// Message already in flight?
 	if ( m_pktNumInFlight )
@@ -485,7 +494,7 @@ const char *LinkStatsTrackerBase::InternalGetSendStatsReasonOrUpdateNextThinkTim
 
 void LinkStatsTrackerBase::PopulateMessage( int nNeedFlags, CMsgSteamDatagramConnectionQuality &msg, SteamNetworkingMicroseconds usecNow )
 {
-	Assert( m_pktNumInFlight == 0 && !m_bPassive );
+	Assert( m_pktNumInFlight == 0 && m_eActivityLevel == ELinkActivityLevel::Active );
 
 	// Ready to send instantaneous stats?
 	if ( nNeedFlags & k_nSendStats_Instantanous )

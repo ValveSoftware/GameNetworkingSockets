@@ -883,7 +883,7 @@ bool CSteamNetworkConnectionBase::BInitConnection( SteamNetworkingMicroseconds u
 
 	m_eEndReason = k_ESteamNetConnectionEnd_Invalid;
 	m_szEndDebug[0] = '\0';
-	m_statsEndToEnd.Init( usecNow, true ); // Until we go connected don't try to send acks, etc
+	m_statsEndToEnd.Init( usecNow, ELinkActivityLevel::Disconnected ); // Until we go connected don't try to send acks, etc
 	m_usecWhenCreated = usecNow;
 
 	// Select random connection ID, and make sure it passes certain sanity checks
@@ -2544,9 +2544,9 @@ void CSteamNetworkConnectionBase::SetState( ESteamNetworkingConnectionState eNew
 			if ( m_statsEndToEnd.m_usecWhenStartedConnectedState != 0 && m_statsEndToEnd.m_usecWhenEndedConnectedState == 0 )
 				m_statsEndToEnd.m_usecWhenEndedConnectedState = usecNow;
 
-			// Let stats tracking system know that it shouldn't
-			// expect to be able to get stuff acked, etc
-			m_statsEndToEnd.SetPassive( true, m_usecWhenEnteredConnectionState );
+			// Let stats tracking system know that it should
+			// not attempt to send any stats, nor expect any acks from the peer
+			m_statsEndToEnd.SetActivityLevel( ELinkActivityLevel::Disconnected, m_usecWhenEnteredConnectionState );
 
 			// Go head and free up memory now
 			SNP_ShutdownConnection();
@@ -2565,7 +2565,7 @@ void CSteamNetworkConnectionBase::SetState( ESteamNetworkingConnectionState eNew
 			Assert( m_statsEndToEnd.m_usecWhenStartedConnectedState != 0 );
 
 			// Link stats tracker should send and expect, acks, keepalives, etc
-			m_statsEndToEnd.SetPassive( false, m_usecWhenEnteredConnectionState );
+			m_statsEndToEnd.SetActivityLevel( ELinkActivityLevel::Active, m_usecWhenEnteredConnectionState );
 			break;
 
 		case k_ESteamNetworkingConnectionState_FindingRoute:
@@ -2575,13 +2575,13 @@ void CSteamNetworkConnectionBase::SetState( ESteamNetworkingConnectionState eNew
 
 			// FIXME.  Probably we should NOT set the stats tracker as "active" yet.
 			//Assert( m_statsEndToEnd.IsPassive() );
-			m_statsEndToEnd.SetPassive( false, m_usecWhenEnteredConnectionState );
+			m_statsEndToEnd.SetActivityLevel( ELinkActivityLevel::Active, m_usecWhenEnteredConnectionState );
 			break;
 
 		case k_ESteamNetworkingConnectionState_Connecting:
 
 			// And we shouldn't mark stats object as ready until we go connected
-			Assert( m_statsEndToEnd.IsPassive() );
+			Assert( m_statsEndToEnd.IsDisconnected() );
 			break;
 	}
 
@@ -3425,7 +3425,7 @@ void CSteamNetworkConnectionBase::Think( SteamNetworkingMicroseconds usecNow )
 	if ( BStateIsConnectedForWirePurposes() )
 	{
 		Assert( m_statsEndToEnd.m_usecTimeLastRecv > 0 ); // How did we get connected without receiving anything end-to-end?
-		AssertMsg2( !m_statsEndToEnd.IsPassive(), "[%s] stats passive, but in state %d?", GetDescription(), (int)GetState() );
+		AssertMsg( m_statsEndToEnd.IsActive(), "[%s] stats are in activity level %d, but in state %d?", GetDescription(), (int)m_statsEndToEnd.GetActivityLevel(), (int)GetState() );
 
 		// Not able to send end-to-end data?
 		bool bCanSendEndToEnd = m_pTransport && m_pTransport->BCanSendEndToEndData();
