@@ -98,9 +98,11 @@ coding to the API in the Steamworks SDK.  On Steam, you will link against the
 Steamworks version, and you can access the additional services provided by
 the [Steam Datagram Relay](https://partner.steamgames.com/doc/features/multiplayer/steamdatagramrelay)
 network.  On other platforms and stores, as long as you ship a version of your
-game on Steam, you can probably still take advantage of these services!  Contact
-us to get a console version of the code, and see the Steamworks documentation for
-more info.
+game on Steam, you might be able to take advantage of these services.  See
+the Steamworks documentation for more information.  Because this is a live
+service, and we need to control our security and backward compatibility burden,
+at this time we are not able to offer access to SDR on other platforms to all
+partners.
 
 If you aren't a Steam partner, or don't have a version of your game on Steam,
 then use this opensource version of the API and take advantage of the permissive
