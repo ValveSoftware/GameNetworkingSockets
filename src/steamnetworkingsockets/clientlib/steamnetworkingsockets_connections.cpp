@@ -1392,8 +1392,18 @@ ESteamNetConnectionEnd CSteamNetworkConnectionBase::RecvCryptoHandshake(
 		pCACertAuthScope = CertStore_CheckCert( msgCert, m_msgCertRemote, timeNow, tmpErrMsg );
 		if ( !pCACertAuthScope )
 		{
-			V_sprintf_safe( errMsg, "Bad cert: %s", tmpErrMsg );
-			return k_ESteamNetConnectionEnd_Remote_BadCert;
+
+			// We might allow this
+			EUnsignedCert eAllow = AllowRemoteUnsignedCert();
+			if ( eAllow == k_EUnsignedCert_AllowWarn )
+			{
+				SpewMsg( "[%s] Ignore cert failure (%s)  Connection is not secure.\n", GetDescription(), tmpErrMsg );
+			}
+			else if ( eAllow != k_EUnsignedCert_Allow )
+			{
+				V_sprintf_safe( errMsg, "Bad cert: %s", tmpErrMsg );
+				return k_ESteamNetConnectionEnd_Remote_BadCert;
+			}
 		}
 	}
 	else
