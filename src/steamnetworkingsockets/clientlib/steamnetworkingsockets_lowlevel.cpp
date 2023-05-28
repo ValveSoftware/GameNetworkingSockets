@@ -2551,9 +2551,6 @@ static int GetDualWifiSecondaryInterfaceIndex( int nSimulateMode )
 			continue;
 		}
 
-		// Feature is detected!
-		SpewMsg( "Dual Wifi support enabled successfully on adapter '%s'\n", szInterfaceDescription );
-
 		PWLAN_INTERFACE_INFO_LIST secondaryInterfaceList = nullptr;
 		DWORD dataSize = 0;
 		error = (*pWlanQueryInterface)(
@@ -2569,6 +2566,14 @@ static int GetDualWifiSecondaryInterfaceIndex( int nSimulateMode )
 			AssertMsg( false, "wlan_intf_opcode_secondary_sta_synchronized_connections succeeded, but wlan_intf_opcode_secondary_sta_interfaces failed 0x%x?", error );
 			continue;
 		}
+		if ( secondaryInterfaceList->dwNumberOfItems == 0 )
+		{
+			SpewVerbose( "Dual Wifi support not detected on adapter '%s' (wlan_intf_opcode_secondary_sta_interfaces returned empty list)\n", szInterfaceDescription );
+			continue;
+		}
+
+		// Feature is detected!
+		SpewMsg( "Dual Wifi support detected on adapter '%s'\n", szInterfaceDescription );
 
 		for ( DWORD idxSecondary = 0 ; idxSecondary < secondaryInterfaceList->dwNumberOfItems ; ++idxSecondary )
 		{
@@ -2582,7 +2587,7 @@ static int GetDualWifiSecondaryInterfaceIndex( int nSimulateMode )
 			}
 		}
 
-		AssertMsg( false, "Could not find secondary wifi adapter, even though wlan_intf_opcode_secondary_sta_synchronized_connections succeeded" );
+		AssertMsg( false, "Could not find secondary wifi adapter, even though wlan_intf_opcode_secondary_sta_synchronized_connections returned %u items", (unsigned)secondaryInterfaceList->dwNumberOfItems );
 	}
 
 	// Failed.  This should be common
