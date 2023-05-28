@@ -1349,6 +1349,7 @@ static bool AddFDToEPoll( int fd, CRawUDPSocketImpl *pSock, SteamNetworkingErrMs
 #endif
 
 static std::thread *s_pServiceThread = nullptr;
+static void (*s_fnServiceThreadInitCallback)() = nullptr;
 
 bool IsServiceThreadRunning()
 {
@@ -2786,6 +2787,10 @@ static void SteamNetworkingThreadProc()
 		}
 	#endif
 
+	#if IsPlaystation()
+		ClearCurrentThreadAffinity();
+	#endif
+
 	#if defined(_WIN32) && !defined(__GNUC__)
 
 		#pragma warning( disable: 6132 ) // Possible infinite loop:  use of the constant EXCEPTION_CONTINUE_EXECUTION in the exception-filter expression of a try-except.  Execution restarts in the protected block.
@@ -2802,7 +2807,7 @@ static void SteamNetworkingThreadProc()
 		THREADNAME_INFO info;
 		{
 			info.dwType = 0x1000;
-			info.szName = "SteamNetworking";
+			info.szName = "SteamNetworkingSockets";
 			info.dwThreadID = GetCurrentThreadId();
 			info.dwFlags = 0;
 		}
@@ -2814,10 +2819,16 @@ static void SteamNetworkingThreadProc()
 		{
 		}
 
+	#elif IsPlaystation()
+		SetCurrentThreadName( "SteamNetworkingSockets" );
 	#else
 		// Help!  Really we should do this for all platforms.  Seems it's not
 		// totally straightforward the correct way to do this on Linux.
 	#endif
+
+	// Invoke user callback, if any
+	if ( s_fnServiceThreadInitCallback )
+		(*s_fnServiceThreadInitCallback)();
 
 	// In the loop, we will always hold global lock while we're awake.
 	// So go ahead and acquire it now.  But watch out for a race condition
@@ -3864,6 +3875,11 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_DefaultPreFormatDeb
 		pfnDebugOutput( eType, buf );
 }
 
+STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetServiceThreadInitCallback( void (*callback)() )
+{
+	AssertMsg( !IsServiceThreadRunning(), "Too late!" );
+	s_fnServiceThreadInitCallback = callback;
+}
 
 /////////////////////////////////////////////////////////////////////////////
 //
