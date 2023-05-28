@@ -251,6 +251,9 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingIdentity_ToString( const St
 
 STEAMNETWORKINGSOCKETS_INTERFACE bool SteamNetworkingIdentity_ParseString( SteamNetworkingIdentity *pIdentity, size_t sizeofIdentity, const char *pszStr )
 {
+#ifdef VPROF_BUDGET
+	VPROF_BUDGET( "SteamNetworkingIdentity_ParseString", VPROF_BUDGETGROUP_SERVERMAIN );
+#endif
 	const size_t sizeofHeader = offsetof( SteamNetworkingIdentity, m_cbSize ) + sizeof( pIdentity->m_cbSize );
 	COMPILE_TIME_ASSERT( sizeofHeader == 8 );
 
