@@ -2709,12 +2709,77 @@ bool CSteamNetworkConnectionBase::ReceivedMessage( CSteamNetworkingMessage *pMsg
 		return false;
 	}
 
-	// Add to end of my queue.
-	pMsg->LinkToQueueTail( &CSteamNetworkingMessage::m_links, &m_queueRecvMessages );
-	// Add to the poll group, if we are in one
-	if ( m_pPollGroup )
-		pMsg->LinkToQueueTail( &CSteamNetworkingMessage::m_linksSecondaryQueue, &m_pPollGroup->m_queueRecvMessages );
-	g_lockAllRecvMessageQueues.unlock();
+	// Check for messages are received out of order.  If the messages with a higher
+	// message number have not been removed from the queue, then we can correct this
+	const int64 nMessageNumber = pMsg->m_nMessageNumber;
+	if ( m_queueRecvMessages.m_pLast && unlikely( m_queueRecvMessages.m_pLast->m_nMessageNumber > pMsg->m_nMessageNumber ) )
+	{
+
+		// Scan the linked list to find the insertion point
+		int nMessagesGreaterThanCurrent = 1;
+		CSteamNetworkingMessage *pMsgInsertBefore = m_queueRecvMessages.m_pLast;
+		const int64 nMessageNumberLast = pMsgInsertBefore->m_nMessageNumber;
+		for (;;)
+		{
+			Assert( pMsgInsertBefore->m_links.m_pQueue == &m_queueRecvMessages );
+			CSteamNetworkingMessage *pPrev = pMsgInsertBefore->m_links.m_pPrev;
+			if ( !pPrev || pPrev->m_nMessageNumber <= nMessageNumber )
+				break;
+			pMsgInsertBefore = pPrev;
+			++nMessagesGreaterThanCurrent;
+		}
+
+		const int64 nMessageNumberInsertBefore = pMsgInsertBefore->m_nMessageNumber;
+
+		// Insert before this in the main queue for the connection
+		pMsg->LinkBefore( pMsgInsertBefore, &CSteamNetworkingMessage::m_links, &m_queueRecvMessages );
+
+		// If there's a poll group, then insert immediately
+		// before this message in that queue, too.
+		if ( m_pPollGroup )
+		{
+			if ( pMsgInsertBefore->m_linksSecondaryQueue.m_pQueue == &m_pPollGroup->m_queueRecvMessages )
+			{
+				pMsg->LinkBefore( pMsgInsertBefore, &CSteamNetworkingMessage::m_linksSecondaryQueue, &m_pPollGroup->m_queueRecvMessages );
+			}
+			else
+			{
+				Assert( false );
+			}
+		}
+		else
+		{
+			Assert( pMsgInsertBefore->m_linksSecondaryQueue.m_pQueue == nullptr );
+		}
+
+		// Unlock before we spew
+		g_lockAllRecvMessageQueues.unlock();
+
+		// NOTE - message could have been pulled out of the queue
+		// and consumed by the app already here
+
+		SpewMsgGroup( m_connectionConfig.m_LogLevel_Message.Get(), "[%s] Received Msg %lld out of order.  %d message(s) queued with higher numbers, IDs %lld ... %lld\n",
+			GetDescription(),
+			(long long)nMessageNumber,
+			nMessagesGreaterThanCurrent,
+			(long long)nMessageNumberInsertBefore,
+			(long long)nMessageNumberLast );
+
+	}
+	else
+	{
+
+		// Add to end of my queue.
+		pMsg->LinkToQueueTail( &CSteamNetworkingMessage::m_links, &m_queueRecvMessages );
+
+		// Add to the poll group, if we are in one
+		if ( m_pPollGroup )
+			pMsg->LinkToQueueTail( &CSteamNetworkingMessage::m_linksSecondaryQueue, &m_pPollGroup->m_queueRecvMessages );\
+
+		// Each if() branch has its own unlock, so we can spew in the branch above
+		g_lockAllRecvMessageQueues.unlock();
+	}
+
 	return true;
 }
 
