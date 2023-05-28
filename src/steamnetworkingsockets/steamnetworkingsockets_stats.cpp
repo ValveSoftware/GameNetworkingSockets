@@ -157,7 +157,17 @@ void CPossibleOutOfOrderPacket::Detach()
 {
 	if ( m_pOwner )
 	{
-		Assert( m_pOwner->m_pPossibleOutOfOrderPacket == this );
+		#ifdef IS_STEAMDATAGRAMROUTER
+			if ( unlikely( m_pOwner->m_pPossibleOutOfOrderPacket != this ) )
+			{
+				// This is happening very rarely on public.  Let's figure out what it is
+				// by collecting a core.
+				// Intentionally crash.
+				*(volatile int *)nullptr = 0;
+			}
+		#else
+			Assert( m_pOwner->m_pPossibleOutOfOrderPacket == this );
+		#endif
 		m_pOwner->m_pPossibleOutOfOrderPacket = nullptr;
 		m_pOwner = nullptr;
 	}
@@ -233,6 +243,14 @@ void LinkStatsTrackerBase::InitInternal( SteamNetworkingMicroseconds usecNow )
 	m_nReplyTimeoutsSinceLastRecv = 0;
 	m_usecWhenTimeoutStarted = 0;
 	m_eActivityLevel = ELinkActivityLevel::Disconnected;
+
+	// Should not re-initialize
+	if ( unlikely( m_pPossibleOutOfOrderPacket ) )
+	{
+		Assert( false );
+		m_pPossibleOutOfOrderPacket->Destroy();
+		Assert( m_pPossibleOutOfOrderPacket == nullptr );
+	}
 }
 
 void LinkStatsTrackerBase::SetActivityLevelInternal( ELinkActivityLevel eActivityLevel, SteamNetworkingMicroseconds usecNow )
