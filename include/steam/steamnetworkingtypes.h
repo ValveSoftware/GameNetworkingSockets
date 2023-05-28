@@ -1714,7 +1714,7 @@ inline SteamNetworkingPOPID CalculateSteamNetworkingPOPIDFromString( const char 
 	//
 	// There is also extra paranoia to make sure the bytes are not treated as signed.
 	SteamNetworkingPOPID result = (uint32)(uint8)pszCode[0] << 16U;
-	if ( pszCode[1] )
+	if ( result && pszCode[1] )
 	{
 		result |= ( (uint32)(uint8)pszCode[1] << 8U );
 		if ( pszCode[2] )
