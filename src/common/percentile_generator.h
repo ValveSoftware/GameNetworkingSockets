@@ -50,6 +50,14 @@ public:
 	/// percentile further away from the median.
 	T GetPercentile( float flPct ) const;
 
+	// Internal low-level access where you know what you are doing
+	const T *RawSamples() const { return m_arSamples; }
+	T *MutableRawSamples() { m_bNeedSort = true; return m_arSamples; }
+	void SetNumSamples( int n ) { m_nSamples = n; }
+	void SetNumSamplesTotal( int n ) { m_nSamplesTotal = n; }
+	void SetNeedSort() { m_bNeedSort = true; }
+	void Sort( bool bForce ) const;
+
 private:
 	int m_nSamples;
 	int m_nSamplesTotal;
@@ -92,6 +100,17 @@ void PercentileGenerator<T,MAX_SAMPLES>::AddSample( T x )
 }
 
 template < typename T, int MAX_SAMPLES >
+void PercentileGenerator<T,MAX_SAMPLES>::Sort( bool bForce ) const
+{
+	if ( bForce || m_bNeedSort )
+	{
+		T *pBegin = const_cast<T*>( m_arSamples );
+		std::sort( pBegin, pBegin+m_nSamples );
+		m_bNeedSort = false;
+	}
+}
+
+template < typename T, int MAX_SAMPLES >
 T PercentileGenerator<T,MAX_SAMPLES>::GetPercentile( float flPct )const
 {
 	// Make sure percentile is reasonable.  If you want the min or
@@ -106,12 +125,7 @@ T PercentileGenerator<T,MAX_SAMPLES>::GetPercentile( float flPct )const
 	}
 
 	// Sort samples if necessary
-	if ( m_bNeedSort )
-	{
-		T *pBegin = const_cast<T*>( m_arSamples );
-		std::sort( pBegin, pBegin+m_nSamples );
-		m_bNeedSort = false;
-	}
+	Sort(false);
 
 	// Interpolate between adjacent samples
 	float flIdx = flPct * float(m_nSamples-1);
