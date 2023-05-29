@@ -1097,7 +1097,7 @@ CSteamNetworkingICESession::CSteamNetworkingICESession( EICERole role, CSteamNet
     m_role = role;
     m_pSelectedCandidatePair = nullptr;
     m_pSelectedSocket = nullptr;
-    m_vecInterfaces.EnsureCapacity( 16 );
+    m_vecInterfaces.reserve( 16 );
 	m_nPermittedCandidateTypes = k_EICECandidate_Any;
 }
 
@@ -1111,20 +1111,21 @@ CSteamNetworkingICESession::CSteamNetworkingICESession( const ICESessionConfig& 
     m_role = cfg.m_eRole;
     m_pSelectedCandidatePair = nullptr;
     m_pSelectedSocket = nullptr;
-    m_vecInterfaces.EnsureCapacity( 16 );
+    m_vecInterfaces.reserve( 16 );
 
-	m_vecSTUNServers.EnsureCapacity( cfg.m_nStunServers );
+	m_vecSTUNServers.reserve( cfg.m_nStunServers );
 	
 	{
-		CUtlVector< SteamNetworkingIPAddr > stunServers;
 		for ( int i = 0; i < cfg.m_nStunServers; ++i )
 		{
 			const char *pszHostname = cfg.m_pStunServers[i];
 			if ( V_strnicmp( pszHostname, "stun:", 5 ) == 0 )
 				pszHostname = pszHostname + 5;
+			CUtlVector< SteamNetworkingIPAddr > stunServers;
 			ResolveHostname( pszHostname, &stunServers );
-			if ( !stunServers.IsEmpty() )
-				m_vecSTUNServers.AddMultipleToTail( stunServers.Count(), stunServers.Base() );				
+			m_vecSTUNServers.reserve( m_vecSTUNServers.size() + stunServers.Count() );
+			for ( const SteamNetworkingIPAddr &ip: stunServers )
+				m_vecSTUNServers.push_back( ip );
 		}
 	}
     
@@ -1139,31 +1140,27 @@ CSteamNetworkingICESession::~CSteamNetworkingICESession()
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
 
     m_sessionState = kICESessionState_Idle;
-    for ( int i = m_vecPendingServerReflexiveRequests.Count() - 1; i >= 0; --i )
+    for ( int i = len( m_vecPendingServerReflexiveRequests ) - 1; i >= 0; --i )
     {
         m_vecPendingServerReflexiveRequests[i]->Cancel();
     }
-    for ( int i = m_vecPendingServerReflexiveKeepAliveRequests.Count() - 1; i >= 0; --i )
+    for ( int i = len( m_vecPendingServerReflexiveKeepAliveRequests ) - 1; i >= 0; --i )
     {
         m_vecPendingServerReflexiveKeepAliveRequests[i]->Cancel();
     }
     
-    for ( int i = m_vecPendingPeerRequests.Count() - 1; i >= 0; --i )
+    for ( int i = len( m_vecPendingPeerRequests ) - 1; i >= 0; --i )
     {
         m_vecPendingPeerRequests[i]->Cancel();
     }
 
-    for ( int i = 0; i < m_vecCandidatePairs.Count(); ++i )
-    {
-        delete m_vecCandidatePairs[i];
-    }
-    m_vecCandidatePairs.RemoveAll();
+    for ( ICECandidatePair *pPair: m_vecCandidatePairs )
+        delete pPair;
+    m_vecCandidatePairs.clear();
 
-	for ( int i = 0; i < m_vecSharedSockets.Count(); ++i )
-	{
-		delete m_vecSharedSockets[i];
-	}
-	m_vecSharedSockets.RemoveAll();
+	for ( CSharedSocket *pSock: m_vecSharedSockets )
+		delete pSock;
+	m_vecSharedSockets.clear();
 }
 
 CSteamNetworkingICESession::ICESessionState CSteamNetworkingICESession::GetSessionState()
@@ -1193,8 +1190,8 @@ bool CSteamNetworkingICESession::GetCandidates( CUtlVector< ICECandidate > *pOut
     if ( m_bInterfaceListStale )
         return false;
 
-    pOutVecCandidates->EnsureCapacity( m_vecCandidates.Count() );
-    pOutVecCandidates->AddMultipleToTail( m_vecCandidates.Count(), m_vecCandidates.Base() );
+    pOutVecCandidates->EnsureCapacity( len( m_vecCandidates ) );
+    pOutVecCandidates->AddMultipleToTail( len( m_vecCandidates ), m_vecCandidates.data() );
     return true;
 }
 
@@ -1232,7 +1229,7 @@ void CSteamNetworkingICESession::AddPeerCandidate( const ICECandidate& candidate
     }
 	if ( bNeedsNewEntry )
 	{
-		m_vecPeerCandidates.AddToTail( ICEPeerCandidate( candidate, pszFoundation ) );
+		m_vecPeerCandidates.push_back( ICEPeerCandidate( candidate, pszFoundation ) );
 	}
     m_bCandidatePairsNeedUpdate = true;
     if ( m_sessionState == kICESessionState_Idle || m_sessionState == kICESessionState_GatheringCandidates )
@@ -1274,7 +1271,7 @@ void CSteamNetworkingICESession::GatherInterfaces()
 {
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "CSteamNetworkingICESession::GatherInterfaces" );
 
-    m_vecInterfaces.RemoveAll();
+    m_vecInterfaces.clear();
     CUtlVector< SteamNetworkingIPAddr > vecAddrs;
     if ( !GetLocalAddresses( &vecAddrs ) )
         return;
@@ -1282,11 +1279,10 @@ void CSteamNetworkingICESession::GatherInterfaces()
     uint32 uPriority = 65535;
     m_bInterfaceListStale = false;
 
+    m_vecInterfaces.reserve( vecAddrs.Count() );
     for ( int i = 0; i < vecAddrs.Count(); ++i )
     {
-		if ( vecAddrs[i].IsIPv4() && vecAddrs[i].m_ipv4.m_ip[0] == 169 )
-			continue;
-        m_vecInterfaces.AddToTail( Interface( vecAddrs[i], uPriority ) );
+        m_vecInterfaces.push_back( Interface( vecAddrs[i], uPriority ) );
         --uPriority;
     }
 }
@@ -1407,11 +1403,10 @@ void CSteamNetworkingICESession::OnPacketReceived( const RecvPktInfo_t &info )
                     {
                         newRemoteCandidate.m_nPriority = ntohl( pPriorityAttr->m_pData[0] );
                     }
-                    m_vecPeerCandidates.AddToTail( ICEPeerCandidate( newRemoteCandidate, SteamNetworkingIPAddrRender( fromAddr ).c_str() ) );
-                    pRemoteCandidate = &m_vecPeerCandidates.Tail();
+                    pRemoteCandidate = push_back_get_ptr( m_vecPeerCandidates, ICEPeerCandidate( newRemoteCandidate, SteamNetworkingIPAddrRender( fromAddr ).c_str() ) );
                 }
                 pThisPair = new ICECandidatePair( *pLocalCandidate, *pRemoteCandidate, m_role );
-                m_vecCandidatePairs.AddToTail( pThisPair );
+                m_vecCandidatePairs.push_back( pThisPair );
             }
 
             if ( pThisPair != nullptr )
@@ -1445,7 +1440,7 @@ void CSteamNetworkingICESession::OnPacketReceived( const RecvPktInfo_t &info )
                         {
                             pThisPair->m_nState = kICECandidatePairState_Waiting;
                             pThisPair->m_bNominated = true;
-                            m_vecTriggeredCheckQueue.AddToTail( pThisPair );
+                            m_vecTriggeredCheckQueue.push_back( pThisPair );
                         }
                     }
                 }
@@ -1497,7 +1492,7 @@ void CSteamNetworkingICESession::Think( SteamNetworkingMicroseconds usecNow )
         || m_sessionState == kICESessionState_TestingPeerConnectivity )
     {
         Think_DiscoverServerReflexiveCandidates();
-        if ( m_sessionState == kICESessionState_GatheringCandidates && m_vecPendingServerReflexiveRequests.IsEmpty() && m_vecPeerCandidates.IsEmpty() )
+        if ( m_sessionState == kICESessionState_GatheringCandidates && m_vecPendingServerReflexiveRequests.empty() && m_vecPeerCandidates.empty() )
         {
             m_sessionState = kICESessionState_Idle;
             return;
@@ -1507,7 +1502,7 @@ void CSteamNetworkingICESession::Think( SteamNetworkingMicroseconds usecNow )
     if ( m_sessionState == kICESessionState_TestingPeerConnectivity )
     {
         Think_TestPeerConnectivity();
-        if ( !m_vecPendingPeerRequests.IsEmpty() )
+        if ( !m_vecPendingPeerRequests.empty() )
             return;
         m_sessionState = kICESessionState_Idle;
     }
@@ -1515,7 +1510,7 @@ void CSteamNetworkingICESession::Think( SteamNetworkingMicroseconds usecNow )
 
 void CSteamNetworkingICESession::Think_DiscoverServerReflexiveCandidates()
 {
-    if ( m_vecSTUNServers.IsEmpty() )
+    if ( m_vecSTUNServers.empty() )
         return;
 
     // Send a STUN request to check for a kICECandidateType_ServerReflexive candidate.
@@ -1563,7 +1558,7 @@ void CSteamNetworkingICESession::Think_DiscoverServerReflexiveCandidates()
         CSteamNetworkingSocketsSTUNRequest *pNewRequest = CSteamNetworkingSocketsSTUNRequest::SendBindRequest( pSocket, m_vecSTUNServers[0], CRecvSTUNPktCallback( StaticSTUNRequestCallback_ServerReflexiveCandidate, this ), m_nEncoding | kSTUNPacketEncodingFlags_MappedAddress );
         if ( pNewRequest != nullptr )
         {
-            m_vecPendingServerReflexiveRequests.AddToTail( pNewRequest );
+            m_vecPendingServerReflexiveRequests.push_back( pNewRequest );
             return;
         }
     }
@@ -1573,22 +1568,23 @@ void CSteamNetworkingICESession::UpdateHostCandidates()
 {
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "CSteamNetworkingICESession::UpdateHostCandidates" );
 
-    CUtlVector< ICECandidate > vecPreviousCandidates;
-    vecPreviousCandidates.Swap( m_vecCandidates );
+    std_vector<ICECandidate> vecPreviousCandidates;
+    std::swap( vecPreviousCandidates, m_vecCandidates );
 
-    for ( int i = 0; i < m_vecInterfaces.Count(); ++i )
+    for ( const Interface& intf: m_vecInterfaces )
     {
-        SteamNetworkingIPAddr hostCandidateAddr = m_vecInterfaces[i].m_localaddr;
+        SteamNetworkingIPAddr hostCandidateAddr = intf.m_localaddr;
 		hostCandidateAddr.m_port = 0;
 
-        const uint32 nLocalPriority = m_vecInterfaces[i].m_nPriority;
+        const uint32 nLocalPriority = intf.m_nPriority;
         bool bSawPrevCandidate = false;
+		ICECandidate *pAddedCandidate = nullptr;
         for( const ICECandidate& prevCandidate : vecPreviousCandidates )
         {
             if ( prevCandidate.m_base == hostCandidateAddr )
             {
                 bSawPrevCandidate = true;
-                m_vecCandidates.AddToTail( prevCandidate );
+                pAddedCandidate = push_back_get_ptr( m_vecCandidates, prevCandidate );
             }
         }
         if ( !bSawPrevCandidate )
@@ -1599,29 +1595,30 @@ void CSteamNetworkingICESession::UpdateHostCandidates()
             {
 				if ( hostCandidateAddr.m_port == 0 )
 					hostCandidateAddr.m_port = pSock->GetBoundAddr()->m_port;
-                m_vecSharedSockets.AddToTail( pSock );
-                m_vecCandidates.AddToTail( ICECandidate( kICECandidateType_Host, hostCandidateAddr, hostCandidateAddr ) );
+                m_vecSharedSockets.push_back( pSock );
+                pAddedCandidate = push_back_get_ptr( m_vecCandidates, ICECandidate( kICECandidateType_Host, hostCandidateAddr, hostCandidateAddr ) );
             }
             else
             {
-                SpewError( "Could not bind socket %s.\n", SteamNetworkingIPAddrRender( hostCandidateAddr ).c_str() );
+                SpewError( "Could not bind to %s.  %s\n", SteamNetworkingIPAddrRender( hostCandidateAddr ).c_str(), errMsg );
+				delete pSock;
                 continue;
             }
         }
-        m_vecCandidates.Tail().m_nPriority = m_vecCandidates.Tail().CalcPriority( nLocalPriority );
+        pAddedCandidate->m_nPriority = pAddedCandidate->CalcPriority( nLocalPriority );
         if ( m_pCallbacks != nullptr )
-            m_pCallbacks->OnLocalCandidateDiscovered( m_vecCandidates.Tail() );
+            m_pCallbacks->OnLocalCandidateDiscovered( *pAddedCandidate );
     }
 
     // Cancel all pending STUN requests that refer to interfaces that no longer exist.
-    for ( int i = m_vecPendingServerReflexiveRequests.Count() - 1; i >= 0; )
+    for ( int i = len( m_vecPendingServerReflexiveRequests ) - 1; i >= 0; )
     {
         SteamNetworkingIPAddr ifAddr = m_vecPendingServerReflexiveRequests[i]->m_localAddr;
         ifAddr.m_port = 0;
         bool bFound = false;
-        for ( int j = 0; j < m_vecInterfaces.Count(); ++j )
+		for ( const Interface& intf: m_vecInterfaces )
         {
-            if ( m_vecInterfaces[ j ].m_localaddr == ifAddr )
+            if ( intf.m_localaddr == ifAddr )
             {
                 bFound = true;
                 break;
@@ -1634,18 +1631,18 @@ void CSteamNetworkingICESession::UpdateHostCandidates()
         }
 
         m_vecPendingServerReflexiveRequests[i]->Cancel();
-        m_vecPendingServerReflexiveRequests.Remove( i );
+        erase_at( m_vecPendingServerReflexiveRequests, i );
     }
     
     // Close all shared sockets that refer to interfaces that no longer exist.
-    for ( int i = m_vecSharedSockets.Count() - 1; i >= 0; )
+    for ( int i = len( m_vecSharedSockets ) - 1; i >= 0; )
     {
         SteamNetworkingIPAddr ifAddr = *m_vecSharedSockets[i]->GetBoundAddr();
         ifAddr.m_port = 0;
         bool bFound = false;
-        for ( int j = 0; j < m_vecInterfaces.Count(); ++j )
+		for ( const Interface& intf: m_vecInterfaces )
         {
-            if ( m_vecInterfaces[ j ].m_localaddr == ifAddr )
+            if ( intf.m_localaddr == ifAddr )
             {
                 bFound = true;
                 break;
@@ -1656,8 +1653,8 @@ void CSteamNetworkingICESession::UpdateHostCandidates()
             --i;
             continue;
         }
-        m_vecSharedSockets[i]->Kill();
-        m_vecSharedSockets.Remove( i );
+        delete m_vecSharedSockets[i];
+        erase_at( m_vecSharedSockets, i );
     }
 }
 
@@ -1670,7 +1667,7 @@ bool CSteamNetworkingICESession::IsCandidatePermitted( const ICECandidate& local
 
 void CSteamNetworkingICESession::STUNRequestCallback_ServerReflexiveCandidate( const RecvSTUNPktInfo_t &info )
 {
-    m_vecPendingServerReflexiveRequests.FindAndRemove( info.m_pRequest );
+    find_and_remove_element( m_vecPendingServerReflexiveRequests, info.m_pRequest );
     // It's possible this is a late return.
     if ( m_sessionState != kICESessionState_GatheringCandidates )
         return;
@@ -1706,21 +1703,21 @@ void CSteamNetworkingICESession::STUNRequestCallback_ServerReflexiveCandidate( c
     {   // Got a response... is it redundant (this happens when we get a STUN response but we're not behind a NAT)
         if ( bindResult == localAddr )
             bindResult.Clear();
-        m_vecCandidates.AddToTail( ICECandidate( kICECandidateType_ServerReflexive, bindResult, localAddr, info.m_pRequest->m_remoteAddr ) );
-        m_vecCandidates.Tail().m_nPriority = m_vecCandidates.Tail().CalcPriority( uLocalPriority );
+        ICECandidate *pCand = push_back_get_ptr( m_vecCandidates, ICECandidate( kICECandidateType_ServerReflexive, bindResult, localAddr, info.m_pRequest->m_remoteAddr ) );
+        pCand->m_nPriority = pCand->CalcPriority( uLocalPriority );
         if ( m_pCallbacks != nullptr && !bindResult.IsIPv6AllZeros() )
-            m_pCallbacks->OnLocalCandidateDiscovered( m_vecCandidates.Tail() );
+            m_pCallbacks->OnLocalCandidateDiscovered( *pCand );
         return;
     }
         
     // So we timed out to this STUN server
-    const int nSTUNServerIdx = m_vecSTUNServers.Find( info.m_pRequest->m_remoteAddr );
+    const int nSTUNServerIdx = index_of( m_vecSTUNServers, info.m_pRequest->m_remoteAddr );
     CSharedSocket *pSharedSock = FindSharedSocketForCandidate( localAddr );
-    if ( pSharedSock == nullptr || nSTUNServerIdx == m_vecSTUNServers.InvalidIndex() || nSTUNServerIdx >= m_vecSTUNServers.Count() - 1 )
+    if ( pSharedSock == nullptr || nSTUNServerIdx < 0 )
     {   // Just store an IPv6 all zeros to flag an invalid server reflexive candidate.
         bindResult.Clear();    
-        m_vecCandidates.AddToTail( ICECandidate( kICECandidateType_ServerReflexive, bindResult, localAddr, info.m_pRequest->m_remoteAddr ) );
-        m_vecCandidates.Tail().m_nPriority = 0;
+        ICECandidate *pCand = push_back_get_ptr( m_vecCandidates, ICECandidate( kICECandidateType_ServerReflexive, bindResult, localAddr, info.m_pRequest->m_remoteAddr ) );
+        pCand->m_nPriority = 0;
         return;        
     }
 
@@ -1728,7 +1725,7 @@ void CSteamNetworkingICESession::STUNRequestCallback_ServerReflexiveCandidate( c
     CSteamNetworkingSocketsSTUNRequest *pNewRequest = CSteamNetworkingSocketsSTUNRequest::SendBindRequest( pSharedSock, m_vecSTUNServers[nSTUNServerIdx+1], CRecvSTUNPktCallback( StaticSTUNRequestCallback_ServerReflexiveCandidate, this ), m_nEncoding );
     if ( pNewRequest != nullptr )
     {
-        m_vecPendingServerReflexiveRequests.AddToTail( pNewRequest );
+        m_vecPendingServerReflexiveRequests.push_back( pNewRequest );
     }
 }
 
@@ -1741,7 +1738,7 @@ void CSteamNetworkingICESession::StaticSTUNRequestCallback_ServerReflexiveCandid
 
 void CSteamNetworkingICESession::STUNRequestCallback_ServerReflexiveKeepAlive( const RecvSTUNPktInfo_t &info )
 {
-    m_vecPendingServerReflexiveKeepAliveRequests.FindAndRemove( info.m_pRequest );
+    find_and_remove_element( m_vecPendingServerReflexiveKeepAliveRequests, info.m_pRequest );
 
     const SteamNetworkingIPAddr localAddr = info.m_pRequest->m_localAddr;
     ICECandidate *pCandidate = nullptr;
@@ -1769,15 +1766,15 @@ void CSteamNetworkingICESession::STUNRequestCallback_ServerReflexiveKeepAlive( c
     }
 
     // So we timed out to this STUN server, so try the next one if we have any.
-    if ( m_vecSTUNServers.IsEmpty() )
+    if ( m_vecSTUNServers.empty() )
         return;
 
-    const int nSTUNServerIdx = Max( 0, m_vecSTUNServers.Find( info.m_pRequest->m_remoteAddr ) );
-    const int nNextSTUNServerIdx = ( nSTUNServerIdx + 1 ) % m_vecSTUNServers.Count();
+    const int nSTUNServerIdx = std::max( 0, index_of( m_vecSTUNServers, info.m_pRequest->m_remoteAddr ) );
+    const int nNextSTUNServerIdx = ( nSTUNServerIdx + 1 ) % len( m_vecSTUNServers );
     CSteamNetworkingSocketsSTUNRequest *pNewRequest = CSteamNetworkingSocketsSTUNRequest::SendBindRequest( info.m_pRequest->m_pSocket, m_vecSTUNServers[ nNextSTUNServerIdx ], CRecvSTUNPktCallback( StaticSTUNRequestCallback_ServerReflexiveKeepAlive, this ), m_nEncoding );
     if ( pNewRequest != nullptr )
     {
-        m_vecPendingServerReflexiveRequests.AddToTail( pNewRequest );
+        m_vecPendingServerReflexiveRequests.push_back( pNewRequest );
     }
 }
 
@@ -1813,7 +1810,7 @@ void CSteamNetworkingICESession::UpdateKeepalive( const ICECandidate& c )
     CSteamNetworkingSocketsSTUNRequest *pNewRequest = CSteamNetworkingSocketsSTUNRequest::SendBindRequest( pSocket, c.m_stunServer, CRecvSTUNPktCallback( StaticSTUNRequestCallback_ServerReflexiveKeepAlive, this ), m_nEncoding );
     if ( pNewRequest != nullptr )
     {
-        m_vecPendingServerReflexiveKeepAliveRequests.AddToTail( pNewRequest );
+        m_vecPendingServerReflexiveKeepAliveRequests.push_back( pNewRequest );
     }
 }
 
@@ -1870,20 +1867,21 @@ void CSteamNetworkingICESession::Think_TestPeerConnectivity()
                 if ( !bFound )
                 {
                     ICECandidatePair *pNewCandidatePair = new ICECandidatePair( localCandidate, remoteCandidate, m_role );
-                    m_vecCandidatePairs.AddToTail( pNewCandidatePair );
+                    m_vecCandidatePairs.push_back( pNewCandidatePair );
                 }
             }
         }
 
-        m_vecCandidatePairs.SortPredicate( []( const ICECandidatePair *pA, const ICECandidatePair *pB ) { return pA->m_nPriority > pB->m_nPriority; } );
+        std::sort( m_vecCandidatePairs.begin(), m_vecCandidatePairs.end(), []( const ICECandidatePair *pA, const ICECandidatePair *pB ) { return pA->m_nPriority > pB->m_nPriority; } );
     }
 
     ICECandidatePair *pPairToCheck = nullptr;
 
-    if ( !m_vecTriggeredCheckQueue.IsEmpty() )
+    if ( !m_vecTriggeredCheckQueue.empty() )
     {
-        pPairToCheck = m_vecTriggeredCheckQueue.Tail();
-        m_vecTriggeredCheckQueue.RemoveMultipleFromTail( 1 );
+		int i = len( m_vecTriggeredCheckQueue ) - 1;
+        pPairToCheck = m_vecTriggeredCheckQueue[ i ];
+        erase_at( m_vecTriggeredCheckQueue, i );
     }
 
     if ( pPairToCheck == nullptr )
@@ -1900,19 +1898,31 @@ void CSteamNetworkingICESession::Think_TestPeerConnectivity()
 
     if ( pPairToCheck == nullptr )
     {
-        CUtlVector< std::string > vecFoundationsUsed;
+        std_vector< const char * > vecFoundationsUsed;
         for ( ICECandidatePair *pCandidatePair : m_vecCandidatePairs )
         {
+			const char *pszFoundation = pCandidatePair->m_remoteCandidate.m_sFoundation.c_str();
             if ( pCandidatePair->m_nState == kICECandidatePairState_InProgress )
             {
-                vecFoundationsUsed.AddToTail( pCandidatePair->m_remoteCandidate.m_sFoundation );
+                vecFoundationsUsed.push_back( pszFoundation );
                 continue;
             }
             if ( pCandidatePair->m_nState != kICECandidatePairState_Frozen )
                 continue;
-            if ( vecFoundationsUsed.HasElement( pCandidatePair->m_remoteCandidate.m_sFoundation ) )
-                continue;
-            vecFoundationsUsed.AddToTail( pCandidatePair->m_remoteCandidate.m_sFoundation );
+
+			bool bFound = false;
+			for ( const char *pszUsed: vecFoundationsUsed )
+			{
+				if ( V_stricmp( pszUsed, pszFoundation ) == 0 )
+				{
+					bFound = true;
+					break;
+				}
+			}
+			if ( bFound )
+				continue;
+
+            vecFoundationsUsed.push_back( pszFoundation );
             pCandidatePair->m_nState = kICECandidatePairState_Waiting;
             if ( pPairToCheck == nullptr )
                 pPairToCheck = pCandidatePair;
@@ -1997,13 +2007,13 @@ void CSteamNetworkingICESession::Think_TestPeerConnectivity()
 
         pPairToCheck->m_pPeerRequest->m_strPassword = m_strRemotePassword;
         pPairToCheck->m_pPeerRequest->Send( pPairToCheck->m_remoteCandidate.m_addr, CRecvSTUNPktCallback( StaticSTUNRequestCallback_PeerConnectivityCheck, this ) );
-        m_vecPendingPeerRequests.AddToTail( pPairToCheck->m_pPeerRequest );
+        m_vecPendingPeerRequests.push_back( pPairToCheck->m_pPeerRequest );
     }        
 }
         
 void CSteamNetworkingICESession::STUNRequestCallback_PeerConnectivityCheck( const RecvSTUNPktInfo_t &info )
 {
-    m_vecPendingPeerRequests.FindAndRemove( info.m_pRequest );
+    find_and_remove_element( m_vecPendingPeerRequests, info.m_pRequest );
     ICECandidatePair *pPair = nullptr;
     for ( ICECandidatePair *pCandidatePair : m_vecCandidatePairs )
     {
@@ -2052,7 +2062,7 @@ void CSteamNetworkingICESession::STUNRequestCallback_PeerConnectivityCheck( cons
 		if ( !bAlreadyHaveANomination )
 		{
 			pPair->m_bNominated = true;
-			m_vecTriggeredCheckQueue.AddToTail( pPair );
+			m_vecTriggeredCheckQueue.push_back( pPair );
 		}
         
     }

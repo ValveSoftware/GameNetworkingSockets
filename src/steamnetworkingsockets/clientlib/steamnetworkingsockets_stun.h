@@ -101,7 +101,7 @@ namespace SteamNetworkingSocketsLib {
     class CSteamNetworkingSocketsSTUNRequest : private IThinker
     {
     public:
-        IBoundUDPSocket *m_pSocket;
+        IBoundUDPSocket *m_pSocket = nullptr;
         SteamNetworkingIPAddr m_localAddr;
         SteamNetworkingIPAddr m_remoteAddr;
         int m_nRetryCount;
@@ -252,16 +252,16 @@ namespace SteamNetworkingSocketsLib {
         SteamNetworkingMicroseconds m_nextKeepalive;
         ICECandidatePair *m_pSelectedCandidatePair;
         CSharedSocket *m_pSelectedSocket;
-        CUtlVector< Interface > m_vecInterfaces;
-        CUtlVector< CSharedSocket* > m_vecSharedSockets;
-        CUtlVector< SteamNetworkingIPAddr > m_vecSTUNServers;
-        CUtlVector< ICECandidate > m_vecCandidates;
-        CUtlVector< CSteamNetworkingSocketsSTUNRequest* > m_vecPendingServerReflexiveRequests;
-        CUtlVector< CSteamNetworkingSocketsSTUNRequest* > m_vecPendingServerReflexiveKeepAliveRequests;       
-        CUtlVector< ICEPeerCandidate > m_vecPeerCandidates;
-        CUtlVector< CSteamNetworkingSocketsSTUNRequest* > m_vecPendingPeerRequests;
-        CUtlVector< ICECandidatePair* > m_vecCandidatePairs;
-        CUtlVector< ICECandidatePair* > m_vecTriggeredCheckQueue;
+        std_vector< Interface > m_vecInterfaces;
+        std_vector< CSharedSocket* > m_vecSharedSockets;
+        std_vector< SteamNetworkingIPAddr > m_vecSTUNServers;
+        std_vector< ICECandidate > m_vecCandidates;
+        std_vector< CSteamNetworkingSocketsSTUNRequest* > m_vecPendingServerReflexiveRequests;
+        std_vector< CSteamNetworkingSocketsSTUNRequest* > m_vecPendingServerReflexiveKeepAliveRequests;       
+        std_vector< ICEPeerCandidate > m_vecPeerCandidates;
+        std_vector< CSteamNetworkingSocketsSTUNRequest* > m_vecPendingPeerRequests;
+        std_vector< ICECandidatePair* > m_vecCandidatePairs;
+        std_vector< ICECandidatePair* > m_vecTriggeredCheckQueue;
        
         CSharedSocket* FindSharedSocketForCandidate( const SteamNetworkingIPAddr& addr );
         void GatherInterfaces();
