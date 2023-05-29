@@ -3644,7 +3644,29 @@ bool ResolveHostname( const char* pszHostname, CUtlVector< SteamNetworkingIPAddr
 #endif
 }
 
-#if defined( _WIN32 ) && !defined( _XBOX_ONE )
+inline bool GetLocalAddresses_IsReserved( const SteamNetworkingIPAddr &ipAddr )
+{
+	if ( ipAddr.IsLocalHost() )
+		return true;
+	if ( ipAddr.IsIPv4() )
+	{
+		if ( ipAddr.m_ipv4.m_ip[0] == 169 && ipAddr.m_ipv4.m_ip[1] == 254 ) // link local RFC3927
+			return true;
+		if ( ipAddr.GetIPv4() == 0xffffffff ) // 255.255.255.255 IPv4 LAN broadcast
+			return true;
+		// FIXME - IPv4 multicast?
+	}
+	else
+	{
+		if ( ipAddr.m_ipv6[0] == 0xfe && ipAddr.m_ipv6[1] == 0x80 ) // IPv6 link local
+			return true;
+		if ( ipAddr.m_ipv6[0] == 0xff && ipAddr.m_ipv6[1] == 0x00 ) // IPv6 multicast
+			return true;
+	}
+	return false;
+}
+
+#if IsWindows()
 
 #pragma comment( lib, "iphlpapi.lib" )
 
@@ -3699,7 +3721,7 @@ bool GetLocalAddresses( CUtlVector< SteamNetworkingIPAddr >* pAddrs )
             if ( pThisAddr->Address.lpSockaddr->sa_family == AF_INET )
             {
                 sockaddr_in* pAddrIN = ( sockaddr_in* )( pThisAddr->Address.lpSockaddr );
-                ipAddr.SetIPv4( ntohl( pAddrIN->sin_addr.s_addr ), pAddrIN->sin_port );
+                ipAddr.SetIPv4( BigDWord( pAddrIN->sin_addr.s_addr ), pAddrIN->sin_port );
             }
             else if ( pThisAddr->Address.lpSockaddr->sa_family == AF_INET6 )
             {
@@ -3711,9 +3733,9 @@ bool GetLocalAddresses( CUtlVector< SteamNetworkingIPAddr >* pAddrs )
                 continue;
             }
 
-            // Skip loopback addresses (127.0.0.1 and ::1 )
-            if ( ipAddr.IsLocalHost() )
-                continue;
+			// Discard certain reserved addresses
+			if ( GetLocalAddresses_IsReserved( ipAddr ) )
+				continue;
 
             // Got a host address, record it!
             pAddrs->AddToTail( ipAddr );
@@ -3723,9 +3745,50 @@ bool GetLocalAddresses( CUtlVector< SteamNetworkingIPAddr >* pAddrs )
     free( pAddrInfo );
 	return true;
 }
+#elif IsPosix() && !IsPlaystation()
+bool GetLocalAddresses( CUtlVector< SteamNetworkingIPAddr >* pAddrs )
+{
+	ifaddrs *pMyAddrInfo = NULL;
+	int r = getifaddrs( &pMyAddrInfo );
+	if ( r != 0 )
+	{
+		SpewError( "getifaddrs failed, returning %d", r );
+		return false;
+	}
+	for ( ifaddrs *pAddr = pMyAddrInfo ; pAddr ; pAddr = pAddr->ifa_next )
+	{
+		if ( ( pAddr->ifa_flags & IFF_LOOPBACK ) != 0 || !pAddr->ifa_addr )
+			continue;
+		SteamNetworkingIPAddr ipAddr;
+		if ( pAddr->ifa_addr->sa_family == AF_INET )
+		{
+			sockaddr_in* pAddrIN = ( sockaddr_in* )( pAddr->ifa_addr );
+			ipAddr.SetIPv4( BigDWord( pAddrIN->sin_addr.s_addr ), pAddrIN->sin_port );
+		}
+		else if ( pAddr->ifa_addr->sa_family == AF_INET6 )
+		{
+			sockaddr_in6* pAddrIN6 = ( sockaddr_in6* )( pAddr->ifa_addr );
+			ipAddr.SetIPv6( pAddrIN6->sin6_addr.s6_addr, pAddrIN6->sin6_port );
+		}
+		else
+		{
+			continue;
+		}
+
+		// Discard certain reserved addresses
+		if ( GetLocalAddresses_IsReserved( ipAddr ) )
+			continue;
+
+		// Got a host address, record it!
+		pAddrs->AddToTail( ipAddr );
+	}
+	freeifaddrs( pMyAddrInfo );
+	return true;
+}
 #else
 bool GetLocalAddresses( CUtlVector< SteamNetworkingIPAddr >* pAddrs )
 {
+	AssertMsg( false, "Write me!" );
 	return false;
 }
 #endif
