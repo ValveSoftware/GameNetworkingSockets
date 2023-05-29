@@ -181,6 +181,11 @@ int main( int argc, const char **argv )
 			g_eTestRole = k_ETestRole_Server;
 		else if ( !strcmp( pszSwitch, "--symmetric" ) )
 			g_eTestRole = k_ETestRole_Symmetric;
+		else if ( !strcmp( pszSwitch, "--log" ) )
+		{
+			const char *pszArg = GetArg();
+			TEST_InitLog( pszArg );
+		}
 		else
 			TEST_Fatal( "Unexpected command line argument '%s'", pszSwitch );
 	}
@@ -224,7 +229,7 @@ int main( int argc, const char **argv )
 	SteamNetworkingUtils()->SetGlobalCallback_SteamNetConnectionStatusChanged( OnSteamNetConnectionStatusChanged );
 
 	// Comment this line in for more detailed spew about signals, route finding, ICE, etc
-	//SteamNetworkingUtils()->SetGlobalConfigValueInt32( k_ESteamNetworkingConfig_LogLevel_P2PRendezvous, k_ESteamNetworkingSocketsDebugOutputType_Verbose );
+	SteamNetworkingUtils()->SetGlobalConfigValueInt32( k_ESteamNetworkingConfig_LogLevel_P2PRendezvous, k_ESteamNetworkingSocketsDebugOutputType_Verbose );
 
 	// Create listen socket to receive connections on, unless we are the client
 	if ( g_eTestRole == k_ETestRole_Server )

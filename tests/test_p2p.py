@@ -83,7 +83,8 @@ def StartClientInThread( role, local, remote ):
         "--" + role,
         "--identity-local", "str:"+local,
         "--identity-remote", "str:"+remote,
-        "--signaling-server", "localhost:10000"
+        "--signaling-server", "localhost:10000",
+        "--log", local + ".verbose.log"
     ]
 
     env = dict( os.environ )
