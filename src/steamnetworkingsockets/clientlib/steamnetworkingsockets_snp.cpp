@@ -859,7 +859,18 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLa
 
 				// Receive the segment
 				bool bLastSegmentInMessage = ( nFrameType & 0x20 ) != 0;
-				SNP_ReceiveUnreliableSegment( nCurMsgNumForUnreliable, nOffset, pSegmentData, cbSegmentSize, bLastSegmentInMessage, idxCurrentLane, usecNow );
+				if ( !SNP_ReceiveUnreliableSegment( nCurMsgNumForUnreliable, nOffset, pSegmentData, cbSegmentSize, bLastSegmentInMessage, idxCurrentLane, usecNow ) )
+				{
+					if ( !BStateIsActive() )
+						return false; // we decided to nuke the connection - abort packet processing
+
+					// We're not able to ingest this unreliable segment at the moment,
+					// but we didn't terminate the connection.  So do not ack this packet
+					// to the peer.  We don't *need* them to retransmit, and in fact we might
+					// trigger retransmission unnecessarily if this packet contains reliable data.
+					// But in all likelihood we won't be able to recieve those segments either.
+					bInhibitMarkReceived = true;
+				}
 			}
 		}
 		else if ( ( nFrameType & 0xe0 ) == 0x40 )
@@ -3174,7 +3185,7 @@ inline uint8 *CSteamNetworkConnectionBase::SNP_SerializeStopWaitingFrame( SNPPac
 	return pOut;
 }
 
-void CSteamNetworkConnectionBase::SNP_ReceiveUnreliableSegment(
+bool CSteamNetworkConnectionBase::SNP_ReceiveUnreliableSegment(
 	int64 nMsgNum,
 	int nOffset,
 	const void *pSegmentData, int cbSegmentSize,
@@ -3192,7 +3203,7 @@ void CSteamNetworkConnectionBase::SNP_ReceiveUnreliableSegment(
 			nMsgNum,
 			nOffset, nOffset+cbSegmentSize,
 			(int)GetState() );
-		return;
+		return false;
 	}
 
 	// Check for a common special case: non-fragmented message.
@@ -3201,8 +3212,7 @@ void CSteamNetworkConnectionBase::SNP_ReceiveUnreliableSegment(
 
 		// Deliver it immediately, don't go through the fragmentation assembly process below.
 		// (Although that would work.)
-		ReceivedMessageData( pSegmentData, cbSegmentSize, idxLane, nMsgNum, k_nSteamNetworkingSend_Unreliable, usecNow );
-		return;
+		return ReceivedMessageData( pSegmentData, cbSegmentSize, idxLane, nMsgNum, k_nSteamNetworkingSend_Unreliable, usecNow );
 	}
 	SSNPReceiverState::Lane &lane = m_receiverState.m_vecLanes[ idxLane ];
 
@@ -3248,7 +3258,10 @@ void CSteamNetworkConnectionBase::SNP_ReceiveUnreliableSegment(
 		// one, in which case this segment contains new data, and is not therefore redundant.  That seems
 		// "legal", but very weird, and not worth handling.  If senders do retransmit unreliable segments
 		// (perhaps FEC?) then they need to retransmit the exact same segments.
-		return;
+		//
+		// But don't bubble up the error any higher or consider this a packet decode error.
+		// This is unreliable data, we can just ignore this and try to move on.
+		return true;
 	}
 
 	// Segment in the map either just got inserted, or is a subset of the segment
@@ -3269,7 +3282,10 @@ void CSteamNetworkConnectionBase::SNP_ReceiveUnreliableSegment(
 	{
 		// Is this the thing we expected?
 		if ( itMsgLast->first.m_nMsgNum != nMsgNum || itMsgLast->first.m_nOffset > cbMessageSize )
-			return; // We've got a gap.
+		{
+			// We've got a gap.  We'll need to wait to fill it.  For now, we're done.
+			return true;
+		}
 
 		// Update.  This code looks more complicated than strictly necessary, but it works
 		// if we have overlapping segments.
@@ -3282,12 +3298,16 @@ void CSteamNetworkConnectionBase::SNP_ReceiveUnreliableSegment(
 		// Still looking for the end
 		++itMsgLast;
 		if ( itMsgLast == end )
-			return;
+		{
+
+			// We expect more segments in this message to follow.  For now, we're done.
+			return true;
+		}
 	}
 
 	CSteamNetworkingMessage *pMsg = AllocateNewRecvMessage( cbMessageSize, k_nSteamNetworkingSend_Unreliable, usecNow );
 	if ( !pMsg )
-		return;
+		return false;
 
 	// Record the message number
 	pMsg->m_nMessageNumber = nMsgNum;
@@ -3315,7 +3335,7 @@ void CSteamNetworkConnectionBase::SNP_ReceiveUnreliableSegment(
 	} while ( itMsgStart != end && itMsgStart->first.m_nMsgNum == nMsgNum );
 
 	// Deliver the message.
-	ReceivedMessage( pMsg );
+	return ReceivedMessage( pMsg );
 }
 
 bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int64 nSegBegin, const uint8 *pSegmentData, int cbSegmentSize, int idxLane, SteamNetworkingMicroseconds usecNow )
@@ -3696,7 +3716,7 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 		// We have a full message!  Queue it
 		if ( !ReceivedMessageData( pReliableDecode, cbMsgSize, idxLane, nMsgNum, k_nSteamNetworkingSend_Reliable, usecNow ) )
 		{
-			ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_InternalError, "Reliable message size %d too large for remaining space in message queue.", cbMsgSize );
+			// Don't ack this packet!
 			return false;
 		}
 		pReliableDecode += cbMsgSize;
