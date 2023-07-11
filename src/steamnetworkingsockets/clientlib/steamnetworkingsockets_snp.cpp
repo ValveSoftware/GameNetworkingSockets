@@ -1087,10 +1087,13 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLa
 				}
 				if ( nLatestRecvSeqNum >= m_statsEndToEnd.m_nNextSendSequenceNumber )
 				{
-					DECODE_ERROR( "SNP decode ack latest pktnum %lld (%llx mod %llx), but next outoing packet is %lld (%llx).",
+					// This can happen if you break one side in the debugger
+					// for a long time.  Just discard the packet.
+					SpewWarningRateLimited( usecNow, "SNP decode ack latest pktnum %lld (%llx mod %llx), but next outoing packet is %lld (%llx)\n",
 						(long long)nLatestRecvSeqNum, (unsigned long long)nLowerBits, (unsigned long long)( nMask+1 ),
 						(long long)m_statsEndToEnd.m_nNextSendSequenceNumber, (unsigned long long)m_statsEndToEnd.m_nNextSendSequenceNumber
 					);
+					return false;
 				}
 			}
 
