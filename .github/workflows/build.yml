@@ -48,21 +48,25 @@ jobs:
       - name: vcpkg check / install dependencies
         working-directory: '${{ github.workspace }}'
         run: '"${{env.VCPKG_ROOT}}\\vcpkg" install'
+        shell: cmd
 
       - name: Install dependencies and generate project files
         run: |
           mkdir build
           cd build
           cmake -S .. -G Ninja -DBUILD_TESTS=ON -DBUILD_EXAMPLES=ON -DBUILD_TOOLS=ON
+        shell: cmd
 
       # Mark all directories as safe so checkouts performed in CMakeLists.txt don't cause "unsafe repository" errors.
       # See https://github.com/actions/checkout/issues/766
       - name: Configure Git
         run: git config --global --add safe.directory '*'
+        shell: cmd
 
       - name: Build projects
         working-directory: '${{ github.workspace }}/build'
         run: ninja
+        shell: cmd
 
       - name: Test crypto
         working-directory: '${{ github.workspace }}/build/bin'
