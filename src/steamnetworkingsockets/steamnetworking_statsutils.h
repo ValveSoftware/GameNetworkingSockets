@@ -162,8 +162,18 @@ struct PingTracker
 	/// a simple timestamp, or possibly because it will contain a sequence number, and
 	/// we will be able to look up that sequence number and remember when we sent it.)
 	SteamNetworkingMicroseconds m_usecTimeLastSentPingRequest;
+
+	/// If we are getting a lot of samples in quick succession, we would like
+	/// our smoothed estimate to be based on data a bit more spaced apart.
+	static constexpr SteamNetworkingMicroseconds k_usecMinPingSampleSpacing = 100*1000;
+
 protected:
 	void Reset();
+
+	/// If we get another sample before this time, then just update the last
+	/// sample, rather than adding a new sample.  The idea here is that we want
+	/// our samples to have some minimum spacing in time.
+	SteamNetworkingMicroseconds m_usecTimeAllowNewSample;
 
 	/// Called when we receive a ping measurement
 	void ReceivedPing( int nPingMS, SteamNetworkingMicroseconds usecNow );

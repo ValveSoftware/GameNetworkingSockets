@@ -77,6 +77,7 @@ void PingTracker::Reset()
 	m_nValidPings = 0;
 	m_nSmoothedPing = -1;
 	m_usecTimeLastSentPingRequest = 0;
+	m_usecTimeAllowNewSample = 0;
 }
 
 void PingTracker::ReceivedPing( int nPingMS, SteamNetworkingMicroseconds usecNow )
@@ -84,9 +85,48 @@ void PingTracker::ReceivedPing( int nPingMS, SteamNetworkingMicroseconds usecNow
 	Assert( nPingMS >= 0 );
 	COMPILE_TIME_ASSERT( V_ARRAYSIZE(m_arPing) == 3 );
 
-	// Discard oldest, insert new sample at head
-	m_arPing[2] = m_arPing[1];
-	m_arPing[1] = m_arPing[0];
+	// A note about using the minimum here when combining samples.
+	// This is based on an idea from BBR that there is some underlying
+	// network ping which is relatively constant, and then there is
+	// random noise which adds delay.  Note that one of the most important
+	// sources of random noise is the local delay when the operating system
+	// decides to wake us up, and we get a timeslice, acquire the necessary
+	// locks, etc, to process the packet.
+	//
+	// What is the "correct" way to combine samples depends on exactly what
+	// you are trying to estimate or measure.  If you really want it
+	// to be an unbiased estimator of the next effective round trip,
+	// measured here in application space, then taking the minimum
+	// is not accurate.  But in most cases, we actually don't really
+	// want this number, and what we really want to measure is just the
+	// more constant portion of the delay, and we want to ignore the
+	// extra noise.
+
+	// Check if we're just updating the last bucket
+	if ( usecNow < m_usecTimeAllowNewSample )
+	{
+		if ( nPingMS >= m_arPing[0].m_nPingMS )
+		{
+			// We want to take the minimum, and the new
+			// sample is not smaller than a previous sample
+			// received very recently.  Just update the time
+			// when we received it, and we're done.
+			m_arPing[0].m_usecTimeRecv = usecNow;
+			return;
+		}
+	}
+	else
+	{
+
+		// Discard oldest, insert new sample at head
+		m_arPing[2] = m_arPing[1];
+		m_arPing[1] = m_arPing[0];
+
+		// Reset time when we'll allow a new sample
+		m_usecTimeAllowNewSample = usecNow + k_usecMinPingSampleSpacing;
+	}
+
+	// Record the sample
 	m_arPing[0].m_nPingMS = nPingMS;
 	m_arPing[0].m_usecTimeRecv = usecNow;
 
@@ -97,12 +137,14 @@ void PingTracker::ReceivedPing( int nPingMS, SteamNetworkingMicroseconds usecNow
 			// First sample.  Smoothed value is simply the same thing as the sample
 			m_nValidPings = 1;
 			m_nSmoothedPing = nPingMS;
+			m_usecTimeAllowNewSample = 0; // Immediately allow new sample, no matter how fast it comes in
 			break;
 
 		case 1:
-			// Second sample.  Smoothed value is the average
+			// Second sample.  Use the minimum
 			m_nValidPings = 2;
-			m_nSmoothedPing = ( m_arPing[0].m_nPingMS + m_arPing[1].m_nPingMS ) >> 1;
+			m_nSmoothedPing = std::min( m_arPing[0].m_nPingMS, m_arPing[1].m_nPingMS );
+			m_usecTimeAllowNewSample = 0; // Immediately allow new sample, no matter how fast it comes in
 			break;
 
 		default:
