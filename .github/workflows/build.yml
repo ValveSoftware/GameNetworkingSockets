@@ -47,7 +47,7 @@ jobs:
 
       - name: vcpkg check / install dependencies
         working-directory: '${{ github.workspace }}'
-        run: '${{env.VCPKG_ROOT}}/vcpkg install'
+        run: '"${{env.VCPKG_ROOT}}/vcpkg" install'
 
       - name: Install dependencies and generate project files
         run: |
