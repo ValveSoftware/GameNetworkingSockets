@@ -34,6 +34,12 @@ jobs:
 
       - uses: lukka/get-cmake@latest
 
+      # Setup MSVC command prompt environment vars.
+      # We must do this before sedtting up our local vcpkg,
+      # Because it will set VCPKG_ROOT to point to some global
+      # install of vcpkg, and we don't want that
+      - uses: ilammy/msvc-dev-cmd@v1
+
       - name: Restore artifacts, setup vcpkg
         uses: lukka/run-vcpkg@v10
         with:
@@ -42,12 +48,9 @@ jobs:
           vcpkgJsonGlob: vcpkg.json
           runVcpkgInstall: false
 
-      # Setup MSVC command prompt environment vars
-      - uses: ilammy/msvc-dev-cmd@v1
-
       - name: vcpkg check / install dependencies
         working-directory: '${{ github.workspace }}'
-        run: '"${{env.VCPKG_ROOT}}\\vcpkg" install'
+        run: '"${{env.VCPKG_ROOT}}\\vcpkg" install --triplet=x86-windows'
         shell: cmd
 
       - name: Install dependencies and generate project files
