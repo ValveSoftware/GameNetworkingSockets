@@ -1406,7 +1406,9 @@ ESteamNetConnectionEnd CSteamNetworkConnectionBase::RecvCryptoHandshake(
 			}
 		}
 	}
-	else
+
+	// If we didn't deserialize the cert above, do so now
+	if ( !pCACertAuthScope )
 	{
 
 		// Deserialize the cert
