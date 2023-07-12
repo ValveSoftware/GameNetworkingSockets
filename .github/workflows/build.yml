@@ -57,7 +57,7 @@ jobs:
         run: |
           mkdir build
           cd build
-          cmake -S .. -G Ninja -DBUILD_TESTS=ON -DBUILD_EXAMPLES=ON -DBUILD_TOOLS=ON
+          cmake -S .. -G Ninja -DBUILD_TESTS=ON -DBUILD_EXAMPLES=ON -DBUILD_TOOLS=ON -DCMAKE_TOOLCHAIN_FILE=${{env.VCPKG_ROOT}}/scripts/buildsystems/vcpkg.cmake
         shell: cmd
 
       # Mark all directories as safe so checkouts performed in CMakeLists.txt don't cause "unsafe repository" errors.
