@@ -1,9 +1,11 @@
 # We put all of the different linux flavors in a separate workflow,
 # so that we can have a different status badge for them.
-name: CI for a bunch of different linux flavors
+name: Build several different linux flavors
 
 # Triggered from the main CI build workflow
 on:
+  workflow_call:
+  workflow_dispatch:
   repository_dispatch:
     types: [ build-linux-flavors ]
 
