@@ -50,7 +50,7 @@ jobs:
 
       - name: vcpkg check / install dependencies
         working-directory: '${{ github.workspace }}'
-        run: '"${{env.VCPKG_ROOT}}\\vcpkg" install --triplet=x86-windows'
+        run: '"${{env.VCPKG_ROOT}}\\vcpkg" install --triplet=x64-windows'
         shell: cmd
 
       - name: Install dependencies and generate project files
