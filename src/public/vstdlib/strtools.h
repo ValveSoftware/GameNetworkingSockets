@@ -34,9 +34,9 @@ END_TIER1_NAMESPACE
 BEGIN_TIER0_NAMESPACE
 
 #ifdef _WIN64
-#define str_size unsigned int
+	typedef unsigned int str_size;
 #else
-#define str_size size_t
+	typedef size_t str_size;
 #endif
 
 inline int V_strlen(const char *str) { return static_cast<int>( strlen ( str ) ); }
