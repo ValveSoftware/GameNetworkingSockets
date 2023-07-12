@@ -78,6 +78,9 @@ else(WIN32)
 		-DWEBRTC_POSIX
 		-DWEBRTC_LINUX
 		)
+	add_compile_options(
+		-Wno-deprecated-declarations  # We're pinned to an old version of webrtc and it uses old stuff
+	)
 endif(WIN32)
 
 add_library(webrtc-lite STATIC
