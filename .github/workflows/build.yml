@@ -25,9 +25,9 @@ jobs:
 
       # Trigger testing of more linux flavors
       - name: Trigger linux flavors build
-        - uses: peter-evans/repository-dispatch@v2
-        - with:
-          - event-type: build-linux-flavors
+        uses: peter-evans/repository-dispatch@v2
+        with:
+          event-type: build-linux-flavors
 
   build-and-test-windows:
     #if: false  # Temporarily disable
