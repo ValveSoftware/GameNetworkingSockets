@@ -80,6 +80,7 @@ else(WIN32)
 		)
 	add_compile_options(
 		-Wno-deprecated-declarations  # We're pinned to an old version of webrtc and it uses old stuff
+		-include stdint.h   # Some rtc_base files use uint8_t without include stdint.h
 	)
 endif(WIN32)
 
