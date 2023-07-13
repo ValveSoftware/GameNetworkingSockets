@@ -1,6 +1,6 @@
 # We put all of the different linux flavors in a separate workflow,
 # so that we can have a different status badge for them.
-name: Build several different linux flavors
+name: Linux flavors
 
 # Triggered from the main CI build workflow
 on:
