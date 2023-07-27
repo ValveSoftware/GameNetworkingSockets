@@ -129,7 +129,7 @@ bool AES_GCM_EncryptContext::Encrypt(
 	// Set IV
 	VerifyFatal( EVP_EncryptInit_ex( ctx, nullptr, nullptr, nullptr, (const uint8*)pIV ) == 1 );
 
-	int nBytesWritten;
+	int nBytesWritten = 0;
 
 	// AAD, if any
 	if ( cbAuthenticationData > 0 && pAdditionalAuthenticationData )
@@ -167,6 +167,19 @@ bool AES_GCM_EncryptContext::Encrypt(
 	return true;
 }
 
+volatile int counter;
+void CheckUnitialized( const void *pData, size_t cbData )
+{
+	for ( size_t i = 0 ; i < cbData ; ++i )
+	{
+		if ( ((const uint8 *)pData)[i] == 123 )
+			counter *= 5;
+		else
+			counter -= 3;
+	}
+}
+
+
 bool AES_GCM_DecryptContext::Decrypt(
 	const void *pEncryptedDataAndTag, size_t cbEncryptedDataAndTag,
 	const void *pIV,
@@ -203,6 +216,11 @@ bool AES_GCM_DecryptContext::Decrypt(
 	// People really have to check the return value, but in case they
 	// don't, make sure they don't think we decrypted any data
 	*pcbPlaintextData = 0;
+
+	// !TEST
+	CheckUnitialized( pEncryptedDataAndTag, cbEncryptedDataAndTag );
+	CheckUnitialized( pIV, m_cbIV );
+	CheckUnitialized( pAdditionalAuthenticationData, cbAuthenticationData );
 
 	// Set IV
 	VerifyFatal( EVP_DecryptInit_ex( ctx, nullptr, nullptr, nullptr, (const uint8*)pIV ) == 1 );
