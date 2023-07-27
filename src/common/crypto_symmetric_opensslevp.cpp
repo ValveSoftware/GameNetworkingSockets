@@ -225,7 +225,7 @@ bool AES_GCM_DecryptContext::Decrypt(
 	// Set IV
 	VerifyFatal( EVP_DecryptInit_ex( ctx, nullptr, nullptr, nullptr, (const uint8*)pIV ) == 1 );
 
-	int nBytesWritten;
+	int nBytesWritten = 0;
 
 	// AAD, if any
 	if ( cbAuthenticationData > 0 && pAdditionalAuthenticationData )
