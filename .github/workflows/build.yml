@@ -33,8 +33,13 @@ jobs:
 
   build-and-test-windows:
     #if: false  # Temporarily disable
-    name: Build And Test Windows
-    runs-on: windows-latest
+    name: Build And Test Windows ${{ matrix.os-version }} ${{ matrix.crypto }}
+    runs-on: windows-${{ matrix.os-version }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os-version: [2019, 2022]
+        crypto: [OpenSSL, BCrypt]
     env:
       VCPKG_ROOT: ${{ github.workspace }}/vcpkg
     steps:
@@ -65,7 +70,7 @@ jobs:
         run: |
           mkdir build
           cd build
-          cmake -S .. -G Ninja -DBUILD_TESTS=ON -DBUILD_EXAMPLES=ON -DBUILD_TOOLS=ON -DCMAKE_TOOLCHAIN_FILE=${{env.VCPKG_ROOT}}/scripts/buildsystems/vcpkg.cmake
+          cmake -S .. -G Ninja -DBUILD_TESTS=ON -DBUILD_EXAMPLES=ON -DBUILD_TOOLS=ON -DCMAKE_TOOLCHAIN_FILE=${{env.VCPKG_ROOT}}/scripts/buildsystems/vcpkg.cmake -DUSE_CRYPTO=${{matrix.crypto}}
         shell: cmd
 
       # Mark all directories as safe so checkouts performed in CMakeLists.txt don't cause "unsafe repository" errors.
