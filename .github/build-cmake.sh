@@ -187,6 +187,12 @@ fi
 
 # FIXME Run P2P tests?
 
+# Run some tests with valgrind, if available
+if [[ -x "$(command -v valgrind)" ]] && [[ ${CXX} != *clang* ]]; then
+	valgrind --track-origins=yes build-cmake/bin/test_crypto
+	valgrind --track-origins=yes build-cmake/bin/test_connection suite-quick
+fi
+
 set +x
 
 exit 0

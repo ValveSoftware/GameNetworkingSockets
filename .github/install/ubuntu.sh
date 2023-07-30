@@ -25,6 +25,7 @@ PACKAGES=(
 PACKAGES+=(libprotobuf-dev protobuf-compiler)
 PACKAGES+=(libssl-dev)
 PACKAGES+=(libsodium-dev)
+PACKAGES+=(valgrind)
 
 apt-get ${APT_FLAGS[@]} install -y "${PACKAGES[@]}"
 
