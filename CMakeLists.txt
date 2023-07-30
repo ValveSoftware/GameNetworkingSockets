@@ -88,11 +88,9 @@ if (WIN32)
 		#
 		# Check whether BCrypt can be used with this SDK version
 		#
-		cmake_push_check_state()
-			set(CMAKE_REQUIRED_LIBRARIES bcrypt)
-			check_symbol_exists(BCryptEncrypt windows.h BCRYPT_AVAILABLE)
-		cmake_pop_check_state()
+		try_compile(BCRYPT_AVAILABLE "${CMAKE_CURRENT_BINARY_DIR}/tryCompile" SOURCES "${CMAKE_CURRENT_LIST_DIR}/cmake/tryCompileTestBCrypt.cpp" OUTPUT_VARIABLE BCRYPT_AVAILABILITY_TEST_MESSAGES)
 		if (NOT BCRYPT_AVAILABLE)
+			message(STATUS ${BCRYPT_AVAILABILITY_TEST_MESSAGES})
 			message(FATAL_ERROR "You're on Windows but BCrypt seems to be unavailable, you will need OpenSSL")
 		endif()
 	endif()
