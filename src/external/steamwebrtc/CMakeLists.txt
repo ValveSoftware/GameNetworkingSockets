@@ -3,11 +3,13 @@ include(TestBigEndian)
 include(CheckSymbolExists)
 
 find_package(OpenSSL REQUIRED)
-find_package(Protobuf REQUIRED)
+#find_package(Protobuf REQUIRED)
 
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-find_package(absl QUIET)
+# We need to pin to an old version of abseil
+#find_package(absl QUIET)
+set(absl_FOUND OFF)
 
 if(NOT absl_FOUND)
 	set(STEAMWEBRTC_ABSL_SOURCE submodule PARENT_SCOPE)
@@ -15,6 +17,7 @@ if(NOT absl_FOUND)
 
 	set(abseil_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../abseil)
 	check_submodule( ${abseil_SOURCE_DIR} ${abseil_SOURCE_DIR}/CMakeLists.txt )
+	message( STATUS "Using abseil in submodule, abseil_SOURCE_DIR = ${abseil_SOURCE_DIR}" )
 
 	add_subdirectory(${abseil_SOURCE_DIR} ${CMAKE_BINARY_DIR}/abseil EXCLUDE_FROM_ALL)
 	if(LTO)
@@ -23,6 +26,7 @@ if(NOT absl_FOUND)
 else()
 	set(STEAMWEBRTC_ABSL_SOURCE package PARENT_SCOPE)
 	set(STEAMWEBRTC_ABSL_SOURCE package)
+	message( STATUS "abseil package found, abseil_SOURCE_DIR = ${abseil_SOURCE_DIR}" )
 endif()
 
 set(webrtc_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../webrtc)
