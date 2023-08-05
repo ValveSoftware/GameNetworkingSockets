@@ -38,10 +38,10 @@ jobs:
             os: ubuntu-latest
             docker_image: fedora
             docker_tag: latest
-          #- build: archlinux-latest
-          #  os: ubuntu-latest
-          #  docker_image: archlinux
-          #  docker_tag: latest
+          - build: archlinux-latest
+            os: ubuntu-latest
+            docker_image: archlinux
+            docker_tag: latest
           - build: alpine-latest
             os: ubuntu-latest
             docker_image: alpine
