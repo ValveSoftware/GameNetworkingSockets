@@ -116,14 +116,6 @@ if(USE_STEAMWEBRTC)
 	add_subdirectory(external/steamwebrtc)
 endif(USE_STEAMWEBRTC)
 
-set(C99_FEATURES
-	c_restrict
-	c_function_prototypes)
-
-set(CXX11_FEATURES
-	cxx_constexpr
-	cxx_auto_type)
-
 set(GNS_COMMON_FLAGS
 	-fvisibility=hidden
 	-fno-strict-aliasing
@@ -264,11 +256,7 @@ macro(set_clientlib_target_properties GNS_TARGET)
 			)
 	endif()
 
-	## Needs CMake 3.8, then we could get rid of the workaround below it.
-	#target_compile_features(${GNS_TARGET} PUBLIC c_std_99 cxx_std_11)
-	if(NOT CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
-		target_compile_features(${GNS_TARGET} PUBLIC ${C99_FEATURES} ${CXX11_FEATURES})
-	endif()
+	target_compile_features(${GNS_TARGET} PUBLIC c_std_99 cxx_std_17)
 
 	if(CMAKE_CXX_COMPILER_ID MATCHES "GNU"
 			OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
