@@ -282,7 +282,7 @@ public:
 /////////////////////////////////////////////////////////////////////////////
 
 /// Abstract base class for a listen socket that can accept connections.
-class CSteamNetworkListenSocketBase
+class CSteamNetworkListenSocketBase : public CTaskTarget
 {
 public:
 

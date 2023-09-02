@@ -252,6 +252,8 @@ protected:
 	/// Set certificate and/or private key
 	virtual bool InternalSetCertificate( const void *pCertificate, int cbCertificate, SteamNetworkingErrMsg &errMsg, int nIdentitySetFlags );
 
+	virtual CSteamNetworkListenSocketBase *InternalCreateListenSocketIP( const SteamNetworkingIPAddr &localAddr, int nOptions, const SteamNetworkingConfigValue_t *pOptions, SteamDatagramErrMsg &errMsg );
+
 	virtual void InternalClearIdentity();
 	void KillConnections();
 

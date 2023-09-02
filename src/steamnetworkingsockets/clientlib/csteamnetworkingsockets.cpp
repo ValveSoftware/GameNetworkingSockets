@@ -1067,18 +1067,30 @@ HSteamListenSocket CSteamNetworkingSockets::CreateListenSocketIP( const SteamNet
 {
 	SteamNetworkingGlobalLock scopeLock( "CreateListenSocketIP" );
 	SteamDatagramErrMsg errMsg;
+	CSteamNetworkListenSocketBase *pResult = InternalCreateListenSocketIP( localAddr, nOptions, pOptions, errMsg );
+	if ( pResult )
+		return pResult->m_hListenSocketSelf;
+
+	SpewError( "Cannot create listen socket.  %s", errMsg );
+	return k_HSteamListenSocket_Invalid;
+}
+
+CSteamNetworkListenSocketBase *CSteamNetworkingSockets::InternalCreateListenSocketIP( const SteamNetworkingIPAddr &localAddr, int nOptions, const SteamNetworkingConfigValue_t *pOptions, SteamDatagramErrMsg &errMsg )
+{
 
 	CSteamNetworkListenSocketDirectUDP *pSock = new CSteamNetworkListenSocketDirectUDP( this );
 	if ( !pSock )
-		return k_HSteamListenSocket_Invalid;
+	{
+		V_strcpy_safe( errMsg, "new failed" );
+		return nullptr;
+	}
 	if ( !pSock->BInit( localAddr, nOptions, pOptions, errMsg ) )
 	{
-		SpewError( "Cannot create listen socket.  %s", errMsg );
 		pSock->Destroy();
-		return k_HSteamListenSocket_Invalid;
+		return nullptr;
 	}
 
-	return pSock->m_hListenSocketSelf;
+	return pSock;
 }
 
 HSteamNetConnection CSteamNetworkingSockets::ConnectByIPAddress( const SteamNetworkingIPAddr &address, int nOptions, const SteamNetworkingConfigValue_t *pOptions )

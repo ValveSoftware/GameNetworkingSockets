@@ -85,6 +85,8 @@ public:
 	/// Setup
 	bool BInit( const SteamNetworkingIPAddr &localAddr, int nOptions, const SteamNetworkingConfigValue_t *pOptions, SteamDatagramErrMsg &errMsg );
 
+	CSharedSocket *GetSharedSocket() { return m_pSock; };
+
 private:
 	virtual ~CSteamNetworkListenSocketDirectUDP(); // hidden destructor, don't call directly.  Use Destroy()
 
