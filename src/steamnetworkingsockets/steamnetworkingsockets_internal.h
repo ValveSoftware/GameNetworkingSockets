@@ -72,7 +72,7 @@
 	#endif
 #endif
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
-	#include "steamdatagram_fakeip.h"
+	#include "sdr/steamdatagram_fakeip.h"
 #endif
 
 // STEAMNETWORKINGSOCKETS_CAN_REQUEST_CERT: We have some ability to request a cert

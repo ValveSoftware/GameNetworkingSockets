@@ -20,7 +20,7 @@
 #ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
 	#define CERTTOOL_ENABLE_SDR
 	#include <steamdatagram_tickets.h>
-	#include "../steamdatagram_internal.h"
+	#include "../sdr/steamdatagram_internal.h"
 	#include <steamdatagram_gamecoordinator.h>
 #endif
 

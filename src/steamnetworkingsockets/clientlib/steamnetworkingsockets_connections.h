@@ -6,7 +6,7 @@
 
 #include "../steamnetworkingsockets_internal.h"
 #ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
-#include "../steamdatagram_internal.h"
+#include "../sdr/steamdatagram_internal.h"
 #include <steam/steamdatagram_tickets.h>
 #endif
 #include "../steamnetworking_statsutils.h"

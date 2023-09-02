@@ -6,10 +6,10 @@
 #include "crypto.h"
 
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
-	#include "steamnetworkingsockets_sdr_p2p.h"
-	#include "steamnetworkingsockets_sdr_client.h"
+	#include "sdr/steamnetworkingsockets_sdr_p2p.h"
+	#include "sdr/steamnetworkingsockets_sdr_client.h"
 	#ifdef SDR_ENABLE_HOSTED_SERVER
-		#include "steamnetworkingsockets_sdr_hostedserver.h"
+		#include "sdr/steamnetworkingsockets_sdr_hostedserver.h"
 	#endif
 #endif
 
