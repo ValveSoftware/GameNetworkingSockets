@@ -206,7 +206,7 @@ public:
 	/// WARNING: Be *very careful* when using the value provided in callbacks structs.
 	/// Callbacks are queued, and the value that you will receive in your
 	/// callback is the userdata that was effective at the time the callback
-	/// was queued.  There are subtle race conditions that can hapen if you
+	/// was queued.  There are subtle race conditions that can happen if you
 	/// don't understand this!
 	///
 	/// If any incoming messages for this connection are queued, the userdata
@@ -828,7 +828,7 @@ public:
 	/// different types of traffic.  Because these allocations come from a global
 	/// namespace, there is a relatively strict limit on the maximum number of
 	/// ports you may request.  (At the time of this writing, the limit is 4.)
-	/// The Port assignments are *not* guaranteed to have any particular order
+	/// The port assignments are *not* guaranteed to have any particular order
 	/// or relationship!  Do *not* assume they are contiguous, even though that
 	/// may often occur in practice.
 	///
