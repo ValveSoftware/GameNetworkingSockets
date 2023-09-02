@@ -1,0 +1,47 @@
+$Macro SRCDIR		"..\.."
+$Macro OUTBINDIR	"."
+$Macro OUTBINNAME	"test_crypto"
+
+$Include "../steamnetworkingsockets_branch_config.vpc"
+$Include "$SRCDIR/vpc_scripts/steam_exe_base.vpc"
+$include "../steamnetworkingsockets_linkbaselibs_include.vpc"
+$include "../steamnetworkingsockets_crypt_include.vpc"
+$include "$SRCDIR/vpc_scripts/steam_protolibs_include.vpc" [!$SDR_PUBLIC] // Ug, because globals.cpp
+
+$Configuration
+{
+	$General
+	{
+		$OutputDirectory	"$OUTBINDIR"
+		//$AdditionalProjectDependencies			"$BASE;steamnetworkingsockets"
+	}
+	$Linker
+	{
+		$SubSystem		"Console (/SUBSYSTEM:CONSOLE)" [$WINDOWS]
+		$AdditionalDependencies	"$BASE ws2_32.lib" [$WINDOWS]
+		$OutputFile		"$OUTBINDIR/$OUTBINNAME" [$POSIX]
+		$OutputFile		"$OUTBINDIR/$OUTBINNAME.exe" [$WINDOWS]
+	}
+}
+
+// Always compile in asserts, even in release builds
+$Configuration "Release"
+{
+	$Compiler
+	{
+		$PreprocessorDefinitions	"$BASE;RELEASE_ASSERTS;RETAIL_ASSERTS"
+	}
+}
+
+$Project "steamnetworkingsockes_test_crypto"
+{
+	$Folder	"Source Files"
+	{
+		$File	"test_crypto.cpp"
+	}
+
+	//$Folder	"Link Libraries"
+	//{
+	//	$ImpLib "$SRCDIR/steamnetworkingsockets/bin/$PLATFORM/steamnetworkingsockets"
+	//}
+}

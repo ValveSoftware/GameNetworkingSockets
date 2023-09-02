@@ -1,0 +1,68 @@
+//-----------------------------------------------------------------------------
+//	steamnetworkingsockets_messages.VPC
+//
+//	Project Script
+//-----------------------------------------------------------------------------
+
+$macro SRCDIR		".."
+
+$include "../steamnetworkingsockets/steamnetworkingsockets_branch_config.vpc"
+$include "$SRCDIR\vpc_scripts\steam_base.vpc"
+
+$Configuration
+{
+	$General
+	{
+		$ConfigurationType "Utility"
+		$OutputDirectory "$SANE_INTERMEDIATE_DIR"
+		$IntermediateDirectory "$SANE_INTERMEDIATE_DIR"
+		$AdditionalProjectDependencies		"$BASE;steamenums;protoserviceplugin" [!$SDR_PUBLIC && !$ANDROIDALL && !$IOSALL]
+	}
+}
+
+$Project "steamnetworkingsockets_messages"
+{
+	$File "steamnetworkingsockets_messages.proto" \
+		"steamnetworkingsockets_messages_udp.proto" \
+		"steamnetworkingsockets_messages_certs.proto"
+	{
+		$Configuration
+		{
+			$CustomBuildStep
+			{
+				$Description	"Running Protocol Buffer Compiler on $(InputFileName)..."
+				$CommandLine	"$PROTOCPATH --cpp_out=. --error_format=msvs $(InputFileName)"
+				$Outputs		"./$(InputName).pb.h;./$(InputName).pb.cc"
+			}
+		}
+	}
+
+	$File "steamdatagram_messages_auth.proto" \
+		"steamdatagram_messages_sdr.proto" \
+		"steammessages_gamenetworkingui.proto"  [$STEAMNETWORKINGSOCKETS_ENABLE_SDR]
+	{
+		$Configuration
+		{
+			$CustomBuildStep
+			{
+				$Description	"Running Protocol Buffer Compiler on $(InputFileName)..."
+				$CommandLine	"$PROTOCPATH --cpp_out=. --error_format=msvs $(InputFileName)"
+				$Outputs		"./$(InputName).pb.h;./$(InputName).pb.cc"
+			}
+		}
+	}
+
+	$File "steamdatagram_messages_sdr_relay.proto" [!$SDR_PUBLIC]
+	{
+		$Configuration
+		{
+			$CustomBuildStep
+			{
+				$Description	"Running Protocol Buffer Compiler on $(InputFileName)..."
+				$CommandLine	"$PROTOCPATH --cpp_out=. --error_format=msvs $(InputFileName)"
+				$Outputs		"./$(InputName).pb.h;./$(InputName).pb.cc"
+			}
+		}
+	}
+}
+

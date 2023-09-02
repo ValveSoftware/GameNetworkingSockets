@@ -1,0 +1,121 @@
+// List of files we need to compile steamnetworkingsockets, either in standalone librart
+// format or as part of steamclient.dll
+
+$Folder "SteamNetworkingSockets"
+{
+
+	$Folder "Client lib"
+	{
+
+		$File_NoPCH	"$SRCDIR/steamnetworkingsockets/clientlib/csteamnetworkingsockets.cpp"
+		$File	"$SRCDIR/steamnetworkingsockets/clientlib/csteamnetworkingsockets.h"
+
+		$File_NoPCH	"$SRCDIR/steamnetworkingsockets/clientlib/steamnetworkingsockets_connections.cpp"
+		$File	"$SRCDIR/steamnetworkingsockets/clientlib/steamnetworkingsockets_connections.h"
+
+		$File_NoPCH	"$SRCDIR/steamnetworkingsockets/clientlib/steamnetworkingsockets_lowlevel.cpp"
+		$File	"$SRCDIR/steamnetworkingsockets/clientlib/steamnetworkingsockets_lowlevel.h"
+		$File	"$SRCDIR/public/tier0/platform_sockets.h"
+		$File	"$SRCDIR/public/tier0/platform_sockets_nswitch.h" [$NSWITCH]
+		$File	"$SRCDIR/public/tier0/platform_sockets_playstation.h" [$PLAYSTATIONANY]
+
+		$File_NoPCH	"$SRCDIR/steamnetworkingsockets/clientlib/steamnetworkingsockets_snp.cpp"
+		$File	"$SRCDIR/steamnetworkingsockets/clientlib/steamnetworkingsockets_snp.h"
+
+		$File_NoPCH	"$SRCDIR/steamnetworkingsockets/clientlib/steamnetworkingsockets_p2p.cpp"
+		$File	"$SRCDIR/steamnetworkingsockets/clientlib/steamnetworkingsockets_p2p.h"
+		$File	"$SRCDIR/steamnetworkingsockets/clientlib/ice_client_types.h"
+
+		$File_NoPCH	"$SRCDIR/steamnetworkingsockets/clientlib/steamnetworkingsockets_p2p_ice.cpp"
+		$File	"$SRCDIR/steamnetworkingsockets/clientlib/steamnetworkingsockets_p2p_ice.h"
+
+		$File_NoPCH	"$SRCDIR/steamnetworkingsockets/clientlib/steamnetworkingsockets_p2p_webrtc.cpp"
+		$File	"$SRCDIR/steamnetworkingsockets/clientlib/steamnetworkingsockets_p2p_webrtc.h"
+		
+		$File_NoPCH	"$SRCDIR/steamnetworkingsockets/clientlib/steamnetworkingsockets_stun.cpp"
+		$File	"$SRCDIR/steamnetworkingsockets/clientlib/steamnetworkingsockets_stun.h"
+
+		$File_NoPCH	"$SRCDIR/steamnetworkingsockets/clientlib/steamnetworkingsockets_udp.cpp"
+		$File	"$SRCDIR/steamnetworkingsockets/clientlib/steamnetworkingsockets_udp.h"
+
+		$File	"$SRCDIR/steamnetworkingsockets/steamnetworking_stats.h"
+		$File	"$SRCDIR/steamnetworkingsockets/steamnetworking_statsutils.h"
+
+		$File_NoPCH	"$SRCDIR/steamnetworkingsockets/steamnetworkingsockets_thinker.cpp"
+		$File	"$SRCDIR/steamnetworkingsockets/steamnetworkingsockets_thinker.h"
+
+		$File_NoPCH	"$SRCDIR/steamnetworkingsockets/steamnetworkingsockets_certs.cpp"
+		$File_NoPCH	"$SRCDIR/steamnetworkingsockets/steamnetworkingsockets_certstore.cpp"
+		$File_NoPCH	"$SRCDIR/steamnetworkingsockets/steamnetworkingsockets_shared.cpp"
+		$File_NoPCH	"$SRCDIR/steamnetworkingsockets/steamnetworkingsockets_stats.cpp"
+
+		$File	"$SRCDIR/steamnetworkingsockets/steamnetworkingsockets_internal.h"
+		$File	"$SRCDIR/steamnetworkingsockets/steamnetworkingsockets_certstore.h"
+		$File	"$SRCDIR/common/percentile_generator.h"
+	}
+
+	$Folder "ETW" [$WINDOWS]
+	{
+		$File_NoPCH	"$SRCDIR/steamnetworkingsockets/clientlib/etw/steamnetworkingsockets_etw.cpp"
+		$File	"$SRCDIR/steamnetworkingsockets/clientlib/etw/steamnetworkingsockets_etw_events.man"
+		$File	"$SRCDIR/steamnetworkingsockets/clientlib/etw/steamnetworkingsockets_etw_events.h"
+		$File	"$SRCDIR/steamnetworkingsockets/clientlib/etw/steamnetworkingsockets_etw_events.rc"
+	}
+
+	$Folder "Public interface"
+	{
+
+		$File	"$STEAMNETWORKINGSOCKETS_INCLUDE/steam/isteamnetworkingmessages.h"
+		$File	"$STEAMNETWORKINGSOCKETS_INCLUDE/steam/isteamnetworkingsockets.h"
+		$File	"$STEAMNETWORKINGSOCKETS_INCLUDE/steam/isteamnetworkingutils.h"
+		$File	"$STEAMNETWORKINGSOCKETS_INCLUDE/steam/steamnetworkingcustomsignaling.h"
+		$File	"$STEAMNETWORKINGSOCKETS_INCLUDE/steam/steamnetworkingtypes.h"
+	}
+
+	$Folder "SDR support" [$STEAMNETWORKINGSOCKETS_ENABLE_SDR]
+	{
+		$File_NoPCH	"$SRCDIR/steamnetworkingsockets/clientlib/sdr/csteamnetworkingsockets_sdr.cpp"
+		$File	"$SRCDIR/steamnetworkingsockets/clientlib/sdr/csteamnetworkingsockets_sdr.h"
+
+		$File_NoPCH	"$SRCDIR/steamnetworkingsockets/clientlib/sdr/steamnetworkingsockets_sdr_client.cpp"
+		$File	"$SRCDIR/steamnetworkingsockets/clientlib/sdr/steamnetworkingsockets_sdr_client.h"
+
+		$File_NoPCH	"$SRCDIR/steamnetworkingsockets/clientlib/sdr/steamnetworkingsockets_sdr_hostedserver.cpp"
+		$File	"$SRCDIR/steamnetworkingsockets/clientlib/sdr/steamnetworkingsockets_sdr_hostedserver.h"
+
+		$File_NoPCH	"$SRCDIR/steamnetworkingsockets/clientlib/sdr/steamnetworkingsockets_sdr_common.cpp"
+		$File	"$SRCDIR/steamnetworkingsockets/clientlib/sdr/steamnetworkingsockets_sdr_common.h"
+
+		$File_NoPCH	"$SRCDIR/steamnetworkingsockets/clientlib/sdr/steamnetworkingsockets_sdr_p2p.cpp"
+		$File	"$SRCDIR/steamnetworkingsockets/clientlib/sdr/steamnetworkingsockets_sdr_p2p.h"
+
+		$File	"$STEAMNETWORKINGSOCKETS_INCLUDE/steam/steamdatagram_tickets.h"
+
+		$File	"$SRCDIR/steamnetworkingsockets/sdr/steamdatagram_fakeip.h"
+		$File	"$SRCDIR/steamnetworkingsockets/sdr/steamdatagram_internal.h"
+		$File_NoPCH	"$SRCDIR/steamnetworkingsockets/sdr/steamdatagram_network_config.cpp"
+		$File	"$SRCDIR/steamnetworkingsockets/sdr/steamdatagram_network_config.h"
+		$File_NoPCH	"$SRCDIR/steamnetworkingsockets/sdr/steamdatagram_tickets.cpp"
+		$File_NoPCH	"$SRCDIR/steamnetworkingsockets/sdr/steamdatagram_pinglocation.cpp"
+	}
+
+	$Folder	"Protobuf generated files" [$STEAMNETWORKINGSOCKETS_ENABLE_SDR]
+	{
+		$DynamicFile "$SRCDIR/common/steamnetworkingsockets_messages.pb.h"
+		$DynamicFile_NoPCH "$SRCDIR/common/steamnetworkingsockets_messages.pb.cc"
+		$DynamicFile "$SRCDIR/common/steamnetworkingsockets_messages_certs.pb.h"
+		$DynamicFile_NoPCH "$SRCDIR/common/steamnetworkingsockets_messages_certs.pb.cc"
+		$DynamicFile "$SRCDIR/common/steamnetworkingsockets_messages_udp.pb.h"
+		$DynamicFile_NoPCH "$SRCDIR/common/steamnetworkingsockets_messages_udp.pb.cc"
+
+		$Folder	"SDR"
+		{
+			$DynamicFile "$SRCDIR/common/steamdatagram_messages_sdr.pb.h"
+			$DynamicFile_NoPCH "$SRCDIR/common/steamdatagram_messages_sdr.pb.cc"
+			$DynamicFile "$SRCDIR/common/steamdatagram_messages_auth.pb.h"
+			$DynamicFile_NoPCH "$SRCDIR/common/steamdatagram_messages_auth.pb.cc"
+			$DynamicFile_NoPCH "$SRCDIR/common/steammessages_gamenetworkingui.pb.cc"
+			$DynamicFile "$SRCDIR/common/steammessages_gamenetworkingui.pb.h"
+		}
+	}
+}

@@ -1,0 +1,83 @@
+<!--
+====== Copyright Valve Corporation, All rights reserved. =======
+
+ Purpose: Common MSBuild targets for Valve projects
+
+================================================================
+-->
+
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+
+  <Target Name="V_AllProtoCompile"
+          AfterTargets="BuildCompile"
+          BeforeTargets="CLCompile"
+          DependsOnTargets="V_ProtoGenItem;V_ProtoGen;V_ProtoCompile"
+  />
+
+  <Target Name="V_ProtoGenItem"
+          BeforeTargets="BeforeClean"
+          Condition="'@(Proto)' != ''"
+  >
+    <ItemGroup>
+      <ProtoGen Include="@(Proto)" Condition="'%(Proto.GenerateSteamClient)' == 'true'">
+        <GenSuffix>steamclient</GenSuffix>
+        <GenService>--generate_steam_client_proto:.</GenService>
+        <CompileService>--generate_steam_client:.</CompileService>
+        <!-- Batch all files to be generated together -->
+        <ProtoBatch>Default</ProtoBatch>
+      </ProtoGen>
+      <ProtoGen Include="@(Proto)" Condition="'%(Proto.GenerateSteamworks)' == 'true'">
+        <GenSuffix>steamworkssdk</GenSuffix>
+        <GenService>--generate_steamworks_sdk_proto:.</GenService>
+        <CompileService>--generate_steamworks_sdk:.</CompileService>
+        <!-- Batch all files to be generated together -->
+        <ProtoBatch>Default</ProtoBatch>
+      </ProtoGen>
+    </ItemGroup>
+    <ItemGroup>
+      <Clean Include="@(ProtoGen->'%(RootDir)%(Directory)%(Filename).%(GenSuffix).proto')" KeepMetadata="Nothing" />
+      <Clean Include="@(ProtoGen->'%(RootDir)%(Directory)%(Filename).%(GenSuffix).pb.h')" KeepMetadata="Nothing" />
+      <Clean Include="@(ProtoGen->'%(RootDir)%(Directory)%(Filename).%(GenSuffix).pb.cc')" KeepMetadata="Nothing" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="V_ProtoGen"
+          Condition="'@(ProtoGen)' != ''"
+          Inputs="@(ProtoGen)"
+          Outputs="@(ProtoGen->'%(RootDir)%(Directory)%(Filename).%(GenSuffix).proto')"
+  >
+    <Message Importance="High" Text="Generating protobufs using &quot;%(ProtoGen.GenService)&quot; for batch &quot;%(ProtoGen.ProtoBatch)&quot;:&#10;&#9;@(ProtoGen->'%(Filename)%(Extension) -> %(Filename).%(GenSuffix).proto', '&#10;&#9;')" />
+
+    <WriteLinesToFile File="$(TLogLocation)$(ProjectName).read.1u.tlog" Lines="%(ProtoGen.FullPath)" Encoding="Unicode"/>
+    <WriteLinesToFile File="$(TLogLocation)$(ProjectName).write.1u.tlog" Lines="^%(ProtoGen.FullPath);%(ProtoGen.RootDir)%(ProtoGen.Directory)%(ProtoGen.Filename).%(ProtoGen.GenSuffix).proto" Encoding="Unicode"/>
+
+    <ItemGroup>
+      <Proto Include="@(ProtoGen->'%(RelativeDir)%(Filename).%(GenSuffix).proto')">
+        <ProtoBatch>Generated %(ProtoGen.GenSuffix)</ProtoBatch>
+        <Service>%(ProtoGen.CompileService)</Service>
+      </Proto>
+    </ItemGroup>
+
+    <Exec YieldDuringToolExecution="true" Command="$(SRCROOT)\external\protobuf-2.6.1\bin\win64\2015\staticcrt\release\protoc.exe -I. -I$(SRCROOT)\external\protobuf-2.6.1\src --plugin=protoc-gen-service=$(SRCROOT)\devtools\bin\protoserviceplugin.exe --service_out=%(ProtoGen.GenService) --error_format=msvs @(ProtoGen, ' ') &amp;&amp; rem %(ProtoGen.ProtoBatch)" />
+
+  </Target>
+
+  <Target Name="V_ProtoCompile"
+          Condition="'@(Proto)' != ''"
+          Inputs="@(Proto)"
+          Outputs="@(Proto->'%(RootDir)%(Directory)%(Filename).pb.h');@(Proto->'%(RootDir)%(Directory)%(Filename).pb.cc')"
+  >
+    <Message Importance="High" Text="Running protobuf compiler for batch &quot;%(Proto.ProtoBatch)&quot; on:&#10;&#9;@(Proto->'%(Filename)%(Extension)', '&#10;&#9;')..." />
+
+    <WriteLinesToFile File="$(TLogLocation)$(ProjectName).read.1u.tlog" Lines="%(Proto.FullPath)" Encoding="Unicode"/>
+    <WriteLinesToFile File="$(TLogLocation)$(ProjectName).write.1u.tlog" Lines="^%(Proto.FullPath);%(Proto.RootDir)%(Proto.Directory)%(Proto.Filename).pb.h;%(Proto.RootDir)%(Proto.Directory)%(Proto.Filename).pb.cc" Encoding="Unicode"/>
+
+    <!--Exec YieldDuringToolExecution="true" Command="del @(Proto->'%(RootDir)%(Directory)%(Filename).pb.h', ' ') @(Proto->'%(RootDir)%(Directory)%(Filename).pb.cc', ' ')" /-->
+    <Exec YieldDuringToolExecution="true" Command="$(SRCROOT)\external\protobuf-2.6.1\bin\win64\2015\staticcrt\release\protoc.exe --cpp_out=. -I. -I$(SRCROOT)\external\protobuf-2.6.1\src --plugin=protoc-gen-service=$(SRCROOT)\devtools\bin\protoserviceplugin.exe --service_out=%(Proto.Service) --error_format=msvs @(Proto, ' ') &amp;&amp; rem %(Proto.ProtoBatch)" />
+  </Target>
+
+  <ItemGroup Condition="'@(Proto)' != ''">
+    <Clean Include="@(Proto->'%(RootDir)%(Directory)%(Filename).pb.h');@(Proto->'%(RootDir)%(Directory)%(Filename).pb.cc')" KeepMetadata="Nothing" />
+  </ItemGroup>
+
+</Project>

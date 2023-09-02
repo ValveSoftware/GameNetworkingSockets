@@ -1,0 +1,54 @@
+$Macro SRCDIR		"..\.."
+$Macro OUTBINDIR	"."
+$Macro OUTBINNAME	"test_p2p"
+
+$Include "../steamnetworkingsockets_branch_config.vpc"
+$Include "$SRCDIR/vpc_scripts/steam_exe_base.vpc"
+$include "../steamnetworkingsockets_linkbaselibs_include.vpc"
+$include "../../vpc_scripts/steam_steamapilib_include.vpc"
+
+$Configuration
+{
+	$General
+	{
+		$OutputDirectory	"$OUTBINDIR"
+		$AdditionalProjectDependencies			"$BASE;steamnetworkingsockets"
+	}
+	$Compiler
+	{
+		$PreprocessorDefinitions	"$BASE;STEAMNETWORKINGSOCKETS_STANDALONELIB;STEAMNETWORKINGSOCKETS_NOSTEAM"
+	}
+	$Linker
+	{
+		$SubSystem		"Console (/SUBSYSTEM:CONSOLE)" [$WINDOWS]
+		$AdditionalDependencies	"$BASE ws2_32.lib" [$WINDOWS]
+		$OutputFile		"$OUTBINDIR/$OUTBINNAME" [$POSIX]
+		$OutputFile		"$OUTBINDIR/$OUTBINNAME.exe" [$WINDOWS]
+	}
+}
+
+// Always compile in asserts, even in release builds
+$Configuration "Release"
+{
+	$Compiler
+	{
+		$PreprocessorDefinitions	"$BASE;RELEASE_ASSERTS;RETAIL_ASSERTS"
+	}
+}
+
+$Project "steamnetworkingsockes_test_p2p"
+{
+	$Folder	"Source Files"
+	{
+		$File	"test_p2p.cpp"
+		$File	"test_common.cpp"
+		$File	"test_common.h"
+		$File	"../examples/trivial_signaling_client.cpp"
+		$File	"../examples/trivial_signaling_client.h"
+	}
+
+	$Folder	"Link Libraries"
+	{
+		$ImpLib "$STEAMNETWORKINGSOCKETS_BINDIR/steamnetworkingsockets"
+	}
+}

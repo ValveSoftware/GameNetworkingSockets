@@ -1,0 +1,50 @@
+$Macro SRCDIR		"..\.."
+$Macro OUTBINDIR	"."
+$Macro OUTBINNAME	"example_chat"
+
+$Include "../steamnetworkingsockets_branch_config.vpc"
+$Include "$SRCDIR/vpc_scripts/steam_exe_base.vpc"
+$include "../steamnetworkingsockets_linkbaselibs_include.vpc"
+$include "../../vpc_scripts/steam_steamapilib_include.vpc"
+
+$Configuration
+{
+	$General
+	{
+		$OutputDirectory	"$OUTBINDIR"
+		$AdditionalProjectDependencies			"$BASE;steamnetworkingsockets"
+	}
+	$Compiler
+	{
+		$PreprocessorDefinitions			"$BASE;STEAMNETWORKINGSOCKETS_STANDALONELIB"
+	}
+	$Linker
+	{
+		$SubSystem		"Console (/SUBSYSTEM:CONSOLE)" [$WINDOWS]
+		$AdditionalDependencies	"$BASE ws2_32.lib" [$WINDOWS]
+		$OutputFile		"$OUTBINDIR/$OUTBINNAME" [$POSIX]
+		$OutputFile		"$OUTBINDIR/$OUTBINNAME.exe" [$WINDOWS]
+	}
+}
+
+// Always compile in asserts, even in release builds
+$Configuration "Release"
+{
+	$Compiler
+	{
+		$PreprocessorDefinitions	"$BASE;RELEASE_ASSERTS;RETAIL_ASSERTS"
+	}
+}
+
+$Project "steamnetworkingsockes_example_chat"
+{
+	$Folder	"Source Files"
+	{
+		$File	"example_chat.cpp"
+	}
+
+	$Folder	"Link Libraries"
+	{
+		$ImpLib "$STEAMNETWORKINGSOCKETS_BINDIR/steamnetworkingsockets"
+	}
+}

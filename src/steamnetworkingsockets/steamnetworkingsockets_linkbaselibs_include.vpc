@@ -1,0 +1,76 @@
+//-----------------------------------------------------------------------------
+//	steamdatagram_linkbaselibs_include.VPC
+//
+//	Do the 15 billion steps you need to do to link with our base libs statically
+//-----------------------------------------------------------------------------
+
+$conditional TIER0_STATIC "true"
+$include "$SRCDIR/tier1/tier1_include.vpc" [!$SDR_PUBLIC]
+
+$Macro STEAMNETWORKINGSOCKETS_INCLUDE "$SRCDIR/public" [!$SDR_PUBLIC]
+$Macro STEAMNETWORKINGSOCKETS_INCLUDE "$SRCDIR/../include" [$SDR_PUBLIC]
+$Macro STEAMNETWORKINGSOCKETS_BINDIR "$SRCDIR\steamnetworkingsockets\bin\$PLATFORM\$PLATBINSUBDIR\$PROJECTCONFIGOUTPUTSUFFIX" [!$SDR_PUBLIC]
+$Macro STEAMNETWORKINGSOCKETS_BINDIR "$SRCDIR\..\bin\$PLATFORM\$PLATBINSUBDIR\$PROJECTCONFIGOUTPUTSUFFIX" [$SDR_PUBLIC]
+$Macro PROJECTCONFIGOUTPUTSUFFIX "$BASE" "retail" [$SDR_PUBLIC && $RETAIL]
+$Macro PROJECTCONFIGOUTPUTSUFFIX "$BASE" "dev" [$SDR_PUBLIC && !$RETAIL && ($PLAYSTATIONANY || $XBOXONE)]
+
+$Configuration
+{
+	$General
+	{
+		$AdditionalProjectDependencies			"$BASE;vstdlib_static;tier0_static" [!$SDR_PUBLIC]
+		$IntermediateDirectory					"$SANE_INTERMEDIATE_DIR"
+		$OutputDirectory						"$SANE_INTERMEDIATE_DIR"
+	}
+	$Compiler
+	{
+		$PreprocessorDefinitions			"$BASE;DISABLE_DBGFLAG_VALIDATE"
+		$PreprocessorDefinitions			"$BASE;STATIC_TIER0;STATIC_VSTDLIB" [!$SDR_PUBLIC] // We've cleaned all this stuff out and don't need these defines anymore
+		$AdditionalIncludeDirectories       "$BASE;$SRCDIR/public"
+		$AdditionalIncludeDirectories       "$BASE;$STEAMNETWORKINGSOCKETS_INCLUDE;$STEAMNETWORKINGSOCKETS_INCLUDE/steam" [$SDR_PUBLIC]
+		$AdditionalIncludeDirectories		"$BASE;$SRCDIR/public/steam"
+	}
+	$Linker
+	{
+		$AdditionalDependencies				"$BASE $SRCDIR\lib\$PLATFORM\$CONFIGURATION\$COMPILERLIBDIR\vstdlib_static.lib"[$WINDOWS && !$SDR_PUBLIC]
+		$AdditionalDependencies				"$BASE $SRCDIR\lib\$PLATFORM\$CONFIGURATION\$COMPILERLIBDIR\tier0_static.lib"[$WINDOWS && !$SDR_PUBLIC]
+	}
+}
+
+$Project
+{
+	$Folder "Base lib files" [$SDR_PUBLIC]
+	{
+		$File "$SRCDIR\tier0\dbg.cpp"
+		$File "$SRCDIR\tier0\platformtime.cpp"
+		$File "$SRCDIR\tier0\cpu.cpp" [$WIN32 && !$SDR_PUBLIC] // SSE2 check
+		$File "$SRCDIR\vstdlib\strtools.cpp"
+
+		$File "$SRCDIR\tier1\bitstring.cpp" [!$SDR_PUBLIC] // Public version got rid of the bitstring in CUtlHashMap.  Steam branch still has it, because I am a coward
+		$File "$SRCDIR\tier1\ipv6text.c"
+		$File "$SRCDIR\tier1\netadr.cpp"
+		$File "$SRCDIR\tier1\utlbuffer.cpp"
+		$File "$SRCDIR\tier1\utlmemory.cpp"
+	}
+
+	$Folder "Link Libraries" [!$SDR_PUBLIC && $POSIX]
+	{
+		$DynamicFile "$SRCDIR\lib\$PLATFORM\release\tier0_static.a"
+		{ 
+			$Configuration "Debug" { $ExcludedFromBuild "Yes" }
+		}
+		$DynamicFile "$SRCDIR\lib\$PLATFORM\debug\tier0_static.a"
+		{ 
+			$Configuration "Release" { $ExcludedFromBuild "Yes" }
+		}
+		$DynamicFile "$SRCDIR\lib\$PLATFORM\release\vstdlib_static.a"
+		{ 
+			$Configuration "Debug" { $ExcludedFromBuild "Yes" }
+		}
+		$DynamicFile "$SRCDIR\lib\$PLATFORM\debug\vstdlib_static.a"
+		{ 
+			$Configuration "Release" { $ExcludedFromBuild "Yes" }
+		}
+	}
+}
+

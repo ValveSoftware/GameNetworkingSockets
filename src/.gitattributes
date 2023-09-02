@@ -1,0 +1,12 @@
+devtools symlink=dir
+lib symlink=dir
+vpc_scripts symlink=dir
+common/steam symlink=dir
+steamnetworkingsockets/sdr symlink=dir
+steamnetworkingsockets/ticketgen symlink=dir
+steamnetworkingsockets/clientlib/nswitch symlink=dir
+steamnetworkingsockets/clientlib/ps5 symlink=dir
+steamnetworkingsockets/clientlib/sdr symlink=dir
+steamnetworkingsockets/clientlib/steam symlink=dir
+steamnetworkingsockets/clientlib/xboxone symlink=dir
+**/bin/** filter=lfs diff=lfs merge=lfs -text

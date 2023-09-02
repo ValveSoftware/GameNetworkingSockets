@@ -1,0 +1,40 @@
+//-----------------------------------------------------------------------------
+//	steamdatagram_crypt_include.VPC
+//
+//	Do the 15 billion steps you need to do to link with crypto libs statically
+//-----------------------------------------------------------------------------
+
+$Conditional VALVE_CRYPTO_ENABLE_25519 true
+$include "$SRCDIR/vpc_scripts/steam_cryptlib_include.vpc"
+
+$Configuration
+{
+	$Compiler
+	{
+		$AdditionalIncludeDirectories       "$BASE;$SRCDIR/common"
+	}
+	$Linker
+	{
+		$AdditionalDependencies				"$BASE $SRCDIR\lib\$PLATFORM\$CONFIGURATION\$COMPILERLIBDIR\vstdlib_static.lib"[$WINDOWS && !$SDR_PUBLIC]
+		$AdditionalDependencies				"$BASE $SRCDIR\lib\$PLATFORM\$CONFIGURATION\$COMPILERLIBDIR\tier0_static.lib"[$WINDOWS && !$SDR_PUBLIC]
+		$AdditionalDependencies				"$BASE user32.lib advapi32.lib" [$WINDOWS]
+
+		// The OpenSSL libs export most of their symbols and we don't want
+		// our binaries to end up exposing them so forcibly hide them.
+		//$GCC_ExtraLinkerFlags		"$BASE -Wl,--exclude-libs,libssl.a" [$LINUXALL]
+		$GCC_ExtraLinkerFlags		"$BASE -Wl,--exclude-libs,libcrypto.a" [$LINUXALL]
+	}
+}
+
+$Project
+{
+	$Folder	"Source files" [!$SDR_PUBLIC]
+	{
+		// Ug. for _Dmsg, used by DispatchOpenSSLErrors
+		$File "$SRCDIR/common/globals.cpp"
+	}
+
+	$File	"$SRCDIR/common/opensslwrapper.cpp" [$VALVE_CRYPTO_OPENSSL]
+	$include "$SRCDIR/vpc_scripts/steam_cryptfiles_include.vpc"
+}
+

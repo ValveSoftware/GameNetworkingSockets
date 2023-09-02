@@ -1,0 +1,83 @@
+//-----------------------------------------------------------------------------
+//	steamnetworkingsockets_certtool.vpc
+//
+//	Project Script
+//-----------------------------------------------------------------------------
+
+$Macro SRCDIR		"..\.."
+$Conditional STATIC_LINK "true"
+$Include "../steamnetworkingsockets_branch_config.vpc"
+
+$Macro OUTBINNAME	"steamnetworkingsockets_certtool"
+
+$Macro OUTBINDIR	"$SRCDIR\..\bin\$PLATFORM" [!$SDR_VALVE]
+
+$Macro OUTBINDIR	"./$PLATFORM" [$SDR_VALVE && $POSIX] // Ug, our VPC scripts don't default this for you, I don't know why
+
+$Macro TARGETCOPYDIR	"$SRCDIR\..\bin\$PLATFORM" [$SDR_VALVE && $SDR_PUBLIC]
+$Macro TARGETCOPYDIR	"$SRCDIR\..\bin\util\$PLATFORM" [$SDR_VALVE && !$SDR_PUBLIC]
+$Macro TARGETCOPYNAME	"$OUTBINNAME" [$SDR_VALVE]
+
+$Include "$SRCDIR/vpc_scripts/steam_exe_base.vpc"
+$include "$SRCDIR/vpc_scripts/steam_protolibs_include.vpc"
+$include "../steamnetworkingsockets_linkbaselibs_include.vpc"
+$include "../steamnetworkingsockets_crypt_include.vpc"
+
+$Configuration
+{
+	$General
+	{
+		$OutputDirectory	"$OUTBINDIR"	[!$SDR_VALVE]
+        $TargetCopies                   "$BASE $TARGETCOPYDIR\$TARGETCOPYNAME$_DLL_EXT" [$SDR_VALVE]
+		$AdditionalProjectDependencies			"$BASE;steamnetworkingsockets_messages"
+	}
+	$Compiler
+	{
+		$PreprocessorDefinitions			"$BASE;STEAMDATAGRAM_TICKET_STATIC_LINK;STEAMNETWORKINGSOCKETS_STATIC_LINK"
+		$AdditionalIncludeDirectories       "$BASE;$SRCDIR/external/picojson"
+
+		// Always compile in asserts, even in release builds
+		$PreprocessorDefinitions	"$BASE;RELEASE_ASSERTS;RETAIL_ASSERTS"
+		$PreprocessorDefinitions	"$BASE;_SILENCE_CXX17_ITERATOR_BASE_CLASS_DEPRECATION_WARNING" [$WINDOWS]
+	}
+	$Linker
+	{
+		$SubSystem		"Console (/SUBSYSTEM:CONSOLE)" [$WINDOWS]
+		$OutputFile		"$OUTBINDIR/$OUTBINNAME" [$POSIX] // Why this isn't defaulted, I have no idea
+	}
+	$PostBuildEvent [$WINDOWS && !$ANALYZE && $SDR_VALVE]
+	{
+		$CommandLine					"$BASE" "\n" \
+										"call $SRCDIR\filecopy_p4.bat $(TargetDir)$(TargetName).exe $TARGETCOPYDIR\$TARGETCOPYNAME.exe $SRCDIR" "\n" \
+										"if %errorlevel% neq 0 exit /b %errorlevel%" "\n" \
+										"call $SRCDIR\filecopy_p4.bat $(TargetDir)$(TargetName).pdb $TARGETCOPYDIR\$TARGETCOPYNAME.pdb $SRCDIR" "\n" \
+										"if %errorlevel% neq 0 exit /b %errorlevel%" "\n"
+	}
+}
+
+$Project "steamnetworkingsockets_certtool"
+{
+	$Folder	"Source Files"
+	{
+		$File	"steamnetworkingsockets_certtool.cpp"
+		$File	"../steamnetworkingsockets_certs.cpp"
+		$File	"../steamnetworkingsockets_certstore.cpp" // At the time of this writing, it's not *actually* needed but dead code elimination cannot figure that out
+		$File	"../steamnetworkingsockets_shared.cpp"
+		$File	"../sdr/steamdatagram_tickets.cpp"
+		$File	"$SRCDIR/common/steamid.cpp"
+	}
+
+	$Folder	"Header Files"
+	{
+		$File	"$STEAMNETWORKINGSOCKETS_INCLUDE/steam/steamnetworkingtypes.h"
+		$File	"../steamnetworkingsockets_internal.h"
+		$File	"../sdr/steamdatagram_internal.h" [$STEAMNETWORKINGSOCKETS_ENABLE_SDR]
+	}
+	$Folder	"Protobuf generated files"
+	{
+		$DynamicFile "$SRCDIR/common/steamnetworkingsockets_messages_certs.pb.h"
+		$DynamicFile "$SRCDIR/common/steamnetworkingsockets_messages_certs.pb.cc"
+		$DynamicFile "$SRCDIR/common/steamdatagram_messages_auth.pb.h" [$STEAMNETWORKINGSOCKETS_ENABLE_SDR]
+		$DynamicFile "$SRCDIR/common/steamdatagram_messages_auth.pb.cc" [$STEAMNETWORKINGSOCKETS_ENABLE_SDR]
+	}
+}

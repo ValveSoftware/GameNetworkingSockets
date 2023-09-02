@@ -1,0 +1,13 @@
+// SDR_VALVE should only be set when compiling in Valve and checking
+// binaries in/out from P4.  If you are not at Valve and you see this,
+// it means somebody made a mistake!
+//$Conditional SDR_VALVE true
+
+$Conditional SDR_PUBLIC true
+$Conditional SKIPVSIGN true
+$Conditional TIER0_EXCLUDE true
+$Conditional VSTDLIB_EXCLUDE true
+
+// !KLUDGE! Always enable SDR for now.  Eventually we ned to be able to compile
+// the partner library without this support!
+$Conditional STEAMNETWORKINGSOCKETS_ENABLE_SDR true

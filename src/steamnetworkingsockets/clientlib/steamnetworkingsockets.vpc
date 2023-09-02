@@ -1,0 +1,131 @@
+//-----------------------------------------------------------------------------
+//	STEAMDATAGRAMLIB.VPC
+//-----------------------------------------------------------------------------
+
+$Macro SRCDIR		"..\.."
+$Macro OUTBINNAME	"libsteamnetworkingsockets" [$POSIX]
+
+$Include "../steamnetworkingsockets_branch_config.vpc"
+
+$Macro OUTBINDIR	"$SRCDIR\..\bin\$PLATFORM" [!$SDR_VALVE]
+
+$Include "$SRCDIR/vpc_scripts/steam_dll_base.vpc"	
+$include "$SRCDIR/vpc_scripts/steam_protolibs_include.vpc"
+//$include "$SRCDIR/vpc_scripts/steam_steamapilib_include.vpc" [!$SDR_PUBLIC]
+$include "../steamnetworkingsockets_linkbaselibs_include.vpc"
+$include "../steamnetworkingsockets_crypt_include.vpc"
+
+$Macro TARGETCOPYDIR	"$STEAMNETWORKINGSOCKETS_BINDIR" [$SDR_VALVE]
+$Macro TARGETCOPYNAME	"$OUTBINNAME" [$SDR_VALVE]
+
+$Configuration
+{
+	$General
+	{
+		$OutputDirectory	"$OUTBINDIR" [!$SDR_VALVE]
+        $TargetCopies       "$BASE $TARGETCOPYDIR\$TARGETCOPYNAME$_DLL_EXT" [$SDR_VALVE]
+		$BuildX64Only		"No" [$OSXALL]
+		$BuildMultiArch     "Yes" [$OSXALL]
+		$AdditionalProjectDependencies			"$BASE;steamnetworkingsockets_messages"
+	}
+	$Compiler
+	{
+		$PreprocessorDefinitions			"$BASE;STEAMNETWORKINGSOCKETS_FOREXPORT;STEAMNETWORKINGSOCKETS_STANDALONELIB"
+		$PreprocessorDefinitions			"$BASE;STEAMNETWORKINGSOCKETS_ENABLE_SDR" [$STEAMNETWORKINGSOCKETS_ENABLE_SDR]
+		$PreprocessorDefinitions			"$BASE;STEAMNETWORKINGSOCKETS_ENABLE_ICE" [!$PLAYSTATIONANY] // Enable ICE.  We'll use WebRTC from a seperate .dll, if we can find it.  Temp kludge for PS5, where we don't have SHA1 code working
+		$PreprocessorDefinitions			"$BASE;SDR_ENABLE_HOSTED_CLIENT" // Compile in support for connecting to hosted dedicated servers, on all platforms.
+		$PreprocessorDefinitions			"$BASE;SDR_ENABLE_HOSTED_SERVER" [$WINDOWS || $LINUX] // Compile support for *being* a hosted dedicated server, only on Windows and Linux.
+		$PreprocessorDefinitions			"$BASE;_SILENCE_CXX17_ITERATOR_BASE_CLASS_DEPRECATION_WARNING" [$WINDOWS]
+		$PreprocessorDefinitions			"$BASE;_RETAIL" [$RETAIL && $SDR_PUBLIC]
+		$PreprocessorDefinitions			"$BASE;_CERT" [$RETAIL && ( $PLAYSTATIONANY || $NINTENDOSWITCH || $XBOXONE ) ]
+		$AdditionalIncludeDirectories		"$BASE;$SRCDIR/public/steam"
+		$AdditionalIncludeDirectories       "$BASE;$SRCDIR/external/vjson" [$STEAMNETWORKINGSOCKETS_ENABLE_SDR] // We only need vjson to parse the SDR network config
+
+		// We don't need exception handling, so disable it
+		$EnableCPPExceptions				"false"
+	}
+	$PostBuildEvent [( $WINDOWS || $XBOXONE ) && !$ANALYZE && $SDR_VALVE]
+	{
+		$CommandLine					"$BASE" "\n" \
+										"call $SRCDIR\filecopy_p4.bat $(TargetDir)$(TargetName).dll $TARGETCOPYDIR\$TARGETCOPYNAME.dll $SRCDIR" "\n" \
+										"if %errorlevel% neq 0 exit /b %errorlevel%" "\n" \
+										"call $SRCDIR\filecopy_p4.bat $(TargetDir)$(TargetName).pdb $TARGETCOPYDIR\$TARGETCOPYNAME.pdb $SRCDIR" "\n" \
+										"if %errorlevel% neq 0 exit /b %errorlevel%" "\n" \
+										"call $SRCDIR\filecopy_p4.bat $(TargetDir)$(TargetName).lib $TARGETCOPYDIR\$TARGETCOPYNAME.lib $SRCDIR" "\n" \
+										"if %errorlevel% neq 0 exit /b %errorlevel%" "\n"
+	}
+	$PostBuildEvent [( $PS4 || $PS5 ) && !$ANALYZE && $SDR_VALVE]
+	{
+		$CommandLine					"$BASE" "\n" \
+										"call $SRCDIR\filecopy_p4.bat $(TargetDir)$(TargetName).prx $TARGETCOPYDIR\$TARGETCOPYNAME.prx $SRCDIR" "\n" \
+										"if %errorlevel% neq 0 exit /b %errorlevel%" "\n" \
+										"call $SRCDIR\filecopy_p4.bat $(TargetDir)$(TargetName)_stub.a $TARGETCOPYDIR\$TARGETCOPYNAME" "_stub.a $SRCDIR" "\n" \
+										"if %errorlevel% neq 0 exit /b %errorlevel%" "\n" \
+										"call $SRCDIR\filecopy_p4.bat $(TargetDir)$(TargetName)_stub_weak.a $TARGETCOPYDIR\$TARGETCOPYNAME" "_stub_weak.a $SRCDIR" "\n" \
+										"if %errorlevel% neq 0 exit /b %errorlevel%" "\n"
+	}
+	$Linker
+	{
+		$AdditionalDependencies				"$BASE libkernel_stub_weak.a libSceNet_stub_weak.a libScePosix_stub_weak.a" [$PS4 || $PS5]
+		$AdditionalDependencies				"$BASE libSceDbg_stub_weak.a" [$PS4 && !$RETAIL]
+		$AdditionalDependencies				"$BASE libSceDbg_nosubmission_stub_weak.a" [$PS5 && !$RETAIL]
+	}
+}
+
+$Configuration "Debug"
+{
+}
+
+$Configuration "Release"
+{
+	$Compiler
+	{
+		$GCCOptimization					"-Oz" [$PS4]
+	}
+}
+
+$Project "steamnetworkingsockets"
+{
+	$include "steamnetworkingsockets_files.vpc"
+
+	$File	"$STEAMNETWORKINGSOCKETS_INCLUDE/steam/steamnetworkingsockets.h"
+
+	// We don't actually built this, because it creates conflicts with the flat interface in steam_api.dll.
+	// we just have it for reference.  if anybody wants it, they can manually compile it
+	$File	"steamnetworkingsockets_flat.cpp" [$FALSE]
+	$File	"$STEAMNETWORKINGSOCKETS_INCLUDE/steam/steamnetworkingsockets_flat.h" [$SDR_PUBLIC]
+	$File	"$SRCDIR/common/steamid.cpp"
+
+	$File	"$STEAMNETWORKINGSOCKETS_INCLUDE/steam/isteamnetworkingmessages.h"
+	$File	"csteamnetworkingmessages.cpp"
+	$File	"csteamnetworkingmessages.h"
+
+	$Folder "SDR" [$STEAMNETWORKINGSOCKETS_ENABLE_SDR]
+	{
+		$File	"$SRCDIR/common/urlhelper_webapihost.cpp"
+		$File	"sdr/csteamnetworkingsockets_sdr_standalone.cpp"
+	}
+
+	$Folder "vjson" [$STEAMNETWORKINGSOCKETS_ENABLE_SDR] // vjson only needed to parse the network config, which is only needed if SDR support enabled
+	{
+		$File "$SRCDIR/external/vjson/vjson.h"
+		$File_NoPCH "$SRCDIR/external/vjson/vjson.cpp"
+	}
+
+	$Folder "Xbox One" [$XBOXONE]
+	{
+		$File	"xboxone/csteamnetworkingsockets_xboxone.cpp"
+	}
+
+	$Folder "Playstation" [$PLAYSTATIONANY]
+	{
+		$File	"ps5/csteamnetworkingsockets_ps5.cpp"
+	}
+
+	$Folder "Steam" [!$XBOXONE && !$PLAYSTATIONANY]
+	{
+		$File	"steam/csteamnetworkingsockets_steam.cpp"
+		$File	"steam/csteamnetworkingsockets_steam.h"
+		$File	"steam/csteamnetworkingsockets_steampartner.cpp"
+	}
+}

@@ -1,0 +1,56 @@
+$Macro SRCDIR		"..\.."
+$Macro OUTBINDIR	"."
+$Macro OUTBINNAME	"steamnetworkingsockets_test_pki"
+
+$Include "../steamnetworkingsockets_branch_config.vpc"
+$Include "$SRCDIR/vpc_scripts/steam_exe_base.vpc"
+$include "../steamnetworkingsockets_linkbaselibs_include.vpc"
+$include "../steamnetworkingsockets_crypt_include.vpc"
+$include "$SRCDIR/vpc_scripts/steam_protolibs_include.vpc"
+
+$Configuration
+{
+	$General
+	{
+		$OutputDirectory	"$OUTBINDIR"
+		$AdditionalProjectDependencies			"$BASE;steamnetworkingsockets_messages"
+	}
+	$Compiler
+	{
+		$PreprocessorDefinitions			"$BASE;STEAMNETWORKINGSOCKETS_STANDALONELIB;STEAMNETWORKINGSOCKETS_STATIC_LINK;STEAMNETWORKINGSOCKETS_NOSTEAM"
+		$PreprocessorDefinitions			"$BASE;STEAMNETWORKINGSOCKETS_HARDCODED_ROOT_CA_KEY=$QUOTEssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMPsJA3FUaQSsHkyYhWvcYt9v3XbwRBcWuVuayWGdK1$QUOTE"
+		$AdditionalIncludeDirectories       "$BASE;$SRCDIR"
+	}
+	$Linker
+	{
+		$SubSystem		"Console (/SUBSYSTEM:CONSOLE)" [$WINDOWS]
+		$AdditionalDependencies	"$BASE ws2_32.lib" [$WINDOWS]
+		$OutputFile		"$OUTBINDIR/$OUTBINNAME" [$POSIX]
+		$OutputFile		"$OUTBINDIR/$OUTBINNAME.exe" [$WINDOWS]
+	}
+}
+
+// Always compile in asserts, even in release builds
+$Configuration "Release"
+{
+	$Compiler
+	{
+		$PreprocessorDefinitions	"$BASE;RELEASE_ASSERTS;RETAIL_ASSERTS"
+	}
+}
+
+$Project "steamnetworkingsockes_test_pki"
+{
+	$Folder	"Source Files"
+	{
+		$File	"test_pki.cpp"
+		$File	"../steamnetworkingsockets_certs.cpp"
+		$File	"../steamnetworkingsockets_certstore.cpp"
+		$File	"../steamnetworkingsockets_shared.cpp"
+	}
+	$Folder	"Protobuf generated files"
+	{
+		$DynamicFile "$SRCDIR/common/steamnetworkingsockets_messages_certs.pb.h"
+		$DynamicFile "$SRCDIR/common/steamnetworkingsockets_messages_certs.pb.cc"
+	}
+}
