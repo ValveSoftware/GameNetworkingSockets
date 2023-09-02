@@ -984,15 +984,38 @@ public:
 			COMPILE_TIME_ASSERT( offsetof( iovec, iov_len ) == offsetof( WSABUF, len ) );
 			COMPILE_TIME_ASSERT( offsetof( iovec, iov_base ) == offsetof( WSABUF, buf ) );
 
+			WSAMSG wsaMsg;
+			wsaMsg.name = (sockaddr *)&destAddress;
+			wsaMsg.namelen = addrSize;
+			wsaMsg.dwBufferCount = nChunks;
+			wsaMsg.lpBuffers = (WSABUF *)pChunks;
+			wsaMsg.Control.len = 0;
+			wsaMsg.Control.buf = nullptr;
+			wsaMsg.dwFlags = 0;
+
+			CHAR control[WSA_CMSG_SPACE(sizeof(INT))];
+
+			// Check if we need to send ECN
+			int ecn = g_Config_ECN.Get();
+			if ( ecn >= 0 )
+			{
+				wsaMsg.Control.len = sizeof(control);
+				wsaMsg.Control.buf = control;
+				memset( control, 0, sizeof(control) );
+
+				CMSGHDR *cmsg = WSA_CMSG_FIRSTHDR(&wsaMsg);
+				cmsg->cmsg_len = WSA_CMSG_LEN(sizeof(INT));
+				cmsg->cmsg_level = (destAddress.ss_family == AF_INET) ? IPPROTO_IP : IPPROTO_IPV6;
+				cmsg->cmsg_type = (destAddress.ss_family == AF_INET) ? IP_ECN : IPV6_ECN;
+				*(PINT)WSA_CMSG_DATA(cmsg) = ecn & 3;
+			}
+
 			DWORD numberOfBytesSent;
-			int r = WSASendTo(
+			int r = WSASendMsg(
 				m_socket,
-				(WSABUF *)pChunks,
-				(DWORD)nChunks,
-				&numberOfBytesSent,
+				&wsaMsg,
 				0, // flags
-				(const sockaddr *)&destAddress,
-				addrSize,
+				&numberOfBytesSent,
 				nullptr, // lpOverlapped
 				nullptr // lpCompletionRoutine
 			);

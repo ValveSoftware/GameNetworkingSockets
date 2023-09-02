@@ -935,6 +935,7 @@ extern GlobalConfigValue<int32> g_Config_FakeRateLimit_Send_Rate;
 extern GlobalConfigValue<int32> g_Config_FakeRateLimit_Send_Burst;
 extern GlobalConfigValue<int32> g_Config_FakeRateLimit_Recv_Rate;
 extern GlobalConfigValue<int32> g_Config_FakeRateLimit_Recv_Burst;
+extern GlobalConfigValue<int32> g_Config_ECN;
 
 extern GlobalConfigValue<int32> g_Config_EnumerateDevVars;
 extern GlobalConfigValue<void*> g_Config_Callback_CreateConnectionSignaling;
