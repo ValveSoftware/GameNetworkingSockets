@@ -142,6 +142,10 @@ public:
 	/// The local address we ended up binding to
 	SteamNetworkingIPAddr m_boundAddr;
 
+	/// Change the callback after it's been set.  Must be called while holding
+	/// the global lock
+	virtual void SetCallbackRecvPacket( CRecvPacketCallback callback ) = 0;
+
 protected:
 
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_DUALWIFI
@@ -235,7 +239,7 @@ public:
 
 	/// Allocate a raw socket and setup bookkeeping structures so we can add
 	/// clients that will talk using it.
-	bool BInit( const SteamNetworkingIPAddr &localAddr, CRecvPacketCallback callbackDefault, SteamDatagramErrMsg &errMsg );
+	bool BInit( const SteamNetworkingIPAddr &localAddr, CRecvPacketCallback callbackUnknownAddress, SteamDatagramErrMsg &errMsg );
 
 	/// Close all sockets and clean up all resources
 	void Kill();
@@ -266,10 +270,17 @@ public:
 		return &m_pRawSock->m_boundAddr;
 	}
 
+	// Set the low-level callback to use.  This can be used to inspect/filter packets
+	// before they get dispatched based on remote address.  After filtering,
+	// call DefaultCallbackRecvPacket to do the default dispatch
+	void SetCallbackRecvPacket( CRecvPacketCallback callback );
+
+	static void DefaultCallbackRecvPacket( const RecvPktInfo_t &info, CSharedSocket *pSock );
+
 private:
 
 	/// Call this if we get a packet from somebody we don't recognize
-	CRecvPacketCallback m_callbackDefault;
+	CRecvPacketCallback m_callbackUnknownAddress;
 
 	/// The raw socket that is being shared
 	IRawUDPSocket *m_pRawSock;
@@ -299,8 +310,6 @@ private:
 	CUtlHashMap<netadr_t, RemoteHost *, std::equal_to<netadr_t>, netadr_t::Hash > m_mapRemoteHosts;
 
 	void CloseRemoteHostByIndex( int idx );
-
-	static void CallbackRecvPacket( const RecvPktInfo_t &info, CSharedSocket *pSock );
 };
 
 extern int g_cbUDPSocketBufferSize;

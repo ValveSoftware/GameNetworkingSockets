@@ -1134,6 +1134,12 @@ public:
 		}
 	}
 
+	virtual void SetCallbackRecvPacket( CRecvPacketCallback callback ) override
+	{
+		SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
+		m_callback = callback;
+	}
+
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_DUALWIFI
 	CRawUDPSocketImpl *m_pDualWifiPartner = nullptr;
 	virtual IRawUDPSocket *GetDualWifiSecondarySocket( int nEnableSetting ) override;
@@ -3017,38 +3023,43 @@ CSharedSocket::~CSharedSocket()
 	Kill();
 }
 
-void CSharedSocket::CallbackRecvPacket( const RecvPktInfo_t &info, CSharedSocket *pSock )
+void CSharedSocket::DefaultCallbackRecvPacket( const RecvPktInfo_t &info, CSharedSocket *pSock )
 {
 	// Locate the client
 	int idx = pSock->m_mapRemoteHosts.Find( info.m_adrFrom );
 
 	// Select the callback to invoke, ether client-specific, or the default
-	const CRecvPacketCallback &callback = ( idx == pSock->m_mapRemoteHosts.InvalidIndex() ) ? pSock->m_callbackDefault : pSock->m_mapRemoteHosts[ idx ]->m_callback;
+	const CRecvPacketCallback &callback = ( idx == pSock->m_mapRemoteHosts.InvalidIndex() ) ? pSock->m_callbackUnknownAddress : pSock->m_mapRemoteHosts[ idx ]->m_callback;
 
 	// Execute the callback
 	callback( info );
 }
 
-bool CSharedSocket::BInit( const SteamNetworkingIPAddr &localAddr, CRecvPacketCallback callbackDefault, SteamNetworkingErrMsg &errMsg )
+bool CSharedSocket::BInit( const SteamNetworkingIPAddr &localAddr, CRecvPacketCallback callbackUnknownAddress, SteamNetworkingErrMsg &errMsg )
 {
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
 
 	Kill();
 
 	SteamNetworkingIPAddr bindAddr = localAddr;
-	m_pRawSock = OpenRawUDPSocket( CRecvPacketCallback( CallbackRecvPacket, this ), errMsg, &bindAddr, nullptr );
+	m_pRawSock = OpenRawUDPSocket( CRecvPacketCallback( DefaultCallbackRecvPacket, this ), errMsg, &bindAddr, nullptr );
 	if ( m_pRawSock == nullptr )
 		return false;
 
-	m_callbackDefault = callbackDefault;
+	m_callbackUnknownAddress = callbackUnknownAddress;
 	return true;
+}
+
+void CSharedSocket::SetCallbackRecvPacket( CRecvPacketCallback callback )
+{
+	m_pRawSock->SetCallbackRecvPacket( callback );
 }
 
 void CSharedSocket::Kill()
 {
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
 
-	m_callbackDefault.m_fnCallback = nullptr;
+	m_callbackUnknownAddress.m_fnCallback = nullptr;
 	if ( m_pRawSock )
 	{
 		m_pRawSock->Close();
