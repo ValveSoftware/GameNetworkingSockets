@@ -103,7 +103,7 @@ void PingTracker::ReceivedPing( int nPingMS, SteamNetworkingMicroseconds usecNow
 	// extra noise.
 
 	// Check if we're just updating the last bucket
-	if ( usecNow < m_usecTimeAllowNewSample )
+	if ( usecNow < m_usecTimeAllowNewSample && m_nValidPings >= V_ARRAYSIZE(m_arPing) )
 	{
 		if ( nPingMS >= m_arPing[0].m_nPingMS )
 		{
