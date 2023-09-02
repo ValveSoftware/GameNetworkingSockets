@@ -310,7 +310,7 @@ public:
 	ConnectionConfig m_connectionConfig;
 
 	/// Symmetric mode
-	inline bool BSymmetricMode() const { return m_connectionConfig.m_SymmetricConnect.Get() != 0; }
+	inline bool BSymmetricMode() const { return m_connectionConfig.SymmetricConnect.Get() != 0; }
 	virtual bool BSupportsSymmetricMode();
 
 	// Some listen sockets are used by ad-hoc style messages endpoints
@@ -401,8 +401,8 @@ public:
 	inline int64 GetUserData() const
 	{
 		// User data is locked when we create a connection!
-		Assert( m_connectionConfig.m_ConnectionUserData.IsSet() );
-		return m_connectionConfig.m_ConnectionUserData.m_data;
+		Assert( m_connectionConfig.ConnectionUserData.IsSet() );
+		return m_connectionConfig.ConnectionUserData.m_data;
 	}
 	void SetUserData( int64 nUserData );
 
@@ -542,7 +542,7 @@ public:
 
 	/// Handy accessor to the local virtual port configuration option, which is used
 	/// a lot by P2P connections.
-	inline int LocalVirtualPort() const { return m_connectionConfig.m_LocalVirtualPort.Get(); }
+	inline int LocalVirtualPort() const { return m_connectionConfig.LocalVirtualPort.Get(); }
 
 	// Each connection is protected by a lock.  The actual lock to use is IThinker::m_pLock.
 	// Almost all connections use this default lock.  (A few special cases use a different lock
@@ -649,7 +649,7 @@ public:
 	}
 
 	/// Symmetric mode
-	inline bool BSymmetricMode() const { return m_connectionConfig.m_SymmetricConnect.Get() != 0; }
+	inline bool BSymmetricMode() const { return m_connectionConfig.SymmetricConnect.Get() != 0; }
 	virtual bool BSupportsSymmetricMode();
 
 	// Check the certs, save keys, etc

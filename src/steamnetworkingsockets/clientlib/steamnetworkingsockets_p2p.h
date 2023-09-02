@@ -84,8 +84,8 @@ public:
 
 	inline int LocalVirtualPort() const
 	{
-		Assert( m_connectionConfig.m_LocalVirtualPort.IsLocked() );
-		return m_connectionConfig.m_LocalVirtualPort.m_data;
+		Assert( m_connectionConfig.LocalVirtualPort.IsLocked() );
+		return m_connectionConfig.LocalVirtualPort.m_data;
 	}
 
 	// Listen sockets for hosted dedicated server connections derive from this class.
@@ -460,7 +460,7 @@ public:
 
 	// FIXME - UDP transport for LAN discovery, so P2P works without any signaling
 
-	inline int LogLevel_P2PRendezvous() const { return m_connectionConfig.m_LogLevel_P2PRendezvous.Get(); }
+	inline int LogLevel_P2PRendezvous() const { return m_connectionConfig.LogLevel_P2PRendezvous.Get(); }
 
 	static CSteamNetworkConnectionP2P *FindDuplicateConnection( CSteamNetworkingSockets *pInterfaceLocal, int nLocalVirtualPort, const SteamNetworkingIdentity &identityRemote, int nRemoteVirtualPort, bool bOnlySymmetricConnections, CSteamNetworkConnectionP2P *pIgnore );
 

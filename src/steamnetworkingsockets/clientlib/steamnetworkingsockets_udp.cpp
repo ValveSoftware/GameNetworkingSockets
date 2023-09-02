@@ -111,7 +111,7 @@ bool CSteamNetworkListenSocketDirectUDP::BInit( const SteamNetworkingIPAddr &loc
 		return false;
 
 	// Might we need to authenticate?
-	int IP_AllowWithoutAuth = m_connectionConfig.m_IP_AllowWithoutAuth.Get();
+	int IP_AllowWithoutAuth = m_connectionConfig.IP_AllowWithoutAuth.Get();
 	if ( IP_AllowWithoutAuth < 2 )
 	{
 		m_pSteamNetworkingSocketsInterface->AuthenticationNeeded();
@@ -349,7 +349,7 @@ void CSteamNetworkListenSocketDirectUDP::Received_ConnectRequest( const CMsgStea
 
 		if ( identityRemote.IsLocalHost() )
 		{
-			if ( m_connectionConfig.m_IP_AllowWithoutAuth.Get() == 0 )
+			if ( m_connectionConfig.IP_AllowWithoutAuth.Get() == 0 )
 			{
 				// Should we send an explicit rejection here?
 				ReportBadPacket( "ConnectRequest", "Unauthenticated connections not allowed." );
@@ -1147,7 +1147,7 @@ bool CSteamNetworkConnectionUDP::BInitConnect( const SteamNetworkingIPAddr &addr
 		{
 
 			// We don't know who we are.  Should we attempt anonymous?
-			if ( m_connectionConfig.m_IP_AllowWithoutAuth.Get() == 0 )
+			if ( m_connectionConfig.IP_AllowWithoutAuth.Get() == 0 )
 			{
 				V_strcpy_safe( errMsg, "Unable to determine local identity, and auth required.  Not logged in?" );
 				return false;
@@ -1561,7 +1561,7 @@ void CConnectionTransportUDP::Received_ConnectOK( const CMsgSteamSockets_UDP_Con
 
 		if ( identityRemote.IsLocalHost() )
 		{
-			if ( m_connection.m_connectionConfig.m_IP_AllowWithoutAuth.Get() == 0 )
+			if ( m_connection.m_connectionConfig.IP_AllowWithoutAuth.Get() == 0 )
 			{
 				// Should we send an explicit rejection here?
 				ReportBadUDPPacketFromConnectionPeer( "ConnectOK", "Unauthenticated connections not allowed." );
@@ -1775,7 +1775,7 @@ EUnsignedCert CSteamNetworkConnectionUDP::AllowRemoteUnsignedCert()
 	// differently from any other connection
 
 	// Enabled by convar?
-	int nAllow = m_connectionConfig.m_IP_AllowWithoutAuth.Get();
+	int nAllow = m_connectionConfig.IP_AllowWithoutAuth.Get();
 	if ( nAllow > 1 )
 		return k_EUnsignedCert_Allow;
 	if ( nAllow == 1 )

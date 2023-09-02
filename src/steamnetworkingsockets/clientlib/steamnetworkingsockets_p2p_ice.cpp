@@ -61,7 +61,7 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 	}
 
 	// Fetch enabled option
-	int P2P_Transport_ICE_Enable = m_connectionConfig.m_P2P_Transport_ICE_Enable.Get();
+	int P2P_Transport_ICE_Enable = m_connectionConfig.P2P_Transport_ICE_Enable.Get();
 	if ( P2P_Transport_ICE_Enable < 0 )
 	{
 
@@ -77,10 +77,10 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 	// Burn it into the connection config, if we inherited it, since we cannot change it
 	// after this point.  (Note in some cases we may be running this initialization
 	// for a second time, restarting ICE, so it might already be locked.)
-	if ( !m_connectionConfig.m_P2P_Transport_ICE_Enable.IsLocked() )
+	if ( !m_connectionConfig.P2P_Transport_ICE_Enable.IsLocked() )
 	{
-		m_connectionConfig.m_P2P_Transport_ICE_Enable.Set( P2P_Transport_ICE_Enable );
-		m_connectionConfig.m_P2P_Transport_ICE_Enable.Lock();
+		m_connectionConfig.P2P_Transport_ICE_Enable.Set( P2P_Transport_ICE_Enable );
+		m_connectionConfig.P2P_Transport_ICE_Enable.Lock();
 	}
 
 	// Disabled?
@@ -122,7 +122,7 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 
 		{
 			CUtlVectorAutoPurge<char *> tempStunServers;
-			V_AllocAndSplitString( m_connectionConfig.m_P2P_STUN_ServerList.Get().c_str(), ",", tempStunServers );
+			V_AllocAndSplitString( m_connectionConfig.P2P_STUN_ServerList.Get().c_str(), ",", tempStunServers );
 			for ( const char *pszAddress: tempStunServers )
 			{
 				std::string server;
@@ -139,7 +139,7 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 		if ( vecStunServers.empty() )
 			SpewWarningGroup( LogLevel_P2PRendezvous(), "[%s] Reflexive candidates enabled by P2P_Transport_ICE_Enable, but P2P_STUN_ServerList is empty\n", GetDescription() );
 		else
-			SpewVerboseGroup( LogLevel_P2PRendezvous(), "[%s] Using STUN server list: %s\n", GetDescription(), m_connectionConfig.m_P2P_STUN_ServerList.Get().c_str() );
+			SpewVerboseGroup( LogLevel_P2PRendezvous(), "[%s] Using STUN server list: %s\n", GetDescription(), m_connectionConfig.P2P_STUN_ServerList.Get().c_str() );
 	}
 	else
 	{
@@ -159,7 +159,7 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 
 		{
 			CUtlVectorAutoPurge<char*> tempTurnServers;
-			V_AllocAndSplitString( m_connectionConfig.m_P2P_TURN_ServerList.Get().c_str(), ",", tempTurnServers, true );
+			V_AllocAndSplitString( m_connectionConfig.P2P_TURN_ServerList.Get().c_str(), ",", tempTurnServers, true );
 			for (const char* pszAddress : tempTurnServers)
 			{
 				std::string server;
@@ -179,14 +179,14 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 		}
 		else
 		{
-			SpewVerboseGroup(LogLevel_P2PRendezvous(), "[%s] Using TURN server list: %s\n", GetDescription(), m_connectionConfig.m_P2P_TURN_ServerList.Get().c_str());
+			SpewVerboseGroup(LogLevel_P2PRendezvous(), "[%s] Using TURN server list: %s\n", GetDescription(), m_connectionConfig.P2P_TURN_ServerList.Get().c_str());
 			cfg.m_nTurnServers = len(vecTurnServerAddrs);
 
 			// populate usernames
-			V_AllocAndSplitString( m_connectionConfig.m_P2P_TURN_UserList.Get().c_str(), ",", vecTurnUsers, true) ;
+			V_AllocAndSplitString( m_connectionConfig.P2P_TURN_UserList.Get().c_str(), ",", vecTurnUsers, true) ;
 
 			// populate passwords
-			V_AllocAndSplitString( m_connectionConfig.m_P2P_TURN_PassList.Get().c_str(), ",", vecTurnPasses, true );
+			V_AllocAndSplitString( m_connectionConfig.P2P_TURN_PassList.Get().c_str(), ",", vecTurnPasses, true );
 
 			// If turn arrays lengths (servers, users and passes) are not match, treat all TURN servers as unauthenticated
 			if ( !vecTurnUsers.IsEmpty() || !vecTurnPasses.IsEmpty() )
@@ -244,7 +244,7 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 	// Select ICE client implementation and create the transport
 	// WARNING: if we fail, the ICE transport will call ICEFailed, which sets m_pTransportICE=NULL
 	//
-	int ICE_Implementation = m_connectionConfig.m_P2P_Transport_ICE_Implementation.Get();
+	int ICE_Implementation = m_connectionConfig.P2P_Transport_ICE_Implementation.Get();
 
 	// Apply default
 	if ( ICE_Implementation == 0 )
@@ -258,8 +258,8 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 	}
 
 	// Lock it in
-	m_connectionConfig.m_P2P_Transport_ICE_Implementation.Set( ICE_Implementation );
-	m_connectionConfig.m_P2P_Transport_ICE_Implementation.Lock();
+	m_connectionConfig.P2P_Transport_ICE_Implementation.Set( ICE_Implementation );
+	m_connectionConfig.P2P_Transport_ICE_Implementation.Lock();
 
 	// "Native" ICE client?
 	if ( ICE_Implementation == 1 ) 
@@ -483,7 +483,7 @@ void CSteamNetworkConnectionP2P::GuessICEFailureReason( ESteamNetConnectionEnd &
 	// We failed to STUN?
 	if ( ( nAllowedTypes & k_EICECandidate_Any_Reflexive ) != 0 && ( nGatheredTypes & (k_EICECandidate_Any_Reflexive|k_EICECandidate_IPv4_HostPublic) ) == 0 )
 	{
-		if ( m_connectionConfig.m_P2P_STUN_ServerList.Get().empty() )
+		if ( m_connectionConfig.P2P_STUN_ServerList.Get().empty() )
 		{
 			nReasonCode = k_ESteamNetConnectionEnd_Misc_InternalError;
 			V_strcpy_safe( msg, "No configured STUN servers" );
@@ -691,7 +691,7 @@ void CConnectionTransportP2PICE::P2PTransportUpdateRouteMetrics( SteamNetworking
 	}
 
 	// Debug penalty
-	m_routeMetrics.m_nTotalPenalty += m_connection.m_connectionConfig.m_P2P_Transport_ICE_Penalty.Get();
+	m_routeMetrics.m_nTotalPenalty += m_connection.m_connectionConfig.P2P_Transport_ICE_Penalty.Get();
 
 	// Check for recording the initial scoring data used to make the initial decision
 	CMsgSteamNetworkingICESessionSummary &ice_summary = Connection().m_msgICESessionSummary;

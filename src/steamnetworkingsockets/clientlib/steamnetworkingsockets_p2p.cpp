@@ -83,7 +83,7 @@ CSteamNetworkListenSocketP2P::CSteamNetworkListenSocketP2P( CSteamNetworkingSock
 CSteamNetworkListenSocketP2P::~CSteamNetworkListenSocketP2P()
 {
 	// Remove from virtual port map
-	if ( m_connectionConfig.m_LocalVirtualPort.IsSet() )
+	if ( m_connectionConfig.LocalVirtualPort.IsSet() )
 	{
 		int h = m_pSteamNetworkingSocketsInterface->m_mapListenSocketsByVirtualPort.Find( LocalVirtualPort() );
 		if ( h != m_pSteamNetworkingSocketsInterface->m_mapListenSocketsByVirtualPort.InvalidIndex() && m_pSteamNetworkingSocketsInterface->m_mapListenSocketsByVirtualPort[h] == this )
@@ -110,8 +110,8 @@ bool CSteamNetworkListenSocketP2P::BInit( int nLocalVirtualPort, int nOptions, c
 	m_pSteamNetworkingSocketsInterface->m_mapListenSocketsByVirtualPort.Insert( nLocalVirtualPort, this );
 
 	// Lock in virtual port into connection config map.
-	m_connectionConfig.m_LocalVirtualPort.Set( nLocalVirtualPort );
-	m_connectionConfig.m_LocalVirtualPort.Lock();
+	m_connectionConfig.LocalVirtualPort.Set( nLocalVirtualPort );
+	m_connectionConfig.LocalVirtualPort.Lock();
 
 	// Set options, add us to the global table
 	if ( !BInitListenSocketCommon( nOptions, pOptions, errMsg ) )
@@ -360,11 +360,11 @@ bool CSteamNetworkConnectionP2P::BInitP2PConnectionCommon( SteamNetworkingMicros
 	if ( LocalVirtualPort() < 0 && m_nRemoteVirtualPort >= 0 )
 	{
 		Assert( m_nRemoteVirtualPort <= 0xffff || m_nRemoteVirtualPort == k_nVirtualPort_Messages ); // Regular P2P virtual ports
-		m_connectionConfig.m_LocalVirtualPort.Set( m_nRemoteVirtualPort );
+		m_connectionConfig.LocalVirtualPort.Set( m_nRemoteVirtualPort );
 	}
 
 	// Local virtual port cannot be changed henceforth
-	m_connectionConfig.m_LocalVirtualPort.Lock();
+	m_connectionConfig.LocalVirtualPort.Lock();
 	int nLocalVirtualPort = LocalVirtualPort();
 
 	// Check for activating symmetric mode based on listen socket on the same local virtual port
@@ -382,16 +382,16 @@ bool CSteamNetworkConnectionP2P::BInitP2PConnectionCommon( SteamNetworkingMicros
 			{
 				SpewWarning( "[%s] Setting SymmetricConnect=1 because it is enabled on listen socket on %s.  To avoid this warning, specify the option on connection creation\n",
 					GetDescription(), VirtualPortRender( nLocalVirtualPort ).c_str() );
-				Assert( !m_connectionConfig.m_SymmetricConnect.IsLocked() );
-				m_connectionConfig.m_SymmetricConnect.Unlock();
-				m_connectionConfig.m_SymmetricConnect.Set( 1 );
+				Assert( !m_connectionConfig.SymmetricConnect.IsLocked() );
+				m_connectionConfig.SymmetricConnect.Unlock();
+				m_connectionConfig.SymmetricConnect.Set( 1 );
 			}
 		}
 	}
 
 	// Once symmetric mode is activated, it cannot be turned off!
 	if ( BSymmetricMode() )
-		m_connectionConfig.m_SymmetricConnect.Lock();
+		m_connectionConfig.SymmetricConnect.Lock();
 
 	// We must know our own identity to initiate or receive this kind of connection
 	if ( m_identityLocal.IsInvalid() )
@@ -2674,7 +2674,7 @@ CSteamNetworkConnectionBase *CSteamNetworkingSockets::InternalConnectP2PDefaultS
 	#endif
 
 	// Create signaling
-	FnSteamNetworkingSocketsCreateConnectionSignaling fnCreateConnectionSignaling = (FnSteamNetworkingSocketsCreateConnectionSignaling)g_Config_Callback_CreateConnectionSignaling.Get();
+	FnSteamNetworkingSocketsCreateConnectionSignaling fnCreateConnectionSignaling = (FnSteamNetworkingSocketsCreateConnectionSignaling)GlobalConfig::Callback_CreateConnectionSignaling.Get();
 	if ( fnCreateConnectionSignaling == nullptr )
 	{
 		SpewBug( "Cannot use P2P connectivity.  CreateConnectionSignaling callback not set" );
@@ -2688,7 +2688,7 @@ CSteamNetworkConnectionBase *CSteamNetworkingSockets::InternalConnectP2PDefaultS
 	CSteamNetworkConnectionBase *pResult = InternalConnectP2P( pSignaling, &identityRemote, nRemoteVirtualPort, nOptions, pOptions, scopeLock );
 
 	// Confirm that we properly knew what the local virtual port would be
-	Assert( !pResult || pResult->m_connectionConfig.m_LocalVirtualPort.Get() == nLocalVirtualPort );
+	Assert( !pResult || pResult->m_connectionConfig.LocalVirtualPort.Get() == nLocalVirtualPort );
 
 	// Done
 	return pResult;
@@ -2898,7 +2898,7 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const CMsgSteamNetworki
 	SteamNetworkingIdentity toLocalIdentity;
 	toLocalIdentity.ParseString( msg.to_identity().c_str() );
 
-	int nLogLevel = m_connectionConfig.m_LogLevel_P2PRendezvous.Get();
+	int nLogLevel = m_connectionConfig.LogLevel_P2PRendezvous.Get();
 
 	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 
@@ -3252,11 +3252,11 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const CMsgSteamNetworki
 			pConn->m_identityRemote = identityRemote;
 			pConn->m_unConnectionIDRemote = msg.from_connection_id();
 			pConn->m_nRemoteVirtualPort = nRemoteVirtualPort;
-			pConn->m_connectionConfig.m_LocalVirtualPort.Set( nLocalVirtualPort );
+			pConn->m_connectionConfig.LocalVirtualPort.Set( nLocalVirtualPort );
 			if ( nUseSymmetricConnection >= 0 )
 			{
-				pConn->m_connectionConfig.m_SymmetricConnect.Set( nUseSymmetricConnection );
-				pConn->m_connectionConfig.m_SymmetricConnect.Lock();
+				pConn->m_connectionConfig.SymmetricConnect.Set( nUseSymmetricConnection );
+				pConn->m_connectionConfig.SymmetricConnect.Lock();
 			}
 
 			// Suppress state change notifications for now

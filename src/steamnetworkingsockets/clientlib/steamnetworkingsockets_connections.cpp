@@ -403,7 +403,7 @@ bool CSteamNetworkListenSocketBase::BInitListenSocketCommon( int nOptions, const
 
 	// Check if symmetric is enabled, then make sure it's supported.
 	// It cannot be changed after listen socket creation
-	m_connectionConfig.m_SymmetricConnect.Lock();
+	m_connectionConfig.SymmetricConnect.Lock();
 	if ( BSymmetricMode() )
 	{
 		if ( !BSupportsSymmetricMode() )
@@ -967,7 +967,7 @@ bool CSteamNetworkConnectionBase::BInitConnection( SteamNetworkingMicroseconds u
 	}
 
 	// Bind effective user data into the connection now.  It can no longer be inherited
-	m_connectionConfig.m_ConnectionUserData.Set( m_connectionConfig.m_ConnectionUserData.Get() );
+	m_connectionConfig.ConnectionUserData.Set( m_connectionConfig.ConnectionUserData.Get() );
 
 	// Make sure a description has been set for debugging purposes
 	SetDescription();
@@ -1211,8 +1211,8 @@ void CSteamNetworkConnectionBase::SetCryptoCipherList()
 
 	// Select the ciphers we want to use, in preference order.
 	// Also, lock it, we cannot change it any more
-	m_connectionConfig.m_Unencrypted.Lock();
-	int unencrypted = m_connectionConfig.m_Unencrypted.Get();
+	m_connectionConfig.Unencrypted.Lock();
+	int unencrypted = m_connectionConfig.Unencrypted.Get();
 	switch ( unencrypted )
 	{
 		default:
@@ -1825,7 +1825,7 @@ ESteamNetConnectionEnd CSteamNetworkConnectionBase::CheckRemoteCert( const CertA
 void CSteamNetworkConnectionBase::SetUserData( int64 nUserData )
 {
 	m_pLock->AssertHeldByCurrentThread();
-	m_connectionConfig.m_ConnectionUserData.Set( nUserData );
+	m_connectionConfig.ConnectionUserData.Set( nUserData );
 
 	// Change user data on all messages that haven't been pulled out
 	// of the queue yet.  This way we don't expose the client to weird
@@ -2491,15 +2491,15 @@ void CSteamNetworkConnectionBase::SetState( ESteamNetworkingConnectionState eNew
 	if ( bLock )
 	{
 		// Can't change certain options after this point
-		m_connectionConfig.m_IP_AllowWithoutAuth.Lock();
-		m_connectionConfig.m_Unencrypted.Lock();
-		m_connectionConfig.m_SymmetricConnect.Lock();
+		m_connectionConfig.IP_AllowWithoutAuth.Lock();
+		m_connectionConfig.Unencrypted.Lock();
+		m_connectionConfig.SymmetricConnect.Lock();
 		#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
-			m_connectionConfig.m_SDRClient_DebugTicketAddress.Lock();
+			m_connectionConfig.SDRClient_DebugTicketAddress.Lock();
 		#endif
 		#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
-			m_connectionConfig.m_P2P_Transport_ICE_Enable.Lock();
-			m_connectionConfig.m_P2P_Transport_ICE_Implementation.Lock();
+			m_connectionConfig.P2P_Transport_ICE_Enable.Lock();
+			m_connectionConfig.P2P_Transport_ICE_Implementation.Lock();
 		#endif
 	}
 
@@ -2624,15 +2624,15 @@ CSteamNetworkingMessage *CSteamNetworkConnectionBase::AllocateNewRecvMessage( ui
 	//
 
 	// Max message size
-	if ( (uint32)m_connectionConfig.m_RecvMaxMessageSize.Get() < cbSize )
+	if ( (uint32)m_connectionConfig.RecvMaxMessageSize.Get() < cbSize )
 	{
-		SpewMsg( "[%s] recv message of size %u too large for limit of %d.\n", GetDescription(), cbSize, m_connectionConfig.m_RecvMaxMessageSize.Get() );
-		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_InternalError, "Failed to allocate a buffer of size %u (limit is %d).", cbSize, m_connectionConfig.m_RecvMaxMessageSize.Get() );
+		SpewMsg( "[%s] recv message of size %u too large for limit of %d.\n", GetDescription(), cbSize, m_connectionConfig.RecvMaxMessageSize.Get() );
+		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_InternalError, "Failed to allocate a buffer of size %u (limit is %d).", cbSize, m_connectionConfig.RecvMaxMessageSize.Get() );
 		return nullptr;
 	}
 
 	// Max number of messages buffered
-	if ( m_queueRecvMessages.m_nMessageCount >= m_connectionConfig.m_RecvBufferMessages.Get() )
+	if ( m_queueRecvMessages.m_nMessageCount >= m_connectionConfig.RecvBufferMessages.Get() )
 	{
 		SpewWarningRateLimited( usecNow, "[%s] recv queue overflow %d messages already queued.\n", GetDescription(), m_queueRecvMessages.m_nMessageCount );
 		return nullptr;
@@ -2681,7 +2681,7 @@ bool CSteamNetworkConnectionBase::ReceivedMessage( CSteamNetworkingMessage *pMsg
 {
 	m_pLock->AssertHeldByCurrentThread();
 
-	SpewVerboseGroup( m_connectionConfig.m_LogLevel_Message.Get(), "[%s] RecvMessage MsgNum=%lld sz=%d\n",
+	SpewVerboseGroup( m_connectionConfig.LogLevel_Message.Get(), "[%s] RecvMessage MsgNum=%lld sz=%d\n",
 		GetDescription(),
 		(long long)pMsg->m_nMessageNumber,
 		pMsg->m_cbSize );
@@ -2705,7 +2705,7 @@ bool CSteamNetworkConnectionBase::ReceivedMessage( CSteamNetworkingMessage *pMsg
 	g_lockAllRecvMessageQueues.lock();
 
 	Assert( pMsg->m_cbSize >= 0 );
-	if ( m_queueRecvMessages.m_nMessageCount >= m_connectionConfig.m_RecvBufferMessages.Get() )
+	if ( m_queueRecvMessages.m_nMessageCount >= m_connectionConfig.RecvBufferMessages.Get() )
 	{
 		g_lockAllRecvMessageQueues.unlock();
 		SpewWarningRateLimited ( SteamNetworkingSockets_GetLocalTimestamp(), "[%s] recv queue overflow %d messages already queued.\n", GetDescription(), m_queueRecvMessages.m_nMessageCount );
@@ -2713,10 +2713,10 @@ bool CSteamNetworkConnectionBase::ReceivedMessage( CSteamNetworkingMessage *pMsg
 		return false;
 	}
 
-	if ( m_queueRecvMessages.m_nMessageSize + pMsg->m_cbSize > m_connectionConfig.m_RecvBufferSize.Get() )
+	if ( m_queueRecvMessages.m_nMessageSize + pMsg->m_cbSize > m_connectionConfig.RecvBufferSize.Get() )
 	{
 		g_lockAllRecvMessageQueues.unlock();
-		SpewWarningRateLimited ( SteamNetworkingSockets_GetLocalTimestamp(), "[%s] recv queue overflow %d + %d bytes exceeds limit of %d.\n", GetDescription(), m_queueRecvMessages.m_nMessageSize, pMsg->m_cbSize, m_connectionConfig.m_RecvBufferSize.Get() );
+		SpewWarningRateLimited ( SteamNetworkingSockets_GetLocalTimestamp(), "[%s] recv queue overflow %d + %d bytes exceeds limit of %d.\n", GetDescription(), m_queueRecvMessages.m_nMessageSize, pMsg->m_cbSize, m_connectionConfig.RecvBufferSize.Get() );
 		pMsg->Release();
 		return false;
 	}
@@ -2770,7 +2770,7 @@ bool CSteamNetworkConnectionBase::ReceivedMessage( CSteamNetworkingMessage *pMsg
 		// NOTE - message could have been pulled out of the queue
 		// and consumed by the app already here
 
-		SpewMsgGroup( m_connectionConfig.m_LogLevel_Message.Get(), "[%s] Received Msg %lld out of order.  %d message(s) queued with higher numbers, IDs %lld ... %lld\n",
+		SpewMsgGroup( m_connectionConfig.LogLevel_Message.Get(), "[%s] Received Msg %lld out of order.  %d message(s) queued with higher numbers, IDs %lld ... %lld\n",
 			GetDescription(),
 			(long long)nMessageNumber,
 			nMessagesGreaterThanCurrent,
@@ -2808,7 +2808,7 @@ void CSteamNetworkConnectionBase::PostConnectionStateChangedCallback( ESteamNetw
 		c.m_eOldState = eOldAPIState;
 		c.m_hConn = m_hConnectionSelf;
 
-		void *fnCallback = m_connectionConfig.m_Callback_ConnectionStatusChanged.Get();
+		void *fnCallback = m_connectionConfig.Callback_ConnectionStatusChanged.Get();
 
 		// Typical codepath - post to a queue
 		m_pSteamNetworkingSocketsInterface->QueueCallback( c, fnCallback );
@@ -2823,7 +2823,7 @@ void CSteamNetworkConnectionBase::PostConnectionStateChangedCallback( ESteamNetw
 			// Disabled, don't send any more
 			m_usecWhenNextDiagnosticsUpdate = k_nThinkTime_Never;
 		}
-		else if ( m_connectionConfig.m_EnableDiagnosticsUI.Get() != 0 )
+		else if ( m_connectionConfig.EnableDiagnosticsUI.Get() != 0 )
 		{
 
 			// Post an update.  If more should be sent, we'll schedule it.
@@ -2851,7 +2851,7 @@ void CSteamNetworkConnectionBase::CheckScheduleDiagnosticsUpdateASAP()
 	{
 		// We've sent our last update.  Don't send any more
 	}
-	else if ( m_connectionConfig.m_EnableDiagnosticsUI.Get() != 0 )
+	else if ( m_connectionConfig.EnableDiagnosticsUI.Get() != 0 )
 	{
 		m_usecWhenNextDiagnosticsUpdate = k_nThinkTime_ASAP;
 		SetNextThinkTimeASAP();
@@ -3405,7 +3405,7 @@ void CSteamNetworkConnectionBase::Think( SteamNetworkingMicroseconds usecNow )
 		{
 
 			// Timeout?
-			SteamNetworkingMicroseconds usecTimeout = m_usecWhenEnteredConnectionState + (SteamNetworkingMicroseconds)m_connectionConfig.m_TimeoutInitial.Get()*1000;
+			SteamNetworkingMicroseconds usecTimeout = m_usecWhenEnteredConnectionState + (SteamNetworkingMicroseconds)m_connectionConfig.TimeoutInitial.Get()*1000;
 			if ( usecNow >= usecTimeout )
 			{
 				// Check if the application just didn't ever respond, it's probably a bug.
@@ -3516,7 +3516,7 @@ void CSteamNetworkConnectionBase::Think( SteamNetworkingMicroseconds usecNow )
 		{
 
 			// When will the timeout hit?
-			SteamNetworkingMicroseconds usecEndToEndConnectionTimeout = std::max( m_statsEndToEnd.m_usecWhenTimeoutStarted, m_statsEndToEnd.m_usecTimeLastRecv ) + (SteamNetworkingMicroseconds)m_connectionConfig.m_TimeoutConnected.Get()*1000;
+			SteamNetworkingMicroseconds usecEndToEndConnectionTimeout = std::max( m_statsEndToEnd.m_usecWhenTimeoutStarted, m_statsEndToEnd.m_usecTimeLastRecv ) + (SteamNetworkingMicroseconds)m_connectionConfig.TimeoutConnected.Get()*1000;
 
 			// Time to give up?
 			if ( usecNow >= usecEndToEndConnectionTimeout )
@@ -3723,7 +3723,7 @@ void CSteamNetworkConnectionBase::UpdateMTUFromConfig( bool bForceRecalc )
 	}
 	else
 	{
-		int newMTUPacketSize = m_connectionConfig.m_MTU_PacketSize.Get();
+		int newMTUPacketSize = m_connectionConfig.MTU_PacketSize.Get();
 		if ( newMTUPacketSize == m_cbMTUPacketSize )
 			return;
 
@@ -3745,7 +3745,7 @@ void CSteamNetworkConnectionBase::UpdateMTUFromConfig( bool bForceRecalc )
 		}
 	}
 
-	m_cbMTUPacketSize = m_connectionConfig.m_MTU_PacketSize.Get();
+	m_cbMTUPacketSize = m_connectionConfig.MTU_PacketSize.Get();
 	m_cbMaxPlaintextPayloadSend = m_cbMTUPacketSize - ( k_cbSteamNetworkingSocketsMaxUDPMsgLen - k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend ) - m_cbEncryptionOverhead;
 	m_cbMaxMessageNoFragment = m_cbMaxPlaintextPayloadSend - k_cbSteamNetworkingSocketsNoFragmentHeaderReserve;
 
@@ -3927,23 +3927,23 @@ CSteamNetworkConnectionPipe::CSteamNetworkConnectionPipe( CSteamNetworkingSocket
 	// This is not strictly necessary, since we never even send packets or
 	// touch payload bytes at all, we just shift some pointers around.
 	// But it's nice to make it official
-	m_connectionConfig.m_Unencrypted.Set( 3 );
+	m_connectionConfig.Unencrypted.Set( 3 );
 
 	// Slam in a really large SNP rate so that we are never rate limited
 	int nRate = 0x10000000;
-	m_connectionConfig.m_SendRateMin.Set( nRate );
-	m_connectionConfig.m_SendRateMax.Set( nRate );
+	m_connectionConfig.SendRateMin.Set( nRate );
+	m_connectionConfig.SendRateMax.Set( nRate );
 
 	// Don't limit the recv buffer.  (Send buffer doesn't
 	// matter since we immediately transfer.)
-	m_connectionConfig.m_RecvBufferSize.Set( 0x10000000 );
-	m_connectionConfig.m_RecvBufferMessages.Set( 0x10000000 );
-	m_connectionConfig.m_RecvMaxMessageSize.Set( 0x10000000 );
+	m_connectionConfig.RecvBufferSize.Set( 0x10000000 );
+	m_connectionConfig.RecvBufferMessages.Set( 0x10000000 );
+	m_connectionConfig.RecvMaxMessageSize.Set( 0x10000000 );
 
 	// Diagnostics usually not useful on these types of connections.
 	// (App can enable it or clear this override if it wants to.)
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_DIAGNOSTICSUI
-		m_connectionConfig.m_EnableDiagnosticsUI.Set(0);
+		m_connectionConfig.EnableDiagnosticsUI.Set(0);
 	#endif
 }
 

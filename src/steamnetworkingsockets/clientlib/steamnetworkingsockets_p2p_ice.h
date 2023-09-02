@@ -41,7 +41,7 @@ public:
 	void PopulateRendezvousMsg( CMsgSteamNetworkingP2PRendezvous &msg, SteamNetworkingMicroseconds usecNow );
 	virtual void RecvRendezvous( const CMsgICERendezvous &msg, SteamNetworkingMicroseconds usecNow ) = 0;
 
-	inline int LogLevel_P2PRendezvous() const { return m_connection.m_connectionConfig.m_LogLevel_P2PRendezvous.Get(); }
+	inline int LogLevel_P2PRendezvous() const { return m_connection.m_connectionConfig.LogLevel_P2PRendezvous.Get(); }
 
 	void LocalCandidateGathered( EICECandidateType eType, CMsgICECandidate &&msgCandidate );
 

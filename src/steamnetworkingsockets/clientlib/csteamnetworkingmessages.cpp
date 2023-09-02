@@ -709,7 +709,7 @@ bool CSteamNetworkingMessages::BHandleNewIncomingConnection( CSteamNetworkConnec
 	// Post a callback
 	SteamNetworkingMessagesSessionRequest_t callback;
 	callback.m_identityRemote = pConn->m_identityRemote;
-	m_steamNetworkingSockets.QueueCallback( callback, g_Config_Callback_MessagesSessionRequest.Get() );
+	m_steamNetworkingSockets.QueueCallback( callback, GlobalConfig::Callback_MessagesSessionRequest.Get() );
 
 	return true;
 }
@@ -830,7 +830,7 @@ void SteamNetworkingMessagesSession::CheckConnection( SteamNetworkingMicrosecond
 			SpewVerbose( "[%s] Posting SteamNetworkingMessagesSessionFailed_t\n", m_lastConnectionInfo.m_szConnectionDescription );
 			SteamNetworkingMessagesSessionFailed_t callback;
 			callback.m_info = m_lastConnectionInfo;
-			MessagesOwner().m_steamNetworkingSockets.QueueCallback( callback, g_Config_Callback_MessagesSessionFailed.Get() );
+			MessagesOwner().m_steamNetworkingSockets.QueueCallback( callback, GlobalConfig::Callback_MessagesSessionFailed.Get() );
 		}
 
 		// Clean up the connection.

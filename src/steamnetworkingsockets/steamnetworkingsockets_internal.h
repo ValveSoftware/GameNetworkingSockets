@@ -860,52 +860,52 @@ struct GlobalConfigValue : GlobalConfigValueBase<T>
 
 struct ConnectionConfig
 {
-	ConfigValue<int32> m_TimeoutInitial;
-	ConfigValue<int32> m_TimeoutConnected;
-	ConfigValue<int32> m_SendBufferSize;
-	ConfigValue<int32> m_RecvBufferSize;
-	ConfigValue<int32> m_RecvBufferMessages;
-	ConfigValue<int32> m_RecvMaxMessageSize;
-	ConfigValue<int32> m_RecvMaxSegmentsPerPacket;
-	ConfigValue<int32> m_SendRateMin;
-	ConfigValue<int32> m_SendRateMax;
-	ConfigValue<int32> m_MTU_PacketSize;
-	ConfigValue<int32> m_NagleTime;
-	ConfigValue<int32> m_IP_AllowWithoutAuth;
-	ConfigValue<int32> m_Unencrypted;
-	ConfigValue<int32> m_SymmetricConnect;
-	ConfigValue<int32> m_LocalVirtualPort;
-	ConfigValue<int64> m_ConnectionUserData;
+	ConfigValue<int32> TimeoutInitial;
+	ConfigValue<int32> TimeoutConnected;
+	ConfigValue<int32> SendBufferSize;
+	ConfigValue<int32> RecvBufferSize;
+	ConfigValue<int32> RecvBufferMessages;
+	ConfigValue<int32> RecvMaxMessageSize;
+	ConfigValue<int32> RecvMaxSegmentsPerPacket;
+	ConfigValue<int32> SendRateMin;
+	ConfigValue<int32> SendRateMax;
+	ConfigValue<int32> MTU_PacketSize;
+	ConfigValue<int32> NagleTime;
+	ConfigValue<int32> IP_AllowWithoutAuth;
+	ConfigValue<int32> Unencrypted;
+	ConfigValue<int32> SymmetricConnect;
+	ConfigValue<int32> LocalVirtualPort;
+	ConfigValue<int64> ConnectionUserData;
 
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_DIAGNOSTICSUI
-	ConfigValue<int32> m_EnableDiagnosticsUI;
+	ConfigValue<int32> EnableDiagnosticsUI;
 	#endif
 
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_DUALWIFI
-	ConfigValue<int32> m_DualWifi_Enable;
+	ConfigValue<int32> DualWifi_Enable;
 	#endif
 
-	ConfigValue<int32> m_LogLevel_AckRTT;
-	ConfigValue<int32> m_LogLevel_PacketDecode;
-	ConfigValue<int32> m_LogLevel_Message;
-	ConfigValue<int32> m_LogLevel_PacketGaps;
-	ConfigValue<int32> m_LogLevel_P2PRendezvous;
+	ConfigValue<int32> LogLevel_AckRTT;
+	ConfigValue<int32> LogLevel_PacketDecode;
+	ConfigValue<int32> LogLevel_Message;
+	ConfigValue<int32> LogLevel_PacketGaps;
+	ConfigValue<int32> LogLevel_P2PRendezvous;
 
-	ConfigValue<void *> m_Callback_ConnectionStatusChanged;
+	ConfigValue<void *> Callback_ConnectionStatusChanged;
 
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
-		ConfigValue<std::string> m_P2P_STUN_ServerList;
-		ConfigValue<int32> m_P2P_Transport_ICE_Enable;
-		ConfigValue<int32> m_P2P_Transport_ICE_Penalty;
-		ConfigValue<std::string> m_P2P_TURN_ServerList;
-		ConfigValue<std::string> m_P2P_TURN_UserList;
-		ConfigValue<std::string> m_P2P_TURN_PassList;
-		ConfigValue<int32> m_P2P_Transport_ICE_Implementation;
+		ConfigValue<std::string> P2P_STUN_ServerList;
+		ConfigValue<int32> P2P_Transport_ICE_Enable;
+		ConfigValue<int32> P2P_Transport_ICE_Penalty;
+		ConfigValue<std::string> P2P_TURN_ServerList;
+		ConfigValue<std::string> P2P_TURN_UserList;
+		ConfigValue<std::string> P2P_TURN_PassList;
+		ConfigValue<int32> P2P_Transport_ICE_Implementation;
 	#endif
 
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
-		ConfigValue<std::string> m_SDRClient_DebugTicketAddress;
-		ConfigValue<int32> m_P2P_Transport_SDR_Penalty;
+		ConfigValue<std::string> SDRClient_DebugTicketAddress;
+		ConfigValue<int32> P2P_Transport_SDR_Penalty;
 	#endif
 
 	void Init( ConnectionConfig *pInherit );
@@ -920,64 +920,68 @@ struct ConnectionConfigDefaultValue : GlobalConfigValueBase<T>
 	: GlobalConfigValueBase<T>( eValue, pszName, k_ESteamNetworkingConfig_Connection, cbOffsetOf, defaultValue, minVal, maxVal ) {}
 };
 
-extern GlobalConfigValue<float> g_Config_FakePacketLoss_Send;
-extern GlobalConfigValue<float> g_Config_FakePacketLoss_Recv;
-extern GlobalConfigValue<int32> g_Config_FakePacketLag_Send;
-extern GlobalConfigValue<int32> g_Config_FakePacketLag_Recv;
-extern GlobalConfigValue<float> g_Config_FakePacketReorder_Send;
-extern GlobalConfigValue<float> g_Config_FakePacketReorder_Recv;
-extern GlobalConfigValue<int32> g_Config_FakePacketReorder_Time;
-extern GlobalConfigValue<float> g_Config_FakePacketDup_Send;
-extern GlobalConfigValue<float> g_Config_FakePacketDup_Recv;
-extern GlobalConfigValue<int32> g_Config_FakePacketDup_TimeMax;
-extern GlobalConfigValue<int32> g_Config_PacketTraceMaxBytes;
-extern GlobalConfigValue<int32> g_Config_FakeRateLimit_Send_Rate;
-extern GlobalConfigValue<int32> g_Config_FakeRateLimit_Send_Burst;
-extern GlobalConfigValue<int32> g_Config_FakeRateLimit_Recv_Rate;
-extern GlobalConfigValue<int32> g_Config_FakeRateLimit_Recv_Burst;
-extern GlobalConfigValue<int32> g_Config_ECN;
+namespace GlobalConfig
+{
+	extern GlobalConfigValue<float> FakePacketLoss_Send;
+	extern GlobalConfigValue<float> FakePacketLoss_Recv;
+	extern GlobalConfigValue<int32> FakePacketLag_Send;
+	extern GlobalConfigValue<int32> FakePacketLag_Recv;
+	extern GlobalConfigValue<float> FakePacketReorder_Send;
+	extern GlobalConfigValue<float> FakePacketReorder_Recv;
+	extern GlobalConfigValue<int32> FakePacketReorder_Time;
+	extern GlobalConfigValue<float> FakePacketDup_Send;
+	extern GlobalConfigValue<float> FakePacketDup_Recv;
+	extern GlobalConfigValue<int32> FakePacketDup_TimeMax;
+	extern GlobalConfigValue<int32> PacketTraceMaxBytes;
+	extern GlobalConfigValue<int32> FakeRateLimit_Send_Rate;
+	extern GlobalConfigValue<int32> FakeRateLimit_Send_Burst;
+	extern GlobalConfigValue<int32> FakeRateLimit_Recv_Rate;
+	extern GlobalConfigValue<int32> FakeRateLimit_Recv_Burst;
+	extern GlobalConfigValue<int32> ECN;
 
-extern GlobalConfigValue<int32> g_Config_EnumerateDevVars;
-extern GlobalConfigValue<void*> g_Config_Callback_CreateConnectionSignaling;
-extern ConnectionConfigDefaultValue<int32> g_ConfigDefault_LogLevel_PacketGaps;
-extern ConnectionConfigDefaultValue<int32> g_ConfigDefault_LogLevel_P2PRendezvous;
+	extern GlobalConfigValue<int32> EnumerateDevVars;
+	extern GlobalConfigValue<void*> Callback_CreateConnectionSignaling;
 
-#ifdef STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
-extern GlobalConfigValue<void*> g_Config_Callback_MessagesSessionRequest;
-extern GlobalConfigValue<void*> g_Config_Callback_MessagesSessionFailed;
-#endif
+	extern ConnectionConfigDefaultValue<int32> LogLevel_PacketGaps;
+	extern ConnectionConfigDefaultValue<int32> LogLevel_P2PRendezvous;
 
-#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
-extern GlobalConfigValue<int32> g_Config_SDRClient_ConsecutitivePingTimeoutsFailInitial;
-extern GlobalConfigValue<int32> g_Config_SDRClient_ConsecutitivePingTimeoutsFail;
-extern GlobalConfigValue<int32> g_Config_SDRClient_MinPingsBeforePingAccurate;
-extern GlobalConfigValue<int32> g_Config_SDRClient_SingleSocket;
-extern GlobalConfigValue<int32> g_Config_LogLevel_SDRRelayPings;
-extern GlobalConfigValue<std::string> g_Config_SDRClient_ForceRelayCluster;
-extern GlobalConfigValue<std::string> g_Config_SDRClient_ForceProxyAddr;
-extern GlobalConfigValue<std::string> g_Config_SDRClient_FakeClusterPing;
-#endif
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
+	extern GlobalConfigValue<void*> Callback_MessagesSessionRequest;
+	extern GlobalConfigValue<void*> Callback_MessagesSessionFailed;
+	#endif
 
-#ifdef STEAMNETWORKINGSOCKETS_ENABLE_DIAGNOSTICSUI
-extern ConnectionConfigDefaultValue<int32> g_ConfigDefault_EnableDiagnosticsUI;
-#endif
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
+	extern GlobalConfigValue<int32> SDRClient_ConsecutitivePingTimeoutsFailInitial;
+	extern GlobalConfigValue<int32> SDRClient_ConsecutitivePingTimeoutsFail;
+	extern GlobalConfigValue<int32> SDRClient_MinPingsBeforePingAccurate;
+	extern GlobalConfigValue<int32> SDRClient_SingleSocket;
+	extern GlobalConfigValue<int32> LogLevel_SDRRelayPings;
+	extern GlobalConfigValue<std::string> SDRClient_ForceRelayCluster;
+	extern GlobalConfigValue<std::string> SDRClient_ForceProxyAddr;
+	extern GlobalConfigValue<std::string> SDRClient_FakeClusterPing;
+	#endif
 
-#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
-extern ConnectionConfigDefaultValue< std::string > g_ConfigDefault_P2P_STUN_ServerList;
-#endif
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_DIAGNOSTICSUI
+	extern ConnectionConfigDefaultValue<int32> EnableDiagnosticsUI;
+	#endif
 
-#ifdef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
-extern GlobalConfigValue<void*> g_Config_Callback_FakeIPResult;
-#endif
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+	extern ConnectionConfigDefaultValue< std::string > P2P_STUN_ServerList;
+	#endif
+
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_FAKEIP
+	extern GlobalConfigValue<void*> Callback_FakeIPResult;
+	#endif
+}
 
 // This awkwardness (adding and subtracting sizeof(intptr_t)) silences an UBSan
 // runtime error about "member access within null pointer"
 #define V_offsetof(class, field) (int)((intptr_t)&((class *)(0+sizeof(intptr_t)))->field - sizeof(intptr_t))
 
 #define DEFINE_GLOBAL_CONFIGVAL( type, name, ... ) \
-	GlobalConfigValue<type> g_Config_##name( k_ESteamNetworkingConfig_##name, #name, __VA_ARGS__ )
+	namespace GlobalConfig { GlobalConfigValue<type> name( k_ESteamNetworkingConfig_##name, #name, __VA_ARGS__ ); }
 #define DEFINE_CONNECTON_DEFAULT_CONFIGVAL( type, name, ... ) \
-	ConnectionConfigDefaultValue<type> g_ConfigDefault_##name( k_ESteamNetworkingConfig_##name, #name, V_offsetof(ConnectionConfig, m_##name), __VA_ARGS__ )
+	namespace GlobalConfig { ConnectionConfigDefaultValue<type> name( k_ESteamNetworkingConfig_##name, #name, V_offsetof(ConnectionConfig, name), __VA_ARGS__ ); }
 
 inline bool RandomBoolWithOdds( float odds )
 {

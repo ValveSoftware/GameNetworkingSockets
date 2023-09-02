@@ -856,24 +856,24 @@ static void UpdateFakeRateLimitTokenBuckets( SteamNetworkingMicroseconds usecNow
 	float flElapsed = ( usecNow - s_usecFakeRateLimitBucketUpdateTime ) * 1e-6;
 	s_usecFakeRateLimitBucketUpdateTime = usecNow;
 
-	if ( g_Config_FakeRateLimit_Send_Rate.Get() <= 0 )
+	if ( GlobalConfig::FakeRateLimit_Send_Rate.Get() <= 0 )
 	{
 		s_flFakeRateLimit_Send_tokens = (double)INT_MAX;
 	}
 	else
 	{
-		s_flFakeRateLimit_Send_tokens += flElapsed*g_Config_FakeRateLimit_Send_Rate.Get();
-		s_flFakeRateLimit_Send_tokens = std::min( s_flFakeRateLimit_Send_tokens, (double)g_Config_FakeRateLimit_Send_Burst.Get() );
+		s_flFakeRateLimit_Send_tokens += flElapsed*GlobalConfig::FakeRateLimit_Send_Rate.Get();
+		s_flFakeRateLimit_Send_tokens = std::min( s_flFakeRateLimit_Send_tokens, (double)GlobalConfig::FakeRateLimit_Send_Burst.Get() );
 	}
 
-	if ( g_Config_FakeRateLimit_Recv_Rate.Get() <= 0 )
+	if ( GlobalConfig::FakeRateLimit_Recv_Rate.Get() <= 0 )
 	{
 		s_flFakeRateLimit_Recv_tokens = (double)INT_MAX;
 	}
 	else
 	{
-		s_flFakeRateLimit_Recv_tokens += flElapsed*g_Config_FakeRateLimit_Recv_Rate.Get();
-		s_flFakeRateLimit_Recv_tokens = std::min( s_flFakeRateLimit_Recv_tokens, (double)g_Config_FakeRateLimit_Recv_Burst.Get() );
+		s_flFakeRateLimit_Recv_tokens += flElapsed*GlobalConfig::FakeRateLimit_Recv_Rate.Get();
+		s_flFakeRateLimit_Recv_tokens = std::min( s_flFakeRateLimit_Recv_tokens, (double)GlobalConfig::FakeRateLimit_Recv_Burst.Get() );
 	}
 }
 
@@ -969,7 +969,7 @@ public:
 		}
 		#endif
 
-		if ( g_Config_PacketTraceMaxBytes.Get() >= 0 )
+		if ( GlobalConfig::PacketTraceMaxBytes.Get() >= 0 )
 		{
 			TracePkt( true, adrTo, nChunks, pChunks );
 		}
@@ -996,7 +996,7 @@ public:
 			CHAR control[WSA_CMSG_SPACE(sizeof(INT))];
 
 			// Check if we need to send ECN
-			int ecn = g_Config_ECN.Get();
+			int ecn = GlobalConfig::ECN.Get();
 			if ( ecn >= 0 )
 			{
 				wsaMsg.Control.len = sizeof(control);
@@ -1097,7 +1097,7 @@ public:
 			ReallySpewTypeFmt( k_ESteamNetworkingSocketsDebugOutputType_Msg, "[Trace Recv] %s <- %s | %d bytes\n",
 				SteamNetworkingIPAddrRender( m_boundAddr ).c_str(), CUtlNetAdrRender( adrRemote ).String(), cbTotal );
 		}
-		int l = std::min( cbTotal, g_Config_PacketTraceMaxBytes.Get() );
+		int l = std::min( cbTotal, GlobalConfig::PacketTraceMaxBytes.Get() );
 		const uint8 *p = (const uint8 *)pChunks->iov_base;
 		int cbChunkLeft = pChunks->iov_len;
 		while ( l > 0 )
@@ -1413,7 +1413,7 @@ bool CRawUDPSocketImpl::BSendRawPacketGather( int nChunks, const iovec *pChunks,
 
 	// Check simulated global rate limit.  Make sure this is fast
 	// when the limit is not in use
-	if ( unlikely( g_Config_FakeRateLimit_Send_Rate.Get() > 0 ) )
+	if ( unlikely( GlobalConfig::FakeRateLimit_Send_Rate.Get() > 0 ) )
 	{
 
 		// Check if bucket already has tokens in it, which
@@ -1438,22 +1438,22 @@ bool CRawUDPSocketImpl::BSendRawPacketGather( int nChunks, const iovec *pChunks,
 	}
 
 	// Fake loss?
-	if ( RandomBoolWithOdds( g_Config_FakePacketLoss_Send.Get() ) )
+	if ( RandomBoolWithOdds( GlobalConfig::FakePacketLoss_Send.Get() ) )
 		return true;
 
 	// Fake lag?
-	int32 nPacketFakeLagTotal = g_Config_FakePacketLag_Send.Get();
+	int32 nPacketFakeLagTotal = GlobalConfig::FakePacketLag_Send.Get();
 
 	// Check for simulating random packet reordering
-	if ( RandomBoolWithOdds( g_Config_FakePacketReorder_Send.Get() ) )
+	if ( RandomBoolWithOdds( GlobalConfig::FakePacketReorder_Send.Get() ) )
 	{
-		nPacketFakeLagTotal += g_Config_FakePacketReorder_Time.Get();
+		nPacketFakeLagTotal += GlobalConfig::FakePacketReorder_Time.Get();
 	}
 
 	// Check for simulating random packet duplication
-	if ( RandomBoolWithOdds( g_Config_FakePacketDup_Send.Get() ) )
+	if ( RandomBoolWithOdds( GlobalConfig::FakePacketDup_Send.Get() ) )
 	{
-		int32 nDupLag = nPacketFakeLagTotal + WeakRandomInt( 0, g_Config_FakePacketDup_TimeMax.Get() );
+		int32 nDupLag = nPacketFakeLagTotal + WeakRandomInt( 0, GlobalConfig::FakePacketDup_TimeMax.Get() );
 		nDupLag = std::max( 1, nDupLag );
 		s_packetLagQueueSend.LagPacket( const_cast<CRawUDPSocketImpl *>( this ), adrTo, nDupLag, nChunks, pChunks );
 	}
@@ -1939,7 +1939,7 @@ static bool DrainSocket( CRawUDPSocketImpl *pSock )
 
 		// Check simulated global rate limit.  Make sure this is fast
 		// when the limit is not in use
-		if ( unlikely( g_Config_FakeRateLimit_Recv_Rate.Get() > 0 ) )
+		if ( unlikely( GlobalConfig::FakeRateLimit_Recv_Rate.Get() > 0 ) )
 		{
 
 			// Check if bucket already has tokens in it, which
@@ -1961,7 +1961,7 @@ static bool DrainSocket( CRawUDPSocketImpl *pSock )
 		}
 
 		// Check for simulating random packet loss
-		if ( RandomBoolWithOdds( g_Config_FakePacketLoss_Recv.Get() ) )
+		if ( RandomBoolWithOdds( GlobalConfig::FakePacketLoss_Recv.Get() ) )
 			continue;
 
 		RecvPktInfo_t info;
@@ -1972,7 +1972,7 @@ static bool DrainSocket( CRawUDPSocketImpl *pSock )
 			info.m_adrFrom.BConvertMappedToIPv4();
 
 		// Check for tracing
-		if ( g_Config_PacketTraceMaxBytes.Get() >= 0 )
+		if ( GlobalConfig::PacketTraceMaxBytes.Get() >= 0 )
 		{
 			iovec tmp;
 			tmp.iov_base = buf;
@@ -1980,18 +1980,18 @@ static bool DrainSocket( CRawUDPSocketImpl *pSock )
 			pSock->TracePkt( false, info.m_adrFrom, 1, &tmp );
 		}
 
-		int32 nPacketFakeLagTotal = g_Config_FakePacketLag_Recv.Get();
+		int32 nPacketFakeLagTotal = GlobalConfig::FakePacketLag_Recv.Get();
 
 		// Check for simulating random packet reordering
-		if ( RandomBoolWithOdds( g_Config_FakePacketReorder_Recv.Get() ) )
+		if ( RandomBoolWithOdds( GlobalConfig::FakePacketReorder_Recv.Get() ) )
 		{
-			nPacketFakeLagTotal += g_Config_FakePacketReorder_Time.Get();
+			nPacketFakeLagTotal += GlobalConfig::FakePacketReorder_Time.Get();
 		}
 
 		// Check for simulating random packet duplication
-		if ( RandomBoolWithOdds( g_Config_FakePacketDup_Recv.Get() ) )
+		if ( RandomBoolWithOdds( GlobalConfig::FakePacketDup_Recv.Get() ) )
 		{
-			int32 nDupLag = nPacketFakeLagTotal + WeakRandomInt( 0, g_Config_FakePacketDup_TimeMax.Get() );
+			int32 nDupLag = nPacketFakeLagTotal + WeakRandomInt( 0, GlobalConfig::FakePacketDup_TimeMax.Get() );
 			nDupLag = std::max( 1, nDupLag );
 			iovec temp;
 			temp.iov_len = ret;
@@ -3180,11 +3180,11 @@ static void InitSpew()
 						// if they ask for verbose, turn on some other groups, by default
 						if ( g_eSystemSpewLevel >= k_ESteamNetworkingSocketsDebugOutputType_Verbose )
 						{
-							g_ConfigDefault_LogLevel_P2PRendezvous.m_value.m_defaultValue = g_eSystemSpewLevel;
-							g_ConfigDefault_LogLevel_P2PRendezvous.m_value.Set( g_eSystemSpewLevel );
+							GlobalConfig::LogLevel_P2PRendezvous.m_value.m_defaultValue = g_eSystemSpewLevel;
+							GlobalConfig::LogLevel_P2PRendezvous.m_value.Set( g_eSystemSpewLevel );
 
-							g_ConfigDefault_LogLevel_PacketGaps.m_value.m_defaultValue = g_eSystemSpewLevel-1;
-							g_ConfigDefault_LogLevel_PacketGaps.m_value.Set( g_eSystemSpewLevel-1 );
+							GlobalConfig::LogLevel_PacketGaps.m_value.m_defaultValue = g_eSystemSpewLevel-1;
+							GlobalConfig::LogLevel_PacketGaps.m_value.Set( g_eSystemSpewLevel-1 );
 						}
 					}
 					else

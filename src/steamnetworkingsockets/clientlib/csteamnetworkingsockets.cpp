@@ -993,7 +993,7 @@ void CSteamNetworkingSockets::SetAuthenticationStatus( const SteamNetAuthenticat
 			SteamNetworkingIdentityRender( m_identity ).c_str(),
 			GetAvailabilityString( m_AuthenticationStatus.m_eAvail ), m_AuthenticationStatus.m_debugMsg );
 
-		QueueCallback( m_AuthenticationStatus, g_Config_Callback_AuthStatusChanged.Get() );
+		QueueCallback( m_AuthenticationStatus, GlobalConfig::Callback_AuthStatusChanged.Get() );
 	}
 }
 
@@ -2210,7 +2210,7 @@ ESteamNetworkingGetConfigValueResult CSteamNetworkingUtils::GetConfigValue(
 	{
 		int32 MTU_packetsize;
 		size_t cbMTU_packetsize = sizeof(MTU_packetsize);
-		ESteamNetworkingGetConfigValueResult rFetch = GetConfigValueTyped<int32>( &g_ConfigDefault_MTU_PacketSize, eScopeType, scopeObj, &MTU_packetsize, &cbMTU_packetsize );
+		ESteamNetworkingGetConfigValueResult rFetch = GetConfigValueTyped<int32>( &GlobalConfig::MTU_PacketSize, eScopeType, scopeObj, &MTU_packetsize, &cbMTU_packetsize );
 		if ( rFetch < 0 )
 			return rFetch;
 
