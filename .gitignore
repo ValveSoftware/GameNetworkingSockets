@@ -41,6 +41,7 @@ perf.data.old
 **/.vscode
 **/build
 **/build-*
+**/build.bat
 **/log.txt
 **/.vs
 /src/steamnetworkingsockets/Messageswin64Debug/*
@@ -49,7 +50,6 @@ perf.data.old
 *.swp
 /.github/build-ci-ccache
 *.log
-*partner*
 *build-ci-ccache*
 vcpkg_installed
 
@@ -57,3 +57,7 @@ vcpkg_installed
 *.sln
 *.vcxproj
 *.vcxproj.filters
+*.vpc_crc
+*_from_partner.bat
+src/mp.bat
+*_changes.html
