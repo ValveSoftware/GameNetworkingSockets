@@ -126,6 +126,10 @@ DEFINE_CONNECTON_DEFAULT_CONFIGVAL( std::string, SDRClient_DebugTicketAddress, "
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, P2P_Transport_SDR_Penalty, 0, 0, INT_MAX );
 #endif
 
+#ifdef _WIN32
+DEFINE_GLOBAL_CONFIGVAL( int32, ECN, -1, -1, 3 );
+#endif
+
 static GlobalConfigValueEntry *s_pFirstGlobalConfigEntry = nullptr;
 static bool s_bConfigValueTableInitted = false;
 static std::vector<GlobalConfigValueEntry *> s_vecConfigValueTable; // Sorted by value
