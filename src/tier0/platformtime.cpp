@@ -17,7 +17,7 @@
 #endif
 
 #if IsNintendoSwitch()
-	// NDA material
+	#include "platformtime_nswitch.h"
 #endif
 
 BEGIN_TIER0_NAMESPACE
@@ -64,7 +64,9 @@ static uint64 InitTicks()
 	g_TickFrequency = (uint64)( g_TickFrequencyDouble + 0.5 );
 	g_TickBase = mach_absolute_time();
 #elif IsNintendoSwitch()
-	// NDA material
+	g_TickBase = PlatformTime_GetRawTickCounter();
+	g_TickFrequency = PlatformTime_GetRawTickFrequency();
+	g_TickFrequencyDouble = g_TickFrequency;
 #elif IsPosix()
 	// TickFrequency is constant since clock_gettime always returns nanoseconds
 	timespec TimeSpec;
@@ -104,7 +106,7 @@ uint64 Plat_RelativeTicks()
 #elif IsOSX()
 	Ticks = mach_absolute_time();
 #elif IsNintendoSwitch()
-	// NDA material
+    Ticks = PlatformTime_GetRawTickCounter();
 #elif IsPosix()
 	timespec TimeSpec;
 	clock_gettime( CLOCK_MONOTONIC, &TimeSpec );
