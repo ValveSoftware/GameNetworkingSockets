@@ -3779,7 +3779,7 @@ bool GetLocalAddresses( CUtlVector< SteamNetworkingIPAddr >* pAddrs )
     free( pAddrInfo );
 	return true;
 }
-#elif IsPosix() && !IsPlaystation() && !IsAndroid()
+#elif IsPosix() && !IsPlaystation() && !IsAndroid() && !IsNintendoSwitch()
 bool GetLocalAddresses( CUtlVector< SteamNetworkingIPAddr >* pAddrs )
 {
 	ifaddrs *pMyAddrInfo = NULL;
