@@ -39,11 +39,6 @@
 	#define STEAMNETWORKINGSOCKETS_DECLARE_CLASS_OPERATOR_NEW
 #endif
 
-// Enable SDR, except in opensource build
-#ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
-	#define STEAMNETWORKINGSOCKETS_ENABLE_SDR
-#endif
-
 // Always enable ISteamNetworkingMessages on PC, unless it is specifically
 // disabled.  On console, it's opt *in*
 #if !defined( STEAMNETWORKINGSOCKETS_DISABLE_STEAMNETWORKINGMESSAGES ) && !defined( STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES ) && !IsConsole()
