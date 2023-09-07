@@ -5,7 +5,7 @@
 #pragma once
 
 #include "../steamnetworkingsockets_internal.h"
-#ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
+#ifdef  STEAMNETWORKINGSOCKETS_ENABLE_SDR
 #include "../sdr/steamdatagram_internal.h"
 #include <steam/steamdatagram_tickets.h>
 #endif
