@@ -13,15 +13,14 @@
 #include "steamtypes.h"
 #include "steamclientpublic.h"
 
-//----------------------------------------
-// SteamNetworkingSockets library config
-// Opensource version
-//
-#ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
-#define STEAMNETWORKINGSOCKETS_OPENSOURCE
+//-----------------------------------------------------------------------------
+// SteamNetworkingSockets config.
+
+#ifndef STEAMNETWORKINGSOCKETS_STANDALONELIB
+	#define STEAMNETWORKINGSOCKETS_STANDALONELIB // Support compiling/linking with the standalone library
 #endif
-#define STEAMNETWORKINGSOCKETS_STANDALONELIB
-//#define STEAMNETWORKINGSOCKETS_STEAMAPI // Comment this in to support linking with steam_api.h as well
+//#define STEAMNETWORKINGSOCKETS_STEAMAPI // Support compiling/linking with steam_api.h
+
 // End SteamNetworkingSockets config.
 //-----------------------------------------------------------------------------
 
@@ -705,6 +704,9 @@ struct SteamNetConnectionInfo_t
 	/// connection type (and peer information), and any name
 	/// given to the connection by the app.  This string is used in various
 	/// internal logging messages.
+	///
+	/// Note that the connection ID *usually* matches the HSteamNetConnection
+	/// handle, but in certain cases with symmetric connections it might not.
 	char m_szConnectionDescription[ k_cchSteamNetworkingMaxConnectionDescription ];
 
 	/// Misc flags.  Bitmask of k_nSteamNetworkConnectionInfoFlags_Xxxx
@@ -1354,6 +1356,10 @@ enum ESteamNetworkingConfigValue
 	///
 	/// This value should not be read or written in any other context.
 	k_ESteamNetworkingConfig_LocalVirtualPort = 38,
+
+	/// [connection int32] Enable Dual wifi band support for this connection
+	/// 0 = no, 1 = yes, 2 = simulate it for debugging, even if dual wifi not available
+	k_ESteamNetworkingConfig_DualWifi_Enable = 39,
 
 	/// [connection int32] True to enable diagnostics reporting through
 	/// generic platform UI.  (Only available on Steam.)
