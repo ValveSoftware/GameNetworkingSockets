@@ -86,6 +86,8 @@ bool Plat_IsInDebugSession()
 	return (nTracePid != 0);
 #elif IsPlaystation()
 	// NDA material
+	// FIXME
+	return false;
 #elif IsNintendoSwitch()
 	return false;
 #else
