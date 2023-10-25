@@ -1646,7 +1646,7 @@ ESteamNetConnectionEnd CSteamNetworkConnectionBase::FinishCryptoHandshake( bool 
 		return k_ESteamNetConnectionEnd_Remote_BadCrypt;
 	}
 
-	// Diffie–Hellman key exchange to get "premaster secret"
+	// Diffie-Â–Hellman key exchange to get "premaster secret"
 	AutoWipeFixedSizeBuffer<sizeof(SHA256Digest_t)> premasterSecret;
 	if ( !CCrypto::PerformKeyExchange( m_keyExchangePrivateKeyLocal, keyExchangePublicKeyRemote, &premasterSecret.m_buf ) )
 	{
@@ -2802,7 +2802,7 @@ bool CSteamNetworkConnectionBase::ReceivedMessage( CSteamNetworkingMessage *pMsg
 
 		// Add to the poll group, if we are in one
 		if ( m_pPollGroup )
-			pMsg->LinkToQueueTail( &CSteamNetworkingMessage::m_linksSecondaryQueue, &m_pPollGroup->m_queueRecvMessages );\
+			pMsg->LinkToQueueTail( &CSteamNetworkingMessage::m_linksSecondaryQueue, &m_pPollGroup->m_queueRecvMessages );
 
 		// Each if() branch has its own unlock, so we can spew in the branch above
 		g_lockAllRecvMessageQueues.unlock();
