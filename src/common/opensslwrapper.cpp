@@ -13,7 +13,9 @@
 #include "crypto.h"
 
 #include <mutex>
+#include "tier0/memdbgoff.h"
 #include <thread>
+#include "tier0/memdbgon.h"
 
 // Statics - all automatically zero-init
 int COpenSSLWrapper::m_nInstances;
