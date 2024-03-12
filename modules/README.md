@@ -2,7 +2,7 @@ This folder contains optional modules in other github repositories.
 Most of these repositories are private.
 
 The file structure underneath each module is parallel to the directory
-structure of the main project, and sylinks in the main directory structure
+structure of the main project, and symlinks in the main directory structure
 point into the files here.  (Those symlinks will be broken links if you do
 not have the corresponding module.)
 
