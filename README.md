@@ -82,7 +82,7 @@ Third party language bindings:
   * <https://github.com/nxrighthere/ValveSockets-CSharp>
   * <https://github.com/Facepunch/Facepunch.Steamworks>
 * Go:
-  * <https://github.com/nielsAD/gns/>
+  * <https://github.com/angelskieglazki/gns>
 
 ## Why do I see "Steam" everywhere?
 
