@@ -17,7 +17,7 @@
 //#include "curl/curl.h"
 
 // Include Steam datagram related stuff?
-#ifndef STEAMNETWORKINGSOCKETS_ENABLE_SDR
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
 	#define CERTTOOL_ENABLE_SDR
 	#include <steamdatagram_tickets.h>
 	#include "../sdr/steamdatagram_internal.h"
