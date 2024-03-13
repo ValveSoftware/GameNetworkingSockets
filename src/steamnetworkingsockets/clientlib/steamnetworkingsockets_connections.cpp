@@ -23,6 +23,10 @@
 	#include <steam/steamnetworkingfakeip.h>
 #endif
 
+#include <tier0/valve_tracelogging.h> // Includes windows.h :(  Include this last before memdbgon
+
+TRACELOGGING_DECLARE_PROVIDER( HTraceLogging_SteamNetworkingSockets );
+
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
 
@@ -2699,6 +2703,17 @@ bool CSteamNetworkConnectionBase::ReceivedMessage( CSteamNetworkingMessage *pMsg
 	pMsg->m_identityPeer = m_identityRemote;
 	pMsg->m_conn = m_hConnectionSelf;
 	pMsg->m_nConnUserData = GetUserData();
+
+	// Emit ETW event
+	TraceLoggingWrite(
+		HTraceLogging_SteamNetworkingSockets,
+		"MsgRecv",
+		TraceLoggingString( GetDescription(), "Connection" ),
+		TraceLoggingInt64( pMsg->m_nMessageNumber, "MsgNum" ),
+		TraceLoggingUInt16( pMsg->m_idxLane, "Lane" ),
+		TraceLoggingBool( ( pMsg->m_nFlags & k_nSteamNetworkingSend_Reliable ) != 0, "Reliable" ),
+		TraceLoggingUInt32( pMsg->m_cbSize, "Size" )
+	);
 
 	// We use the same lock to protect *all* recv queues, for both connections and poll groups,
 	// which keeps this really simple.
