@@ -47,16 +47,16 @@ void SteamDatagramLinkLifetimeStats::Clear()
 	m_nQualityNtile5th = -1;
 	m_nQualityNtile25th = -1;
 	m_nQualityNtile50th = -1;
-	m_nTXSpeedNtile5th = -1;
-	m_nTXSpeedNtile50th = -1;
-	m_nTXSpeedNtile75th = -1;
-	m_nTXSpeedNtile95th = -1;
-	m_nTXSpeedNtile98th = -1;
-	m_nRXSpeedNtile5th = -1;
-	m_nRXSpeedNtile50th = -1;
-	m_nRXSpeedNtile75th = -1;
-	m_nRXSpeedNtile95th = -1;
-	m_nRXSpeedNtile98th = -1;
+	//m_nTXSpeedNtile5th = -1;
+	//m_nTXSpeedNtile50th = -1;
+	//m_nTXSpeedNtile75th = -1;
+	//m_nTXSpeedNtile95th = -1;
+	//m_nTXSpeedNtile98th = -1;
+	//m_nRXSpeedNtile5th = -1;
+	//m_nRXSpeedNtile50th = -1;
+	//m_nRXSpeedNtile75th = -1;
+	//m_nRXSpeedNtile95th = -1;
+	//m_nRXSpeedNtile98th = -1;
 }
 
 void SteamDatagramLinkStats::Clear()
@@ -695,43 +695,43 @@ void LinkStatsTrackerBase::GetLifetimeStats( SteamDatagramLinkLifetimeStats &s )
 
 	s.m_jitterHistogram = m_jitterHistogram;
 
+	////
+	//// Clear all end-to-end values
+	////
 	//
-	// Clear all end-to-end values
+	//s.m_nTXSpeedMax           = -1;
 	//
-
-	s.m_nTXSpeedMax           = -1;
-
-	s.m_nTXSpeedHistogram16   = 0;
-	s.m_nTXSpeedHistogram32   = 0;  
-	s.m_nTXSpeedHistogram64   = 0;  
-	s.m_nTXSpeedHistogram128  = 0;
-	s.m_nTXSpeedHistogram256  = 0;
-	s.m_nTXSpeedHistogram512  = 0;
-	s.m_nTXSpeedHistogram1024 = 0;
-	s.m_nTXSpeedHistogramMax  = 0;
-
-	s.m_nTXSpeedNtile5th  = -1;
-	s.m_nTXSpeedNtile50th = -1;
-	s.m_nTXSpeedNtile75th = -1;
-	s.m_nTXSpeedNtile95th = -1;
-	s.m_nTXSpeedNtile98th = -1;
-
-	s.m_nRXSpeedMax           = -1;
-
-	s.m_nRXSpeedHistogram16   = 0;
-	s.m_nRXSpeedHistogram32   = 0;
-	s.m_nRXSpeedHistogram64   = 0;
-	s.m_nRXSpeedHistogram128  = 0;
-	s.m_nRXSpeedHistogram256  = 0;
-	s.m_nRXSpeedHistogram512  = 0;
-	s.m_nRXSpeedHistogram1024 = 0;
-	s.m_nRXSpeedHistogramMax  = 0;
-
-	s.m_nRXSpeedNtile5th  = -1;
-	s.m_nRXSpeedNtile50th = -1;
-	s.m_nRXSpeedNtile75th = -1;
-	s.m_nRXSpeedNtile95th = -1;
-	s.m_nRXSpeedNtile98th = -1;
+	//s.m_nTXSpeedHistogram16   = 0;
+	//s.m_nTXSpeedHistogram32   = 0;  
+	//s.m_nTXSpeedHistogram64   = 0;  
+	//s.m_nTXSpeedHistogram128  = 0;
+	//s.m_nTXSpeedHistogram256  = 0;
+	//s.m_nTXSpeedHistogram512  = 0;
+	//s.m_nTXSpeedHistogram1024 = 0;
+	//s.m_nTXSpeedHistogramMax  = 0;
+	//
+	//s.m_nTXSpeedNtile5th  = -1;
+	//s.m_nTXSpeedNtile50th = -1;
+	//s.m_nTXSpeedNtile75th = -1;
+	//s.m_nTXSpeedNtile95th = -1;
+	//s.m_nTXSpeedNtile98th = -1;
+	//
+	//s.m_nRXSpeedMax           = -1;
+	//
+	//s.m_nRXSpeedHistogram16   = 0;
+	//s.m_nRXSpeedHistogram32   = 0;
+	//s.m_nRXSpeedHistogram64   = 0;
+	//s.m_nRXSpeedHistogram128  = 0;
+	//s.m_nRXSpeedHistogram256  = 0;
+	//s.m_nRXSpeedHistogram512  = 0;
+	//s.m_nRXSpeedHistogram1024 = 0;
+	//s.m_nRXSpeedHistogramMax  = 0;
+	//
+	//s.m_nRXSpeedNtile5th  = -1;
+	//s.m_nRXSpeedNtile50th = -1;
+	//s.m_nRXSpeedNtile75th = -1;
+	//s.m_nRXSpeedNtile95th = -1;
+	//s.m_nRXSpeedNtile98th = -1;
 }
 
 void LinkStatsTrackerBase::GetLinkStats( SteamDatagramLinkStats &s, SteamNetworkingMicroseconds usecNow ) const
@@ -769,27 +769,27 @@ void LinkStatsTrackerEndToEnd::InitInternal( SteamNetworkingMicroseconds usecNow
 	m_usecWhenStartedConnectedState = 0;
 	m_usecWhenEndedConnectedState = 0;
 
-	m_TXSpeedSample.Clear();
-	m_nTXSpeed = 0;
-	m_nTXSpeedHistogram16 = 0; // Speed at kb/s
-	m_nTXSpeedHistogram32 = 0; 
-	m_nTXSpeedHistogram64 = 0;
-	m_nTXSpeedHistogram128 = 0;
-	m_nTXSpeedHistogram256 = 0;
-	m_nTXSpeedHistogram512 = 0;
-	m_nTXSpeedHistogram1024 = 0;
-	m_nTXSpeedHistogramMax = 0;
-
-	m_RXSpeedSample.Clear();
-	m_nRXSpeed = 0;
-	m_nRXSpeedHistogram16 = 0; // Speed at kb/s
-	m_nRXSpeedHistogram32 = 0; 
-	m_nRXSpeedHistogram64 = 0;
-	m_nRXSpeedHistogram128 = 0;
-	m_nRXSpeedHistogram256 = 0;
-	m_nRXSpeedHistogram512 = 0;
-	m_nRXSpeedHistogram1024 = 0;
-	m_nRXSpeedHistogramMax = 0;
+	//m_TXSpeedSample.Clear();
+	//m_nTXSpeed = 0;
+	//m_nTXSpeedHistogram16 = 0; // Speed at kb/s
+	//m_nTXSpeedHistogram32 = 0; 
+	//m_nTXSpeedHistogram64 = 0;
+	//m_nTXSpeedHistogram128 = 0;
+	//m_nTXSpeedHistogram256 = 0;
+	//m_nTXSpeedHistogram512 = 0;
+	//m_nTXSpeedHistogram1024 = 0;
+	//m_nTXSpeedHistogramMax = 0;
+	//
+	//m_RXSpeedSample.Clear();
+	//m_nRXSpeed = 0;
+	//m_nRXSpeedHistogram16 = 0; // Speed at kb/s
+	//m_nRXSpeedHistogram32 = 0; 
+	//m_nRXSpeedHistogram64 = 0;
+	//m_nRXSpeedHistogram128 = 0;
+	//m_nRXSpeedHistogram256 = 0;
+	//m_nRXSpeedHistogram512 = 0;
+	//m_nRXSpeedHistogram1024 = 0;
+	//m_nRXSpeedHistogramMax = 0;
 
 	StartNextSpeedInterval( usecNow );
 }
@@ -801,32 +801,32 @@ void LinkStatsTrackerEndToEnd::StartNextSpeedInterval( SteamNetworkingMicrosecon
 
 void LinkStatsTrackerEndToEnd::UpdateSpeedInterval( SteamNetworkingMicroseconds usecNow )
 {
-	float flElapsed = int64( usecNow - m_usecIntervalStart ) * 1e-6;
-	flElapsed = Max( flElapsed, .001f ); // make sure math doesn't blow up
-
-	int nTXKBs = ( m_nTXSpeed + 512 ) / 1024;
-	m_TXSpeedSample.AddSample( nTXKBs );
-
-	if ( nTXKBs <= 16 ) ++m_nTXSpeedHistogram16;
-	else if ( nTXKBs <= 32 ) ++m_nTXSpeedHistogram32; 
-	else if ( nTXKBs <= 64 ) ++m_nTXSpeedHistogram64;
-	else if ( nTXKBs <= 128 ) ++m_nTXSpeedHistogram128;
-	else if ( nTXKBs <= 256 ) ++m_nTXSpeedHistogram256;
-	else if ( nTXKBs <= 512 ) ++m_nTXSpeedHistogram512;
-	else if ( nTXKBs <= 1024 ) ++m_nTXSpeedHistogram1024;
-	else ++m_nTXSpeedHistogramMax;
-	
-	int nRXKBs = ( m_nRXSpeed + 512 ) / 1024;
-	m_RXSpeedSample.AddSample( nRXKBs );
-
-	if ( nRXKBs <= 16 ) ++m_nRXSpeedHistogram16;
-	else if ( nRXKBs <= 32 ) ++m_nRXSpeedHistogram32; 
-	else if ( nRXKBs <= 64 ) ++m_nRXSpeedHistogram64;
-	else if ( nRXKBs <= 128 ) ++m_nRXSpeedHistogram128;
-	else if ( nRXKBs <= 256 ) ++m_nRXSpeedHistogram256;
-	else if ( nRXKBs <= 512 ) ++m_nRXSpeedHistogram512;
-	else if ( nRXKBs <= 1024 ) ++m_nRXSpeedHistogram1024;
-	else ++m_nRXSpeedHistogramMax;
+	//float flElapsed = int64( usecNow - m_usecIntervalStart ) * 1e-6;
+	//flElapsed = Max( flElapsed, .001f ); // make sure math doesn't blow up
+	//
+	//int nTXKBs = ( m_nTXSpeed + 512 ) / 1024;
+	//m_TXSpeedSample.AddSample( nTXKBs );
+	//
+	//if ( nTXKBs <= 16 ) ++m_nTXSpeedHistogram16;
+	//else if ( nTXKBs <= 32 ) ++m_nTXSpeedHistogram32; 
+	//else if ( nTXKBs <= 64 ) ++m_nTXSpeedHistogram64;
+	//else if ( nTXKBs <= 128 ) ++m_nTXSpeedHistogram128;
+	//else if ( nTXKBs <= 256 ) ++m_nTXSpeedHistogram256;
+	//else if ( nTXKBs <= 512 ) ++m_nTXSpeedHistogram512;
+	//else if ( nTXKBs <= 1024 ) ++m_nTXSpeedHistogram1024;
+	//else ++m_nTXSpeedHistogramMax;
+	//
+	//int nRXKBs = ( m_nRXSpeed + 512 ) / 1024;
+	//m_RXSpeedSample.AddSample( nRXKBs );
+	//
+	//if ( nRXKBs <= 16 ) ++m_nRXSpeedHistogram16;
+	//else if ( nRXKBs <= 32 ) ++m_nRXSpeedHistogram32; 
+	//else if ( nRXKBs <= 64 ) ++m_nRXSpeedHistogram64;
+	//else if ( nRXKBs <= 128 ) ++m_nRXSpeedHistogram128;
+	//else if ( nRXKBs <= 256 ) ++m_nRXSpeedHistogram256;
+	//else if ( nRXKBs <= 512 ) ++m_nRXSpeedHistogram512;
+	//else if ( nRXKBs <= 1024 ) ++m_nRXSpeedHistogram1024;
+	//else ++m_nRXSpeedHistogramMax;
 
 	// Reset for next time
 	StartNextSpeedInterval( usecNow );
@@ -834,11 +834,11 @@ void LinkStatsTrackerEndToEnd::UpdateSpeedInterval( SteamNetworkingMicroseconds 
 
 void LinkStatsTrackerEndToEnd::UpdateSpeeds( int nTXSpeed, int nRXSpeed )
 {
-	m_nTXSpeed = nTXSpeed;
-	m_nRXSpeed = nRXSpeed;
-
-	m_nTXSpeedMax = Max( m_nTXSpeedMax, nTXSpeed );
-	m_nRXSpeedMax = Max( m_nRXSpeedMax, nRXSpeed );
+	//m_nTXSpeed = nTXSpeed;
+	//m_nRXSpeed = nRXSpeed;
+	//
+	//m_nTXSpeedMax = Max( m_nTXSpeedMax, nTXSpeed );
+	//m_nRXSpeedMax = Max( m_nRXSpeedMax, nRXSpeed );
 }
 
 void LinkStatsTrackerEndToEnd::GetLifetimeStats( SteamDatagramLinkLifetimeStats &s ) const
@@ -855,39 +855,39 @@ void LinkStatsTrackerEndToEnd::GetLifetimeStats( SteamDatagramLinkLifetimeStats 
 		s.m_nConnectedSeconds = std::max( k_nMillion, usecWhenEnded - m_usecWhenStartedConnectedState + 500000 ) / k_nMillion;
 	}
 
-	s.m_nTXSpeedMax           = m_nTXSpeedMax;
-
-	s.m_nTXSpeedHistogram16   = m_nTXSpeedHistogram16;
-	s.m_nTXSpeedHistogram32   = m_nTXSpeedHistogram32;  
-	s.m_nTXSpeedHistogram64   = m_nTXSpeedHistogram64;  
-	s.m_nTXSpeedHistogram128  = m_nTXSpeedHistogram128; 
-	s.m_nTXSpeedHistogram256  = m_nTXSpeedHistogram256; 
-	s.m_nTXSpeedHistogram512  = m_nTXSpeedHistogram512; 
-	s.m_nTXSpeedHistogram1024 = m_nTXSpeedHistogram1024;
-	s.m_nTXSpeedHistogramMax  = m_nTXSpeedHistogramMax; 
-
-	s.m_nTXSpeedNtile5th  = m_TXSpeedSample.NumSamples() < 20 ? -1 : m_TXSpeedSample.GetPercentile( .05f );
-	s.m_nTXSpeedNtile50th = m_TXSpeedSample.NumSamples() <  2 ? -1 : m_TXSpeedSample.GetPercentile( .50f );
-	s.m_nTXSpeedNtile75th = m_TXSpeedSample.NumSamples() <  4 ? -1 : m_TXSpeedSample.GetPercentile( .75f );
-	s.m_nTXSpeedNtile95th = m_TXSpeedSample.NumSamples() < 20 ? -1 : m_TXSpeedSample.GetPercentile( .95f );
-	s.m_nTXSpeedNtile98th = m_TXSpeedSample.NumSamples() < 50 ? -1 : m_TXSpeedSample.GetPercentile( .98f );
-
-	s.m_nRXSpeedMax           = m_nRXSpeedMax;
-
-	s.m_nRXSpeedHistogram16   = m_nRXSpeedHistogram16;
-	s.m_nRXSpeedHistogram32   = m_nRXSpeedHistogram32;  
-	s.m_nRXSpeedHistogram64   = m_nRXSpeedHistogram64;  
-	s.m_nRXSpeedHistogram128  = m_nRXSpeedHistogram128; 
-	s.m_nRXSpeedHistogram256  = m_nRXSpeedHistogram256; 
-	s.m_nRXSpeedHistogram512  = m_nRXSpeedHistogram512; 
-	s.m_nRXSpeedHistogram1024 = m_nRXSpeedHistogram1024;
-	s.m_nRXSpeedHistogramMax  = m_nRXSpeedHistogramMax; 
-
-	s.m_nRXSpeedNtile5th  = m_RXSpeedSample.NumSamples() < 20 ? -1 : m_RXSpeedSample.GetPercentile( .05f );
-	s.m_nRXSpeedNtile50th = m_RXSpeedSample.NumSamples() <  2 ? -1 : m_RXSpeedSample.GetPercentile( .50f );
-	s.m_nRXSpeedNtile75th = m_RXSpeedSample.NumSamples() <  4 ? -1 : m_RXSpeedSample.GetPercentile( .75f );
-	s.m_nRXSpeedNtile95th = m_RXSpeedSample.NumSamples() < 20 ? -1 : m_RXSpeedSample.GetPercentile( .95f );
-	s.m_nRXSpeedNtile98th = m_RXSpeedSample.NumSamples() < 50 ? -1 : m_RXSpeedSample.GetPercentile( .98f );
+	//s.m_nTXSpeedMax           = m_nTXSpeedMax;
+	//
+	//s.m_nTXSpeedHistogram16   = m_nTXSpeedHistogram16;
+	//s.m_nTXSpeedHistogram32   = m_nTXSpeedHistogram32;  
+	//s.m_nTXSpeedHistogram64   = m_nTXSpeedHistogram64;  
+	//s.m_nTXSpeedHistogram128  = m_nTXSpeedHistogram128; 
+	//s.m_nTXSpeedHistogram256  = m_nTXSpeedHistogram256; 
+	//s.m_nTXSpeedHistogram512  = m_nTXSpeedHistogram512; 
+	//s.m_nTXSpeedHistogram1024 = m_nTXSpeedHistogram1024;
+	//s.m_nTXSpeedHistogramMax  = m_nTXSpeedHistogramMax; 
+	//
+	//s.m_nTXSpeedNtile5th  = m_TXSpeedSample.NumSamples() < 20 ? -1 : m_TXSpeedSample.GetPercentile( .05f );
+	//s.m_nTXSpeedNtile50th = m_TXSpeedSample.NumSamples() <  2 ? -1 : m_TXSpeedSample.GetPercentile( .50f );
+	//s.m_nTXSpeedNtile75th = m_TXSpeedSample.NumSamples() <  4 ? -1 : m_TXSpeedSample.GetPercentile( .75f );
+	//s.m_nTXSpeedNtile95th = m_TXSpeedSample.NumSamples() < 20 ? -1 : m_TXSpeedSample.GetPercentile( .95f );
+	//s.m_nTXSpeedNtile98th = m_TXSpeedSample.NumSamples() < 50 ? -1 : m_TXSpeedSample.GetPercentile( .98f );
+	//
+	//s.m_nRXSpeedMax           = m_nRXSpeedMax;
+	//
+	//s.m_nRXSpeedHistogram16   = m_nRXSpeedHistogram16;
+	//s.m_nRXSpeedHistogram32   = m_nRXSpeedHistogram32;  
+	//s.m_nRXSpeedHistogram64   = m_nRXSpeedHistogram64;  
+	//s.m_nRXSpeedHistogram128  = m_nRXSpeedHistogram128; 
+	//s.m_nRXSpeedHistogram256  = m_nRXSpeedHistogram256; 
+	//s.m_nRXSpeedHistogram512  = m_nRXSpeedHistogram512; 
+	//s.m_nRXSpeedHistogram1024 = m_nRXSpeedHistogram1024;
+	//s.m_nRXSpeedHistogramMax  = m_nRXSpeedHistogramMax; 
+	//
+	//s.m_nRXSpeedNtile5th  = m_RXSpeedSample.NumSamples() < 20 ? -1 : m_RXSpeedSample.GetPercentile( .05f );
+	//s.m_nRXSpeedNtile50th = m_RXSpeedSample.NumSamples() <  2 ? -1 : m_RXSpeedSample.GetPercentile( .50f );
+	//s.m_nRXSpeedNtile75th = m_RXSpeedSample.NumSamples() <  4 ? -1 : m_RXSpeedSample.GetPercentile( .75f );
+	//s.m_nRXSpeedNtile95th = m_RXSpeedSample.NumSamples() < 20 ? -1 : m_RXSpeedSample.GetPercentile( .95f );
+	//s.m_nRXSpeedNtile98th = m_RXSpeedSample.NumSamples() < 50 ? -1 : m_RXSpeedSample.GetPercentile( .98f );
 }
 
 namespace SteamNetworkingSocketsLib
@@ -1004,41 +1004,41 @@ void LinkStatsLifetimeStructToMsg( const SteamDatagramLinkLifetimeStats &s, CMsg
 	SET_HISTOGRAM( s.m_jitterHistogram.m_n10, jitter_histogram_10 )
 	SET_HISTOGRAM( s.m_jitterHistogram.m_n20, jitter_histogram_20 )
 
-	if ( s.m_nTXSpeedMax > 0 )
-		msg.set_txspeed_max( s.m_nTXSpeedMax );
-
-	SET_HISTOGRAM( s.m_nTXSpeedHistogram16,   txspeed_histogram_16   )
-	SET_HISTOGRAM( s.m_nTXSpeedHistogram32,   txspeed_histogram_32   )
-	SET_HISTOGRAM( s.m_nTXSpeedHistogram64,   txspeed_histogram_64   )
-	SET_HISTOGRAM( s.m_nTXSpeedHistogram128,  txspeed_histogram_128  )
-	SET_HISTOGRAM( s.m_nTXSpeedHistogram256,  txspeed_histogram_256  )
-	SET_HISTOGRAM( s.m_nTXSpeedHistogram512,  txspeed_histogram_512  )
-	SET_HISTOGRAM( s.m_nTXSpeedHistogram1024, txspeed_histogram_1024 )
-	SET_HISTOGRAM( s.m_nTXSpeedHistogramMax,  txspeed_histogram_max  )
-
-	SET_NTILE( s.m_nTXSpeedNtile5th,  txspeed_ntile_5th  )
-	SET_NTILE( s.m_nTXSpeedNtile50th, txspeed_ntile_50th )
-	SET_NTILE( s.m_nTXSpeedNtile75th, txspeed_ntile_75th )
-	SET_NTILE( s.m_nTXSpeedNtile95th, txspeed_ntile_95th )
-	SET_NTILE( s.m_nTXSpeedNtile98th, txspeed_ntile_98th )
-
-	if ( s.m_nRXSpeedMax > 0 )
-		msg.set_rxspeed_max( s.m_nRXSpeedMax );
-
-	SET_HISTOGRAM( s.m_nRXSpeedHistogram16,   rxspeed_histogram_16   )
-	SET_HISTOGRAM( s.m_nRXSpeedHistogram32,   rxspeed_histogram_32   )
-	SET_HISTOGRAM( s.m_nRXSpeedHistogram64,   rxspeed_histogram_64   )
-	SET_HISTOGRAM( s.m_nRXSpeedHistogram128,  rxspeed_histogram_128  )
-	SET_HISTOGRAM( s.m_nRXSpeedHistogram256,  rxspeed_histogram_256  )
-	SET_HISTOGRAM( s.m_nRXSpeedHistogram512,  rxspeed_histogram_512  )
-	SET_HISTOGRAM( s.m_nRXSpeedHistogram1024, rxspeed_histogram_1024 )
-	SET_HISTOGRAM( s.m_nRXSpeedHistogramMax,  rxspeed_histogram_max  )
-
-	SET_NTILE( s.m_nRXSpeedNtile5th,  rxspeed_ntile_5th  )
-	SET_NTILE( s.m_nRXSpeedNtile50th, rxspeed_ntile_50th )
-	SET_NTILE( s.m_nRXSpeedNtile75th, rxspeed_ntile_75th )
-	SET_NTILE( s.m_nRXSpeedNtile95th, rxspeed_ntile_95th )
-	SET_NTILE( s.m_nRXSpeedNtile98th, rxspeed_ntile_98th )
+	//if ( s.m_nTXSpeedMax > 0 )
+	//	msg.set_txspeed_max( s.m_nTXSpeedMax );
+	//
+	//SET_HISTOGRAM( s.m_nTXSpeedHistogram16,   txspeed_histogram_16   )
+	//SET_HISTOGRAM( s.m_nTXSpeedHistogram32,   txspeed_histogram_32   )
+	//SET_HISTOGRAM( s.m_nTXSpeedHistogram64,   txspeed_histogram_64   )
+	//SET_HISTOGRAM( s.m_nTXSpeedHistogram128,  txspeed_histogram_128  )
+	//SET_HISTOGRAM( s.m_nTXSpeedHistogram256,  txspeed_histogram_256  )
+	//SET_HISTOGRAM( s.m_nTXSpeedHistogram512,  txspeed_histogram_512  )
+	//SET_HISTOGRAM( s.m_nTXSpeedHistogram1024, txspeed_histogram_1024 )
+	//SET_HISTOGRAM( s.m_nTXSpeedHistogramMax,  txspeed_histogram_max  )
+	//
+	//SET_NTILE( s.m_nTXSpeedNtile5th,  txspeed_ntile_5th  )
+	//SET_NTILE( s.m_nTXSpeedNtile50th, txspeed_ntile_50th )
+	//SET_NTILE( s.m_nTXSpeedNtile75th, txspeed_ntile_75th )
+	//SET_NTILE( s.m_nTXSpeedNtile95th, txspeed_ntile_95th )
+	//SET_NTILE( s.m_nTXSpeedNtile98th, txspeed_ntile_98th )
+	//
+	//if ( s.m_nRXSpeedMax > 0 )
+	//	msg.set_rxspeed_max( s.m_nRXSpeedMax );
+	//
+	//SET_HISTOGRAM( s.m_nRXSpeedHistogram16,   rxspeed_histogram_16   )
+	//SET_HISTOGRAM( s.m_nRXSpeedHistogram32,   rxspeed_histogram_32   )
+	//SET_HISTOGRAM( s.m_nRXSpeedHistogram64,   rxspeed_histogram_64   )
+	//SET_HISTOGRAM( s.m_nRXSpeedHistogram128,  rxspeed_histogram_128  )
+	//SET_HISTOGRAM( s.m_nRXSpeedHistogram256,  rxspeed_histogram_256  )
+	//SET_HISTOGRAM( s.m_nRXSpeedHistogram512,  rxspeed_histogram_512  )
+	//SET_HISTOGRAM( s.m_nRXSpeedHistogram1024, rxspeed_histogram_1024 )
+	//SET_HISTOGRAM( s.m_nRXSpeedHistogramMax,  rxspeed_histogram_max  )
+	//
+	//SET_NTILE( s.m_nRXSpeedNtile5th,  rxspeed_ntile_5th  )
+	//SET_NTILE( s.m_nRXSpeedNtile50th, rxspeed_ntile_50th )
+	//SET_NTILE( s.m_nRXSpeedNtile75th, rxspeed_ntile_75th )
+	//SET_NTILE( s.m_nRXSpeedNtile95th, rxspeed_ntile_95th )
+	//SET_NTILE( s.m_nRXSpeedNtile98th, rxspeed_ntile_98th )
 
 	#undef SET_HISTOGRAM
 	#undef SET_NTILE
@@ -1105,39 +1105,39 @@ void LinkStatsLifetimeMsgToStruct( const CMsgSteamDatagramLinkLifetimeStats &msg
 	SET_HISTOGRAM( s.m_jitterHistogram.m_n10, jitter_histogram_10 )
 	SET_HISTOGRAM( s.m_jitterHistogram.m_n20, jitter_histogram_20 )
 
-	s.m_nTXSpeedMax = msg.txspeed_max();
-
-	SET_HISTOGRAM( s.m_nTXSpeedHistogram16,   txspeed_histogram_16   )
-	SET_HISTOGRAM( s.m_nTXSpeedHistogram32,   txspeed_histogram_32   )
-	SET_HISTOGRAM( s.m_nTXSpeedHistogram64,   txspeed_histogram_64   )
-	SET_HISTOGRAM( s.m_nTXSpeedHistogram128,  txspeed_histogram_128  )
-	SET_HISTOGRAM( s.m_nTXSpeedHistogram256,  txspeed_histogram_256  )
-	SET_HISTOGRAM( s.m_nTXSpeedHistogram512,  txspeed_histogram_512  )
-	SET_HISTOGRAM( s.m_nTXSpeedHistogram1024, txspeed_histogram_1024 )
-	SET_HISTOGRAM( s.m_nTXSpeedHistogramMax,  txspeed_histogram_max  )
-
-	SET_NTILE( s.m_nTXSpeedNtile5th,  txspeed_ntile_5th  )
-	SET_NTILE( s.m_nTXSpeedNtile50th, txspeed_ntile_50th )
-	SET_NTILE( s.m_nTXSpeedNtile75th, txspeed_ntile_75th )
-	SET_NTILE( s.m_nTXSpeedNtile95th, txspeed_ntile_95th )
-	SET_NTILE( s.m_nTXSpeedNtile98th, txspeed_ntile_98th )
-
-	s.m_nRXSpeedMax = msg.rxspeed_max();
-
-	SET_HISTOGRAM( s.m_nRXSpeedHistogram16,   rxspeed_histogram_16   )
-	SET_HISTOGRAM( s.m_nRXSpeedHistogram32,   rxspeed_histogram_32   )
-	SET_HISTOGRAM( s.m_nRXSpeedHistogram64,   rxspeed_histogram_64   )
-	SET_HISTOGRAM( s.m_nRXSpeedHistogram128,  rxspeed_histogram_128  )
-	SET_HISTOGRAM( s.m_nRXSpeedHistogram256,  rxspeed_histogram_256  )
-	SET_HISTOGRAM( s.m_nRXSpeedHistogram512,  rxspeed_histogram_512  )
-	SET_HISTOGRAM( s.m_nRXSpeedHistogram1024, rxspeed_histogram_1024 )
-	SET_HISTOGRAM( s.m_nRXSpeedHistogramMax,  rxspeed_histogram_max  )
-
-	SET_NTILE( s.m_nRXSpeedNtile5th,  rxspeed_ntile_5th  )
-	SET_NTILE( s.m_nRXSpeedNtile50th, rxspeed_ntile_50th )
-	SET_NTILE( s.m_nRXSpeedNtile75th, rxspeed_ntile_75th )
-	SET_NTILE( s.m_nRXSpeedNtile95th, rxspeed_ntile_95th )
-	SET_NTILE( s.m_nRXSpeedNtile98th, rxspeed_ntile_98th )
+	//s.m_nTXSpeedMax = msg.txspeed_max();
+	//
+	//SET_HISTOGRAM( s.m_nTXSpeedHistogram16,   txspeed_histogram_16   )
+	//SET_HISTOGRAM( s.m_nTXSpeedHistogram32,   txspeed_histogram_32   )
+	//SET_HISTOGRAM( s.m_nTXSpeedHistogram64,   txspeed_histogram_64   )
+	//SET_HISTOGRAM( s.m_nTXSpeedHistogram128,  txspeed_histogram_128  )
+	//SET_HISTOGRAM( s.m_nTXSpeedHistogram256,  txspeed_histogram_256  )
+	//SET_HISTOGRAM( s.m_nTXSpeedHistogram512,  txspeed_histogram_512  )
+	//SET_HISTOGRAM( s.m_nTXSpeedHistogram1024, txspeed_histogram_1024 )
+	//SET_HISTOGRAM( s.m_nTXSpeedHistogramMax,  txspeed_histogram_max  )
+	//
+	//SET_NTILE( s.m_nTXSpeedNtile5th,  txspeed_ntile_5th  )
+	//SET_NTILE( s.m_nTXSpeedNtile50th, txspeed_ntile_50th )
+	//SET_NTILE( s.m_nTXSpeedNtile75th, txspeed_ntile_75th )
+	//SET_NTILE( s.m_nTXSpeedNtile95th, txspeed_ntile_95th )
+	//SET_NTILE( s.m_nTXSpeedNtile98th, txspeed_ntile_98th )
+	//
+	//s.m_nRXSpeedMax = msg.rxspeed_max();
+	//
+	//SET_HISTOGRAM( s.m_nRXSpeedHistogram16,   rxspeed_histogram_16   )
+	//SET_HISTOGRAM( s.m_nRXSpeedHistogram32,   rxspeed_histogram_32   )
+	//SET_HISTOGRAM( s.m_nRXSpeedHistogram64,   rxspeed_histogram_64   )
+	//SET_HISTOGRAM( s.m_nRXSpeedHistogram128,  rxspeed_histogram_128  )
+	//SET_HISTOGRAM( s.m_nRXSpeedHistogram256,  rxspeed_histogram_256  )
+	//SET_HISTOGRAM( s.m_nRXSpeedHistogram512,  rxspeed_histogram_512  )
+	//SET_HISTOGRAM( s.m_nRXSpeedHistogram1024, rxspeed_histogram_1024 )
+	//SET_HISTOGRAM( s.m_nRXSpeedHistogramMax,  rxspeed_histogram_max  )
+	//
+	//SET_NTILE( s.m_nRXSpeedNtile5th,  rxspeed_ntile_5th  )
+	//SET_NTILE( s.m_nRXSpeedNtile50th, rxspeed_ntile_50th )
+	//SET_NTILE( s.m_nRXSpeedNtile75th, rxspeed_ntile_75th )
+	//SET_NTILE( s.m_nRXSpeedNtile95th, rxspeed_ntile_95th )
+	//SET_NTILE( s.m_nRXSpeedNtile98th, rxspeed_ntile_98th )
 
 	#undef SET_HISTOGRAM
 	#undef SET_NTILE

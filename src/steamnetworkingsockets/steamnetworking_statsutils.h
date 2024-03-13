@@ -1065,31 +1065,31 @@ struct LinkStatsTrackerEndToEnd : public LinkStatsTrackerBase
 	/// Time when the current interval started
 	SteamNetworkingMicroseconds m_usecSpeedIntervalStart;
 
-	/// TX Speed, should match CMsgSteamDatagramLinkLifetimeStats 
-	int m_nTXSpeed; 
-	int m_nTXSpeedMax; 
-	CPercentileGenerator<int> m_TXSpeedSample;
-	int m_nTXSpeedHistogram16; // Speed at kb/s
-	int m_nTXSpeedHistogram32; 
-	int m_nTXSpeedHistogram64;
-	int m_nTXSpeedHistogram128;
-	int m_nTXSpeedHistogram256;
-	int m_nTXSpeedHistogram512;
-	int m_nTXSpeedHistogram1024;
-	int m_nTXSpeedHistogramMax;
-
-	/// RX Speed, should match CMsgSteamDatagramLinkLifetimeStats 
-	int m_nRXSpeed;
-	int m_nRXSpeedMax;
-	CPercentileGenerator<int> m_RXSpeedSample;
-	int m_nRXSpeedHistogram16; // Speed at kb/s
-	int m_nRXSpeedHistogram32; 
-	int m_nRXSpeedHistogram64;
-	int m_nRXSpeedHistogram128;
-	int m_nRXSpeedHistogram256;
-	int m_nRXSpeedHistogram512;
-	int m_nRXSpeedHistogram1024;
-	int m_nRXSpeedHistogramMax;
+	///// TX Speed, should match CMsgSteamDatagramLinkLifetimeStats 
+	//int m_nTXSpeed; 
+	//int m_nTXSpeedMax; 
+	//CPercentileGenerator<int> m_TXSpeedSample;
+	//int m_nTXSpeedHistogram16; // Speed at kb/s
+	//int m_nTXSpeedHistogram32; 
+	//int m_nTXSpeedHistogram64;
+	//int m_nTXSpeedHistogram128;
+	//int m_nTXSpeedHistogram256;
+	//int m_nTXSpeedHistogram512;
+	//int m_nTXSpeedHistogram1024;
+	//int m_nTXSpeedHistogramMax;
+	//
+	///// RX Speed, should match CMsgSteamDatagramLinkLifetimeStats 
+	//int m_nRXSpeed;
+	//int m_nRXSpeedMax;
+	//CPercentileGenerator<int> m_RXSpeedSample;
+	//int m_nRXSpeedHistogram16; // Speed at kb/s
+	//int m_nRXSpeedHistogram32; 
+	//int m_nRXSpeedHistogram64;
+	//int m_nRXSpeedHistogram128;
+	//int m_nRXSpeedHistogram256;
+	//int m_nRXSpeedHistogram512;
+	//int m_nRXSpeedHistogram1024;
+	//int m_nRXSpeedHistogramMax;
 
 	/// Called when we get a speed sample
 	void UpdateSpeeds( int nTXSpeed, int nRXSpeed );

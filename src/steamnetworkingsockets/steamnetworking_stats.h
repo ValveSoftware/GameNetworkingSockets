@@ -265,70 +265,69 @@ struct SteamDatagramLinkLifetimeStats
 	// Jitter histogram
 	JitterHistogram m_jitterHistogram;
 
-	//
-	// Connection transmit speed histogram
-	//
-	int m_nTXSpeedMax; // Max speed we hit
-
-	int m_nTXSpeedHistogram16; // Speed at kb/s
-	int m_nTXSpeedHistogram32; 
-	int m_nTXSpeedHistogram64;
-	int m_nTXSpeedHistogram128;
-	int m_nTXSpeedHistogram256;
-	int m_nTXSpeedHistogram512;
-	int m_nTXSpeedHistogram1024;
-	int m_nTXSpeedHistogramMax;
-	inline int TXSpeedHistogramTotalCount() const
-	{
-		return m_nTXSpeedHistogram16
-			+ m_nTXSpeedHistogram32
-			+ m_nTXSpeedHistogram64
-			+ m_nTXSpeedHistogram128 
-			+ m_nTXSpeedHistogram256 
-			+ m_nTXSpeedHistogram512 
-			+ m_nTXSpeedHistogram1024
-			+ m_nTXSpeedHistogramMax;
-	}
-
-	// Distribution.  Some might be -1, see above for why.
-	int m_nTXSpeedNtile5th; // 5% of transmit samples were <= N kb/s
-	int m_nTXSpeedNtile50th; // 50% of transmit samples were <= N kb/s 
-	int m_nTXSpeedNtile75th; // 75% of transmit samples were <= N kb/s 
-	int m_nTXSpeedNtile95th; // 95% of transmit samples were <= N kb/s 
-	int m_nTXSpeedNtile98th; // 98% of transmit samples were <= N kb/s 
-
-	//
-	// Connection receive speed histogram
-	//
-	int m_nRXSpeedMax; // Max speed we hit that formed the histogram
-
-	int m_nRXSpeedHistogram16; // Speed at kb/s
-	int m_nRXSpeedHistogram32; 
-	int m_nRXSpeedHistogram64;
-	int m_nRXSpeedHistogram128;
-	int m_nRXSpeedHistogram256;
-	int m_nRXSpeedHistogram512;
-	int m_nRXSpeedHistogram1024;
-	int m_nRXSpeedHistogramMax;
-	inline int RXSpeedHistogramTotalCount() const
-	{
-		return m_nRXSpeedHistogram16
-			+ m_nRXSpeedHistogram32
-			+ m_nRXSpeedHistogram64
-			+ m_nRXSpeedHistogram128
-			+ m_nRXSpeedHistogram256
-			+ m_nRXSpeedHistogram512
-			+ m_nRXSpeedHistogram1024
-			+ m_nRXSpeedHistogramMax;
-	}
-
-	// Distribution.  Some might be -1, see above for why.
-	int m_nRXSpeedNtile5th; // 5% of transmit samples were <= N kb/s
-	int m_nRXSpeedNtile50th; // 50% of transmit samples were <= N kb/s 
-	int m_nRXSpeedNtile75th; // 75% of transmit samples were <= N kb/s 
-	int m_nRXSpeedNtile95th; // 95% of transmit samples were <= N kb/s 
-	int m_nRXSpeedNtile98th; // 98% of transmit samples were <= N kb/s 
-
+//	//
+//	// Connection transmit speed histogram
+//	//
+//	int m_nTXSpeedMax; // Max speed we hit
+//
+//	int m_nTXSpeedHistogram16; // Speed at kb/s
+//	int m_nTXSpeedHistogram32; 
+//	int m_nTXSpeedHistogram64;
+//	int m_nTXSpeedHistogram128;
+//	int m_nTXSpeedHistogram256;
+//	int m_nTXSpeedHistogram512;
+//	int m_nTXSpeedHistogram1024;
+//	int m_nTXSpeedHistogramMax;
+//	inline int TXSpeedHistogramTotalCount() const
+//	{
+//		return m_nTXSpeedHistogram16
+//			+ m_nTXSpeedHistogram32
+//			+ m_nTXSpeedHistogram64
+//			+ m_nTXSpeedHistogram128 
+//			+ m_nTXSpeedHistogram256 
+//			+ m_nTXSpeedHistogram512 
+//			+ m_nTXSpeedHistogram1024
+//			+ m_nTXSpeedHistogramMax;
+//	}
+//
+//	// Distribution.  Some might be -1, see above for why.
+//	int m_nTXSpeedNtile5th; // 5% of transmit samples were <= N kb/s
+//	int m_nTXSpeedNtile50th; // 50% of transmit samples were <= N kb/s 
+//	int m_nTXSpeedNtile75th; // 75% of transmit samples were <= N kb/s 
+//	int m_nTXSpeedNtile95th; // 95% of transmit samples were <= N kb/s 
+//	int m_nTXSpeedNtile98th; // 98% of transmit samples were <= N kb/s 
+//
+//	//
+//	// Connection receive speed histogram
+//	//
+//	int m_nRXSpeedMax; // Max speed we hit that formed the histogram
+//
+//	int m_nRXSpeedHistogram16; // Speed at kb/s
+//	int m_nRXSpeedHistogram32; 
+//	int m_nRXSpeedHistogram64;
+//	int m_nRXSpeedHistogram128;
+//	int m_nRXSpeedHistogram256;
+//	int m_nRXSpeedHistogram512;
+//	int m_nRXSpeedHistogram1024;
+//	int m_nRXSpeedHistogramMax;
+//	inline int RXSpeedHistogramTotalCount() const
+//	{
+//		return m_nRXSpeedHistogram16
+//			+ m_nRXSpeedHistogram32
+//			+ m_nRXSpeedHistogram64
+//			+ m_nRXSpeedHistogram128
+//			+ m_nRXSpeedHistogram256
+//			+ m_nRXSpeedHistogram512
+//			+ m_nRXSpeedHistogram1024
+//			+ m_nRXSpeedHistogramMax;
+//	}
+//
+//	// Distribution.  Some might be -1, see above for why.
+//	int m_nRXSpeedNtile5th; // 5% of transmit samples were <= N kb/s
+//	int m_nRXSpeedNtile50th; // 50% of transmit samples were <= N kb/s 
+//	int m_nRXSpeedNtile75th; // 75% of transmit samples were <= N kb/s 
+//	int m_nRXSpeedNtile95th; // 95% of transmit samples were <= N kb/s 
+//	int m_nRXSpeedNtile98th; // 98% of transmit samples were <= N kb/s 
 };
 
 /// Link stats.  Pretty much everything you might possibly want to know about the connection
