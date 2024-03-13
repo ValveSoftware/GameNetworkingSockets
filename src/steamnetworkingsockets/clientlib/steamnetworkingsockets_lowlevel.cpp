@@ -55,8 +55,10 @@ TRACELOGGING_DEFINE_PROVIDER(
 	/* NEW hash-based guid: */ ( 0xd4e956eb, 0xde52, 0x57ac, 0xdc, 0xaa, 0x1f, 0x9b, 0xa1, 0x04, 0x17, 0xc8 )
 );
 
+#if IsTraceLoggingEnabled()
 // We'll put up to N of the first bytes in ETW events for the low level send/recv event
 constexpr int k_cbETWEventUDPPacketDataSize = 16;
+#endif
 
 namespace SteamNetworkingSocketsLib {
 
@@ -987,41 +989,43 @@ public:
 		}
 
 		// Emit ETW event
-		if ( IsTraceLoggingProviderEnabled( HTraceLogging_SteamNetworkingSockets ) )
-		{
-			int cbTotal = 0;
-			for ( int i = 0 ; i < nChunks ; ++i )
-				cbTotal += (int)pChunks[i].iov_len;
-
-			char header_buf[k_cbETWEventUDPPacketDataSize];
-			const void *header;
-			int cbHeader;
-			if ( likely( nChunks == 1 || pChunks[0].iov_len >= k_cbETWEventUDPPacketDataSize ) )
+		#if IsTraceLoggingEnabled() // I should not have to use the preprocessor here, but if I don't, GCC emits warnings about variables set but not used, even though the code, trivially, is not reachable
+			if ( IsTraceLoggingProviderEnabled( HTraceLogging_SteamNetworkingSockets ) )
 			{
-				header = pChunks[0].iov_base;
-				cbHeader = (int)std::min( (size_t)pChunks[0].iov_len, (size_t)k_cbETWEventUDPPacketDataSize );
-			}
-			else
-			{
-				cbHeader = 0;
+				int cbTotal = 0;
 				for ( int i = 0 ; i < nChunks ; ++i )
-				{
-					int cbChunkHeader = std::min( (int)pChunks[i].iov_len, (int)k_cbETWEventUDPPacketDataSize - cbHeader );
-					memcpy( header_buf + cbHeader, pChunks[i].iov_base, cbChunkHeader );
-					cbHeader += cbChunkHeader;
-				}
-				header = header_buf;
-			}
+					cbTotal += (int)pChunks[i].iov_len;
 
-			TraceLoggingWrite(
-				HTraceLogging_SteamNetworkingSockets,
-				"UDPSend",
-				//TraceLoggingLevel( WINEVENT_LEVEL_INFO ),
-				TraceLoggingSocketAddress( &destAddress, addrSize, "Addr" ),
-				TraceLoggingUInt16( (uint16)cbTotal, "Bytes" ),
-				TraceLoggingBinary( header, cbHeader, "Data" )
-			);
-		}
+				char header_buf[k_cbETWEventUDPPacketDataSize];
+				const void *header;
+				int cbHeader;
+				if ( likely( nChunks == 1 || pChunks[0].iov_len >= k_cbETWEventUDPPacketDataSize ) )
+				{
+					header = pChunks[0].iov_base;
+					cbHeader = (int)std::min( (size_t)pChunks[0].iov_len, (size_t)k_cbETWEventUDPPacketDataSize );
+				}
+				else
+				{
+					cbHeader = 0;
+					for ( int i = 0 ; i < nChunks ; ++i )
+					{
+						int cbChunkHeader = std::min( (int)pChunks[i].iov_len, (int)k_cbETWEventUDPPacketDataSize - cbHeader );
+						memcpy( header_buf + cbHeader, pChunks[i].iov_base, cbChunkHeader );
+						cbHeader += cbChunkHeader;
+					}
+					header = header_buf;
+				}
+
+				TraceLoggingWrite(
+					HTraceLogging_SteamNetworkingSockets,
+					"UDPSend",
+					//TraceLoggingLevel( WINEVENT_LEVEL_INFO ),
+					TraceLoggingSocketAddress( &destAddress, addrSize, "Addr" ),
+					TraceLoggingUInt16( (uint16)cbTotal, "Bytes" ),
+					TraceLoggingBinary( header, cbHeader, "Data" )
+				);
+			}
+		#endif
 
 		if ( GlobalConfig::PacketTraceMaxBytes.Get() >= 0 )
 		{
