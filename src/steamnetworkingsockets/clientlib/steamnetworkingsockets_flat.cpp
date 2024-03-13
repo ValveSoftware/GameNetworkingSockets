@@ -390,6 +390,14 @@ STEAMNETWORKINGSOCKETS_INTERFACE uint64 SteamAPI_SteamNetworkingIdentity_GetStea
 {
 	return self->GetSteamID64(  );
 }
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_SteamNetworkingIdentity_SetXboxPairwiseID( SteamNetworkingIdentity* self, const char * pszString )
+{
+	return self->SetXboxPairwiseID( pszString );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE const char * SteamAPI_SteamNetworkingIdentity_GetXboxPairwiseID( SteamNetworkingIdentity* self )
+{
+	return self->GetXboxPairwiseID(  );
+}
 STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIdentity_SetIPAddr( SteamNetworkingIdentity* self, const SteamNetworkingIPAddr & addr )
 {
 	self->SetIPAddr( addr );

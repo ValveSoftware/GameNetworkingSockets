@@ -582,6 +582,14 @@ void Test_identity()
 	}
 
 	{
+		const char *pszTempXBoxID = "8fg37rfsdf";
+		assert( id1.SetXboxPairwiseID( pszTempXBoxID ) );
+		id1.ToString( tempBuf, sizeof(tempBuf ) );
+		assert( id2.ParseString( tempBuf ) );
+		assert( strcmp( id2.GetXboxPairwiseID(), pszTempXBoxID ) == 0 );
+	}
+
+	{
 		const char *pszTempIPAddr = "ip:192.168.0.0:27015";
 		assert( id1.ParseString( pszTempIPAddr ) );
 		id1.ToString( tempBuf, sizeof(tempBuf ) );

@@ -213,6 +213,14 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingIdentity_ToString( const St
 			V_snprintf( buf, cbBuf, "steamid:%llu", (unsigned long long)pIdentity->m_steamID64 );
 			break;
 
+		case k_ESteamNetworkingIdentityType_XboxPairwiseID:
+			V_snprintf( buf, cbBuf, "xboxpwid:%s", pIdentity->m_szXboxPairwiseID );
+			break;
+
+		case k_ESteamNetworkingIdentityType_SonyPSN:
+			V_snprintf( buf, cbBuf, "psn:%llu", (unsigned long long)pIdentity->m_PSNID );
+			break;
+
 		case k_ESteamNetworkingIdentityType_IPAddress:
 			V_strncpy( buf, "ip:", cbBuf );
 			if ( cbBuf > 4 )
@@ -282,6 +290,25 @@ STEAMNETWORKINGSOCKETS_INTERFACE bool SteamNetworkingIdentity_ParseString( Steam
 		if ( !steamID.IsValid() )
 			return false;
 		pIdentity->SetSteamID64( (uint64)temp );
+		return true;
+	}
+
+	if ( V_strncmp( pszStr, "xboxpwid:", 9 ) == 0 )
+	{
+		pszStr += 9;
+		size_t l = strlen( pszStr );
+		if ( l >= sizeofData )
+			return false;
+		return pIdentity->SetXboxPairwiseID( pszStr );
+	}
+
+	if ( V_strncmp( pszStr, "psn:", 4 ) == 0 )
+	{
+		pszStr += 4;
+		unsigned long long temp;
+		if ( sscanf( pszStr, "%llu", &temp ) != 1 )
+			return false;
+		pIdentity->SetPSNID( (uint64)temp );
 		return true;
 	}
 
