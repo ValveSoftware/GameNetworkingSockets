@@ -1230,9 +1230,18 @@ enum ESteamNetworkingConfigValue
 	/// we won't automatically reject a connection due to a failure to authenticate.
 	/// (You can examine the incoming connection and decide whether to accept it.)
 	///
+	/// 0: Don't attempt or accept unauthorized connections
+	/// 1: Attempt authorization when connecting, and allow unauthorized peers, but emit warnings
+	/// 2: don't attempt authentication, or complain if peer is unauthenticated
+	///
 	/// This is a dev configuration value, and you should not let users modify it in
 	/// production.
 	k_ESteamNetworkingConfig_IP_AllowWithoutAuth = 23,
+
+	/// [connection int32] The same as IP_AllowWithoutAuth, but will only apply
+	/// for connections to/from localhost addresses.  Whichever value is larger
+	/// (more permissive) will be used.
+	k_ESteamNetworkingConfig_IPLocalHost_AllowWithoutAuth = 52,
 
 	/// [connection int32] Do not send UDP packets with a payload of
 	/// larger than N bytes.  If you set this, k_ESteamNetworkingConfig_MTU_DataSize

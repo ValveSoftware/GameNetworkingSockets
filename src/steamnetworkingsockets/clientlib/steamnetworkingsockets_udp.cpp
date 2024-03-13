@@ -74,6 +74,23 @@ void ReallyReportBadUDPPacket( const char *pszFrom, const char *pszMsgType, cons
 		} \
 	}
 
+// Return the effective value of IP_AllowWithoutAuth, checking for giving
+// localhost peers more permissive value
+static int GetIPAllowWithoutAuth( const ConnectionConfig &cfg, bool bIsLocalHost )
+{
+	int result = cfg.IP_AllowWithoutAuth.Get();
+
+	// Check if peer is a localhost address, we might be more permissive
+	if ( bIsLocalHost )
+	{
+
+		// Take whichever option is more permissive
+		result = std::max( result, cfg.IPLocalHost_AllowWithoutAuth.Get() );
+	}
+
+	return result;
+}
+
 /////////////////////////////////////////////////////////////////////////////
 //
 // CSteamNetworkListenSocketDirectUDP
@@ -349,7 +366,7 @@ void CSteamNetworkListenSocketDirectUDP::Received_ConnectRequest( const CMsgStea
 
 		if ( identityRemote.IsLocalHost() )
 		{
-			if ( m_connectionConfig.IP_AllowWithoutAuth.Get() == 0 )
+			if ( GetIPAllowWithoutAuth( m_connectionConfig, adrFrom.IsLoopback() ) == 0 )
 			{
 				// Should we send an explicit rejection here?
 				ReportBadPacket( "ConnectRequest", "Unauthenticated connections not allowed." );
@@ -1121,6 +1138,32 @@ bool CConnectionTransportUDP::CreateLoopbackPair( CConnectionTransportUDP *pTran
 	return true;
 }
 
+bool CSteamNetworkConnectionUDP::BSetLocalIdentityAndCheckForAuthOverride( bool bIsLocalHost, int nOptions, const SteamNetworkingConfigValue_t *pOptions, SteamDatagramErrMsg &errMsg )
+{
+
+	// Specific identity already set?
+	if ( !m_identityLocal.IsInvalid() )
+		return true;
+
+	// Use identity from the interface, if we have one
+	m_identityLocal = m_pSteamNetworkingSocketsInterface->InternalGetIdentity();
+	if ( !m_identityLocal.IsInvalid() )
+		return true;
+
+	// FIXME check passed-in options, in case there is an override
+
+	// We don't know who we are.  Should we attempt anonymous?
+	if ( GetIPAllowWithoutAuth( m_connectionConfig, bIsLocalHost ) == 0 )
+	{
+		V_strcpy_safe( errMsg, "Unable to determine local identity, and auth required.  Not logged in?" );
+		return false;
+	}
+
+	// Use anonymous
+	m_identityLocal.SetLocalHost();
+	return true;
+}
+
 bool CSteamNetworkConnectionUDP::BInitConnect( const SteamNetworkingIPAddr &addressRemote, int nOptions, const SteamNetworkingConfigValue_t *pOptions, SteamDatagramErrMsg &errMsg )
 {
 	AssertMsg( !m_pTransport, "Trying to connect when we already have a socket?" );
@@ -1137,25 +1180,10 @@ bool CSteamNetworkConnectionUDP::BInitConnect( const SteamNetworkingIPAddr &addr
 	Assert( m_identityRemote.IsInvalid() );
 	m_identityRemote.Clear();
 
-	// We should know our own identity, unless the app has said it's OK to go without this.
-	if ( m_identityLocal.IsInvalid() ) // Specific identity hasn't already been set (by derived class, etc)
-	{
-
-		// Use identity from the interface, if we have one
-		m_identityLocal = m_pSteamNetworkingSocketsInterface->InternalGetIdentity();
-		if ( m_identityLocal.IsInvalid())
-		{
-
-			// We don't know who we are.  Should we attempt anonymous?
-			if ( m_connectionConfig.IP_AllowWithoutAuth.Get() == 0 )
-			{
-				V_strcpy_safe( errMsg, "Unable to determine local identity, and auth required.  Not logged in?" );
-				return false;
-			}
-
-			m_identityLocal.SetLocalHost();
-		}
-	}
+	// Try to set our identity.  The base class will do it, but it doesn't know
+	// about the convars that can be used to disable auth for IP connections
+	if ( !BSetLocalIdentityAndCheckForAuthOverride( addressRemote.IsLocalHost(), nOptions, pOptions, errMsg ) )
+		return false;
 
 	// Create transport.
 	CConnectionTransportUDP *pTransport = new CConnectionTransportUDP( *this );
@@ -1238,6 +1266,11 @@ bool CSteamNetworkConnectionUDP::BBeginAccept(
 
 	m_unConnectionIDRemote = unConnectionIDRemote;
 	if ( !pParent->BAddChildConnection( this, errMsg ) )
+		return false;
+
+	// Try to set our identity.  The base class will do it, but it doesn't know
+	// about the convars that can be used to disable auth for IP connections
+	if ( !BSetLocalIdentityAndCheckForAuthOverride( adrFrom.IsLoopback(), 0, nullptr, errMsg ) )
 		return false;
 
 	// Let base class do some common initialization
@@ -1561,7 +1594,7 @@ void CConnectionTransportUDP::Received_ConnectOK( const CMsgSteamSockets_UDP_Con
 
 		if ( identityRemote.IsLocalHost() )
 		{
-			if ( m_connection.m_connectionConfig.IP_AllowWithoutAuth.Get() == 0 )
+			if ( GetIPAllowWithoutAuth( m_connection.m_connectionConfig, addr.IsLocalHost() ) == 0 )
 			{
 				// Should we send an explicit rejection here?
 				ReportBadUDPPacketFromConnectionPeer( "ConnectOK", "Unauthenticated connections not allowed." );
@@ -1767,15 +1800,9 @@ void CConnectionTransportUDP::SendConnectOK( SteamNetworkingMicroseconds usecNow
 
 EUnsignedCert CSteamNetworkConnectionUDP::AllowRemoteUnsignedCert()
 {
-	// NOTE: No special override for localhost.
-	// Should we add a separate convar for this?
-	// For the CSteamNetworkConnectionlocalhostLoopback connection,
-	// we know both ends are us.  but if they are just connecting to
-	// 127.0.0.1, it's not clear that we should handle this any
-	// differently from any other connection
-
 	// Enabled by convar?
-	int nAllow = m_connectionConfig.IP_AllowWithoutAuth.Get();
+	const bool bIsPeerLocalHost = ( Transport() && Transport()->m_pSocket && Transport()->m_pSocket->GetRemoteHostAddr().IsLoopback() );
+	const int nAllow = GetIPAllowWithoutAuth( m_connectionConfig, bIsPeerLocalHost );
 	if ( nAllow > 1 )
 		return k_EUnsignedCert_Allow;
 	if ( nAllow == 1 )

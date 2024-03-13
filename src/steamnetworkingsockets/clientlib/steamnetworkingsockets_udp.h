@@ -225,6 +225,9 @@ public:
 	);
 protected:
 	virtual ~CSteamNetworkConnectionUDP(); // hidden destructor, don't call directly.  Use ConnectionQueueDestroy()
+
+private:
+	bool BSetLocalIdentityAndCheckForAuthOverride( bool bIsLocalHost, int nOptions, const SteamNetworkingConfigValue_t *pOptions, SteamDatagramErrMsg &errMsg );
 };
 
 /// A connection over loopback
