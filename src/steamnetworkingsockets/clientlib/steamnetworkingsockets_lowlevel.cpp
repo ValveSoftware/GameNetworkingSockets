@@ -55,6 +55,9 @@ TRACELOGGING_DEFINE_PROVIDER(
 	/* NEW hash-based guid: */ ( 0xd4e956eb, 0xde52, 0x57ac, 0xdc, 0xaa, 0x1f, 0x9b, 0xa1, 0x04, 0x17, 0xc8 )
 );
 
+// We'll put up to N of the first bytes in ETW events for the low level send/recv event
+constexpr int k_cbETWEventUDPPacketDataSize = 16;
+
 namespace SteamNetworkingSocketsLib {
 
 inline void ETW_LongOp( const char *opName, SteamNetworkingMicroseconds usec, const char *pszInfo )
@@ -989,12 +992,34 @@ public:
 			int cbTotal = 0;
 			for ( int i = 0 ; i < nChunks ; ++i )
 				cbTotal += (int)pChunks[i].iov_len;
+
+			char header_buf[k_cbETWEventUDPPacketDataSize];
+			const void *header;
+			int cbHeader;
+			if ( likely( nChunks == 1 || pChunks[0].iov_len >= k_cbETWEventUDPPacketDataSize ) )
+			{
+				header = pChunks[0].iov_base;
+				cbHeader = (int)std::min( (size_t)pChunks[0].iov_len, (size_t)k_cbETWEventUDPPacketDataSize );
+			}
+			else
+			{
+				cbHeader = 0;
+				for ( int i = 0 ; i < nChunks ; ++i )
+				{
+					int cbChunkHeader = std::min( (int)pChunks[i].iov_len, (int)k_cbETWEventUDPPacketDataSize - cbHeader );
+					memcpy( header_buf + cbHeader, pChunks[i].iov_base, cbChunkHeader );
+					cbHeader += cbChunkHeader;
+				}
+				header = header_buf;
+			}
+
 			TraceLoggingWrite(
 				HTraceLogging_SteamNetworkingSockets,
 				"UDPSend",
 				//TraceLoggingLevel( WINEVENT_LEVEL_INFO ),
 				TraceLoggingSocketAddress( &destAddress, addrSize, "Addr" ),
-				TraceLoggingUInt16( (uint16)cbTotal, "Bytes" )
+				TraceLoggingUInt16( (uint16)cbTotal, "Bytes" ),
+				TraceLoggingBinary( header, cbHeader, "Data" )
 			);
 		}
 
@@ -2242,7 +2267,8 @@ static bool DrainSocket( CRawUDPSocketImpl *pSock )
 			"UDPRecv",
 			//TraceLoggingLevel( WINEVENT_LEVEL_INFO ),
 			TraceLoggingSocketAddress( &from, fromlen, "Addr" ),
-			TraceLoggingUInt16( (uint16)ret, "Bytes" )
+			TraceLoggingUInt16( (uint16)ret, "Bytes" ),
+			TraceLoggingBinary( buf, std::min( k_cbETWEventUDPPacketDataSize, ret ), "Data" )
 		);
 
 		// Add a tag.  If we end up holding the lock for a long time, this tag
