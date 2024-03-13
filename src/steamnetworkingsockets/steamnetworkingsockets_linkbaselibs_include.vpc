@@ -1,5 +1,5 @@
 //-----------------------------------------------------------------------------
-//	steamdatagram_linkbaselibs_include.VPC
+//	steamnetworkingsockets_linkbaselibs_include.vpc
 //
 //	Do the 15 billion steps you need to do to link with our base libs statically
 //-----------------------------------------------------------------------------

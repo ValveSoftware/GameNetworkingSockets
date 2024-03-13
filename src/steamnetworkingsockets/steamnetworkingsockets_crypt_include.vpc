@@ -1,5 +1,5 @@
 //-----------------------------------------------------------------------------
-//	steamdatagram_crypt_include.VPC
+//	steamnetworkingsockets_crypt_include.VPC
 //
 //	Do the 15 billion steps you need to do to link with crypto libs statically
 //-----------------------------------------------------------------------------
