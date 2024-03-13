@@ -54,14 +54,6 @@ $Folder "SteamNetworkingSockets"
 		$File	"$SRCDIR/common/percentile_generator.h"
 	}
 
-	$Folder "ETW" [$WINDOWS]
-	{
-		$File_NoPCH	"$SRCDIR/steamnetworkingsockets/clientlib/etw/steamnetworkingsockets_etw.cpp"
-		$File	"$SRCDIR/steamnetworkingsockets/clientlib/etw/steamnetworkingsockets_etw_events.man"
-		$File	"$SRCDIR/steamnetworkingsockets/clientlib/etw/steamnetworkingsockets_etw_events.h"
-		$File	"$SRCDIR/steamnetworkingsockets/clientlib/etw/steamnetworkingsockets_etw_events.rc"
-	}
-
 	$Folder "Public interface"
 	{
 

@@ -51,6 +51,9 @@ $Project
 		$File "$SRCDIR\tier1\netadr.cpp"
 		$File "$SRCDIR\tier1\utlbuffer.cpp"
 		$File "$SRCDIR\tier1\utlmemory.cpp"
+
+		$File "$SRCDIR\public\tier0\valve_tracelogging.h"
+		$File "$SRCDIR\tier0\valve_tracelogging.cpp"
 	}
 
 	$Folder "Link Libraries" [!$SDR_PUBLIC && $POSIX]

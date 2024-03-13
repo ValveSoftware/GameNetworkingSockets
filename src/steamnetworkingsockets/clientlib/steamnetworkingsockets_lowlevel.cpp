@@ -12,6 +12,7 @@
 #include <tier1/utlpriorityqueue.h>
 #include <tier1/utllinkedlist.h>
 #include "crypto.h"
+#include <tier0/valve_tracelogging.h>
 
 #if IsPosix()
 	#include <pthread.h>
@@ -45,7 +46,29 @@
 
 #include <tier0/memdbgon.h>
 
+TRACELOGGING_DECLARE_PROVIDER( HTraceLogging_SteamNetworkingSockets );
+
+TRACELOGGING_DEFINE_PROVIDER(
+	HTraceLogging_SteamNetworkingSockets,
+	"Valve.SteamNetworkingSockets",
+	/* OLD GUID:               ( 0xb77d8a36, 0xef0c, 0x4976, 0x8d, 0x22, 0x08, 0xf9, 0x86, 0xf5, 0x6c, 0xfb ) */
+	/* NEW hash-based guid: */ ( 0xd4e956eb, 0xde52, 0x57ac, 0xdc, 0xaa, 0x1f, 0x9b, 0xa1, 0x04, 0x17, 0xc8 )
+);
+
 namespace SteamNetworkingSocketsLib {
+
+inline void ETW_LongOp( const char *opName, SteamNetworkingMicroseconds usec, const char *pszInfo )
+{
+	if ( !pszInfo )
+		pszInfo = "";
+	TraceLoggingWrite(
+		HTraceLogging_SteamNetworkingSockets,
+		"LongOp",
+		TraceLoggingLevel( WINEVENT_LEVEL_WARNING ),
+		TraceLoggingUInt64( usec, "Microseconds" ),
+		TraceLoggingString( pszInfo, "ExtraInfo" )
+	);
+}
 
 constexpr int k_msMaxPollWait = 1000;
 constexpr SteamNetworkingMicroseconds k_usecMaxTimestampDelta = k_msMaxPollWait * 1100;
@@ -960,14 +983,20 @@ public:
 			addrSize = (socklen_t)adrTo.ToSockadr( &destAddress );
 		}
 
-		#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ETW
+		// Emit ETW event
+		if ( IsTraceLoggingProviderEnabled( HTraceLogging_SteamNetworkingSockets ) )
 		{
 			int cbTotal = 0;
 			for ( int i = 0 ; i < nChunks ; ++i )
 				cbTotal += (int)pChunks[i].iov_len;
-			ETW_UDPSendPacket( adrTo, cbTotal );
+			TraceLoggingWrite(
+				HTraceLogging_SteamNetworkingSockets,
+				"UDPSend",
+				//TraceLoggingLevel( WINEVENT_LEVEL_INFO ),
+				TraceLoggingSocketAddress( &destAddress, addrSize, "Addr" ),
+				TraceLoggingUInt16( (uint16)cbTotal, "Bytes" )
+			);
 		}
-		#endif
 
 		if ( GlobalConfig::PacketTraceMaxBytes.Get() >= 0 )
 		{
@@ -2207,6 +2236,15 @@ static bool DrainSocket( CRawUDPSocketImpl *pSock )
 		if ( ret < 0 )
 			break;
 
+		// Emit ETW event
+		TraceLoggingWrite(
+			HTraceLogging_SteamNetworkingSockets,
+			"UDPRecv",
+			//TraceLoggingLevel( WINEVENT_LEVEL_INFO ),
+			TraceLoggingSocketAddress( &from, fromlen, "Addr" ),
+			TraceLoggingUInt16( (uint16)ret, "Bytes" )
+		);
+
 		// Add a tag.  If we end up holding the lock for a long time, this tag
 		// will tell us how many packets were processed
 		SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "RecvUDPPacket" );
@@ -2283,7 +2321,6 @@ static bool DrainSocket( CRawUDPSocketImpl *pSock )
 		}
 		else
 		{
-			ETW_UDPRecvPacket( info.m_adrFrom, ret );
 
 			info.m_pPkt = buf;
 			info.m_cbPkt = ret;
@@ -3545,7 +3582,7 @@ bool BSteamNetworkingSocketsLowLevelAddRef( SteamNetworkingErrMsg &errMsg )
 		CCrypto::Init();
 
 		// Initialize event tracing
-		ETW_Init();
+		TraceLoggingRegister( HTraceLogging_SteamNetworkingSockets );
 
 		// Give us a extra time here.  This is a one-time init function and the OS might
 		// need to load up libraries and stuff.
@@ -3790,7 +3827,7 @@ void SteamNetworkingSocketsLowLevelDecRef()
 	s_packetLagQueueSend.Clear();
 
 	// Shutdown event tracing
-	ETW_Kill();
+	TraceLoggingUnregister( HTraceLogging_SteamNetworkingSockets );
 
 	// Shutdown Dual wifi support
 	DualWifiShutdown();
@@ -4227,6 +4264,47 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_DefaultPreFormatDeb
 
 	// Gah, some, but not all, of our code has newlines on the end
 	V_StripTrailingWhitespaceASCII( buf );
+
+	// Emit an ETW event.  Unfortunately, TraceLoggingLevel requires a constant argument
+	if ( IsTraceLoggingProviderEnabled( HTraceLogging_SteamNetworkingSockets ) )
+	{
+		if ( eType <= k_ESteamNetworkingSocketsDebugOutputType_Error )
+		{
+			TraceLoggingWrite(
+				HTraceLogging_SteamNetworkingSockets,
+				"Spew",
+				TraceLoggingLevel( WINEVENT_LEVEL_ERROR ),
+				TraceLoggingString( buf, "Msg" )
+			);
+		}
+		else if ( eType == k_ESteamNetworkingSocketsDebugOutputType_Warning )
+		{
+			TraceLoggingWrite(
+				HTraceLogging_SteamNetworkingSockets,
+				"Spew",
+				TraceLoggingLevel( WINEVENT_LEVEL_WARNING ),
+				TraceLoggingString( buf, "Msg" )
+			);
+		}
+		else if ( eType >= k_ESteamNetworkingSocketsDebugOutputType_Verbose )
+		{
+			TraceLoggingWrite(
+				HTraceLogging_SteamNetworkingSockets,
+				"Spew",
+				TraceLoggingLevel( WINEVENT_LEVEL_VERBOSE ),
+				TraceLoggingString( buf, "Msg" )
+			);
+		}
+		else
+		{
+			TraceLoggingWrite(
+				HTraceLogging_SteamNetworkingSockets,
+				"Spew",
+				TraceLoggingLevel( WINEVENT_LEVEL_INFO ),
+				TraceLoggingString( buf, "Msg" )
+			);
+		}
+	}
 
 	// Spew to log file?
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SYSTEMSPEW

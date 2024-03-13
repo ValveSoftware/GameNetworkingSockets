@@ -748,7 +748,7 @@ void CConnectionTransportP2PICE::P2PTransportUpdateRouteMetrics( SteamNetworking
 void CConnectionTransportP2PICE::ProcessPacket( const uint8_t *pPkt, int cbPkt, SteamNetworkingMicroseconds usecNow )
 {
 	Assert( cbPkt >= 1 ); // Caller should have checked this
-	ETW_ICEProcessPacket( m_connection.m_hConnectionSelf, cbPkt );
+	//ETW_ICEProcessPacket( m_connection.m_hConnectionSelf, cbPkt );
 
 	// Data packet is the most common, check for it first.  Also, does stat tracking.
 	if ( *pPkt & 0x80 )
