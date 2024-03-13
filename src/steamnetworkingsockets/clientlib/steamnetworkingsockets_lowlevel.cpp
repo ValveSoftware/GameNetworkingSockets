@@ -1157,6 +1157,38 @@ static CUtlVector<CRawUDPSocketImpl *> s_vecRawSockets;
 /// Are any sockets pending destruction?
 static bool s_bRawSocketPendingDestruction;
 
+class CPacketLagger;
+struct CLaggedPacket final : public CPossibleOutOfOrderPacket
+{
+	CRawUDPSocketImpl *m_pSockOwner;
+	netadr_t m_adrRemote;
+	int m_cbPkt;
+
+	CLaggedPacket *m_pPrev = nullptr;
+	CLaggedPacket *m_pNext = nullptr;
+	CPacketLagger *m_pLaggerOwner = nullptr;
+
+	char m_pkt[ k_cbSteamNetworkingSocketsMaxUDPMsgLen ];
+
+	CLaggedPacket( CRawUDPSocketImpl *pSockOwner, const netadr_t &adrRemote, SteamNetworkingMicroseconds usecFlush, int cbPkt )
+	: CPossibleOutOfOrderPacket()
+	, m_pSockOwner( pSockOwner )
+	, m_adrRemote( adrRemote )
+	, m_cbPkt( cbPkt )
+	{
+		m_usecFlush = usecFlush;
+		Assert( m_cbPkt < sizeof(m_pkt) );
+	}
+
+	void RemoveFromPacketLaggerList();
+
+	virtual void DoDestroy() override
+	{
+		RemoveFromPacketLaggerList();
+		CPossibleOutOfOrderPacket::DoDestroy();
+	}
+};
+
 /// Track packets that have fake lag applied and are pending to be sent/received
 class CPacketLagger : private IThinker
 {
@@ -1193,29 +1225,59 @@ public:
 		msDelay = std::min( msDelay, 5000 );
 		const SteamNetworkingMicroseconds usecTime = SteamNetworkingSockets_GetLocalTimestamp() + msDelay * 1000;
 
-		// Find the right place to insert the packet.  This is a dumb linear search, but in
-		// the steady state where the delay is constant, this search loop won't actually iterate,
-		// and we'll always be adding to the end of the queue
-		LaggedPacket *pkt = nullptr;
-		for ( CUtlLinkedList< LaggedPacket >::IndexType_t i = m_list.Tail(); i != m_list.InvalidIndex(); i = m_list.Previous( i ) )
+		CLaggedPacket *pkt = new CLaggedPacket( pSock, adr, usecTime, cbPkt );
+
+		// Find the right place to insert the packet, searching backwards from the end.  This is a dumb
+		// linear search, but in the steady state where the delay is constant, this search loop won't
+		// actually iterate, and we'll always be adding to the end of the queue
+		if ( m_pFirst )
 		{
-			if ( usecTime >= m_list[ i ].m_usecTime )
+			CLaggedPacket *pInsertAfter = m_pLast;
+			for (;;)
 			{
-				pkt = &m_list[ m_list.InsertAfter( i ) ];
-				break;
+				if ( pInsertAfter->m_usecFlush <= usecTime )
+				{
+					pkt->m_pPrev = pInsertAfter;
+					pkt->m_pNext = pInsertAfter->m_pNext;
+					pInsertAfter->m_pNext = pkt;
+					if ( pkt->m_pNext )
+					{
+						Assert( m_pLast != pInsertAfter );
+						Assert( pkt->m_pNext->m_pPrev == pInsertAfter );
+						pkt->m_pNext->m_pPrev = pkt;
+					}
+					else
+					{
+						Assert( m_pLast == pInsertAfter );
+						m_pLast = pkt;
+					}
+					break;
+				}
+
+				CLaggedPacket *p = pInsertAfter->m_pPrev;
+				if ( p == nullptr )
+				{
+					Assert( m_pFirst == pInsertAfter );
+					Assert( pInsertAfter->m_pPrev == nullptr );
+					pkt->m_pNext = pInsertAfter;
+					pInsertAfter->m_pPrev = pkt;
+					m_pFirst = pkt;
+					break;
+				}
+
+				Assert( m_pFirst != pInsertAfter );
+				Assert( p->m_pNext == pInsertAfter );
+				pInsertAfter = p;
 			}
 		}
-		if ( pkt == nullptr )
+		else
 		{
-			pkt = &m_list[ m_list.AddToHead() ];
+			// Empty list
+			m_pFirst = m_pLast = pkt;
 		}
-	
-		pkt->m_pSockOwner = pSock;
-		pkt->m_adrRemote = adr;
-		pkt->m_usecTime = usecTime;
-		pkt->m_cbPkt = cbPkt;
+		pkt->m_pLaggerOwner = this;
 
-		// Gather them into buffer
+		// Gather the payload data data into the buffer
 		char *d = pkt->m_pkt;
 		for ( int i = 0 ; i < nChunks ; ++i )
 		{
@@ -1227,20 +1289,19 @@ public:
 		Schedule();
 	}
 
+	/// Implements IThinker
 	/// Periodic processing
-	virtual void Think( SteamNetworkingMicroseconds usecNow ) OVERRIDE
+	virtual void Think( SteamNetworkingMicroseconds usecNow ) override
 	{
-
-		// Just always process packets in queue order.  This means there could be some
-		// weird burst or jankiness if the delay time is changed, but that's OK.
-		while ( !m_list.IsEmpty() )
+		while ( m_pFirst && m_pFirst->m_usecFlush <= usecNow )
 		{
-			LaggedPacket &pkt = m_list[ m_list.Head() ];
-			if ( pkt.m_usecTime > usecNow )
-				break;
+			CLaggedPacket *p = m_pFirst;
+			Assert( p->m_pLaggerOwner == this );
+			p->RemoveFromPacketLaggerList();
+			Assert( m_pFirst != p );
 
 			// Make sure socket is still in good shape.
-			CRawUDPSocketImpl *pSock = pkt.m_pSockOwner;
+			CRawUDPSocketImpl *pSock = p->m_pSockOwner;
 			if ( pSock )
 			{
 				if ( pSock->m_socket == INVALID_SOCKET || !pSock->m_callback.m_fnCallback )
@@ -1249,10 +1310,10 @@ public:
 				}
 				else
 				{
-					ProcessPacket( pkt, usecNow );
+					ProcessPacket( *p, usecNow );
 				}
 			}
-			m_list.RemoveFromHead();
+			p->Destroy();
 		}
 
 		Schedule();
@@ -1261,55 +1322,90 @@ public:
 	/// Nuke everything
 	void Clear()
 	{
-		m_list.RemoveAll();
+		while ( m_pFirst != nullptr )
+		{
+			CLaggedPacket *p = m_pFirst;
+			p->Destroy();
+			Assert( m_pFirst != p );
+		}
 		IThinker::ClearNextThinkTime();
 	}
 
 	/// Called when we're about to destroy a socket
 	void AboutToDestroySocket( const CRawUDPSocketImpl *pSock )
 	{
-		// Just do a dumb linear search.  This list should be empty in
+		// Just do a dumb linear search.  This list should be very short
 		// production situations, and socket destruction is relatively rare,
 		// so its not worth making this complicated.
-		int idx = m_list.Head();
-		while ( idx != m_list.InvalidIndex() )
+		CLaggedPacket *p = m_pFirst;
+		while ( p )
 		{
-			int idxNext = m_list.Next( idx );
-			if ( m_list[idx].m_pSockOwner == pSock )
-				m_list[idx].m_pSockOwner = nullptr;
-			idx = idxNext;
+			CLaggedPacket *x = p;
+			p = p->m_pNext;
+			if ( x->m_pSockOwner == pSock )
+			{
+				x->Destroy();
+			}
 		}
 	}
+
+	CLaggedPacket *m_pFirst = nullptr;
+	CLaggedPacket *m_pLast = nullptr;
 
 protected:
 
 	/// Set the next think time as appropriate
 	void Schedule()
 	{
-		if ( m_list.IsEmpty() )
+		if ( m_pFirst == nullptr )
 			ClearNextThinkTime();
 		else
-			SetNextThinkTime( m_list[ m_list.Head() ].m_usecTime );
+			SetNextThinkTime( m_pFirst->m_usecFlush );
 	}
 
-	struct LaggedPacket
-	{
-		CRawUDPSocketImpl *m_pSockOwner;
-		netadr_t m_adrRemote;
-		SteamNetworkingMicroseconds m_usecTime; /// Time when it should be sent or received
-		int m_cbPkt;
-		char m_pkt[ k_cbSteamNetworkingSocketsMaxUDPMsgLen ];
-	};
-	CUtlLinkedList<LaggedPacket> m_list;
-
 	/// Do whatever we're supposed to do with the next packet
-	virtual void ProcessPacket( const LaggedPacket &pkt, SteamNetworkingMicroseconds usecNow ) = 0;
+	virtual void ProcessPacket( const CLaggedPacket &pkt, SteamNetworkingMicroseconds usecNow ) = 0;
 };
+
+void CLaggedPacket::RemoveFromPacketLaggerList()
+{
+	if ( m_pLaggerOwner )
+	{
+		if ( m_pPrev )
+		{
+			Assert( m_pPrev->m_pNext == this );
+			m_pPrev->m_pNext = m_pNext;
+		}
+		else
+		{
+			Assert( m_pLaggerOwner->m_pFirst == this );
+			m_pLaggerOwner->m_pFirst = m_pNext;
+		}
+		if ( m_pNext )
+		{
+			Assert( m_pNext->m_pPrev == this );
+			m_pNext->m_pPrev = m_pPrev;
+		}
+		else
+		{
+			Assert( m_pLaggerOwner->m_pLast == this );
+			m_pLaggerOwner->m_pLast = m_pPrev;
+		}
+	}
+	else
+	{
+		Assert( m_pPrev == nullptr );
+		Assert( m_pNext == nullptr );
+	}
+	m_pLaggerOwner = nullptr;
+	m_pPrev = nullptr;
+	m_pNext = nullptr;
+}
 
 class CPacketLaggerSend final : public CPacketLagger
 {
 public:
-	virtual void ProcessPacket( const LaggedPacket &pkt, SteamNetworkingMicroseconds usecNow ) override
+	virtual void ProcessPacket( const CLaggedPacket &pkt, SteamNetworkingMicroseconds usecNow ) override
 	{
 		iovec temp;
 		temp.iov_len = pkt.m_cbPkt;
@@ -1321,7 +1417,7 @@ public:
 class CPacketLaggerRecv final : public CPacketLagger
 {
 public:
-	virtual void ProcessPacket( const LaggedPacket &pkt, SteamNetworkingMicroseconds usecNow ) override
+	virtual void ProcessPacket( const CLaggedPacket &pkt, SteamNetworkingMicroseconds usecNow ) override
 	{
 		// Copy data out of queue into local variables, just in case a
 		// packet is queued while we're in this function.  We don't want
