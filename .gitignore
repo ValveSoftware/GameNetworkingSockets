@@ -44,6 +44,8 @@ perf.data.old
 *.log
 *build-ci-ccache*
 vcpkg_installed
+.p4config
+P4CONFIG
 
 # We use cmake, so no Visual studio project files should be in git
 *.sln
