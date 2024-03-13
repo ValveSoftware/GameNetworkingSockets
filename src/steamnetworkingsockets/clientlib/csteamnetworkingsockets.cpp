@@ -180,7 +180,7 @@ static void EnsureConfigValueTableInitted()
 	for ( int i = 1 ; i < N ; ++i )
 	{
 		s_vecConfigValueTable[i-1]->m_pNextEntry = s_vecConfigValueTable[i];
-		AssertMsg1( s_vecConfigValueTable[i-1]->m_eValue < s_vecConfigValueTable[i]->m_eValue, "Registered duplicate config value %d", s_vecConfigValueTable[i]->m_eValue );
+		AssertFatalMsg( s_vecConfigValueTable[i-1]->m_eValue < s_vecConfigValueTable[i]->m_eValue, "Registered duplicate config value %d", s_vecConfigValueTable[i]->m_eValue );
 	}
 	s_vecConfigValueTable[N-1]->m_pNextEntry = nullptr;
 
