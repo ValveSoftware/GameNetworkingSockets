@@ -62,12 +62,6 @@ void CConnectionTransportP2PICE_WebRTC::Init( const ICESessionConfig &cfg )
 		Connection().ICEFailed( k_ESteamNetConnectionEnd_Misc_InternalError, "CreateICESession failed" );
 		return;
 	}
-
-	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ETW
-		m_pICESession->SetWriteEvent_setsockopt( ETW_webrtc_setsockopt );
-		m_pICESession->SetWriteEvent_send( ETW_webrtc_send );
-		m_pICESession->SetWriteEvent_sendto( ETW_webrtc_sendto );
-	#endif
 }
 
 bool CConnectionTransportP2PICE_WebRTC::SendPacket( const void *pkt, int cbPkt )
