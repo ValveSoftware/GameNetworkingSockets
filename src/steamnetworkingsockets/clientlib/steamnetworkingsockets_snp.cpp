@@ -4,6 +4,10 @@
 #include "steamnetworkingsockets_connections.h"
 #include "crypto.h"
 
+#include <tier0/valve_tracelogging.h> // Includes windows.h :(  Include this last before memdbgon
+
+TRACELOGGING_DECLARE_PROVIDER( HTraceLogging_SteamNetworkingSockets );
+
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
 
@@ -342,6 +346,17 @@ int64 CSteamNetworkConnectionBase::SNP_SendMessage( CSteamNetworkingMessage *pSe
 
 	// Assign a message number
 	pSendMessage->m_nMessageNumber = ++lane.m_nLastSentMsgNum;
+
+	// Emit ETW event now that we know the message number
+	TraceLoggingWrite(
+		HTraceLogging_SteamNetworkingSockets,
+		"MsgSend",
+		TraceLoggingString( GetDescription(), "Connection" ),
+		TraceLoggingInt64( pSendMessage->m_nMessageNumber, "MsgNum" ),
+		TraceLoggingUInt16( pSendMessage->m_idxLane, "Lane" ),
+		TraceLoggingBool( ( pSendMessage->m_nFlags & k_nSteamNetworkingSend_Reliable ) != 0, "Reliable" ),
+		TraceLoggingUInt32( pSendMessage->m_cbSize, "Size" )
+	);
 
 	// Reliable, or unreliable?
 	if ( pSendMessage->m_nFlags & k_nSteamNetworkingSend_Reliable )
