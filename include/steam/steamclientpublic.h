@@ -141,6 +141,7 @@ enum EResult
 	k_EResultChargerRequired = 125,				// The operation requires a charger to be plugged in, which wasn't present
 	k_EResultCachedCredentialInvalid = 126,		// Cached credential was invalid - user must reauthenticate
 	K_EResultPhoneNumberIsVOIP = 127,			// The phone number provided is a Voice Over IP number
+	k_EResultNotSupported = 128,				// The data being accessed is not supported by this API
 };
 
 // Error codes for use with the voice functions
