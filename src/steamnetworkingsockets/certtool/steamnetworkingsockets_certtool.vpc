@@ -34,6 +34,7 @@ $Configuration
 	$Compiler
 	{
 		$PreprocessorDefinitions			"$BASE;STEAMDATAGRAM_TICKET_STATIC_LINK;STEAMNETWORKINGSOCKETS_STATIC_LINK"
+		$PreprocessorDefinitions			"$BASE;STEAMNETWORKINGSOCKETS_ENABLE_SDR" [$STEAMNETWORKINGSOCKETS_ENABLE_SDR]
 		$AdditionalIncludeDirectories       "$BASE;$SRCDIR/external/picojson"
 
 		// Always compile in asserts, even in release builds
