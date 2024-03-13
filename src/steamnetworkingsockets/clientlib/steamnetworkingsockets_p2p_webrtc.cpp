@@ -261,8 +261,8 @@ public:
 
 	inline void Queue( CConnectionTransportP2PICE_WebRTC *pTransport, const char *pszTag )
 	{
-		DbgVerify( Setup( pTransport ) ); // Caller should have already checked
-		QueueToRunWithGlobalLock( pszTag );
+		if ( Setup( pTransport ) )
+			QueueToRunWithGlobalLock( pszTag );
 	}
 
 	inline void RunOrQueue( CConnectionTransportP2PICE_WebRTC *pTransport, const char *pszTag )
@@ -344,7 +344,11 @@ void CConnectionTransportP2PICE_WebRTC::OnLocalCandidateGathered( EICECandidateT
 	RunIceCandidateAdded *pRun = new RunIceCandidateAdded;
 	pRun->eType = eType;
 	pRun->msgCandidate.set_candidate( pszCandidate );
-	pRun->RunOrQueue( this, "ICE OnIceCandidateAdded" );
+
+	// Always use the queue here.  Never run immediately, even if we
+	// can get the lock.  This is not time sensitive, and deadlocks
+	// are a possibility with this type of event.
+	pRun->Queue( this, "ICE OnIceCandidateAdded" );
 }
 
 void CConnectionTransportP2PICE_WebRTC::DrainPacketQueue( SteamNetworkingMicroseconds usecNow )
@@ -412,8 +416,11 @@ void CConnectionTransportP2PICE_WebRTC::OnWritableStateChanged()
 		}
 	};
 
+	// Always use the queue here.  Never run immediately, even if we
+	// can get the lock.  This is not time sensitive, and deadlocks
+	// are a possibility with this type of event.
 	RunWritableStateChanged *pRun = new RunWritableStateChanged;
-	pRun->RunOrQueue( this, "ICE OnWritableStateChanged" );
+	pRun->Queue( this, "ICE OnWritableStateChanged" );
 }
 
 void CConnectionTransportP2PICE_WebRTC::OnRouteChanged()
@@ -426,8 +433,11 @@ void CConnectionTransportP2PICE_WebRTC::OnRouteChanged()
 		}
 	};
 
+	// Always use the queue here.  Never run immediately, even if we
+	// can get the lock.  This is not time sensitive, and deadlocks
+	// are a possibility with this type of event.
 	RunRouteStateChanged *pRun = new RunRouteStateChanged;
-	pRun->RunOrQueue( this, "ICE OnRouteChanged" );
+	pRun->Queue( this, "ICE OnRouteChanged" );
 }
 
 void CConnectionTransportP2PICE_WebRTC::OnData( const void *pPkt, size_t nSize )
