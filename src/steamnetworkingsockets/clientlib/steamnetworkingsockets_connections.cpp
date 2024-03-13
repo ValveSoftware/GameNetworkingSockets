@@ -2496,6 +2496,7 @@ void CSteamNetworkConnectionBase::SetState( ESteamNetworkingConnectionState eNew
 	{
 		// Can't change certain options after this point
 		m_connectionConfig.IP_AllowWithoutAuth.Lock();
+		m_connectionConfig.IPLocalHost_AllowWithoutAuth.Lock();
 		m_connectionConfig.Unencrypted.Lock();
 		m_connectionConfig.SymmetricConnect.Lock();
 		#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR

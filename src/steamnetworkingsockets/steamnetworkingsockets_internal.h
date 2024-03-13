@@ -867,6 +867,7 @@ struct ConnectionConfig
 	ConfigValue<int32> MTU_PacketSize;
 	ConfigValue<int32> NagleTime;
 	ConfigValue<int32> IP_AllowWithoutAuth;
+	ConfigValue<int32> IPLocalHost_AllowWithoutAuth;
 	ConfigValue<int32> Unencrypted;
 	ConfigValue<int32> SymmetricConnect;
 	ConfigValue<int32> LocalVirtualPort;
