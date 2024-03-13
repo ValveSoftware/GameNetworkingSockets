@@ -899,7 +899,7 @@ struct ConnectionConfig
 	#endif
 
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
-		ConfigValue<std::string> SDRClient_DebugTicketAddress;
+		ConfigValue<std::string> SDRClient_DevTicket;
 		ConfigValue<int32> P2P_Transport_SDR_Penalty;
 	#endif
 

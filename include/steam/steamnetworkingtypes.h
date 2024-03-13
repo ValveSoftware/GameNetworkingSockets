@@ -1579,10 +1579,13 @@ enum ESteamNetworkingConfigValue
 	/// only use relays in that cluster.  E.g. 'iad'
 	k_ESteamNetworkingConfig_SDRClient_ForceRelayCluster = 29,
 
-	/// [connection string] For debugging, generate our own (unsigned) ticket, using
-	/// the specified  gameserver address.  Router must be configured to accept unsigned
-	/// tickets.
-	k_ESteamNetworkingConfig_SDRClient_DebugTicketAddress = 30,
+	/// [connection string] For development, a base-64 encoded ticket generated
+	/// using the cert tool.  This can be used to connect to a gameserver via SDR
+	/// without a ticket generated using the game coordinator.  (You will still
+	/// need a key that is trusted for your app, however.)
+	///
+	/// This can also be passed using the SDR_DEVTICKET environment variable
+	k_ESteamNetworkingConfig_SDRClient_DevTicket = 30,
 
 	/// [global string] For debugging.  Override list of relays from the config with
 	/// this set (maybe just one).  Comma-separated list.

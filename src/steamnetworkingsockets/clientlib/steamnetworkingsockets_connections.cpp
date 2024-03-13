@@ -2495,7 +2495,7 @@ void CSteamNetworkConnectionBase::SetState( ESteamNetworkingConnectionState eNew
 		m_connectionConfig.Unencrypted.Lock();
 		m_connectionConfig.SymmetricConnect.Lock();
 		#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
-			m_connectionConfig.SDRClient_DebugTicketAddress.Lock();
+			m_connectionConfig.SDRClient_DevTicket.Lock();
 		#endif
 		#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
 			m_connectionConfig.P2P_Transport_ICE_Enable.Lock();
