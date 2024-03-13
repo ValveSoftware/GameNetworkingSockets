@@ -169,8 +169,11 @@ void PingTracker::ReceivedPing( int nPingMS, SteamNetworkingMicroseconds usecNow
 
 int PingTracker::WorstPingInRecentSample() const
 {
-	if ( m_nValidPings < 1 )
+	if ( unlikely( m_nValidPings < 1 ) )
 	{
+		// Some derived classes allow an override, so we have a ping value but no real ping measurements
+		if ( m_nSmoothedPing >= 0 )
+			return m_nSmoothedPing;
 		AssertMsg( false, "Tried to make a pessimistic ping estimate without any ping data at all!" );
 		return 500;
 	}
