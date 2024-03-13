@@ -1411,6 +1411,32 @@ enum ESteamNetworkingConfigValue
 	k_ESteamNetworkingConfig_FakeRateLimit_Recv_Rate = 44,
 	k_ESteamNetworkingConfig_FakeRateLimit_Recv_Burst = 45,
 
+	// Timeout used for out-of-order correction.  This is used when we see a small
+	// gap in the sequence number on a packet flow.  For example let's say we are
+	// processing packet 105 when the most recent one was 103.  104 might have dropped,
+	// but there is also a chance that packets are simply being reordered.  It is very
+	// common on certain types of connections for packet 104 to arrive very soon after 105,
+	// especially if 104 was large and 104 was small.  In this case, when we see packet 105
+	// we will shunt it aside and pend it, in the hopes of seeing 104 soon after.  If 104
+	// arrives before the a timeout occurs, then we can deliver the packets in order to the
+	// remainder of packet processing, and we will record this as a "correctable" out-of-order
+	// situation.  If the timer expires, then we will process packet 105, and assume for now
+	// that 104 has dropped.  (If 104 later arrives, we will process it, but that will be
+	// accounted for as uncorrected.)
+	//
+	// The default value is 1000 microseconds.  Note that the Windows scheduler does not
+	// have microsecond precision.
+	//
+	// Set the value to 0 to disable out of order correction at the packet layer.
+	// In many cases we are still effectively able to correct the situation because
+	// reassembly of message fragments is tolerant of fragments packets arriving out of
+	// order.  Also, when messages are decoded and inserted into the queue for the app
+	// to receive them, we will correct out of order messages that have not been
+	// dequeued by the app yet.  However, when out-of-order packets are corrected
+	// at the packet layer, they will not reduce the connection quality measure.
+	// (E.g. SteamNetConnectionRealTimeStatus_t::m_flConnectionQualityLocal)
+	k_ESteamNetworkingConfig_OutOfOrderCorrectionWindowMicroseconds = 51,
+
 //
 // Callbacks
 //
