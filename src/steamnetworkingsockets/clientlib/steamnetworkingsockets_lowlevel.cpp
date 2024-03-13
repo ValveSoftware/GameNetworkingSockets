@@ -1160,31 +1160,36 @@ static bool s_bRawSocketPendingDestruction;
 class CPacketLagger;
 struct CLaggedPacket final : public CPossibleOutOfOrderPacket
 {
-	// When we need to process this packet
-	SteamNetworkingMicroseconds m_usecFlush;
+	// Store the info about the packet using RecvPktInfo_t, even if we are
+	// queued to send.  m_info.m_usecNow will store the time when we
+	// should be sent, while we are waiting
+	RecvPktInfo_t m_info;
 
-	CRawUDPSocketImpl *m_pSockOwner;
-	netadr_t m_adrRemote;
-	int m_cbPkt;
-
+	// Linked list while we are in the CPacketLagger queue
 	CLaggedPacket *m_pPrev = nullptr;
 	CLaggedPacket *m_pNext = nullptr;
 	CPacketLagger *m_pLaggerOwner = nullptr;
 
+	// Packet payload data
 	char m_pkt[ k_cbSteamNetworkingSocketsMaxUDPMsgLen ];
+
 
 	CLaggedPacket( CRawUDPSocketImpl *pSockOwner, const netadr_t &adrRemote, SteamNetworkingMicroseconds usecFlush, int cbPkt )
 	: CPossibleOutOfOrderPacket()
-	, m_usecFlush( usecFlush )
-	, m_pSockOwner( pSockOwner )
-	, m_adrRemote( adrRemote )
-	, m_cbPkt( cbPkt )
+	, m_info{ m_pkt, cbPkt, usecFlush, adrRemote, pSockOwner }
 	{
-		Assert( m_cbPkt < sizeof(m_pkt) );
+		Assert( cbPkt < sizeof(m_pkt) );
 	}
 
+	// Upcast
+	CRawUDPSocketImpl *SockOwner() const { return assert_cast<CRawUDPSocketImpl *>( m_info.m_pSock ); }
+
+	// If we're in a packet lagger list, remove us
 	void RemoveFromPacketLaggerList();
 
+private:
+
+	// CPossibleOutOfOrderPacket override to do our derived class destruction
 	virtual void DoDestroy() override
 	{
 		RemoveFromPacketLaggerList();
@@ -1238,7 +1243,7 @@ public:
 			CLaggedPacket *pInsertAfter = m_pLast;
 			for (;;)
 			{
-				if ( pInsertAfter->m_usecFlush <= usecTime )
+				if ( pInsertAfter->m_info.m_usecNow <= usecTime )
 				{
 					pkt->m_pPrev = pInsertAfter;
 					pkt->m_pNext = pInsertAfter->m_pNext;
@@ -1296,7 +1301,7 @@ public:
 	/// Periodic processing
 	virtual void Think( SteamNetworkingMicroseconds usecNow ) override
 	{
-		while ( m_pFirst && m_pFirst->m_usecFlush <= usecNow )
+		while ( m_pFirst && m_pFirst->m_info.m_usecNow <= usecNow )
 		{
 			CLaggedPacket *p = m_pFirst;
 			Assert( p->m_pLaggerOwner == this );
@@ -1304,7 +1309,7 @@ public:
 			Assert( m_pFirst != p );
 
 			// Make sure socket is still in good shape.
-			CRawUDPSocketImpl *pSock = p->m_pSockOwner;
+			CRawUDPSocketImpl *pSock = p->SockOwner();
 			if ( pSock )
 			{
 				if ( pSock->m_socket == INVALID_SOCKET || !pSock->m_callback.m_fnCallback )
@@ -1313,7 +1318,8 @@ public:
 				}
 				else
 				{
-					ProcessPacket( *p, usecNow );
+					p->m_info.m_usecNow = usecNow;
+					ProcessPacket( *p );
 				}
 			}
 			p->Destroy();
@@ -1345,7 +1351,7 @@ public:
 		{
 			CLaggedPacket *x = p;
 			p = p->m_pNext;
-			if ( x->m_pSockOwner == pSock )
+			if ( x->m_info.m_pSock == pSock )
 			{
 				x->Destroy();
 			}
@@ -1363,11 +1369,11 @@ protected:
 		if ( m_pFirst == nullptr )
 			ClearNextThinkTime();
 		else
-			SetNextThinkTime( m_pFirst->m_usecFlush );
+			SetNextThinkTime( m_pFirst->m_info.m_usecNow );
 	}
 
 	/// Do whatever we're supposed to do with the next packet
-	virtual void ProcessPacket( const CLaggedPacket &pkt, SteamNetworkingMicroseconds usecNow ) = 0;
+	virtual void ProcessPacket( const CLaggedPacket &pkt ) = 0;
 };
 
 void CLaggedPacket::RemoveFromPacketLaggerList()
@@ -1408,22 +1414,21 @@ void CLaggedPacket::RemoveFromPacketLaggerList()
 class CPacketLaggerSend final : public CPacketLagger
 {
 public:
-	virtual void ProcessPacket( const CLaggedPacket &pkt, SteamNetworkingMicroseconds usecNow ) override
+	virtual void ProcessPacket( const CLaggedPacket &pkt ) override
 	{
 		iovec temp;
-		temp.iov_len = pkt.m_cbPkt;
+		temp.iov_len = pkt.m_info.m_cbPkt;
 		temp.iov_base = (void *)pkt.m_pkt;
-		pkt.m_pSockOwner->BReallySendRawPacket( 1, &temp, pkt.m_adrRemote );
+		pkt.SockOwner()->BReallySendRawPacket( 1, &temp, pkt.m_info.m_adrFrom );
 	}
 };
 
 class CPacketLaggerRecv final : public CPacketLagger
 {
 public:
-	virtual void ProcessPacket( const CLaggedPacket &pkt, SteamNetworkingMicroseconds usecNow ) override
+	virtual void ProcessPacket( const CLaggedPacket &pkt ) override
 	{
-		//pkt.m_pSockOwner->m_callback( RecvPktInfo_t{ temp, pkt.m_cbPkt, usecNow, pkt.m_usecTime, 0, pkt.m_adrRemote, pkt.m_pSockOwner } );
-		pkt.m_pSockOwner->m_callback( RecvPktInfo_t{ pkt.m_pkt, pkt.m_cbPkt, usecNow, pkt.m_adrRemote, pkt.m_pSockOwner } );
+		pkt.SockOwner()->m_callback( pkt.m_info );
 	}
 };
 
