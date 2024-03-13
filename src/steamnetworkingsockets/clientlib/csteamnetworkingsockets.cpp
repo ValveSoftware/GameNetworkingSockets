@@ -129,7 +129,7 @@ DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, P2P_Transport_SDR_Penalty, 0, 0, INT_
 #endif
 
 #ifdef _WIN32
-DEFINE_GLOBAL_CONFIGVAL( int32, ECN, -1, -1, 3 );
+DEFINE_GLOBAL_CONFIGVAL( int32, ECN, -1, -1, 2 );
 #endif
 
 static GlobalConfigValueEntry *s_pFirstGlobalConfigEntry = nullptr;
