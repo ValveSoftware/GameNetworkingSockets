@@ -125,10 +125,7 @@ message CMsgSteamDatagramLinkLifetimeStats
 	optional uint32 quality_ntile_25th = 32; // 25% of measurement intervals had quality <= N%
 	optional uint32 quality_ntile_50th = 33; // 50% of measurement intervals had quality <= N%
 
-	/// Distribution of ping times.  Basically we make sure we take a ping measurement
-	/// at a minimum interval, and then we build a distribution of all the samples.
-	/// Note that we don't take great care to ensure that the samples are taken
-	/// perfectly evenly, but they should be reasonably even.
+	/// Distribution of ping times.
 	optional uint32 ping_histogram_25 = 41; // 0..25
 	optional uint32 ping_histogram_50 = 42; // 26..50
 	optional uint32 ping_histogram_75 = 43; // 51..75
@@ -152,45 +149,47 @@ message CMsgSteamDatagramLinkLifetimeStats
 	optional uint32 jitter_histogram_10 = 65; // 10..20
 	optional uint32 jitter_histogram_20 = 66; // 20+
 
-	/// Transmit speed
-	optional uint32 txspeed_max            = 67;
-
-	optional uint32 txspeed_histogram_16   = 68; // speed at kb/s
-	optional uint32 txspeed_histogram_32   = 69; 
-	optional uint32 txspeed_histogram_64   = 70;
-	optional uint32 txspeed_histogram_128  = 71;
-	optional uint32 txspeed_histogram_256  = 72;
-	optional uint32 txspeed_histogram_512  = 73;
-	optional uint32 txspeed_histogram_1024 = 74;
-	optional uint32 txspeed_histogram_max  = 75;
-
-	// distribution.  some might be -1, see above for why.
-	optional uint32 txspeed_ntile_5th  = 76; // 5% of transmit samples were <= n kb/s
-	optional uint32 txspeed_ntile_50th = 77; // 50% of transmit samples were <= n kb/s 
-	optional uint32 txspeed_ntile_75th = 78; // 70% of transmit samples were <= n kb/s 
-	optional uint32 txspeed_ntile_95th = 79; // 95% of transmit samples were <= n kb/s 
-	optional uint32 txspeed_ntile_98th = 80; // 98% of transmit samples were <= n kb/s 
-
-	//
-	// Receive speed
-	//
-	optional uint32 rxspeed_max = 81; // max speed we hit that formed the histogram
-
-	optional uint32 rxspeed_histogram_16 = 82; // speed at kb/s
-	optional uint32 rxspeed_histogram_32 = 83; 
-	optional uint32 rxspeed_histogram_64 = 84;
-	optional uint32 rxspeed_histogram_128 = 85;
-	optional uint32 rxspeed_histogram_256 = 86;
-	optional uint32 rxspeed_histogram_512 = 87;
-	optional uint32 rxspeed_histogram_1024 = 88;
-	optional uint32 rxspeed_histogram_max = 89;
-
-	// distribution.  some might be -1, see above for why.
-	optional uint32 rxspeed_ntile_5th = 90; // 5% of transmit samples were <= n kb/s
-	optional uint32 rxspeed_ntile_50th = 91; // 50% of transmit samples were <= n kb/s 
-	optional uint32 rxspeed_ntile_75th = 92; // 70% of transmit samples were <= n kb/s 
-	optional uint32 rxspeed_ntile_95th = 93; // 95% of transmit samples were <= n kb/s 
-	optional uint32 rxspeed_ntile_98th = 94; // 98% of transmit samples were <= n kb/s 
+//	//
+//	// Transmit speed
+//	//
+//	optional uint32 txspeed_max            = 67;
+//
+//	optional uint32 txspeed_histogram_16   = 68; // speed at kb/s
+//	optional uint32 txspeed_histogram_32   = 69; 
+//	optional uint32 txspeed_histogram_64   = 70;
+//	optional uint32 txspeed_histogram_128  = 71;
+//	optional uint32 txspeed_histogram_256  = 72;
+//	optional uint32 txspeed_histogram_512  = 73;
+//	optional uint32 txspeed_histogram_1024 = 74;
+//	optional uint32 txspeed_histogram_max  = 75;
+//
+//	// distribution.  some might be missing if we don't have enough sampels to make an estimate
+//	optional uint32 txspeed_ntile_5th  = 76; // 5% of transmit samples were <= n kb/s
+//	optional uint32 txspeed_ntile_50th = 77; // 50% of transmit samples were <= n kb/s 
+//	optional uint32 txspeed_ntile_75th = 78; // 70% of transmit samples were <= n kb/s 
+//	optional uint32 txspeed_ntile_95th = 79; // 95% of transmit samples were <= n kb/s 
+//	optional uint32 txspeed_ntile_98th = 80; // 98% of transmit samples were <= n kb/s 
+//
+//	//
+//	// Receive speed
+//	//
+//	optional uint32 rxspeed_max = 81; // max speed we hit that formed the histogram
+//
+//	optional uint32 rxspeed_histogram_16 = 82; // speed at kb/s
+//	optional uint32 rxspeed_histogram_32 = 83; 
+//	optional uint32 rxspeed_histogram_64 = 84;
+//	optional uint32 rxspeed_histogram_128 = 85;
+//	optional uint32 rxspeed_histogram_256 = 86;
+//	optional uint32 rxspeed_histogram_512 = 87;
+//	optional uint32 rxspeed_histogram_1024 = 88;
+//	optional uint32 rxspeed_histogram_max = 89;
+//
+//	// distribution.  some might be missing if we don't have enough sampels to make an estimate
+//	optional uint32 rxspeed_ntile_5th = 90; // 5% of transmit samples were <= n kb/s
+//	optional uint32 rxspeed_ntile_50th = 91; // 50% of transmit samples were <= n kb/s 
+//	optional uint32 rxspeed_ntile_75th = 92; // 70% of transmit samples were <= n kb/s 
+//	optional uint32 rxspeed_ntile_95th = 93; // 95% of transmit samples were <= n kb/s 
+//	optional uint32 rxspeed_ntile_98th = 94; // 98% of transmit samples were <= n kb/s 
 };
 
 /// Message containing connection quality related messages

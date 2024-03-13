@@ -3726,7 +3726,8 @@ void CConnectionTransport::TransportGuessTimeoutReason( ESteamNetConnectionEnd &
 
 void CSteamNetworkConnectionBase::UpdateSpeeds( int nTXSpeed, int nRXSpeed )
 {
-	m_statsEndToEnd.UpdateSpeeds( nTXSpeed, nRXSpeed );
+	// FIXME
+	//m_statsEndToEnd.UpdateSpeeds( nTXSpeed, nRXSpeed );
 }
 
 void CSteamNetworkConnectionBase::UpdateMTUFromConfig( bool bForceRecalc )
