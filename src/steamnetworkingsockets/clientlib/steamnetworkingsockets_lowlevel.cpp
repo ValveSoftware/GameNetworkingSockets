@@ -1170,24 +1170,45 @@ struct CLaggedPacket final : public CPossibleOutOfOrderPacket
 	CLaggedPacket *m_pNext = nullptr;
 	CPacketLagger *m_pLaggerOwner = nullptr;
 
+	// If we are really a CPossibleOutOfOrderPacket, and not just a
+	// lagged packet, this is our wire sequence number
+	int m_nWireSeqNum;
+
 	// Packet payload data
 	char m_pkt[ k_cbSteamNetworkingSocketsMaxUDPMsgLen ];
 
-
+	// Constructor used when lagging a packet to simulate latency
 	CLaggedPacket( CRawUDPSocketImpl *pSockOwner, const netadr_t &adrRemote, SteamNetworkingMicroseconds usecFlush, int cbPkt )
 	: CPossibleOutOfOrderPacket()
-	, m_info{ m_pkt, cbPkt, usecFlush, adrRemote, pSockOwner }
+	, m_info{ m_pkt, cbPkt, usecFlush, adrRemote, false, pSockOwner }
+	, m_nWireSeqNum( -1 ) // Fake lag, not out-of-order correction
 	{
-		Assert( cbPkt < sizeof(m_pkt) );
+		Assert( cbPkt <= sizeof(m_pkt) );
 	}
 
+	// Constructor used when queuing a pakcet for possible out-of-order correction handling
+	CLaggedPacket( const RecvPktInfo_t &ctx, SteamNetworkingMicroseconds usecFlush, uint16 nWireSeqNum )
+	: CPossibleOutOfOrderPacket()
+	, m_info{ m_pkt, ctx.m_cbPkt, usecFlush, ctx.m_adrFrom, true, ctx.m_pSock }
+	, m_nWireSeqNum( nWireSeqNum )
+	{
+		Assert( m_info.m_cbPkt < sizeof(m_pkt) );
+		memcpy( m_pkt, ctx.m_pPkt, m_info.m_cbPkt );
+	}
+ 
 	// Upcast
 	CRawUDPSocketImpl *SockOwner() const { return assert_cast<CRawUDPSocketImpl *>( m_info.m_pSock ); }
 
-	// If we're in a packet lagger list, remove us
-	void RemoveFromPacketLaggerList();
+	void Detach()
+	{
+		RemoveFromPacketLaggerList();
+		CPossibleOutOfOrderPacket::Detach();
+	}
 
 private:
+
+	// If we're in a packet lagger list, remove us
+	void RemoveFromPacketLaggerList();
 
 	// CPossibleOutOfOrderPacket override to do our derived class destruction
 	virtual void DoDestroy() override
@@ -1234,6 +1255,15 @@ public:
 		const SteamNetworkingMicroseconds usecTime = SteamNetworkingSockets_GetLocalTimestamp() + msDelay * 1000;
 
 		CLaggedPacket *pkt = new CLaggedPacket( pSock, adr, usecTime, cbPkt );
+
+		// Gather the payload data data into the buffer
+		char *d = pkt->m_pkt;
+		for ( int i = 0 ; i < nChunks ; ++i )
+		{
+			int cbChunk = pChunks[i].iov_len;
+			memcpy( d, pChunks[i].iov_base, cbChunk );
+			d += cbChunk;
+		}
 
 		// Find the right place to insert the packet, searching backwards from the end.  This is a dumb
 		// linear search, but in the steady state where the delay is constant, this search loop won't
@@ -1285,27 +1315,26 @@ public:
 		}
 		pkt->m_pLaggerOwner = this;
 
-		// Gather the payload data data into the buffer
-		char *d = pkt->m_pkt;
-		for ( int i = 0 ; i < nChunks ; ++i )
-		{
-			int cbChunk = pChunks[i].iov_len;
-			memcpy( d, pChunks[i].iov_base, cbChunk );
-			d += cbChunk;
-		}
-
-		Schedule();
+		SetNextThinkTime( m_pFirst->m_info.m_usecNow );
 	}
 
 	/// Implements IThinker
 	/// Periodic processing
 	virtual void Think( SteamNetworkingMicroseconds usecNow ) override
 	{
-		while ( m_pFirst && m_pFirst->m_info.m_usecNow <= usecNow )
+		while ( m_pFirst )
 		{
+
+			// Next packet set to dispatch in the future?
+			if ( m_pFirst->m_info.m_usecNow > usecNow )
+			{
+				SetNextThinkTime( m_pFirst->m_info.m_usecNow );
+				break;
+			}
+
 			CLaggedPacket *p = m_pFirst;
 			Assert( p->m_pLaggerOwner == this );
-			p->RemoveFromPacketLaggerList();
+			p->Detach();
 			Assert( m_pFirst != p );
 
 			// Make sure socket is still in good shape.
@@ -1324,8 +1353,6 @@ public:
 			}
 			p->Destroy();
 		}
-
-		Schedule();
 	}
 
 	/// Nuke everything
@@ -1358,19 +1385,65 @@ public:
 		}
 	}
 
+	// Queue a packet near the front of the queue.  It will go AFTER any packets
+	// that have the same queue time
+	void QueueNearFront( CLaggedPacket *pkt )
+	{
+		Assert( pkt->m_pLaggerOwner == nullptr );
+		if ( m_pFirst )
+		{
+			CLaggedPacket *pInsertBefore = m_pFirst;
+			for (;;)
+			{
+				if ( pInsertBefore->m_info.m_usecNow > pkt->m_info.m_usecNow )
+				{
+					pkt->m_pNext = pInsertBefore;
+					pkt->m_pPrev = pInsertBefore->m_pPrev;
+					pInsertBefore->m_pPrev = pkt;
+					if ( pkt->m_pPrev )
+					{
+						Assert( m_pFirst != pInsertBefore );
+						Assert( pkt->m_pPrev->m_pNext == pInsertBefore );
+						pkt->m_pPrev->m_pNext = pkt;
+					}
+					else
+					{
+						Assert( m_pFirst == pInsertBefore );
+						m_pFirst = pkt;
+					}
+					break;
+				}
+
+				CLaggedPacket *n = pInsertBefore->m_pNext;
+				if ( n == nullptr )
+				{
+					Assert( m_pLast == pInsertBefore );
+					Assert( pInsertBefore->m_pNext == nullptr );
+					pkt->m_pPrev = pInsertBefore;
+					pInsertBefore->m_pNext = pkt;
+					m_pLast = pkt;
+					break;
+				}
+
+				Assert( m_pLast != pInsertBefore );
+				Assert( n->m_pPrev == pInsertBefore );
+				pInsertBefore = n;
+			}
+		}
+		else
+		{
+			// Empty list
+			m_pFirst = m_pLast = pkt;
+		}
+		pkt->m_pLaggerOwner = this;
+
+		SetNextThinkTime( m_pFirst->m_info.m_usecNow );
+	}
+
 	CLaggedPacket *m_pFirst = nullptr;
 	CLaggedPacket *m_pLast = nullptr;
 
 protected:
-
-	/// Set the next think time as appropriate
-	void Schedule()
-	{
-		if ( m_pFirst == nullptr )
-			ClearNextThinkTime();
-		else
-			SetNextThinkTime( m_pFirst->m_info.m_usecNow );
-	}
 
 	/// Do whatever we're supposed to do with the next packet
 	virtual void ProcessPacket( const CLaggedPacket &pkt ) = 0;
@@ -1434,6 +1507,109 @@ public:
 
 static CPacketLaggerSend s_packetLagQueueSend;
 static CPacketLaggerRecv s_packetLagQueueRecv;
+
+EHandleOutOfOrder HandleOutOfOrderPacket( uint16 nWireSeqNum, LinkStatsTrackerBase &flowStats, const RecvPktInfo_t &ctx )
+{
+	auto *pPendingPkt = static_cast<CLaggedPacket *>( flowStats.GetPossibleOutOfOrderPacket() );
+
+	if ( pPendingPkt )
+	{
+		Assert( pPendingPkt->m_nWireSeqNum >= 0 );
+		Assert( pPendingPkt->m_info.m_bQueuedForOutOfOrder );
+		int16 nDelta = (int16)( pPendingPkt->m_nWireSeqNum - nWireSeqNum );
+
+		// If the packet we have pended comes after the one we are
+		// processing now, then we can use regular processing for the
+		// current packet.
+		if ( nDelta > 1 )
+		{
+			// Pending packet comes later than the current
+			// packet, but is not immediately next.  Process
+			// the current packet, and keep waiting
+			SpewDebug( "[%s] OutOfOrder delta %d (%04x-%04x), processing current packet\n",
+				CUtlNetAdrRender( ctx.m_adrFrom ).String(), nDelta, pPendingPkt->m_nWireSeqNum, nWireSeqNum );
+			return EHandleOutOfOrder::ContinueProcessing;
+		}
+
+		// We're going to process the pended packet now, either before
+		// or after the current packet.  The pended packet will
+		// always use the queue, and the current packet will either
+		// be processed now or put in the queue
+		pPendingPkt->Detach();
+		pPendingPkt->m_info.m_usecNow = k_nThinkTime_ASAP;
+		s_packetLagQueueRecv.QueueNearFront( pPendingPkt );
+
+		// Don't ever re-queue a packet that we have already queued once
+		if ( ctx.m_bQueuedForOutOfOrder )
+		{
+			// This is weird, always spew
+			SpewMsg( "[%s] OutOfOrder not re-queuing packet (%04x-%04x)\n",
+				CUtlNetAdrRender( ctx.m_adrFrom ).String(), pPendingPkt->m_nWireSeqNum, nWireSeqNum );
+
+			// Continue processing current packet, then the pended packet
+			return EHandleOutOfOrder::ContinueProcessing;
+		}
+
+		// Pended packet should be delivered after current packet?
+		// (The situation that this whole thing was created
+		// to correct)
+		if ( nDelta > 0 )
+		{
+			// Count up stats
+			flowStats.ProcessSequencedPacket_OutOfOrderCorrected();
+
+			// Check for logging
+			SpewVerbose( "[%s] OutOfOrder corrected (%04x,%04x)\n",
+				CUtlNetAdrRender( ctx.m_adrFrom ).String(), pPendingPkt->m_nWireSeqNum, nWireSeqNum );
+
+			// Continue processing current packet, then the pended packet
+			return EHandleOutOfOrder::CorrectedContinueProcessing;
+		}
+
+		// Pended packet comes before the current packet, or
+		// a duplicate.  Either way, let's process the pended
+		// one first, and then the current packet.  This most
+		// expensive path is unfortunately where go in the
+		// common case of an ordinary dropped packet.
+		//
+		// Queue the current packet to run after the pended packet.
+		s_packetLagQueueRecv.QueueNearFront( new CLaggedPacket( ctx, k_nThinkTime_ASAP, nWireSeqNum ) );
+
+		// Do not process the current packet any further
+		return EHandleOutOfOrder::AbortProcessing;
+	}
+
+	// If this packet has already been queued, don't queue it again.  This is the path
+	// we will go through if we sit in the Nagle queue and then get queued and the skipped packet
+	// doesn't arrive, and is the most common reason to go through here
+	if ( likely( ctx.m_bQueuedForOutOfOrder ) )
+	{
+		SpewDebug( "[%s] OutOfOrder processing nagle queued %04x\n", CUtlNetAdrRender( ctx.m_adrFrom ).String(), nWireSeqNum );
+		return EHandleOutOfOrder::ContinueProcessing;
+	}
+
+	// If we get here, it's because the current packet represents a little skip
+	// forward.  Hold on to this packet for a little bit, in case a packet
+	// comes in to fill the gap.  Check how long we should wait, and if the feature
+	// is disabled
+	int64 usecWait = GlobalConfig::OutOfOrderCorrectionWindowMicroseconds.Get();
+	if ( usecWait <= 0 )
+		return EHandleOutOfOrder::ContinueProcessing; // Out of order correction disabled - just continue processing as normal
+
+	// Set a timeout and add it to the queue.  We use the "near front" because
+	// this list is really short when we are not doing fake lag.  And if we are doing fake lag
+	// then we probably won't to do it near the end
+	auto *pNewPkt = new CLaggedPacket( ctx, ctx.m_usecNow + usecWait, nWireSeqNum );
+	pNewPkt->SetOwner( &flowStats );
+	s_packetLagQueueRecv.QueueNearFront( pNewPkt );
+
+	// Check for logging
+	SpewDebug( "[%s] OutOfOrder skip (%04x-%04x), queued for %lldusec\n",
+		CUtlNetAdrRender( ctx.m_adrFrom ).String(), nWireSeqNum, (uint16)flowStats.m_nMaxRecvPktNum, (long long)usecWait );
+
+	// Do not process the packet any further at this time
+	return EHandleOutOfOrder::AbortProcessing;
+}
 
 /// Object used to wake our background thread efficiently
 #if defined( WAKE_THREAD_USING_EVENT )
@@ -2113,6 +2289,7 @@ static bool DrainSocket( CRawUDPSocketImpl *pSock )
 			info.m_cbPkt = ret;
 			info.m_usecNow = usecRecvFromEnd;
 			info.m_pSock = pSock;
+			info.m_bQueuedForOutOfOrder = false;
 			pSock->m_callback( info );
 		}
 

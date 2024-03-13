@@ -932,6 +932,7 @@ namespace GlobalConfig
 	extern GlobalConfigValue<int32> FakeRateLimit_Send_Burst;
 	extern GlobalConfigValue<int32> FakeRateLimit_Recv_Rate;
 	extern GlobalConfigValue<int32> FakeRateLimit_Recv_Burst;
+	extern GlobalConfigValue<int32> OutOfOrderCorrectionWindowMicroseconds;
 	extern GlobalConfigValue<int32> ECN;
 
 	extern GlobalConfigValue<int32> EnumerateDevVars;

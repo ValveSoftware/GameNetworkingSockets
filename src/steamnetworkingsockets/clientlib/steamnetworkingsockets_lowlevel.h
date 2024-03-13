@@ -51,8 +51,19 @@ struct RecvPktInfo_t
 	//SteamNetworkingMicroseconds m_usecRecvMin; // Earliest possible time when the packet might have actually arrived
 	//SteamNetworkingMicroseconds m_usecRecvMax; // Latest possible time when the packet might have actually arrived
 	netadr_t m_adrFrom;
+	bool m_bQueuedForOutOfOrder; // True if we are re-processing the message after receiving it once and partially processing it, then shunting into a queue.
 	IRawUDPSocket *m_pSock;
 };
+
+// Called from BCheckOutOfOrderPacket when it looks like we might need to take special action to
+// deal with correcting out-of-order packets.  Should not be called directly
+enum class EHandleOutOfOrder
+{
+	AbortProcessing,
+	ContinueProcessing,
+	CorrectedContinueProcessing
+};
+extern EHandleOutOfOrder HandleOutOfOrderPacket( uint16 nWireSeqNum, LinkStatsTrackerBase &flowStats, const RecvPktInfo_t &ctx );
 
 /// Store the callback and its context together
 class CRecvPacketCallback
