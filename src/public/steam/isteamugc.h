@@ -292,7 +292,7 @@ public:
 	virtual bool SetItemUpdateLanguage( UGCUpdateHandle_t handle, const char *pchLanguage ) = 0; // specify the language of the title or description that will be set
 	virtual bool SetItemMetadata( UGCUpdateHandle_t handle, const char *pchMetaData ) = 0; // change the metadata of an UGC item (max = k_cchDeveloperMetadataMax)
 	virtual bool SetItemVisibility( UGCUpdateHandle_t handle, ERemoteStoragePublishedFileVisibility eVisibility ) = 0; // change the visibility of an UGC item
-	virtual bool SetItemTags( UGCUpdateHandle_t updateHandle, const SteamParamStringArray_t *pTags ) = 0; // change the tags of an UGC item
+	virtual bool SetItemTags( UGCUpdateHandle_t updateHandle, const SteamParamStringArray_t *pTags, bool bAllowAdminTags = false ) = 0; // change the tags of an UGC item
 	virtual bool SetItemContent( UGCUpdateHandle_t handle, const char *pszContentFolder ) = 0; // update item content from this local folder
 	virtual bool SetItemPreview( UGCUpdateHandle_t handle, const char *pszPreviewFile ) = 0; //  change preview image file for this item. pszPreviewFile points to local image file, which must be under 1MB in size
 	virtual bool SetAllowLegacyUpload( UGCUpdateHandle_t handle, bool bAllowLegacyUpload ) = 0; //  use legacy upload for a single small file. The parameter to SetItemContent() should either be a directory with one file or the full path to the file.  The file must also be less than 10MB in size.
@@ -382,9 +382,12 @@ public:
 	// Retrieve information related to the user's acceptance or not of the app's specific Workshop EULA
 	STEAM_CALL_RESULT( WorkshopEULAStatus_t )
 	virtual SteamAPICall_t GetWorkshopEULAStatus() = 0;
+
+	// Return the user's community content descriptor preferences
+	virtual uint32 GetUserContentDescriptorPreferences( EUGCContentDescriptorID *pvecDescriptors, uint32 cMaxEntries ) = 0;
 };
 
-#define STEAMUGC_INTERFACE_VERSION "STEAMUGC_INTERFACE_VERSION017"
+#define STEAMUGC_INTERFACE_VERSION "STEAMUGC_INTERFACE_VERSION018"
 
 // Global interface accessor
 inline ISteamUGC *SteamUGC();

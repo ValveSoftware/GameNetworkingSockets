@@ -684,14 +684,6 @@ struct InputMotionDataV2_t
 	float sensorFusionQuatZ;
 	float sensorFusionQuatW;
 
-	// Deferred Sensor fusion quaternion with deferred correction
-	// Reduces perception of "ouija" effect by only applying correction when the controller is below "low noise" thresholds,
-	// while the controller rotates fast - never when the user is attempting precision aim.
-	float deferredSensorFusionQuatX;
-	float deferredSensorFusionQuatY;
-	float deferredSensorFusionQuatZ;
-	float deferredSensorFusionQuatW;
-
 	// Same as accel but values are calibrated such that 1 unit = 1G.
 	// X = Right
 	// Y = Forward out through the joystick USB port.

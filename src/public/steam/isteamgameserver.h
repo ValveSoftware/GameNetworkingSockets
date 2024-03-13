@@ -152,7 +152,9 @@ public:
 
 	// Retrieve ticket to be sent to the entity who wishes to authenticate you ( using BeginAuthSession API ). 
 	// pcbTicket retrieves the length of the actual ticket.
-	virtual HAuthTicket GetAuthSessionTicket( void *pTicket, int cbMaxTicket, uint32 *pcbTicket ) = 0;
+	// SteamNetworkingIdentity is an optional parameter to hold the public IP address of the entity you are connecting to
+	// if an IP address is passed Steam will only allow the ticket to be used by an entity with that IP address
+	virtual HAuthTicket GetAuthSessionTicket( void *pTicket, int cbMaxTicket, uint32 *pcbTicket, const SteamNetworkingIdentity *pSnid ) = 0;
 
 	// Authenticate ticket ( from GetAuthSessionTicket ) from entity steamID to be sure it is valid and isnt reused
 	// Registers for callbacks if the entity goes offline or cancels the ticket ( see ValidateAuthTicketResponse_t callback and EAuthSessionResponse )
@@ -264,7 +266,7 @@ public:
 	)
 };
 
-#define STEAMGAMESERVER_INTERFACE_VERSION "SteamGameServer014"
+#define STEAMGAMESERVER_INTERFACE_VERSION "SteamGameServer015"
 
 // Global accessor
 inline ISteamGameServer *SteamGameServer();

@@ -124,7 +124,16 @@ public:
 
 	// Retrieve ticket to be sent to the entity who wishes to authenticate you. 
 	// pcbTicket retrieves the length of the actual ticket.
-	virtual HAuthTicket GetAuthSessionTicket( void *pTicket, int cbMaxTicket, uint32 *pcbTicket ) = 0;
+	// SteamNetworkingIdentity is an optional input parameter to hold the public IP address or SteamID of the entity you are connecting to
+	// if an IP address is passed Steam will only allow the ticket to be used by an entity with that IP address
+	// if a Steam ID is passed Steam will only allow the ticket to be used by that Steam ID
+	// not to be used for "ISteamUserAuth\AuthenticateUserTicket" - it will fail
+	virtual HAuthTicket GetAuthSessionTicket( void *pTicket, int cbMaxTicket, uint32 *pcbTicket, const SteamNetworkingIdentity *pSteamNetworkingIdentity ) = 0;
+
+	// Request a ticket which will be used for webapi "ISteamUserAuth\AuthenticateUserTicket"
+	// pchIdentity is an optional input parameter to identify the service the ticket will be sent to
+	// the ticket will be returned in callback GetTicketForWebApiResponse_t
+	virtual HAuthTicket GetAuthTicketForWebApi( const char *pchIdentity ) = 0;
 
 	// Authenticate ticket from entity steamID to be sure it is valid and isnt reused
 	// Registers for callbacks if the entity goes offline or cancels the ticket ( see ValidateAuthTicketResponse_t callback and EAuthSessionResponse )
@@ -210,7 +219,7 @@ public:
 
 };
 
-#define STEAMUSER_INTERFACE_VERSION "SteamUser021"
+#define STEAMUSER_INTERFACE_VERSION "SteamUser023"
 
 // Global interface accessor
 inline ISteamUser *SteamUser();
@@ -351,7 +360,6 @@ struct GetAuthSessionTicketResponse_t
 	EResult m_eResult;
 };
 
-
 //-----------------------------------------------------------------------------
 // Purpose: sent to your game in response to a steam://gamewebcallback/ command
 //-----------------------------------------------------------------------------
@@ -409,6 +417,20 @@ struct DurationControl_t
 
 	int32	m_csecsToday;							// playtime on current calendar day
 	int32	m_csecsRemaining;						// playtime remaining until the user hits a regulatory limit
+};
+
+
+//-----------------------------------------------------------------------------
+// callback for GetTicketForWebApi
+//-----------------------------------------------------------------------------
+struct GetTicketForWebApiResponse_t
+{
+	enum { k_iCallback = k_iSteamUserCallbacks + 68 };
+	HAuthTicket m_hAuthTicket;
+	EResult m_eResult;
+	int m_cubTicket;
+	static const int k_nCubTicketMaxLength = 2560;
+	uint8 m_rgubTicket[k_nCubTicketMaxLength];
 };
 
 

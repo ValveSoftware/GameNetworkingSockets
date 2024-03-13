@@ -19,6 +19,7 @@ enum ESteamDeviceFormFactor
 	k_ESteamDeviceFormFactorTablet		= 2,
 	k_ESteamDeviceFormFactorComputer	= 3,
 	k_ESteamDeviceFormFactorTV			= 4,
+	k_ESteamDeviceFormFactorVRHeadset	= 5,
 };
 
 // Steam Remote Play session ID

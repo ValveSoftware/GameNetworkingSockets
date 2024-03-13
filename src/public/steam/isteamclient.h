@@ -13,6 +13,7 @@
 #endif
 
 #include "steam_api_common.h"
+class ISteamAppList; // !KLUDGE! Old SDK hack
 
 //-----------------------------------------------------------------------------
 // Purpose: Interface to creating a new steam instance, or to

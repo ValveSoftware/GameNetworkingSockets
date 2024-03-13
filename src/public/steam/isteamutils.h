@@ -246,7 +246,7 @@ struct IPCountry_t
 
 
 //-----------------------------------------------------------------------------
-// Purpose: Fired when running on a laptop and less than 10 minutes of battery is left, fires then every minute
+// Purpose: Fired when running on a handheld PC or laptop with less than 10 minutes of battery is left, fires then every minute
 //-----------------------------------------------------------------------------
 struct LowBatteryPower_t
 {

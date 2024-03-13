@@ -36,7 +36,6 @@
 #include "isteamhttp.h"
 #include "isteamcontroller.h"
 #include "isteamugc.h"
-#include "isteamapplist.h"
 #include "isteamhtmlsurface.h"
 #include "isteaminventory.h"
 #include "isteamvideo.h"
@@ -55,10 +54,54 @@
 //
 //----------------------------------------------------------------------------------------------------------------------------------------------------------//
 
+enum ESteamAPIInitResult
+{
+	k_ESteamAPIInitResult_OK = 0,
+	k_ESteamAPIInitResult_FailedGeneric = 1, // Some other failure
+	k_ESteamAPIInitResult_NoSteamClient = 2, // We cannot connect to Steam, steam probably isn't running
+	k_ESteamAPIInitResult_VersionMismatch = 3, // Steam client appears to be out of date
+};
 
-// SteamAPI_Init must be called before using any other API functions. If it fails, an
-// error message will be output to the debugger (or stderr) with further information.
-S_API bool S_CALLTYPE SteamAPI_Init();
+// Initializing the Steamworks SDK
+// -----------------------------
+// 
+// There are three different methods you can use to initialize the Steamworks SDK, depending on
+// your project's environment. You should only use one method in your project.
+// 
+// If you are able to include this C++ header in your project, we recommend using the following
+// initialization methods. They will ensure that all ISteam* interfaces defined in other
+// C++ header files have versions that are supported by the user's Steam Client:
+// - SteamAPI_InitEx() for new projects so you can show a detailed error message to the user
+// - SteamAPI_Init() for existing projects that only display a generic error message
+// 
+// If you are unable to include this C++ header in your project and are dynamically loading
+// Steamworks SDK methods from dll/so, you can use the following method:
+// - SteamAPI_InitFlat()
+
+
+// See "Initializing the Steamworks SDK" above for how to choose an init method.
+// On success k_ESteamAPIInitResult_OK is returned. Otherwise, returns a value that can be used
+// to create a localized error message for the user. If pOutErrMsg is non-NULL,
+// it will receive an example error message, in English, that explains the reason for the failure.
+//
+// Example usage:
+// 
+//   SteamErrMsg errMsg;
+//   if ( SteamAPI_Init(&errMsg) != k_ESteamAPIInitResult_OK )
+//       FatalError( "Failed to init Steam.  %s", errMsg );
+inline ESteamAPIInitResult SteamAPI_InitEx( SteamErrMsg *pOutErrMsg );
+
+// See "Initializing the Steamworks SDK" above for how to choose an init method.
+// Returns true on success
+inline bool SteamAPI_Init()
+{
+	return SteamAPI_InitEx( NULL ) == k_ESteamAPIInitResult_OK;
+}
+
+// See "Initializing the Steamworks SDK" above for how to choose an init method.
+// Same usage as SteamAPI_InitEx(), however does not verify ISteam* interfaces are
+// supported by the user's client and is exported from the dll
+S_API ESteamAPIInitResult S_CALLTYPE SteamAPI_InitFlat( SteamErrMsg *pOutErrMsg );
 
 // SteamAPI_Shutdown should be called during process shutdown if possible.
 S_API void S_CALLTYPE SteamAPI_Shutdown();
@@ -255,10 +298,6 @@ inline bool CSteamAPIContext::Init()
 	if ( !m_pSteamUGC )
 		return false;
 
-	m_pSteamAppList = ::SteamAppList();
-	if ( !m_pSteamAppList )
-		return false;
-
 	m_pSteamMusic = ::SteamMusic();
 	if ( !m_pSteamMusic )
 		return false;
@@ -293,5 +332,43 @@ inline bool CSteamAPIContext::Init()
 }
 
 #endif
+
+// Internal implementation of SteamAPI_InitEx.  This is done in a way that checks
+// all of the versions of interfaces from headers being compiled into this code.
+S_API ESteamAPIInitResult S_CALLTYPE SteamInternal_SteamAPI_Init( const char *pszInternalCheckInterfaceVersions, SteamErrMsg *pOutErrMsg );
+inline ESteamAPIInitResult SteamAPI_InitEx( SteamErrMsg *pOutErrMsg )
+{
+	const char *pszInternalCheckInterfaceVersions = 
+		STEAMUTILS_INTERFACE_VERSION "\0"
+		STEAMNETWORKINGUTILS_INTERFACE_VERSION "\0"
+		STEAMAPPS_INTERFACE_VERSION "\0"
+		STEAMCONTROLLER_INTERFACE_VERSION "\0"
+		STEAMFRIENDS_INTERFACE_VERSION "\0"
+		STEAMGAMESEARCH_INTERFACE_VERSION "\0"
+		STEAMHTMLSURFACE_INTERFACE_VERSION "\0"
+		STEAMHTTP_INTERFACE_VERSION "\0"
+		STEAMINPUT_INTERFACE_VERSION "\0"
+		STEAMINVENTORY_INTERFACE_VERSION "\0"
+		STEAMMATCHMAKINGSERVERS_INTERFACE_VERSION "\0"
+		STEAMMATCHMAKING_INTERFACE_VERSION "\0"
+		STEAMMUSICREMOTE_INTERFACE_VERSION "\0"
+		STEAMMUSIC_INTERFACE_VERSION "\0"
+		STEAMNETWORKINGMESSAGES_INTERFACE_VERSION "\0"
+		STEAMNETWORKINGSOCKETS_INTERFACE_VERSION "\0"
+		STEAMNETWORKING_INTERFACE_VERSION "\0"
+		STEAMPARENTALSETTINGS_INTERFACE_VERSION "\0"
+		STEAMPARTIES_INTERFACE_VERSION "\0"
+		STEAMREMOTEPLAY_INTERFACE_VERSION "\0"
+		STEAMREMOTESTORAGE_INTERFACE_VERSION "\0"
+		STEAMSCREENSHOTS_INTERFACE_VERSION "\0"
+		STEAMUGC_INTERFACE_VERSION "\0"
+		STEAMUSERSTATS_INTERFACE_VERSION "\0"
+		STEAMUSER_INTERFACE_VERSION "\0"
+		STEAMVIDEO_INTERFACE_VERSION "\0"
+
+		"\0";
+
+	return SteamInternal_SteamAPI_Init( pszInternalCheckInterfaceVersions, pOutErrMsg );
+}
 
 #endif // STEAM_API_H
