@@ -1524,24 +1524,24 @@ enum ESteamNetworkingConfigValue
 // Settings for SDR relayed connections
 //
 
-	/// [int32 global] If the first N pings to a port all fail, mark that port as unavailable for
+	/// [global int32] If the first N pings to a port all fail, mark that port as unavailable for
 	/// a while, and try a different one.  Some ISPs and routers may drop the first
 	/// packet, so setting this to 1 may greatly disrupt communications.
 	k_ESteamNetworkingConfig_SDRClient_ConsecutitivePingTimeoutsFailInitial = 19,
 
-	/// [int32 global] If N consecutive pings to a port fail, after having received successful 
+	/// [global int32] If N consecutive pings to a port fail, after having received successful 
 	/// communication, mark that port as unavailable for a while, and try a 
 	/// different one.
 	k_ESteamNetworkingConfig_SDRClient_ConsecutitivePingTimeoutsFail = 20,
 
-	/// [int32 global] Minimum number of lifetime pings we need to send, before we think our estimate
+	/// [global int32] Minimum number of lifetime pings we need to send, before we think our estimate
 	/// is solid.  The first ping to each cluster is very often delayed because of NAT,
 	/// routers not having the best route, etc.  Until we've sent a sufficient number
 	/// of pings, our estimate is often inaccurate.  Keep pinging until we get this
 	/// many pings.
 	k_ESteamNetworkingConfig_SDRClient_MinPingsBeforePingAccurate = 21,
 
-	/// [int32 global] Set all steam datagram traffic to originate from the same
+	/// [global int32] Set all steam datagram traffic to originate from the same
 	/// local port. By default, we open up a new UDP socket (on a different local
 	/// port) for each relay.  This is slightly less optimal, but it works around
 	/// some routers that don't implement NAT properly.  If you have intermittent
@@ -1568,6 +1568,10 @@ enum ESteamNetworkingConfigValue
 	/// This is a dev configuration value, you probably should not let users modify it
 	/// in production.
 	k_ESteamNetworkingConfig_SDRClient_FakeClusterPing = 36,
+
+	/// [global int32] When probing the SteamDatagram network, we limit exploration
+	/// to the closest N POPs, based on our current best approximated ping to that POP.
+	k_ESteamNetworkingConfig_SDRClient_LimitPingProbesToNearestN = 60,
 
 //
 // Log levels for debugging information of various subsystems.

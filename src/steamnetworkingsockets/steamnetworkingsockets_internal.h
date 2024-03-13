@@ -949,6 +949,7 @@ namespace GlobalConfig
 	extern GlobalConfigValue<int32> SDRClient_ConsecutitivePingTimeoutsFailInitial;
 	extern GlobalConfigValue<int32> SDRClient_ConsecutitivePingTimeoutsFail;
 	extern GlobalConfigValue<int32> SDRClient_MinPingsBeforePingAccurate;
+	extern GlobalConfigValue<int32> SDRClient_LimitPingProbesToNearestN;
 	extern GlobalConfigValue<int32> SDRClient_SingleSocket;
 	extern GlobalConfigValue<int32> LogLevel_SDRRelayPings;
 	extern GlobalConfigValue<std::string> SDRClient_ForceRelayCluster;
