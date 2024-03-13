@@ -1160,6 +1160,9 @@ static bool s_bRawSocketPendingDestruction;
 class CPacketLagger;
 struct CLaggedPacket final : public CPossibleOutOfOrderPacket
 {
+	// When we need to process this packet
+	SteamNetworkingMicroseconds m_usecFlush;
+
 	CRawUDPSocketImpl *m_pSockOwner;
 	netadr_t m_adrRemote;
 	int m_cbPkt;
@@ -1172,11 +1175,11 @@ struct CLaggedPacket final : public CPossibleOutOfOrderPacket
 
 	CLaggedPacket( CRawUDPSocketImpl *pSockOwner, const netadr_t &adrRemote, SteamNetworkingMicroseconds usecFlush, int cbPkt )
 	: CPossibleOutOfOrderPacket()
+	, m_usecFlush( usecFlush )
 	, m_pSockOwner( pSockOwner )
 	, m_adrRemote( adrRemote )
 	, m_cbPkt( cbPkt )
 	{
-		m_usecFlush = usecFlush;
 		Assert( m_cbPkt < sizeof(m_pkt) );
 	}
 
@@ -1419,14 +1422,8 @@ class CPacketLaggerRecv final : public CPacketLagger
 public:
 	virtual void ProcessPacket( const CLaggedPacket &pkt, SteamNetworkingMicroseconds usecNow ) override
 	{
-		// Copy data out of queue into local variables, just in case a
-		// packet is queued while we're in this function.  We don't want
-		// our list to shift in memory, and the pointer we pass to the
-		// caller to dangle.
-		char temp[ k_cbSteamNetworkingSocketsMaxUDPMsgLen ];
-		memcpy( temp, pkt.m_pkt, pkt.m_cbPkt );
 		//pkt.m_pSockOwner->m_callback( RecvPktInfo_t{ temp, pkt.m_cbPkt, usecNow, pkt.m_usecTime, 0, pkt.m_adrRemote, pkt.m_pSockOwner } );
-		pkt.m_pSockOwner->m_callback( RecvPktInfo_t{ temp, pkt.m_cbPkt, usecNow, pkt.m_adrRemote, pkt.m_pSockOwner } );
+		pkt.m_pSockOwner->m_callback( RecvPktInfo_t{ pkt.m_pkt, pkt.m_cbPkt, usecNow, pkt.m_adrRemote, pkt.m_pSockOwner } );
 	}
 };
 

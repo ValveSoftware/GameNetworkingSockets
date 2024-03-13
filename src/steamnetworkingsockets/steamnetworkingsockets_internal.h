@@ -1009,10 +1009,6 @@ class CPossibleOutOfOrderPacket
 {
 public:
 
-	// "Timeout" when this packet should be dispatched if we haven't
-	// received the skipped packet
-	SteamNetworkingMicroseconds m_usecFlush = 0;
-
 	// Detach from our owner and destroy this object.
 	void Destroy();
 
