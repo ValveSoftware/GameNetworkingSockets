@@ -47,9 +47,9 @@ jobs:
       - uses: ilammy/msvc-dev-cmd@v1
 
       - name: Restore artifacts, setup vcpkg
-        uses: lukka/run-vcpkg@v10
+        uses: lukka/run-vcpkg@v11
         with:
-          vcpkgGitCommitId: e809a42f87565e803b2178a0c11263f462d1800a
+          vcpkgGitCommitId: fba75d09065fcc76a25dcf386b1d00d33f5175af
           vcpkgDirectory: '${{ github.workspace }}/vcpkg'
           vcpkgJsonGlob: vcpkg.json
           runVcpkgInstall: false
