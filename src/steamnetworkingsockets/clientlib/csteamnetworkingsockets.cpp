@@ -427,7 +427,7 @@ CSteamNetworkingSockets::CSteamNetworkingSockets( CSteamNetworkingUtils *pSteamN
 #endif
 , m_bEverTriedToGetCert( false )
 , m_bEverGotCert( false )
-, m_mutexPendingCallbacks( "pending_callbacks" )
+, m_mutexPendingCallbacks( "pending_callbacks", LockDebugInfo::k_nOrder_Max ) // Never take another lock while holding this
 {
 	m_connectionConfig.Init( nullptr );
 	InternalClearIdentity();

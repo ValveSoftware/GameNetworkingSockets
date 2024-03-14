@@ -83,7 +83,7 @@ static void FlushSystemSpew();
 int g_cbUDPSocketBufferSize = 256*1024;
 
 /// Global lock for all local data structures
-static Lock<RecursiveTimedMutexImpl> s_mutexGlobalLock( "global", 0 );
+static Lock<RecursiveTimedMutexImpl> s_mutexGlobalLock( "global", 0, LockDebugInfo::k_nOrder_Global );
 
 #if STEAMNETWORKINGSOCKETS_LOCK_DEBUG_LEVEL > 0
 
@@ -208,37 +208,50 @@ void LockDebugInfo::AboutToLock( bool bTry )
 	{
 		// Remember when we started trying to lock
 		t.m_usecOuterLockStartTime = SteamNetworkingSockets_GetLocalTimestamp();
+		return;
 	}
-	else
+
+	// We already hold a lock.  Check for taking locks in such a way
+	// that might lead to deadlocks.
+	const LockDebugInfo *pTopLock = t.m_arHeldLocks[ t.m_nHeldLocks-1 ];
+
+	// Taking locks in increasing order is always allowed
+	if ( likely( pTopLock->m_nOrder < m_nOrder ) )
+		return;
+
+	// Global lock *must* always be the outermost lock.  (It is legal to take other locks in
+	// between and then lock the global lock recursively.)
+	const bool bHoldGlobalLock = t.m_arHeldLocks[ 0 ] == &s_mutexGlobalLock;
+	AssertMsg(
+		bHoldGlobalLock || this != &s_mutexGlobalLock,
+		"Taking global lock while already holding lock '%s'", t.m_arHeldLocks[ 0 ]->m_pszName
+	);
+
+	// If they are only "trying", we allow out-of-order behaviour.
+	if ( bTry )
+		return;
+
+	// Taking locks of equal order?  This will also be true for recursive locks, which are not allowed for 'short duration' locks.
+	if ( likely( pTopLock->m_nOrder == m_nOrder ) )
 	{
+		if ( m_nOrder < k_nOrder_ObjectOrTable ) // OK to lock global lock recursively
+			return;
 
-		// We already hold a lock.  Make sure it's legal for us to take another!
-
-		// Global lock *must* always be the outermost lock.  (It is legal to take other locks in
-		// between and then lock the global lock recursively.)
-		const bool bHoldGlobalLock = t.m_arHeldLocks[ 0 ] == &s_mutexGlobalLock;
-		AssertMsg(
-			bHoldGlobalLock || this != &s_mutexGlobalLock,
-			"Taking global lock while already holding lock '%s'", t.m_arHeldLocks[ 0 ]->m_pszName
-		);
-
-		// Check for taking locks in such a way that might lead to deadlocks.
-		// If they are only "trying", then we do allow out of order behaviour.
-		if ( !bTry )
+		// Taking multiple object locks?  This is allowed under certain circumstances
+		if ( likely( m_nOrder == k_nOrder_ObjectOrTable ) )
 		{
-			const LockDebugInfo *pTopLock = t.m_arHeldLocks[ t.m_nHeldLocks-1 ];
 
-			// Once we take a "short duration" lock, we must not
-			// take any additional locks!  (Including a recursive lock.)
-			AssertMsg( !( pTopLock->m_nFlags & LockDebugInfo::k_nFlag_ShortDuration ), "Taking lock '%s' while already holding lock '%s'", m_pszName, pTopLock->m_pszName );
+			// If we hold the global lock, it's OK
+			if ( bHoldGlobalLock )
+				return;
 
 			// If the global lock isn't held, then no more than one
 			// object lock is allowed, since two different threads
 			// might take them in different order.
 			constexpr int k_nObjectFlags = LockDebugInfo::k_nFlag_Connection | LockDebugInfo::k_nFlag_PollGroup;
 			if (
-				( !bHoldGlobalLock && ( m_nFlags & k_nObjectFlags ) != 0 )
-				//|| ( m_nFlags & k_nFlag_Table ) // We actually do this in one place when we know it's OK.  Not wirth it right now to get this situation exempted from the checking.
+				( ( m_nFlags & k_nObjectFlags ) != 0 )
+				//|| ( m_nFlags & k_nFlag_Table ) // We actually do this in one place when we know it's OK.  Not worth it right now to get this situation exempted from the checking.
 			) {
 				// We must not already hold any existing object locks (except perhaps this one)
 				for ( int i = 0 ; i < t.m_nHeldLocks ; ++i )
@@ -248,8 +261,13 @@ void LockDebugInfo::AboutToLock( bool bTry )
 						"Taking lock '%s' and then '%s', while not holding the global lock", pOtherLock->m_pszName, m_pszName );
 				}
 			}
+
+			// Usage is OK if we didn't find any problems above
+			return;
 		}
 	}
+
+	AssertMsg( false, "Taking lock '%s' while already holding lock '%s'", m_pszName, pTopLock->m_pszName );
 }
 
 void LockDebugInfo::OnLocked( const char *pszTag )
@@ -457,7 +475,7 @@ static volatile bool s_bManualPollMode;
 //
 /////////////////////////////////////////////////////////////////////////////
 
-ShortDurationLock s_lockTaskQueue( "TaskQueue" );
+ShortDurationLock s_lockTaskQueue( "TaskQueue", LockDebugInfo::k_nOrder_Max ); // Never take another lock while holding this
 
 CTaskTarget::~CTaskTarget()
 {
@@ -3461,7 +3479,7 @@ void CSharedSocket::RemoteHost::Close()
 //
 /////////////////////////////////////////////////////////////////////////////
 
-static ShortDurationLock s_systemSpewLock( "SystemSpew" );
+static ShortDurationLock s_systemSpewLock( "SystemSpew", LockDebugInfo::k_nOrder_Max ); // Never take another lock while holding this
 SteamNetworkingMicroseconds g_usecLastRateLimitSpew;
 int g_nRateLimitSpewCount;
 ESteamNetworkingSocketsDebugOutputType g_eAppSpewLevel = k_ESteamNetworkingSocketsDebugOutputType_Msg; // Option selected by app
