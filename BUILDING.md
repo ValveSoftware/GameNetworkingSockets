@@ -11,10 +11,10 @@ Building
   * Visual Studio 2017 or later
 * One of the following crypto solutions:
   * OpenSSL 1.1.1 or later
-  * libsodium
+  * libsodium (can cause issues on Intel machines with AES-NI disabled see [here](https://github.com/ValveSoftware/GameNetworkingSockets/issues/243))
   * [bcrypt](https://docs.microsoft.com/en-us/windows/desktop/api/bcrypt/)
     (Windows only.  Note the primary reason this is supported is to satisfy
-    an Xbox requuirement.)
+    an Xbox requirement.)
 * Google protobuf 2.6.1+
 * Google [webrtc](https://opensource.google/projects/webrtc) is used for
   NAT piercing (ICE) for P2P connections.  The relevant code is linked in as a

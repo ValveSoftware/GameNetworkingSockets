@@ -22,6 +22,7 @@ set(GNS_COMMON_SRCS
 	"steamnetworkingsockets/steamnetworkingsockets_shared.cpp"
 	"tier0/dbg.cpp"
 	"tier0/platformtime.cpp"
+	"tier0/valve_tracelogging.cpp"
 	"tier1/netadr.cpp"
 	"tier1/utlbuffer.cpp"
 	"tier1/utlmemory.cpp"
