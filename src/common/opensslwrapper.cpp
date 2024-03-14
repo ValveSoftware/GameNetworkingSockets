@@ -4,6 +4,9 @@
 //
 //=============================================================================
 
+#include <mutex>
+#include <thread>
+
 #include <tier0/dbg.h>
 #include "opensslwrapper.h"
 #include <openssl/crypto.h>
@@ -11,9 +14,6 @@
 #include <openssl/evp.h>
 #include <openssl/rand.h>
 #include "crypto.h"
-
-#include <mutex>
-#include <thread>
 
 // Statics - all automatically zero-init
 int COpenSSLWrapper::m_nInstances;
