@@ -84,15 +84,15 @@ if (WIN32)
 	string(REPLACE "/EHsc" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
 	string(REPLACE "/GR" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
 
-	#
-	# Check whether BCrypt can be used with this SDK version
-	#
-	cmake_push_check_state()
-		set(CMAKE_REQUIRED_LIBRARIES bcrypt)
-		check_symbol_exists(BCryptEncrypt windows.h BCRYPT_AVAILABLE)
-	cmake_pop_check_state()
-	if (NOT BCRYPT_AVAILABLE AND USE_CRYPTO STREQUAL "BCrypt")
-		message(FATAL_ERROR "You're on Windows but BCrypt seems to be unavailable, you will need OpenSSL")
+	if (USE_CRYPTO STREQUAL "BCrypt")
+		#
+		# Check whether BCrypt can be used with this SDK version
+		#
+		try_compile(BCRYPT_AVAILABLE "${CMAKE_CURRENT_BINARY_DIR}/tryCompile" SOURCES "${CMAKE_CURRENT_LIST_DIR}/cmake/tryCompileTestBCrypt.cpp" LINK_LIBRARIES bcrypt OUTPUT_VARIABLE BCRYPT_AVAILABILITY_TEST_MESSAGES)
+		if (NOT BCRYPT_AVAILABLE)
+			message(STATUS ${BCRYPT_AVAILABILITY_TEST_MESSAGES})
+			message(FATAL_ERROR "You're on Windows but BCrypt seems to be unavailable, you will need OpenSSL")
+		endif()
 	endif()
 endif()
 
