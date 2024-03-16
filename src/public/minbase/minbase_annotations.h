@@ -8,7 +8,7 @@
 #define MINBASE_ANNOTATIONS_H
 #pragma once
 
-// Identification is needed everywhere but we don't want to include
+// Identification is needed everywhere but we don't want to include.
 // it over and over again so just make sure it was already included.
 #ifndef MINBASE_IDENTIFY_H
 #error Must include minbase_identify.h
@@ -51,7 +51,7 @@
 #pragma warning(disable : 6211) // warning C6211: Leaking memory 'newKeyValue' due to an exception. Consider using a local catch block to clean up memory
 #pragma warning(disable : 6031) // warning C6031: Return value ignored: '_getcwd'
 
-// These warnings are because /analyze doesn't like our use of constants, especially things like IsPC()
+// These warnings are because analyze doesn't like our use of constants, especially things like IsPC()
 #pragma warning(disable : 6326) // warning C6326: Potential comparison of a constant with another constant
 #pragma warning(disable : 6239) // warning C6239: (<non-zero constant> && <expression>) always evaluates to the result of <expression>. Did you intend to use the bitwise-and operator?
 #pragma warning(disable : 6285) // warning C6285: (<non-zero constant> || <non-zero constant>) is always a non-zero constant. Did you intend to use the bitwise-and operator?
@@ -112,7 +112,7 @@
 #define INOUT_Z_ARRAY _Deref_prepost_z_
 #endif // _MSC_VER >= 1700
 // Use the macros above to annotate string functions that fill buffers as shown here,
-// in order to give VS's /analyze more opportunities to find bugs.
+// in order to give VS's analyze more opportunities to find bugs.
 // void V_wcsncpy( OUT_Z_BYTECAP(maxLenInBytes) wchar_t *pDest, wchar_t const *pSrc, int maxLenInBytes );
 // int V_snwprintf( OUT_Z_CAP(maxLenInCharacters) wchar_t *pDest, int maxLenInCharacters, PRINTF_FORMAT_STRING const wchar_t *pFormat, ... );
 
