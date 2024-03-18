@@ -48,24 +48,24 @@ BUILD_LIBSODIUM=${BUILD_LIBSODIUM:-1}
 BUILD_WEBRTC=${BUILD_WEBRTC:-1}
 
 # Sanitizers aren't supported on MinGW
-[[ "${uname_S}" == MINGW* ]] && BUILD_SANITIZERS=0
+[[ "${uname_S}" == MINGW* ]] && BUILD_SANITIZERS=0 && echo "disabling sanitizers on MinGW"
 
 # Noticed that Clang's tsan and asan don't behave well on non-x86_64 Travis
 # builders, so let's just disable them on there.
-[[ "${uname_M}" != x86_64 ]] && [[ ${CXX} == *clang* ]] && BUILD_SANITIZERS=0
+[[ "${uname_M}" != x86_64 ]] && [[ ${CXX} == *clang* ]] && BUILD_SANITIZERS=0 && echo "disabling sanitizers on non-x86_64 with clang"
 
 # Sanitizers don't link properly with clang on Fedora Rawhide
-[[ "${IMAGE}" == "fedora" ]] && [[ "${IMAGE_TAG}" == "rawhide" ]] && [[ ${CXX} == *clang* ]] && BUILD_SANITIZERS=0
+[[ "${IMAGE}" == "fedora" ]] && [[ "${IMAGE_TAG}" == "rawhide" ]] && [[ ${CXX} == *clang* ]] && BUILD_SANITIZERS=0 && echo "disabling sanitizers on fedora Rawhide"
 
 # Sanitizers don't link properly with clang on Ubuntu Rolling
-[[ "${IMAGE}" == "ubuntu" ]] && [[ "${IMAGE_TAG}" == "rolling" ]] && [[ ${CXX} == *clang* ]] && BUILD_SANITIZERS=0
+[[ "${IMAGE}" == "ubuntu" ]] && [[ "${IMAGE_TAG}" == "rolling" ]] && [[ ${CXX} == *clang* ]] && BUILD_SANITIZERS=0 && echo "disabling sanitizers on ubuntu rolling with clang"
 
 # Something's wrong with the GCC -fsanitize=address build on the s390x Travis
 # builder, and it fails to link properly.
-[[ ${uname_M} == s390x ]] && BUILD_SANITIZERS=0
+[[ ${uname_M} == s390x ]] && BUILD_SANITIZERS=0 && echo "disabling sanitizers on s390x"
 
 # clang with sanitizers results in link errors on i686 Ubuntu at any rate
-[[ ${CXX} == *clang* ]] && [[ "$(${CXX} -dumpmachine)" == i686-* ]] && BUILD_SANITIZERS=0
+[[ ${CXX} == *clang* ]] && [[ "$(${CXX} -dumpmachine)" == i686-* ]] && BUILD_SANITIZERS=0 && echo "disabling sanitizers on i686 ubuntu"
 
 # Big-endian platforms can't build with WebRTC out-of-the-box.
 [[ ${uname_M} == s390x ]] && BUILD_WEBRTC=0
@@ -73,7 +73,7 @@ BUILD_WEBRTC=${BUILD_WEBRTC:-1}
 [[ ${uname_M} == ppc64* ]] && BUILD_WEBRTC=0
 
 # Foreign architecture docker containers don't support sanitizers.
-[[ ${uname_M} != x86_64 ]] && grep -q -e AuthenticAMD -e GenuineIntel /proc/cpuinfo && BUILD_SANITIZERS=0
+[[ ${uname_M} != x86_64 ]] && grep -q -e AuthenticAMD -e GenuineIntel /proc/cpuinfo && BUILD_SANITIZERS=0 && echo "disabling sanitizers on foreign architecture docker"
 
 # libsodium's AES implementation only works on x86_64
 [[ ${uname_M} != x86_64 ]] && BUILD_LIBSODIUM=0

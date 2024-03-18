@@ -37,6 +37,9 @@ export BUILD_SANITIZERS=0
 if [[ "$IMAGE" == "ubuntu" ]] && [[ "$IMAGE_TAG" == "rolling" ]]; then
 	export BUILD_SANITIZERS=1
 fi
+if [[ "$IMAGE" == "ubuntu" ]] && [[ "$IMAGE_TAG" == "latest" ]]; then
+	export BUILD_SANITIZERS=1
+fi
 if [[ "$IMAGE" == "fedora" ]] && [[ "$IMAGE_TAG" == "rawhide" ]]; then
 	export BUILD_SANITIZERS=1
 fi

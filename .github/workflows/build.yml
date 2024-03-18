@@ -3,6 +3,21 @@ on: [push, pull_request]
 
 jobs:
 
+  trigger-linux-flavors:
+    #if: false  # Temporarily disable
+    name: Trigger linux flavors
+    runs-on: ubuntu-latest
+    env:
+      CI_BUILD: 1
+      IMAGE: ubuntu
+      IMAGE_TAG: latest
+    steps:
+      # Trigger testing of more linux flavors
+      - name: Trigger linux flavors build
+        uses: peter-evans/repository-dispatch@main
+        with:
+          event-type: build-linux-flavors
+
   build-and-test-ubuntu:
     #if: false  # Temporarily disable
     name: Build And Test Ubuntu
@@ -22,12 +37,6 @@ jobs:
           sudo -E bash .github/install-post.sh
       - name: Build and run tests
         run: bash .github/build.sh
-
-      # Trigger testing of more linux flavors
-      - name: Trigger linux flavors build
-        uses: peter-evans/repository-dispatch@v2
-        with:
-          event-type: build-linux-flavors
 
   build-and-test-windows:
     #if: false  # Temporarily disable
