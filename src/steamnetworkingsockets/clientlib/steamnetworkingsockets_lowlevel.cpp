@@ -231,40 +231,46 @@ void LockDebugInfo::AboutToLock( bool bTry )
 	if ( bTry )
 		return;
 
-	// Taking locks of equal order?  This will also be true for recursive locks, which are not allowed for 'short duration' locks.
-	if ( likely( pTopLock->m_nOrder == m_nOrder ) )
+	// It's always OK to lock recursively.
+	//
+	// (Except for "short duration" locks, which are allowed to
+	// use a mutex implementation that does not support this.)
+	if ( !( m_nFlags & k_nFlag_ShortDuration ) )
 	{
-		if ( m_nOrder < k_nOrder_ObjectOrTable ) // OK to lock global lock recursively
-			return;
-
-		// Taking multiple object locks?  This is allowed under certain circumstances
-		if ( likely( m_nOrder == k_nOrder_ObjectOrTable ) )
+		for ( int i = 0 ; i < t.m_nHeldLocks ; ++i )
 		{
-
-			// If we hold the global lock, it's OK
-			if ( bHoldGlobalLock )
+			if ( t.m_arHeldLocks[i] == this )
 				return;
-
-			// If the global lock isn't held, then no more than one
-			// object lock is allowed, since two different threads
-			// might take them in different order.
-			constexpr int k_nObjectFlags = LockDebugInfo::k_nFlag_Connection | LockDebugInfo::k_nFlag_PollGroup;
-			if (
-				( ( m_nFlags & k_nObjectFlags ) != 0 )
-				//|| ( m_nFlags & k_nFlag_Table ) // We actually do this in one place when we know it's OK.  Not worth it right now to get this situation exempted from the checking.
-			) {
-				// We must not already hold any existing object locks (except perhaps this one)
-				for ( int i = 0 ; i < t.m_nHeldLocks ; ++i )
-				{
-					const LockDebugInfo *pOtherLock = t.m_arHeldLocks[ i ];
-					AssertMsg( pOtherLock == this || !( pOtherLock->m_nFlags & k_nObjectFlags ),
-						"Taking lock '%s' and then '%s', while not holding the global lock", pOtherLock->m_pszName, m_pszName );
-				}
-			}
-
-			// Usage is OK if we didn't find any problems above
-			return;
 		}
+	}
+
+	// Taking multiple object locks?  This is allowed under certain circumstances
+	if ( likely( pTopLock->m_nOrder == m_nOrder && m_nOrder == k_nOrder_ObjectOrTable ) )
+	{
+
+		// If we hold the global lock, it's OK
+		if ( bHoldGlobalLock )
+			return;
+
+		// If the global lock isn't held, then no more than one
+		// object lock is allowed, since two different threads
+		// might take them in different order.
+		constexpr int k_nObjectFlags = LockDebugInfo::k_nFlag_Connection | LockDebugInfo::k_nFlag_PollGroup;
+		if (
+			( ( m_nFlags & k_nObjectFlags ) != 0 )
+			//|| ( m_nFlags & k_nFlag_Table ) // We actually do this in one place when we know it's OK.  Not worth it right now to get this situation exempted from the checking.
+		) {
+			// We must not already hold any existing object locks (except perhaps this one)
+			for ( int i = 0 ; i < t.m_nHeldLocks ; ++i )
+			{
+				const LockDebugInfo *pOtherLock = t.m_arHeldLocks[ i ];
+				AssertMsg( pOtherLock == this || !( pOtherLock->m_nFlags & k_nObjectFlags ),
+					"Taking lock '%s' and then '%s', while not holding the global lock", pOtherLock->m_pszName, m_pszName );
+			}
+		}
+
+		// Usage is OK if we didn't find any problems above
+		return;
 	}
 
 	AssertMsg( false, "Taking lock '%s' while already holding lock '%s'", m_pszName, pTopLock->m_pszName );
