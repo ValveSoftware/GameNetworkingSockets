@@ -54,7 +54,7 @@ int main()
 	CECSigningPrivateKey privkey_dynamic_root;
 	DbgVerify( privkey_dynamic_root.ParsePEM( "-----BEGIN OPENSSH PRIVATE KEY----- b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZWQy NTUxOQAAACAZFP3p8ybHAyadDdUW2JC9BPcF1TuZKza/K5uCQ6zQRAAAAH8SNFZ4EjRWeAAA AAtzc2gtZWQyNTUxOQAAACAZFP3p8ybHAyadDdUW2JC9BPcF1TuZKza/K5uCQ6zQRAAAAEDq vSVEpg9EZkMej6Fw1EFCuiAnNtMCTKmf8ZRXSwzrXRkU/enzJscDJp0N1RbYkL0E9wXVO5kr Nr8rm4JDrNBE -----END OPENSSH PRIVATE KEY----- ", 375 ) );
 	// CA KeyID . . : 8112647883641536425
-	const uint64 k_key_dynamic_root = 8112647883641536425ull;
+	//const uint64 k_key_dynamic_root = 8112647883641536425ull;
 	DbgVerify( CertStore_AddCertFromBase64( "Ii4IARIgGRT96fMmxwMmnQ3VFtiQvQT3BdU7mSs2vyubgkOs0ERFmSm1XE2ZkHdgKak/R3xE6pVwMkBlDV+UgOQHEwEg5GnlKLxK5aqKAWl8J0Eo2pl6+grtk5fitu9U15EXtkHhw1o7q8+sZFvRJw8/zXuohkzVB1AC", errMsg ) );
 
 	// Intermediate cert for app (CSGO), signed by hardcoded key
