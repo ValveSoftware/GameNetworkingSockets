@@ -1103,6 +1103,7 @@ void Test_netloopback_throughput()
 					SteamNetworkingSockets()->SendMessages( 1, &pSendMsg, &nMsgNumberOrResult );
 					if ( nMsgNumberOrResult == -k_EResultLimitExceeded )
 					{
+						pSendMsg->Release();
 						TEST_Printf( "SendMessage returned limit exceeded trying to queue %d + %d = %d\n", serverStatus.m_cbPendingReliable, cbSendMsg, serverStatus.m_cbPendingReliable + cbSendMsg );
 						break;
 					}

@@ -317,7 +317,8 @@ int64 CSteamNetworkConnectionBase::SNP_SendMessage( CSteamNetworkingMessage *pSe
 	if ( m_senderState.PendingBytesTotal() + cbData > m_connectionConfig.m_SendBufferSize.Get() )
 	{
 		SpewWarningRateLimited( usecNow, "Connection already has %u bytes pending, cannot queue any more messages\n", m_senderState.PendingBytesTotal() );
-		pSendMessage->Release();
+		// NOTE: @LowKick: we should keep the message around, but not send it, so caller can retry later
+		// pSendMessage->Release();
 		return -k_EResultLimitExceeded;
 	}
 
