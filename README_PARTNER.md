@@ -8,13 +8,16 @@
     ...> git lfs version
     ```
 
-2. Clone this repository and checkout the `partner` branch.
+2. Make sure symbolic links are enabled on windows.  This [stackoverflow post](https://stackoverflow.com/questions/5917249/git-symbolic-links-in-windows)
+   has some good info.
+
+3. Clone this repository and checkout the `partner` branch.
 
     ```
     ...> git clone --branch partner https://github.com/ValveSoftware/GameNetworkingSockets.git
     ```
 
-3. Initialize some git submodules.
+4. Initialize some git submodules.
 
     The `partner` module is always required, and contains some things that
     are required for all use cases involving SDR or console, and are either non-public
@@ -34,7 +37,7 @@
     - `src/external/abseil`, `src/external/webrtc` - Needed to do P2P NAT punching thorugh WebRTC.
       Note that there is a native ICE client, but it is not thoroughly tested.
 
-4. Generate project files using VPC:
+5. Generate project files using VPC:
 
     ```
     ...> cd src
@@ -48,4 +51,4 @@
 
     VPC will locate the platform toolchain from the appropriate environment variables.
 
-5. Open the solution and build in Visual Studio.
+6. Open the solution and build in Visual Studio.
