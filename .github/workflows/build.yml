@@ -94,9 +94,6 @@ jobs:
     runs-on: macos-latest
     steps:
     - uses: actions/checkout@main
-      # Note only alpine needs "preinstall" step
-    - name: Update packages
-      run: sudo -E bash .github/update-packages.sh
     - name: Install dependencies
       run: |
         sudo -E bash .github/install.sh
