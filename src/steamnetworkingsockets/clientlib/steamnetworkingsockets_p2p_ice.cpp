@@ -747,7 +747,14 @@ void CConnectionTransportP2PICE::P2PTransportUpdateRouteMetrics( SteamNetworking
 
 void CConnectionTransportP2PICE::ProcessPacket( const uint8_t *pPkt, int cbPkt, SteamNetworkingMicroseconds usecNow )
 {
-	Assert( cbPkt >= 1 ); // Caller should have checked this
+	// Check for bad packet.  I think the minimum required size is
+	// actually larger.  But each of the paths below will handle it
+	// and provide a more specific error.
+	if ( cbPkt < 1 )
+	{
+		ReportBadUDPPacketFromConnectionPeer( "packet", "Packet is too small" );
+		return;
+	}
 	//ETW_ICEProcessPacket( m_connection.m_hConnectionSelf, cbPkt );
 
 	// Data packet is the most common, check for it first.  Also, does stat tracking.
