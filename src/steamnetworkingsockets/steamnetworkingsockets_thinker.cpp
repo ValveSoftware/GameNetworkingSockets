@@ -62,7 +62,7 @@ IThinker::~IThinker()
 struct ShortDurationLock { inline void lock() {}; inline void unlock() {}; };
 static ShortDurationLock s_mutexThinkerTable;
 #else
-static ShortDurationLock s_mutexThinkerTable( "thinker" );
+static ShortDurationLock s_mutexThinkerTable( "thinker", ShortDurationLock::k_nOrder_Max ); // We do sometimes take another lock, but it is always a "try"
 #endif
 
 // Base class isn't lockable

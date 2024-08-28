@@ -452,8 +452,31 @@ struct LockDebugInfo
 	static constexpr int k_nFlag_PollGroup = (1<<2);
 	static constexpr int k_nFlag_Table = (1<<4);
 
+	// When multiple locks are taken, there is potential for a deadlock.
+	// Locks taken in increasing order is always allowed, in decreasing
+	// order is never allowed.  In certain situations we allow locks
+	// of the same order to be taken.
+	enum {
+
+		// Global lock must always be taken first
+		k_nOrder_Global,
+
+		// Object locks (table, connection, poll group) can be taken in any
+		// order while holding the global lock.  Otherwise, you may not take
+		// more than one.
+		k_nOrder_ObjectOrTable,
+
+		// We might need to take a lock to queue callbacks while holding this.
+		k_nOrder_NetworkAndCachedRoutes,
+
+		// Short duration locks are usually the lowest priority and we usually
+		// should not take more than one of these at a time
+		k_nOrder_Max
+	};
+
 	const char *const m_pszName;
 	const int m_nFlags;
+	const int m_nOrder;
 
 	#if STEAMNETWORKINGSOCKETS_LOCK_DEBUG_LEVEL > 0
 		void _AssertHeldByCurrentThread( const char *pszFile, int line, const char *pszTag = nullptr ) const;
@@ -462,7 +485,7 @@ struct LockDebugInfo
 	#endif
 
 protected:
-	LockDebugInfo( const char *pszName, int nFlags ) : m_pszName( pszName ), m_nFlags( nFlags ) {}
+	LockDebugInfo( const char *pszName, int nFlags, int nOrder ) : m_pszName( pszName ), m_nFlags( nFlags ), m_nOrder( nOrder ) {}
 
 	#if STEAMNETWORKINGSOCKETS_LOCK_DEBUG_LEVEL > 0
 		void AboutToLock( bool bTry );
@@ -480,7 +503,7 @@ protected:
 template<typename TMutexImpl >
 struct Lock : LockDebugInfo
 {
-	inline Lock( const char *pszName, int nFlags ) : LockDebugInfo( pszName, nFlags ) {}
+	inline Lock( const char *pszName, int nFlags, int nOrder ) : LockDebugInfo( pszName, nFlags, nOrder ) {}
 	inline void lock( const char *pszTag = nullptr )
 	{
 		LockDebugInfo::AboutToLock( false );
@@ -572,11 +595,11 @@ private:
 // A very simple lock to protect short accesses to a small set of data.
 // Used when:
 // - We hold the lock for a brief period.
-// - We don't need to take any additional locks while already holding this one.
-//   (Including this lock -- e.g. we don't need to lock recursively.)
+// - We don't need to lock recursively.
+// - For most locks, we also don't allow taking of any other locks.  (In a few cases we use the order to mark which are allowed.)
 struct ShortDurationLock : Lock<ShortDurationMutexImpl>
 {
-	ShortDurationLock( const char *pszName ) : Lock<ShortDurationMutexImpl>( pszName, k_nFlag_ShortDuration ) {}
+	ShortDurationLock( const char *pszName, int nOrder ) : Lock<ShortDurationMutexImpl>( pszName, k_nFlag_ShortDuration, nOrder ) {}
 };
 using ShortDurationScopeLock = ScopeLock<ShortDurationLock>;
 

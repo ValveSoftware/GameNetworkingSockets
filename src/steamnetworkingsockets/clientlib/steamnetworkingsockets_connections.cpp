@@ -164,7 +164,7 @@ void CSteamNetworkingMessage::Unlink()
 	UnlinkFromQueue( &CSteamNetworkingMessage::m_linksSecondaryQueue );
 }
 
-ShortDurationLock g_lockAllRecvMessageQueues( "all_recv_msg_queue" );
+ShortDurationLock g_lockAllRecvMessageQueues( "all_recv_msg_queue", LockDebugInfo::k_nOrder_Max ); // Never take another lock while holding this
 
 void SteamNetworkingMessageQueue::AssertLockHeld() const
 {
@@ -638,7 +638,7 @@ CSteamNetworkConnectionBase::~CSteamNetworkConnectionBase()
 }
 
 static std::vector<CSteamNetworkConnectionBase *> s_vecPendingDeleteConnections;
-static ShortDurationLock s_lockPendingDeleteConnections( "connection_delete_queue" );
+static ShortDurationLock s_lockPendingDeleteConnections( "connection_delete_queue", LockDebugInfo::k_nOrder_Max ); // Never take another lock while holding this
 
 void CSteamNetworkConnectionBase::ConnectionQueueDestroy()
 {

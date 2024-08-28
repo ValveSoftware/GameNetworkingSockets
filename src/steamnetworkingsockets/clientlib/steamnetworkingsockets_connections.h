@@ -248,7 +248,7 @@ private:
 
 class CSteamNetworkPollGroup;
 struct PollGroupLock : Lock<RecursiveTimedMutexImpl> {
-	PollGroupLock() : Lock<RecursiveTimedMutexImpl>( "pollgroup", LockDebugInfo::k_nFlag_PollGroup ) {}
+	PollGroupLock() : Lock<RecursiveTimedMutexImpl>( "pollgroup", LockDebugInfo::k_nFlag_PollGroup, LockDebugInfo::k_nOrder_ObjectOrTable ) {}
 };
 using PollGroupScopeLock = ScopeLock<PollGroupLock>;
 
@@ -339,7 +339,7 @@ protected:
 /////////////////////////////////////////////////////////////////////////////
 
 struct ConnectionLock : Lock<RecursiveTimedMutexImpl> {
-	ConnectionLock() : Lock<RecursiveTimedMutexImpl>( "connection", LockDebugInfo::k_nFlag_Connection ) {}
+	ConnectionLock() : Lock<RecursiveTimedMutexImpl>( "connection", LockDebugInfo::k_nFlag_Connection, LockDebugInfo::k_nOrder_ObjectOrTable ) {}
 };
 struct ConnectionScopeLock : ScopeLock<ConnectionLock>
 {
@@ -1115,7 +1115,7 @@ extern CUtlHashMap<int, CSteamNetworkPollGroup *, std::equal_to<int>, Identity<i
 
 // All of the tables above are projected by the same lock, since we expect to only access it briefly
 struct TableLock : Lock<RecursiveTimedMutexImpl> {
-	TableLock() : Lock<RecursiveTimedMutexImpl>( "table", LockDebugInfo::k_nFlag_Table ) {}
+	TableLock() : Lock<RecursiveTimedMutexImpl>( "table", LockDebugInfo::k_nFlag_Table, LockDebugInfo::k_nOrder_ObjectOrTable ) {}
 }; 
 using TableScopeLock = ScopeLock<TableLock>;
 extern TableLock g_tables_lock;
