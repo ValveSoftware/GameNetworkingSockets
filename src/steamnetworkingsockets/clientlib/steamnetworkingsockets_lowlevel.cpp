@@ -1282,7 +1282,7 @@ class CPacketLagger : private IThinker
 public:
 	~CPacketLagger() { Clear(); }
 
-	void LagPacket( CRawUDPSocketImpl *pSock, const netadr_t &adr, int msDelay, int nChunks, const iovec *pChunks )
+	void LagPacket( CRawUDPSocketImpl *pSock, const netadr_t &adr, SteamNetworkingMicroseconds usecTime, int nChunks, const iovec *pChunks )
 	{
 		SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "LagPacket" );
 
@@ -1301,16 +1301,6 @@ public:
 			AssertMsg( false, "Tried to lag a packet on a socket that has already been closed and is pending destruction!" );
 			return;
 		}
-
-		if ( msDelay < 1 )
-		{
-			AssertMsg( false, "Packet lag time must be positive!" );
-			msDelay = 1;
-		}
-
-		// Limit to something sane
-		msDelay = std::min( msDelay, 5000 );
-		const SteamNetworkingMicroseconds usecTime = SteamNetworkingSockets_GetLocalTimestamp() + msDelay * 1000;
 
 		CLaggedPacket *pkt = new CLaggedPacket( pSock, adr, usecTime, cbPkt );
 
@@ -1735,6 +1725,29 @@ void WakeServiceThread()
 	#endif
 }
 
+inline SteamNetworkingMicroseconds RandomJitter( const GlobalConfigValue<float> &ValAvg, const GlobalConfigValue<float> &ValMax, const GlobalConfigValue<float> &ValPct )
+{
+	// The defaults disable jitter by setting the *average* to 0, so check that first.
+	if ( likely( ValAvg.Get() ) <= 0.0f )
+		return 0;
+	if ( ValMax.Get() <= 0.0f )
+		return 0;
+	if ( !RandomBoolWithOdds( ValPct.Get() ) )
+		return 0;
+
+	// Unscaled exponential distribution
+	float r = WeakRandomFloat( 0.000001f, 1.0f ); // log of 0 is undefined, set the minimum to a value that can be subtracted from 1.  (Something close to FLT_EPSILON.)
+	float x = -logf( r );
+	if ( !( x > 0.0f ) ) // Written "backwards" just in case math blows up
+		return 0;
+
+	// Scale and clamp
+	float flJitterMS = std::min( x*ValAvg.Get(), ValMax.Get() );
+
+	// Convert to integer microseconds
+	return (SteamNetworkingMicroseconds)( flJitterMS * 1000.0f );
+}
+
 bool CRawUDPSocketImpl::BSendRawPacketGather( int nChunks, const iovec *pChunks, const netadr_t &adrTo ) const
 {
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
@@ -1773,28 +1786,47 @@ bool CRawUDPSocketImpl::BSendRawPacketGather( int nChunks, const iovec *pChunks,
 	if ( RandomBoolWithOdds( GlobalConfig::FakePacketLoss_Send.Get() ) )
 		return true;
 
-	// Fake lag?
-	int32 nPacketFakeLagTotal = GlobalConfig::FakePacketLag_Send.Get();
-
-	// Check for simulating random packet reordering
+	// Read convars and decide if we're going to simulate any lag, jitter, reordering, or duplication
+	int msFakeLag = GlobalConfig::FakePacketLag_Send.Get();
+	SteamNetworkingMicroseconds usecReorderLag = 0;
 	if ( RandomBoolWithOdds( GlobalConfig::FakePacketReorder_Send.Get() ) )
-	{
-		nPacketFakeLagTotal += GlobalConfig::FakePacketReorder_Time.Get();
-	}
+		usecReorderLag = GlobalConfig::FakePacketReorder_Time.Get()*1000;
+	SteamNetworkingMicroseconds usecJitter = RandomJitter( GlobalConfig::FakePacketJitter_Send_Avg, GlobalConfig::FakePacketJitter_Send_Max, GlobalConfig::FakePacketJitter_Send_Pct );
+	bool bDup = RandomBoolWithOdds( GlobalConfig::FakePacketDup_Send.Get() );
 
-	// Check for simulating random packet duplication
-	if ( RandomBoolWithOdds( GlobalConfig::FakePacketDup_Send.Get() ) )
+	// Anything active?
+	static SteamNetworkingMicroseconds s_usecMinNextJitteredTime;
+	if ( unlikely( msFakeLag > 0 || usecReorderLag > 0 || usecJitter > 0 || bDup || s_usecMinNextJitteredTime != 0 ) )
 	{
-		int32 nDupLag = nPacketFakeLagTotal + WeakRandomInt( 0, GlobalConfig::FakePacketDup_TimeMax.Get() );
-		nDupLag = std::max( 1, nDupLag );
-		s_packetLagQueueSend.LagPacket( const_cast<CRawUDPSocketImpl *>( this ), adrTo, nDupLag, nChunks, pChunks );
-	}
+		SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
+		SteamNetworkingMicroseconds usecWhenProcess = usecNow + msFakeLag*1000;
+		usecJitter = std::max( usecJitter, s_usecMinNextJitteredTime - usecWhenProcess );
+		if ( usecJitter > 0 )
+		{
+			usecWhenProcess += usecJitter;
+			s_usecMinNextJitteredTime = usecWhenProcess + 1;
+		}
+		else
+		{
+			// End of clump, clear this so we can switch back to the
+			// fast path once options are turned off
+			s_usecMinNextJitteredTime = 0;
+		}
+		usecWhenProcess += usecReorderLag;
 
-	// Lag the original packet?
-	if ( nPacketFakeLagTotal > 0 )
-	{
-		s_packetLagQueueSend.LagPacket( const_cast<CRawUDPSocketImpl *>( this ), adrTo, nPacketFakeLagTotal, nChunks, pChunks );
-		return true;
+		// Check for simulating random packet duplication
+		if ( bDup )
+		{
+			SteamNetworkingMicroseconds usecDupLag = 1 + (SteamNetworkingMicroseconds)WeakRandomFloat( 0.0f, GlobalConfig::FakePacketDup_TimeMax.Get()*1000.0f );
+			s_packetLagQueueSend.LagPacket( const_cast<CRawUDPSocketImpl *>( this ), adrTo, usecWhenProcess + usecDupLag, nChunks, pChunks );
+		}
+
+		// Lag the original packet?
+		if ( usecWhenProcess > usecNow )
+		{
+			s_packetLagQueueSend.LagPacket( const_cast<CRawUDPSocketImpl *>( this ), adrTo, usecWhenProcess, nChunks, pChunks );
+			return true;
+		}
 	}
 
 	// Now really send it
@@ -2322,43 +2354,62 @@ static bool DrainSocket( CRawUDPSocketImpl *pSock )
 			pSock->TracePkt( false, info.m_adrFrom, 1, &tmp );
 		}
 
-		int32 nPacketFakeLagTotal = GlobalConfig::FakePacketLag_Recv.Get();
-
-		// Check for simulating random packet reordering
+		// Read convars and decide if we're going to simulate any lag, jitter, reordering, or duplication
+		int msFakeLag = GlobalConfig::FakePacketLag_Recv.Get();
+		SteamNetworkingMicroseconds usecReorderLag = 0;
 		if ( RandomBoolWithOdds( GlobalConfig::FakePacketReorder_Recv.Get() ) )
+			usecReorderLag = GlobalConfig::FakePacketReorder_Time.Get()*1000;
+		SteamNetworkingMicroseconds usecJitter = RandomJitter( GlobalConfig::FakePacketJitter_Recv_Avg, GlobalConfig::FakePacketJitter_Recv_Max, GlobalConfig::FakePacketJitter_Recv_Pct );
+		bool bDup = RandomBoolWithOdds( GlobalConfig::FakePacketDup_Recv.Get() );
+
+		// Anything active?
+		static SteamNetworkingMicroseconds s_usecMinNextJitteredTime;
+		if ( unlikely( msFakeLag > 0 || usecReorderLag > 0 || usecJitter > 0 || bDup || s_usecMinNextJitteredTime != 0 ) )
 		{
-			nPacketFakeLagTotal += GlobalConfig::FakePacketReorder_Time.Get();
+			SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
+			SteamNetworkingMicroseconds usecWhenProcess = usecNow + msFakeLag*1000;
+			usecJitter = std::max( usecJitter, s_usecMinNextJitteredTime - usecWhenProcess );
+			if ( usecJitter > 0 )
+			{
+				usecWhenProcess += usecJitter;
+				s_usecMinNextJitteredTime = usecWhenProcess + 1;
+			}
+			else
+			{
+				// End of clump, clear this so we can switch back to the
+				// fast path once options are turned off
+				s_usecMinNextJitteredTime = 0;
+			}
+			usecWhenProcess += usecReorderLag;
+
+			// Check for simulating random packet duplication
+			if ( bDup )
+			{
+				SteamNetworkingMicroseconds usecDupLag = 1 + (SteamNetworkingMicroseconds)WeakRandomFloat( 0.0f, GlobalConfig::FakePacketDup_TimeMax.Get()*1000.0f );
+				iovec temp;
+				temp.iov_len = ret;
+				temp.iov_base = buf;
+				s_packetLagQueueRecv.LagPacket( pSock, info.m_adrFrom, usecWhenProcess + usecDupLag, 1, &temp );
+			}
+
+			// Lag the original packet?
+			if ( usecWhenProcess > usecNow )
+			{
+				iovec temp;
+				temp.iov_len = ret;
+				temp.iov_base = buf;
+				s_packetLagQueueRecv.LagPacket( pSock, info.m_adrFrom, usecWhenProcess, 1, &temp );
+				continue;
+			}
 		}
 
-		// Check for simulating random packet duplication
-		if ( RandomBoolWithOdds( GlobalConfig::FakePacketDup_Recv.Get() ) )
-		{
-			int32 nDupLag = nPacketFakeLagTotal + WeakRandomInt( 0, GlobalConfig::FakePacketDup_TimeMax.Get() );
-			nDupLag = std::max( 1, nDupLag );
-			iovec temp;
-			temp.iov_len = ret;
-			temp.iov_base = buf;
-			s_packetLagQueueRecv.LagPacket( pSock, info.m_adrFrom, nDupLag, 1, &temp );
-		}
-
-		// Check for simulating lag
-		if ( nPacketFakeLagTotal > 0 )
-		{
-			iovec temp;
-			temp.iov_len = ret;
-			temp.iov_base = buf;
-			s_packetLagQueueRecv.LagPacket( pSock, info.m_adrFrom, nPacketFakeLagTotal, 1, &temp );
-		}
-		else
-		{
-
-			info.m_pPkt = buf;
-			info.m_cbPkt = ret;
-			info.m_usecNow = usecRecvFromEnd;
-			info.m_pSock = pSock;
-			info.m_bQueuedForOutOfOrder = false;
-			pSock->m_callback( info );
-		}
+		// Process the packet now
+		info.m_pPkt = buf;
+		info.m_cbPkt = ret;
+		info.m_usecNow = usecRecvFromEnd;
+		info.m_pSock = pSock;
+		info.m_bQueuedForOutOfOrder = false;
+		pSock->m_callback( info );
 
 		#ifdef STEAMNETWORKINGSOCKETS_LOWLEVEL_TIME_SOCKET_CALLS
 			SteamNetworkingMicroseconds usecProcessPacketEnd = SteamNetworkingSockets_GetLocalTimestamp();

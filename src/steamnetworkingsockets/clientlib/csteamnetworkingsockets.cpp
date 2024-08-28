@@ -56,6 +56,12 @@ DEFINE_GLOBAL_CONFIGVAL( int32, FakeRateLimit_Send_Burst, 16*1024, 0, 1024*1024 
 DEFINE_GLOBAL_CONFIGVAL( int32, FakeRateLimit_Recv_Rate, 0, 0, 1024*1024*1024 );
 DEFINE_GLOBAL_CONFIGVAL( int32, FakeRateLimit_Recv_Burst, 16*1024, 0, 1024*1024 );
 DEFINE_GLOBAL_CONFIGVAL( int32, OutOfOrderCorrectionWindowMicroseconds, 1000, 0, 50*1000 );
+DEFINE_GLOBAL_CONFIGVAL( float, FakePacketJitter_Send_Avg, 0.0f, 0.0f, 2000.0f );
+DEFINE_GLOBAL_CONFIGVAL( float, FakePacketJitter_Send_Max, 100.0f, 0.0f, 5000.0f );
+DEFINE_GLOBAL_CONFIGVAL( float, FakePacketJitter_Send_Pct, 75.0f, 0.0f, 100.0f );
+DEFINE_GLOBAL_CONFIGVAL( float, FakePacketJitter_Recv_Avg, 0.0f, 0.0f, 2000.0f );
+DEFINE_GLOBAL_CONFIGVAL( float, FakePacketJitter_Recv_Max, 100.0f, 0.0f, 5000.0f );
+DEFINE_GLOBAL_CONFIGVAL( float, FakePacketJitter_Recv_Pct, 75.0f, 0.0f, 100.0f );
 
 DEFINE_GLOBAL_CONFIGVAL( void *, Callback_AuthStatusChanged, nullptr );
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES

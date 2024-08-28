@@ -927,6 +927,13 @@ namespace GlobalConfig
 	extern GlobalConfigValue<int32> FakePacketReorder_Time;
 	extern GlobalConfigValue<float> FakePacketDup_Send;
 	extern GlobalConfigValue<float> FakePacketDup_Recv;
+	extern GlobalConfigValue<float> FakePacketJitter_Send_Avg;
+	extern GlobalConfigValue<float> FakePacketJitter_Send_Max;
+	extern GlobalConfigValue<float> FakePacketJitter_Send_Pct;
+	extern GlobalConfigValue<float> FakePacketJitter_Recv_Avg;
+	extern GlobalConfigValue<float> FakePacketJitter_Recv_Max;
+	extern GlobalConfigValue<float> FakePacketJitter_Recv_Pct;
+
 	extern GlobalConfigValue<int32> FakePacketDup_TimeMax;
 	extern GlobalConfigValue<int32> PacketTraceMaxBytes;
 	extern GlobalConfigValue<int32> FakeRateLimit_Send_Rate;
