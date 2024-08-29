@@ -1000,6 +1000,18 @@ protected:
 		m_seqPktCounters.OnDropped( nDropped );
 	}
 
+	inline void InternalProcessJitterSample( int usecJitter )
+	{
+		// This code only cares about absolute value
+		usecJitter = abs( usecJitter );
+
+		// Update max jitter for current interval
+		m_seqPktCounters.m_usecMaxJitter = std::max( m_seqPktCounters.m_usecMaxJitter, usecJitter );
+
+		// Add to histogram
+		m_jitterHistogram.AddSample( usecJitter );
+	}
+
 	/// Called when we receive stats message from remote host
 	template <typename TLinkStatsTracker>
 	inline static void InternalProcessMessage( TLinkStatsTracker *pThis, const CMsgSteamDatagramConnectionQuality &msg, SteamNetworkingMicroseconds usecNow )
@@ -1340,20 +1352,14 @@ struct LinkStatsTracker final : public TLinkStatsTracker
 			++TLinkStatsTracker::m_nDebugPktsRecvInOrder;
 
 			// We've received two packets, in order.  Did the sender supply the time between packets on his side?
-			if ( usecSenderTimeSincePrev > 0 )
+			if ( usecSenderTimeSincePrev > 0 && usecSenderTimeSincePrev < k_usecTimeSinceLastPacketMaxReasonable )
 			{
-				int usecJitter = ( usecNow - TLinkStatsTracker::m_usecTimeLastRecvSeq ) - usecSenderTimeSincePrev;
-				usecJitter = abs( usecJitter );
-				if ( usecJitter < k_usecTimeSinceLastPacketMaxReasonable )
+				SteamNetworkingMicroseconds usecRecvTimeSincePrev = ( usecNow - TLinkStatsTracker::m_usecTimeLastRecvSeq );
+				Assert( usecRecvTimeSincePrev >= 0 );
+				if ( (uint64)usecRecvTimeSincePrev < (uint64)k_usecTimeSinceLastPacketMaxReasonable )
 				{
-
-					// Update max jitter for current interval
-					TLinkStatsTracker::m_seqPktCounters.m_usecMaxJitter = std::max( TLinkStatsTracker::m_seqPktCounters.m_usecMaxJitter, usecJitter );
-					TLinkStatsTracker::m_jitterHistogram.AddSample( usecJitter );
-				}
-				else
-				{
-					// Something is really, really off.  Discard measurement
+					int usecJitter = usecRecvTimeSincePrev - usecSenderTimeSincePrev;
+					TLinkStatsTracker::InternalProcessJitterSample( usecJitter );
 				}
 			}
 
