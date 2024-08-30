@@ -27,6 +27,7 @@ struct UDPDataMsgHdr
 	enum
 	{
 		kFlag_ProtobufBlob  = 0x01, // Protobuf-encoded message is inline (CMsgSteamSockets_UDP_Stats)
+		kFlag_TimeSincePrev = 0x02, // If set, measurement(s) of the time since the last sequenced packet is present, for packet delay variation estimation
 	};
 
 	uint8 m_unMsgFlags;
@@ -34,6 +35,7 @@ struct UDPDataMsgHdr
 	uint16 m_unSeqNum;
 
 	// [optional, if flags&kFlag_ProtobufBlob]  varint-encoded protobuf blob size, followed by blob
+	// [optional, if flags&kFlag_TimeSincePrev] uint16 time between this packet and the previous one, on client.  See k_usecTimeSinceLastPacketSerializedPrecisionShift
 	// Data frame(s)
 	// End of packet
 };
