@@ -364,7 +364,7 @@ constexpr int k_nRouteScoreHuge = INT_MAX/8;
 /// Protocol version of this code.  This is a blunt instrument, which is incremented when we
 /// wish to change the wire protocol in a way that doesn't have some other easy
 /// mechanism for dealing with compatibility (e.g. using protobuf's robust mechanisms).
-const uint32 k_nCurrentProtocolVersion = 11;
+const uint32 k_nCurrentProtocolVersion = 12;
 
 /// Minimum required version we will accept from a peer.  We increment this
 /// when we introduce wire breaking protocol changes and do not wish to be
@@ -868,6 +868,7 @@ struct ConnectionConfig
 	ConfigValue<int32> SymmetricConnect;
 	ConfigValue<int32> LocalVirtualPort;
 	ConfigValue<int64> ConnectionUserData;
+	ConfigValue<int32> SendTimeSincePreviousPacket;
 
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_DIAGNOSTICSUI
 	ConfigValue<int32> EnableDiagnosticsUI;
@@ -944,6 +945,7 @@ namespace GlobalConfig
 
 	extern ConnectionConfigDefaultValue<int32> LogLevel_PacketGaps;
 	extern ConnectionConfigDefaultValue<int32> LogLevel_P2PRendezvous;
+	extern ConnectionConfigDefaultValue<int32> SendTimeSincePreviousPacket;
 
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
 	extern GlobalConfigValue<void*> Callback_MessagesSessionRequest;

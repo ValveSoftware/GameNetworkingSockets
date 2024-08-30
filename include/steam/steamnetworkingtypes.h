@@ -1385,6 +1385,17 @@ enum ESteamNetworkingConfigValue
 	/// generic platform UI.  (Only available on Steam.)
 	k_ESteamNetworkingConfig_EnableDiagnosticsUI = 46,
 
+	/// [connection int32] Send of time-since-previous-packet values in each UDP packet.
+	/// This add a small amount of packet overhead but allows for detailed jitter measurements
+	/// to be made by the receiver.
+	/// 
+	/// -  0: disables the sending
+	/// -  1: enables sending
+	/// - -1: (the default) Use the default for the connection type.  For plain UDP connections,
+	///       this is disabled, and for relayed connections, it is enabled.  Note that relays
+	///       always send the value.
+	k_ESteamNetworkingConfig_SendTimeSincePreviousPacket = 59,
+
 //
 // Simulating network conditions
 //
