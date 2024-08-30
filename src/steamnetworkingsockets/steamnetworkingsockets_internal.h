@@ -1036,6 +1036,62 @@ protected:
 	virtual ~CPossibleOutOfOrderPacket();
 };
 
+// Helper used to serialize data packets with a header and optional inline stats blob
+struct DataPacketSerializerBase
+{
+	int HdrBytesRemaining() const { return int( m_pMaxOut - m_pOut ); }
+
+	inline void PutUint16( uint16 x )
+	{
+		*(uint16*)m_pOut = x;
+		m_pOut += sizeof(uint16);
+		Assert( m_pOut <= m_pMaxOut );
+	}
+
+	uint8 *m_pOut;
+	uint8 *m_pMaxOut;
+};
+
+// Data packet serializer used in client code, where we use iovec
+// so that we let th OS gather the header and the payload in
+// a single system call
+template <typename THdr >
+struct DataPacketSerializer : DataPacketSerializerBase
+{
+	DataPacketSerializer( iovec *pOvecOut, const void *pPayloadIn, int cbPayload )
+	: m_iov_out( pOvecOut )
+	, hdr( *(THdr *)( pOvecOut[0].iov_base ) )
+	{
+
+		// Make sure we have room for our header, and some occasional inline stats, and the max payload
+		COMPILE_TIME_ASSERT( sizeof(THdr) + k_cbSteamNetworkingSocketsMaxEncryptedPayloadSend + 32 <= k_cbSteamNetworkingSocketsMaxUDPMsgLen );
+
+		// Set payload
+		m_iov_out[1].iov_base = (void*)pPayloadIn;
+		m_iov_out[1].iov_len = cbPayload;
+
+		// Write pointer for data after header
+		m_pOut = (uint8*)( &hdr + 1 );
+
+		// Max place we could advance this cursor, and still fit in the payload
+		m_pMaxOut = m_pOut + ( k_cbSteamNetworkingSocketsMaxUDPMsgLen - sizeof(THdr) - cbPayload );
+		Assert( m_pMaxOut >= m_pOut );
+	}
+
+	int Finish()
+	{
+		Assert( m_pOut <= m_pMaxOut );
+
+		// Set header size
+		m_iov_out[0].iov_len = m_pOut - (uint8*)m_iov_out[0].iov_base;
+
+		return int( m_iov_out[0].iov_len + m_iov_out[1].iov_len );
+	}
+
+	THdr &hdr;
+	iovec *m_iov_out;
+};
+
 } // namespace SteamNetworkingSocketsLib
 
 #include <tier0/memdbgon.h>
