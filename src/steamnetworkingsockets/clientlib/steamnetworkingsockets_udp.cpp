@@ -753,6 +753,20 @@ void CConnectionTransportUDPBase::Received_Data( const uint8 *pPkt, int cbPkt, S
 		pIn += cbStatsMsgIn;
 	}
 
+	// Time between the last sequenced packet?
+	int usecTimeSinceLast = -1;
+	if ( hdr->m_unMsgFlags & hdr->kFlag_TimeSincePrev )
+	{
+		if ( pIn + sizeof(unsigned short) > pPktEnd )
+		{
+			ReportBadUDPPacketFromConnectionPeer( "DataPacket", "Flags indicate presence of TimeSincePrev, but no room for it.  Stats message size %d, packet size %d", cbStatsMsgIn, cbPkt );
+			return;
+		}
+
+		usecTimeSinceLast = (int)LittleWord( *(unsigned short*)pIn ) << k_usecTimeSinceLastPacketSerializedPrecisionShift;
+		pIn += sizeof(unsigned short);
+	}
+
 	const void *pChunk = pIn;
 	int cbChunk = pPktEnd - pIn;
 
@@ -768,7 +782,6 @@ void CConnectionTransportUDPBase::Received_Data( const uint8 *pPkt, int cbPkt, S
 	RecvValidUDPDataPacket( ctx );
 
 	// Process plaintext
-	int usecTimeSinceLast = 0; // FIXME - should we plumb this through so we can measure jitter?
 	if ( !m_connection.ProcessPlainTextDataChunk( usecTimeSinceLast, ctx ) )
 		return;
 
