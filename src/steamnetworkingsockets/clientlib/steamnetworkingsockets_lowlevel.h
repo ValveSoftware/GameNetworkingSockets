@@ -47,6 +47,7 @@ struct RecvPktInfo_t
 	//SteamNetworkingMicroseconds m_usecRecvMax; // Latest possible time when the packet might have actually arrived
 	netadr_t m_adrFrom;
 	bool m_bQueuedForOutOfOrder; // True if we are re-processing the message after receiving it once and partially processing it, then shunting into a queue.
+	uint8 m_tos; // IP header TOS value that was received.  Will be 0xff if we don't know.
 	IRawUDPSocket *m_pSock;
 };
 

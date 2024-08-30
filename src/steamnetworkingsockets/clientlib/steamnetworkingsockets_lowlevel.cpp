@@ -26,6 +26,7 @@
 	#endif
 #endif
 
+
 #include <tier0/memdbgoff.h>
 
 // Ugggggggggg MSVC VS2013 STL bug: try_lock_for doesn't actually respect the timeout, it always ends up using an infinite timeout.
@@ -979,6 +980,9 @@ public:
 	/// This is set to null when we are asked to close the socket.
 	CRecvPacketCallback m_callback;
 
+	#if defined( _WIN32 ) && PlatformSupportsRecvMsg()
+		LPFN_WSARECVMSG m_pfnWSARecvMsg = nullptr;
+	#endif
 
 	// Implements IRawUDPSocket
 	virtual bool BSendRawPacketGather( int nChunks, const iovec *pChunks, const netadr_t &adrTo ) const override;
@@ -1260,18 +1264,18 @@ struct CLaggedPacket final : public CPossibleOutOfOrderPacket
 	char m_pkt[ k_cbSteamNetworkingSocketsMaxUDPMsgLen ];
 
 	// Constructor used when lagging a packet to simulate latency
-	CLaggedPacket( CRawUDPSocketImpl *pSockOwner, const netadr_t &adrRemote, SteamNetworkingMicroseconds usecFlush, int cbPkt )
+	CLaggedPacket( CRawUDPSocketImpl *pSockOwner, const netadr_t &adrRemote, SteamNetworkingMicroseconds usecFlush, int cbPkt, uint8 tos )
 	: CPossibleOutOfOrderPacket()
-	, m_info{ m_pkt, cbPkt, usecFlush, adrRemote, false, pSockOwner }
+	, m_info{ m_pkt, cbPkt, usecFlush, adrRemote, false, tos, pSockOwner }
 	, m_nWireSeqNum( -1 ) // Fake lag, not out-of-order correction
 	{
 		Assert( cbPkt <= sizeof(m_pkt) );
 	}
 
-	// Constructor used when queuing a pakcet for possible out-of-order correction handling
+	// Constructor used when queuing a packet for possible out-of-order correction handling
 	CLaggedPacket( const RecvPktInfo_t &ctx, SteamNetworkingMicroseconds usecFlush, uint16 nWireSeqNum )
 	: CPossibleOutOfOrderPacket()
-	, m_info{ m_pkt, ctx.m_cbPkt, usecFlush, ctx.m_adrFrom, true, ctx.m_pSock }
+	, m_info{ m_pkt, ctx.m_cbPkt, usecFlush, ctx.m_adrFrom, true, ctx.m_tos, ctx.m_pSock }
 	, m_nWireSeqNum( nWireSeqNum )
 	{
 		Assert( m_info.m_cbPkt < sizeof(m_pkt) );
@@ -1306,7 +1310,7 @@ class CPacketLagger : private IThinker
 public:
 	~CPacketLagger() { Clear(); }
 
-	void LagPacket( CRawUDPSocketImpl *pSock, const netadr_t &adr, SteamNetworkingMicroseconds usecTime, int nChunks, const iovec *pChunks )
+	void LagPacket( CRawUDPSocketImpl *pSock, const netadr_t &adr, SteamNetworkingMicroseconds usecTime, int nChunks, const iovec *pChunks, uint8 tos )
 	{
 		SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "LagPacket" );
 
@@ -1326,7 +1330,7 @@ public:
 			return;
 		}
 
-		CLaggedPacket *pkt = new CLaggedPacket( pSock, adr, usecTime, cbPkt );
+		CLaggedPacket *pkt = new CLaggedPacket( pSock, adr, usecTime, cbPkt, tos );
 
 		// Gather the payload data data into the buffer
 		char *d = pkt->m_pkt;
@@ -1838,17 +1842,22 @@ bool CRawUDPSocketImpl::BSendRawPacketGather( int nChunks, const iovec *pChunks,
 		}
 		usecWhenProcess += usecReorderLag;
 
+		// No special TOS.
+		// Note that in the future we might want to be able to allow the caller
+		// to specify an ECN value.
+		constexpr uint8 tos = 0xff;
+
 		// Check for simulating random packet duplication
 		if ( bDup )
 		{
 			SteamNetworkingMicroseconds usecDupLag = 1 + (SteamNetworkingMicroseconds)WeakRandomFloat( 0.0f, GlobalConfig::FakePacketDup_TimeMax.Get()*1000.0f );
-			s_packetLagQueueSend.LagPacket( const_cast<CRawUDPSocketImpl *>( this ), adrTo, usecWhenProcess + usecDupLag, nChunks, pChunks );
+			s_packetLagQueueSend.LagPacket( const_cast<CRawUDPSocketImpl *>( this ), adrTo, usecWhenProcess + usecDupLag, nChunks, pChunks, tos );
 		}
 
 		// Lag the original packet?
 		if ( usecWhenProcess > usecNow )
 		{
-			s_packetLagQueueSend.LagPacket( const_cast<CRawUDPSocketImpl *>( this ), adrTo, usecWhenProcess, nChunks, pChunks );
+			s_packetLagQueueSend.LagPacket( const_cast<CRawUDPSocketImpl *>( this ), adrTo, usecWhenProcess, nChunks, pChunks, tos );
 			return true;
 		}
 	}
@@ -2058,6 +2067,17 @@ static SOCKET OpenUDPSocketBoundToSockAddr( const void *pSockaddr, size_t len, S
 		#endif
 	}
 
+	// Enable receiving of the ToS field in the ancillary data
+	#if PlatformSupportsRecvTOS()
+	{
+		opt = 1;
+		if ( setsockopt( sock, IPPROTO_IP, IP_RECVTOS, (char *)&opt, sizeof(opt) ) == -1 )
+		{
+			SpewWarning( "sockopt(IPPROTO_IP, IP_RECVTOS, 1) failed (0x%x), will not be able to read TOS\n", GetLastSocketError() );
+		}
+	}
+	#endif
+
 	// Bind it to specific desired local port/IP
 	if ( bind( sock, (struct sockaddr *)pSockaddr, (socklen_t)len ) == -1 )
 	{
@@ -2241,6 +2261,22 @@ static CRawUDPSocketImpl *OpenRawUDPSocketInternal( CRecvPacketCallback callback
 		#error "How will we poll this socket?"
 	#endif
 
+	// On Windows, try to locate the WSARecvMsg function.  I don't think that this
+	// function pointer varies per socket, but the socket is an argument to the WSAIoctl
+	// function, so we will look up the function for every sock et we create.  This whole
+	// API seems kinda insane to me.
+	#if defined( _WIN32 ) && PlatformSupportsRecvMsg()
+	{
+		GUID guidWSARecvMsg = WSAID_WSARECVMSG;
+		DWORD dwBytes;
+		pSock->m_pfnWSARecvMsg = nullptr;
+		WSAIoctl( sock, SIO_GET_EXTENSION_FUNCTION_POINTER,
+                      &guidWSARecvMsg, sizeof(guidWSARecvMsg),
+                      &pSock->m_pfnWSARecvMsg, sizeof(pSock->m_pfnWSARecvMsg),
+                      &dwBytes, NULL, NULL);
+	}
+	#endif
+
 	// Add to master list.  (Hopefully we usually won't have that many.)
 	s_vecRawSockets.AddToTail( pSock );
 
@@ -2287,10 +2323,67 @@ static bool DrainSocket( CRawUDPSocketImpl *pSock )
 		#endif
 
 		char buf[ k_cbSteamNetworkingSocketsMaxUDPMsgLen + 1024 ];
+		iovec iov_buf;
+		iov_buf.iov_base = buf;
+		iov_buf.iov_len = sizeof(buf);
 
 		sockaddr_storage from;
-		socklen_t fromlen = sizeof(from);
-		int ret = ::recvfrom( pSock->m_socket, buf, sizeof( buf ), 0, (sockaddr *)&from, &fromlen );
+
+		// buffer to receive anciliary data
+		#if PlatformSupportsRecvMsg()
+		char buf_control[ 64 ];
+		#endif
+
+		// Read the next packet, using a message structure if possible.
+		// ret will be negative on failure, and the length of the returned
+		// packet, will be placed in iov_buf.iov_len
+		//
+		// We prefer to use WSARecvMsg when it is available, so that we can receive the TOS field.
+		int ret;
+		#if !PlatformSupportsRecvMsg()
+			socklen_t fromlen = sizeof(from);
+			ret = ::recvfrom( pSock->m_socket, buf, sizeof( buf ), 0, (sockaddr *)&from, &fromlen );
+			iov_buf.iov_len = ret;
+		#elif defined( _WIN32 )
+			WSAMSG msg;
+			msg.name = (sockaddr *)&from;
+			msg.namelen = sizeof(from);
+
+			// I *believe* that WSARecvMsg is available on all WIN32 platforms we care about,
+			// but we allow a fallback path to plain old recvfrom() since it's easy to do so.
+			if ( likely( pSock->m_pfnWSARecvMsg ) )
+			{
+				msg.dwBufferCount = 1;
+				msg.lpBuffers = (WSABUF *)&iov_buf;
+				msg.Control.len = sizeof(buf);
+				msg.Control.buf = buf_control;
+				msg.dwFlags = 0;
+
+				DWORD dwNumberofBytesReceived = 0;
+				ret = (*pSock->m_pfnWSARecvMsg)( pSock->m_socket, &msg, &dwNumberofBytesReceived, nullptr, nullptr );
+				iov_buf.iov_len = dwNumberofBytesReceived;
+			}
+			else
+			{
+				ret = ::recvfrom( pSock->m_socket, buf, sizeof(buf), 0, msg.name, &msg.namelen );
+				iov_buf.iov_len = ret;
+				msg.Control.len = 0;
+			}
+
+		#else
+			// POSIX
+			msghdr msg;
+			msg.msg_name = (sockaddr *)&from;
+			msg.msg_namelen = sizeof(from);
+			msg.msg_iov = &iov_buf;
+			msg.msg_iovlen = 1;
+			msg.msg_control = buf_control;
+			msg.msg_controllen = sizeof(buf_control);
+			msg.msg_flags = 0;
+			ret = ::recvmsg( pSock->m_socket, &msg, 0 );
+			iov_buf.iov_len = ret;
+		#endif
+
 		SteamNetworkingMicroseconds usecRecvFromEnd = SteamNetworkingSockets_GetLocalTimestamp();
 
 		#ifdef STEAMNETWORKINGSOCKETS_LOWLEVEL_TIME_SOCKET_CALLS
@@ -2326,9 +2419,9 @@ static bool DrainSocket( CRawUDPSocketImpl *pSock )
 			HTraceLogging_SteamNetworkingSockets,
 			"UDPRecv",
 			//TraceLoggingLevel( WINEVENT_LEVEL_INFO ),
-			TraceLoggingSocketAddress( &from, fromlen, "Addr" ),
-			TraceLoggingUInt16( (uint16)ret, "Bytes" ),
-			TraceLoggingBinary( buf, std::min( k_cbETWEventUDPPacketDataSize, ret ), "Data" )
+			TraceLoggingSocketAddress( &from, msg.namelen, "Addr" ),
+			TraceLoggingUInt16( (uint16)iov_buf.iov_len, "Bytes" ),
+			TraceLoggingBinary( buf, std::min( k_cbETWEventUDPPacketDataSize, (int)iov_buf.iov_len ), "Data" )
 		);
 
 		// Add a tag.  If we end up holding the lock for a long time, this tag
@@ -2365,6 +2458,47 @@ static bool DrainSocket( CRawUDPSocketImpl *pSock )
 		RecvPktInfo_t info;
 		info.m_adrFrom.SetFromSockadr( &from );
 
+		// Read the TOS field from the ancillary data.  We should have exactly one piece of control data
+		// and it should be this!
+		info.m_tos = 0xff;
+		#if PlatformSupportsRecvMsg() && PlatformSupportsRecvTOS()
+		{
+			cmsghdr *cmsg = CMSG_FIRSTHDR( &msg );
+			if ( cmsg )
+			{
+				if ( unlikely( cmsg->cmsg_level != IPPROTO_IP || cmsg->cmsg_type != IP_TOS ) )
+				{
+					AssertMsgOnce( false, "Extra control data returned besides TOS?  0x%x/0x%x", cmsg->cmsg_level, cmsg->cmsg_type );
+					do
+					{
+						cmsg = CMSG_NXTHDR( &msg, cmsg );
+						if ( !cmsg )
+						{
+							AssertMsgOnce( false, "No control data returned even though we asked for TOS?" );
+							goto tos_done;
+						}
+					} while ( cmsg->cmsg_level != IPPROTO_IP || cmsg->cmsg_type != IP_TOS );
+				}
+
+				#ifdef _WIN32
+					AssertMsgOnce( cmsg->cmsg_len == sizeof(cmsghdr) + sizeof(int), "Unexpected IP_TOS cmsg_len %lld", (long long)cmsg->cmsg_len );
+					info.m_tos = (uint8)*((int *) WSA_CMSG_DATA(cmsg));
+				#else
+					AssertMsgOnce( cmsg->cmsg_len == sizeof(cmsghdr) + sizeof(uint8), "Unexpected IP_TOS cmsg_len %lld", (long long)cmsg->cmsg_len );
+					info.m_tos = *((uint8 *) CMSG_DATA(cmsg));
+				#endif
+
+				cmsg = CMSG_NXTHDR( &msg, cmsg );
+				if ( unlikely( cmsg != nullptr ) )
+				{
+					AssertMsgOnce( false, "Extra control data returned besides TOS?  0x%x/0x%x", cmsg->cmsg_level, cmsg->cmsg_type );
+				}
+							
+			}
+		}
+		tos_done:
+		#endif
+
 		// If we're dual stack, convert mapped IPv4 back to ordinary IPv4
 		if ( pSock->m_nAddressFamilies == k_nAddressFamily_DualStack )
 			info.m_adrFrom.BConvertMappedToIPv4();
@@ -2372,10 +2506,7 @@ static bool DrainSocket( CRawUDPSocketImpl *pSock )
 		// Check for tracing
 		if ( GlobalConfig::PacketTraceMaxBytes.Get() >= 0 )
 		{
-			iovec tmp;
-			tmp.iov_base = buf;
-			tmp.iov_len = ret;
-			pSock->TracePkt( false, info.m_adrFrom, 1, &tmp );
+			pSock->TracePkt( false, info.m_adrFrom, 1, &iov_buf );
 		}
 
 		// Read convars and decide if we're going to simulate any lag, jitter, reordering, or duplication
@@ -2410,26 +2541,20 @@ static bool DrainSocket( CRawUDPSocketImpl *pSock )
 			if ( bDup )
 			{
 				SteamNetworkingMicroseconds usecDupLag = 1 + (SteamNetworkingMicroseconds)WeakRandomFloat( 0.0f, GlobalConfig::FakePacketDup_TimeMax.Get()*1000.0f );
-				iovec temp;
-				temp.iov_len = ret;
-				temp.iov_base = buf;
-				s_packetLagQueueRecv.LagPacket( pSock, info.m_adrFrom, usecWhenProcess + usecDupLag, 1, &temp );
+				s_packetLagQueueRecv.LagPacket( pSock, info.m_adrFrom, usecWhenProcess + usecDupLag, 1, &iov_buf, info.m_tos );
 			}
 
 			// Lag the original packet?
 			if ( usecWhenProcess > usecNow )
 			{
-				iovec temp;
-				temp.iov_len = ret;
-				temp.iov_base = buf;
-				s_packetLagQueueRecv.LagPacket( pSock, info.m_adrFrom, usecWhenProcess, 1, &temp );
+				s_packetLagQueueRecv.LagPacket( pSock, info.m_adrFrom, usecWhenProcess, 1, &iov_buf, info.m_tos );
 				continue;
 			}
 		}
 
 		// Process the packet now
 		info.m_pPkt = buf;
-		info.m_cbPkt = ret;
+		info.m_cbPkt = (int)iov_buf.iov_len;
 		info.m_usecNow = usecRecvFromEnd;
 		info.m_pSock = pSock;
 		info.m_bQueuedForOutOfOrder = false;

@@ -65,6 +65,11 @@ typedef char SteamNetworkingErrMsg[ 1024 ];
 		return (int)WSAGetLastError();
 	}
 
+	#if !IsXboxOne()
+		#include <mswsock.h>
+		#define PlatformSupportsRecvMsg() true
+	#endif
+
 #elif IsNintendoSwitch()
 	// NDA-protected material, so all this is in a separate file
 	#include "platform_sockets_nswitch.h"
@@ -105,6 +110,8 @@ typedef char SteamNetworkingErrMsg[ 1024 ];
 		return errno;
 	}
 
+	#define PlatformSupportsRecvMsg() true
+
 	#ifdef __APPLE__
 		#define USE_POLL
 	#else
@@ -136,6 +143,18 @@ typedef char SteamNetworkingErrMsg[ 1024 ];
 	#endif
 #else
 	#error "How do?"
+#endif
+
+#ifndef PlatformSupportsRecvMsg
+	#define PlatformSupportsRecvMsg() false
+#endif
+
+#ifndef PlatformSupportsRecvTOS
+	#if PlatformSupportsRecvMsg() && defined( IP_RECVTOS )
+		#define PlatformSupportsRecvTOS() true
+	#else
+		#define PlatformSupportsRecvTOS() false
+	#endif
 #endif
 
 #endif // _H
