@@ -255,10 +255,11 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 		#else
 			ICE_Implementation = 1;
 		#endif
+
+		m_connectionConfig.P2P_Transport_ICE_Implementation.Set( ICE_Implementation );
 	}
 
 	// Lock it in
-	m_connectionConfig.P2P_Transport_ICE_Implementation.Set( ICE_Implementation );
 	m_connectionConfig.P2P_Transport_ICE_Implementation.Lock();
 
 	// "Native" ICE client?
