@@ -358,10 +358,6 @@ const unsigned k_usecTimeSinceLastPacketSerializedPrecisionShift = 4;
 const SteamNetworkingMicroseconds k_usecTimeSinceLastPacketMaxReasonable = k_nMillion/4;
 COMPILE_TIME_ASSERT( ( k_usecTimeSinceLastPacketMaxReasonable >> k_usecTimeSinceLastPacketSerializedPrecisionShift ) < 0x8000 ); // make sure all "reasonable" values can get serialized into 16-bits
 
-///	Don't send spacing values when packets are sent extremely close together.  The spacing
-/// should be a bit higher that our serialization precision.
-const SteamNetworkingMicroseconds k_usecTimeSinceLastPacketMinReasonable = 2 << k_usecTimeSinceLastPacketSerializedPrecisionShift;
-
 /// A really terrible ping score, but one that we can do some math with without overflowing
 constexpr int k_nRouteScoreHuge = INT_MAX/8;
 

@@ -1352,7 +1352,7 @@ struct LinkStatsTracker final : public TLinkStatsTracker
 			++TLinkStatsTracker::m_nDebugPktsRecvInOrder;
 
 			// We've received two packets, in order.  Did the sender supply the time between packets on his side?
-			if ( usecSenderTimeSincePrev > 0 && usecSenderTimeSincePrev < k_usecTimeSinceLastPacketMaxReasonable )
+			if ( usecSenderTimeSincePrev >= 0 && usecSenderTimeSincePrev < k_usecTimeSinceLastPacketMaxReasonable )
 			{
 				SteamNetworkingMicroseconds usecRecvTimeSincePrev = ( usecNow - TLinkStatsTracker::m_usecTimeLastRecvSeq );
 				Assert( usecRecvTimeSincePrev >= 0 );
