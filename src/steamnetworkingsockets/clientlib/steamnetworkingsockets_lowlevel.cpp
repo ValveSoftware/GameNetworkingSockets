@@ -26,7 +26,6 @@
 	#endif
 #endif
 
-
 #include <tier0/memdbgoff.h>
 
 // Ugggggggggg MSVC VS2013 STL bug: try_lock_for doesn't actually respect the timeout, it always ends up using an infinite timeout.
@@ -985,11 +984,11 @@ public:
 	#endif
 
 	// Implements IRawUDPSocket
-	virtual bool BSendRawPacketGather( int nChunks, const iovec *pChunks, const netadr_t &adrTo ) const override;
+	virtual bool BSendRawPacketGather( int nChunks, const iovec *pChunks, const netadr_t &adrTo, int ecn = -1 ) const override;
 	virtual void Close() override;
 
 	//// Send a packet, for really realz right now.  (No checking for fake loss or lag.)
-	inline bool BReallySendRawPacket( int nChunks, const iovec *pChunks, const netadr_t &adrTo ) const
+	inline bool BReallySendRawPacket( int nChunks, const iovec *pChunks, const netadr_t &adrTo, int ecn ) const
 	{
 		Assert( m_socket != INVALID_SOCKET );
 		Assert( nChunks > 0 );
@@ -1081,8 +1080,11 @@ public:
 
 			CHAR control[WSA_CMSG_SPACE(sizeof(INT))];
 
+			COMPILE_TIME_ASSERT( PlatformCanSendECN() );
+
 			// Check if we need to send ECN
-			int ecn = GlobalConfig::ECN.Get();
+			if ( ecn < 0 )
+				ecn = GlobalConfig::ECN.Get();
 			if ( ecn >= 0 )
 			{
 				wsaMsg.Control.len = sizeof(control);
@@ -1126,6 +1128,8 @@ public:
 				}
 			#endif
 		#else
+			COMPILE_TIME_ASSERT( !PlatformCanSendECN() );
+
 			bool bResult;
 			if ( nChunks == 1 )
 			{
@@ -1568,7 +1572,8 @@ public:
 		iovec temp;
 		temp.iov_len = pkt.m_info.m_cbPkt;
 		temp.iov_base = (void *)pkt.m_pkt;
-		pkt.SockOwner()->BReallySendRawPacket( 1, &temp, pkt.m_info.m_adrFrom );
+		int ecn = pkt.m_info.m_tos == 0xff ? -1 : pkt.m_info.m_tos;
+		pkt.SockOwner()->BReallySendRawPacket( 1, &temp, pkt.m_info.m_adrFrom, ecn );
 	}
 };
 
@@ -1776,7 +1781,7 @@ inline SteamNetworkingMicroseconds RandomJitter( const GlobalConfigValue<float> 
 	return (SteamNetworkingMicroseconds)( flJitterMS * 1000.0f );
 }
 
-bool CRawUDPSocketImpl::BSendRawPacketGather( int nChunks, const iovec *pChunks, const netadr_t &adrTo ) const
+bool CRawUDPSocketImpl::BSendRawPacketGather( int nChunks, const iovec *pChunks, const netadr_t &adrTo, int ecn ) const
 {
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
 
@@ -1842,28 +1847,23 @@ bool CRawUDPSocketImpl::BSendRawPacketGather( int nChunks, const iovec *pChunks,
 		}
 		usecWhenProcess += usecReorderLag;
 
-		// No special TOS.
-		// Note that in the future we might want to be able to allow the caller
-		// to specify an ECN value.
-		constexpr uint8 tos = 0xff;
-
 		// Check for simulating random packet duplication
 		if ( bDup )
 		{
 			SteamNetworkingMicroseconds usecDupLag = 1 + (SteamNetworkingMicroseconds)WeakRandomFloat( 0.0f, GlobalConfig::FakePacketDup_TimeMax.Get()*1000.0f );
-			s_packetLagQueueSend.LagPacket( const_cast<CRawUDPSocketImpl *>( this ), adrTo, usecWhenProcess + usecDupLag, nChunks, pChunks, tos );
+			s_packetLagQueueSend.LagPacket( const_cast<CRawUDPSocketImpl *>( this ), adrTo, usecWhenProcess + usecDupLag, nChunks, pChunks, (uint8)ecn );
 		}
 
 		// Lag the original packet?
 		if ( usecWhenProcess > usecNow )
 		{
-			s_packetLagQueueSend.LagPacket( const_cast<CRawUDPSocketImpl *>( this ), adrTo, usecWhenProcess, nChunks, pChunks, tos );
+			s_packetLagQueueSend.LagPacket( const_cast<CRawUDPSocketImpl *>( this ), adrTo, usecWhenProcess, nChunks, pChunks, (uint8)ecn );
 			return true;
 		}
 	}
 
 	// Now really send it
-	return BReallySendRawPacket( nChunks, pChunks, adrTo );
+	return BReallySendRawPacket( nChunks, pChunks, adrTo, ecn );
 }
 
 void CRawUDPSocketImpl::InternalAddToCleanupQueue()
