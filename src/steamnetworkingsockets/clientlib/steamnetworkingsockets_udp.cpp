@@ -538,6 +538,9 @@ int CConnectionTransportUDPBase::SendEncryptedDataChunk( const void *pChunk, int
 {
 	UDPSendPacketContext_t &ctx = static_cast<UDPSendPacketContext_t &>( ctxBase );
 
+	// Save time when we sent the last sequenced packet.
+	const SteamNetworkingMicroseconds usecTimeSentLastSeq = m_connection.m_statsEndToEnd.m_usecTimeLastSentSeq;
+
 	uint8 pkt[ k_cbSteamNetworkingSocketsMaxUDPMsgLen ];
 	iovec gather[2];
 	gather[0].iov_base = pkt;
@@ -567,7 +570,22 @@ int CConnectionTransportUDPBase::SendEncryptedDataChunk( const void *pChunk, int
 		out.hdr.m_unMsgFlags |= out.hdr.kFlag_ProtobufBlob;
 	}
 
-	// !FIXME! Time since previous, for jitter measurement?
+	// Send packet spacing value, for jitter analysis?
+	if ( m_connection.m_connectionConfig.SendTimeSincePreviousPacket.Get() > 0 ) // -1 for plain UDP connections is "no"
+	{
+		if ( out.HdrBytesRemaining() >= sizeof(unsigned short) && usecTimeSentLastSeq != 0 && m_connection.m_statsEndToEnd.m_nPeerProtocolVersion >= 12 )
+		{
+			// Calculate spacing value, make sure it's reasonable.
+			uint64 usecTimeSinceSentLast = ctx.m_usecNow - usecTimeSentLastSeq;
+			Assert( (int64)usecTimeSinceSentLast >= 0 );
+			if ( usecTimeSinceSentLast <= (uint64)k_usecTimeSinceLastPacketMaxReasonable ) // Force unsigned comparison in case assert above fails
+			{
+				// Serialize it
+				out.PutUint16( LittleWord( usecTimeSinceSentLast >> k_usecTimeSinceLastPacketSerializedPrecisionShift ) );
+				out.hdr.m_unMsgFlags |= out.hdr.kFlag_TimeSincePrev;
+			}
+		}
+	}
 
 	int cbSend = out.Finish();
 	Assert( cbSend <= sizeof(pkt) ); // Bug in the code above.  We should never "overflow" the packet.  (Ignoring the fact that we using a gather-based send.  The data could be tiny with a large header for piggy-backed stats.)
