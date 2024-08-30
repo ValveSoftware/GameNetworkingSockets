@@ -69,7 +69,7 @@ bool CConnectionTransportP2PICE_WebRTC::SendPacket( const void *pkt, int cbPkt )
 	if ( !m_pICESession )
 		return false;
 
-	ETW_ICESendPacket( m_connection.m_hConnectionSelf, cbPkt );
+	//ETW_ICESendPacket( m_connection.m_hConnectionSelf, cbPkt );
 	if ( !m_pICESession->BSendData( pkt, cbPkt ) )
 		return false;
 
