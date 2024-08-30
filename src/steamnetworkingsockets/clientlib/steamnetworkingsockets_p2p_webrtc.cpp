@@ -23,7 +23,7 @@ namespace SteamNetworkingSocketsLib {
 CConnectionTransportP2PICE_WebRTC::CConnectionTransportP2PICE_WebRTC( CSteamNetworkConnectionP2P &connection )
 : CConnectionTransportP2PICE( connection )
 , m_pICESession( nullptr )
-, m_mutexPacketQueue( "ice_packet_queue" )
+, m_mutexPacketQueue( "ice_packet_queue", LockDebugInfo::k_nOrder_Max ) // never take another lock while holding this
 {
 }
 
