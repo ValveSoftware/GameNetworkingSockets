@@ -1,9 +1,7 @@
-//========= Copyright � 1996-2005, Valve Corporation, All rights reserved. ============//
+//========= Copyright 1996-2005, Valve Corporation, All rights reserved. ============//
 //
 // Purpose: Linked list container class 
 //
-// $Revision: $
-// $NoKeywords: $
 //=============================================================================//
 
 #ifndef UTLLINKEDLIST_H
