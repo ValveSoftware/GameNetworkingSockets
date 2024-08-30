@@ -100,27 +100,27 @@ public:
 	/// Packets sent through this method are subject to fake loss (steamdatagram_fakepacketloss_send),
 	/// lag (steamdatagram_fakepacketlag_send and steamdatagram_fakepacketreorder_send), and
 	/// duplication (steamdatagram_fakepacketdup_send)
-	inline bool BSendRawPacket( const void *pPkt, int cbPkt, const netadr_t &adrTo ) const
+	inline bool BSendRawPacket( const void *pPkt, int cbPkt, const netadr_t &adrTo, int ecn = -1 ) const
 	{
 		iovec temp;
 		temp.iov_len = cbPkt;
 		temp.iov_base = (void *)pPkt;
-		return BSendRawPacketGather( 1, &temp, adrTo );
+		return BSendRawPacketGather( 1, &temp, adrTo, ecn );
 	}
-	inline bool BSendRawPacket( const void *pPkt, int cbPkt, const SteamNetworkingIPAddr &adrTo ) const
+	inline bool BSendRawPacket( const void *pPkt, int cbPkt, const SteamNetworkingIPAddr &adrTo, int ecn = -1 ) const
 	{
 		netadr_t netadrTo;
 		SteamNetworkingIPAddrToNetAdr( netadrTo, adrTo );
-		return BSendRawPacket( pPkt, cbPkt, netadrTo );
+		return BSendRawPacket( pPkt, cbPkt, netadrTo, ecn );
 	}
 
 	/// Gather-based send.  Simulated lag, loss, etc are applied
-	virtual bool BSendRawPacketGather( int nChunks, const iovec *pChunks, const netadr_t &adrTo ) const = 0;
-	inline bool BSendRawPacketGather( int nChunks, const iovec *pChunks, const SteamNetworkingIPAddr &adrTo ) const
+	virtual bool BSendRawPacketGather( int nChunks, const iovec *pChunks, const netadr_t &adrTo, int ecn = -1 ) const = 0;
+	inline bool BSendRawPacketGather( int nChunks, const iovec *pChunks, const SteamNetworkingIPAddr &adrTo, int ecn = -1 ) const
 	{
 		netadr_t netadrTo;
 		SteamNetworkingIPAddrToNetAdr( netadrTo, adrTo );
-		return BSendRawPacketGather( nChunks, pChunks, netadrTo );
+		return BSendRawPacketGather( nChunks, pChunks, netadrTo, ecn );
 	}
 
 	/// Logically close the socket.  This might not actually close the socket IMMEDIATELY,
@@ -198,15 +198,15 @@ class IBoundUDPSocket
 public:
 
 	/// Send a packet on this socket to the bound remote host
-	inline bool BSendRawPacket( const void *pPkt, int cbPkt ) const
+	inline bool BSendRawPacket( const void *pPkt, int cbPkt, int ecn = -1 ) const
 	{
-		return m_pRawSock->BSendRawPacket( pPkt, cbPkt, m_adr );
+		return m_pRawSock->BSendRawPacket( pPkt, cbPkt, m_adr, ecn );
 	}
 
 	/// Gather-based send to the bound remote host
-	inline bool BSendRawPacketGather( int nChunks, const iovec *pChunks ) const
+	inline bool BSendRawPacketGather( int nChunks, const iovec *pChunks, int ecn = -1 ) const
 	{
-		return m_pRawSock->BSendRawPacketGather( nChunks, pChunks, m_adr );
+		return m_pRawSock->BSendRawPacketGather( nChunks, pChunks, m_adr, ecn );
 	}
 
 	/// Close this socket and stop talking to the specified remote host

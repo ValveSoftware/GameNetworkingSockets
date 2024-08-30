@@ -1094,6 +1094,25 @@ struct DataPacketSerializer : DataPacketSerializerBase
 	iovec *m_iov_out;
 };
 
+// Helpers for manipulating the Type-of-Service (TOS) field in the IPv4 header.
+// https://en.wikipedia.org/wiki/Type_of_service
+constexpr uint8 IPv4_TOS_DSCP_bits = 0xfc;
+constexpr uint8 IPv4_TOS_ECN_bits = 0x3;
+inline uint8 IPv4_TOS_make( uint8 dscp, uint8 ecn )
+{
+	Assert( dscp < 0x40 );
+	Assert( ecn < 0x4 );
+	return ( (dscp<<2) | ecn );
+}
+
+// FIXME POSIX supports this!  Need to check console support and implement all supported platforms,
+// and then move this to platform_sockets
+#ifdef _WIN32
+	#define PlatformCanSendECN() true
+#else
+	#define PlatformCanSendECN() false
+#endif
+
 } // namespace SteamNetworkingSocketsLib
 
 #include <tier0/memdbgon.h>
