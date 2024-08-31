@@ -215,6 +215,9 @@ public:
 
 	// Dismisses the floating keyboard.
 	virtual bool DismissFloatingGamepadTextInput() = 0;
+
+	// Dismisses the full-screen text input dialog.
+	virtual bool DismissGamepadTextInput() = 0;
 };
 
 #define STEAMUTILS_INTERFACE_VERSION "SteamUtils010"

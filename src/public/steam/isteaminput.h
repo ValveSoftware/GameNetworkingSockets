@@ -660,50 +660,6 @@ struct InputMotionData_t
 	float rotVelZ;
 };
 
-
-struct InputMotionDataV2_t
-{
-	//
-	// Gyro post processing:
-	//
-
-	// Drift Corrected Quaternion is calculated after steam input controller calibration values have been applied.
-	// Rawest _useful_ version of a quaternion.
-	// Most camera implementations should use this by comparing last rotation against current rotation, and applying the difference to the in game camera (plus your own sensitivity tweaks)
-	// It is worth viewing 
-	float driftCorrectedQuatX;
-	float driftCorrectedQuatY;
-	float driftCorrectedQuatZ;
-	float driftCorrectedQuatW;
-
-	// Sensor fusion corrects using accelerometer, and "average forward over time" for "forward".
-	// This can "ouija" your aim, so it's not so  appropriate for camera controls (sensor fusion was originally made for racing game steering )
-	// Same result as from old InputMotionData_t::rotQuatX/Y/Z/W
-	float sensorFusionQuatX;
-	float sensorFusionQuatY;
-	float sensorFusionQuatZ;
-	float sensorFusionQuatW;
-
-	// Same as accel but values are calibrated such that 1 unit = 1G.
-	// X = Right
-	// Y = Forward out through the joystick USB port.
-	// Z = Up through the joystick axis.
-	float gravityX;
-	float gravityY;
-	float gravityZ;
-
-	// 
-	// Same as rotVel values in GetMotionData but values are calibrated to degrees per second.
-	// Local Space (controller relative)
-	// X = Pitch = left to right axis
-	// Y = Roll = axis through charging port
-	// Z = Yaw = axis through sticks
-	float degreesPerSecondX;
-	float degreesPerSecondY;
-	float degreesPerSecondZ;
-
-};
-
 //-----------------------------------------------------------------------------
 // Purpose: when callbacks are enabled this fires each time a controller action
 // state changes

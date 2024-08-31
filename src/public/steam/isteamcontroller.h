@@ -539,7 +539,6 @@ typedef uint64 ControllerAnalogActionHandle_t;
 #define ControllerAnalogActionData_t InputAnalogActionData_t
 #define ControllerDigitalActionData_t InputDigitalActionData_t
 #define ControllerMotionData_t  InputMotionData_t
-#define ControllerMotionDataV2_t  InputMotionDataV2_t
 #else
 struct ControllerAnalogActionData_t
 {

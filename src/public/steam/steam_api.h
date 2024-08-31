@@ -38,6 +38,7 @@
 #include "isteamugc.h"
 #include "isteamhtmlsurface.h"
 #include "isteaminventory.h"
+#include "isteamtimeline.h"
 #include "isteamvideo.h"
 #include "isteamparentalsettings.h"
 #include "isteaminput.h"
@@ -223,115 +224,6 @@ S_API void S_CALLTYPE SteamAPI_ManualDispatch_FreeLastCallback( HSteamPipe hStea
 /// Return the call result for the specified call on the specified pipe.  You really should
 /// only call this in a handler for SteamAPICallCompleted_t callback.
 S_API bool S_CALLTYPE SteamAPI_ManualDispatch_GetAPICallResult( HSteamPipe hSteamPipe, SteamAPICall_t hSteamAPICall, void *pCallback, int cubCallback, int iCallbackExpected, bool *pbFailed );
-
-//----------------------------------------------------------------------------------------------------------------------------------------------------------//
-//
-// CSteamAPIContext
-//
-// Deprecated!  This is not necessary any more.  Please use the global accessors directly
-//
-//----------------------------------------------------------------------------------------------------------------------------------------------------------//
-
-#ifndef STEAM_API_EXPORTS
-
-inline bool CSteamAPIContext::Init()
-{
-	m_pSteamClient = ::SteamClient();
-	if ( !m_pSteamClient )
-		return false;
-
-	m_pSteamUser = ::SteamUser();
-	if ( !m_pSteamUser )
-		return false;
-
-	m_pSteamFriends = ::SteamFriends();
-	if ( !m_pSteamFriends )
-		return false;
-
-	m_pSteamUtils = ::SteamUtils();
-	if ( !m_pSteamUtils )
-		return false;
-
-	m_pSteamMatchmaking = ::SteamMatchmaking();
-	if ( !m_pSteamMatchmaking )
-		return false;
-
-	m_pSteamGameSearch = ::SteamGameSearch();
-	if ( !m_pSteamGameSearch )
-		return false;
-
-#if !defined( IOSALL) // Not yet supported on iOS.
-	m_pSteamMatchmakingServers = ::SteamMatchmakingServers();
-	if ( !m_pSteamMatchmakingServers )
-		return false;
-#endif
-
-	m_pSteamUserStats = ::SteamUserStats();
-	if ( !m_pSteamUserStats )
-		return false;
-
-	m_pSteamApps = ::SteamApps();
-	if ( !m_pSteamApps )
-		return false;
-
-	m_pSteamNetworking = ::SteamNetworking();
-	if ( !m_pSteamNetworking )
-		return false;
-
-	m_pSteamRemoteStorage = ::SteamRemoteStorage();
-	if ( !m_pSteamRemoteStorage )
-		return false;
-
-	m_pSteamScreenshots = ::SteamScreenshots();
-	if ( !m_pSteamScreenshots )
-		return false;
-
-	m_pSteamHTTP = ::SteamHTTP();
-	if ( !m_pSteamHTTP )
-		return false;
-
-	m_pController = ::SteamController();
-	if ( !m_pController )
-		return false;
-
-	m_pSteamUGC = ::SteamUGC();
-	if ( !m_pSteamUGC )
-		return false;
-
-	m_pSteamMusic = ::SteamMusic();
-	if ( !m_pSteamMusic )
-		return false;
-
-	m_pSteamMusicRemote = ::SteamMusicRemote();
-	if ( !m_pSteamMusicRemote )
-		return false;
-
-#if !defined( ANDROID ) && !defined( IOSALL) // Not yet supported on Android or ios.
-	m_pSteamHTMLSurface = ::SteamHTMLSurface();
-	if ( !m_pSteamHTMLSurface )
-	return false;
-#endif
-
-	m_pSteamInventory = ::SteamInventory();
-	if ( !m_pSteamInventory )
-		return false;
-
-	m_pSteamVideo = ::SteamVideo();
-	if ( !m_pSteamVideo )
-		return false;
-
-	m_pSteamParentalSettings = ::SteamParentalSettings();
-	if ( !m_pSteamParentalSettings )
-		return false;
-
-	m_pSteamInput = ::SteamInput();
-	if ( !m_pSteamInput )
-		return false;
-
-	return true;
-}
-
-#endif
 
 // Internal implementation of SteamAPI_InitEx.  This is done in a way that checks
 // all of the versions of interfaces from headers being compiled into this code.
