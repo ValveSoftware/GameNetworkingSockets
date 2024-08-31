@@ -135,7 +135,7 @@ DEFINE_CONNECTON_DEFAULT_CONFIGVAL( std::string, SDRClient_DevTicket, "" );
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, P2P_Transport_SDR_Penalty, 0, 0, INT_MAX );
 #endif
 
-#ifdef _WIN32
+#if PlatformCanSendECN()
 DEFINE_GLOBAL_CONFIGVAL( int32, ECN, -1, -1, 2 );
 #endif
 
