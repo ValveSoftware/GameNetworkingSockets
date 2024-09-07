@@ -114,6 +114,11 @@ typedef char SteamNetworkingErrMsg[ 1024 ];
 
 	#ifdef __APPLE__
 		#define USE_POLL
+
+		// I can't get this to work on MacOS.  If someboddy believes that
+		// it should work, I would appreciate the help.
+		#define PlatformSupportsRecvTOS() false
+
 	#else
 		#define USE_EPOLL
 		#include <sys/epoll.h>
