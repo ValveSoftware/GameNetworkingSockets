@@ -1,4 +1,18 @@
 //====== Copyright Valve Corporation, All rights reserved. ====================
+//
+// "Low level" stuff used by the SteamNetworkingSockets client library to
+// interface with the operating system.  Ideally, most OS-specific details are
+// handled in this file.
+//
+// - Dealing with OS sockets, sending/receiving of UDP packets
+// - Simulating network conditions such as fake lag/loss/reording/jitter
+// - Managing the main service thread, polling efficiently
+// - Dispatching received packets to the registered callbacks.
+// - Lock (mutex) details, especially hygiene enforcement and debugging
+// - Handling 'spew' (diagnostic messages, asserts, etc) from the library
+// - Queued task system
+// - Support for wifi adapters that can send on both bands simultaneously
+//
 #include <thread>
 #include <mutex>
 #include <atomic>
