@@ -952,18 +952,6 @@ namespace GlobalConfig
 	extern GlobalConfigValue<void*> Callback_MessagesSessionFailed;
 	#endif
 
-	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
-	extern GlobalConfigValue<int32> SDRClient_ConsecutitivePingTimeoutsFailInitial;
-	extern GlobalConfigValue<int32> SDRClient_ConsecutitivePingTimeoutsFail;
-	extern GlobalConfigValue<int32> SDRClient_MinPingsBeforePingAccurate;
-	extern GlobalConfigValue<int32> SDRClient_LimitPingProbesToNearestN;
-	extern GlobalConfigValue<int32> SDRClient_SingleSocket;
-	extern GlobalConfigValue<int32> LogLevel_SDRRelayPings;
-	extern GlobalConfigValue<std::string> SDRClient_ForceRelayCluster;
-	extern GlobalConfigValue<std::string> SDRClient_ForceProxyAddr;
-	extern GlobalConfigValue<std::string> SDRClient_FakeClusterPing;
-	#endif
-
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_DIAGNOSTICSUI
 	extern ConnectionConfigDefaultValue<int32> EnableDiagnosticsUI;
 	#endif
