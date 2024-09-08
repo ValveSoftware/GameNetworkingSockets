@@ -1,4 +1,5 @@
-# GameNetworkingSockets [![Build Status](https://github.com/ValveSoftware/GameNetworkingSockets/workflows/CI/badge.svg)](https://github.com/ValveSoftware/GameNetworkingSockets/actions)
+# GameNetworkingSockets
+[![Windows, Ubuntu, OSX](https://github.com/ValveSoftware/GameNetworkingSockets/actions/workflows/build.yml/badge.svg)](https://github.com/ValveSoftware/GameNetworkingSockets/actions) [![Linux flavors](https://github.com/ValveSoftware/GameNetworkingSockets/actions/workflows/linux-flavors.yml/badge.svg)](https://github.com/ValveSoftware/GameNetworkingSockets/actions)
 
 GameNetworkingSockets is a basic transport layer for games.  The features are:
 

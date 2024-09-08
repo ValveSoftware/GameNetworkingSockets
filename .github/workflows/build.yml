@@ -23,11 +23,13 @@ jobs:
       - name: Build and run tests
         run: bash .github/build.sh
 
-      # Trigger testing of more linux flavors
-      - name: Trigger linux flavors build
-        uses: peter-evans/repository-dispatch@v2
-        with:
-          event-type: build-linux-flavors
+      # Don't do it this way.  This causes the main badge to
+      # go red if one of the flavors fails.
+      ## Trigger testing of more linux flavors
+      #- name: Trigger linux flavors build
+      #  uses: peter-evans/repository-dispatch@v2
+      #  with:
+      #    event-type: build-linux-flavors
 
   build-and-test-windows:
     #if: false  # Temporarily disable
@@ -90,7 +92,7 @@ jobs:
         shell: cmd
 
   build-and-test-osx:
-    name: Build And Test for OSX
+    name: Build And Test MacOS
     runs-on: macos-latest
     steps:
     - uses: actions/checkout@v3
