@@ -1704,6 +1704,10 @@ enum ESteamNetworkingConfigValue
 	// 0..2 = use that value.
 	k_ESteamNetworkingConfig_ECN = 999,
 
+	// [global int32] If true, send and request different TOS values in probes to relays
+	// to try to deduce if there is any bleaching or mutating of the TOS field in either direction
+	k_ESteamNetworkingConfig_SDRClient_EnableTOSProbes = 998,
+
 //
 // Deleted, do not use
 //
