@@ -96,6 +96,10 @@ static void FlushSystemSpew();
 
 int g_cbUDPSocketBufferSize = 256*1024;
 
+#if PlatformCanSendECN()
+int g_nSendECNAuto = -1;
+#endif
+
 /// Global lock for all local data structures
 static Lock<RecursiveTimedMutexImpl> s_mutexGlobalLock( "global", 0, LockDebugInfo::k_nOrder_Global );
 
@@ -1098,8 +1102,8 @@ public:
 
 			// Check if we need to send ECN
 			if ( ecn < 0 )
-				ecn = GlobalConfig::ECN.Get();
-			if ( ecn >= 0 )
+				ecn = ResolveECNSendGlobal();
+			if ( ecn > 0 ) // We assume that if we don't explicit specify an ECN, that zero will be used
 			{
 				wsaMsg.Control.len = sizeof(control);
 				wsaMsg.Control.buf = control;
