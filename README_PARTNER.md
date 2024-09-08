@@ -1,6 +1,22 @@
-# Installation instructions for partners
+# About the partner branch
 
-(This is a work in progress.  Note that building on consoles has only been tested using Visual Studio 2017 or 2019.)
+The `partner` branch is intended for use by developers who want access to:
+- the code for interacingt with the Steam Datagram Relay (SDR) network.
+- the NDA-protected code for compiling the library on various consoles platforms.
+
+This branch differs from the main branch in the following ways:
+
+- It contains any extra files neede to support the two use cases mentioned
+  above, if the files are not under NDA and not too large.
+- Generally, the project files for this branch are made using VPC, Valve's
+  bespoke project generator.  cmake is not supported.
+- It contains some symlinks and submodules that reference the files that
+  are not publicly available.
+
+# Installation instructions
+
+NOTE: This is a work in progress.  If you hit a snag following these instructions, please let us know.
+Building on consoles has only been tested using Visual Studio 2017 or 2019.
 
 1. Make sure you have [git lfs](https://git-lfs.com/) installed.  You can run this to check:
 
@@ -27,6 +43,9 @@
     ...\GameNetworkingSockets> git submodule update --init modules/partner
     ```
 
+    (Note the difference between the partner *branch*, the publicly-accessible branch of the GameNetworkingSockets
+    repository, and the partner *submodule*, a private repository.)
+
     At this point you may need to sort through github authentication since the repositories
     are not public.
 
@@ -52,3 +71,5 @@
     VPC will locate the platform toolchain from the appropriate environment variables.
 
 6. Open the solution and build in Visual Studio.
+
+7. You can enable/disable several features with `STEAMNETWORKINGSOCKETS_xxx` AND `SDR_xxx` defines.  For example, if you don't need to run servers in our dedicated servers, you turn off `SDR_ENABLE_HOSTED_SERVER` and `SDR_ENABLE_HOSTED_CLIENT`.  If you just want to compile the library for a console but don't wnat to talk to relays, turn off `STEAMNETWORKINGSOCKETS_ENABLE_SDR`
