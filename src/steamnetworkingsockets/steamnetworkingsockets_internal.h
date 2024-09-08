@@ -1102,7 +1102,19 @@ inline uint8 IPv4_TOS_make( uint8 dscp, uint8 ecn )
 {
 	Assert( dscp < 0x40 );
 	Assert( ecn < 0x4 );
-	return ( (dscp<<2) | ecn );
+	return ( (dscp<<2U) | ecn );
+}
+
+// Extract ECN from TOS
+inline uint8 IPv4_TOS_ECN( uint8 tos )
+{
+	return tos & IPv4_TOS_ECN_bits;
+}
+
+// Extract DSCP from TOS
+inline uint8 IPv4_TOS_DSCP( uint8 tos )
+{
+	return tos>>2U;
 }
 
 // FIXME POSIX supports this!  Need to check console support and implement all supported platforms,
@@ -1111,6 +1123,23 @@ inline uint8 IPv4_TOS_make( uint8 dscp, uint8 ecn )
 	#define PlatformCanSendECN() true
 #else
 	#define PlatformCanSendECN() false
+#endif
+
+#if PlatformCanSendECN()
+	// ECN value to send, if "auto" option is specified.
+	// -1 means that we have not completed detection, and so 0 will be used
+	extern int g_nSendECNAuto;
+
+	// Get the ECN value we will actually use for sending
+	inline uint8 ResolveECNSendGlobal()
+	{
+		int ecn = GlobalConfig::ECN.Get();
+		if ( ecn < 0 )
+			ecn = std::max( 0, g_nSendECNAuto );
+		return (uint8)ecn;
+	}
+#else
+	inline uint8 ResolveECNSendGlobal() { return 0; }
 #endif
 
 } // namespace SteamNetworkingSocketsLib
