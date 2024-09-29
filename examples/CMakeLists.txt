@@ -8,7 +8,11 @@ if( ENABLE_ICE AND ( BUILD_EXAMPLES OR BUILD_TESTS ) )
 	else()
 		set(SIGNAL_SERVER_TARGET trivial_signaling_server)
 
-		set(SIGNAL_SERVER_OUTPUT ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/trivial_signaling_server)
+		if ( WIN32 )
+			set(SIGNAL_SERVER_OUTPUT ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/trivial_signaling_server.exe)
+		else()
+			set(SIGNAL_SERVER_OUTPUT ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/trivial_signaling_server)
+		endif()
 		set(SIGNAL_SERVER_SRCS
 			trivial_signaling_server.go
 			)
