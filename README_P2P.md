@@ -48,7 +48,7 @@ when you send and receive messages, the peer is identified by the connection han
 
 Much existing network code is based on UDP with a single socket, where
  connection handles are not used.  Instead, packets are sent with the IP address
- of the recipeient specified for each packet.   (E.g. ``sentto()`` and ``recvfrom()``).
+ of the recipient specified for each packet.   (E.g. ``sentto()`` and ``recvfrom()``).
 [ISteamNetworkingMessages](include/steam/isteamnetworkingmessages.h) was created
 to provide a more "ad-hoc" interface like UDP.  It can be useful when adding P2P
 support to existing code, depending on the abstraction you are working with.  If
