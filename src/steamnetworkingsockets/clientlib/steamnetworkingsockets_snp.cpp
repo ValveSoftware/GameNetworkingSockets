@@ -1080,7 +1080,7 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLa
 			{
 				static const char szAckLatestPktNum[] = "ack latest pktnum";
 				int64 nLowerBits, nMask;
-				if ( nFrameType & 0x40 )
+				if ( nFrameType & 0x10 )
 				{
 					READ_32BITU( nLowerBits, szAckLatestPktNum );
 					nMask = 0xffffffff;
