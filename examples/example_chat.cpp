@@ -66,16 +66,17 @@ static void DebugOutput( ESteamNetworkingSocketsDebugOutputType eType, const cha
 
 static void FatalError( const char *fmt, ... )
 {
-	char text[ 2048 ];
-	va_list ap;
-	va_start( ap, fmt );
-	vsprintf( text, fmt, ap );
-	va_end(ap);
-	char *nl = strchr( text, '\0' ) - 1;
-	if ( nl >= text && *nl == '\n' )
-		*nl = '\0';
-	DebugOutput( k_ESteamNetworkingSocketsDebugOutputType_Bug, text );
+    char text[2048];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(text, sizeof(text), fmt, ap);
+    va_end(ap);
+    char *nl = strchr(text, '\0') - 1;
+    if (nl >= text && *nl == '\n')
+        *nl = '\0';
+    DebugOutput(k_ESteamNetworkingSocketsDebugOutputType_Bug, text);
 }
+
 
 static void Printf( const char *fmt, ... )
 {
