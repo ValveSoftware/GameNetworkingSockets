@@ -63,7 +63,7 @@ for more.
 
 ## Windows / Visual Studio
 
-To build gamenetworkingsockets on Windows, it's recommended to obtain thge dependencies by using vcpkg in ["manifest mode"](https://learn.microsoft.com/en-us/vcpkg/concepts/manifest-mode).  The following instructions assume that you will follow the vcpkg recommendations and install vcpkg as a subfolder.  If you want to use "classic mode" or install vcpkg somewhere else, you're on your own.
+To build gamenetworkingsockets on Windows, it's recommended to obtain the dependencies by using vcpkg in ["manifest mode"](https://learn.microsoft.com/en-us/vcpkg/concepts/manifest-mode).  The following instructions assume that you will follow the vcpkg recommendations and install vcpkg as a subfolder.  If you want to use "classic mode" or install vcpkg somewhere else, you're on your own.
 
 If you don't want to use vcpkg, try the [manual instructions](BUILDING_WINDOWS_MANUAL.md).
 
