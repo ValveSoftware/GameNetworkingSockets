@@ -18,7 +18,7 @@ m_nAllocationCount( nInitAllocationCount ), m_nGrowSize( nGrowSize ), m_unSizeOf
 	if (m_nAllocationCount)
 	{
 		UTLMEMORY_TRACK_ALLOC();
-		m_pMemory = PvAlloc( m_nAllocationCount * m_unSizeOfElements );
+		m_pMemory = PvAlloc( static_cast<size_t>(m_nAllocationCount) * m_unSizeOfElements );
 	}
 }
 
