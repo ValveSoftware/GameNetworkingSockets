@@ -1792,7 +1792,7 @@ struct SteamNetworkingConfigValue_t
 	inline void SetString( ESteamNetworkingConfigValue eVal, const char *data ) // WARNING - Just saves your pointer.  Does NOT make a copy of the string
 	{
 		m_eValue = eVal;
-		m_eDataType = k_ESteamNetworkingConfig_Ptr;
+		m_eDataType = k_ESteamNetworkingConfig_String;
 		m_val.m_string = data;
 	}
 };
