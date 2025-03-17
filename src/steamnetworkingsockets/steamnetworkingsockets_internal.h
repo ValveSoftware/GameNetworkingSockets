@@ -29,6 +29,8 @@
 
 #include <tier0/memdbgon.h>
 
+#include <string>
+
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_MEM_OVERRIDE
 	#define STEAMNETWORKINGSOCKETS_DECLARE_CLASS_OPERATOR_NEW \
 		static void* operator new( size_t s ) noexcept { return malloc( s ); } \
@@ -667,10 +669,17 @@ extern bool BSteamNetworkingIdentityToProtobufInternal( const SteamNetworkingIde
 		( (identity).GetSteamID64() ? (void)(msg).set_ ## field_legacy_steam_id( (identity).GetSteamID64() ) : (void)0 ), \
 		BSteamNetworkingIdentityToProtobufInternal( identity, (msg).mutable_ ## field_identity_string(), (msg).mutable_ ## field_identity_legacy_binary(), errMsg ) \
 	)
+// Starting from Protobuf 29.0, `protobuf::Message::GetTypeName()` can return either `std::string` or `absl::string_view`.
+// For more details, see:
+// https://github.com/protocolbuffers/protobuf/commit/e13b8e999b3922d0633802c7f90e39af50a31d76
+//
+// Construct a temporary `std::string` to obtain a proper null-terminated buffer to use in `AssertMsg*`.
+// Note that the lifetime of this instance will end just after the `AssertMsg2()` function call returns,
+// hence this usage is safe (see https://eel.is/c++draft/class.temporary#4 for more details).
 #define SteamNetworkingIdentityToProtobuf( identity, msg, field_identity_string, field_identity_legacy_binary, field_legacy_steam_id ) \
 	{ SteamDatagramErrMsg identityToProtobufErrMsg; \
 		if ( !BSteamNetworkingIdentityToProtobuf( identity, msg, field_identity_string, field_identity_legacy_binary, field_legacy_steam_id, identityToProtobufErrMsg ) ) { \
-			AssertMsg2( false, "Failed to serialize identity to %s message.  %s", msg.GetTypeName().c_str(), identityToProtobufErrMsg ); \
+			AssertMsg2( false, "Failed to serialize identity to %s message.  %s", std::string(msg.GetTypeName()).c_str(), identityToProtobufErrMsg ); \
 		} \
 	}
 
