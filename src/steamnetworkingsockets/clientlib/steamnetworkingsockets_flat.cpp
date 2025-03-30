@@ -315,6 +315,37 @@ STEAMNETWORKINGSOCKETS_INTERFACE ESteamNetworkingConfigValue SteamAPI_ISteamNetw
 	return self->IterateGenericEditableConfigValues( eCurrent,bEnumerateDevVars );
 }
 
+//--- ISteamNetworkingMessages-------------------------
+
+STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingMessages *SteamAPI_SteamNetworkingMessages_v002()
+{
+	return SteamNetworkingMessages();
+}
+STEAMNETWORKINGSOCKETS_INTERFACE EResult SteamAPI_ISteamNetworkingMessages_SendMessageToUser( ISteamNetworkingMessages* self, const SteamNetworkingIdentity & identityRemote, const void * pubData, uint32 cubData, int nSendFlags, int nRemoteChannel )
+{
+	return self->SendMessageToUser( identityRemote,pubData,cubData,nSendFlags,nRemoteChannel );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE int SteamAPI_ISteamNetworkingMessages_ReceiveMessagesOnChannel( ISteamNetworkingMessages* self, int nLocalChannel, SteamNetworkingMessage_t ** ppOutMessages, int nMaxMessages )
+{
+	return self->ReceiveMessagesOnChannel( nLocalChannel,ppOutMessages,nMaxMessages );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingMessages_AcceptSessionWithUser( ISteamNetworkingMessages* self, const SteamNetworkingIdentity & identityRemote )
+{
+	return self->AcceptSessionWithUser( identityRemote );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingMessages_CloseSessionWithUser( ISteamNetworkingMessages* self, const SteamNetworkingIdentity & identityRemote )
+{
+	return self->CloseSessionWithUser( identityRemote );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE bool SteamAPI_ISteamNetworkingMessages_CloseChannelWithUser( ISteamNetworkingMessages* self, const SteamNetworkingIdentity & identityRemote, int nLocalChannel )
+{
+	return self->CloseChannelWithUser( identityRemote,nLocalChannel );
+}
+STEAMNETWORKINGSOCKETS_INTERFACE ESteamNetworkingConnectionState SteamAPI_ISteamNetworkingMessages_GetSessionConnectionInfo( ISteamNetworkingMessages* self, const SteamNetworkingIdentity & identityRemote, SteamNetConnectionInfo_t * pConnectionInfo, SteamNetConnectionRealTimeStatus_t * pQuickStatus )
+{
+	return self->GetSessionConnectionInfo( identityRemote,pConnectionInfo,pQuickStatus );
+}
+
 //--- SteamNetworkingIPAddr-------------------------
 
 STEAMNETWORKINGSOCKETS_INTERFACE void SteamAPI_SteamNetworkingIPAddr_Clear( SteamNetworkingIPAddr* self )
