@@ -96,6 +96,11 @@ bool AES_GCM_CipherContext::InitCipher( const void *pKey, size_t cbKey, size_t c
 	return true;
 }
 
+bool AES_GCM_CipherContext::IsAvailable()
+{
+	return true;
+}
+
 bool AES_GCM_EncryptContext::Encrypt(
 	const void *pPlaintextData, size_t cbPlaintextData,
 	const void *pIV,
