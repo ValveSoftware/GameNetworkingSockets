@@ -1227,19 +1227,32 @@ void CSteamNetworkConnectionBase::SetCryptoCipherList()
 			// V
 		case 0:
 			// Not allowed
-			m_msgCryptLocal.add_ciphers( k_ESteamNetworkingSocketsCipher_AES_256_GCM );
+			if (AES_GCM_CipherContext::IsAvailable())
+			{
+				m_msgCryptLocal.add_ciphers( k_ESteamNetworkingSocketsCipher_AES_256_GCM );
+			}
+			if (m_msgCryptLocal.ciphers_size() == 0)
+			{
+				ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Remote_BadCrypt, "No crypto ciphers available, although the connection requires encryption" );
+			}
 			break;
 
 		case 1:
 			// Allowed, but prefer encrypted
-			m_msgCryptLocal.add_ciphers( k_ESteamNetworkingSocketsCipher_AES_256_GCM );
+			if (AES_GCM_CipherContext::IsAvailable())
+			{
+				m_msgCryptLocal.add_ciphers( k_ESteamNetworkingSocketsCipher_AES_256_GCM );
+			}
 			m_msgCryptLocal.add_ciphers( k_ESteamNetworkingSocketsCipher_NULL );
 			break;
 
 		case 2:
 			// Allowed, preferred
 			m_msgCryptLocal.add_ciphers( k_ESteamNetworkingSocketsCipher_NULL );
-			m_msgCryptLocal.add_ciphers( k_ESteamNetworkingSocketsCipher_AES_256_GCM );
+			if (AES_GCM_CipherContext::IsAvailable())
+			{
+				m_msgCryptLocal.add_ciphers( k_ESteamNetworkingSocketsCipher_AES_256_GCM );
+			}
 			break;
 
 		case 3:
@@ -1536,7 +1549,12 @@ ESteamNetConnectionEnd CSteamNetworkConnectionBase::RecvCryptoHandshake(
 
 	// Check for legacy client that didn't send a list of ciphers
 	if ( m_msgCryptRemote.ciphers_size() == 0 )
-		m_msgCryptRemote.add_ciphers( k_ESteamNetworkingSocketsCipher_AES_256_GCM );
+	{
+		if ( AES_GCM_CipherContext::IsAvailable() )
+		{
+			m_msgCryptRemote.add_ciphers( k_ESteamNetworkingSocketsCipher_AES_256_GCM );
+		}
+	}
 
 	// We need our own cert.  If we don't have one by now, then we might try generating one
 	if ( !m_msgSignedCertLocal.has_cert() )
