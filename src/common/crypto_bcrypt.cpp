@@ -228,6 +228,39 @@ bool AES_GCM_DecryptContext::Decrypt(
 	return NT_SUCCESS(status);
 }
 
+bool ChaCha20_Poly1305_CipherContext::InitCipher(const void* /*pKey*/, size_t /*cbKey*/, size_t /*cbIV*/, size_t /*cbTag*/, bool /*bEncrypt*/)
+{
+	AssertMsg(false, "The ChaCha20-Poly1305 algorithm is not implemented in the BCrypt library");
+	return false;
+}
+
+bool ChaCha20_Poly1305_CipherContext::IsAvailable()
+{
+	return false;
+}
+
+bool ChaCha20_Poly1305_EncryptContext::Encrypt(
+		const void* /*pPlaintextData*/, size_t /*cbPlaintextData*/,
+		const void* /*pIV*/,
+		void* /*pEncryptedDataAndTag*/, uint32* /*pcbEncryptedDataAndTag*/,
+		const void* /*pAdditionalAuthenticationData*/, size_t /*cbAuthenticationData*/
+		)
+{
+	AssertMsg(false, "The ChaCha20-Poly1305 algorithm is not implemented in the BCrypt library");
+	return false;
+}
+
+bool AES_GCM_DecryptContext::Decrypt(
+		const void* /*pEncryptedDataAndTag*/, size_t /*cbEncryptedDataAndTag*/,
+		const void* /*pIV*/,
+		void* /*pPlaintextData*/, uint32* /*pcbPlaintextData*/,
+		const void* /*pAdditionalAuthenticationData*/, size_t /*cbAuthenticationData*/
+		)
+{
+	AssertMsg(false, "The ChaCha20-Poly1305 algorithm is not implemented in the BCrypt library");
+	return false;
+}
+
 //-----------------------------------------------------------------------------
 // Purpose: Generate a SHA256 hash
 // Input:	pchInput -			Plaintext string of item to hash (null terminated)
