@@ -38,7 +38,7 @@ bool AES_GCM_CipherContext::InitCipher( const void *pKey, size_t cbKey, size_t c
 	// November 2019 survey.
 	// Libsodium recommends ChaCha20-Poly1305 in software if you've not got AES support
 	// in hardware.
-	if ( crypto_aead_aes256gcm_is_available() != 1 )
+	if ( !IsAvailable() )
 	{
 		AssertMsg( false, "No hardware AES support on this CPU." );
 		return false;
