@@ -74,6 +74,15 @@ TRACELOGGING_DEFINE_PROVIDER(
 constexpr int k_cbETWEventUDPPacketDataSize = 16;
 #endif
 
+#if defined(_WIN32) && (defined(__MINGW32__) || defined(__MINGW64__))
+	// This one contains `_WSACMSGHDR` and friends in MinGW case (as opposed to `ws2def.h` for ordinary windows builds)
+	#include <mswsock.h>
+	#define cmsghdr WSACMSGHDR
+	#define CMSGHDR WSACMSGHDR
+	#define CMSG_FIRSTHDR WSA_CMSG_FIRSTHDR
+	#define CMSG_NXTHDR WSA_CMSG_NXTHDR
+#endif
+
 namespace SteamNetworkingSocketsLib {
 
 inline void ETW_LongOp( const char *opName, SteamNetworkingMicroseconds usec, const char *pszInfo )
