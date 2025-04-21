@@ -78,6 +78,7 @@ namespace SteamNetworkingSocketsLib {
 
 inline void ETW_LongOp( const char *opName, SteamNetworkingMicroseconds usec, const char *pszInfo )
 {
+#if IsTraceLoggingEnabled()
 	if ( !pszInfo )
 		pszInfo = "";
 	TraceLoggingWrite(
@@ -87,6 +88,11 @@ inline void ETW_LongOp( const char *opName, SteamNetworkingMicroseconds usec, co
 		TraceLoggingUInt64( usec, "Microseconds" ),
 		TraceLoggingString( pszInfo, "ExtraInfo" )
 	);
+#else
+	(void)opName;
+	(void)usec;
+	(void)pszInfo;
+#endif
 }
 
 constexpr int k_msMaxPollWait = 1000;
@@ -4513,6 +4519,7 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_DefaultPreFormatDeb
 	// Gah, some, but not all, of our code has newlines on the end
 	V_StripTrailingWhitespaceASCII( buf );
 
+#if IsTraceLoggingEnabled()
 	// Emit an ETW event.  Unfortunately, TraceLoggingLevel requires a constant argument
 	if ( IsTraceLoggingProviderEnabled( HTraceLogging_SteamNetworkingSockets ) )
 	{
@@ -4553,6 +4560,7 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_DefaultPreFormatDeb
 			);
 		}
 	}
+#endif // IsTraceLoggingEnabled()
 
 	// Spew to log file?
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_SYSTEMSPEW
