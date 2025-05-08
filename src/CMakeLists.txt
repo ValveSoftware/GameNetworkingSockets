@@ -41,6 +41,7 @@ set(GNS_CLIENTLIB_SRCS
 	"steamnetworkingsockets/clientlib/steamnetworkingsockets_p2p.cpp"
 	"steamnetworkingsockets/clientlib/steamnetworkingsockets_stun.cpp"
 	"steamnetworkingsockets/clientlib/steamnetworkingsockets_p2p_ice.cpp"
+	"steamnetworkingsockets/clientlib/steamnetworkingsockets_p2p_webrtc.cpp"
 	"steamnetworkingsockets/clientlib/steamnetworkingsockets_snp.cpp"
 	"steamnetworkingsockets/clientlib/steamnetworkingsockets_udp.cpp"
 )
@@ -250,6 +251,7 @@ macro(set_clientlib_target_properties GNS_TARGET)
 		# We might link dynamically in other environments.
 		target_compile_definitions(${GNS_TARGET} PRIVATE
 			STEAMWEBRTC_USE_STATIC_LIBS
+			STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
 			)
 		target_link_libraries(${GNS_TARGET} PUBLIC
 			$<BUILD_INTERFACE:steamwebrtc>
