@@ -2373,7 +2373,7 @@ static bool DrainSocket( CRawUDPSocketImpl *pSock )
 			{
 				msg.dwBufferCount = 1;
 				msg.lpBuffers = (WSABUF *)&iov_buf;
-				msg.Control.len = sizeof(buf);
+				msg.Control.len = sizeof(buf_control);
 				msg.Control.buf = buf_control;
 				msg.dwFlags = 0;
 
