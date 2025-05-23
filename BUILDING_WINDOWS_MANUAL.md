@@ -16,7 +16,7 @@ but you might not have selected to install them.  Or just install them from some
 else and put them in your `PATH`.
 
 *IMPORTANT*: Make sure you start the command prompt for the desired target
-architecture (x64 or x64)!  In the examples here we are building 64-bit.
+architecture (x86 or x64)!  In the examples here we are building 64-bit.
 
 ```
 **********************************************************************
