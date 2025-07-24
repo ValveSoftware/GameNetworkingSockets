@@ -768,6 +768,7 @@ void LinkStatsTrackerEndToEnd::InitInternal( SteamNetworkingMicroseconds usecNow
 
 	m_usecWhenStartedConnectedState = 0;
 	m_usecWhenEndedConnectedState = 0;
+	m_usecAPIRealtimeStatusMaxJitter = -1;
 
 	//m_TXSpeedSample.Clear();
 	//m_nTXSpeed = 0;

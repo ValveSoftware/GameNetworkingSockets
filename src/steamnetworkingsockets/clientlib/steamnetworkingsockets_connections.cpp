@@ -1953,6 +1953,10 @@ EResult CSteamNetworkConnectionBase::APIGetRealTimeStatus( SteamNetConnectionRea
 		pStatus->m_flOutBytesPerSec = m_statsEndToEnd.m_sent.m_bytes.m_flRate;
 		pStatus->m_flInPacketsPerSec = m_statsEndToEnd.m_recv.m_packets.m_flRate;
 		pStatus->m_flInBytesPerSec = m_statsEndToEnd.m_recv.m_bytes.m_flRate;
+
+		// Max jitter, and clear it
+		pStatus->m_usecMaxJitter = m_statsEndToEnd.m_usecAPIRealtimeStatusMaxJitter;
+		m_statsEndToEnd.m_usecAPIRealtimeStatusMaxJitter = -1;
 	}
 	SNP_PopulateRealTimeStatus( pStatus, nLanes, pLanes, usecNow );
 
