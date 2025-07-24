@@ -802,8 +802,17 @@ struct SteamNetConnectionRealTimeStatus_t
 	/// Nagle delay is ignored for the purposes of this calculation.
 	SteamNetworkingMicroseconds m_usecQueueTime;
 
+	/// Highest packet jitter experienced, since the last time this information
+	/// was returned.  (The high water mark is cleared each time you fetch the info.)
+	/// 
+	/// - The units are microseconds, although the measurement precision is usually
+	///   not nearly this precise.
+	/// - A negative value means "no data available".
+	/// - Not all connections are able to measure jitter.
+	int32 m_usecMaxJitter;
+
 	// Internal stuff, room to change API easily
-	uint32 reserved[16];
+	uint32 reserved[15];
 };
 
 /// Quick status of a particular lane

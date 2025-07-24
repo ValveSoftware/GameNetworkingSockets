@@ -1077,6 +1077,10 @@ struct LinkStatsTrackerEndToEnd : public LinkStatsTrackerBase
 	/// Time when the current interval started
 	SteamNetworkingMicroseconds m_usecSpeedIntervalStart;
 
+	/// Jitter value that is returned in GetConnectionRealTimeStatus and then
+	/// cleared.
+	int m_usecAPIRealtimeStatusMaxJitter;
+
 	///// TX Speed, should match CMsgSteamDatagramLinkLifetimeStats 
 	//int m_nTXSpeed; 
 	//int m_nTXSpeedMax; 
@@ -1167,6 +1171,22 @@ protected:
 		{
 			pThis->UpdateSpeedInterval( usecNow );
 		}
+	}
+
+	inline void InternalProcessJitterSample( int usecJitter )
+	{
+		LinkStatsTrackerBase::InternalProcessJitterSample( usecJitter );
+
+		// Update user high water mark.
+		// 
+		// Use absolute value here...I think?
+		// If one packet is delayed and then the next packet arrives on time, the second
+		// jitter value will be negative, and both packets will be counted as bad, even
+		// though only the second one was.  (Arriving early usually isn't a problem, it's
+		// arriving late that's bad).  However, for the use cases for this is currently
+		// intended, it's OK.  With any reasonable packet rate, we assume the app
+		// won't be checking this value fast enough for it to matter.
+		m_usecAPIRealtimeStatusMaxJitter = std::max( m_usecAPIRealtimeStatusMaxJitter, abs( usecJitter ) );
 	}
 
 private:
