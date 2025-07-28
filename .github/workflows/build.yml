@@ -38,7 +38,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os-version: [2019, 2022]
+        # Windows Server 2019 has been retired. The Windows Server 2019 image has been removed as of 2025-06-30. For more details, see https://github.com/actions/runner-images/issues/12045
+        os-version: [2022, latest]
         crypto: [OpenSSL, BCrypt]
     env:
       VCPKG_ROOT: ${{ github.workspace }}/vcpkg
