@@ -1566,10 +1566,6 @@ ESteamNetConnectionEnd CSteamNetworkConnectionBase::RecvCryptoHandshake(
 		{
 			m_msgCryptRemote.add_ciphers( k_ESteamNetworkingSocketsCipher_AES_256_GCM );
 		}
-		if ( ChaCha20_Poly1305_CipherContext::IsAvailable() )
-		{
-			m_msgCryptRemote.add_ciphers( k_ESteamNetworkingSocketsCipher_CHACHA20_POLY1305 );
-		}
 	}
 
 	// We need our own cert.  If we don't have one by now, then we might try generating one
