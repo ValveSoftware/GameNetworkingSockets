@@ -708,6 +708,58 @@ void CTaskList::RunTasks()
 	}
 }
 
+void CTaskList::DeleteTasks()
+{
+	ShortDurationScopeLock scopeLock( s_lockTaskQueue );
+
+	CQueuedTask *pNextTask = m_pFirstTask;
+	m_pFirstTask = nullptr;
+	m_pLastTask = nullptr;
+
+	while ( pNextTask )
+	{
+		CQueuedTask *pTask = pNextTask;
+		pNextTask = pTask->m_pNextTaskInQueue;
+		pTask->m_pNextTaskInQueue = nullptr;
+
+		CTaskTarget *pTarget = pTask->m_pTarget;
+		if ( pTarget )
+		{
+			CQueuedTask *pPrevForTarget = pTask->m_pPrevTaskForTarget;
+			CQueuedTask *pNextForTarget = pTask->m_pNextTaskForTarget;
+
+			if ( pPrevForTarget )
+			{
+				Assert( pTarget->m_pFirstTask != nullptr );
+				Assert( pTarget->m_pFirstTask != pTask );
+				Assert( pPrevForTarget->m_pTarget == pTarget );
+				Assert( pPrevForTarget->m_pNextTaskForTarget == pTask );
+				pPrevForTarget->m_pNextTaskForTarget = pNextForTarget;
+			}
+			else
+			{
+				Assert( pTarget->m_pFirstTask == pTask );
+				pTarget->m_pFirstTask = pNextForTarget;
+			}
+
+			if ( pNextForTarget )
+			{
+				Assert( pNextForTarget->m_pTarget == pTarget );
+				Assert( pNextForTarget->m_pPrevTaskForTarget == pTask );
+				pNextForTarget->m_pPrevTaskForTarget = pPrevForTarget;
+			}
+		}
+
+		pTask->m_pTarget = nullptr;
+		pTask->m_pPrevTaskForTarget = nullptr;
+		pTask->m_pNextTaskForTarget = nullptr;
+		pTask->m_eTaskState = CQueuedTask::k_ETaskState_ReadyToDelete;
+
+		// Nuke
+		delete pTask;
+	}
+}
+
 CTaskList g_taskListRunWithGlobalLock;
 CTaskList g_taskListRunInBackground;
 
@@ -4079,6 +4131,13 @@ void SteamNetworkingSocketsLowLevelDecRef()
 
 	// Shutdown Dual wifi support
 	DualWifiShutdown();
+
+	// If we have any tasks that were queued to run in the background,
+	// we'll have to just abandon them.  We don't have enough context
+	// here to run them safely because we hold the lock, and some jobs are
+	// queued to run in the background precisely because there are
+	// potential deadlock issues if they are run while holding the lock.
+	g_taskListRunInBackground.DeleteTasks();
 
 	// Nuke sockets and COM
 	#ifdef _WIN32
