@@ -852,7 +852,7 @@ bool IsRouteToAddressProbablyLocal( netadr_t addr )
 		);
 		if ( r != NO_ERROR )
 		{
-			AssertMsg2( false, "GetBestRoute2 failed with result %d for address '%s'", r, CUtlNetAdrRender( addr ).String() );
+			SpewWarning( "GetBestRoute2 failed with result %d for address '%s'\n", r, CUtlNetAdrRender( addr ).String() );
 			return false;
 		}
 		if ( bestRoute.Protocol == MIB_IPPROTO_LOCAL )
@@ -860,7 +860,7 @@ bool IsRouteToAddressProbablyLocal( netadr_t addr )
 		netadr_t nextHop;
 		if ( !nextHop.SetFromSockadr( &bestRoute.NextHop ) )
 		{
-			AssertMsg( false, "GetBestRoute2 returned invalid next hop address" );
+			SpewWarning( "GetBestRoute2 returned invalid next hop address\n" );
 			return false;
 		}
 
