@@ -9,7 +9,13 @@
 #include "csteamnetworkingsockets.h"
 
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_SDR
-	#include <steamdatagram_messages_sdr.pb.h>
+	#if MEM_OVERRIDE_ON
+		#include <tier0/memdbgoff.h>
+		#include <steamdatagram_messages_sdr.pb.h>
+		#include <tier0/memdbgon.h>
+	#else
+		#include <steamdatagram_messages_sdr.pb.h>
+	#endif
 #endif
 
 class CMsgSteamDatagramConnectRequest;

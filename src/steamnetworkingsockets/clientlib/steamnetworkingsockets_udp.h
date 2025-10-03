@@ -5,7 +5,14 @@
 #pragma once
 
 #include "steamnetworkingsockets_connections.h"
-#include <steamnetworkingsockets_messages_udp.pb.h>
+
+#if MEM_OVERRIDE_ON
+	#include <tier0/memdbgoff.h>
+	#include <steamnetworkingsockets_messages_udp.pb.h>
+	#include <tier0/memdbgon.h>
+#else
+	#include <steamnetworkingsockets_messages_udp.pb.h>
+#endif
 
 namespace SteamNetworkingSocketsLib {
 
