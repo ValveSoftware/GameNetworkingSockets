@@ -784,6 +784,9 @@ public:
 	// Return true if the task list is empty
 	inline bool empty() const { return m_pFirstTask == nullptr; }
 
+	// Delete tasks, without running them.
+	void DeleteTasks();
+
 private:
 	// List of queued tasks
 	CQueuedTask *m_pFirstTask;
