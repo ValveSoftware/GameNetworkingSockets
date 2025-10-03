@@ -74,7 +74,7 @@ public:
 	/// A template constructor so you can use type safe context and avoid messy casting
 	template< typename T >
 	inline CRecvPacketCallback( void (*fnCallback)( const RecvPktInfo_t &info, T context ), T context )
-	: m_fnCallback ( reinterpret_cast< FCallbackRecvPacket>( fnCallback ) )
+	: m_fnCallback ( reinterpret_cast< FCallbackRecvPacket>( reinterpret_cast< void * >( fnCallback ) ) )
 	, m_pContext( reinterpret_cast< void * >( context ) )
 	{
 		COMPILE_TIME_ASSERT( sizeof(T) == sizeof(void*) );
