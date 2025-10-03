@@ -2923,7 +2923,7 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const CMsgSteamNetworki
 		pConn = pConnBase->AsSteamNetworkConnectionP2P();
 		if ( !pConn )
 		{
-			SpewWarning( "[%s] Got P2P signal from %s.  Wrong connection type!\n", msg.from_identity().c_str(), pConn->GetDescription() );
+			SpewWarning( "[%s] Got P2P signal from %s.  Wrong connection type!\n", msg.from_identity().c_str(), pConnBase->GetDescription() );
 			return false;
 		}
 
