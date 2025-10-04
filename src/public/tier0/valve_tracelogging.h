@@ -82,7 +82,13 @@
 	#include <windows.h>
 	//#include <ShlObj.h>
 	//#include <winsock2.h>
-	#include <winmeta.h>
+
+	// TraceLoggingProvider-related header files are not available in MinGW builds, so disable it.
+	#if defined(_WIN32) && (defined(__MINGW32__) || defined(__MINGW64__))
+		#define VALVE_DISABLE_TRACELOGGING
+	#else
+		#include <winmeta.h>
+	#endif
 
 	#ifdef VALVE_DISABLE_TRACELOGGING
 		#define IsTraceLoggingEnabled() false

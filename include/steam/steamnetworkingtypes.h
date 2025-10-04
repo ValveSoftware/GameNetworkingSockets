@@ -1902,7 +1902,7 @@ typedef SteamNetworkingMessage_t ISteamNetworkingMessage;
 typedef SteamNetworkingErrMsg SteamDatagramErrMsg;
 
 inline void SteamNetworkingIPAddr::Clear() { memset( this, 0, sizeof(*this) ); }
-inline bool SteamNetworkingIPAddr::IsIPv6AllZeros() const { const uint64 *q = (const uint64 *)m_ipv6; return q[0] == 0 && q[1] == 0; }
+inline bool SteamNetworkingIPAddr::IsIPv6AllZeros() const { uint64 q[2] = {}; memcpy(q, m_ipv6, sizeof(m_ipv6)); return q[0] == 0 && q[1] == 0; }
 inline void SteamNetworkingIPAddr::SetIPv6( const uint8 *ipv6, uint16 nPort ) { memcpy( m_ipv6, ipv6, 16 ); m_port = nPort; }
 inline void SteamNetworkingIPAddr::SetIPv4( uint32 nIP, uint16 nPort ) { m_ipv4.m_8zeros = 0; m_ipv4.m_0000 = 0; m_ipv4.m_ffff = 0xffff; m_ipv4.m_ip[0] = uint8(nIP>>24); m_ipv4.m_ip[1] = uint8(nIP>>16); m_ipv4.m_ip[2] = uint8(nIP>>8); m_ipv4.m_ip[3] = uint8(nIP); m_port = nPort; }
 inline bool SteamNetworkingIPAddr::IsIPv4() const { return m_ipv4.m_8zeros == 0 && m_ipv4.m_0000 == 0 && m_ipv4.m_ffff == 0xffff; }
