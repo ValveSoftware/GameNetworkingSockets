@@ -138,12 +138,6 @@ if(USE_CRYPTO STREQUAL "libsodium" OR USE_CRYPTO25519 STREQUAL "libsodium")
 	find_package(sodium REQUIRED)
 endif()
 
-if(USE_CRYPTO STREQUAL "libsodium")
-	if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "amd64.*|x86_64.*|AMD64.*|i686.*|i386.*|x86.*")
-		message(FATAL_ERROR "-DUSE_CRYPTO=libsodium invalid, libsodium AES implementation only works on x86/x86_64 CPUs")
-	endif()
-endif()
-
 # We always need at least sse2 on x86
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "amd64.*|x86_64.*|AMD64.*|i686.*|i386.*|x86.*")
        set(TARGET_ARCH_FLAGS "-msse2")

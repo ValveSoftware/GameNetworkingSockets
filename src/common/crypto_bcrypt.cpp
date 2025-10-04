@@ -37,6 +37,7 @@ typedef struct _BCryptContext {
 	ULONG cbKeyObject;
 
 	_BCryptContext() {
+		hAlgAES = INVALID_HANDLE_VALUE;
 		hKey = INVALID_HANDLE_VALUE;
 		pbKeyObject = NULL;
 		cbKeyObject = 0;
@@ -150,6 +151,15 @@ bool AES_GCM_CipherContext::InitCipher( const void *pKey, size_t cbKey, size_t c
 	return true;
 }
 
+bool AES_GCM_CipherContext::IsAvailable()
+{
+	BCryptContext ctx;
+	if (BCryptOpenAlgorithmProvider(&ctx.hAlgAES, BCRYPT_AES_ALGORITHM, nullptr, 0) != 0)
+		return false;
+	AssertFatal(ctx.hAlgAES != INVALID_HANDLE_VALUE);
+	return true;
+}
+
 bool AES_GCM_EncryptContext::Encrypt(
 		const void *pPlaintextData, size_t cbPlaintextData,
 		const void *pIV,
@@ -216,6 +226,39 @@ bool AES_GCM_DecryptContext::Decrypt(
 			0 );
 	*pcbPlaintextData = pt_size;
 	return NT_SUCCESS(status);
+}
+
+bool ChaCha20_Poly1305_CipherContext::InitCipher(const void* /*pKey*/, size_t /*cbKey*/, size_t /*cbIV*/, size_t /*cbTag*/, bool /*bEncrypt*/)
+{
+	AssertMsg(false, "The ChaCha20-Poly1305 algorithm is not implemented in the BCrypt library");
+	return false;
+}
+
+bool ChaCha20_Poly1305_CipherContext::IsAvailable()
+{
+	return false;
+}
+
+bool ChaCha20_Poly1305_EncryptContext::Encrypt(
+		const void* /*pPlaintextData*/, size_t /*cbPlaintextData*/,
+		const void* /*pIV*/,
+		void* /*pEncryptedDataAndTag*/, uint32* /*pcbEncryptedDataAndTag*/,
+		const void* /*pAdditionalAuthenticationData*/, size_t /*cbAuthenticationData*/
+		)
+{
+	AssertMsg(false, "The ChaCha20-Poly1305 algorithm is not implemented in the BCrypt library");
+	return false;
+}
+
+bool AES_GCM_DecryptContext::Decrypt(
+		const void* /*pEncryptedDataAndTag*/, size_t /*cbEncryptedDataAndTag*/,
+		const void* /*pIV*/,
+		void* /*pPlaintextData*/, uint32* /*pcbPlaintextData*/,
+		const void* /*pAdditionalAuthenticationData*/, size_t /*cbAuthenticationData*/
+		)
+{
+	AssertMsg(false, "The ChaCha20-Poly1305 algorithm is not implemented in the BCrypt library");
+	return false;
 }
 
 //-----------------------------------------------------------------------------
