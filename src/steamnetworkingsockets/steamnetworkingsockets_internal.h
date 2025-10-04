@@ -670,7 +670,7 @@ extern bool BSteamNetworkingIdentityToProtobufInternal( const SteamNetworkingIde
 #define SteamNetworkingIdentityToProtobuf( identity, msg, field_identity_string, field_identity_legacy_binary, field_legacy_steam_id ) \
 	{ SteamDatagramErrMsg identityToProtobufErrMsg; \
 		if ( !BSteamNetworkingIdentityToProtobuf( identity, msg, field_identity_string, field_identity_legacy_binary, field_legacy_steam_id, identityToProtobufErrMsg ) ) { \
-			AssertMsg2( false, "Failed to serialize identity to %s message.  %s", msg.GetTypeName().c_str(), identityToProtobufErrMsg ); \
+			AssertMsg( false, "Failed to serialize identity to message.  %s", identityToProtobufErrMsg ); \
 		} \
 	}
 
