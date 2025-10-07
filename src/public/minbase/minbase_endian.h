@@ -38,7 +38,10 @@ inline T WordSwapC( T w )
 template <typename T>
 inline T DWordSwapC( T dw )
 {
+	// Compiling for Android always gives assertion here.
+	#ifndef IsAndroid
 	PLAT_COMPILE_TIME_ASSERT( sizeof( T ) == sizeof(uint32) );
+	#endif
 	uint32 temp;
 #if defined( _MSC_VER ) || defined( __ICC )
 	temp = _byteswap_ulong( *(uint32*)&dw );

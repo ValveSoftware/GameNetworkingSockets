@@ -161,22 +161,117 @@ if(NOT SANITIZE_UNDEFINED)
 		)
 endif()
 
-protobuf_generate_cpp(GNS_COMMON_PROTO_SRCS GNS_COMMON_PROTO_HDRS ${GNS_COMMON_PROTOS})
-protobuf_generate_cpp(GNS_CLIENTLIB_PROTO_SRCS GNS_CLIENTLIB_PROTO_HDRS ${GNS_CLIENTLIB_PROTOS})
+#
+# Implemented a custom protobuf_generate_cpp logic for Android and iOS
+# Why? When using "FetchContent_Declare" with OVERRIDE_FIND_PACKAGE, protobuf-config.cmake won't be used, thus the protobuf-generate macro "protobuf_generate_cpp" would be unavailable.
+# There is already a fix at below link
+# fix link: https://github.com/protocolbuffers/protobuf/pull/10426
+# But merged fix date may be a later date than the protobuf git version we want to build with, so i find it better to stay safe with a custom protobuf_generate_cpp method. It is pretty straightforward.
+#
+
+if (ANDROID OR APPLE)
+
+	# set some file names depending on the platform
+	if (UNIX)
+		set (fileName "protocFiles.sh")
+		set (fileHeader "#!/bin/sh\n")
+	endif()
+
+	# Cache protoc commands to a bash file by iterating proto files
+	file (WRITE ${PROJECT_BINARY_DIR}/${fileName} ${fileHeader})
+	file (MAKE_DIRECTORY ${PROJECT_BINARY_DIR}/protos/common)
+	file (MAKE_DIRECTORY ${PROJECT_BINARY_DIR}/protos/clientlib)
+
+	foreach (X IN LISTS GNS_COMMON_PROTOS)
+	file (APPEND ${PROJECT_BINARY_DIR}/${fileName} "_deps/protobuf-src/buildCurrentPlatform/protoc -I=../src/common --cpp_out=protos/common ../src/${X}\n")
+	endforeach()
+	foreach (X IN LISTS GNS_CLIENTLIB_PROTOS)
+	file (APPEND ${PROJECT_BINARY_DIR}/${fileName} "_deps/protobuf-src/buildCurrentPlatform/protoc -I=../src/common --cpp_out=protos/clientlib ../src/${X}\n")
+	endforeach()
+	foreach (X IN LISTS GNS_COMMON_PROTOS)
+	file (APPEND ${PROJECT_BINARY_DIR}/${fileName} "_deps/protobuf-src/buildCurrentPlatform/protoc -I=../src/common --cpp_out=../src/common ../src/${X}\n")
+	endforeach()
+	foreach (X IN LISTS GNS_CLIENTLIB_PROTOS)
+	file (APPEND ${PROJECT_BINARY_DIR}/${fileName} "_deps/protobuf-src/buildCurrentPlatform/protoc -I=../src/common --cpp_out=../src/common ../src/${X}\n")
+	endforeach()
+
+	# Run the bash file
+	if (UNIX)
+		execute_process (COMMAND bash -c "bash ${fileName}"
+		WORKING_DIRECTORY ${PROJECT_BINARY_DIR}
+		RESULT_VARIABLE errorval )
+	endif()
+
+	# Populate the output lists
+	file(GLOB GNS_COMMON_PROTO_SRCS
+		"${PROJECT_BINARY_DIR}/protos/common/*.cc"
+	)
+	file(GLOB GNS_COMMON_PROTO_HDRS
+		"${PROJECT_BINARY_DIR}/protos/common/*.h"
+	)
+	file(GLOB GNS_CLIENTLIB_PROTO_SRCS
+		"${PROJECT_BINARY_DIR}/protos/clientlib/*.cc"
+	)
+	file(GLOB GNS_CLIENTLIB_PROTO_HDRS
+		"${PROJECT_BINARY_DIR}/protos/clientlib/*.h"
+	)
+else()
+	protobuf_generate_cpp(GNS_COMMON_PROTO_SRCS GNS_COMMON_PROTO_HDRS ${GNS_COMMON_PROTOS})
+	protobuf_generate_cpp(GNS_CLIENTLIB_PROTO_SRCS GNS_CLIENTLIB_PROTO_HDRS ${GNS_CLIENTLIB_PROTOS})
+endif()
 
 function(gns_set_target_protobuf_properties TGT )
+
+# Set some configs for Android and Apple
+if (ANDROID OR APPLE)
+	list(APPEND CMAKE_PREFIX_PATH ${PROJECT_BINARY_DIR}/_deps/protobuf-src/src)
+	include_directories(${PROJECT_BINARY_DIR}/_deps/protobuf-src/src)
+
+	list(APPEND CMAKE_PREFIX_PATH ${PROJECT_BINARY_DIR}/_deps/openssl-src/include)
+	include_directories(${PROJECT_BINARY_DIR}/_deps/openssl-src/include)
+endif ()
+
+# Android requires that log library
+if (ANDROID)
+	target_link_libraries(${TGT} PUBLIC
+		protobuf::libprotobuf
+		Threads::Threads
+		log
+		)
+elseif (CMAKE_SYSTEM_NAME MATCHES iOS) 
+
+	target_link_libraries(${TGT} PUBLIC
+		${PROJECT_BINARY_DIR}/_deps/protobuf-src/buildiOS/libprotobuf.a
+		Threads::Threads
+		)
+elseif (CMAKE_SYSTEM_NAME MATCHES Darwin) 
+	target_link_libraries(${TGT} PUBLIC
+		${PROJECT_BINARY_DIR}/_deps/protobuf-src/buildCurrentPlatform/libprotobuf.a
+		Threads::Threads
+		)
+else()
 	target_link_libraries(${TGT} PUBLIC
 		protobuf::libprotobuf
 		Threads::Threads
 		)
+endif()
 endfunction()
 
 # Set the target properties (sources, link libs, defines) based on crypto settings
 function(gns_set_target_crypto_properties TGT)
 	if(USE_CRYPTO STREQUAL "OpenSSL" OR USE_CRYPTO25519 STREQUAL "OpenSSL")
+
+		# linking staticly for Android and iOS
+		if (ANDROID OR APPLE)
+			target_link_libraries(${TGT} PUBLIC
+			${PROJECT_BINARY_DIR}/_deps/openssl-src/libcrypto.a
+		)
+		else()
 		target_link_libraries(${TGT} PUBLIC
 			OpenSSL::Crypto
 			)
+		endif(ANDROID OR APPLE)
+
 		if(WIN32 AND OPENSSL_USE_STATIC_LIBS)
 			target_link_libraries(${TGT} PUBLIC
 				ws2_32
@@ -185,6 +280,7 @@ function(gns_set_target_crypto_properties TGT)
 		endif()
 	endif()
 
+	# Currently libsodium linking is not supported for Android and Apple.
 	if(USE_CRYPTO STREQUAL "libsodium" OR USE_CRYPTO25519 STREQUAL "libsodium")
 		target_link_libraries(${TGT} PUBLIC
 			sodium
@@ -305,6 +401,10 @@ macro(set_clientlib_target_properties GNS_TARGET)
 		if(USE_CRYPTO STREQUAL "BCrypt")
 			target_link_libraries(${GNS_TARGET} PUBLIC bcrypt)
 		endif()
+	elseif(CMAKE_SYSTEM_NAME MATCHES Android)
+ 
+	elseif(CMAKE_SYSTEM_NAME MATCHES iOS)
+
 	else()
 		message(FATAL_ERROR "Could not identify your target operating system")
 	endif()
