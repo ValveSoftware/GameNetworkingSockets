@@ -1358,6 +1358,28 @@ void CSteamNetworkingSockets::SendMessages( int nMessages, SteamNetworkingMessag
 		// Return result for this message if they asked for it
 		if ( pOutMessageNumberOrResult )
 			pOutMessageNumberOrResult[pSort->m_idx] = result;
+
+		// Have too many pending bytes on this connection
+		if ( result == -k_EResultLimitExceeded )
+		{
+			// If caller wants to know - mark all next messages as k_EResultLimitExceeded so caller could
+			// attempt to resend them later
+			if ( pOutMessageNumberOrResult ) {
+				++pSort; // Already done
+				for ( ; pSort < pSortEnd ; ++pSort )
+				{
+					if ( pSort->m_hConn != hConn )
+						break;
+
+					pOutMessageNumberOrResult[pSort->m_idx] = -k_EResultLimitExceeded;
+				}
+			}
+			else
+			{
+				// Caller doesn't care - just skip this one
+				pMsg->Release();
+			}
+		}
 	}
 
 	// Flush out last connection, if any
