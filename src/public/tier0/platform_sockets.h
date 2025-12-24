@@ -112,7 +112,7 @@ typedef char SteamNetworkingErrMsg[ 1024 ];
 
 	#define PlatformSupportsRecvMsg() true
 
-	#ifdef __APPLE__
+	#if defined(__APPLE__) || defined(__FreeBSD__)
 		#define USE_POLL
 
 		// I can't get this to work on MacOS.  If someboddy believes that
