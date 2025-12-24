@@ -33,8 +33,12 @@ using namespace SteamNetworkingSocketsLib;
 #include <sys/ptrace.h>
 #endif
 
-#if IsOSX()
-#include <sys/sysctl.h>
+#if IsOSX() || IsFreeBSD()
+	#include <sys/sysctl.h>
+	#if IsFreeBSD()
+		#include <sys/proc.h>
+		#include <sys/user.h>
+	#endif
 #endif
 
 #if IsPlaystation() && defined(_DEBUG)
@@ -45,7 +49,7 @@ bool Plat_IsInDebugSession()
 {
 #ifdef _WIN32
 	return (IsDebuggerPresent() != 0);
-#elif IsOSX()
+#elif IsOSX() || IsFreeBSD()
 	int mib[4];
 	struct kinfo_proc info;
 	size_t size;
@@ -54,9 +58,17 @@ bool Plat_IsInDebugSession()
 	mib[2] = KERN_PROC_PID;
 	mib[3] = getpid();
 	size = sizeof(info);
-	info.kp_proc.p_flag = 0;
+#if IsFreeBSD()
+	info.ki_paddr->p_flag = 0;
+#else
+	info.kp_proc.flag = 0;
+#endif
 	sysctl(mib,4,&info,&size,NULL,0);
-	return ((info.kp_proc.p_flag & P_TRACED) == P_TRACED);
+#if IsFreeBSD()
+	return ((info.ki_paddr->p_flag & P_TRACED) == P_TRACED);
+#else
+	return ((info.kp_proc.flag & P_TRACED) == P_TRACED);
+#endif
 #elif IsLinux()
 	static FILE *fp;
 	if ( !fp )
