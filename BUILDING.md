@@ -81,6 +81,15 @@ You can obtain the dependent packages into your local `vcpkg` folder as an expli
 ```
 > .\vcpkg\vcpkg install --triplet=x64-windows
 ```
+You can also use the command 
+```
+> .\vcpkg\vcpkg install gamenetworkingsockets
+```
+Wait for the packages to download. In the project's terminal, type 
+```
+vcpkg integrate install
+```
+(if vcpkg hasn't been integrated into Visual Studio before). After installation, you can use the library: `#include <GameNetworkingSockets/steam/[required .h file]>`
 
 If you want to use the libsodium backend, install the libsodium dependencies by adding `--x-feature=libsodium`.
 
