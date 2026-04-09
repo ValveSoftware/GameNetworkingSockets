@@ -739,7 +739,7 @@ bool CheckCertAppID( const CMsgSteamDatagramCertificate &msgCert, const CertAuth
 		if ( !pCACertAuthScope || pCACertAuthScope->m_apps.HasItem( nAppID ) )
 			return true;
 		V_sprintf_safe( errMsg, "Cert is not restricted by appid, but CA trust chain is, and does not authorize %u", nAppID );
-		return true;
+		return false;
 	}
 
 	// Search cert for the one they are trying
