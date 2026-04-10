@@ -4,7 +4,15 @@ include(CheckSymbolExists)
 include(CMakePushCheckState)
 include(GNUInstallDirs)
 
-find_package(Protobuf REQUIRED)
+# Prefer config mode: upstream protobuf-config.cmake carries absl transitive deps
+# needed on modern distros (Arch, Fedora, Ubuntu 22+). Set MODULE_COMPATIBLE so
+# protobuf_generate_cpp() is available when config mode succeeds.
+# Fall back to CMake's FindProtobuf module for older installs (e.g. Ubuntu bionic).
+set(protobuf_MODULE_COMPATIBLE ON CACHE BOOL "" FORCE)
+find_package(Protobuf QUIET CONFIG)
+if(NOT Protobuf_FOUND)
+	find_package(Protobuf REQUIRED)
+endif()
 find_package(Threads REQUIRED)
 
 set(GNS_COMMON_PROTOS
@@ -401,8 +409,7 @@ configure_package_config_file(../cmake/GameNetworkingSocketsConfig.cmake.in
 	PATH_VARS CMAKE_INSTALL_FULL_INCLUDEDIR
 	)
 
-install(FILES 
+install(FILES
 	${CMAKE_CURRENT_BINARY_DIR}/GameNetworkingSocketsConfig.cmake
 	DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/GameNetworkingSockets
 	)
-
