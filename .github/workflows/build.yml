@@ -43,8 +43,16 @@ jobs:
         crypto: [OpenSSL, BCrypt]
     env:
       VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/vcpkg-bincache
+      VCPKG_BINARY_SOURCES: clear;files,${{ github.workspace }}/vcpkg-bincache,readwrite
     steps:
       - uses: actions/checkout@main
+
+      # Mark all directories as safe so checkouts performed in CMakeLists.txt don't cause "unsafe repository" errors.
+      # See https://github.com/actions/checkout/issues/766
+      - name: Configure Git
+        run: git config --global --add safe.directory '*'
+        shell: cmd
 
       - uses: lukka/get-cmake@latest
 
@@ -54,30 +62,45 @@ jobs:
       # install of vcpkg, and we don't want that
       - uses: ilammy/msvc-dev-cmd@v1
 
-      - name: Restore artifacts, setup vcpkg
-        uses: lukka/run-vcpkg@v11
+      - name: set VCPKG_ROOT
+        run: |
+          "VCPKG_ROOT=${{ github.workspace }}/vcpkg" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+        shell: pwsh
+
+      - name: Setup local vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg.git "${{ env.VCPKG_ROOT }}"
+          cd /d "${{ env.VCPKG_ROOT }}"
+          git checkout c3867e714dd3a51c272826eea77267876517ed99
+          call bootstrap-vcpkg.bat -disableMetrics
+        shell: cmd
+
+      - name: Ensure vcpkg cache directories exist
+        run: |
+          New-Item -ItemType Directory -Path "${{ env.VCPKG_ROOT }}/downloads" -Force | Out-Null
+          New-Item -ItemType Directory -Path "${{ env.VCPKG_DEFAULT_BINARY_CACHE }}" -Force | Out-Null
+        shell: pwsh
+
+      - name: Restore vcpkg caches
+        uses: actions/cache@v4
         with:
-          vcpkgGitCommitId: fba75d09065fcc76a25dcf386b1d00d33f5175af
-          vcpkgDirectory: '${{ github.workspace }}/vcpkg'
-          vcpkgJsonGlob: vcpkg.json
-          runVcpkgInstall: false
+          path: |
+            ${{ env.VCPKG_ROOT }}/downloads
+            ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: vcpkg-${{ runner.os }}-${{ matrix.os-version }}-${{ matrix.crypto }}-c3867e714dd3a51c272826eea77267876517ed99-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-${{ matrix.os-version }}-${{ matrix.crypto }}-
 
       - name: vcpkg check / install dependencies
         working-directory: '${{ github.workspace }}'
-        run: '"${{env.VCPKG_ROOT}}\\vcpkg" install --triplet=x64-windows'
+        run: '"${{env.VCPKG_ROOT}}\vcpkg" install --vcpkg-root "${{env.VCPKG_ROOT}}" --triplet=x64-windows'
         shell: cmd
 
-      - name: Install dependencies and generate project files
+      - name: cmake generate project files
         run: |
           mkdir build
           cd build
-          cmake -S .. -G Ninja -DBUILD_TESTS=ON -DBUILD_EXAMPLES=ON -DBUILD_TOOLS=ON -DCMAKE_TOOLCHAIN_FILE=${{env.VCPKG_ROOT}}/scripts/buildsystems/vcpkg.cmake -DUSE_CRYPTO=${{matrix.crypto}}
-        shell: cmd
-
-      # Mark all directories as safe so checkouts performed in CMakeLists.txt don't cause "unsafe repository" errors.
-      # See https://github.com/actions/checkout/issues/766
-      - name: Configure Git
-        run: git config --global --add safe.directory '*'
+          cmake -S .. -G Ninja -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DBUILD_TESTS=ON -DBUILD_EXAMPLES=ON -DBUILD_TOOLS=ON "-DCMAKE_TOOLCHAIN_FILE=${{env.VCPKG_ROOT}}/scripts/buildsystems/vcpkg.cmake" -DUSE_CRYPTO=${{matrix.crypto}}
         shell: cmd
 
       - name: Build projects
@@ -92,8 +115,7 @@ jobs:
 
       - name: Test connection
         working-directory: '${{ github.workspace }}/build/bin'
-        #run: test_connection.exe suite-quick  # Loopback throughput test not performing on github hosted runners for some reason
-
-        run: test_connection.exe identity quick lane_quick_queueanddrain lane_quick_priority_and_background
+        run: |
+          rem test_connection.exe suite-quick  -- Loopback throughput test not performing on github hosted runners for some reason
+          test_connection.exe identity quick lane_quick_queueanddrain lane_quick_priority_and_background
         shell: cmd
-
