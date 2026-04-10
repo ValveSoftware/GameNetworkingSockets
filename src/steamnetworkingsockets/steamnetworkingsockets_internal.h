@@ -133,7 +133,7 @@
 
 enum EDualWifiEnable {
 	k_nDualWifiEnable_Disable = 0,
-	k_nDualWifiEnable_Enable = 1, // 
+	k_nDualWifiEnable_Enable = 1, //
 	k_nDualWifiEnable_DoNotEnumerate = 2, // Enumerate primary adapters, but don't actually try to enable any Dual Wifi support
 	k_nDualWifiEnable_DoNotBind = 3, // Try to turn on Dual Wifi and locate the secondary adapter, but don't actually bind
 	k_nDualWifiEnable_ForceSimulate = 4, // Don't really do any DualWifi work, just open up another "regular" socket
@@ -370,7 +370,7 @@ const uint32 k_nCurrentProtocolVersion = 12;
 /// when we introduce wire breaking protocol changes and do not wish to be
 /// backward compatible.  This has been fine before the	first major release,
 /// but once we make a big public release, we probably won't ever be able to
-/// do this again, and we'll need to have more sophisticated mechanisms. 
+/// do this again, and we'll need to have more sophisticated mechanisms.
 const uint32 k_nMinRequiredProtocolVersion = 8;
 
 /// SteamNetworkingMessages is built on top of SteamNetworkingSockets.  We use a reserved
@@ -469,19 +469,21 @@ inline int VarIntSerializedSize( uint64 x )
 
 // De-serialize a var-int encoded quantity.  Returns pointer to the next byte,
 // or NULL if there was a decoding error (we hit the end of stream.)
-// https://developers.google.com/protocol-buffers/docs/encoding
-//
-// NOTE: We do not detect overflow.
+// https://developers.google.com/protocol-buffers/docs/encoding/
 template <typename T>
 inline byte *DeserializeVarInt( byte *p, const byte *end, T &x )
 {
-	if ( p >= end )
+	if ( unlikely( p >= end ) )
 		return nullptr;
+	const byte *max_end = p + ( (sizeof(T)*8 + 6) / 7 );
+	if ( end > max_end )
+		end = max_end;
+
 	T nResult = *p & 0x7f; // use local variable for working, to make sure compiler doesn't try to worry about pointer aliasing
 	unsigned nShift = 7;
 	while ( *(p++) & 0x80 )
 	{
-		if ( p >= end )
+		if ( unlikely( p >= end ) )
 			return nullptr;
 		nResult |= ( T( *p & 0x7f ) << nShift );
 		nShift += 7;
@@ -1611,7 +1613,7 @@ namespace vstd
 		{
 			// We need dynamic memory.  If we're not exactly sized already,
 			// just nuke everyhing we have.
-			if ( n != capacity_ ) 
+			if ( n != capacity_ )
 			{
 				clear();
 				reserve( n );
