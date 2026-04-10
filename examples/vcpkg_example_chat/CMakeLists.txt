@@ -2,7 +2,7 @@
 # Example porject that uses GameNetworkingSockets, obtaining
 # dependencies, etc entirely through vcpkg.
 #
-cmake_minimum_required(VERSION 3.9)
+cmake_minimum_required(VERSION 3.10)
 project( example_chat_vcpkg )
 
 # Ask vcpkg to fetch gamenetworkingsockets and all
