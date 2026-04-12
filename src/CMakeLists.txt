@@ -172,6 +172,17 @@ endif()
 protobuf_generate_cpp(GNS_COMMON_PROTO_SRCS GNS_COMMON_PROTO_HDRS ${GNS_COMMON_PROTOS})
 protobuf_generate_cpp(GNS_CLIENTLIB_PROTO_SRCS GNS_CLIENTLIB_PROTO_HDRS ${GNS_CLIENTLIB_PROTOS})
 
+# GCC 15 can emit -Wstringop-overflow on protobuf-generated struct copy patterns.
+# Keep -Werror for all hand-written code, but do not fail builds on this one
+# warning class in generated protobuf translation units.
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+	set_source_files_properties(
+		${GNS_COMMON_PROTO_SRCS}
+		${GNS_CLIENTLIB_PROTO_SRCS}
+		PROPERTIES COMPILE_OPTIONS "-Wno-error=stringop-overflow"
+	)
+endif()
+
 function(gns_set_target_protobuf_properties TGT )
 	target_link_libraries(${TGT} PUBLIC
 		protobuf::libprotobuf
