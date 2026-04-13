@@ -6,21 +6,46 @@ jobs:
   build-and-test-macos:
     name: Build And Test MacOS
     runs-on: macos-latest
+    env:
+      VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/vcpkg-bincache
+      VCPKG_BINARY_SOURCES: clear;files,${{ github.workspace }}/vcpkg-bincache,readwrite
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
+
+    - name: Ensure vcpkg cache directories exist
+      run: |
+        mkdir -p "${VCPKG_ROOT}/downloads"
+        mkdir -p "${VCPKG_DEFAULT_BINARY_CACHE}"
+
+    - name: Restore vcpkg caches
+      uses: actions/cache@v4
+      with:
+        path: |
+          ${{ env.VCPKG_ROOT }}/downloads
+          ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+        key: vcpkg-${{ runner.os }}-macos-c3867e714dd3a51c272826eea77267876517ed99-${{ hashFiles('vcpkg.json') }}
+        restore-keys: |
+          vcpkg-${{ runner.os }}-macos-
+
     - name: Install Vcpkg
       run: |
-        git clone https://github.com/Microsoft/vcpkg.git
-        cd vcpkg
+        git clone https://github.com/microsoft/vcpkg.git "${VCPKG_ROOT}"
+        cd "${VCPKG_ROOT}"
+        git checkout c3867e714dd3a51c272826eea77267876517ed99
         ./bootstrap-vcpkg.sh
         ./vcpkg integrate install
+
+    - name: Install vcpkg dependencies
+      run: |
+        "${VCPKG_ROOT}/vcpkg" install
 
     - name: Configure CMake
       # Configure CMake in a 'build' subdirectory. `CMAKE_BUILD_TYPE` is only required if you are using a single-configuration generator such as make.
       # See https://cmake.org/cmake/help/latest/variable/CMAKE_BUILD_TYPE.html?highlight=cmake_build_type
-      run: cmake -B ${{github.workspace}}/build 
+      run: cmake -B ${{github.workspace}}/build
             -DCMAKE_BUILD_TYPE=Release
-            -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake
+            -DCMAKE_TOOLCHAIN_FILE=${{ env.VCPKG_ROOT }}/scripts/buildsystems/vcpkg.cmake
             -DBUILD_TESTS=ON
 
     - name: Build
