@@ -10,6 +10,7 @@ PACKAGES=(
 	ccache
 	clang
 	cmake
+	python
 	git
 	go
 	ninja

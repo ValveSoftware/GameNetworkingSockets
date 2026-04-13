@@ -11,6 +11,7 @@ PACKAGES=(
 	clang
 	cmake
 	ninja
+	python3
 	pkgconf-pkg-config
 	git
 	make

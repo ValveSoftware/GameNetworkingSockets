@@ -13,6 +13,7 @@ PACKAGES=(
 	ccache
 	cmake
 	ninja
+	python3
 	pkgconf
 	git
 	linux-headers

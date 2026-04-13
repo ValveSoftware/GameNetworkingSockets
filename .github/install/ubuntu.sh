@@ -18,6 +18,7 @@ PACKAGES=(
 	cmake
 	ninja-build
 	clang
+	python3
 	git
 	golang
 )
