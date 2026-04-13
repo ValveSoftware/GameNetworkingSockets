@@ -2742,24 +2742,59 @@ bool CSteamNetworkConnectionBase::ReceivedMessage( CSteamNetworkingMessage *pMsg
 	}
 
 	// Check for messages are received out of order.  If the messages with a higher
-	// message number have not been removed from the queue, then we can correct this
-	const int64 nMessageNumber = pMsg->m_nMessageNumber;
-	if ( m_queueRecvMessages.m_pLast && unlikely( m_queueRecvMessages.m_pLast->m_nMessageNumber > pMsg->m_nMessageNumber ) )
+	// message number have not been removed from the queue, then we can correct this.
+	//
+	// NOTE: This is a totally optional fixup to try to reduce how often we present
+	//       out-of-order messages to the application.  Some applications don't
+	//       handle out of order messages well.  (I.e. they just drop them.)  If we can
+	//       correct it at this layer, without violating any of the guarantees of
+	//       the protocol, it will improve the experience for applications with less
+	//       robust code, at very little cost.
+	CSteamNetworkingMessage *pMsgInsertBefore = m_queueRecvMessages.m_pLast;
+	if ( pMsgInsertBefore )
 	{
+
+		const uint16 idxLane = pMsg->m_idxLane;
+
+		#if STEAMNETWORKINGSOCKETS_MAX_LANES > 1
+		if ( m_receiverState.m_vecLanes.size() > 1 )
+		{
+
+			// Scan backwards until we find the first message
+			// with a different lane number
+			while ( pMsgInsertBefore->m_idxLane != idxLane )
+			{
+				pMsgInsertBefore = pMsgInsertBefore->m_links.m_pPrev;
+				if ( !pMsgInsertBefore )
+					goto add_to_tail;
+			}
+		}
+		#endif
+
+		const int64 nMessageNumber = pMsg->m_nMessageNumber;
+		if ( likely( pMsgInsertBefore->m_nMessageNumber <= nMessageNumber ) )
+			goto add_to_tail;
 
 		// Scan the linked list to find the insertion point
 		int nMessagesGreaterThanCurrent = 1;
-		CSteamNetworkingMessage *pMsgInsertBefore = m_queueRecvMessages.m_pLast;
 		const int64 nMessageNumberLast = pMsgInsertBefore->m_nMessageNumber;
+		CSteamNetworkingMessage *ptr = pMsgInsertBefore;
 		for (;;)
 		{
-			Assert( pMsgInsertBefore->m_links.m_pQueue == &m_queueRecvMessages );
-			CSteamNetworkingMessage *pPrev = pMsgInsertBefore->m_links.m_pPrev;
-			if ( !pPrev || pPrev->m_nMessageNumber <= nMessageNumber )
+			Assert( ptr->m_links.m_pQueue == &m_queueRecvMessages );
+			CSteamNetworkingMessage *pPrev = ptr->m_links.m_pPrev;
+			if ( !pPrev )
 				break;
-			pMsgInsertBefore = pPrev;
-			++nMessagesGreaterThanCurrent;
+			if ( pPrev->m_idxLane == idxLane )
+			{
+				if ( pPrev->m_nMessageNumber <= nMessageNumber )
+					break;
+				pMsgInsertBefore = ptr;
+				++nMessagesGreaterThanCurrent;
+			}
+			ptr = pPrev;
 		}
+
 
 		const int64 nMessageNumberInsertBefore = pMsgInsertBefore->m_nMessageNumber;
 
@@ -2797,21 +2832,18 @@ bool CSteamNetworkConnectionBase::ReceivedMessage( CSteamNetworkingMessage *pMsg
 			(long long)nMessageNumberInsertBefore,
 			(long long)nMessageNumberLast );
 
+		return true;
 	}
-	else
-	{
+add_to_tail:
 
-		// Add to end of my queue.
-		pMsg->LinkToQueueTail( &CSteamNetworkingMessage::m_links, &m_queueRecvMessages );
+	// Add to end of my queue.
+	pMsg->LinkToQueueTail( &CSteamNetworkingMessage::m_links, &m_queueRecvMessages );
 
-		// Add to the poll group, if we are in one
-		if ( m_pPollGroup )
-			pMsg->LinkToQueueTail( &CSteamNetworkingMessage::m_linksSecondaryQueue, &m_pPollGroup->m_queueRecvMessages );
+	// Add to the poll group, if we are in one
+	if ( m_pPollGroup )
+		pMsg->LinkToQueueTail( &CSteamNetworkingMessage::m_linksSecondaryQueue, &m_pPollGroup->m_queueRecvMessages );
 
-		// Each if() branch has its own unlock, so we can spew in the branch above
-		g_lockAllRecvMessageQueues.unlock();
-	}
-
+	g_lockAllRecvMessageQueues.unlock();
 	return true;
 }
 
