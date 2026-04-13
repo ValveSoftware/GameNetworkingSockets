@@ -5,8 +5,62 @@ jobs:
 
   build-and-test-ubuntu:
     #if: false  # Temporarily disable
-    name: Build And Test Ubuntu
+    name: Build And Test Ubuntu ${{ matrix.row }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - row: clang-openssl-baseline
+            compiler: clang
+            build_dir: build-ci-quick-clang
+            sanitizer: none
+            use_webrtc: false
+            crypto: default
+            crypto25519: default
+            targets: "test_connection test_crypto"
+            run_tests: true
+            tests: "test_crypto test_connection:suite-quick"
+          - row: gcc-openssl-crypto
+            compiler: gcc
+            build_dir: build-ci-quick-gcc
+            sanitizer: none
+            use_webrtc: false
+            crypto: default
+            crypto25519: default
+            targets: "test_crypto"
+            run_tests: true
+            tests: "test_crypto"
+          - row: clang-libsodium
+            compiler: clang
+            build_dir: build-ci-quick-sodium
+            sanitizer: none
+            use_webrtc: false
+            crypto: libsodium
+            crypto25519: libsodium
+            targets: "test_crypto"
+            run_tests: true
+            tests: "test_crypto"
+          - row: clang-reference-25519
+            compiler: clang
+            build_dir: build-ci-quick-ref25519
+            sanitizer: none
+            use_webrtc: false
+            crypto: default
+            crypto25519: Reference
+            targets: "test_crypto"
+            run_tests: true
+            tests: "test_crypto"
+          - row: clang-openssl-webrtc
+            compiler: clang
+            build_dir: build-ci-quick-webrtc
+            sanitizer: none
+            use_webrtc: true
+            crypto: default
+            crypto25519: default
+            targets: "test_crypto"
+            run_tests: true
+            tests: "test_crypto"
     env:
       CI_BUILD: 1
       IMAGE: ubuntu
@@ -20,8 +74,42 @@ jobs:
         run: |
           sudo -E bash .github/install.sh
           sudo -E bash .github/install-post.sh
-      - name: Build and run tests
-        run: bash .github/build.sh
+      - name: Build and run selected single config
+        run: |
+          set -euo pipefail
+
+          args=(
+            --compiler "${{ matrix.compiler }}"
+            --build-dir "${{ matrix.build_dir }}"
+            --sanitizer "${{ matrix.sanitizer }}"
+          )
+
+          if [[ "${{ matrix.use_webrtc }}" == "true" ]]; then
+            args+=(--use-webrtc)
+          fi
+
+          if [[ "${{ matrix.crypto }}" != "default" ]]; then
+            args+=(--crypto "${{ matrix.crypto }}")
+          fi
+
+          if [[ "${{ matrix.crypto25519 }}" != "default" ]]; then
+            args+=(--crypto25519 "${{ matrix.crypto25519 }}")
+          fi
+
+          if [[ -n "${{ matrix.targets }}" ]]; then
+            read -r -a target_args <<< "${{ matrix.targets }}"
+            args+=(--targets "${target_args[@]}")
+          fi
+
+          if [[ "${{ matrix.run_tests }}" == "true" ]]; then
+            args+=(--run-tests)
+            if [[ -n "${{ matrix.tests }}" ]]; then
+              read -r -a test_args <<< "${{ matrix.tests }}"
+              args+=(--tests "${test_args[@]}")
+            fi
+          fi
+
+          python3 .github/run-single-config.py "${args[@]}"
 
       # Don't do it this way.  This causes the main badge to
       # go red if one of the flavors fails.
