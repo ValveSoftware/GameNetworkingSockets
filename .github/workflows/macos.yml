@@ -14,6 +14,11 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    - name: Ensure vcpkg cache directories exist
+      run: |
+        mkdir -p "${VCPKG_DOWNLOADS}"
+        mkdir -p "${VCPKG_DEFAULT_BINARY_CACHE}"
+
     - name: Install Vcpkg
       run: |
         git clone https://github.com/microsoft/vcpkg.git "${VCPKG_ROOT}"
@@ -21,11 +26,6 @@ jobs:
         git checkout c3867e714dd3a51c272826eea77267876517ed99
         ./bootstrap-vcpkg.sh
         ./vcpkg integrate install
-
-    - name: Ensure vcpkg cache directories exist
-      run: |
-        mkdir -p "${VCPKG_DOWNLOADS}"
-        mkdir -p "${VCPKG_DEFAULT_BINARY_CACHE}"
 
     - name: Restore vcpkg caches
       uses: actions/cache@v4
