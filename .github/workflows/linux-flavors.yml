@@ -22,10 +22,14 @@ jobs:
     strategy:
       matrix:
         include:
-          - build: ubuntu-bionic
+          - build: ubuntu-jammy
             os: ubuntu-latest
             docker_image: ubuntu
-            docker_tag: bionic
+            docker_tag: jammy
+          - build: ubuntu-noble
+            os: ubuntu-latest
+            docker_image: ubuntu
+            docker_tag: noble
           #- build: ubuntu-latest
           #  os: ubuntu-latest
           #  docker_image: ubuntu

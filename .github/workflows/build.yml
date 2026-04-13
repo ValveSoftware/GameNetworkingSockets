@@ -64,7 +64,7 @@ jobs:
     env:
       CI_BUILD: 1
       IMAGE: ubuntu
-      IMAGE_TAG: latest
+      IMAGE_TAG: noble
     steps:
       - uses: actions/checkout@main
       # Note only alpine needs "preinstall" step
