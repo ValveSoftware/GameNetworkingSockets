@@ -56,10 +56,21 @@ $ cmake -G Ninja ..
 $ ninja
 ```
 
-## Using vcpkg to build the gamenetworkingsockets package
+## Using vcpkg to install the gamenetworkingsockets package
 
-If you are using [vcpkg](https://github.com/microsoft/vcpkg/) and are OK with the latest release and default configuration (OpenSSL for the crypto backend, P2P disabled), then you do not need to sync any of this code or build gamenetworkingsockets explicitly.  You can just install the package using vcpkg.  See [this example](examples/vcpkg_example_chat/README.md)
-for more.
+If you are using [vcpkg](https://github.com/microsoft/vcpkg/) and are OK with the latest release and default configuration (OpenSSL for the crypto backend, P2P disabled), then you do not need to sync any of this code or build gamenetworkingsockets explicitly.  You can install it directly from the vcpkg registry:
+
+```
+vcpkg install gamenetworkingsockets
+```
+
+Then include the headers in your project as, e.g.:
+
+```cpp
+#include <steam/steamnetworkingsockets.h>
+```
+
+See [this example](examples/vcpkg_example_chat/README.md) for more.
 
 ## Windows / Visual Studio
 
@@ -81,15 +92,6 @@ You can obtain the dependent packages into your local `vcpkg` folder as an expli
 ```
 > .\vcpkg\vcpkg install --triplet=x64-windows
 ```
-You can also use the command 
-```
-> .\vcpkg\vcpkg install gamenetworkingsockets
-```
-Wait for the packages to download. In the project's terminal, type 
-```
-vcpkg integrate install
-```
-(if vcpkg hasn't been integrated into Visual Studio before). After installation, you can use the library: `#include <GameNetworkingSockets/steam/[required .h file]>`
 
 If you want to use the libsodium backend, install the libsodium dependencies by adding `--x-feature=libsodium`.
 
