@@ -138,8 +138,9 @@ Ack frames are encoded as follows:
     1001wnnn latest_received_pkt_num latest_received_delay [N] [ack_block_0 ... ack_block_N]
 
     w: size of latest_received_pkt_num
-        0=16-bit
-        1=32-bit
+        0=32-bit
+        1=16-bit
+        (See below for important version caveat)
     nnn: number of blocks in this frame.
         000-110: use this number
         111: number of blocks is >6, explicit count byte N is present.  (Max 255 blocks)
@@ -152,6 +153,14 @@ the combination of the packet number and delay means that every ack frame also s
 as a ping reply, so that the RTT can be continuously monitored.    However, the
 max value of 65,535 is reserved to indicate that the value is intentionally missing
 or invalid and no timing information should be inferred.
+
+Important note regarding the `w` bit: Due to a bug, decoders prior to protocol version
+13 ignore the `w` and always assume that only the bottom 16-bits of `latest_received_pkt_num`
+are present.  Thus, encoders MUST always set w=1 and use 16-bit packet number when the
+peer is using a protocol version less than 13.  A decoder that uses protocol version
+13 or higher MUST check the w bit and handle either 16- or 32- bit packet numbers.
+An encoder MAY use either 16- or 32-bit packet numbers (and set w appropriately) if
+the peer's protocol number is 13 or higher.
 
 Ack blocks are encoded working backwards, starting from the most recent packets,
 towards older packets.  This is essentially a run-length encoding of a bitfield

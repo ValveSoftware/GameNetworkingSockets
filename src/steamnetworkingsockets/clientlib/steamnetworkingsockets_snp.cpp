@@ -385,7 +385,7 @@ int64 CSteamNetworkConnectionBase::SNP_SendMessage( CSteamNetworkingMessage *pSe
 			hdrEnd = SerializeVarInt( hdrEnd, cbData>>5U );
 		}
 		reliableInfo.m_cbHdr = hdrEnd - hdr;
-		reliableInfo.m_nSentReliableSegRefCount = 1; // Initialize reference count to 1.  
+		reliableInfo.m_nSentReliableSegRefCount = 1; // Initialize reference count to 1.
 
 		// Grow the total size of the message by the header
 		pSendMessage->m_cbSize += reliableInfo.m_cbHdr;
@@ -457,7 +457,7 @@ int64 CSteamNetworkConnectionBase::SNP_SendMessage( CSteamNetworkingMessage *pSe
 	// Save the message number.  The code below might end up deleting the message we just queued
 	int64 result = pSendMessage->m_nMessageNumber;
 
-	// Schedule wakeup at the appropriate time.  (E.g. right now, if we're ready to send, 
+	// Schedule wakeup at the appropriate time.  (E.g. right now, if we're ready to send,
 	// or at the Nagle time, if Nagle is active.)
 	//
 	// NOTE: Right now we might not actually be capable of sending end to end data.
@@ -477,7 +477,7 @@ int64 CSteamNetworkConnectionBase::SNP_SendMessage( CSteamNetworkingMessage *pSe
 			if ( usecNextThink > m_senderState.m_messagesQueued.m_pFirst->SNPSend_UsecNagle() )
 			{
 				// It's because of the rate limit
-				SpewDebug( "[%s] Send RATELIM.  QueueTime is %.1fms, SendRate=%.1fk, BytesQueued=%d, ping=%dms\n", 
+				SpewDebug( "[%s] Send RATELIM.  QueueTime is %.1fms, SendRate=%.1fk, BytesQueued=%d, ping=%dms\n",
 					GetDescription(),
 					m_sendRateData.CalcTimeUntilNextSend() * 1e-3,
 					m_sendRateData.m_nCurrentSendRateEstimate * ( 1.0/1024.0),
@@ -488,7 +488,7 @@ int64 CSteamNetworkConnectionBase::SNP_SendMessage( CSteamNetworkingMessage *pSe
 			else
 			{
 				// Waiting on nagle
-				SpewDebug( "[%s] Send Nagle %.1fms.  QueueTime is %.1fms, SendRate=%.1fk, BytesQueued=%d, ping=%dms\n", 
+				SpewDebug( "[%s] Send Nagle %.1fms.  QueueTime is %.1fms, SendRate=%.1fk, BytesQueued=%d, ping=%dms\n",
 					GetDescription(),
 					( m_senderState.m_messagesQueued.m_pFirst->SNPSend_UsecNagle() - usecNow ) * 1e-3,
 					m_sendRateData.CalcTimeUntilNextSend() * 1e-3,
@@ -640,7 +640,7 @@ EResult CSteamNetworkConnectionBase::SNP_ConfigureLanes( int nLanes, const int *
 
 				// !KLUDGE! Messages in a queue have a pointer to the queue
 				// That pointer may currently be dangling when we resized the array.
-				Assert( pMsg->m_linksSecondaryQueue.m_pQueue == pCheckQueue ); 
+				Assert( pMsg->m_linksSecondaryQueue.m_pQueue == pCheckQueue );
 				(void)pCheckQueue; // Suppress warning if asserts aren't enabled
 				pMsg->m_linksSecondaryQueue.m_pQueue = &l.m_messagesQueued;
 
@@ -971,7 +971,7 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLa
 
 			// Decoding rules state that if we have established a message number,
 			// (from an earlier unreliable message), then we advance it.
-			if ( nCurMsgNumForUnreliable > 0 ) 
+			if ( nCurMsgNumForUnreliable > 0 )
 				++nCurMsgNumForUnreliable;
 		}
 		else if ( ( nFrameType & 0xfc ) == 0x80 )
@@ -1080,7 +1080,19 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLa
 			{
 				static const char szAckLatestPktNum[] = "ack latest pktnum";
 				int64 nLowerBits, nMask;
-				if ( nFrameType & 0x40 )
+
+				// w bit (0x08) selects 32-bit (w=0) vs 16-bit (w=1).
+				// Note: the spec used to be inverted wrt the meaning of w, and there used to
+				// be a bug here checking that bit.  But the bug never mattered because there was
+				// a corresponding bug on the encoding side!  So we changed the spec to match
+				// the current encoding behaviour, and fixed the bug here so that we were compliant
+				// with the new spec.  We also bumped the protocol version number so that encoders
+				// can known when the decoder might have the bug.  We don't check the protocol
+				// version here, we always check the bit and obey the spec, even if we are talking
+				// to an older encoder who will never use 32-bit packet numbers and must always
+				// set w=1.
+
+				if ( !( nFrameType & 0x08 ) )
 				{
 					READ_32BITU( nLowerBits, szAckLatestPktNum );
 					nMask = 0xffffffff;
@@ -1094,7 +1106,7 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLa
 				}
 				Assert( ( nLatestRecvSeqNum & nMask ) == nLowerBits );
 
-				// Find the message number that is closes to 
+				// Find the message number that is closes to
 				if ( nLatestRecvSeqNum < 0 )
 				{
 					DECODE_ERROR( "SNP decode ack latest pktnum underflow.  %llx mod %llx, next send %llx",
@@ -1525,7 +1537,7 @@ void CSteamNetworkConnectionBase::SNP_QueueReliableSegmentsForRetry( SNPInFlight
 		const int cbSeg = relSeg.m_cbSize;
 		SSNPSenderState::Lane &lane = m_senderState.m_vecLanes[ relSeg.m_pMsg->m_idxLane ];
 
-		SpewMsgGroup( m_connectionConfig.LogLevel_PacketDecode.Get(), "[%s] pkt %lld %s, queueing retry of reliable range [%lld,%lld)\n", 
+		SpewMsgGroup( m_connectionConfig.LogLevel_PacketDecode.Get(), "[%s] pkt %lld %s, queueing retry of reliable range [%lld,%lld)\n",
 			GetDescription(),
 			nPktNumForDebug,
 			pszDebug,
@@ -1907,7 +1919,7 @@ bool CSteamNetworkConnectionBase::SNP_SendPacket( CConnectionTransport *pTranspo
 		// We have potentially transfered ownership of some reliable messages
 		// to the segments in helper.m_insertInflightPkt.  We must not leak those!
 		SNP_QueueReliableSegmentsForRetry( helper.m_insertInflightPkt.second, 0, "Send fail" );
-		return false; 
+		return false;
 	}
 
 	// We sent a packet.  Track it
@@ -2041,7 +2053,7 @@ template<bool k_bUnreliableOnly> struct SNPSegmentCollector<k_bUnreliableOnly,fa
 {
 	using Lane = SNPSegmentCollectorLane<k_bUnreliableOnly>;
 
-	// Packets for a particular lane, tagged with 
+	// Packets for a particular lane, tagged with
 	struct TaggedLane : Lane
 	{
 		int m_nLaneID;
@@ -2712,7 +2724,7 @@ int CSteamNetworkConnectionBase::SNP_SerializePacketInternal( SNPPacketSerialize
 			CSteamNetworkingMessage::ReliableSendInfo_t &relInfo = pSendMsg->ReliableSendInfo();
 			Assert( relInfo.m_nSentReliableSegRefCount > 0 );
 			--relInfo.m_nSentReliableSegRefCount;
-			
+
 			// Go ahead and add us to the end of the list of unacked messages
 			pSeg->m_pMsg->LinkToQueueTail( &CSteamNetworkingMessage::m_links, &m_senderState.m_unackedReliableMessages );
 		}
@@ -3417,7 +3429,7 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 		return true;
 
 	// !SPEED! Should we have a fast path here for small messages
-	// where we have nothing buffered, and avoid all the copying into the 
+	// where we have nothing buffered, and avoid all the copying into the
 	// stream buffer and decode directly.
 
 	// What do we expect to receive next?
@@ -4041,7 +4053,7 @@ void CSteamNetworkConnectionBase::SNP_RecordReceivedPktNum( int64 nPktNum, Steam
 			else
 			{
 				// We're not the next thing that needs to be acked.
-				
+
 				if ( itGap->first < m_receiverState.m_itPendingAck->first )
 				{
 					// We're a lowered numbered packet,	so this request is subsumed by the
