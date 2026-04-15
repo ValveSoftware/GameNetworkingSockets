@@ -31,7 +31,7 @@
 		#error "Unrecognized PS3 compiler; either __SNC__ or __GCC__ must be defined"
 	#endif
 
-#endif // SN_TARGET_PS3 
+#endif // SN_TARGET_PS3
 
 #if !defined(COMPILER_GCC) && (defined(__GCC__) || defined(__GNUC__))
 	#define COMPILER_GCC 1
@@ -101,7 +101,7 @@
 
 
 #ifdef _RETAIL
-	#define IsRetail() true 
+	#define IsRetail() true
 #else
 	#define IsRetail() false
 #endif
@@ -228,6 +228,9 @@
 #endif
 #ifndef IsOSX
 	#define IsOSX() false
+#endif
+#ifndef IsFreeBSD
+	#define IsFreeBSD() false
 #endif
 
 // Detect ARM
