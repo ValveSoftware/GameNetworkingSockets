@@ -299,6 +299,11 @@ public:
 	/// -k_EResultInvalidState if the connection was in an invalid state.
 	/// See ISteamNetworkingSockets::SendMessageToConnection for possible
 	/// failure codes.
+	/// NOTE: @LowKick
+	/// Fixed, don't skip any messages.
+	/// if it get k_EResultLimitExceeded for some message it will stop sending to this overloaded
+	/// connection and mark all subsequent messages to this connection as k_EResultLimitExceeded
+	/// allowing caller to retransmit it later
 	virtual void SendMessages( int nMessages, SteamNetworkingMessage_t *const *pMessages, int64 *pOutMessageNumberOrResult ) = 0;
 
 	/// Flush any messages waiting on the Nagle timer and send them
