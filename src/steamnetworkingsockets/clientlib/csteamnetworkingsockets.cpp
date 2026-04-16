@@ -89,10 +89,11 @@ DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, MTU_PacketSize, 1300, k_cbSteamNetwor
 	// We don't have a trusted third party, so allow this by default,
 	// and don't warn about it
 	DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, IP_AllowWithoutAuth, 2, 0, 2 );
+	DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, IPLocalHost_AllowWithoutAuth, 2, 0, 2 );
 #else
 	DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, IP_AllowWithoutAuth, 0, 0, 2 );
+	DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, IPLocalHost_AllowWithoutAuth, 0, 0, 2 );
 #endif
-DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, IPLocalHost_AllowWithoutAuth, 0, 0, 2 );
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, Unencrypted, 0, 0, 3 );
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, SymmetricConnect, 0, 0, 1 );
 DEFINE_CONNECTON_DEFAULT_CONFIGVAL( int32, LocalVirtualPort, -1, -1, INT32_MAX );
