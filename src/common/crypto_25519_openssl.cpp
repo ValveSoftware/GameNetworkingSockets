@@ -132,14 +132,18 @@ bool CCrypto::PerformKeyExchange( const CECKeyExchangePrivateKey &localPrivateKe
 
 	EVP_PKEY_CTX *ctx = EVP_PKEY_CTX_new( pkey, nullptr );
 
-	// Unless we have a bug, all these errors "should never happen".
 	VerifyFatal( ctx );
 	VerifyFatal( EVP_PKEY_derive_init(ctx) == 1 );
-	VerifyFatal( EVP_PKEY_derive_set_peer(ctx, peerkey) == 1 );
-	VerifyFatal( EVP_PKEY_derive(ctx, bufSharedSecret, &skeylen ) == 1 );
-	VerifyFatal( skeylen == sizeof(*pSharedSecretOut) );
 
+	// NOTE: This can fail if peer sends us an invalid public key.  (E.g. all zeros.)
+	bool bSharedSecretOK = 
+		EVP_PKEY_derive_set_peer(ctx, peerkey) == 1
+		&& EVP_PKEY_derive(ctx, bufSharedSecret, &skeylen ) == 1;
 	EVP_PKEY_CTX_free(ctx);
+	if ( !bSharedSecretOK )
+		return false;
+
+	VerifyFatal( skeylen == sizeof(*pSharedSecretOut) );
 
 	GenerateSHA256Digest( bufSharedSecret, sizeof(bufSharedSecret), pSharedSecretOut );
 	SecureZeroMemory( bufSharedSecret, 32 );
