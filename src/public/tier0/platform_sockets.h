@@ -3,15 +3,15 @@
 // Include the relevant platform-specific headers for socket-related
 // stuff, and declare some functions make them look as similar to
 // plain BSD sockets as possible.
-// 
+//
 // This includes a bunch of stuff.  DO NOT INCLUDE THIS FROM A HEADER
 //
 // Some things that will be defined by this file:
-// 
+//
 // closesocket()
 // GetLastSocketError()
 // SetSocketNonBlocking()
-// 
+//
 // USE_EPOLL or USE_POLL
 // If USE_EPOLL:
 //		EPollHandle, INVALID_EPOLL_HANDLE, EPollCreate()
@@ -112,13 +112,20 @@ typedef char SteamNetworkingErrMsg[ 1024 ];
 
 	#define PlatformSupportsRecvMsg() true
 
-	#if defined(__APPLE__) || defined(__FreeBSD__)
+	#if defined(__APPLE__)
+
+		// OSX provides kqueue, but we don't support it, so just use old-school poll()
 		#define USE_POLL
 
-		// I can't get this to work on MacOS.  If someboddy believes that
-		// it should work, I would appreciate the help.
-		#define PlatformSupportsRecvTOS() false
+		#define PlatformSupportsRecvTOS() true
+	#elif defined(__FreeBSD__)
 
+		// FreeBSD provides kqueue, but we don't support it, so just use old-school poll()
+		#define USE_POLL
+
+		// Does this work?  If somebody who uses FreeBSD
+		// wants to test, I would appreciate it!
+		#define PlatformSupportsRecvTOS() false
 	#else
 		#define USE_EPOLL
 		#include <sys/epoll.h>
