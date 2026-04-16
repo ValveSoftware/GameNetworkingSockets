@@ -378,15 +378,15 @@ struct SSNPSenderState
 		inline int PendingBytesTotal() const { return m_cbPendingUnreliable + m_cbPendingReliable; }
 
 		/// Multiplier used to calculate virtual finish time.
-		float m_flBytesToVirtualTime;
+		float m_flBytesToVirtualTime = 0.0f;
 
 		/// Index of the priority class we belong to.  Priority classes
 		/// are sorted, and so a lower m_idxPriorityClass means lower priority.
-		uint16 m_idxPriorityClass;
+		uint16 m_idxPriorityClass = 0;
 
 		/// Weight value they used.  This is only meaningful
 		/// relative to the other lanes with the same priority class
-		uint16 m_nWeight;
+		uint16 m_nWeight = 0;
 	};
 	#if STEAMNETWORKINGSOCKETS_MAX_LANES > 4
 		std_vector<Lane> m_vecLanes;
