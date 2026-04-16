@@ -873,6 +873,21 @@ void CSteamNetworkingSockets::CheckAuthenticationPrerequisites( SteamNetworkingM
 	if ( !BCanRequestCert() )
 		return;
 
+	// Make sure we don't infinitely recurse here.
+	// We might have a cert, but it's expired, so we try to request a new cert.
+	// That might immediately fail.   But we already have a cert,
+	// so we might try to schedule the next check by calling this function.
+	// Which will immediately try to request a new cert (since the one we have is
+	// expired), which might immediately fail, .... etc
+	static bool s_bRecursionCheck = false;
+	if ( s_bRecursionCheck )
+	{
+		m_scheduleCheckRenewCert.EnsureMinScheduleTime( SteamNetworkingSockets_GetLocalTimestamp() + k_nMillion*10 );
+		return;
+	}
+	s_bRecursionCheck = true;
+	RunCodeAtScopeExit( s_bRecursionCheck = false );
+
 	// Check if we're in flight already.
 	bool bInFlight = BCertRequestInFlight();
 
