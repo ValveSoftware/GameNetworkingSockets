@@ -717,7 +717,7 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLa
 	#define READ_24BITU( var, pszWhatFor ) \
 		do { EXPECT_BYTES(3,pszWhatFor); \
 			var = *(uint8 *)pDecode; pDecode += 1; \
-			var |= uint32( LittleWord(*(uint16 *)pDecode) ) << 8U; pDecode += 2; \
+			var |= uint64( LittleWord(*(uint16 *)pDecode) ) << 8U; pDecode += 2; \
 		} while(false)
 
 	#define READ_32BITU( var, pszWhatFor ) \
