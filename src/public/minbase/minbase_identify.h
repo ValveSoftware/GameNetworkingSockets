@@ -169,6 +169,9 @@
 #elif defined(__FreeBSD__)
 	#define IsFreeBSD() true
 	#define IsPosix() true
+#elif defined(__OpenBSD__)
+	#define IsOpenBSD() true
+	#define IsPosix() true
 #elif defined( _POSIX_VERSION ) || defined( POSIX ) || defined( VALVE_POSIX )
 	#define IsPosix() true
 #else
@@ -234,6 +237,9 @@
 #endif
 #ifndef IsFreeBSD
 	#define IsFreeBSD() false
+#endif
+#ifndef IsOpenBSD
+	#define IsOpenBSD() false
 #endif
 
 // Detect ARM

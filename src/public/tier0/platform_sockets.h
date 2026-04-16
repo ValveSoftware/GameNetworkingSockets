@@ -145,6 +145,14 @@ typedef char SteamNetworkingErrMsg[ 1024 ];
 		// Does this work?  If somebody who uses FreeBSD
 		// wants to test, I would appreciate it!
 		#define PlatformSupportsRecvTOS() false
+	#elif defined(__OpenBSD__)
+
+		// OpenBSD provides kqueue, but we don't support it, so just use old-school poll()
+		#define USE_POLL
+
+		// Does this work?  If somebody who uses OpenBSD
+		// wants to test, I would appreciate it!
+		#define PlatformSupportsRecvTOS() false
 	#else
 		#define USE_EPOLL
 		#include <sys/epoll.h>

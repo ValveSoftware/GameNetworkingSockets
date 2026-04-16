@@ -4369,7 +4369,11 @@ bool ResolveHostname( const char* pszHostname, CUtlVector< SteamNetworkingIPAddr
 
 	addrinfo hints;
 	V_memset( &hints, 0, sizeof( hints ) );
+#ifdef AI_V4MAPPED
 	hints.ai_flags = AI_V4MAPPED | AI_ADDRCONFIG;
+#else
+	hints.ai_flags = AI_ADDRCONFIG;
+#endif
 	hints.ai_family = AF_UNSPEC;
 	hints.ai_socktype = 0;
 	hints.ai_protocol = 0;
