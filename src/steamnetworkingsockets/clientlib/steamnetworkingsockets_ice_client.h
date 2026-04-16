@@ -1,7 +1,7 @@
 //====== Copyright Valve Corporation, All rights reserved. ====================
 
-#ifndef STEAMNETWORKINGSOCKETS_STUN_H
-#define STEAMNETWORKINGSOCKETS_STUN_H
+#ifndef STEAMNETWORKINGSOCKETS_ICE_CLIENT_H
+#define STEAMNETWORKINGSOCKETS_ICE_CLIENT_H
 #pragma once
 
 #include "steamnetworkingsockets_connections.h"

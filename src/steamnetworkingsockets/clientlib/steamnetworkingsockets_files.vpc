@@ -31,9 +31,9 @@ $Folder "SteamNetworkingSockets"
 
 		$File_NoPCH	"$SRCDIR/steamnetworkingsockets/clientlib/steamnetworkingsockets_p2p_webrtc.cpp"
 		$File	"$SRCDIR/steamnetworkingsockets/clientlib/steamnetworkingsockets_p2p_webrtc.h"
-		
-		$File_NoPCH	"$SRCDIR/steamnetworkingsockets/clientlib/steamnetworkingsockets_stun.cpp"
-		$File	"$SRCDIR/steamnetworkingsockets/clientlib/steamnetworkingsockets_stun.h"
+
+		$File_NoPCH	"$SRCDIR/steamnetworkingsockets/clientlib/steamnetworkingsockets_ice_client.cpp"
+		$File	"$SRCDIR/steamnetworkingsockets/clientlib/steamnetworkingsockets_ice_client.h"
 
 		$File_NoPCH	"$SRCDIR/steamnetworkingsockets/clientlib/steamnetworkingsockets_udp.cpp"
 		$File	"$SRCDIR/steamnetworkingsockets/clientlib/steamnetworkingsockets_udp.h"
