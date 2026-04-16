@@ -86,9 +86,7 @@ bool Plat_IsInDebugSession()
 	return (nTracePid != 0);
 #elif IsPlaystation()
 	// NDA material
-	// FIXME
-	return false;
-#elif IsNintendoSwitch()
+#elif IsNintendoSwitch() || IsOpenBSD()
 	return false;
 #else
 	#error "HALP"
