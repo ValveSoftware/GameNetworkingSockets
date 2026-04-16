@@ -1017,10 +1017,23 @@ void CSteamNetworkConnectionBase::SetDescription()
 	ConnectionTypeDescription_t szTypeDescription;
 	GetConnectionTypeDescription( szTypeDescription );
 
-	if ( m_szAppName[0] )
-		V_sprintf_safe( m_szDescription, "#%u %s '%s'", m_unConnectionIDLocal, szTypeDescription, m_szAppName );
+	// Prepend with local identity?  In most cases this is redundant and not useful.
+	// But when running tests, we create lots of local interfaces
+	char szLocalIdentity[256];
+	if ( m_pSteamNetworkingSocketsInterface->m_TEST_bUseLocalIdentityInConnectionDescription )
+	{
+		m_identityLocal.ToString( szLocalIdentity, sizeof(szLocalIdentity) );
+		V_strcat_safe( szLocalIdentity, " " );
+	}
 	else
-		V_sprintf_safe( m_szDescription, "#%u %s", m_unConnectionIDLocal, szTypeDescription );
+	{
+		szLocalIdentity[0] = '\0';
+	}
+
+	if ( m_szAppName[0] )
+		V_sprintf_safe( m_szDescription, "%s#%u %s '%s'", szLocalIdentity, m_unConnectionIDLocal, szTypeDescription, m_szAppName );
+	else
+		V_sprintf_safe( m_szDescription, "%s#%u %s", szLocalIdentity, m_unConnectionIDLocal, szTypeDescription );
 }
 
 void CSteamNetworkConnectionBase::InitConnectionCrypto( SteamNetworkingMicroseconds usecNow )
