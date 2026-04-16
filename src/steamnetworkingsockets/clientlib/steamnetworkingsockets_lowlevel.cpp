@@ -4274,17 +4274,17 @@ SteamNetworkingMicroseconds SteamNetworkingSockets_GetLocalTimestamp()
 bool ResolveHostname( const char* pszHostname, CUtlVector< SteamNetworkingIPAddr > *pAddrs )
 {
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_RESOLVEHOSTNAME
-	char pszHostnameBuffer[256];
+	char szHostnameBuffer[256];
 	const char* pszPortStr = V_strchr( (char*)pszHostname, ':' );
 	if ( pszPortStr != nullptr )
 	{
 		const int nChars = ( pszPortStr - pszHostname );
-		if( nChars > ( V_ARRAYSIZE( pszHostnameBuffer ) + 1 ))
+		if( nChars >= V_ARRAYSIZE( szHostnameBuffer ) )
 			return false;
-		V_memcpy( pszHostnameBuffer, pszHostname, nChars );
-		pszHostnameBuffer[ nChars ] = '\0';
+		V_memcpy( szHostnameBuffer, pszHostname, nChars );
+		szHostnameBuffer[ nChars ] = '\0';
 		pszPortStr = pszPortStr + 1;
-		pszHostname = pszHostnameBuffer;
+		pszHostname = szHostnameBuffer;
 	}
 
 	addrinfo hints;
