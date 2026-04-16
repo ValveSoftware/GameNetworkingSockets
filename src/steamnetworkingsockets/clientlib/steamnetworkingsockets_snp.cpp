@@ -4370,7 +4370,7 @@ void SSNPReceiverState::DebugCheckPacketGapMap() const
 	SteamNetworkingMicroseconds usecPrevAck = 0;
 	bool bFoundPendingAck = false;
 	bool bFoundPendingNack = false;
-	for ( auto it: m_mapPacketGaps )
+	for ( const std::pair<const int64,SSNPPacketGap> &it: m_mapPacketGaps )
 	{
 		Assert( it.first > nPrevEnd );
 		Assert( it.first < it.second.m_nEnd );
