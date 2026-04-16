@@ -2017,14 +2017,12 @@ void CSteamNetworkingICESession::STUNRequestCallback_PeerConnectivityCheck( cons
     ICECandidatePair *pPair = nullptr;
     for ( ICECandidatePair *pCandidatePair : m_vecCandidatePairs )
     {
-        if ( pCandidatePair->m_nState != kICECandidatePairState_InProgress )
-            continue;
-        if ( !( pCandidatePair->m_localCandidate.m_base == info.m_pRequest->m_localAddr ) )
-            continue;
-        if ( !( pCandidatePair->m_remoteCandidate.m_addr == info.m_pRequest->m_remoteAddr ) )
-            continue;
-        pPair = pCandidatePair;
-        break;
+        if ( pCandidatePair->m_pPeerRequest == info.m_pRequest )
+        {
+            pPair = pCandidatePair;
+            pCandidatePair->m_pPeerRequest = nullptr;
+            break;
+        }
     }
 
     if ( pPair == nullptr )
@@ -2044,7 +2042,6 @@ void CSteamNetworkingICESession::STUNRequestCallback_PeerConnectivityCheck( cons
         pPair->m_nState = kICECandidatePairState_Failed;
         return;
     }
-    pPair->m_pPeerRequest = nullptr;   
     pPair->m_nState = kICECandidatePairState_Succeeded;
     if ( pPair->m_bNominated )
     {
