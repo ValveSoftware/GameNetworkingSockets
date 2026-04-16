@@ -288,7 +288,7 @@ bool CSteamNetworkConnectionP2P::BInitConnect(
 			if ( m_identityRemote.GetFakeIPType() != k_ESteamNetworkingFakeIPType_GlobalIPv4 )
 			{
 				V_sprintf_safe( errMsg, "Can only initiate connection to global FakeIP" );
-				AssertMsg( false, errMsg );
+				AssertMsgFormatted( false, errMsg );
 				return false;
 			}
 		}

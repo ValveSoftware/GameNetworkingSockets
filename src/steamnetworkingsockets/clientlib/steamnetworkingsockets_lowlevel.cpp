@@ -2140,7 +2140,7 @@ static CRawUDPSocketImpl *OpenRawUDPSocketInternal( CRecvPacketCallback callback
 	if ( s_nLowLevelSupportRefCount.load(std::memory_order_acquire) <= 0 )
 	{
 		V_strcpy_safe( errMsg, "Internal order of operations bug.  Can't create socket, because low level systems not initialized" );
-		AssertMsg( false, errMsg );
+		AssertMsgFormatted( false, errMsg );
 		return nullptr;
 	}
 
