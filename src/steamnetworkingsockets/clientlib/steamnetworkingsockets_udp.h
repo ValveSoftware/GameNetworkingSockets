@@ -6,13 +6,9 @@
 
 #include "steamnetworkingsockets_connections.h"
 
-#if MEM_OVERRIDE_ON
-	#include <tier0/memdbgoff.h>
-	#include <steamnetworkingsockets_messages_udp.pb.h>
-	#include <tier0/memdbgon.h>
-#else
-	#include <steamnetworkingsockets_messages_udp.pb.h>
-#endif
+#include <tier0/memdbg_save_off.h>
+#include <steamnetworkingsockets_messages_udp.pb.h>
+#include <tier0/memdbg_restore.h>
 
 namespace SteamNetworkingSocketsLib {
 
