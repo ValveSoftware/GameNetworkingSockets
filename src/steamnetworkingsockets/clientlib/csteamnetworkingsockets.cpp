@@ -2454,8 +2454,10 @@ const char *CSteamNetworkingUtils::GetPlatformString()
 		return "windows";
 	#elif IsLinux()
 		return "linux";
-	#elif defined( FREEBSD ) || defined( __FreeBSD__ )
+	#elif IsFreeBSD()
 		return "freebsd";
+	#elif IsOpenBSD()
+		return "openbsd";
 	#else
 		#error "Unknown platform"
 	#endif
