@@ -775,7 +775,7 @@ bool CheckCertPOPID( const CMsgSteamDatagramCertificate &msgCert, const CertAuth
 		if ( !pCACertAuthScope || pCACertAuthScope->m_pops.HasItem( popID ) )
 			return true;
 		V_sprintf_safe( errMsg, "Cert is not restricted by POPID, but CA trust chain is, and does not authorize %s", SteamNetworkingPOPIDRender( popID ).c_str() );
-		return true;
+		return false;
 	}
 
 	// Search cert for the one they are trying
