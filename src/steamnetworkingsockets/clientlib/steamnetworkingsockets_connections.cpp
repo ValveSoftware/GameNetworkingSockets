@@ -3271,7 +3271,7 @@ bool CSteamNetworkConnectionBase::BConnectionState_Connecting( SteamNetworkingMi
 		if ( m_identityRemote.IsInvalid() )
 		{
 			V_strcpy_safe( errMsg, "Remote identity must be known to use symmetric mode" );
-			AssertMsg( false, errMsg );
+			AssertMsgFormatted( false, errMsg );
 			return false;
 		}
 	}

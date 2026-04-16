@@ -107,6 +107,7 @@ public:
 
 	#define  Assert( _exp )           							_AssertMsgSmall( _exp, false, "Assertion Failed: " #_exp )
 	#define  AssertMsg( _exp, ... )  							_AssertMsgSmall( _exp, false, __VA_ARGS__ )
+	#define  AssertMsgFormatted( _exp, _msg )  					_AssertMsgSmall( _exp, false, _msg )
 	#define  AssertOnce( _exp )       							_AssertMsgOnce( _exp, false, "Assertion Failed: " #_exp )
 	#define  AssertMsgOnce( _exp, ... )  						_AssertMsgOnce( _exp, false, __VA_ARGS__ )
 
@@ -115,6 +116,7 @@ public:
 	// Stubs
 	#define  Assert( _exp )										((void)0)
 	#define  AssertMsg( _exp, _msg, ... )						((void)0)
+	#define  AssertMsgFormatted( _exp, _msg )  					((void)0)
 	#define  AssertOnce( _exp )									((void)0)
 	#define  AssertMsgOnce( _exp, _msg, ... )					((void)0)
 
