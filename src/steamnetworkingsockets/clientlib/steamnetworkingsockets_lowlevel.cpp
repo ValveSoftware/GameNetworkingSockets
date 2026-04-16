@@ -822,7 +822,7 @@ bool IsRouteToAddressProbablyLocal( netadr_t addr )
 			struct sockaddr *pDestAddr,
 			PDWORD           pdwBestIfIndex
 			);
-		typedef 
+		typedef
 		NETIO_STATUS
 		(NETIOAPI_API_*FnGetBestRoute2)(
 			NET_LUID *InterfaceLuid,
@@ -1139,8 +1139,8 @@ public:
 				if ( !bResult )
 				{
 					const char *lpMsgBuf = nullptr;
-					FormatMessage(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, 
-								NULL, GetLastSocketError(), MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), 
+					FormatMessage(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+								NULL, GetLastSocketError(), MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
 								// Default language
 								(LPTSTR) & lpMsgBuf, 0, NULL);
 					if ( lpMsgBuf == nullptr )
@@ -1312,7 +1312,7 @@ struct CLaggedPacket final : public CPossibleOutOfOrderPacket
 		Assert( m_info.m_cbPkt < sizeof(m_pkt) );
 		memcpy( m_pkt, ctx.m_pPkt, m_info.m_cbPkt );
 	}
- 
+
 	// Upcast
 	CRawUDPSocketImpl *SockOwner() const { return assert_cast<CRawUDPSocketImpl *>( m_info.m_pSock ); }
 
@@ -2098,9 +2098,22 @@ static SOCKET OpenUDPSocketBoundToSockAddr( const void *pSockaddr, size_t len, S
 	#if PlatformSupportsRecvTOS()
 	{
 		opt = 1;
-		if ( setsockopt( sock, IPPROTO_IP, IP_RECVTOS, (char *)&opt, sizeof(opt) ) == -1 )
+
+		// Apple uses a different field to receive this for IPv6
+		#if defined(__APPLE__)
+		if ( inaddr->sin_family == AF_INET6 )
 		{
-			SpewWarning( "sockopt(IPPROTO_IP, IP_RECVTOS, 1) failed (0x%x), will not be able to read TOS\n", GetLastSocketError() );
+			if ( setsockopt( sock, IPPROTO_IPV6, IPV6_RECVTCLASS, (char *)&opt, sizeof(opt) ) == -1 )
+			{
+				SpewWarning( "sockopt(IPPROTO_IPV6, IPV6_RECVTCLASS, 1) failed (0x%x), will not be able to read TOS\n", GetLastSocketError() );
+			}
+		} else
+		#endif
+		{
+			if ( setsockopt( sock, IPPROTO_IP, IP_RECVTOS, (char *)&opt, sizeof(opt) ) == -1 )
+			{
+				SpewWarning( "sockopt(IPPROTO_IP, IP_RECVTOS, 1) failed (0x%x), will not be able to read TOS\n", GetLastSocketError() );
+			}
 		}
 	}
 	#endif
@@ -2485,43 +2498,62 @@ static bool DrainSocket( CRawUDPSocketImpl *pSock )
 		RecvPktInfo_t info;
 		info.m_adrFrom.SetFromSockadr( &from );
 
-		// Read the TOS field from the ancillary data.  We should have exactly one piece of control data
-		// and it should be this!
+		// Read the TOS field from the ancillary data.
 		info.m_tos = 0xff;
 		#if PlatformSupportsRecvMsg() && PlatformSupportsRecvTOS()
 		{
-			cmsghdr *cmsg = CMSG_FIRSTHDR( &msg );
-			if ( cmsg )
+			for ( cmsghdr *cmsg = CMSG_FIRSTHDR( &msg ); cmsg; cmsg = CMSG_NXTHDR( &msg, cmsg ) )
 			{
-				if ( unlikely( cmsg->cmsg_level != IPPROTO_IP || cmsg->cmsg_type != IP_TOS ) )
-				{
-					AssertMsgOnce( false, "Extra control data returned besides TOS?  0x%x/0x%x", cmsg->cmsg_level, cmsg->cmsg_type );
-					do
+
+				// Apple has a unique API for receiving the TOS data, and it differs between IPv4 and IPv6
+				#if defined(__APPLE__)
+
+					// And the field differs between IPv4 and IPv6
+					if ( cmsg->cmsg_level == IPPROTO_IP && cmsg->cmsg_type == IP_RECVTOS )
 					{
-						cmsg = CMSG_NXTHDR( &msg, cmsg );
-						if ( !cmsg )
-						{
-							AssertMsgOnce( false, "No control data returned even though we asked for TOS?" );
-							goto tos_done;
-						}
-					} while ( cmsg->cmsg_level != IPPROTO_IP || cmsg->cmsg_type != IP_TOS );
-				}
+						AssertMsgOnce( cmsg->cmsg_len >= CMSG_LEN( sizeof(uint8) ), "Unexpected IP_RECVTOS cmsg_len %lld", (long long)cmsg->cmsg_len );
+						info.m_tos = *((uint8 *) CMSG_DATA(cmsg));
+						goto tos_done;
+					}
 
-				#ifdef _WIN32
-					AssertMsgOnce( cmsg->cmsg_len == sizeof(cmsghdr) + sizeof(int), "Unexpected IP_TOS cmsg_len %lld", (long long)cmsg->cmsg_len );
-					info.m_tos = (uint8)*((int *) WSA_CMSG_DATA(cmsg));
+					// The naming of this field is apparently inconsistent
+					if (
+						cmsg->cmsg_level == IPPROTO_IPV6
+						&& (
+							cmsg->cmsg_type == IPV6_TCLASS
+							|| cmsg->cmsg_type == IPV6_RECVTCLASS
+							#ifdef IP_RECVTCLASS
+								|| cmsg->cmsg_type == IP_RECVTCLASS
+							#endif
+						)
+					) {
+						AssertMsgOnce( cmsg->cmsg_len >= CMSG_LEN( sizeof(int) ), "Unexpected IPv6 traffic-class (cmsg_type %d) cmsg_len %lld",
+							(int)cmsg->cmsg_type, (long long)cmsg->cmsg_len );
+						info.m_tos = (uint8)*((int *) CMSG_DATA(cmsg));
+						goto tos_done;
+					}
+
 				#else
-					AssertMsgOnce( cmsg->cmsg_len == sizeof(cmsghdr) + sizeof(uint8), "Unexpected IP_TOS cmsg_len %lld", (long long)cmsg->cmsg_len );
-					info.m_tos = *((uint8 *) CMSG_DATA(cmsg));
+					if ( cmsg->cmsg_level == IPPROTO_IP && cmsg->cmsg_type == IP_TOS )
+					{
+						#ifdef _WIN32
+							AssertMsgOnce( cmsg->cmsg_len == sizeof(cmsghdr) + sizeof(int), "Unexpected IP_TOS cmsg_len %lld", (long long)cmsg->cmsg_len );
+							info.m_tos = (uint8)*((int *) WSA_CMSG_DATA(cmsg));
+						#else
+							AssertMsgOnce( cmsg->cmsg_len == sizeof(cmsghdr) + sizeof(uint8), "Unexpected IP_TOS cmsg_len %lld", (long long)cmsg->cmsg_len );
+							info.m_tos = *((uint8 *) CMSG_DATA(cmsg));
+						#endif
+						goto tos_done;
+					}
 				#endif
-
-				cmsg = CMSG_NXTHDR( &msg, cmsg );
-				if ( unlikely( cmsg != nullptr ) )
-				{
-					AssertMsgOnce( false, "Extra control data returned besides TOS?  0x%x/0x%x", cmsg->cmsg_level, cmsg->cmsg_type );
-				}
-							
 			}
+
+			// If we get here, we scanned all control messages but didn't get the TOS data.
+			// If the platform supports it, we always ask for TOS, so it's bad that we didn't get it back.
+			// But only assert once, because all of the current the code that consumes this field
+			// is tolerant of the fact that it might not be available.  (Since we have to
+			// support platforms that don't support it at all.)
+			AssertMsgOnce( false, "No control data returned even though we asked for TOS?" );
 		}
 		tos_done:
 		#endif
@@ -2885,7 +2917,7 @@ static HANDLE wlanHandle = INVALID_HANDLE_VALUE;
 
 static HMODULE hModuleWlanAPI = NULL;
 
-static 
+static
 DWORD
 (WINAPI *pWlanOpenHandle)(
     DWORD dwClientVersion,
@@ -3012,7 +3044,7 @@ static int ConvertInterfaceGuidToIndex(const GUID& interfaceGuid)
 		_In_ CONST GUID *InterfaceGuid,
 		_Out_ PNET_LUID InterfaceLuid
 		);
-	typedef 
+	typedef
 	NETIO_STATUS
 	(NETIOAPI_API_*FnConvertInterfaceLuidToIndex)(
 		_In_ CONST NET_LUID *InterfaceLuid,
@@ -3055,7 +3087,7 @@ public:
 	{
 		// https://stackoverflow.com/a/18114061/8004137
 		V_sprintf_safe( buf, "{%08lX-%04hX-%04hX-%02hhX%02hhX-%02hhX%02hhX%02hhX%02hhX%02hhX%02hhX}",
-			guid.Data1, guid.Data2, guid.Data3, 
+			guid.Data1, guid.Data2, guid.Data3,
 			guid.Data4[0], guid.Data4[1], guid.Data4[2], guid.Data4[3],
 			guid.Data4[4], guid.Data4[5], guid.Data4[6], guid.Data4[7]);
 	}
@@ -3326,7 +3358,7 @@ static bool SteamNetworkingSockets_InternalPoll( int msWait, bool bManualPoll )
 	// Don't ever sleep for too long, just in case.  This timeout
 	// is long enough so that if we have a bug where we really need to
 	// be explicitly waking the thread for good perf, we will notice
-	// the delay.  But not so long that a bug in some rare 
+	// the delay.  But not so long that a bug in some rare
 	// shutdown race condition (or the like) will be catastrophic
 	msWait = std::min( msWait, k_msMaxPollWait );
 
@@ -3862,7 +3894,7 @@ bool BSteamNetworkingSocketsLowLevelAddRef( SteamNetworkingErrMsg &errMsg )
 		{
 			#pragma comment( lib, "ws2_32.lib" )
 			WSAData wsaData;
-			if ( ::WSAStartup( MAKEWORD(2, 2), &wsaData ) != 0 ) 
+			if ( ::WSAStartup( MAKEWORD(2, 2), &wsaData ) != 0 )
 			{
 				#ifdef _XBOX_ONE
 					::CoUninitialize();
@@ -4216,7 +4248,7 @@ bool ResolveHostname( const char* pszHostname, CUtlVector< SteamNetworkingIPAddr
 		SpewError( "Name lookup for \"%s\" failed - %s\n", pszHostname, errMsg );
 		return false;
 	}
-	
+
 	int nPort = 0;
 	if ( pszPortStr != nullptr )
 		nPort = atoi( pszPortStr );
@@ -4302,8 +4334,8 @@ bool GetLocalAddresses( CUtlVector< SteamNetworkingIPAddr >* pAddrs )
     if ( dwResult != NO_ERROR )
     {
         const char *lpMsgBuf = nullptr;
-        if ( FormatMessage(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, 
-                    NULL, dwResult, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), 
+        if ( FormatMessage(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+                    NULL, dwResult, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
                     // Default language
                     (LPTSTR) & lpMsgBuf, 0, NULL) )
         {
@@ -4312,7 +4344,7 @@ bool GetLocalAddresses( CUtlVector< SteamNetworkingIPAddr >* pAddrs )
         }
         return false;
     }
-    
+
     for( PIP_ADAPTER_ADDRESSES_LH pThisInfo = pAddrInfo; pThisInfo != nullptr; pThisInfo = pThisInfo->Next )
     {
         for ( PIP_ADAPTER_UNICAST_ADDRESS_LH pThisAddr = pThisInfo->FirstUnicastAddress; pThisAddr != nullptr; pThisAddr = pThisAddr->Next )
