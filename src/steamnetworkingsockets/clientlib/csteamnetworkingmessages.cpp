@@ -464,7 +464,7 @@ EResult CSteamNetworkingMessages::SendMessageToUser( const SteamNetworkingIdenti
 		}
 
 		// Try to create one
-		SteamNetworkingConfigValue_t opt[1];
+		SteamNetworkingConfigValue_t opt[ 1 ] = {};
 		opt[0].SetInt32( k_ESteamNetworkingConfig_SymmetricConnect, 1 );
 		ConnectionScopeLock connectionLock2;
 		pConn = m_steamNetworkingSockets.InternalConnectP2PDefaultSignaling( identityRemote, k_nVirtualPort_Messages, 1, opt, connectionLock2 );

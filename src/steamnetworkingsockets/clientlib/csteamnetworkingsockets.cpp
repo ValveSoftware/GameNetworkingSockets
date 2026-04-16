@@ -1555,7 +1555,7 @@ bool CSteamNetworkingSockets::CreateSocketPair( HSteamNetConnection *pOutConnect
 	// Assume failure
 	*pOutConnection1 = k_HSteamNetConnection_Invalid;
 	*pOutConnection2 = k_HSteamNetConnection_Invalid;
-	SteamNetworkingIdentity identity[2];
+	SteamNetworkingIdentity identity[ 2 ] = {};
 	if ( pIdentity1 )
 		identity[0] = *pIdentity1;
 	else
