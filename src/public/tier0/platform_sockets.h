@@ -118,6 +118,25 @@ typedef char SteamNetworkingErrMsg[ 1024 ];
 		#define USE_POLL
 
 		#define PlatformSupportsRecvTOS() true
+
+		// Depending on compiler flags, these might not be defined.  But they are
+		// part of the kernel ABI, so hardcoding the value is safe.
+		#ifdef IP_RECVTOS
+			COMPILE_TIME_ASSERT( IP_RECVTOS == 27 );
+		#else
+			#define IP_RECVTOS 27
+		#endif
+		#ifdef IPV6_RECVTCLASS
+			COMPILE_TIME_ASSERT( IPV6_RECVTCLASS == 35 );
+		#else
+			#define IPV6_RECVTCLASS 35
+		#endif
+		#ifdef IPV6_TCLASS
+			COMPILE_TIME_ASSERT( IPV6_TCLASS == 36 );
+		#else
+			#define IPV6_TCLASS 36
+		#endif
+
 	#elif defined(__FreeBSD__)
 
 		// FreeBSD provides kqueue, but we don't support it, so just use old-school poll()
