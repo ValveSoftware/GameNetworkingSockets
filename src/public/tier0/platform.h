@@ -114,4 +114,48 @@ inline void Destruct( T* pMemory )
 #endif
 }
 
+//-----------------------------------------------------------------------------
+// Purpose: Bind code to be run on exit of current scope block.
+//          Should be used through the RunCodeAtScopeExit macro.
+//
+//          Code blocks may contain multiple statements and scopes may contain
+//          multiple RunCodeAtScopeExit entries. Each entry is run in a lambda
+//          independent of other code blocks.
+//
+//          e.g. RunCodeAtScopeExit( RegCloseKey( hKey ) );
+//               RunCodeAtScopeExit( if( pHTTPRequest ) pHTTPRequest->Release() );
+//               RunCodeAtScopeExit(
+//               {
+//                   SetKeepOnlyLastCallback( bSaveOnlyKeepLastCallback );
+//                   SetKeepCallbackQueue( bSaveQueueCallbacks );
+//               } );
+//-----------------------------------------------------------------------------
+template <typename LambdaType>
+class CScopeGuardLambdaImpl
+{
+public:
+	explicit CScopeGuardLambdaImpl( LambdaType &&lambda ) : m_lambda( std::move( lambda ) ) {}
+	~CScopeGuardLambdaImpl()
+	{
+		if ( !m_bDismissed )
+			m_lambda();
+	}
+
+	void Dismiss() { m_bDismissed = true; }
+
+private:
+	LambdaType m_lambda;
+	bool m_bDismissed = false;
+};
+
+template <typename LambdaType>
+CScopeGuardLambdaImpl< LambdaType > MakeScopeGuardLambda( LambdaType &&lambda )
+{
+	return CScopeGuardLambdaImpl< LambdaType >( std::move( lambda ) );
+}
+
+#define RunLambdaAtScopeExit2( VarName, ... )		const auto VarName( MakeScopeGuardLambda( __VA_ARGS__ ) ); (void)VarName
+#define RunLambdaAtScopeExit( ... )					RunLambdaAtScopeExit2( UNIQUE_ID, __VA_ARGS__ )
+#define RunCodeAtScopeExit( ... )					RunLambdaAtScopeExit( [&]() { __VA_ARGS__ ; } )
+
 #endif /* PLATFORM_H */
