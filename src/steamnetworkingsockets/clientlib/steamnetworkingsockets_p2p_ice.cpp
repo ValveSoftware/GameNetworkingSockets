@@ -6,7 +6,8 @@
 #include "steamnetworkingsockets_p2p_ice.h"
 #include "steamnetworkingsockets_udp.h"
 
-#include "steamnetworkingsockets_stun.h"
+// Our own ice client implementation
+#include "steamnetworkingsockets_ice_client.h"
 
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
 	#include "steamnetworkingsockets_p2p_webrtc.h"

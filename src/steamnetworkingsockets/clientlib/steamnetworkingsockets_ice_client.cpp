@@ -1,10 +1,10 @@
 //====== Copyright Valve Corporation, All rights reserved. ====================
 //
-// Implementaiton of (the most important subset of) the ICE protocol
+// Implementation of (the most important subset of) the ICE protocol
 //
 // https://datatracker.ietf.org/doc/html/rfc8489
 
-#include "steamnetworkingsockets_stun.h"
+#include "steamnetworkingsockets_ice_client.h"
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
 
 #include "csteamnetworkingsockets.h"
@@ -2017,16 +2017,16 @@ void CSteamNetworkingICESession::STUNRequestCallback_PeerConnectivityCheck( cons
     ICECandidatePair *pPair = nullptr;
     for ( ICECandidatePair *pCandidatePair : m_vecCandidatePairs )
     {
-        if ( pCandidatePair->m_pPeerRequest == info.m_pRequest )
-        {
-            pPair = pCandidatePair;
-            pCandidatePair->m_pPeerRequest = nullptr;
-            break;
-        }
+		if ( pCandidatePair->m_pPeerRequest == info.m_pRequest )
+		{
+			pCandidatePair->m_pPeerRequest = nullptr;
+			pPair = pCandidatePair;
+			break;
+		}
     }
 
-    if ( pPair == nullptr )
-        return;
+	if ( pPair == nullptr )
+		return;
 
     const SteamNetworkingMicroseconds usPing = Max( SteamNetworkingMicroseconds( 1 ), info.m_usecNow - info.m_pRequest->m_usecLastSentTime );
     pPair->m_nLastRecordedPing = Max( 1, (int)( usPing / 1000 ) );
