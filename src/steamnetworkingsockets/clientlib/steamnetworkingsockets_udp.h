@@ -5,7 +5,10 @@
 #pragma once
 
 #include "steamnetworkingsockets_connections.h"
+
+#include <tier0/memdbg_save_off.h>
 #include <steamnetworkingsockets_messages_udp.pb.h>
+#include <tier0/memdbg_restore.h>
 
 namespace SteamNetworkingSocketsLib {
 
