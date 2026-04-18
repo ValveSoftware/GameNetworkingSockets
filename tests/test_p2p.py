@@ -11,17 +11,22 @@ import threading
 import os
 import sys
 import copy
+import time
 
 g_failed = False
+g_server_ready = threading.Event()
+g_server_startup_timeout = 3  # seconds
 
 # Thread class that runs a process and captures its output
 class RunProcessInThread(threading.Thread):
 
-    def __init__( self, tag, cmdline, env, **popen_kwargs ):
+    def __init__( self, tag, cmdline, env, ready_message=None, ready_event=None, **popen_kwargs ):
         threading.Thread.__init__( self, name=tag )
         self.daemon = True
         self.tag = tag
         self.cmdline = cmdline
+        self.ready_message = ready_message
+        self.ready_event = ready_event
         if env:
             self.env = env
         else:
@@ -54,6 +59,9 @@ class RunProcessInThread(threading.Thread):
                 if sOutput:
                     sOutput = str(sOutput, 'utf-8', 'ignore')
                     self.WriteLn( sOutput.rstrip() )
+                    # Check if this is the ready message, then set requested event
+                    if self.ready_message and self.ready_event and self.ready_message in sOutput:
+                        self.ready_event.set()
                 elif self.process.poll() is not None:
                     break
             self.process.wait()
@@ -81,8 +89,8 @@ class RunProcessInThread(threading.Thread):
             self.process.terminate()
         self.join( 5 )
 
-def StartProcessInThread( tag, cmdline, env=None, **popen_kwargs ):
-    thread = RunProcessInThread( tag, cmdline, env, **popen_kwargs )
+def StartProcessInThread( tag, cmdline, env=None, ready_message=None, ready_event=None, **popen_kwargs ):
+    thread = RunProcessInThread( tag, cmdline, env, ready_message=ready_message, ready_event=ready_event, **popen_kwargs )
     thread.start()
     return thread
 
@@ -140,7 +148,17 @@ if not os.path.exists( trivial_signaling_server ):
     print( "Can't find trivial_signaling_server.py" )
     sys.exit(1)
 
-signaling = StartProcessInThread( "signaling", [ sys.executable, trivial_signaling_server ] )
+signaling = StartProcessInThread( "signaling", [ sys.executable, trivial_signaling_server ],
+                                  ready_message="Listening at", ready_event=g_server_ready )
+
+# Wait for the signaling server to be ready before starting tests
+if not g_server_ready.wait( timeout=g_server_startup_timeout ):
+    print( "ERROR: Signaling server failed to start within %d seconds" % g_server_startup_timeout )
+    g_failed = True
+    signaling.term()
+    sys.exit(1)
+
+print( "Signaling server is ready, starting test clients" )
 
 # Run the tests
 for test in [ ClientServerTest, SymmetricTest ]:
