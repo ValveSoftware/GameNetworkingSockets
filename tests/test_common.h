@@ -17,9 +17,14 @@
 #endif
 #include <assert.h>
 
+#include <steam/steamnetworkingtypes.h>
+
 struct SteamNetworkingIdentity;
 
+extern ESteamNetworkingSocketsDebugOutputType g_eTestStdoutDetailLevel;
+
 extern void TEST_InitLog( const char *pszFilename );
+extern void TEST_SetStdoutDetailLevel( ESteamNetworkingSocketsDebugOutputType eDetailLevel );
 extern void TEST_Printf( const char *fmt, ... );
 extern void TEST_Fatal( const char *fmt, ... );
 extern void TEST_Init( const SteamNetworkingIdentity *pIdentity );

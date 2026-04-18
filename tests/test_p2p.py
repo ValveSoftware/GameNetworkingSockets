@@ -6,6 +6,7 @@
 # NOTE: You usually won't run this script from its original location.  The
 # makefiles will copy it into the same location as the tests and examples
 
+import argparse
 import subprocess
 import threading
 import os
@@ -16,6 +17,19 @@ import time
 g_failed = False
 g_server_ready = threading.Event()
 g_server_startup_timeout = 3  # seconds
+g_spew_level = None
+
+def ParseArgs():
+    global g_spew_level
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        '--spewlevel',
+        choices=[ 'msg', 'verbose', 'debug' ],
+        help='Control how much diagnostic spew is mirrored to stdio. More detailed output is always available in the per-process file logs.'
+    )
+    args = parser.parse_args()
+    g_spew_level = args.spewlevel
 
 # Thread class that runs a process and captures its output
 class RunProcessInThread(threading.Thread):
@@ -104,6 +118,9 @@ def StartClientInThread( role, local, remote ):
         "--log", local + ".verbose.log"
     ]
 
+    if g_spew_level is not None:
+        cmdline.append( '--spewlevel=' + g_spew_level )
+
     env = dict( os.environ )
     if os.name == 'nt' and not os.path.exists( 'steamnetworkingsockets.dll' ) and not os.path.exists( 'GameNetworkingSockets.dll' ):
         bindir = os.path.abspath('../../../bin')
@@ -139,6 +156,8 @@ def SymmetricTest():
 #
 # Main
 #
+
+ParseArgs()
 
 # Start the signaling server
 trivial_signaling_server = './trivial_signaling_server.py'
