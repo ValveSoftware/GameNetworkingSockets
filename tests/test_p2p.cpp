@@ -26,6 +26,20 @@ ETestRole g_eTestRole = k_ETestRole_Undefined;
 
 int g_nVirtualPortLocal = 0; // Used when listening, and when connecting
 int g_nVirtualPortRemote = 0; // Only used when connecting
+ESteamNetworkingSocketsDebugOutputType g_eTestP2PRendezvousLogLevel = k_ESteamNetworkingSocketsDebugOutputType_Verbose;
+
+static ESteamNetworkingSocketsDebugOutputType ParseSpewLevel( const char *pszArg )
+{
+	if ( !strcmp( pszArg, "msg" ) )
+		return k_ESteamNetworkingSocketsDebugOutputType_Msg;
+	if ( !strcmp( pszArg, "verbose" ) )
+		return k_ESteamNetworkingSocketsDebugOutputType_Verbose;
+	if ( !strcmp( pszArg, "debug" ) )
+		return k_ESteamNetworkingSocketsDebugOutputType_Debug;
+
+	TEST_Fatal( "Invalid --spewlevel '%s'. Expected one of: msg, verbose, debug", pszArg );
+	return k_ESteamNetworkingSocketsDebugOutputType_Msg;
+}
 
 void Quit( int rc )
 {
@@ -186,6 +200,15 @@ int main( int argc, const char **argv )
 			const char *pszArg = GetArg();
 			TEST_InitLog( pszArg );
 		}
+		else if ( !strcmp( pszSwitch, "--spewlevel" ) || !strncmp( pszSwitch, "--spewlevel=", 12 ) )
+		{
+			const char *pszArg = pszSwitch[11] == '=' ? pszSwitch + 12 : GetArg();
+			ESteamNetworkingSocketsDebugOutputType eLogLevel = ParseSpewLevel( pszArg );
+			TEST_SetStdoutDetailLevel( eLogLevel );
+			g_eTestP2PRendezvousLogLevel = ( eLogLevel >= k_ESteamNetworkingSocketsDebugOutputType_Debug )
+				? k_ESteamNetworkingSocketsDebugOutputType_Debug
+				: k_ESteamNetworkingSocketsDebugOutputType_Verbose;
+		}
 		else
 			TEST_Fatal( "Unexpected command line argument '%s'", pszSwitch );
 	}
@@ -229,7 +252,7 @@ int main( int argc, const char **argv )
 	SteamNetworkingUtils()->SetGlobalCallback_SteamNetConnectionStatusChanged( OnSteamNetConnectionStatusChanged );
 
 	// Comment this line in for more detailed spew about signals, route finding, ICE, etc
-	SteamNetworkingUtils()->SetGlobalConfigValueInt32( k_ESteamNetworkingConfig_LogLevel_P2PRendezvous, k_ESteamNetworkingSocketsDebugOutputType_Verbose );
+	SteamNetworkingUtils()->SetGlobalConfigValueInt32( k_ESteamNetworkingConfig_LogLevel_P2PRendezvous, g_eTestP2PRendezvousLogLevel );
 
 	// Create listen socket to receive connections on, unless we are the client
 	if ( g_eTestRole == k_ETestRole_Server )
