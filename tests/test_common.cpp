@@ -18,6 +18,12 @@
 
 static FILE *g_fpLog = nullptr;
 static SteamNetworkingMicroseconds g_logTimeZero;
+ESteamNetworkingSocketsDebugOutputType g_eTestStdoutDetailLevel = k_ESteamNetworkingSocketsDebugOutputType_Msg;
+
+void TEST_SetStdoutDetailLevel( ESteamNetworkingSocketsDebugOutputType eDetailLevel )
+{
+	g_eTestStdoutDetailLevel = eDetailLevel;
+}
 
 static void DebugOutput( ESteamNetworkingSocketsDebugOutputType eType, const char *pszMsg )
 {
@@ -28,7 +34,7 @@ static void DebugOutput( ESteamNetworkingSocketsDebugOutputType eType, const cha
 	SteamNetworkingMicroseconds time = SteamNetworkingUtils()->GetLocalTimestamp() - g_logTimeZero;
 	if ( g_fpLog )
 		fprintf( g_fpLog, "%10.6f %s\n", time*1e-6, pszMsg );
-	if ( eType <= k_ESteamNetworkingSocketsDebugOutputType_Msg )
+	if ( eType <= g_eTestStdoutDetailLevel )
 	{
 		printf( "%10.6f %s\n", time*1e-6, pszMsg );
 		fflush(stdout);
@@ -83,9 +89,7 @@ void TEST_InitLog( const char *pszFilename )
 
 	g_logTimeZero = SteamNetworkingUtils()->GetLocalTimestamp();
 
-	//SteamNetworkingUtils()->SetDebugOutputFunction( k_ESteamNetworkingSocketsDebugOutputType_Debug, DebugOutput );
-	SteamNetworkingUtils()->SetDebugOutputFunction( k_ESteamNetworkingSocketsDebugOutputType_Verbose, DebugOutput );
-	//SteamNetworkingUtils()->SetDebugOutputFunction( k_ESteamNetworkingSocketsDebugOutputType_Msg, DebugOutput );
+	SteamNetworkingUtils()->SetDebugOutputFunction( k_ESteamNetworkingSocketsDebugOutputType_Debug, DebugOutput );
 
 	SteamNetworkingUtils()->SetGlobalConfigValueInt32( k_ESteamNetworkingConfig_LogLevel_P2PRendezvous, k_ESteamNetworkingSocketsDebugOutputType_Verbose );
 
@@ -146,4 +150,3 @@ void TEST_PumpCallbacks()
 	#endif
 	std::this_thread::sleep_for( std::chrono::milliseconds( 2 ) );
 }
-
