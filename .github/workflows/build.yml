@@ -20,7 +20,7 @@ jobs:
             crypto25519: default
             targets: "test_connection test_p2p trivial_signaling_server publish_test_script test_crypto"
             run_tests: true
-            tests: "test_crypto test_connection:suite-quick test_p2p.py:--spewlevel=verbose"
+            tests: "test_crypto test_connection:suite-quick test_p2p.py:--spewlevel=debug:--loglevel-p2prendezvous=debug"
           - row: gcc-openssl-crypto
             compiler: gcc
             build_dir: build-ci-quick-gcc
@@ -30,7 +30,7 @@ jobs:
             crypto25519: default
             targets: "test_p2p trivial_signaling_server publish_test_script test_crypto"
             run_tests: true
-            tests: "test_crypto test_p2p.py:--spewlevel=verbose"
+            tests: "test_crypto test_p2p.py:--spewlevel=debug:--loglevel-p2prendezvous=debug"
           - row: clang-libsodium
             compiler: clang
             build_dir: build-ci-quick-sodium
@@ -40,7 +40,7 @@ jobs:
             crypto25519: libsodium
             targets: "test_p2p trivial_signaling_server publish_test_script test_crypto"
             run_tests: true
-            tests: "test_crypto test_p2p.py:--spewlevel=verbose"
+            tests: "test_crypto test_p2p.py:--spewlevel=debug:--loglevel-p2prendezvous=debug"
           - row: clang-reference-25519
             compiler: clang
             build_dir: build-ci-quick-ref25519
@@ -50,7 +50,7 @@ jobs:
             crypto25519: Reference
             targets: "test_p2p trivial_signaling_server publish_test_script test_crypto"
             run_tests: true
-            tests: "test_crypto test_p2p.py:--spewlevel=verbose"
+            tests: "test_crypto test_p2p.py:--spewlevel=debug:--loglevel-p2prendezvous=debug"
           - row: clang-openssl-webrtc
             compiler: clang
             build_dir: build-ci-quick-webrtc
@@ -60,7 +60,7 @@ jobs:
             crypto25519: default
             targets: "test_p2p trivial_signaling_server publish_test_script test_crypto"
             run_tests: true
-            tests: "test_crypto test_p2p.py:--spewlevel=verbose"
+            tests: "test_crypto test_p2p.py:--spewlevel=debug:--loglevel-p2prendezvous=debug"
     env:
       CI_BUILD: 1
       IMAGE: ubuntu
@@ -210,5 +210,5 @@ jobs:
 
       - name: Test p2p
         working-directory: '${{ github.workspace }}/build/bin'
-        run: py -3 test_p2p.py --spewlevel=verbose
+        run: py -3 test_p2p.py --spewlevel=debug --loglevel-p2prendezvous=debug
         shell: cmd
