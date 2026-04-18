@@ -28,6 +28,7 @@ class RunProcessInThread(threading.Thread):
             self.env = dict( os.environ )
         self.popen_kwargs = popen_kwargs
         self.log = open( self.tag + ".log", "wt" )
+        self.process = None
 
     def WriteLn( self, ln ):
         print( "%s> %s" % (self.tag, ln ) )
@@ -35,28 +36,32 @@ class RunProcessInThread(threading.Thread):
         self.log.flush()
 
     def run( self ):
+        global g_failed
 
-        # Set LD_LIBRARY_PATH
-        if os.name == 'posix':
-            LD_LIBRARY_PATH = self.env.get( 'LD_LIBRARY_PATH', '' )
-            if LD_LIBRARY_PATH: LD_LIBRARY_PATH += ';'
-            self.env['LD_LIBRARY_PATH'] = LD_LIBRARY_PATH + "."
-            self.WriteLn( "LD_LIBRARY_PATH = '%s'" % self.env['LD_LIBRARY_PATH'])
+        try:
+            # Set LD_LIBRARY_PATH
+            if os.name == 'posix':
+                LD_LIBRARY_PATH = self.env.get( 'LD_LIBRARY_PATH', '' )
+                if LD_LIBRARY_PATH: LD_LIBRARY_PATH += ';'
+                self.env['LD_LIBRARY_PATH'] = LD_LIBRARY_PATH + "."
+                self.WriteLn( "LD_LIBRARY_PATH = '%s'" % self.env['LD_LIBRARY_PATH'])
 
-        self.WriteLn( "Executing: " + ' '.join( self.cmdline ) )
-        self.process = subprocess.Popen( self.cmdline, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.STDOUT, env=self.env, **self.popen_kwargs )
-        self.process.stdin.close()
-        while True:
-            sOutput = self.process.stdout.readline()
-            if sOutput:
-                sOutput = str(sOutput, 'utf-8', 'ignore')
-                self.WriteLn( sOutput.rstrip() )
-            elif self.process.poll() is not None:
-                break
-        self.process.wait()
-        self.WriteLn( "Exitted with %d" % self.process.returncode )
-        if self.process.returncode != 0:
-            global g_failed
+            self.WriteLn( "Executing: " + ' '.join( self.cmdline ) )
+            self.process = subprocess.Popen( self.cmdline, stdout=subprocess.PIPE, stdin=subprocess.PIPE, stderr=subprocess.STDOUT, env=self.env, **self.popen_kwargs )
+            self.process.stdin.close()
+            while True:
+                sOutput = self.process.stdout.readline()
+                if sOutput:
+                    sOutput = str(sOutput, 'utf-8', 'ignore')
+                    self.WriteLn( sOutput.rstrip() )
+                elif self.process.poll() is not None:
+                    break
+            self.process.wait()
+            self.WriteLn( "Exitted with %d" % self.process.returncode )
+            if self.process.returncode != 0:
+                g_failed = True
+        except Exception as ex:
+            self.WriteLn( "FAILED to execute process: %s" % ex )
             g_failed = True
 
     # Wait for thread to shutdown.  Nuke process if we don't exit in time
@@ -66,12 +71,14 @@ class RunProcessInThread(threading.Thread):
             self.WriteLn( "Still running after %d seconds.  Killing" % timeout )
             global g_failed
             g_failed = True
-            self.process.kill()
+            if self.process is not None:
+                self.process.kill()
 
     # Attempt graceful shutdown
     def term( self ):
         self.WriteLn( "Attempting graceful shutdown" )
-        self.process.terminate()
+        if self.process is not None:
+            self.process.terminate()
         self.join( 5 )
 
 def StartProcessInThread( tag, cmdline, env=None, **popen_kwargs ):
