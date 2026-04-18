@@ -136,7 +136,7 @@ Take a look at these files for more information:
 * [steamnetworkingcustomsignaling.h](include/steam/steamnetworkingcustomsignaling.h)
   contains the interfaces you'll need to implement for your signaling service.
 * An example of a really trivial signaling protocol:
-  * [trivial_signaling_server.go](examples/trivial_signaling_server.go) server
+  * [trivial_signaling_server.py](examples/trivial_signaling_server.py) server
   * [trivial_signaling_client.cpp](examples/trivial_signaling_client.cpp) client
 * A test case that puts everything together.  It starts up an example trivial
   signaling protocol server and two peers, and has them connect to each other
