@@ -232,7 +232,11 @@ public:
 				char buf[256];
 				int r = recv( m_sock, buf, sizeof(buf), 0 );
 				if ( r == 0 )
+				{
+					TEST_Printf( "Signaling server closed connection (recv returned 0).  Closing and restarting connection\n" );
+					CloseSocket();
 					break;
+				}
 				if ( r < 0 )
 				{
 					int e = GetSocketError();
@@ -263,7 +267,7 @@ public:
 				{
 					m_queueSend.pop_front();
 				}
-				else if ( r != 0 )
+				else
 				{
 					// Socket hosed, or we sent a partial signal.
 					// We need to restart connection
@@ -416,7 +420,3 @@ ITrivialSignalingClient *CreateTrivialSignalingClient(
 
 	return pClient;
 }
-
-	
-
-
