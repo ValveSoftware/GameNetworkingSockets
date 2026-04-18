@@ -265,6 +265,9 @@ const int k_cbSteamNetworkingSocketsNoFragmentHeaderReserve = 100;
 /// which is what OpenSSL uses by default for TLS.
 const int k_cbAESGCMTagSize = 16;
 
+/// Size of the authentication tag for ChaCha20-Poly1305 in bytes.
+const int k_cbChaCha20Poly1305TagSize = 16;
+
 /// Max length of plaintext and encrypted payload we will send.  AES-GCM does
 /// not use padding (but it does have the security tag).  So this can be
 /// arbitrary, it does not need to account for the block size.
