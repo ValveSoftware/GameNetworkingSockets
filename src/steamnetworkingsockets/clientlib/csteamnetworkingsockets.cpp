@@ -1922,7 +1922,7 @@ static bool AssignConfigValueTyped( int32 *pVal, ESteamNetworkingConfigDataType 
 			int64 arg = *(int64*)pArg;
 			if ( (int32)arg != arg )
 				return false; // Cannot truncate!
-			*pVal = *(int32*)arg;
+			*pVal = (int32)arg;
 			break;
 		}
 
