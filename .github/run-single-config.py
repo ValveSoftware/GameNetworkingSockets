@@ -49,7 +49,7 @@ def shell_join(cmd: list[str]) -> str:
 
 
 def run_cmd(cmd: list[str], env: dict[str, str], cwd: Path, dry_run: bool) -> None:
-    print(f"[cmd] {shell_join(cmd)}")
+    print(f"[cmd] {shell_join(cmd)}", flush=True)
     if dry_run:
         return
     subprocess.run(cmd, env=env, cwd=str(cwd), check=True)
@@ -80,6 +80,10 @@ def parse_test_specs(specs: list[str] | None) -> list[list[str]]:
 
 
 def main() -> int:
+    # In CI, stdout is usually not a TTY, so force line-buffering for timely logs.
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(line_buffering=True)
+
     args = parse_args()
 
     repo_root = Path(__file__).resolve().parents[1]
@@ -97,6 +101,7 @@ def main() -> int:
         "-DCMAKE_C_COMPILER_LAUNCHER=ccache",
         "-DBUILD_TESTS=ON",
         "-DBUILD_EXAMPLES=ON",
+        "-DENABLE_ICE=ON",
         "-DWERROR=ON",
         f"-DCMAKE_BUILD_TYPE={args.build_type}",
     ]
@@ -124,10 +129,16 @@ def main() -> int:
         build_cmd.extend(args.targets)
 
     test_cmds: list[list[str]] = []
+    test_cwd = repo_root / args.build_dir / "bin"
     if args.run_tests:
         for test_parts in parse_test_specs(args.tests):
-            exe = str(Path(args.build_dir) / "bin" / test_parts[0])
-            test_cmds.append([exe, *test_parts[1:]])
+            test_prog = test_parts[0]
+            test_args = test_parts[1:]
+            test_path = str((test_cwd / test_prog).resolve())
+            if test_prog.endswith(".py"):
+                test_cmds.append(["python3", test_path, *test_args])
+            else:
+                test_cmds.append([test_path, *test_args])
 
     # If ccache isn't available in a local environment, remove launcher flags.
     if shutil.which("ccache") is None:
@@ -151,6 +162,7 @@ def main() -> int:
     print(f"crypto         = {args.crypto}")
     print(f"crypto25519    = {args.crypto25519}")
     print(f"phase          = {args.phase}")
+    print(f"test_cwd       = {test_cwd}")
     print(f"targets        = {' '.join(args.targets) if args.targets else '(all default targets)'}")
     print(f"run_tests      = {int(args.run_tests)}")
     if args.run_tests:
@@ -186,7 +198,7 @@ def main() -> int:
 
         if args.phase in ("test", "all"):
             for cmd in test_cmds:
-                run_cmd(cmd, env=env, cwd=repo_root, dry_run=args.dry_run)
+                run_cmd(cmd, env=env, cwd=test_cwd, dry_run=args.dry_run)
     except subprocess.CalledProcessError as exc:
         print("\nBuild/test failed.")
         print("Re-run exactly:")
