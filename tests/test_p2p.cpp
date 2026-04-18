@@ -28,7 +28,7 @@ int g_nVirtualPortLocal = 0; // Used when listening, and when connecting
 int g_nVirtualPortRemote = 0; // Only used when connecting
 ESteamNetworkingSocketsDebugOutputType g_eTestP2PRendezvousLogLevel = k_ESteamNetworkingSocketsDebugOutputType_Verbose;
 
-static ESteamNetworkingSocketsDebugOutputType ParseSpewLevel( const char *pszArg )
+static ESteamNetworkingSocketsDebugOutputType ParseLogLevelValue( const char *pszArg, const char *pszSwitchName )
 {
 	if ( !strcmp( pszArg, "msg" ) )
 		return k_ESteamNetworkingSocketsDebugOutputType_Msg;
@@ -37,7 +37,7 @@ static ESteamNetworkingSocketsDebugOutputType ParseSpewLevel( const char *pszArg
 	if ( !strcmp( pszArg, "debug" ) )
 		return k_ESteamNetworkingSocketsDebugOutputType_Debug;
 
-	TEST_Fatal( "Invalid --spewlevel '%s'. Expected one of: msg, verbose, debug", pszArg );
+	TEST_Fatal( "Invalid %s '%s'. Expected one of: msg, verbose, debug", pszSwitchName, pszArg );
 	return k_ESteamNetworkingSocketsDebugOutputType_Msg;
 }
 
@@ -203,11 +203,13 @@ int main( int argc, const char **argv )
 		else if ( !strcmp( pszSwitch, "--spewlevel" ) || !strncmp( pszSwitch, "--spewlevel=", 12 ) )
 		{
 			const char *pszArg = pszSwitch[11] == '=' ? pszSwitch + 12 : GetArg();
-			ESteamNetworkingSocketsDebugOutputType eLogLevel = ParseSpewLevel( pszArg );
+			ESteamNetworkingSocketsDebugOutputType eLogLevel = ParseLogLevelValue( pszArg, "--spewlevel" );
 			TEST_SetStdoutDetailLevel( eLogLevel );
-			g_eTestP2PRendezvousLogLevel = ( eLogLevel >= k_ESteamNetworkingSocketsDebugOutputType_Debug )
-				? k_ESteamNetworkingSocketsDebugOutputType_Debug
-				: k_ESteamNetworkingSocketsDebugOutputType_Verbose;
+		}
+		else if ( !strcmp( pszSwitch, "--loglevel-p2prendezvous" ) || !strncmp( pszSwitch, "--loglevel-p2prendezvous=", 25 ) )
+		{
+			const char *pszArg = pszSwitch[24] == '=' ? pszSwitch + 25 : GetArg();
+			g_eTestP2PRendezvousLogLevel = ParseLogLevelValue( pszArg, "--loglevel-p2prendezvous" );
 		}
 		else
 			TEST_Fatal( "Unexpected command line argument '%s'", pszSwitch );

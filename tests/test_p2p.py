@@ -18,9 +18,11 @@ g_failed = False
 g_server_ready = threading.Event()
 g_server_startup_timeout = 3  # seconds
 g_spew_level = None
+g_p2p_rendezvous_level = None
 
 def ParseArgs():
     global g_spew_level
+    global g_p2p_rendezvous_level
 
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -28,8 +30,15 @@ def ParseArgs():
         choices=[ 'msg', 'verbose', 'debug' ],
         help='Control how much diagnostic spew is mirrored to stdio. More detailed output is always available in the per-process file logs.'
     )
+    parser.add_argument(
+        '--loglevel-p2prendezvous',
+        dest='loglevel_p2prendezvous',
+        choices=[ 'msg', 'verbose', 'debug' ],
+        help='Control detail level specifically for P2P rendezvous-related spew.'
+    )
     args = parser.parse_args()
     g_spew_level = args.spewlevel
+    g_p2p_rendezvous_level = args.loglevel_p2prendezvous
 
 # Thread class that runs a process and captures its output
 class RunProcessInThread(threading.Thread):
@@ -120,6 +129,8 @@ def StartClientInThread( role, local, remote ):
 
     if g_spew_level is not None:
         cmdline.append( '--spewlevel=' + g_spew_level )
+    if g_p2p_rendezvous_level is not None:
+        cmdline.append( '--loglevel-p2prendezvous=' + g_p2p_rendezvous_level )
 
     env = dict( os.environ )
     if os.name == 'nt' and not os.path.exists( 'steamnetworkingsockets.dll' ) and not os.path.exists( 'GameNetworkingSockets.dll' ):
