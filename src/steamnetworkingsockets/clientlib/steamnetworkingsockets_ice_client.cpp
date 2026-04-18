@@ -2306,6 +2306,7 @@ void CConnectionTransportP2PICE_Valve::RecvRendezvous( const CMsgICERendezvous &
             CSteamNetworkingICESession::ICECandidate newCandidate( attr.nType, candidateAddr, candidateAddr );
             newCandidate.m_nPriority = attr.nPriority;
             m_pICESession->AddPeerCandidate( newCandidate, attr.sFoundation.c_str() );
+            Connection().m_msgICESessionSummary.set_remote_candidate_types( Connection().m_msgICESessionSummary.remote_candidate_types() | newCandidate.CalcType() );
         }
     }
 }
