@@ -133,13 +133,14 @@ def SymmetricTest():
 #
 
 # Start the signaling server
-trivial_signaling_server = './trivial_signaling_server'
-if os.name == 'nt' and not os.path.exists( 'trivial_signaling_server.exe' ):
-    trivial_signaling_server = '../examples/trivial_signaling_server.exe'
-    if not os.path.exists( trivial_signaling_server ):
-        print( "Can't find trivial_signaling_server.exe" )
-        sys.exit(1)
-signaling = StartProcessInThread( "signaling", [ trivial_signaling_server ] )
+trivial_signaling_server = './trivial_signaling_server.py'
+if not os.path.exists( trivial_signaling_server ):
+    trivial_signaling_server = '../examples/trivial_signaling_server.py'
+if not os.path.exists( trivial_signaling_server ):
+    print( "Can't find trivial_signaling_server.py" )
+    sys.exit(1)
+
+signaling = StartProcessInThread( "signaling", [ sys.executable, trivial_signaling_server ] )
 
 # Run the tests
 for test in [ ClientServerTest, SymmetricTest ]:
@@ -162,4 +163,3 @@ if really_failed:
     sys.exit(1)
 
 print( "TEST SUCCEEDED" )
-
