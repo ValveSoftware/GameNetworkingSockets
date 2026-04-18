@@ -18,9 +18,9 @@ jobs:
             use_webrtc: false
             crypto: default
             crypto25519: default
-            targets: "test_connection test_crypto"
+            targets: "test_connection test_p2p trivial_signaling_server publish_test_script test_crypto"
             run_tests: true
-            tests: "test_crypto test_connection:suite-quick"
+            tests: "test_crypto test_connection:suite-quick test_p2p.py"
           - row: gcc-openssl-crypto
             compiler: gcc
             build_dir: build-ci-quick-gcc
@@ -28,9 +28,9 @@ jobs:
             use_webrtc: false
             crypto: default
             crypto25519: default
-            targets: "test_crypto"
+            targets: "test_p2p trivial_signaling_server publish_test_script test_crypto"
             run_tests: true
-            tests: "test_crypto"
+            tests: "test_crypto test_p2p.py"
           - row: clang-libsodium
             compiler: clang
             build_dir: build-ci-quick-sodium
@@ -38,9 +38,9 @@ jobs:
             use_webrtc: false
             crypto: libsodium
             crypto25519: libsodium
-            targets: "test_crypto"
+            targets: "test_p2p trivial_signaling_server publish_test_script test_crypto"
             run_tests: true
-            tests: "test_crypto"
+            tests: "test_crypto test_p2p.py"
           - row: clang-reference-25519
             compiler: clang
             build_dir: build-ci-quick-ref25519
@@ -48,9 +48,9 @@ jobs:
             use_webrtc: false
             crypto: default
             crypto25519: Reference
-            targets: "test_crypto"
+            targets: "test_p2p trivial_signaling_server publish_test_script test_crypto"
             run_tests: true
-            tests: "test_crypto"
+            tests: "test_crypto test_p2p.py"
           - row: clang-openssl-webrtc
             compiler: clang
             build_dir: build-ci-quick-webrtc
@@ -58,9 +58,9 @@ jobs:
             use_webrtc: true
             crypto: default
             crypto25519: default
-            targets: "test_crypto"
+            targets: "test_p2p trivial_signaling_server publish_test_script test_crypto"
             run_tests: true
-            tests: "test_crypto"
+            tests: "test_crypto test_p2p.py"
     env:
       CI_BUILD: 1
       IMAGE: ubuntu
@@ -206,4 +206,9 @@ jobs:
         run: |
           rem test_connection.exe suite-quick  -- Loopback throughput test not performing on github hosted runners for some reason
           test_connection.exe identity quick lane_quick_queueanddrain lane_quick_priority_and_background
+        shell: cmd
+
+      - name: Test p2p
+        working-directory: '${{ github.workspace }}/build/bin'
+        run: py -3 test_p2p.py
         shell: cmd

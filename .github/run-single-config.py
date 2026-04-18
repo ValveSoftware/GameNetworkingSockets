@@ -68,7 +68,7 @@ def compiler_env(compiler: str, base_env: dict[str, str]) -> dict[str, str]:
 
 def parse_test_specs(specs: list[str] | None) -> list[list[str]]:
     if specs is None:
-        specs = ["test_crypto", "test_connection:suite-quick"]
+        specs = ["test_crypto", "test_connection:suite-quick", "test_p2p.py"]
 
     commands: list[list[str]] = []
     for spec in specs:
