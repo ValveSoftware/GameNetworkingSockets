@@ -11,7 +11,6 @@
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
 
 namespace SteamNetworkingSocketsLib {
-    class CSharedSocket;
     class CSteamNetworkingSocketsSTUNRequest;
 
     const uint32 k_nSTUN_CookieValue = 0x2112A442;
@@ -88,7 +87,7 @@ namespace SteamNetworkingSocketsLib {
     enum STUNPacketEncodingFlags
     {
         kSTUNPacketEncodingFlags_None = 0,
-        kSTUNPacketEncodingFlags_NoFingerprint = 1,  // Do not emit a fingerprint attr 
+        kSTUNPacketEncodingFlags_NoFingerprint = 1,  // Do not emit a fingerprint attr
         kSTUNPacketEncodingFlags_MappedAddress = 2,  // Use MappedAddress, not XORMappedAddress
         kSTUNPacketEncodingFlags_NoMappedAddress = 4, // Do not emit *any* address attribute at all.
         kSTUNPacketEncodingFlags_MessageIntegrity = 8, // Use MessageIntegrity, not MessageIntegrity_SHA256
@@ -101,7 +100,8 @@ namespace SteamNetworkingSocketsLib {
     class CSteamNetworkingSocketsSTUNRequest : private IThinker
     {
     public:
-        IBoundUDPSocket *m_pSocket = nullptr;
+        IRawUDPSocket *m_pRawSocket = nullptr;
+        IBoundUDPSocket *m_pBoundSocket = nullptr;
         SteamNetworkingIPAddr m_localAddr;
         SteamNetworkingIPAddr m_remoteAddr;
         int m_nRetryCount;
@@ -113,10 +113,10 @@ namespace SteamNetworkingSocketsLib {
         std::string m_strPassword;
 		SteamNetworkingMicroseconds m_usecLastSentTime;
 
-        static CSteamNetworkingSocketsSTUNRequest *SendBindRequest( CSharedSocket *pSharedSock, SteamNetworkingIPAddr remoteAddr, CRecvSTUNPktCallback cb, int nEncoding );   
-        static CSteamNetworkingSocketsSTUNRequest *SendBindRequest( IBoundUDPSocket *pBoundSock, SteamNetworkingIPAddr remoteAddr, CRecvSTUNPktCallback cb, int nEncoding );   
-        
-        static CSteamNetworkingSocketsSTUNRequest *CreatePeerConnectivityCheckRequest( CSharedSocket *pSharedSock, SteamNetworkingIPAddr remoteAddr, CRecvSTUNPktCallback cb, int nEncoding );
+        static CSteamNetworkingSocketsSTUNRequest *SendBindRequest( IRawUDPSocket *pRawSock, SteamNetworkingIPAddr remoteAddr, CRecvSTUNPktCallback cb, int nEncoding );
+        static CSteamNetworkingSocketsSTUNRequest *SendBindRequest( IBoundUDPSocket *pBoundSock, SteamNetworkingIPAddr remoteAddr, CRecvSTUNPktCallback cb, int nEncoding );
+
+        static CSteamNetworkingSocketsSTUNRequest *CreatePeerConnectivityCheckRequest( IRawUDPSocket *pRawSock, SteamNetworkingIPAddr remoteAddr, CRecvSTUNPktCallback cb, int nEncoding );
         void Send( SteamNetworkingIPAddr remoteAddr, CRecvSTUNPktCallback cb );
         void Cancel();
 
@@ -137,7 +137,7 @@ namespace SteamNetworkingSocketsLib {
         CSteamNetworkingSocketsSTUNRequest( const CSteamNetworkingSocketsSTUNRequest& );
         CSteamNetworkingSocketsSTUNRequest& operator=( const CSteamNetworkingSocketsSTUNRequest& );
     };
-    
+
     class CSteamNetworkingICESessionCallbacks;
 
 	/// Main logic of establishing an ICE session with a peer.  In real-world
@@ -147,7 +147,7 @@ namespace SteamNetworkingSocketsLib {
 	/// the transport also requires the connection lock.
     class CSteamNetworkingICESession : private IThinker
     {
-    public:       
+    public:
         CSteamNetworkingICESession( EICERole role, CSteamNetworkingICESessionCallbacks *pCallbacks, int nEncoding );
 		CSteamNetworkingICESession( const ICESessionConfig& cfg, CSteamNetworkingICESessionCallbacks *pCallbacks );
 		~CSteamNetworkingICESession();
@@ -191,7 +191,7 @@ namespace SteamNetworkingSocketsLib {
 
         bool GetCandidates( CUtlVector< ICECandidate >* pOutVecCandidates );
         const char* GetLocalPassword() { return m_strLocalPassword.c_str(); }
-        CSharedSocket *GetSelectedSocket() { return m_pSelectedSocket; }
+        IRawUDPSocket *GetSelectedSocket() { return m_pSelectedSocket; }
         SteamNetworkingIPAddr GetSelectedDestination();
 		int GetPing() const;
 
@@ -251,19 +251,20 @@ namespace SteamNetworkingSocketsLib {
 
         SteamNetworkingMicroseconds m_nextKeepalive;
         ICECandidatePair *m_pSelectedCandidatePair;
-        CSharedSocket *m_pSelectedSocket;
+        IRawUDPSocket *m_pSelectedSocket;
         std_vector< Interface > m_vecInterfaces;
-        std_vector< CSharedSocket* > m_vecSharedSockets;
+        std_vector< IRawUDPSocket* > m_vecHostCandidateSockets;
         std_vector< SteamNetworkingIPAddr > m_vecSTUNServers;
         std_vector< ICECandidate > m_vecCandidates;
         std_vector< CSteamNetworkingSocketsSTUNRequest* > m_vecPendingServerReflexiveRequests;
-        std_vector< CSteamNetworkingSocketsSTUNRequest* > m_vecPendingServerReflexiveKeepAliveRequests;       
+        std_vector< CSteamNetworkingSocketsSTUNRequest* > m_vecPendingServerReflexiveKeepAliveRequests;
         std_vector< ICEPeerCandidate > m_vecPeerCandidates;
         std_vector< CSteamNetworkingSocketsSTUNRequest* > m_vecPendingPeerRequests;
         std_vector< ICECandidatePair* > m_vecCandidatePairs;
         std_vector< ICECandidatePair* > m_vecTriggeredCheckQueue;
-       
-        CSharedSocket* FindSharedSocketForCandidate( const SteamNetworkingIPAddr& addr );
+
+        IRawUDPSocket *FindSocketForCandidate( const SteamNetworkingIPAddr& addr );
+        CSteamNetworkingSocketsSTUNRequest *FindPendingRequestByTransactionID( const uint32 nTransactionID[3] ) const;
         void GatherInterfaces();
         void UpdateHostCandidates();
         void UpdateKeepalive( const ICECandidate& c );
@@ -282,7 +283,7 @@ namespace SteamNetworkingSocketsLib {
         static void StaticSTUNRequestCallback_ServerReflexiveKeepAlive( const RecvSTUNPktInfo_t &info, CSteamNetworkingICESession* pContext );
         void STUNRequestCallback_PeerConnectivityCheck( const RecvSTUNPktInfo_t &info );
         static void StaticSTUNRequestCallback_PeerConnectivityCheck( const RecvSTUNPktInfo_t &info, CSteamNetworkingICESession* pContext );
-    
+
         void OnPacketReceived( const RecvPktInfo_t &info );
         static void StaticPacketReceived( const RecvPktInfo_t &info, CSteamNetworkingICESession *pContext );
     };
