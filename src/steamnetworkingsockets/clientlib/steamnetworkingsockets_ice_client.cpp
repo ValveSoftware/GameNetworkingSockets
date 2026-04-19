@@ -1011,6 +1011,8 @@ void CSteamNetworkingSocketsSTUNRequest::Cancel()
 	}
     m_pSocket = nullptr;
 
+    SpewMsg( "[ICE] Canceling STUN request (timeout or error): local=%s, remote=%s, retry_count=%d\n", SteamNetworkingIPAddrRender( m_localAddr ).c_str(), SteamNetworkingIPAddrRender( m_remoteAddr ).c_str(), m_nRetryCount );
+
     RecvSTUNPktInfo_t subInfo;
     subInfo.m_pRequest = this;
     subInfo.m_pHeader = nullptr;
@@ -1041,9 +1043,17 @@ void CSteamNetworkingSocketsSTUNRequest::Think( SteamNetworkingMicroseconds usec
 
     uint32 messageBuffer[ k_nSTUN_MaxPacketSize_Bytes / 4 ];
     const int nByteCount = EncodeSTUNPacket( messageBuffer, k_nSTUN_BindingRequest, m_nEncoding, m_nTransactionID, m_pSocket->GetRawSock()->m_boundAddr, (const uint8*)m_strPassword.c_str(), (uint32)m_strPassword.size(), m_vecExtraAttrs.Base(), m_vecExtraAttrs.Count() );
+    SpewMsg( "[ICE] Sending STUN packet: local=%s -> remote=%s, size=%d bytes, retry=%d/%d, timeout_ms=%lld\n",
+        SteamNetworkingIPAddrRender( m_pSocket->GetRawSock()->m_boundAddr ).c_str(),
+        SteamNetworkingIPAddrRender( m_remoteAddr ).c_str(),
+        nByteCount,
+        m_nRetryCount,
+        m_nMaxRetries,
+        retryTimeout / 1000 );
     if ( !m_pSocket->BSendRawPacket( messageBuffer, nByteCount ) )
     {
 		m_usecLastSentTime = 0;
+        SpewMsg( "[ICE] Failed to send STUN packet: local=%s -> remote=%s\n", SteamNetworkingIPAddrRender( m_pSocket->GetRawSock()->m_boundAddr ).c_str(), SteamNetworkingIPAddrRender( m_remoteAddr ).c_str() );
         Cancel();
     }
 	else
@@ -1559,6 +1569,7 @@ void CSteamNetworkingICESession::Think_DiscoverServerReflexiveCandidates()
         if ( pNewRequest != nullptr )
         {
             m_vecPendingServerReflexiveRequests.push_back( pNewRequest );
+            SpewMsg( "[ICE] Sending STUN bind request for server-reflexive candidate: local=%s, server=%s\n", SteamNetworkingIPAddrRender( c.m_base ).c_str(), SteamNetworkingIPAddrRender( m_vecSTUNServers[0] ).c_str() );
             return;
         }
     }
@@ -1630,6 +1641,9 @@ void CSteamNetworkingICESession::UpdateHostCandidates()
             continue;
         }
 
+        SteamNetworkingIPAddr localAddr = m_vecPendingServerReflexiveRequests[i]->m_localAddr;
+        SteamNetworkingIPAddr remoteAddr = m_vecPendingServerReflexiveRequests[i]->m_remoteAddr;
+        SpewMsg( "[ICE] Canceling STUN request (interface no longer exists): local=%s, server=%s\n", SteamNetworkingIPAddrRender( localAddr ).c_str(), SteamNetworkingIPAddrRender( remoteAddr ).c_str() );
         m_vecPendingServerReflexiveRequests[i]->Cancel();
         erase_at( m_vecPendingServerReflexiveRequests, i );
     }
@@ -1811,6 +1825,7 @@ void CSteamNetworkingICESession::UpdateKeepalive( const ICECandidate& c )
     if ( pNewRequest != nullptr )
     {
         m_vecPendingServerReflexiveKeepAliveRequests.push_back( pNewRequest );
+        SpewMsg( "[ICE] Sending STUN keepalive for server-reflexive candidate: local=%s, server=%s\n", SteamNetworkingIPAddrRender( c.m_base ).c_str(), SteamNetworkingIPAddrRender( c.m_stunServer ).c_str() );
     }
 }
 
@@ -1947,6 +1962,7 @@ void CSteamNetworkingICESession::Think_TestPeerConnectivity()
             pPairToCheck->m_nState = kICECandidatePairState_Failed;
             return;
         }
+        SpewMsg( "[ICE] Sending peer connectivity check: local=%s -> remote=%s\n", SteamNetworkingIPAddrRender( pPairToCheck->m_localCandidate.m_base ).c_str(), SteamNetworkingIPAddrRender( pPairToCheck->m_remoteCandidate.m_addr ).c_str() );
 
         if ( m_strOutgoingUsername.size() > 0 )
         {
