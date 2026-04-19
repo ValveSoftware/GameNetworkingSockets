@@ -118,6 +118,15 @@ class CTrivialSignalingClient : public ITrivialSignalingClient
 	SOCKET m_sock;
 	std::string m_sBufferedData;
 
+	// Lightweight progress telemetry to diagnose stalls in signaling receive/dispatch.
+	SteamNetworkingMicroseconds m_usecLastHeartbeat;
+	uint64 m_nPollCalls;
+	uint64 m_nBytesRecv;
+	uint64 m_nLinesParsed;
+	uint64 m_nDispatchCalls;
+	uint64 m_nDispatchFailures;
+	uint64 m_usecDispatch;
+
 	void CloseSocket()
 	{
 		if ( m_sock != INVALID_SOCKET )
@@ -166,6 +175,13 @@ public:
 	{
 		memcpy( &m_adrServer, adrServer, adrServerSize );
 		m_sock = INVALID_SOCKET;
+		m_usecLastHeartbeat = 0;
+		m_nPollCalls = 0;
+		m_nBytesRecv = 0;
+		m_nLinesParsed = 0;
+		m_nDispatchCalls = 0;
+		m_nDispatchFailures = 0;
+		m_usecDispatch = 0;
 
 		// Save off our identity
 		SteamNetworkingIdentity identitySelf; identitySelf.Clear();
@@ -219,6 +235,15 @@ public:
 
 	virtual void Poll() override
 	{
+		++m_nPollCalls;
+		int nBytesRecvThisPoll = 0;
+		int nLinesParsedThisPoll = 0;
+		int nDispatchCallsThisPoll = 0;
+		int nDispatchFailuresThisPoll = 0;
+		SteamNetworkingMicroseconds usecDispatchThisPoll = 0;
+		size_t nSendQueueSizeSnapshot = 0;
+		bool bSocketValidSnapshot = false;
+
 		// Drain the socket into the buffer, and check for reconnecting
 		sockMutex.lock();
 		if ( m_sock == INVALID_SOCKET )
@@ -249,6 +274,7 @@ public:
 				}
 
 				m_sBufferedData.append( buf, r );
+				nBytesRecvThisPoll += r;
 			}
 		}
 
@@ -279,6 +305,9 @@ public:
 			}
 		}
 
+		nSendQueueSizeSnapshot = m_queueSend.size();
+		bSocketValidSnapshot = ( m_sock != INVALID_SOCKET );
+
 		// Release the lock now.  See the notes below about why it's very important
 		// to release the lock early and not hold it while we try to dispatch the
 		// received callbacks.
@@ -297,6 +326,7 @@ public:
 			size_t spc = m_sBufferedData.find( ' ' );
 			if ( spc != std::string::npos && spc < l )
 			{
+				++nLinesParsedThisPoll;
 
 				// Hex decode the payload.  As it turns out, we actually don't
 				// need the sender's identity.  The payload has everything needed
@@ -369,11 +399,43 @@ public:
 				// To process this call, SteamnetworkingSockets will need take its own internal lock.
 				// That lock may be held by another thread that is asking you to send a signal!  So
 				// be warned that deadlocks are a possibility here.
-				m_pSteamNetworkingSockets->ReceivedP2PCustomSignal( data.c_str(), (int)data.length(), &context );
+				SteamNetworkingMicroseconds usecDispatchStart = SteamNetworkingUtils()->GetLocalTimestamp();
+				TEST_Printf( "Signaling dispatch begin: payload=%d buffered=%zu\n", (int)data.length(), m_sBufferedData.size() );
+				bool bOK = m_pSteamNetworkingSockets->ReceivedP2PCustomSignal( data.c_str(), (int)data.length(), &context );
+				SteamNetworkingMicroseconds usecDispatchElapsed = SteamNetworkingUtils()->GetLocalTimestamp() - usecDispatchStart;
+				++nDispatchCallsThisPoll;
+				usecDispatchThisPoll += usecDispatchElapsed;
+				if ( !bOK )
+					++nDispatchFailuresThisPoll;
+				TEST_Printf( "Signaling dispatch end: ok=%d elapsed=%.3fms\n", bOK ? 1 : 0, usecDispatchElapsed * 1e-3 );
 			}
 
 next_message:
 			m_sBufferedData.erase( 0, l+1 );
+		}
+
+		m_nBytesRecv += nBytesRecvThisPoll;
+		m_nLinesParsed += nLinesParsedThisPoll;
+		m_nDispatchCalls += nDispatchCallsThisPoll;
+		m_nDispatchFailures += nDispatchFailuresThisPoll;
+		m_usecDispatch += usecDispatchThisPoll;
+
+		SteamNetworkingMicroseconds usecNow = SteamNetworkingUtils()->GetLocalTimestamp();
+		if ( m_usecLastHeartbeat == 0 || usecNow - m_usecLastHeartbeat >= 1000000 )
+		{
+			m_usecLastHeartbeat = usecNow;
+			TEST_Printf(
+				"Signaling poll heartbeat: polls=%llu recv_bytes=%llu parsed_lines=%llu dispatch_calls=%llu dispatch_failures=%llu dispatch_ms=%.3f sock_valid=%d sendq=%zu buffered=%zu\n",
+				(unsigned long long)m_nPollCalls,
+				(unsigned long long)m_nBytesRecv,
+				(unsigned long long)m_nLinesParsed,
+				(unsigned long long)m_nDispatchCalls,
+				(unsigned long long)m_nDispatchFailures,
+				m_usecDispatch * 1e-3,
+				bSocketValidSnapshot ? 1 : 0,
+				nSendQueueSizeSnapshot,
+				m_sBufferedData.size()
+			);
 		}
 	}
 
