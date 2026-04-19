@@ -170,9 +170,14 @@ void CCrypto::GenerateHMAC256( const uint8 *pubData, uint32 cubData, const uint8
 	Assert( pOutputDigest );
 
 	Assert( sizeof(*pOutputDigest) == crypto_auth_hmacsha256_BYTES );
-	Assert( cubKey == crypto_auth_hmacsha256_KEYBYTES );
 
-	crypto_auth_hmacsha256( *pOutputDigest, pubData, cubData, pubKey );
+	crypto_auth_hmacsha256_state state;
+	int r = crypto_auth_hmacsha256_init( &state, pubKey, cubKey );
+	Assert( r == 0 );
+	r = crypto_auth_hmacsha256_update( &state, pubData, cubData );
+	Assert( r == 0 );
+	r = crypto_auth_hmacsha256_final( &state, *pOutputDigest );
+	Assert( r == 0 );
 }
 
 #endif
