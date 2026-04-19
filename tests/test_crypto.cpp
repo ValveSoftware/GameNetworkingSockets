@@ -315,6 +315,83 @@ void TestSymmetricAuthCryptoVectors()
 //-----------------------------------------------------------------------------
 // Purpose: Test elliptic-curve primitives (ed25519 signing, curve25519 key exchange)
 //-----------------------------------------------------------------------------
+void TestSHA256()
+{
+	// NIST FIPS 180-4 known-answer tests for SHA-256
+	struct { const char *pszData; const char *pszExpected; } rgTests[] =
+	{
+		// SHA-256("")
+		{ "", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" },
+		// SHA-256("abc")
+		{ "abc", "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad" },
+		// SHA-256("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq")
+		{ "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq", "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1" },
+	};
+	for ( auto &t : rgTests )
+	{
+		SHA256Digest_t digest;
+		CCrypto::GenerateSHA256Digest( t.pszData, strlen(t.pszData), &digest );
+		char hex[sizeof(SHA256Digest_t)*2+1];
+		CCrypto::HexEncode( digest, sizeof(digest), hex, sizeof(hex) );
+		// HexEncode gives uppercase; compare case-insensitively
+		for ( int i = 0; hex[i]; ++i ) hex[i] = tolower(hex[i]);
+		CHECK_EQUAL( 0, strcmp( hex, t.pszExpected ) );
+	}
+}
+
+void TestHMAC()
+{
+	// RFC 2202 / RFC 4231 known-answer tests for HMAC-SHA1 and HMAC-SHA256
+
+	// HMAC-SHA1, Test Case 1 (RFC 2202): key=0x0b*20, data="Hi There"
+	{
+		uint8 key[20]; uint32 cbKey = 20;
+		for ( int i = 0; i < 20; ++i ) key[i] = 0x0b;
+		const char *pszData = "Hi There";
+		SHADigest_t digest;
+		CCrypto::GenerateHMAC( (const uint8 *)pszData, (uint32)strlen(pszData), key, cbKey, &digest );
+		char hex[sizeof(SHADigest_t)*2+1];
+		CCrypto::HexEncode( digest, sizeof(digest), hex, sizeof(hex) );
+		for ( int i = 0; hex[i]; ++i ) hex[i] = tolower(hex[i]);
+		CHECK_EQUAL( 0, strcmp( hex, "b617318655057264e28bc0b6fb378c8ef146be00" ) );
+	}
+	// HMAC-SHA1, Test Case 2 (RFC 2202): key="Jefe", data="what do ya want for nothing?"
+	{
+		const char *pszKey = "Jefe";
+		const char *pszData = "what do ya want for nothing?";
+		SHADigest_t digest;
+		CCrypto::GenerateHMAC( (const uint8 *)pszData, (uint32)strlen(pszData), (const uint8 *)pszKey, (uint32)strlen(pszKey), &digest );
+		char hex[sizeof(SHADigest_t)*2+1];
+		CCrypto::HexEncode( digest, sizeof(digest), hex, sizeof(hex) );
+		for ( int i = 0; hex[i]; ++i ) hex[i] = tolower(hex[i]);
+		CHECK_EQUAL( 0, strcmp( hex, "effcdf6ae5eb2fa2d27416d5f184df9c259a7c79" ) );
+	}
+
+	// HMAC-SHA256, Test Case 1 (RFC 4231): key=0x0b*20, data="Hi There"
+	{
+		uint8 key[20]; uint32 cbKey = 20;
+		for ( int i = 0; i < 20; ++i ) key[i] = 0x0b;
+		const char *pszData = "Hi There";
+		SHA256Digest_t digest;
+		CCrypto::GenerateHMAC256( (const uint8 *)pszData, (uint32)strlen(pszData), key, cbKey, &digest );
+		char hex[sizeof(SHA256Digest_t)*2+1];
+		CCrypto::HexEncode( digest, sizeof(digest), hex, sizeof(hex) );
+		for ( int i = 0; hex[i]; ++i ) hex[i] = tolower(hex[i]);
+		CHECK_EQUAL( 0, strcmp( hex, "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7" ) );
+	}
+	// HMAC-SHA256, Test Case 2 (RFC 4231): key="Jefe", data="what do ya want for nothing?"
+	{
+		const char *pszKey = "Jefe";
+		const char *pszData = "what do ya want for nothing?";
+		SHA256Digest_t digest;
+		CCrypto::GenerateHMAC256( (const uint8 *)pszData, (uint32)strlen(pszData), (const uint8 *)pszKey, (uint32)strlen(pszKey), &digest );
+		char hex[sizeof(SHA256Digest_t)*2+1];
+		CCrypto::HexEncode( digest, sizeof(digest), hex, sizeof(hex) );
+		for ( int i = 0; hex[i]; ++i ) hex[i] = tolower(hex[i]);
+		CHECK_EQUAL( 0, strcmp( hex, "5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843" ) );
+	}
+}
+
 void TestEllipticCrypto()
 {
 	// test vectors from curve25519 reference impl
@@ -752,6 +829,8 @@ int main()
 	CCrypto::Init();
 
 	TestCryptoEncoding();
+	TestSHA256();
+	TestHMAC();
 	TestSymmetricAuthCryptoVectors();
 	TestEllipticCrypto();
 	TestOpenSSHEd25519();
