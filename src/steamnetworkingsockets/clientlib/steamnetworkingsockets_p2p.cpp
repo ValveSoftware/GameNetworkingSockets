@@ -2825,7 +2825,24 @@ bool CSteamNetworkingSockets::ReceivedP2PCustomSignal( const void *pMsg, int cbM
 		return false;
 	}
 
-	SteamNetworkingGlobalLock scopeLock( "ReceivedP2PCustomSignal" );
+	constexpr SteamNetworkingMicroseconds k_usecWarnEvery = 100*1000;
+	const char *pszLockTag = "ReceivedP2PCustomSignal";
+	SteamNetworkingMicroseconds usecWaitStart = SteamNetworkingSockets_GetLocalTimestamp();
+	SteamNetworkingMicroseconds usecNextWarn = usecWaitStart + k_usecWarnEvery;
+	while ( !SteamNetworkingGlobalLock::TryLock( pszLockTag, 10 ) )
+	{
+		SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
+		if ( usecNow >= usecNextWarn )
+		{
+			const char *pszFromIdentity = msg.has_from_identity() ? msg.from_identity().c_str() : "?";
+			const uint32 nFromConnectionID = msg.has_from_connection_id() ? msg.from_connection_id() : 0;
+			SpewWarning( "Waited %.1fms for global lock in %s (from=%s from_cxn=%u)\n",
+				( usecNow - usecWaitStart )*1e-3, pszLockTag, pszFromIdentity, nFromConnectionID );
+			usecNextWarn = usecNow + k_usecWarnEvery;
+		}
+	}
+	RunCodeAtScopeExit( SteamNetworkingGlobalLock::Unlock() );
+
 	return InternalReceivedP2PSignal( msg, pContext, false );
 }
 
