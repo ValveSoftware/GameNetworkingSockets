@@ -323,7 +323,7 @@ void CCrypto::GenerateHMAC( const uint8 *pubData, uint32 cubData, const uint8 *p
 	AssertFatal(NT_SUCCESS(status));
 	status = BCryptHashData(hHash, (PUCHAR)pubData, (ULONG)cubData, 0);
 	AssertFatal(NT_SUCCESS(status));
-	status = BCryptFinishHash(hHash, *pOutputDigest, sizeof(SHA256Digest_t), 0);
+	status = BCryptFinishHash(hHash, *pOutputDigest, sizeof(SHADigest_t), 0);
 	AssertFatal(NT_SUCCESS(status));
 	status = BCryptDestroyHash(hHash);
 	AssertFatal(NT_SUCCESS(status));
