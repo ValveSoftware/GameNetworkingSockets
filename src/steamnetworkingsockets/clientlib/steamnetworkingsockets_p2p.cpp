@@ -632,7 +632,7 @@ void CSteamNetworkConnectionP2P::FreeResources()
 
 	// Release signaling
 	if ( m_pSignaling )
-	{	
+	{
 		m_pSignaling->Release();
 		m_pSignaling = nullptr;
 	}
@@ -1921,11 +1921,11 @@ bool CSteamNetworkConnectionP2P::ProcessSignal( const CMsgSteamNetworkingP2PRend
 			// If we were already closed, this won't actually be "unexpected".  The
 			// error message and code we pass here are only used if we are not already
 			// closed.
-			ConnectionState_ClosedByPeer( k_ESteamNetConnectionEnd_Misc_PeerSentNoConnection, "Received unexpected P2P 'no connection' signal" ); 
+			ConnectionState_ClosedByPeer( k_ESteamNetConnectionEnd_Misc_PeerSentNoConnection, "Received unexpected P2P 'no connection' signal" );
 		}
 		else
 		{
-			ConnectionState_ClosedByPeer( connection_closed.reason_code(), connection_closed.debug().c_str() ); 
+			ConnectionState_ClosedByPeer( connection_closed.reason_code(), connection_closed.debug().c_str() );
 		}
 		return true;
 	}
@@ -2282,14 +2282,14 @@ void CConnectionTransportP2PBase::P2PTransportThink( SteamNetworkingMicroseconds
 		{
 			m_pSelfAsConnectionTransport->SendEndToEndStatsMsg( k_EStatsReplyRequest_Immediate, usecNow, "End-to-end ping sample" );
 		}
-		else if ( 
+		else if (
 			pCurrentP2PTransport == this // they have selected us
 			|| pCurrentP2PTransport == nullptr // They haven't selected anybody
 			|| pCurrentP2PTransport->m_bNeedToConfirmEndToEndConnectivity // current transport is not in good shape
 		) {
 
 			// We're a viable option right now, not just a backup
-			if ( 
+			if (
 				// Some reason to establish connectivity or collect more data?
 				m_bNeedToConfirmEndToEndConnectivity
 				|| m_nReplyTimeoutsSinceLastRecv > 0
@@ -2900,6 +2900,10 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const CMsgSteamNetworki
 
 	int nLogLevel = m_connectionConfig.LogLevel_P2PRendezvous.Get();
 
+	SpewVerboseGroup( nLogLevel, ">>> Recv P2PRendezvous from %s connection %u\n", msg.from_identity().c_str(), msg.from_connection_id() );
+	SpewDebugGroup( nLogLevel, "%s\n\n", Indent( msg.DebugString() ).c_str() );
+	RunCodeAtScopeExit( SpewVerboseGroup( nLogLevel, "<<< Done processing P2PRendezvous\n" ); );
+
 	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
 
 	// Locate the connection, if we already have one
@@ -3299,7 +3303,7 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const CMsgSteamNetworki
 			}
 
 			// OK, start setting up the connection
-			if ( !pConn->BBeginAcceptFromSignal( 
+			if ( !pConn->BBeginAcceptFromSignal(
 				msgConnectRequest,
 				errMsg,
 				usecNow
