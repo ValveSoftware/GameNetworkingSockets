@@ -1736,8 +1736,15 @@ void CSteamNetworkingICESession::STUNRequestCallback_ServerReflexiveCandidate( c
     // So we timed out to this STUN server
     const int nSTUNServerIdx = index_of( m_vecSTUNServers, info.m_pRequest->m_remoteAddr );
     IRawUDPSocket *pSock = FindSocketForCandidate( localAddr );
-    if ( pSock == nullptr || nSTUNServerIdx < 0 )
-    {   // Just store an IPv6 all zeros to flag an invalid server reflexive candidate.
+    const int nNextSTUNServerIdx = nSTUNServerIdx + 1;
+    if ( pSock == nullptr || nSTUNServerIdx < 0 || nNextSTUNServerIdx >= len( m_vecSTUNServers ) )
+    {
+        // We have exhausted STUN attempts for this base address.  Insert a placeholder
+        // server-reflexive candidate with zero address/priority as a "failed" marker.
+        //
+        // Why this exists: Think_DiscoverServerReflexiveCandidates() only tracks "found
+        // candidate" or "pending request".  Without this marker, a total STUN failure would
+        // be retried forever every think tick, creating unbounded churn.
         bindResult.Clear();
         ICECandidate *pCand = push_back_get_ptr( m_vecCandidates, ICECandidate( kICECandidateType_ServerReflexive, bindResult, localAddr, info.m_pRequest->m_remoteAddr ) );
         pCand->m_nPriority = 0;
@@ -1745,7 +1752,7 @@ void CSteamNetworkingICESession::STUNRequestCallback_ServerReflexiveCandidate( c
     }
 
     // Try the next server
-    CSteamNetworkingSocketsSTUNRequest *pNewRequest = CSteamNetworkingSocketsSTUNRequest::SendBindRequest( pSock, m_vecSTUNServers[nSTUNServerIdx+1], CRecvSTUNPktCallback( StaticSTUNRequestCallback_ServerReflexiveCandidate, this ), m_nEncoding );
+    CSteamNetworkingSocketsSTUNRequest *pNewRequest = CSteamNetworkingSocketsSTUNRequest::SendBindRequest( pSock, m_vecSTUNServers[nNextSTUNServerIdx], CRecvSTUNPktCallback( StaticSTUNRequestCallback_ServerReflexiveCandidate, this ), m_nEncoding );
     if ( pNewRequest != nullptr )
     {
         m_vecPendingServerReflexiveRequests.push_back( pNewRequest );
