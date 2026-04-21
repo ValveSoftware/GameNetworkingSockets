@@ -123,6 +123,7 @@ endmacro()
 
 # If WebRTC enabled, build the thin wrapper library
 if(USE_STEAMWEBRTC)
+	set(ABSL_PROPAGATE_CXX_STD ON)
 	add_subdirectory(external/steamwebrtc)
 endif(USE_STEAMWEBRTC)
 
