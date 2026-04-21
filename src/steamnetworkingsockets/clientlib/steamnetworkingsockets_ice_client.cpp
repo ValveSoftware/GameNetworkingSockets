@@ -1696,29 +1696,33 @@ void CSteamNetworkingICESession::STUNRequestCallback_ServerReflexiveCandidate( c
         return;
 
     const SteamNetworkingIPAddr localAddr = info.m_pRequest->m_localAddr;
-    bool bFound = false;
-    for ( const ICECandidate& c : m_vecCandidates )
+    for ( int i = 0 ; i < len(m_vecCandidates) ; ++i )
     {
+        ICECandidate& c = m_vecCandidates[i];
         if ( c.m_type == kICECandidateType_ServerReflexive && c.m_base == localAddr )
         {
-            bFound = true;
-            break;
+            // Another response for a candidate we already have.
+
+            // But if the current candidate is a "failed" placeholder, remove it
+            // and keep going to process this new response.
+            if ( c.m_addr.IsIPv6AllZeros() )
+            {
+                erase_at( m_vecCandidates, i );
+                break;
+            }
+            return;
         }
     }
 
     uint32 uLocalPriority = 0;
-    for ( const Interface& i : m_vecInterfaces )
+    for ( const Interface& iface : m_vecInterfaces )
     {
-        if ( i.m_localaddr == localAddr )
+        if ( iface.m_localaddr == localAddr )
         {
-            uLocalPriority = i.m_nPriority;
+            uLocalPriority = iface.m_nPriority;
             break;
         }
     }
-
-    // Another response for a candidate we already have? Just drop it.
-    if ( bFound )
-        return;
 
     SteamNetworkingIPAddr bindResult;
     bindResult.Clear();
