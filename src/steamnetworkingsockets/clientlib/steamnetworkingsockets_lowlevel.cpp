@@ -1840,7 +1840,7 @@ void WakeServiceThread()
 inline SteamNetworkingMicroseconds RandomJitter( const GlobalConfigValue<float> &ValAvg, const GlobalConfigValue<float> &ValMax, const GlobalConfigValue<float> &ValPct )
 {
 	// The defaults disable jitter by setting the *average* to 0, so check that first.
-	if ( likely( ValAvg.Get() ) <= 0.0f )
+	if ( likely( ValAvg.Get() <= 0.0f ) )
 		return 0;
 	if ( ValMax.Get() <= 0.0f )
 		return 0;
