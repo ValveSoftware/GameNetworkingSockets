@@ -1870,8 +1870,8 @@ bool CSteamNetworkConnectionlocalhostLoopback::APICreateSocketPair( CSteamNetwor
 
 	SteamDatagramErrMsg errMsg;
 
-	pConn[1] = new CSteamNetworkConnectionlocalhostLoopback( pSteamNetworkingSocketsInterface, pIdentity[0], scopeLock[0] );
-	pConn[0] = new CSteamNetworkConnectionlocalhostLoopback( pSteamNetworkingSocketsInterface, pIdentity[1], scopeLock[1] );
+	pConn[0] = new CSteamNetworkConnectionlocalhostLoopback( pSteamNetworkingSocketsInterface, pIdentity[0], scopeLock[0] );
+	pConn[1] = new CSteamNetworkConnectionlocalhostLoopback( pSteamNetworkingSocketsInterface, pIdentity[1], scopeLock[1] );
 	if ( !pConn[0] || !pConn[1] )
 	{
 failed:
