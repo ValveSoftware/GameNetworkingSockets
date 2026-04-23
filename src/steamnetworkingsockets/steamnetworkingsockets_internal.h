@@ -200,7 +200,7 @@ struct iovec
 
 // likely() and unlikely().  Branch hints
 // This is an idiom from the linux kernel
-#if defined(__GNUC__) || (defined(__has_builtin) && __has_builtin(__builtin_expect))
+#ifdef __GNUC__
 	#ifndef likely
 		#define likely(x) __builtin_expect (!!(x), 1)
 	#endif
@@ -208,6 +208,18 @@ struct iovec
 		#define unlikely(x) __builtin_expect (!!(x), 0)
 	#endif
 #else
+	// Nested check avoids MSVC preprocessor parse error (C1012) when
+	// __has_builtin(...) appears in a single #if expression alongside ||.
+	#ifdef __has_builtin
+		#if __has_builtin(__builtin_expect)
+			#ifndef likely
+				#define likely(x) __builtin_expect (!!(x), 1)
+			#endif
+			#ifndef unlikely
+				#define unlikely(x) __builtin_expect (!!(x), 0)
+			#endif
+		#endif
+	#endif
 	#ifndef likely
 		#define likely(x) (x)
 	#endif
