@@ -2662,7 +2662,7 @@ static bool DrainSocket( CRawUDPSocketImpl *pSock )
 			}
 
 			// If we get here, we scanned all control messages but didn't get the TOS data.
-			// Only assert if we successfully enabled TOS on this socket — if the setsockopt
+			// Only assert if we successfully enabled TOS on this socket -- if the setsockopt
 			// failed we already warned at startup and shouldn't fire repeatedly here.
 			AssertMsgOnce( !pSock->m_bTOSEnabled, "No control data returned even though we asked for TOS?" );
 		}
