@@ -83,6 +83,14 @@ constexpr int k_cbETWEventUDPPacketDataSize = 16;
 	#define CMSG_NXTHDR WSA_CMSG_NXTHDR
 #endif
 
+#ifdef _WIN32
+	// wincrypt.h defines CMSG_DATA as a CryptoAPI message-type constant (value 1),
+	// completely unrelated to sockets.  Stomp it with the socket cmsg accessor so
+	// we can use CMSG_DATA uniformly in this file without #ifdef _WIN32 everywhere.
+	#undef CMSG_DATA
+	#define CMSG_DATA WSA_CMSG_DATA
+#endif
+
 namespace SteamNetworkingSocketsLib {
 
 inline void ETW_LongOp( const char *opName, SteamNetworkingMicroseconds usec, const char *pszInfo )
@@ -1060,6 +1068,10 @@ public:
 
 	#if defined( _WIN32 ) && PlatformSupportsRecvMsg()
 		LPFN_WSARECVMSG m_pfnWSARecvMsg = nullptr;
+	#endif
+
+	#if PlatformSupportsRecvTOS()
+		bool m_bTOSEnabled = false;
 	#endif
 
 	// Implements IRawUDPSocket
@@ -2146,30 +2158,6 @@ static SOCKET OpenUDPSocketBoundToSockAddr( const void *pSockaddr, size_t len, S
 		#endif
 	}
 
-	// Enable receiving of the ToS field in the ancillary data
-	#if PlatformSupportsRecvTOS()
-	{
-		opt = 1;
-
-		// Apple uses a different field to receive this for IPv6
-		#if defined(__APPLE__)
-		if ( inaddr->sin_family == AF_INET6 )
-		{
-			if ( setsockopt( sock, IPPROTO_IPV6, IPV6_RECVTCLASS, (char *)&opt, sizeof(opt) ) == -1 )
-			{
-				SpewWarning( "sockopt(IPPROTO_IPV6, IPV6_RECVTCLASS, 1) failed (0x%x), will not be able to read TOS\n", GetLastSocketError() );
-			}
-		} else
-		#endif
-		{
-			if ( setsockopt( sock, IPPROTO_IP, IP_RECVTOS, (char *)&opt, sizeof(opt) ) == -1 )
-			{
-				SpewWarning( "sockopt(IPPROTO_IP, IP_RECVTOS, 1) failed (0x%x), will not be able to read TOS\n", GetLastSocketError() );
-			}
-		}
-	}
-	#endif
-
 	// Bind it to specific desired local port/IP
 	if ( bind( sock, (struct sockaddr *)pSockaddr, (socklen_t)len ) == -1 )
 	{
@@ -2366,6 +2354,63 @@ static CRawUDPSocketImpl *OpenRawUDPSocketInternal( CRecvPacketCallback callback
                       &guidWSARecvMsg, sizeof(guidWSARecvMsg),
                       &pSock->m_pfnWSARecvMsg, sizeof(pSock->m_pfnWSARecvMsg),
                       &dwBytes, NULL, NULL);
+	}
+	#endif
+
+	// Enable receiving TOS/traffic class in ancillary data, and record whether it succeeded.
+	//
+	// Platform/family matrix:
+	//
+	// Windows AF_INET6 (incl. dual-stack): IPPROTO_IP options are rejected with WSAEINVAL.
+	//   Use IPV6_RECVTCLASS only — Windows maps the IPv4 TOS byte into the IPv6 traffic-class
+	//   field in the cmsg for IPv4-mapped packets, so one sockopt covers both families.
+	//
+	// Apple AF_INET6: same as Windows — IPV6_RECVTCLASS covers both families.
+	//
+	// Linux AF_INET6 dual-stack: both sockopts must be set.  IP_RECVTOS covers IPv4-mapped
+	//   packets (returns IPPROTO_IP/IP_TOS); IPV6_RECVTCLASS covers pure IPv6 (returns
+	//   IPPROTO_IPV6/IPV6_TCLASS).  Unlike Windows, Linux does NOT map one to the other.
+	//
+	// Linux AF_INET6 IPv6-only: only IPV6_RECVTCLASS is needed (no IPv4-mapped packets).
+	//
+	// All platforms AF_INET: IP_RECVTOS only.
+	#if PlatformSupportsRecvTOS()
+	{
+		unsigned int opt = 1;
+		bool bTOSEnabled = false;
+
+		bool use_IPv4_RECVTOS = true;
+		if ( addrBound.ss_family == AF_INET6 )
+		{
+			#if defined( _WIN32 ) || defined( __APPLE__ )
+				if ( setsockopt( sock, IPPROTO_IPV6, IPV6_RECVTCLASS, (char *)&opt, sizeof(opt) ) == -1 )
+					SpewWarning( "sockopt(IPPROTO_IPV6, IPV6_RECVTCLASS, 1) failed (0x%x), will not be able to read TOS\n", GetLastSocketError() );
+				else
+					bTOSEnabled = true;
+
+				// One sockopt covers both IPv4-mapped and pure IPv6 on these platforms.
+				use_IPv4_RECVTOS = false;
+			#else
+				if ( setsockopt( sock, IPPROTO_IPV6, IPV6_RECVTCLASS, (char *)&opt, sizeof(opt) ) == -1 )
+					SpewWarning( "sockopt(IPPROTO_IPV6, IPV6_RECVTCLASS, 1) failed (0x%x), will not be able to read TOS for IPv6 packets\n", GetLastSocketError() );
+				else
+					bTOSEnabled = true;
+
+				// Linux: dual-stack sockets can receive IPv4-mapped packets; but skip IP_RECVTOS for IPv6-only.
+				if ( !( pSock->m_nAddressFamilies & k_nAddressFamily_IPv4 ) )
+					use_IPv4_RECVTOS = false;
+			#endif
+		}
+
+		if ( use_IPv4_RECVTOS )
+		{
+			if ( setsockopt( sock, IPPROTO_IP, IP_RECVTOS, (char *)&opt, sizeof(opt) ) == -1 )
+				SpewWarning( "sockopt(IPPROTO_IP, IP_RECVTOS, 1) failed (0x%x), will not be able to read TOS\n", GetLastSocketError() );
+			else
+				bTOSEnabled = true;
+		}
+
+		pSock->m_bTOSEnabled = bTOSEnabled;
 	}
 	#endif
 
@@ -2568,11 +2613,14 @@ static bool DrainSocket( CRawUDPSocketImpl *pSock )
 						goto tos_done;
 					}
 
-					// The naming of this field is apparently inconsistent
+					// IPv6 tclass
 					if (
 						cmsg->cmsg_level == IPPROTO_IPV6
 						&& (
 							cmsg->cmsg_type == IPV6_TCLASS
+
+							// Older versions of MacOS return the socket
+							// option ID instead of the cmsg ID.
 							|| cmsg->cmsg_type == IPV6_RECVTCLASS
 							#ifdef IP_RECVTCLASS
 								|| cmsg->cmsg_type == IP_RECVTCLASS
@@ -2586,26 +2634,37 @@ static bool DrainSocket( CRawUDPSocketImpl *pSock )
 					}
 
 				#else
+					// IPv4 TOS: returned for AF_INET sockets, and for IPv4-mapped packets on
+					// Linux dual-stack AF_INET6 sockets.
 					if ( cmsg->cmsg_level == IPPROTO_IP && cmsg->cmsg_type == IP_TOS )
 					{
 						#ifdef _WIN32
-							AssertMsgOnce( cmsg->cmsg_len == sizeof(cmsghdr) + sizeof(int), "Unexpected IP_TOS cmsg_len %lld", (long long)cmsg->cmsg_len );
-							info.m_tos = (uint8)*((int *) WSA_CMSG_DATA(cmsg));
+							// Windows returns TOS as int
+							AssertMsgOnce( cmsg->cmsg_len >= CMSG_LEN( sizeof(int) ), "Unexpected IP_TOS cmsg_len %lld", (long long)cmsg->cmsg_len );
+							info.m_tos = (uint8)*((int *) CMSG_DATA(cmsg));
 						#else
-							AssertMsgOnce( cmsg->cmsg_len == sizeof(cmsghdr) + sizeof(uint8), "Unexpected IP_TOS cmsg_len %lld", (long long)cmsg->cmsg_len );
+							// POSIX returns TOS as uint8
+							AssertMsgOnce( cmsg->cmsg_len >= CMSG_LEN( sizeof(uint8) ), "Unexpected IP_TOS cmsg_len %lld", (long long)cmsg->cmsg_len );
 							info.m_tos = *((uint8 *) CMSG_DATA(cmsg));
 						#endif
+						goto tos_done;
+					}
+
+					// IPv6 traffic class: returned for pure IPv6 packets on Linux AF_INET6
+					// sockets, and for all packets (incl. IPv4-mapped) on Windows/Apple AF_INET6.
+					if ( cmsg->cmsg_level == IPPROTO_IPV6 && cmsg->cmsg_type == IPV6_TCLASS )
+					{
+						AssertMsgOnce( cmsg->cmsg_len >= CMSG_LEN( sizeof(int) ), "Unexpected IPV6_TCLASS cmsg_len %lld", (long long)cmsg->cmsg_len );
+						info.m_tos = (uint8)*((int *) CMSG_DATA(cmsg));
 						goto tos_done;
 					}
 				#endif
 			}
 
 			// If we get here, we scanned all control messages but didn't get the TOS data.
-			// If the platform supports it, we always ask for TOS, so it's bad that we didn't get it back.
-			// But only assert once, because all of the current the code that consumes this field
-			// is tolerant of the fact that it might not be available.  (Since we have to
-			// support platforms that don't support it at all.)
-			AssertMsgOnce( false, "No control data returned even though we asked for TOS?" );
+			// Only assert if we successfully enabled TOS on this socket — if the setsockopt
+			// failed we already warned at startup and shouldn't fire repeatedly here.
+			AssertMsgOnce( !pSock->m_bTOSEnabled, "No control data returned even though we asked for TOS?" );
 		}
 		tos_done:
 		#endif
