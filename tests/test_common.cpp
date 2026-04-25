@@ -53,7 +53,13 @@ static void DebugOutput( ESteamNetworkingSocketsDebugOutputType eType, const cha
 		if ( strstr( pszMsg, "SteamNetworkingGlobalLock held for" ) )
 			return;
 
-		assert( !"TEST FAILED" );
+		fprintf( stderr, "\n\n"
+			"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n"
+			"!!                     TEST FAILED                          !!\n"
+			"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n"
+			"\n", pszMsg );
+		fflush( stderr );
+		abort();
 	}
 }
 
