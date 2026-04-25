@@ -1071,7 +1071,7 @@ public:
 	#endif
 
 	#if PlatformSupportsRecvTOS()
-		bool m_bTOSEnabled = false;
+		bool m_bWarnIfNoTOSCMsg = false;
 	#endif
 
 	// Implements IRawUDPSocket
@@ -2361,15 +2361,18 @@ static CRawUDPSocketImpl *OpenRawUDPSocketInternal( CRecvPacketCallback callback
 	//
 	// Platform/family matrix:
 	//
-	// Windows AF_INET6 (incl. dual-stack): IPPROTO_IP options are rejected with WSAEINVAL.
-	//   Use IPV6_RECVTCLASS only — Windows maps the IPv4 TOS byte into the IPv6 traffic-class
-	//   field in the cmsg for IPv4-mapped packets, so one sockopt covers both families.
+	// Windows AF_INET6 (incl. dual-stack): IPV6_RECVTCLASS covers pure IPv6 packets.
+	//   For IPv4-mapped packets on dual-stack sockets, IP_RECVTOS also works and returns
+	//   IP_TOS cmsg (Windows does NOT automatically map IPv4 TOS into IPV6_TCLASS).
+	//   Both sockopts should be set; IP_RECVTOS failure is silently ignored in case
+	//   a future Windows version rejects it.
 	//
-	// Apple AF_INET6: same as Windows — IPV6_RECVTCLASS covers both families.
+	// Apple AF_INET6: IPV6_RECVTCLASS covers both families (Apple does map IPv4 TOS
+	//   into the IPv6 traffic-class field for IPv4-mapped packets).
 	//
 	// Linux AF_INET6 dual-stack: both sockopts must be set.  IP_RECVTOS covers IPv4-mapped
 	//   packets (returns IPPROTO_IP/IP_TOS); IPV6_RECVTCLASS covers pure IPv6 (returns
-	//   IPPROTO_IPV6/IPV6_TCLASS).  Unlike Windows, Linux does NOT map one to the other.
+	//   IPPROTO_IPV6/IPV6_TCLASS).  Unlike Apple, Linux does NOT map one to the other.
 	//
 	// Linux AF_INET6 IPv6-only: only IPV6_RECVTCLASS is needed (no IPv4-mapped packets).
 	//
@@ -2377,26 +2380,29 @@ static CRawUDPSocketImpl *OpenRawUDPSocketInternal( CRecvPacketCallback callback
 	#if PlatformSupportsRecvTOS()
 	{
 		unsigned int opt = 1;
-		bool bTOSEnabled = false;
+		pSock->m_bWarnIfNoTOSCMsg = false;
 
 		bool use_IPv4_RECVTOS = true;
 		if ( addrBound.ss_family == AF_INET6 )
 		{
-			#if defined( _WIN32 ) || defined( __APPLE__ )
+			#if defined( __APPLE__ )
 				if ( setsockopt( sock, IPPROTO_IPV6, IPV6_RECVTCLASS, (char *)&opt, sizeof(opt) ) == -1 )
 					SpewWarning( "sockopt(IPPROTO_IPV6, IPV6_RECVTCLASS, 1) failed (0x%x), will not be able to read TOS\n", GetLastSocketError() );
 				else
-					bTOSEnabled = true;
+					pSock->m_bWarnIfNoTOSCMsg = true;
 
-				// One sockopt covers both IPv4-mapped and pure IPv6 on these platforms.
+				// Apple maps IPv4 TOS into the IPv6 traffic-class field for IPv4-mapped packets,
+				// so one sockopt covers both families.
 				use_IPv4_RECVTOS = false;
 			#else
 				if ( setsockopt( sock, IPPROTO_IPV6, IPV6_RECVTCLASS, (char *)&opt, sizeof(opt) ) == -1 )
 					SpewWarning( "sockopt(IPPROTO_IPV6, IPV6_RECVTCLASS, 1) failed (0x%x), will not be able to read TOS for IPv6 packets\n", GetLastSocketError() );
 				else
-					bTOSEnabled = true;
+					pSock->m_bWarnIfNoTOSCMsg = true;
 
-				// Linux: dual-stack sockets can receive IPv4-mapped packets; but skip IP_RECVTOS for IPv6-only.
+				// Linux and Windows: dual-stack sockets need IP_RECVTOS for IPv4-mapped packets
+				// (neither platform maps IPv4 TOS into IPV6_TCLASS automatically).
+				// Skip only for IPv6-only sockets where no IPv4-mapped packets can arrive.
 				if ( !( pSock->m_nAddressFamilies & k_nAddressFamily_IPv4 ) )
 					use_IPv4_RECVTOS = false;
 			#endif
@@ -2405,12 +2411,27 @@ static CRawUDPSocketImpl *OpenRawUDPSocketInternal( CRecvPacketCallback callback
 		if ( use_IPv4_RECVTOS )
 		{
 			if ( setsockopt( sock, IPPROTO_IP, IP_RECVTOS, (char *)&opt, sizeof(opt) ) == -1 )
-				SpewWarning( "sockopt(IPPROTO_IP, IP_RECVTOS, 1) failed (0x%x), will not be able to read TOS\n", GetLastSocketError() );
+			{
+				#ifdef _WIN32
+				// On Windows AF_INET6, IP_RECVTOS may not be supported on all versions;
+				// failure is non-fatal since IPV6_RECVTCLASS handles pure IPv6 packets.
+				if ( addrBound.ss_family == AF_INET6 )
+				{
+					// Don't complain if we fail to read back TOS on mapped IPv4 packets.
+					// We will still be able to read TOS on pure IPv6 packets
+					pSock->m_bWarnIfNoTOSCMsg = false;
+				}
+				else
+				#endif
+				{
+					SpewWarning( "sockopt(IPPROTO_IP, IP_RECVTOS, 1) failed (0x%x), will not be able to read TOS\n", GetLastSocketError() );
+				}
+			}
 			else
-				bTOSEnabled = true;
+			{
+				pSock->m_bWarnIfNoTOSCMsg = true;
+			}
 		}
-
-		pSock->m_bTOSEnabled = bTOSEnabled;
 	}
 	#endif
 
@@ -2664,7 +2685,7 @@ static bool DrainSocket( CRawUDPSocketImpl *pSock )
 			// If we get here, we scanned all control messages but didn't get the TOS data.
 			// Only assert if we successfully enabled TOS on this socket -- if the setsockopt
 			// failed we already warned at startup and shouldn't fire repeatedly here.
-			AssertMsgOnce( !pSock->m_bTOSEnabled, "No control data returned even though we asked for TOS?" );
+			AssertMsgOnce( !pSock->m_bWarnIfNoTOSCMsg, "No control data returned even though we asked for TOS?" );
 		}
 		tos_done:
 		#endif
