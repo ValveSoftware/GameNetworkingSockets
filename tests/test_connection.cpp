@@ -15,14 +15,18 @@
 #include <steam/steam_api.h>
 #endif
 
-#define PORT_SERVER			27200	// Default server port, UDP/TCP
-
 // It's 2021 and the C language doesn't have a cross-platform way to
 // compare strings in a case-insensitive way
 #ifdef _MSC_VER
 	#define strcasecmp(a,b) stricmp(a,b)
 #endif
 
+enum class ETestConnectionMode
+{
+	Cursory, // Very fast sanity check: 1 condition, short durations
+	Normal,  // Standard: 2 conditions, moderate durations
+	Soak,    // Exhaustive: all conditions, long durations
+};
 
 static std::default_random_engine g_rand;
 static SteamNetworkingMicroseconds g_usecTestElapsed;
@@ -134,29 +138,29 @@ struct SFakePeer
 		m_nSendInterval += cbSend;
 
 		EResult result = SteamNetworkingSockets()->SendMessageToConnection(
-			m_hSteamNetConnection, 
+			m_hSteamNetConnection,
 			&msg,
 			cbSend,
 			msg.m_bReliable ? k_nSteamNetworkingSend_Reliable : k_nSteamNetworkingSend_Unreliable, nullptr );
 
 		if ( result != k_EResultOK )
 		{
-			TEST_Printf( "***ERROR ON Send: %s %.3f %s message %lld, %d bytes (pending %d bytes)\n", 
-				 m_sName.c_str(), 
+			TEST_Printf( "***ERROR ON Send: %s %.3f %s message %lld, %d bytes (pending %d bytes)\n",
+				 m_sName.c_str(),
 				 g_usecTestElapsed*1e-6,
 				 msg.m_bReliable ? "reliable" : "unreliable",
-				 (long long)msg.m_nMsgNum, 
+				 (long long)msg.m_nMsgNum,
 				 msg.m_cbSize,
 				 GetQueuedSendBytes() );
 			abort();
 		}
 	#if 0
 		else
-			TEST_Printf( "Send: %s %.3f %s message %lld, %d bytes (pending %d bytes)\n", 
-				 connection.m_sName.c_str(), 
+			TEST_Printf( "Send: %s %.3f %s message %lld, %d bytes (pending %d bytes)\n",
+				 connection.m_sName.c_str(),
 				 g_usecTestElapsed*1e-6,
 				 msg.m_bReliable ? "reliable" : "unreliable",
-				 (long long)msg.m_nMsgNum, 
+				 (long long)msg.m_nMsgNum,
 				 msg.m_cbSize,
 				 GetQueuedSendBytes() );
 	#endif
@@ -359,7 +363,7 @@ static void ClearConfig()
 	}
 }
 
-static void TestNetworkConditions( int rate, float loss, int lag, float reorderPct, int reorderLag, bool bActLikeGame, bool bQuickTest )
+static void TestNetworkConditions( int rate, float loss, int lag, float reorderPct, int reorderLag, bool bActLikeGame, ETestConnectionMode eMode )
 {
 	ISteamNetworkingSockets *pSteamSocketNetworking = SteamNetworkingSockets();
 
@@ -384,14 +388,18 @@ static void TestNetworkConditions( int rate, float loss, int lag, float reorderP
 
 	SteamNetworkingMicroseconds usecWhenStarted = SteamNetworkingUtils()->GetLocalTimestamp();
 
-	// Loop!
+	struct Timing { double flQuietSec; double flActiveSec; float flPrintIntervalSec; int nIterations; };
+	static const Timing k_timing[] = {
+		{ 0.5,  2.0, 1.0f, 1 }, // Cursory
+		{ 1.0,  5.0, 2.0f, 2 }, // Normal
+		{ 8.0, 25.0, 5.0f, 4 }, // Soak
+	};
+	const Timing &timing = k_timing[ (int)eMode ];
 
-	//SteamNetworkingMicroseconds usecLastNow = usecWhenStarted;
-
-	SteamNetworkingMicroseconds usecQuietDuration  = SteamNetworkingMicroseconds( ( bQuickTest ? 1.0 :  8.0 ) * 1e6 );
-	SteamNetworkingMicroseconds usecActiveDuration = SteamNetworkingMicroseconds( ( bQuickTest ? 5.0 : 25.0 ) * 1e6 );
-	float flWaitBetweenPrints = bQuickTest ? 2.0f : 5.0f;
-	int nIterations = bQuickTest ? 2 : 4;
+	SteamNetworkingMicroseconds usecQuietDuration  = SteamNetworkingMicroseconds( timing.flQuietSec  * 1e6 );
+	SteamNetworkingMicroseconds usecActiveDuration = SteamNetworkingMicroseconds( timing.flActiveSec * 1e6 );
+	float flWaitBetweenPrints = timing.flPrintIntervalSec;
+	int nIterations = timing.nIterations;
 
 	bool bQuiet = true;
 	SteamNetworkingMicroseconds usecWhenStateEnd = 0;
@@ -415,7 +423,7 @@ static void TestNetworkConditions( int rate, float loss, int lag, float reorderP
 		int nServerPending = g_peerServer.GetQueuedSendBytes();
 		int nClientPending = g_peerClient.GetQueuedSendBytes();
 
-		bool bCheckStateChange = ( usecWhenStateEnd == 0 ); 
+		bool bCheckStateChange = ( usecWhenStateEnd == 0 );
 		float flElapsedPrint = ( now - usecLastPrint ) * 1e-6f;
 		if ( flElapsedPrint > flWaitBetweenPrints )
 		{
@@ -483,38 +491,24 @@ static void TestNetworkConditions( int rate, float loss, int lag, float reorderP
 	}
 }
 
-static void Test_Connection( bool bQuickTest )
+static void Test_Connection( ETestConnectionMode eMode, const SteamNetworkingIPAddr &addrServerBind, const SteamNetworkingIPAddr &addrClientConnect )
 {
+	static const char *const k_rgszModeName[] = { "Cursory", "Normal", "Soak" };
+	TEST_Printf( "***************************************************\n" );
+	TEST_Printf( "Mode:           %s\n", k_rgszModeName[ (int)eMode ] );
+	TEST_Printf( "Server bind:    %s\n", SteamNetworkingIPAddrRender( addrServerBind ).c_str() );
+	TEST_Printf( "Client connect: %s\n", SteamNetworkingIPAddrRender( addrClientConnect ).c_str() );
+	TEST_Printf( "***************************************************\n" );
+
 	SteamNetworkingUtils()->SetGlobalCallback_SteamNetConnectionStatusChanged( OnSteamNetConnectionStatusChanged );
 
 	CloseConnections();
 
 	ISteamNetworkingSockets *pSteamSocketNetworking = SteamNetworkingSockets();
 
-	// Command line options:
-	// -connect:ip -- don't create a server, just try to connect to the given ip
-	// -serveronly -- don't create a client only create a server and wait for connection
-	SteamNetworkingIPAddr bindServerAddress;
-	bindServerAddress.Clear();
-	bindServerAddress.m_port = PORT_SERVER;
-
-	SteamNetworkingIPAddr connectToServerAddress;
-	connectToServerAddress.SetIPv4( 0x7f000001, PORT_SERVER );
-
-	//const char *s_pszConnectParm = "-connect:";
-	//for ( int i = 0; i < CommandLine()->ParmCount(); ++i )
-	//{
-	//	if ( V_strnicmp( CommandLine()->GetParm( i ), s_pszConnectParm, V_strlen( s_pszConnectParm ) ) == 0 )
-	//	{
-	//		bClientOnly = true;
-	//		connection_adr.SetFromString( CommandLine()->GetParm( i ) + V_strlen( s_pszConnectParm ) );
-	//		break;
-	//	}
-	//}
-
 	// Initiate connection
-	g_hSteamListenSocket = pSteamSocketNetworking->CreateListenSocketIP( bindServerAddress, 0, nullptr );
-	g_peerClient.m_hSteamNetConnection = pSteamSocketNetworking->ConnectByIPAddress( connectToServerAddress, 0, nullptr );
+	g_hSteamListenSocket = pSteamSocketNetworking->CreateListenSocketIP( addrServerBind, 0, nullptr );
+	g_peerClient.m_hSteamNetConnection = pSteamSocketNetworking->ConnectByIPAddress( addrClientConnect, 0, nullptr );
 	pSteamSocketNetworking->SetConnectionName( g_peerClient.m_hSteamNetConnection, "Client" );
 
 	g_peerClient.SetConnectionConfig();
@@ -528,15 +522,18 @@ static void Test_Connection( bool bQuickTest )
 	while ( !g_peerClient.m_bIsConnected || !g_peerServer.m_bIsConnected )
 		TEST_PumpCallbacks();
 
-	auto Test = [bQuickTest]( int rate, float loss, int lag, float reorderPct, int reorderLag )
+	auto Test = [eMode]( int rate, float loss, int lag, float reorderPct, int reorderLag )
 	{
-		TestNetworkConditions( rate, loss, lag, reorderPct, reorderLag, false, bQuickTest );
-		TestNetworkConditions( rate, loss, lag, reorderPct, reorderLag, true, bQuickTest );
+		TestNetworkConditions( rate, loss, lag, reorderPct, reorderLag, false, eMode );
+		TestNetworkConditions( rate, loss, lag, reorderPct, reorderLag, true, eMode );
 	};
 
-	if ( bQuickTest )
+	if ( eMode == ETestConnectionMode::Cursory )
 	{
-		// Quick test, just do two situations
+		Test(  128000, 10, 50, 2, 50 ); // Low bandwidth, high packet loss
+	}
+	else if ( eMode == ETestConnectionMode::Normal )
+	{
 		Test(  128000, 10, 50, 2, 50 ); // Low bandwidth, high packet loss
 		Test( 1000000,  5, 10, 1, 10 ); // Medium bandwidth, still pretty bad packet loss
 	}
@@ -561,10 +558,59 @@ static void Test_Connection( bool bQuickTest )
 		Test( 64000, 5, 50, 2, 50 );
 		Test( 1000000, 5, 50, 2, 10 );
 	}
+
+	CloseConnections();
 }
 
-static void Test_quick() { Test_Connection( true ); }
-static void Test_soak() { Test_Connection( false ); }
+const int k_nStartingServerPort = 27200;
+
+static void Test_quick()
+{
+	int nServerPort = k_nStartingServerPort;
+	SteamNetworkingIPAddr bindAddr, connectAddr;
+
+	//
+	// First, do some 'cursory' connection tests between various combiantions of IPv4, IPc6, and dual-stack.
+	// This is really just to make sure we can connect and exchange packets.
+	//
+
+	// IPv4-only server, IPv4 client
+	bindAddr.SetIPv4( 0, nServerPort );
+	connectAddr.SetIPv4( 0x7f000001, nServerPort );
+	Test_Connection( ETestConnectionMode::Cursory, bindAddr, connectAddr );
+	++nServerPort;
+
+	// IPv6-only server, IPv6 client
+	bindAddr.SetIPv6LocalHost( nServerPort );
+	connectAddr.SetIPv6LocalHost( nServerPort );
+	Test_Connection( ETestConnectionMode::Cursory, bindAddr, connectAddr );
+	++nServerPort;
+
+	// Dual-stack server, IPv6 client
+	bindAddr.Clear(); bindAddr.m_port = nServerPort;
+	connectAddr.SetIPv6LocalHost( nServerPort );
+	Test_Connection( ETestConnectionMode::Cursory, bindAddr, connectAddr );
+	++nServerPort;
+
+	//
+	// Now do a 'normal' test
+	//
+	// Dual-stack server, IPv4 client (IPv4-mapped path)
+	bindAddr.Clear(); bindAddr.m_port = nServerPort;
+	connectAddr.SetIPv4( 0x7f000001, nServerPort );
+	Test_Connection( ETestConnectionMode::Normal, bindAddr, connectAddr );
+}
+
+static void Test_soak()
+{
+	int nServerPort = k_nStartingServerPort;
+	SteamNetworkingIPAddr bindAddr, connectAddr;
+
+	// Dual-stack server, IPv4 client (IPv4-mapped path)
+	bindAddr.Clear(); bindAddr.m_port = nServerPort;
+	connectAddr.SetIPv4( 0x7f000001, nServerPort );
+	Test_Connection( ETestConnectionMode::Soak, bindAddr, connectAddr );
+}
 
 // Some tests for identity string handling.  Doesn't really have anything to do with
 // connectivity, this is just a conveinent place for this to live
@@ -1296,7 +1342,7 @@ print_available_tests_and_exit:
 	}
 
 	// Shutdown library
-	TEST_Kill();	
+	TEST_Kill();
 	return 0;
 }
 
