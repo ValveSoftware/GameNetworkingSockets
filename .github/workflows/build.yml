@@ -175,8 +175,9 @@ jobs:
           path: |
             ${{ env.VCPKG_ROOT }}/downloads
             ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
-          key: vcpkg-${{ runner.os }}-${{ matrix.os-version }}-${{ matrix.crypto }}-c3867e714dd3a51c272826eea77267876517ed99-${{ hashFiles('vcpkg.json') }}
+          key: vcpkg-${{ runner.os }}-${{ matrix.os-version }}-${{ matrix.crypto }}-${{ env.VCToolsVersion }}-c3867e714dd3a51c272826eea77267876517ed99-${{ hashFiles('vcpkg.json') }}
           restore-keys: |
+            vcpkg-${{ runner.os }}-${{ matrix.os-version }}-${{ matrix.crypto }}-${{ env.VCToolsVersion }}-
             vcpkg-${{ runner.os }}-${{ matrix.os-version }}-${{ matrix.crypto }}-
 
       - name: vcpkg check / install dependencies
