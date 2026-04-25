@@ -57,9 +57,9 @@ static void DebugOutput( ESteamNetworkingSocketsDebugOutputType eType, const cha
 			"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n"
 			"!!                     TEST FAILED                          !!\n"
 			"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n"
-			"\n", pszMsg );
+		);
 		fflush( stderr );
-		abort();
+		_exit(1);
 	}
 }
 
@@ -85,7 +85,7 @@ void TEST_Fatal( const char *fmt, ... )
 	va_end(ap);
 	fputc('\n', stderr);
 	fflush(stderr);
-	exit(1);
+	_exit(1);
 }
 
 void TEST_InitLog( const char *pszFilename )
