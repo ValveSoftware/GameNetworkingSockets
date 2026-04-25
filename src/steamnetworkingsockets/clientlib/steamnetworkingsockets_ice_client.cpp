@@ -1205,7 +1205,7 @@ void CSteamNetworkingICESession::AddPeerCandidate( const ICECandidate& candidate
             (ICECandidate&)c = candidate;
             c.m_sFoundation = pszFoundation;
 			bNeedsNewEntry = false;
-            return;
+            break; // fall through to update state and trigger a think
         }
     }
 	if ( bNeedsNewEntry )
@@ -1515,10 +1515,16 @@ void CSteamNetworkingICESession::Think( SteamNetworkingMicroseconds usecNow )
         || m_sessionState == kICESessionState_TestingPeerConnectivity )
     {
         Think_DiscoverServerReflexiveCandidates();
-        if ( m_sessionState == kICESessionState_GatheringCandidates && m_vecPendingServerReflexiveRequests.empty() && m_vecPeerCandidates.empty() )
+        if ( m_sessionState == kICESessionState_GatheringCandidates && m_vecPendingServerReflexiveRequests.empty() )
         {
-            m_sessionState = kICESessionState_Idle;
-            return;
+            if ( m_vecPeerCandidates.empty() )
+            {
+                m_sessionState = kICESessionState_Idle;
+                return;
+            }
+
+            // STUN gathering finished but we have peer candidates to check — move on
+            m_sessionState = kICESessionState_TestingPeerConnectivity;
         }
     }
 
