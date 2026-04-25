@@ -14,6 +14,8 @@ add_executable(
 set_target_common_gns_properties( test_connection )
 target_link_libraries(test_connection ${GAMENETWORKINGSOCKETS_LIB})
 add_sanitizers(test_connection)
+add_test(NAME connection_quick COMMAND test_connection suite-quick WORKING_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
+add_test(NAME connection_soak  COMMAND test_connection soak  WORKING_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
 
 add_executable(
 	test_crypto
@@ -23,6 +25,7 @@ set_target_common_gns_properties( test_crypto )
 target_include_directories(test_crypto PRIVATE ../src ../src/public ../src/common ../include)
 target_link_libraries(test_crypto GameNetworkingSockets::static)
 add_sanitizers(test_crypto)
+add_test(NAME crypto COMMAND test_crypto WORKING_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
 
 # Test data for the crypto test when the project is built
 file(COPY aesgcmtestvectors DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
@@ -40,9 +43,10 @@ if(ENABLE_ICE)
 	# Publish the test script
 	set( P2P_TEST_SCRIPT ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test_p2p.py )
 	set( P2P_TEST_SCRIPT_SRC ${CMAKE_CURRENT_SOURCE_DIR}/test_p2p.py )
-	add_custom_command( 
-		OUTPUT ${P2P_TEST_SCRIPT} 
+	add_custom_command(
+		OUTPUT ${P2P_TEST_SCRIPT}
 		COMMAND ${CMAKE_COMMAND} -E copy ${P2P_TEST_SCRIPT_SRC} ${P2P_TEST_SCRIPT}
 		DEPENDS ${P2P_TEST_SCRIPT_SRC} )
 	add_custom_target( publish_test_script ALL DEPENDS ${P2P_TEST_SCRIPT} )
+	add_test(NAME p2p COMMAND ${P2P_TEST_SCRIPT} WORKING_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
 endif()

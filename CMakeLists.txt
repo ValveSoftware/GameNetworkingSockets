@@ -219,6 +219,7 @@ if(BUILD_TESTS)
 		# See also portfile.cmake
 		message(FATAL_ERROR "Must build static lib (-DBUILD_STATIC_LIB=ON) to build tests")
 	endif()
+	enable_testing()
 	add_subdirectory(tests)
 endif()
 
