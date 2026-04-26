@@ -5,9 +5,11 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <assert.h>
 #include <chrono>
 #include <thread>
+#ifndef _WIN32
+#include <unistd.h>
+#endif
 
 #include <steam/steamnetworkingsockets.h>
 #include <steam/isteamnetworkingutils.h>
