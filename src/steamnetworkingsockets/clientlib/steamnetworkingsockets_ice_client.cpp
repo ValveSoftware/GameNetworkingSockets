@@ -330,25 +330,6 @@ static const STUNAttribute* FindAttributeOfType( const STUNAttribute *pAttrs, ui
     return nullptr;
 }
 
-static bool ReadFingerprintAttribute( const STUNAttribute *pAttr, const uint32* pMessageStart, const uint32* pAttributeStart )
-{
-    if ( pAttr == nullptr || pMessageStart == nullptr || pAttributeStart == nullptr || pAttributeStart < pMessageStart )
-        return false;
-    if ( pAttr->m_nType != k_nSTUN_Attr_Fingerprint )
-        return false;
-    if ( pAttr->m_nLength != 4 )
-        return false;
-    const uint32 uPacketCRCValue = ntohl( pAttr->m_pData[0] ) ^ 0x5354554e;
-    const uint32 uDataCRCValue = CRC32( reinterpret_cast<const unsigned char*>( pMessageStart ), uint32( pAttributeStart - pMessageStart ) * 4 );
-
-    if ( uPacketCRCValue != uDataCRCValue )
-    {
-        SpewMsg( "Fingerprint check failed: %x vs. %x", uPacketCRCValue, uDataCRCValue );
-        return false;
-    }
-
-    return true;
-}
 
 static uint32* ReserveFingerprintAttribute( uint32 *pBuffer )
 {
@@ -363,29 +344,6 @@ static uint32* WriteFingerprintAttribute( uint32 *pBuffer, uint32 *pMessageStart
     return &pBuffer[2];
 }
 
-static bool ReadMessageIntegritySHA256Attribute( const STUNAttribute *pAttr, const uint32* pMessageStart, const uint32* pAttributeStart, const uint8 *pubKey, uint32 cubKey )
-{
-    if ( pAttr == nullptr || pMessageStart == nullptr || pAttributeStart == nullptr || pAttributeStart < pMessageStart )
-        return false;
-    if ( pAttr->m_nType != k_nSTUN_Attr_MessageIntegrity_SHA256 )
-        return false;
-    if ( pAttr->m_nLength != k_cubSHA256Hash )
-        return false;
-
-    const uint32 uOriginalMessageStartWordRaw = *pMessageStart;
-    const uint32 uOriginalMessageStartWord = ntohl( uOriginalMessageStartWordRaw );
-    const uint32 uAdjustedMessageLength = 4*( pAttributeStart - &pMessageStart[5] ) + 4+pAttr->m_nLength;
-    uint32 uMessageStartHighWord = uOriginalMessageStartWord & 0xFFFF0000ul;
-    uint32 uAdjustedMessageStartWord = uMessageStartHighWord | uAdjustedMessageLength;
-    const uint32 uTruncatedStartWord = htonl( uAdjustedMessageStartWord );
-    *(uint32*)( pMessageStart ) = uTruncatedStartWord;
-    SHA256Digest_t digest;
-  	CCrypto::GenerateHMAC256( reinterpret_cast<const uint8 *>( pMessageStart ), 4 * ( pAttributeStart - pMessageStart ), pubKey, cubKey, &digest );
-    *(uint32*)( pMessageStart ) = uOriginalMessageStartWordRaw;
-    if ( V_memcmp( pAttr->m_pData, &digest, k_cubSHA256Hash ) != 0 )
-        return false;
-    return true;
-}
 
 static uint32* ReserveMessageIntegritySHA256Attribute( uint32 *pBuffer )
 {
@@ -403,35 +361,6 @@ static uint32* WriteMessageIntegritySHA256Attribute( uint32 *pBuffer, uint32 *pM
     return pBuffer + 1 + ( k_cubSHA256Hash / 4 );
 }
 
-static bool ReadMessageIntegrityAttribute( const STUNAttribute *pAttr, const uint32* pMessageStart, const uint32* pAttributeStart, const uint8 *pubKey, uint32 cubKey )
-{
-    if ( pAttr == nullptr || pMessageStart == nullptr || pAttributeStart == nullptr || pAttributeStart < pMessageStart )
-        return false;
-    if ( pAttr->m_nType != k_nSTUN_Attr_MessageIntegrity )
-        return false;
-    if ( pAttr->m_nLength != k_cubSHA1Hash )
-        return false;
-
-    const uint32 uOriginalMessageStartWordRaw = *pMessageStart;
-    const uint32 uOriginalMessageStartWord = ntohl( uOriginalMessageStartWordRaw );
-    const uint32 uAdjustedMessageLength = 4*( pAttributeStart - &pMessageStart[5] ) + 4+pAttr->m_nLength;
-    uint32 uMessageStartHighWord = uOriginalMessageStartWord & 0xFFFF0000ul;
-    uint32 uAdjustedMessageStartWord = uMessageStartHighWord | uAdjustedMessageLength;
-    const uint32 uTruncatedStartWord = htonl( uAdjustedMessageStartWord );
-    *(uint32*)( pMessageStart ) = uTruncatedStartWord;
-    SHADigest_t digest;
-  	CCrypto::GenerateHMAC( reinterpret_cast<const uint8 *>( pMessageStart ), 4*( pAttributeStart - pMessageStart ), pubKey, cubKey, &digest );
-    *(uint32*)( pMessageStart ) = uOriginalMessageStartWordRaw;
-
-    if ( V_memcmp( pAttr->m_pData, &digest, k_cubSHA1Hash ) != 0 )
-    {
-        const unsigned char* pszAttr = (const unsigned char*)pAttr->m_pData;
-        const unsigned char* pszDigest = (const unsigned char*)(digest);
-        SpewMsg( "Got %s expected %s\n", pszAttr, pszDigest );
-        return false;
-    }
-    return true;
-}
 
 static uint32* ReserveMessageIntegrityAttribute( uint32 *pBuffer )
 {
@@ -452,8 +381,11 @@ static uint32* WriteMessageIntegrityAttribute( uint32 *pBuffer, uint32 *pMessage
     return pBuffer + 1 + ( k_cubSHA1Hash / 4 );
 }
 
-static bool DecodeSTUNPacket( const void *pPkt, uint32 cbPkt, uint32* nTransactionID, const uint8 *pubKey, uint32 cubKey, STUNHeader *pHeader, CUtlVector< STUNAttribute >* pVecAttrs )
+static bool DecodeSTUNPacket( const RecvPktInfo_t &info, uint32* nTransactionID, const uint8 *pubKey, uint32 cubKey, STUNHeader *pHeader, CUtlVector< STUNAttribute >* pVecAttrs )
 {
+    const void * const pPkt = info.m_pPkt;
+    const uint32 cbPkt = (uint32)info.m_cbPkt;
+
     // Always require at least the 20 byte header.
     if ( pPkt == nullptr || cbPkt < 20 )
         return false;
@@ -478,24 +410,51 @@ static bool DecodeSTUNPacket( const void *pPkt, uint32 cbPkt, uint32* nTransacti
         {
             case k_nSTUN_Attr_Fingerprint:
             {
-                // Failed fingerprint means this isn't actually a STUN message, so just bail.
-                if ( !ReadFingerprintAttribute( &attr, pMessage, pThisAttrPtr ) )
+                if ( attr.m_nLength != 4 )
+                    return false;
+                const uint32 uPacketCRC = ntohl( attr.m_pData[0] ) ^ 0x5354554e;
+                const uint32 uDataCRC = CRC32( reinterpret_cast<const unsigned char*>( pMessage ), uint32( pThisAttrPtr - pMessage ) * 4 );
+                if ( uPacketCRC != uDataCRC )
                     return false;
                 break;
             }
 
             case k_nSTUN_Attr_MessageIntegrity_SHA256:
             {
-                // Failed Message Integrity means this is a malformed STUN message, so just bail.
-                if ( !ReadMessageIntegritySHA256Attribute( &attr, pMessage, pThisAttrPtr, pubKey, cubKey ) )
+                if ( attr.m_nLength != k_cubSHA256Hash )
+                    return false;
+                if ( cubKey == 0 )
+                {
+                    //SpewWarningRateLimited( SteamNetworkingSockets_GetLocalTimestamp(), "[%s] Received STUN packet with MessageIntegrity-SHA256 but no key to verify it\n", CUtlNetAdrRender( info.m_adrFrom ).String() );
+                    return false;
+                }
+                const uint32 uOriginalStartWordRaw256 = *pMessage;
+                const uint32 uAdjustedLength256 = 4*( pThisAttrPtr - &pMessage[5] ) + 4 + attr.m_nLength;
+                *(uint32*)pMessage = htonl( ( ntohl( uOriginalStartWordRaw256 ) & 0xFFFF0000ul ) | uAdjustedLength256 );
+                SHA256Digest_t digest256;
+                CCrypto::GenerateHMAC256( reinterpret_cast<const uint8 *>( pMessage ), 4 * ( pThisAttrPtr - pMessage ), pubKey, cubKey, &digest256 );
+                *(uint32*)pMessage = uOriginalStartWordRaw256;
+                if ( V_memcmp( attr.m_pData, &digest256, k_cubSHA256Hash ) != 0 )
                     return false;
                 break;
             }
 
             case k_nSTUN_Attr_MessageIntegrity:
             {
-                // Failed Message Integrity means this is a malformed STUN message, so just bail.
-                if ( !ReadMessageIntegrityAttribute( &attr, pMessage, pThisAttrPtr, pubKey, cubKey ) )
+                if ( attr.m_nLength != k_cubSHA1Hash )
+                    return false;
+                if ( cubKey == 0 )
+                {
+                    //SpewWarningRateLimited( SteamNetworkingSockets_GetLocalTimestamp(), "[%s] Received STUN packet with MessageIntegrity but no key to verify it\n", CUtlNetAdrRender( info.m_adrFrom ).String() );
+                    return false;
+                }
+                const uint32 uOriginalStartWordRaw1 = *pMessage;
+                const uint32 uAdjustedLength1 = 4*( pThisAttrPtr - &pMessage[5] ) + 4 + attr.m_nLength;
+                *(uint32*)pMessage = htonl( ( ntohl( uOriginalStartWordRaw1 ) & 0xFFFF0000ul ) | uAdjustedLength1 );
+                SHADigest_t digest1;
+                CCrypto::GenerateHMAC( reinterpret_cast<const uint8 *>( pMessage ), 4 * ( pThisAttrPtr - pMessage ), pubKey, cubKey, &digest1 );
+                *(uint32*)pMessage = uOriginalStartWordRaw1;
+                if ( V_memcmp( attr.m_pData, &digest1, k_cubSHA1Hash ) != 0 )
                     return false;
                 break;
             }
@@ -1042,7 +1001,7 @@ bool CSteamNetworkingSocketsSTUNRequest::OnPacketReceived( const RecvPktInfo_t &
 {
     STUNHeader header;
     CUtlVector< STUNAttribute > vecAttributes;
-    if ( !DecodeSTUNPacket( info.m_pPkt, info.m_cbPkt, m_nTransactionID, (const byte*)m_strPassword.c_str(), (uint32)m_strPassword.size(), &header, &vecAttributes ) )
+    if ( !DecodeSTUNPacket( info, m_nTransactionID, (const byte*)m_strPassword.c_str(), (uint32)m_strPassword.size(), &header, &vecAttributes ) )
         return kPacketNotProcessed;
 
     RecvSTUNPktInfo_t subInfo;
@@ -1330,7 +1289,7 @@ void CSteamNetworkingICESession::OnPacketReceived( const RecvPktInfo_t &info )
 
     STUNHeader header;
     CUtlVector< STUNAttribute > vecAttrs;
-    if ( !DecodeSTUNPacket( info.m_pPkt, info.m_cbPkt, nullptr, (const uint8*)m_strLocalPassword.c_str(), (uint32)m_strLocalPassword.size(), &header, &vecAttrs ) )
+    if ( !DecodeSTUNPacket( info, nullptr, (const uint8*)m_strLocalPassword.c_str(), (uint32)m_strLocalPassword.size(), &header, &vecAttrs ) )
     {
         if ( m_pCallbacks != nullptr )
             m_pCallbacks->OnPacketReceived( info );
