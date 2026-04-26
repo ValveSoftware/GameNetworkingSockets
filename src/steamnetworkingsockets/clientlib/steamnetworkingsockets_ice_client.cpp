@@ -1186,6 +1186,10 @@ void CSteamNetworkingICESession::SetRemoteUsername( const char *pszUsername )
 void CSteamNetworkingICESession::SetRemotePassword( const char *pszPassword )
 {
     m_strRemotePassword = pszPassword;
+
+    // We might have been waiting for this before sending binding requests
+    // to the peer (which cannot be authenticated until we have the remote password)
+    SetNextThinkTimeASAP();
 }
 
 void CSteamNetworkingICESession::AddPeerCandidate( const ICECandidate& candidate, const char* pszFoundation )
@@ -1530,10 +1534,15 @@ void CSteamNetworkingICESession::Think( SteamNetworkingMicroseconds usecNow )
 
     if ( m_sessionState == kICESessionState_TestingPeerConnectivity )
     {
-        Think_TestPeerConnectivity();
-        if ( !m_vecPendingPeerRequests.empty() )
-            return;
-        m_sessionState = kICESessionState_Idle;
+        // Don't start checks before we have the remote password — we'd send
+        // unauthenticated requests and couldn't verify the response integrity.
+        if ( !m_strRemotePassword.empty() )
+        {
+            Think_TestPeerConnectivity();
+            if ( !m_vecPendingPeerRequests.empty() )
+                return;
+            m_sessionState = kICESessionState_Idle;
+        }
     }
 }
 
