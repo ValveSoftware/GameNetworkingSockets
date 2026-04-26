@@ -56,9 +56,11 @@ static void DebugOutput( ESteamNetworkingSocketsDebugOutputType eType, const cha
 			return;
 
 		fprintf( stderr, "\n\n"
+			"%s\n"
 			"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n"
 			"!!                     TEST FAILED                          !!\n"
-			"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n"
+			"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n",
+			pszMsg
 		);
 		fflush( stderr );
 		_exit(1);
