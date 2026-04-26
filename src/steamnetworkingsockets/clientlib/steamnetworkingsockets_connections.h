@@ -91,7 +91,7 @@ struct RemoteConnectionKey_t
 	}
 };
 
-/// Base class for connection-type-specific context structure 
+/// Base class for connection-type-specific context structure
 struct SendPacketContext_t
 {
 	inline SendPacketContext_t( SteamNetworkingMicroseconds usecNow, const char *pszReason ) : m_usecNow( usecNow ), m_pszReason( pszReason ) {}
@@ -353,7 +353,7 @@ struct ConnectionScopeLock : ScopeLock<ConnectionLock>
 /// Abstract interface for a connection to a remote host over any underlying
 /// transport.  Most of the common functionality for implementing reliable
 /// connections on top of unreliable datagrams, connection quality measurement,
-/// etc is implemented here. 
+/// etc is implemented here.
 class CSteamNetworkConnectionBase : public ILockableThinker< ConnectionLock >
 {
 public:
@@ -678,6 +678,18 @@ public:
 	static constexpr CMessagesEndPointSession *m_pMessagesEndPointSessionOwner = nullptr;
 	#endif
 
+	/// Get the effective value of the RecvMaxMessageSize value.
+	/// Connections used by the ISteamNetworkingMessages interface need a little extra space
+	int GetEffectiveRecvMaxMessageSize() const
+	{
+		int cbResult = m_connectionConfig.RecvMaxMessageSize.Get();
+		if ( m_pMessagesEndPointSessionOwner )
+		{
+			cbResult += k_cbMaxSteamNetworkingSocketsMessageSizeSend_Internal - k_cbMaxSteamNetworkingSocketsMessageSizeSend;
+		}
+		return cbResult;
+	}
+
 	/// Time when we would like to send our next connection diagnostics
 	/// update.  This is initialized the first time we enter the "connecting"
 	/// state and we are on a platform that wants those updates.
@@ -799,7 +811,7 @@ protected:
 	// combined with the packet number so that the effective IV is
 	// unique per packet.  We use a 96-bit IV, which is what TLS uses
 	// (RFC5288), what NIST recommends (https://dl.acm.org/citation.cfm?id=2206251),
-	// and what makes GCM the most efficient. 
+	// and what makes GCM the most efficient.
 	AutoWipeFixedSizeBuffer<12> m_cryptIVSend;
 	AutoWipeFixedSizeBuffer<12> m_cryptIVRecv;
 
@@ -972,11 +984,11 @@ public:
 	virtual bool SendDataPacket( SteamNetworkingMicroseconds usecNow ) = 0;
 
 	/// Connection will call this to ask the transport to surround the
-	/// "chunk" with the appropriate framing, and route it to the 
-	/// appropriate host.  A "chunk" might contain a mix of reliable 
-	/// and unreliable data.  We use the same framing for data 
-	/// payloads for all connection types.  Return value is 
-	/// the number of bytes written to the network layer, UDP/IP 
+	/// "chunk" with the appropriate framing, and route it to the
+	/// appropriate host.  A "chunk" might contain a mix of reliable
+	/// and unreliable data.  We use the same framing for data
+	/// payloads for all connection types.  Return value is
+	/// the number of bytes written to the network layer, UDP/IP
 	/// header is not included.
 	///
 	/// ctx is whatever the transport passed to SNP_SendPacket, if the
@@ -1116,7 +1128,7 @@ extern CUtlHashMap<int, CSteamNetworkPollGroup *, std::equal_to<int>, Identity<i
 // All of the tables above are projected by the same lock, since we expect to only access it briefly
 struct TableLock : Lock<RecursiveTimedMutexImpl> {
 	TableLock() : Lock<RecursiveTimedMutexImpl>( "table", LockDebugInfo::k_nFlag_Table, LockDebugInfo::k_nOrder_ObjectOrTable ) {}
-}; 
+};
 using TableScopeLock = ScopeLock<TableLock>;
 extern TableLock g_tables_lock;
 

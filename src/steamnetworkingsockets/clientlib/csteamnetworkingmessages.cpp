@@ -3,21 +3,13 @@
 #include "csteamnetworkingmessages.h"
 #include "csteamnetworkingsockets.h"
 #include "steamnetworkingsockets_p2p.h"
+#include "../steamnetworkingsockets_internal.h"
 
 // memdbgon must be the last include file in a .cpp file!!!
 #include "tier0/memdbgon.h"
 
 // Make sure we're enabled
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_STEAMNETWORKINGMESSAGES
-
-#pragma pack(push,1)
-struct P2PMessageHeader
-{
-	uint8 m_nFlags;
-	int m_nToChannel;
-};
-#pragma pack(pop)
-COMPILE_TIME_ASSERT( sizeof(P2PMessageHeader) == 5 );
 
 // FIXME TODO:
 // * Need to clear P2P error when we start connecting or get a successful result
@@ -28,6 +20,18 @@ COMPILE_TIME_ASSERT( sizeof(P2PMessageHeader) == 5 );
 
 // Put everything in a namespace, so we don't violate the one definition rule
 namespace SteamNetworkingSocketsLib {
+
+// Messages sent using the ISteamnNetworkingMessages interface are prepended
+// internally by a small internal header
+#pragma pack(push,1)
+struct P2PMessageHeader
+{
+	uint8 m_nFlags;
+	int m_nToChannel;
+};
+#pragma pack(pop)
+COMPILE_TIME_ASSERT( sizeof(P2PMessageHeader) == 5 );
+COMPILE_TIME_ASSERT( k_cbMaxSteamNetworkingSocketsMessageSizeSend + sizeof(P2PMessageHeader) <= k_cbMaxSteamNetworkingSocketsMessageSizeSend_Internal );
 
 const SteamNetworkingMicroseconds k_usecSteamNetworkingP2PSessionIdleTimeout = 3*60*k_nMillion;
 const int k_ESteamNetConnectionEnd_P2P_SessionClosed = k_ESteamNetConnectionEnd_App_Min + 1;
@@ -347,7 +351,7 @@ void CMessagesEndPointSession::ClearActiveConnection()
 CSteamNetworkingMessages::Channel::Channel()
 {
 	m_queueRecvMessages.m_pRequiredLock = &g_lockAllRecvMessageQueues;
-		
+
 }
 
 CSteamNetworkingMessages::Channel::~Channel()
@@ -418,8 +422,15 @@ EResult CSteamNetworkingMessages::SendMessageToUser( const SteamNetworkingIdenti
 {
 	if ( identityRemote.IsInvalid() )
 	{
-		AssertMsg( false, "Identity isn't valid for Messages sessions." );
-		return k_EResultFail;
+		SpewWarning( "Identity %s isn't valid for Messages sessions.", SteamNetworkingIdentityRender( identityRemote ).c_str() );
+		return k_EResultInvalidParam;
+	}
+
+	// Message too big?
+	if ( cubData > (unsigned)k_cbMaxSteamNetworkingSocketsMessageSizeSend )
+	{
+		SpewWarning( "Message size %u is too big.  Max is %d", cubData, k_cbMaxSteamNetworkingSocketsMessageSizeSend );
+		return k_EResultInvalidParam;
 	}
 
 	SteamNetworkingGlobalLock scopeLock( "SendMessageToUser" ); // !SPEED! Can we avoid this?
@@ -486,7 +497,7 @@ EResult CSteamNetworkingMessages::SendMessageToUser( const SteamNetworkingIdenti
 		nSendFlags = k_nSteamNetworkingSend_Reliable;
 
 	// Allocate a message, and put our header in front.
-	int cbSend = cubData + sizeof(P2PMessageHeader);
+	int cbSend = (int)cubData + (int)sizeof(P2PMessageHeader);
 	CSteamNetworkingMessage *pMsg = (CSteamNetworkingMessage *)m_steamNetworkingSockets.m_pSteamNetworkingUtils->AllocateMessage( cbSend );
 	if ( !pMsg )
 	{

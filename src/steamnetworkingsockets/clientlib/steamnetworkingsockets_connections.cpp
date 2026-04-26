@@ -579,7 +579,7 @@ CSteamNetworkConnectionBase::CSteamNetworkConnectionBase( CSteamNetworkingSocket
 	m_bConnectionInitiatedRemotely = false;
 	m_pTransport = nullptr;
 	m_nSupressStateChangeCallbacks = 0;
- 
+
 	// Initialize configuration using parent interface for now.
 	m_connectionConfig.Init( &m_pSteamNetworkingSocketsInterface->m_connectionConfig );
 
@@ -1400,7 +1400,7 @@ ESteamNetConnectionEnd CSteamNetworkConnectionBase::RecvCryptoHandshake(
 	m_sCryptRemote = msgSessionInfo.info();
 
 	// If they presented a signature, it must be valid
-	const CertAuthScope *pCACertAuthScope = nullptr; 
+	const CertAuthScope *pCACertAuthScope = nullptr;
 	if ( msgCert.has_ca_signature() )
 	{
 
@@ -1599,7 +1599,7 @@ ESteamNetConnectionEnd CSteamNetworkConnectionBase::FinishCryptoHandshake( bool 
 		SetCryptoCipherList();
 	}
 	Assert( m_msgCryptLocal.ciphers_size() > 0 );
-	
+
 	// Find a mutually-acceptable cipher
 	Assert( m_eNegotiatedCipher == k_ESteamNetworkingSocketsCipher_INVALID );
 	m_eNegotiatedCipher = k_ESteamNetworkingSocketsCipher_INVALID;
@@ -2027,6 +2027,13 @@ EResult CSteamNetworkConnectionBase::APISendMessageToConnection( const void *pDa
 			return k_EResultNoConnection;
 	}
 
+	// Check message size
+	if ( cbData > (unsigned)k_cbMaxSteamNetworkingSocketsMessageSizeSend )
+	{
+		SpewWarning( "Message size %u is too big.  Max is %d", cbData, k_cbMaxSteamNetworkingSocketsMessageSizeSend );
+		return k_EResultInvalidParam;
+	}
+
 	// Fill out a message object
 	CSteamNetworkingMessage *pMsg = CSteamNetworkingMessage::New( cbData );
 	if ( !pMsg )
@@ -2083,6 +2090,14 @@ int64 CSteamNetworkConnectionBase::APISendMessageToConnection( CSteamNetworkingM
 			return -k_EResultNoConnection;
 	}
 
+	// Message too big?
+	if ( (unsigned)pMsg->m_cbSize > (unsigned)k_cbMaxSteamNetworkingSocketsMessageSizeSend )
+	{
+		SpewWarning( "Message size %u is too big.  Max is %d", pMsg->m_cbSize, k_cbMaxSteamNetworkingSocketsMessageSizeSend );
+		pMsg->Release();
+		return -k_EResultInvalidParam;
+	}
+
 	return _APISendMessageToConnection( pMsg, usecNow, pbThinkImmediately );
 }
 
@@ -2090,9 +2105,12 @@ int64 CSteamNetworkConnectionBase::_APISendMessageToConnection( CSteamNetworking
 {
 
 	// Message too big?
-	if ( pMsg->m_cbSize > k_cbMaxSteamNetworkingSocketsMessageSizeSend )
+	// NOTE - we should have detected this higher up in the call stack.
+	// Also, use unsigned math here just in case we have a bug and the size is
+	// actually negative somehow
+	if ( (unsigned)pMsg->m_cbSize > (unsigned)k_cbMaxSteamNetworkingSocketsMessageSizeSend_Internal )
 	{
-		AssertMsg2( false, "Message size %d is too big.  Max is %d", pMsg->m_cbSize, k_cbMaxSteamNetworkingSocketsMessageSizeSend );
+		AssertMsg2( false, "Message size %d is too big.  Max internal size is %d", pMsg->m_cbSize, k_cbMaxSteamNetworkingSocketsMessageSizeSend_Internal );
 		pMsg->Release();
 		return -k_EResultInvalidParam;
 	}
@@ -2137,7 +2155,7 @@ int CSteamNetworkConnectionBase::APIReceiveMessages( SteamNetworkingMessage_t **
 	m_pLock->AssertHeldByCurrentThread();
 
 	g_lockAllRecvMessageQueues.lock();
-	
+
 	int result = m_queueRecvMessages.RemoveMessages( ppOutMessages, nMaxMessages );
 	g_lockAllRecvMessageQueues.unlock();
 
@@ -2204,7 +2222,7 @@ bool CSteamNetworkConnectionBase::DecryptDataChunk( uint16 nWireSeqNum, int cbPa
 
 		// Restore the IV to the base value
 		*(uint64 *)&m_cryptIVRecv.m_buf -= LittleQWord( ctx.m_nPktNum );
-	
+
 		// Did decryption fail?
 		if ( !bDecryptOK ) {
 
@@ -2646,10 +2664,11 @@ CSteamNetworkingMessage *CSteamNetworkConnectionBase::AllocateNewRecvMessage( ui
 	//
 
 	// Max message size
-	if ( (uint32)m_connectionConfig.RecvMaxMessageSize.Get() < cbSize )
+	const int cbRecvMaxMessageSize = GetEffectiveRecvMaxMessageSize();
+	if ( (unsigned)cbRecvMaxMessageSize < cbSize )
 	{
-		SpewMsg( "[%s] recv message of size %u too large for limit of %d.\n", GetDescription(), cbSize, m_connectionConfig.RecvMaxMessageSize.Get() );
-		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_InternalError, "Failed to allocate a buffer of size %u (limit is %d).", cbSize, m_connectionConfig.RecvMaxMessageSize.Get() );
+		SpewMsg( "[%s] recv message of size %u too large for limit of %d.\n", GetDescription(), cbSize, cbRecvMaxMessageSize );
+		ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_InternalError, "Failed to allocate a buffer of size %u (limit is %d).", cbSize, cbRecvMaxMessageSize );
 		return nullptr;
 	}
 
@@ -3702,7 +3721,7 @@ SteamNetworkingMicroseconds CSteamNetworkConnectionBase::ThinkConnection_ClientC
 	Assert( !m_bConnectionInitiatedRemotely );
 
 	// Default behaviour for client periodically sending connect requests
-	
+
 	// Ask transport if it's ready
 	if ( !m_pTransport || !m_pTransport->BCanSendEndToEndConnectRequest() )
 		return usecNow + k_nMillion/20; // Nope, check back in just a bit.
