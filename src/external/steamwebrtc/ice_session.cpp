@@ -604,12 +604,13 @@ void CICESession::CacheRouteAndPing()
 
 	std::lock_guard<std::mutex> lock( m_mutexCachedRoute );
 	m_bCachedRouteValid = false;
-	m_nCachedPing = -1;
 	if ( !ice_transport_ )
+	{
+		m_nCachedPing = -1;
 		return;
+	}
 	absl::optional<int> rtt = ice_transport_->GetRttEstimate();
-	if ( rtt )
-		m_nCachedPing = *rtt;
+	m_nCachedPing = rtt ? *rtt : -1;
 	const cricket::Connection *conn = ice_transport_->selected_connection();
 	if ( !conn )
 		return;
