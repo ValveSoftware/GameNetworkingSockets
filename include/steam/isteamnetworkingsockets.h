@@ -43,7 +43,7 @@ class ISteamNetworkingSockets
 {
 public:
 
-	/// Creates a "server" socket that listens for clients to connect to by 
+	/// Creates a "server" socket that listens for clients to connect to by
 	/// calling ConnectByIPAddress, over ordinary UDP (IPv4 or IPv6)
 	///
 	/// You must select a specific local port to listen on and set it
@@ -240,18 +240,18 @@ public:
 	/// the chunks of data written will not necessarily match up to
 	/// the sizes of the chunks that are returned by the reads on
 	/// the other end.  The remote host might read a partial chunk,
-	/// or chunks might be coalesced.  For the message semantics 
-	/// used here, however, the sizes WILL match.  Each send call 
-	/// will match a successful read call on the remote host 
-	/// one-for-one.  If you are porting existing stream-oriented 
-	/// code to the semantics of reliable messages, your code should 
-	/// work the same, since reliable message semantics are more 
-	/// strict than stream semantics.  The only caveat is related to 
-	/// performance: there is per-message overhead to retain the 
-	/// message sizes, and so if your code sends many small chunks 
-	/// of data, performance will suffer. Any code based on stream 
-	/// sockets that does not write excessively small chunks will 
-	/// work without any changes. 
+	/// or chunks might be coalesced.  For the message semantics
+	/// used here, however, the sizes WILL match.  Each send call
+	/// will match a successful read call on the remote host
+	/// one-for-one.  If you are porting existing stream-oriented
+	/// code to the semantics of reliable messages, your code should
+	/// work the same, since reliable message semantics are more
+	/// strict than stream semantics.  The only caveat is related to
+	/// performance: there is per-message overhead to retain the
+	/// message sizes, and so if your code sends many small chunks
+	/// of data, performance will suffer. Any code based on stream
+	/// sockets that does not write excessively small chunks will
+	/// work without any changes.
 	///
 	/// The pOutMessageNumber is an optional pointer to receive the
 	/// message number assigned to the message, if sending was successful.
@@ -304,7 +304,7 @@ public:
 	/// Flush any messages waiting on the Nagle timer and send them
 	/// at the next transmission opportunity (often that means right now).
 	///
-	/// If Nagle is enabled (it's on by default) then when calling 
+	/// If Nagle is enabled (it's on by default) then when calling
 	/// SendMessageToConnection the message will be buffered, up to the Nagle time
 	/// before being sent, to merge small messages into the same packet.
 	/// (See k_ESteamNetworkingConfig_NagleTime)
@@ -331,14 +331,14 @@ public:
 	/// If any messages are returned, you MUST call SteamNetworkingMessage_t::Release() on each
 	/// of them free up resources after you are done.  It is safe to keep the object alive for
 	/// a little while (put it into some queue, etc), and you may call Release() from any thread.
-	virtual int ReceiveMessagesOnConnection( HSteamNetConnection hConn, SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages ) = 0; 
+	virtual int ReceiveMessagesOnConnection( HSteamNetConnection hConn, SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages ) = 0;
 
 	/// Returns basic information about the high-level state of the connection.
 	virtual bool GetConnectionInfo( HSteamNetConnection hConn, SteamNetConnectionInfo_t *pInfo ) = 0;
 
 	/// Returns a small set of information about the real-time state of the connection
 	/// and the queue status of each lane.
-	/// 
+	///
 	/// - pStatus may be NULL if the information is not desired.  (E.g. you are only interested
 	///   in the lane information.)
 	/// - On entry, nLanes specifies the length of the pLanes array.  This may be 0
@@ -346,7 +346,7 @@ public:
 	///   the total number of configured lanes.
 	/// - pLanes points to an array that will receive lane-specific info.  It can be NULL
 	///   if this is not needed.
-	/// 
+	///
 	/// Return value:
 	/// - k_EResultNoConnection - connection handle is invalid or connection has been closed.
 	/// - k_EResultInvalidParam - nLanes is bad
@@ -400,7 +400,7 @@ public:
 	/// Each lane has a "priority".  Lanes with higher numeric values will only be processed
 	/// when all lanes with lower number values are empty.  The magnitudes of the priority
 	/// values are not relevant, only their sort order.
-	/// 
+	///
 	/// Each lane also is assigned a weight, which controls the approximate proportion
 	/// of the bandwidth that will be consumed by the lane, relative to other lanes
 	/// of the same priority.  (This is assuming the lane stays busy.  An idle lane
@@ -409,7 +409,7 @@ public:
 	/// the same priority.  For lanes with different priorities, the strict priority
 	/// order will prevail, and their weights relative to each other are not relevant.
 	/// Thus, if a lane has a unique priority value, the weight value for that lane is
-	/// not relevant.  
+	/// not relevant.
 	///
 	/// Example: 3 lanes, with priorities [ 0, 10, 10 ] and weights [ (NA), 20, 5 ].
 	/// Messages sent on the first will always be sent first, before messages in the
@@ -450,12 +450,12 @@ public:
 	///   *reliable* messages on the *same lane* will be delivered in the order they are sent.
 	/// - Each host configures the lanes for the packets they send; the lanes for the flow
 	///   in one direction are completely unrelated to the lanes in the opposite direction.
-	/// 
+	///
 	/// Return value:
 	/// - k_EResultNoConnection - bad hConn
 	/// - k_EResultInvalidParam - Invalid number of lanes, bad weights, or you tried to reduce the number of lanes
 	/// - k_EResultInvalidState - Connection is already dead, etc
-	/// 
+	///
 	/// See also:
 	/// SteamNetworkingMessage_t::m_idxLane
 	virtual EResult ConfigureConnectionLanes( HSteamNetConnection hConn, int nNumLanes, const int *pLanePriorities, const uint16 *pLaneWeights ) = 0;
@@ -554,7 +554,7 @@ public:
 	/// (But the messages are not grouped by connection, so they will not necessarily
 	/// appear consecutively in the list; they may be interleaved with messages for
 	/// other connections.)
-	virtual int ReceiveMessagesOnPollGroup( HSteamNetPollGroup hPollGroup, SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages ) = 0; 
+	virtual int ReceiveMessagesOnPollGroup( HSteamNetPollGroup hPollGroup, SteamNetworkingMessage_t **ppOutMessages, int nMaxMessages ) = 0;
 
 	//
 	// Clients connecting to dedicated servers hosted in a data center,
@@ -645,7 +645,7 @@ public:
 	/// configured, this call will fail.
 	///
 	/// This call MUST be made through the SteamGameServerNetworkingSockets() interface.
-	/// 
+	///
 	/// This function should be used when you are using the ticket generator library
 	/// to issue your own tickets.  Clients connecting to the server on this virtual
 	/// port will need a ticket, and they must connect using ConnectToHostedDedicatedServer.
@@ -720,7 +720,7 @@ public:
 	/// If you know the identity of the peer that you expect to be on the other end,
 	/// you can pass their identity to improve debug output or just detect bugs.
 	/// If you don't know their identity yet, you can pass NULL, and their
-	/// identity will be established in the connection handshake.  
+	/// identity will be established in the connection handshake.
 	///
 	/// If you use this, you probably want to call ISteamNetworkingUtils::InitRelayNetworkAccess()
 	/// when your app initializes
@@ -856,7 +856,7 @@ public:
 	///   we know the real identity.  Then it will be the real identity.  If the
 	///   SteamNetConnectionInfo_t::m_addrRemote is valid, it will be a real IPv4
 	///   address of a NAT-punched connection.  Otherwise, it will not be valid.
-	/// 
+	///
 	/// To communicate using an ad-hoc sendto/recv from (UDP-style) API,
 	/// use CreateFakeUDPPort.
 	virtual bool BeginAsyncRequestFakeIP( int nNumPorts ) = 0;
@@ -883,7 +883,7 @@ public:
 	/// function will return that global IP.  Otherwise, a FakeIP that is
 	/// unique locally will be allocated from the local FakeIP address space,
 	/// and that will be returned.
-	/// 
+	///
 	/// The allocation of local FakeIPs attempts to assign addresses in
 	/// a consistent manner.  If multiple connections are made to the
 	/// same remote host, they *probably* will return the same FakeIP.
@@ -897,7 +897,7 @@ public:
 	/// Get an interface that can be used like a UDP port to send/receive
 	/// datagrams to a FakeIP address.  This is intended to make it easy
 	/// to port existing UDP-based code to take advantage of SDR.
-	/// 
+	///
 	/// idxFakeServerPort refers to the *index* of the port allocated using
 	/// BeginAsyncRequestFakeIP and is used to create "server" ports.  You may
 	/// call this before the allocation has completed.  However, any attempts
@@ -906,7 +906,7 @@ public:
 	/// of the packet will be the globally-unique FakeIP.  If you call this
 	/// function multiple times and pass the same (nonnegative) fake port index,
 	/// the same object will be returned, and this object is not reference counted.
-	/// 
+	///
 	/// To create a "client" port (e.g. the equivalent of an ephemeral UDP port)
 	/// pass -1.  In this case, a distinct object will be returned for each call.
 	/// When the peer receives packets sent from this interface, the peer will
@@ -992,7 +992,7 @@ protected:
 ///
 /// Also note that callbacks will be posted when connections are created and destroyed by your own API calls.
 struct SteamNetConnectionStatusChangedCallback_t
-{ 
+{
 	enum { k_iCallback = k_iSteamNetworkingSocketsCallbacks + 1 };
 
 	/// Connection handle
@@ -1014,7 +1014,7 @@ struct SteamNetConnectionStatusChangedCallback_t
 ///
 /// This callback is posted whenever the state of our readiness changes.
 struct SteamNetAuthenticationStatus_t
-{ 
+{
 	enum { k_iCallback = k_iSteamNetworkingSocketsCallbacks + 2 };
 
 	/// Status
