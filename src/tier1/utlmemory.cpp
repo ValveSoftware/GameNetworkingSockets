@@ -18,7 +18,7 @@ m_nAllocationCount( nInitAllocationCount ), m_nGrowSize( nGrowSize ), m_unSizeOf
 	if (m_nAllocationCount)
 	{
 		UTLMEMORY_TRACK_ALLOC();
-		m_pMemory = PvAlloc( m_nAllocationCount * m_unSizeOfElements );
+		m_pMemory = PvAlloc( (size_t)m_nAllocationCount * m_unSizeOfElements );
 	}
 }
 
@@ -101,7 +101,7 @@ void CUtlMemoryBase::ConvertToGrowableMemory( int nGrowSize )
 		UTLMEMORY_TRACK_ALLOC();
 		MEM_ALLOC_CREDIT_CLASS();
 
-		int nNumBytes = m_nAllocationCount * m_unSizeOfElements;
+		size_t nNumBytes = (size_t)m_nAllocationCount * m_unSizeOfElements;
 		void *pMemory = PvAlloc( nNumBytes );
 		memcpy( pMemory, m_pMemory, nNumBytes ); 
 		m_pMemory = pMemory;
@@ -263,11 +263,11 @@ void CUtlMemoryBase::Grow( int num )
 	UTLMEMORY_TRACK_ALLOC();
 	if (m_pMemory)
 	{
-		m_pMemory = PvRealloc( m_pMemory, m_nAllocationCount * m_unSizeOfElements );
+		m_pMemory = PvRealloc( m_pMemory, (size_t)m_nAllocationCount * m_unSizeOfElements );
 	}
 	else
 	{
-		m_pMemory = PvAlloc( m_nAllocationCount * m_unSizeOfElements );
+		m_pMemory = PvAlloc( (size_t)m_nAllocationCount * m_unSizeOfElements );
 	}
 }
 
@@ -295,11 +295,11 @@ void CUtlMemoryBase::EnsureCapacity( int num )
 
 	if (m_pMemory)
 	{
-		m_pMemory = PvRealloc( m_pMemory, m_nAllocationCount * m_unSizeOfElements );
+		m_pMemory = PvRealloc( m_pMemory, (size_t)m_nAllocationCount * m_unSizeOfElements );
 	}
 	else
 	{
-		m_pMemory = PvAlloc( m_nAllocationCount * m_unSizeOfElements );
+		m_pMemory = PvAlloc( (size_t)m_nAllocationCount * m_unSizeOfElements );
 	}
 }
 
@@ -369,7 +369,7 @@ void CUtlMemoryBase::Purge( int numElements, bool bRealloc )
 
 		// Allocation count > 0, shrink it down.
 		MEM_ALLOC_CREDIT_CLASS();
-		m_pMemory = PvRealloc( m_pMemory, m_nAllocationCount * m_unSizeOfElements );
+		m_pMemory = PvRealloc( m_pMemory, (size_t)m_nAllocationCount * m_unSizeOfElements );
 	}
 	else
 	{
