@@ -662,7 +662,21 @@ void Test_lane_quick_queueanddrain()
 	// (With a loopback over internal buffers, all messages
 	// are delivered instantly and lanes are irrelevant.)
 	HSteamNetConnection hSender, hRecver;
-	assert( SteamNetworkingSockets()->CreateSocketPair( &hSender, &hRecver, true, nullptr, nullptr ) );
+	SteamNetworkingIdentity identSender, identRecver;
+	identSender.SetGenericString( "sender" );
+	identRecver.SetGenericString( "receiver" );
+	// NOTE: each pPeerIdentity argument is the remote identity observed by the
+	// *corresponding* connection, so pass them swapped relative to the connection handles.
+	assert( SteamNetworkingSockets()->CreateSocketPair( &hSender, &hRecver, true, &identRecver, &identSender ) );
+
+	// Verify: hSender sees "receiver" as its remote peer, hRecver sees "sender".
+	{
+		SteamNetConnectionInfo_t connInfoSender, connInfoRecver;
+		assert( SteamNetworkingSockets()->GetConnectionInfo( hSender, &connInfoSender ) );
+		assert( SteamNetworkingSockets()->GetConnectionInfo( hRecver, &connInfoRecver ) );
+		assert( connInfoSender.m_identityRemote == identRecver );
+		assert( connInfoRecver.m_identityRemote == identSender );
+	}
 
 	// Set the send rate to a fixed value
 	const int k_nSendRate = 128*1024;
@@ -863,9 +877,23 @@ void Test_lane_quick_priority_and_background()
 	// (With a loopback over internal buffers, all messages
 	// are delivered instantly and lanes are irrelevant.)
 	HSteamNetConnection hServer, hClient;
-	assert( SteamNetworkingSockets()->CreateSocketPair( &hServer, &hClient, true, nullptr, nullptr ) );
+	SteamNetworkingIdentity identServer, identClient;
+	identServer.SetGenericString( "server" );
+	identClient.SetGenericString( "client" );
+	// NOTE: each pPeerIdentity argument is the remote identity observed by the
+	// *corresponding* connection, so pass them swapped relative to the connection handles.
+	assert( SteamNetworkingSockets()->CreateSocketPair( &hServer, &hClient, true, &identClient, &identServer ) );
 	SteamNetworkingSockets()->SetConnectionName( hServer, "server" );
 	SteamNetworkingSockets()->SetConnectionName( hClient, "client" );
+
+	// Verify: hServer sees "client" as its remote peer, hClient sees "server".
+	{
+		SteamNetConnectionInfo_t connInfoServer, connInfoClient;
+		assert( SteamNetworkingSockets()->GetConnectionInfo( hServer, &connInfoServer ) );
+		assert( SteamNetworkingSockets()->GetConnectionInfo( hClient, &connInfoClient ) );
+		assert( connInfoServer.m_identityRemote == identClient );
+		assert( connInfoClient.m_identityRemote == identServer );
+	}
 
 	// Set the send rate to a fixed value
 	const int k_nSendRate = 256*1024;
