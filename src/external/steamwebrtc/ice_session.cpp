@@ -191,7 +191,7 @@ CICESession::~CICESession()
 
 
 //-----------------------------------------------------------------------------
-// 
+//
 //-----------------------------------------------------------------------------
 bool CICESession::BInitialize( const ICESessionConfig &cfg )
 {
@@ -200,7 +200,7 @@ bool CICESession::BInitialize( const ICESessionConfig &cfg )
 
 
 //-----------------------------------------------------------------------------
-// 
+//
 //-----------------------------------------------------------------------------
 bool CICESession::BInitializeOnSocketThread( const ICESessionConfig &cfg )
 {
@@ -276,7 +276,7 @@ bool CICESession::BInitializeOnSocketThread( const ICESessionConfig &cfg )
 	port_allocator_flags_ |= cricket::PORTALLOCATOR_DISABLE_LINK_LOCAL_NETWORKS;
 	if ( cfg.m_nCandidateTypes & k_EICECandidate_Any_IPv6 )
 	{
-		port_allocator_flags_ |= 
+		port_allocator_flags_ |=
 			cricket::PORTALLOCATOR_ENABLE_IPV6 |
 			cricket::PORTALLOCATOR_ENABLE_IPV6_ON_WIFI;
 	}
@@ -288,7 +288,7 @@ bool CICESession::BInitializeOnSocketThread( const ICESessionConfig &cfg )
 		for ( int i = 0 ; i < cfg.m_nTurnServers ; ++i )
 		{
 			const ICESessionConfig::TurnServer *pTurn = &cfg.m_pTurnServers[i];
-			
+
 			if ( !pTurn || !pTurn->m_pszHost || !pTurn->m_pszPwd || !pTurn->m_pszUsername ) {
 				continue;
 			}
@@ -319,7 +319,7 @@ bool CICESession::BInitializeOnSocketThread( const ICESessionConfig &cfg )
 				return false;
 			}
 
-			cricket::RelayServerConfig turn(address.hostname(), address.port(), 
+			cricket::RelayServerConfig turn(address.hostname(), address.port(),
 				pTurn->m_pszUsername, pTurn->m_pszPwd, (cricket::ProtocolType) pTurn->m_protocolType);
 			turn_servers.push_back( turn );
 		}
