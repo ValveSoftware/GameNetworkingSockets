@@ -273,6 +273,16 @@ macro(set_clientlib_target_properties GNS_TARGET)
 			STEAMWEBRTC_USE_STATIC_LIBS
 			STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
 			)
+
+		# Tell ice_session.cpp it's being compiled for GNS so it can use GNS assert infrastructure.
+		target_compile_definitions(steamwebrtc PRIVATE
+			STEAMNETWORKINGSOCKETS_ENABLE_WEBRTC
+			STEAMWEBRTC_USE_STATIC_LIBS
+			)
+		target_include_directories(steamwebrtc PRIVATE
+			${CMAKE_CURRENT_SOURCE_DIR}/public
+			)
+
 		target_link_libraries(${GNS_TARGET} PUBLIC
 			$<BUILD_INTERFACE:steamwebrtc>
 			$<INSTALL_INTERFACE:GameNetworkingSockets::steamwebrtc>
