@@ -1548,29 +1548,29 @@ bool CSteamNetworkingSockets::GetListenSocketAddress( HSteamListenSocket hSocket
 	return pSock->APIGetAddress( pAddress );
 }
 
-bool CSteamNetworkingSockets::CreateSocketPair( HSteamNetConnection *pOutConnection1, HSteamNetConnection *pOutConnection2, bool bUseNetworkLoopback, const SteamNetworkingIdentity *pIdentity1, const SteamNetworkingIdentity *pIdentity2 )
+bool CSteamNetworkingSockets::CreateSocketPair( HSteamNetConnection *pOutConnection1, HSteamNetConnection *pOutConnection2, bool bUseNetworkLoopback, const SteamNetworkingIdentity *pPeerIdentity1, const SteamNetworkingIdentity *pPeerIdentity2 )
 {
 	SteamNetworkingGlobalLock scopeLock( "CreateSocketPair" );
 
 	// Assume failure
 	*pOutConnection1 = k_HSteamNetConnection_Invalid;
 	*pOutConnection2 = k_HSteamNetConnection_Invalid;
-	SteamNetworkingIdentity identity[ 2 ] = {};
-	if ( pIdentity1 )
-		identity[0] = *pIdentity1;
+	SteamNetworkingIdentity peerIdentity[ 2 ] = {};
+	if ( pPeerIdentity1 )
+		peerIdentity[0] = *pPeerIdentity1;
 	else
-		identity[0].SetLocalHost();
-	if ( pIdentity2 )
-		identity[1] = *pIdentity2;
+		peerIdentity[0].SetLocalHost();
+	if ( pPeerIdentity2 )
+		peerIdentity[1] = *pPeerIdentity2;
 	else
-		identity[1].SetLocalHost();
+		peerIdentity[1].SetLocalHost();
 
 	// Create network connections?
 	if ( bUseNetworkLoopback )
 	{
 		// Create two connection objects
 		CSteamNetworkConnectionlocalhostLoopback *pConn[2];
-		if ( !CSteamNetworkConnectionlocalhostLoopback::APICreateSocketPair( this, pConn, identity ) )
+		if ( !CSteamNetworkConnectionlocalhostLoopback::APICreateSocketPair( this, pConn, peerIdentity ) )
 			return false;
 
 		// Return their handles
@@ -1581,7 +1581,7 @@ bool CSteamNetworkingSockets::CreateSocketPair( HSteamNetConnection *pOutConnect
 	{
 		// Create two connection objects
 		CSteamNetworkConnectionPipe *pConn[2];
-		if ( !CSteamNetworkConnectionPipe::APICreateSocketPair( this, pConn, identity ) )
+		if ( !CSteamNetworkConnectionPipe::APICreateSocketPair( this, pConn, peerIdentity ) )
 			return false;
 
 		// Return their handles
