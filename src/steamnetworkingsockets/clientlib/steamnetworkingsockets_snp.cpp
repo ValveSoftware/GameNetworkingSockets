@@ -1031,10 +1031,9 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLa
 			{
 				if ( h->second.m_nEnd > m_receiverState.m_nMinPktNumToSendAcks )
 				{
-					// Ug.  You're not supposed to modify the key in a map.
-					// I suppose that's legit, since you could violate the ordering.
-					// but in this case I know that this change is OK.
-					const_cast<int64 &>( h->first ) = m_receiverState.m_nMinPktNumToSendAcks;
+					auto node = m_receiverState.m_mapPacketGaps.extract(h);
+    				node.key() = m_receiverState.m_nMinPktNumToSendAcks;
+    				m_receiverState.m_mapPacketGaps.insert(std::move(node));
 					break;
 				}
 
