@@ -110,6 +110,7 @@ private:
 	EICECandidateType m_eCachedRouteLocalCandidate;
 	EICECandidateType m_eCachedRouteRemoteCandidate;
 	CandidateAddressString m_szCachedRouteRemoteAddress;
+	std::mutex m_mutexCachedRoute;
 
 	// ICE signals
 	void OnTransportGatheringState_n(cricket::IceTransportInternal* transport);
@@ -585,13 +586,15 @@ void CICESession::SetRemoteAuth( const char *pszUserFrag, const char *pszPwd )
 
 bool CICESession::GetWritableState()
 {
+	// Intentionally not taking any locks here
 	return ice_transport_ && writable_;
 }
 
 int CICESession::GetPing()
 {
+	// Intentionally not taking any locks here
 	if ( !ice_transport_ )
-		m_nCachedPing = -1;
+		return -1;
 	return m_nCachedPing;
 }
 
@@ -599,6 +602,7 @@ void CICESession::CacheRouteAndPing()
 {
 	AssertOnSocketThread();
 
+	std::lock_guard<std::mutex> lock( m_mutexCachedRoute );
 	m_bCachedRouteValid = false;
 	m_nCachedPing = -1;
 	if ( !ice_transport_ )
@@ -627,6 +631,7 @@ bool CICESession::GetRoute( EICECandidateType &eLocalCandidate, EICECandidateTyp
 	// We currently don't ever call this from the socket thread, but there's
 	// no reason it wouldn't work, so no assert here about which thread we're on
 
+	std::lock_guard<std::mutex> lock( m_mutexCachedRoute );
 	if ( !ice_transport_ )
 		m_bCachedRouteValid = false;
 	if ( !m_bCachedRouteValid )
