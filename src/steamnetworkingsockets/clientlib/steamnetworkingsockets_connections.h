@@ -1052,7 +1052,7 @@ public:
 
 	/// Create a pair of loopback connections that are immediately connected to each other
 	/// No callbacks are posted.
-	static bool APICreateSocketPair( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface, CSteamNetworkConnectionPipe **pOutConnections, const SteamNetworkingIdentity pIdentity[2] );
+	static bool APICreateSocketPair( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface, CSteamNetworkConnectionPipe **pOutConnections, const SteamNetworkingIdentity pPeerIdentity[2] );
 
 	/// Create a pair of loopback connections that act like normal connections, but use internal transport.
 	/// The two connections will be placed in the "connecting" state, and will go through the ordinary

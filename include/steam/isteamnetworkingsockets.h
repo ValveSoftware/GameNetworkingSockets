@@ -389,7 +389,12 @@ public:
 	/// identity.  Otherwise, if you pass nullptr, the respective connection will assume a generic
 	/// "localhost" identity.  If you use real network loopback, this might be translated to the
 	/// actual bound loopback port.  Otherwise, the port will be zero.
-	virtual bool CreateSocketPair( HSteamNetConnection *pOutConnection1, HSteamNetConnection *pOutConnection2, bool bUseNetworkLoopback, const SteamNetworkingIdentity *pIdentity1, const SteamNetworkingIdentity *pIdentity2 ) = 0;
+	///
+	/// NOTE: the identities refer to the *remote* identities that the corresponding connection
+	///       will observe in connection state callbacks and GetConnectionInfo:
+	///       - pPeerIdentity1: remote identity observed by connection 1, local identity of connection 2
+	///       - pPeerIdentity2: remote identity observed by connection 2, local identity of connection 1
+	virtual bool CreateSocketPair( HSteamNetConnection *pOutConnection1, HSteamNetConnection *pOutConnection2, bool bUseNetworkLoopback, const SteamNetworkingIdentity *pPeerIdentity1, const SteamNetworkingIdentity *pPeerIdentity2 ) = 0;
 
 	/// Configure multiple outbound messages streams ("lanes") on a connection, and
 	/// control head-of-line blocking between them.  Messages within a given lane

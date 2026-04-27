@@ -3858,7 +3858,7 @@ CSteamNetworkConnectionP2P *CSteamNetworkConnectionBase::AsSteamNetworkConnectio
 //
 /////////////////////////////////////////////////////////////////////////////
 
-bool CSteamNetworkConnectionPipe::APICreateSocketPair( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface, CSteamNetworkConnectionPipe *pConn[2], const SteamNetworkingIdentity pIdentity[2] )
+bool CSteamNetworkConnectionPipe::APICreateSocketPair( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface, CSteamNetworkConnectionPipe *pConn[2], const SteamNetworkingIdentity pPeerIdentity[2] )
 {
 	SteamDatagramErrMsg errMsg;
 	SteamNetworkingMicroseconds usecNow = SteamNetworkingSockets_GetLocalTimestamp();
@@ -3868,8 +3868,8 @@ bool CSteamNetworkConnectionPipe::APICreateSocketPair( CSteamNetworkingSockets *
 	// very efficiently, without taking the global lock or queuing stuff
 	constexpr bool bUseFastPath = true;
 
-	pConn[1] = new CSteamNetworkConnectionPipe( pSteamNetworkingSocketsInterface, pIdentity[0], scopeLock[0], bUseFastPath );
-	pConn[0] = new CSteamNetworkConnectionPipe( pSteamNetworkingSocketsInterface, pIdentity[1], scopeLock[1], bUseFastPath );
+	pConn[1] = new CSteamNetworkConnectionPipe( pSteamNetworkingSocketsInterface, pPeerIdentity[0], scopeLock[0], bUseFastPath );
+	pConn[0] = new CSteamNetworkConnectionPipe( pSteamNetworkingSocketsInterface, pPeerIdentity[1], scopeLock[1], bUseFastPath );
 	if ( !pConn[0] || !pConn[1] )
 	{
 failed:
