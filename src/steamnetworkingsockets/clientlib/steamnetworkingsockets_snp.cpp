@@ -3715,7 +3715,7 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 			return false;
 		}
 
-		// Parse the message number
+		// Parse the message number, if present
 		int64 nMsgNum = lane.m_nLastRecvReliableMsgNum;
 		if ( nHeaderByte & 0x40 )
 		{
@@ -3723,8 +3723,24 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 			pReliableDecode = DeserializeVarInt( pReliableDecode, pReliableEnd, nOffset );
 			if ( pReliableDecode == nullptr )
 			{
-				// We haven't received all of the message
-				return true; // Packet OK and can be acked.
+
+				// Only a few bytes in the reliable stream, not enough to decode the offset.
+				// This is a relatively rare, but legit case.
+				//
+				// (Probably.  Actually, we can *also* get here if the peer sent us
+				// something bogus like a series of many protobuf continuation bytes.
+				// If the sender ever does that, the connection is wedged and will never
+				// recover, since we will never move forward from this state.  Perhaps we should
+				// try to detect this?  The only advantage would be that the peer can have
+				// us buffer up some memory for a while.  But there are other ways to do
+				// that.  We have a max buffer size, so the peer cannot just keep adding
+				// more and more reliable data.  The only advantage to detecting that case
+				// would be to make it more clear what happened.  Either way, the connection
+				// is dead at this point if we get here because of protobuf encoding having
+				// too many continuation bytes.)
+				// 
+				// Return true here because the packet containing this segment is OK and can be acked.
+				return true;
 			}
 
 			nMsgNum += nOffset;
@@ -3764,36 +3780,29 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 			pReliableDecode = DeserializeVarInt( pReliableDecode, pReliableEnd, nMsgSizeUpperBits );
 			if ( pReliableDecode == nullptr )
 			{
-				// We haven't received all of the message
-				return true; // Packet OK and can be acked.
+				// We haven't received enough of the message to decode the size
+				// (Probably.  See note above about the possibility of bogus protobuf data.)
+				// 
+				// Return true here because the packet containing this segment is OK and can be acked.
+				return true;
 			}
 
-			// Sanity check size.  Note that we do this check before we shift,
-			// to protect against overflow.
-			// (Although DeserializeVarInt doesn't detect overflow...)
-			if ( nMsgSizeUpperBits > (((uint64)nMaxRecvBufferSize)<<5) )
-			{
+			// Compute total size in uint64 to avoid int32 overflow, then bounds-check
+			// before narrowing.
+			// (DeserializeVarInt doesn't detect overflow, so we must be careful here.)
+			uint64 cbMsgSizeFull = ( nMsgSizeUpperBits << 5 ) + (uint64)cbMsgSize;
+			if (
+				nMsgSizeUpperBits > (UINT32_MAX>>5)
+				|| cbMsgSizeFull > (uint64)nMaxRecvBufferSize
+				|| cbMsgSizeFull > (uint64)nMaxMessageSize
+			) {
 				ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_InternalError,
 					"Reliable message size too large.  (%llu<<5 + %d)",
 					(unsigned long long)nMsgSizeUpperBits, cbMsgSize );
 				return false;
 			}
 
-			// Compute total size, and check it again
-			cbMsgSize += int( nMsgSizeUpperBits<<5 );
-			if ( cbMsgSize > nMaxRecvBufferSize )
-			{
-				ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_InternalError,
-					"Reliable message size %d too large.", cbMsgSize );
-				return false;
-			}
-
-			if ( cbMsgSize > nMaxMessageSize )
-			{
-				ConnectionState_ProblemDetectedLocally( k_ESteamNetConnectionEnd_Misc_InternalError,
-					"Reliable message size %d too large.", cbMsgSize );
-				return false;
-			}
+			cbMsgSize = (int)cbMsgSizeFull;
 		}
 
 		// Do we have the full thing?
