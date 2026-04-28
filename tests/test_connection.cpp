@@ -1350,6 +1350,97 @@ void Test_netloopback_throughput()
 	SteamNetworkingSockets()->CloseConnection( hClient, 0, nullptr, false );
 }
 
+void Test_send_buffer_full()
+{
+	TEST_Printf( "***************************************************\n" );
+	TEST_Printf( "Test: SendMessages batch stop and retry on buffer full\n" );
+	TEST_Printf( "***************************************************\n" );
+
+	// Network loopback so we get real rate limiting
+	HSteamNetConnection hSender, hRecver;
+	assert( SteamNetworkingSockets()->CreateSocketPair( &hSender, &hRecver, true, nullptr, nullptr ) );
+	SteamNetworkingSockets()->SetConnectionName( hSender, "sender" );
+	SteamNetworkingSockets()->SetConnectionName( hRecver, "recver" );
+
+	// Low send rate so the buffer stays full long enough to observe
+	const int k_nSendRate = 64 * 1024;
+	SteamNetworkingUtils()->SetConnectionConfigValueInt32( hSender, k_ESteamNetworkingConfig_SendRateMin, k_nSendRate );
+	SteamNetworkingUtils()->SetConnectionConfigValueInt32( hSender, k_ESteamNetworkingConfig_SendRateMax, k_nSendRate );
+
+	// Buffer fits one 100K message but not two, so msg[1] overflows and msg[2] is never attempted
+	const int k_cbMsg = 100 * 1024;
+	const int k_nSendBuffer = 160 * 1024;
+	SteamNetworkingUtils()->SetConnectionConfigValueInt32( hSender, k_ESteamNetworkingConfig_SendBufferSize, k_nSendBuffer );
+
+	// Prepare three reliable messages
+	SteamNetworkingMessage_t *pMessages[3];
+	for ( int i = 0; i < 3; ++i )
+	{
+		pMessages[i] = SteamNetworkingUtils()->AllocateMessage( k_cbMsg );
+		pMessages[i]->m_conn = hSender;
+		pMessages[i]->m_nFlags = k_nSteamNetworkingSend_Reliable;
+	}
+
+	// Send all three at once. Pass bDeleteFailedMessages=false so the library
+	// leaves failed/not-attempted message pointers in place for retry.
+	int64 results[3] = {};
+	SteamNetworkingSockets()->SendMessages( 3, pMessages, results, /*bDeleteFailedMessages=*/false );
+
+	// First message fits in the 160K buffer: should succeed
+	assert( results[0] > 0 );
+	assert( pMessages[0] == nullptr ); // library took ownership
+
+	// Second message overflows the buffer: should fail
+	assert( results[1] == -k_EResultLimitExceeded );
+	assert( pMessages[1] != nullptr ); // we still own it; can retry
+
+	// Third message was never attempted because the second failed
+	assert( results[2] == 0 );
+	assert( pMessages[2] != nullptr ); // we still own it; can retry
+
+	TEST_Printf( "Initial send: msg[0]=#%lld succeeded, msg[1]=LimitExceeded, msg[2]=not attempted.\n", results[0] );
+
+	// Retry the two remaining messages one at a time.  The buffer only holds one
+	// 100K message, so we must wait for space before each retry.
+	SteamNetworkingMessage_t *pRetry[2] = { pMessages[1], pMessages[2] };
+	for ( int i = 0; i < 2; ++i )
+	{
+		TEST_Printf( "Waiting for buffer space (retry %d)...\n", i );
+		SteamNetworkingMicroseconds usecDeadline = SteamNetworkingUtils()->GetLocalTimestamp() + 10 * 1000000LL;
+		for (;;)
+		{
+			TEST_PumpCallbacks();
+
+			// Keep the receiver drained so the connection stays healthy
+			SteamNetworkingMessage_t *pRecvMsgs[16];
+			for (;;)
+			{
+				int nRecv = SteamNetworkingSockets()->ReceiveMessagesOnConnection( hRecver, pRecvMsgs, 16 );
+				if ( nRecv <= 0 ) break;
+				for ( int j = 0; j < nRecv; ++j )
+					pRecvMsgs[j]->Release();
+				if ( nRecv < 16 ) break;
+			}
+
+			SteamNetConnectionRealTimeStatus_t status;
+			assert( k_EResultOK == SteamNetworkingSockets()->GetConnectionRealTimeStatus( hSender, &status, 0, nullptr ) );
+			if ( status.m_cbPendingReliable + k_cbMsg < k_nSendBuffer )
+				break;
+
+			assert( SteamNetworkingUtils()->GetLocalTimestamp() < usecDeadline );
+		}
+
+		int64 retryResult = 0;
+		SteamNetworkingSockets()->SendMessages( 1, &pRetry[i], &retryResult, /*bDeleteFailedMessages=*/false );
+		assert( retryResult > 0 );
+		assert( pRetry[i] == nullptr );
+		TEST_Printf( "Retry %d succeeded: queued as msg #%lld.\n", i, retryResult );
+	}
+
+	SteamNetworkingSockets()->CloseConnection( hSender, 0, nullptr, false );
+	SteamNetworkingSockets()->CloseConnection( hRecver, 0, nullptr, false );
+}
+
 int main( int argc, const char **argv  )
 {
 	typedef void (*FnTest)(void);
@@ -1367,7 +1458,8 @@ int main( int argc, const char **argv  )
 		TEST(netloopback_throughput),
 		TEST(lane_quick_queueanddrain),
 		TEST(lane_quick_priority_and_background),
-		TEST(pipe)
+		TEST(pipe),
+		TEST(send_buffer_full)
 	};
 
 	struct Suite_t {
@@ -1375,7 +1467,7 @@ int main( int argc, const char **argv  )
 		std::vector< Test_t > m_vecTests;
 	};
 	static const Suite_t test_suites[] = {
-		{ "suite-quick", { TEST(identity), TEST(quick), TEST(lane_quick_queueanddrain), TEST(netloopback_throughput), TEST(lane_quick_priority_and_background), TEST(pipe) } }
+		{ "suite-quick", { TEST(identity), TEST(quick), TEST(lane_quick_queueanddrain), TEST(netloopback_throughput), TEST(lane_quick_priority_and_background), TEST(pipe), TEST(send_buffer_full) } }
 	};
 
 	if ( argc < 2 )
