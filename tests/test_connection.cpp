@@ -958,7 +958,7 @@ void Test_lane_quick_priority_and_background()
 			// but otherwise leave the rest of the body unitialized
 			*(SteamNetworkingMicroseconds *)pMsg->m_pData = usecNow;
 
-			int64 nMsgNum;
+			int64 nMsgNum = 0;
 			SteamNetworkingSockets()->SendMessages( 1, &pMsg, &nMsgNum, true );
 			++nMsgSent[k_LaneBackground];
 			assert( nMsgNum == nMsgSent[k_LaneBackground] );
@@ -976,7 +976,7 @@ void Test_lane_quick_priority_and_background()
 			// but otherwise leave the rest of the body unitialized
 			*(SteamNetworkingMicroseconds *)pMsg->m_pData = usecNow;
 
-			int64 nMsgNum;
+			int64 nMsgNum = 0;
 			SteamNetworkingSockets()->SendMessages( 1, &pMsg, &nMsgNum, true );
 			++nMsgSent[k_LaneUrgent];
 			assert( nMsgNum == nMsgSent[k_LaneUrgent] );
@@ -1002,7 +1002,7 @@ void Test_lane_quick_priority_and_background()
 				// but otherwise leave the rest of the body unitialized
 				*(SteamNetworkingMicroseconds *)pMsg->m_pData = usecNow;
 
-				int64 nMsgNum;
+				int64 nMsgNum = 0;
 				SteamNetworkingSockets()->SendMessages( 1, &pMsg, &nMsgNum, true );
 				++nMsgSent[k_LaneGameplay];
 				assert( nMsgNum == nMsgSent[k_LaneGameplay] );
@@ -1017,9 +1017,9 @@ void Test_lane_quick_priority_and_background()
 				// Occasionally send reliable
 				pMsg->m_nFlags = std::uniform_int_distribution<>( 0, 100 )( g_rand ) < 30 ? k_nSteamNetworkingSend_ReliableNoNagle : k_nSteamNetworkingSend_UnreliableNoNagle;
 
-				int64 nMsgNum;
+				int64 nMsgNum = 0;
 				SteamNetworkingSockets()->SendMessages( 1, &pMsg, &nMsgNum, true );
-				assert( nMsgNum >= 0 );
+				assert( nMsgNum > 0 );
 			}
 
 			// Schedule the next send at 30hz
@@ -1133,7 +1133,7 @@ void Test_pipe()
 		pSendMsg->m_nFlags = k_nSteamNetworkingSend_Reliable;
 		void *pSendData = pSendMsg->m_pData;
 
-		int64 nMsgNum;
+		int64 nMsgNum = 0;
 		SteamNetworkingSockets()->SendMessages( 1, &pSendMsg, &nMsgNum, true );
 		assert( nMsgNum > 0 );
 
@@ -1152,7 +1152,7 @@ void Test_pipe()
 		pSendMsg->m_conn = hAlice;
 		pSendMsg->m_nFlags = k_nSteamNetworkingSend_Reliable;
 
-		int64 nMsgNum;
+		int64 nMsgNum = 0;
 		SteamNetworkingSockets()->SendMessages( 1, &pSendMsg, &nMsgNum, true );
 		assert( nMsgNum > 0 );
 
@@ -1264,7 +1264,7 @@ void Test_netloopback_throughput()
 					pSendMsg->m_nFlags = k_nSteamNetworkingSend_Reliable;
 					// Don't bother initializing the body
 
-					int64 nMsgNumberOrResult;
+					int64 nMsgNumberOrResult = 0;
 					SteamNetworkingSockets()->SendMessages( 1, &pSendMsg, &nMsgNumberOrResult, true );
 					if ( nMsgNumberOrResult == -k_EResultLimitExceeded )
 					{
