@@ -254,7 +254,7 @@ TableLock g_tables_lock;
 
 // Table of active listen sockets.  Listen sockets and this table are protected
 // by the global lock.
-CUtlHashMap<int, CSteamNetworkListenSocketBase *, std::equal_to<int>, Identity<int> > g_mapListenSockets; 
+CUtlHashMap<int, CSteamNetworkListenSocketBase *, std::equal_to<int>, Identity<int> > g_mapListenSockets;
 
 static bool BConnectionStateExistsToAPI( ESteamNetworkingConnectionState eState )
 {
@@ -349,7 +349,7 @@ static CSteamNetworkConnectionBase *InternalGetConnectionByHandle( HSteamNetConn
 				// which will unlock the table lock here, OUT OF ORDER of the order
 				// that we took the locks.  That's intentional!  We don't need that
 				// lock anymore, we have locked the connection that we want.
-				return pResult; 
+				return pResult;
 			}
 		}
 
@@ -359,7 +359,7 @@ static CSteamNetworkConnectionBase *InternalGetConnectionByHandle( HSteamNetConn
 		scopeLock.Unlock();
 		break;
 	}
-	
+
 	return nullptr;
 }
 
@@ -762,7 +762,7 @@ bool CSteamNetworkingSockets::InternalSetCertificate( const void *pCertificate, 
 	{
 		// The degree to which the key is actually "private" is not
 		// really known to us.  However there are some use cases where
-		// we will accept a cert 
+		// we will accept a cert
 		const std::string &private_key_data = msgCertSigned.private_key_data();
 		if ( m_keyPrivateKey.IsValid() )
 		{
