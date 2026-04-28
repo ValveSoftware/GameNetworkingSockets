@@ -1271,7 +1271,7 @@ EResult CSteamNetworkingSockets::SendMessageToConnection( HSteamNetConnection hC
 	return pConn->APISendMessageToConnection( pData, cbData, nSendFlags, pOutMessageNumber );
 }
 
-void CSteamNetworkingSockets::SendMessages( int nMessages, SteamNetworkingMessage_t *const *pMessages, int64 *pOutMessageNumberOrResult )
+void CSteamNetworkingSockets::SendMessages( int nMessages, SteamNetworkingMessage_t **pMessages, int64 *pOutMessageNumberOrResult, bool bDeleteFailedMessages )
 {
 
 	// Get list of messages, grouped by connection.
@@ -1307,7 +1307,8 @@ void CSteamNetworkingSockets::SendMessages( int nMessages, SteamNetworkingMessag
 		{
 			if ( pOutMessageNumberOrResult )
 				pOutMessageNumberOrResult[i] = -k_EResultInvalidParam;
-			pMsg->Release();
+			if ( bDeleteFailedMessages )
+				pMsg->Release();
 			continue;
 		}
 
@@ -1331,6 +1332,7 @@ void CSteamNetworkingSockets::SendMessages( int nMessages, SteamNetworkingMessag
 	HSteamNetConnection hConn = k_HSteamNetConnection_Invalid;
 	ConnectionScopeLock connectionLock;
 	bool bConnectionThinkImmediately = false;
+	bool bCurrentConnectionFailed = false;
 	for ( SortMsg_t *pSort = pSortMessages ; pSort < pSortEnd ; ++pSort )
 	{
 
@@ -1350,13 +1352,20 @@ void CSteamNetworkingSockets::SendMessages( int nMessages, SteamNetworkingMessag
 			// Locate the connection
 			hConn = pSort->m_hConn;
 			pConn = GetConnectionByHandleForAPI( hConn, connectionLock, "SendMessages" );
+			bCurrentConnectionFailed = false;
 		}
 
-		CSteamNetworkingMessage *pMsg = static_cast<CSteamNetworkingMessage*>( pMessages[pSort->m_idx] );
+		const int idx = pSort->m_idx;
+		CSteamNetworkingMessage *pMsg = static_cast<CSteamNetworkingMessage*>( pMessages[idx] );
 
-		// Current connection is valid?
+		// Once a message fails on a connection, subsequent messages to that connection
+		// are not attempted.  Result stays 0 (set by the memset above).
 		int64 result;
-		if ( pConn )
+		if ( bCurrentConnectionFailed )
+		{
+			result = 0;
+		}
+		else if ( pConn )
 		{
 
 			// Attempt to send
@@ -1364,18 +1373,30 @@ void CSteamNetworkingSockets::SendMessages( int nMessages, SteamNetworkingMessag
 			result = pConn->APISendMessageToConnection( pMsg, usecNow, &bThinkImmediately );
 			if ( bThinkImmediately )
 				bConnectionThinkImmediately = true;
-			if ( result <= 0 )
-				pMsg->Release();
+			if ( result > 0 )
+			{
+				// Successfully queued.  Clear pointer to let caller know, if
+				// they requested this mode of operation.
+				if ( !bDeleteFailedMessages )
+					pMessages[idx] = nullptr;
+			}
 		}
 		else
 		{
-			pMsg->Release();
+			// Connection handle not found -- first message reports the error;
+			// subsequent messages to the same connection get result=0 (not attempted).
 			result = -k_EResultInvalidParam;
 		}
 
-		// Return result for this message if they asked for it
+		if ( result <= 0 )
+		{
+			bCurrentConnectionFailed = true;
+			if ( bDeleteFailedMessages )
+				pMsg->Release();
+		}
+
 		if ( pOutMessageNumberOrResult )
-			pOutMessageNumberOrResult[pSort->m_idx] = result;
+			pOutMessageNumberOrResult[idx] = result;
 	}
 
 	// Flush out last connection, if any

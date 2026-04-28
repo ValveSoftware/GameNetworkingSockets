@@ -717,7 +717,7 @@ void Test_lane_quick_queueanddrain()
 			}
 		}
 		assert( idxMsg == k_nTotalMsg );
-		SteamNetworkingSockets()->SendMessages( idxMsg, pMessages, nullptr );
+		SteamNetworkingSockets()->SendMessages( idxMsg, pMessages, nullptr, true );
 	}
 
 	// Remember when we sent all the messages
@@ -785,7 +785,7 @@ void Test_lane_quick_queueanddrain()
 			pMsg->m_idxLane = (uint16)idxLane;
 			pMessages[idxLane] = pMsg;
 		}
-		SteamNetworkingSockets()->SendMessages( k_nLanes, pMessages, nullptr );
+		SteamNetworkingSockets()->SendMessages( k_nLanes, pMessages, nullptr, true );
 	}
 
 	int cbLaneReceived[k_nLanes] = {};
@@ -959,7 +959,7 @@ void Test_lane_quick_priority_and_background()
 			*(SteamNetworkingMicroseconds *)pMsg->m_pData = usecNow;
 
 			int64 nMsgNum;
-			SteamNetworkingSockets()->SendMessages( 1, &pMsg, &nMsgNum );
+			SteamNetworkingSockets()->SendMessages( 1, &pMsg, &nMsgNum, true );
 			++nMsgSent[k_LaneBackground];
 			assert( nMsgNum == nMsgSent[k_LaneBackground] );
 		}
@@ -977,7 +977,7 @@ void Test_lane_quick_priority_and_background()
 			*(SteamNetworkingMicroseconds *)pMsg->m_pData = usecNow;
 
 			int64 nMsgNum;
-			SteamNetworkingSockets()->SendMessages( 1, &pMsg, &nMsgNum );
+			SteamNetworkingSockets()->SendMessages( 1, &pMsg, &nMsgNum, true );
 			++nMsgSent[k_LaneUrgent];
 			assert( nMsgNum == nMsgSent[k_LaneUrgent] );
 
@@ -1003,7 +1003,7 @@ void Test_lane_quick_priority_and_background()
 				*(SteamNetworkingMicroseconds *)pMsg->m_pData = usecNow;
 
 				int64 nMsgNum;
-				SteamNetworkingSockets()->SendMessages( 1, &pMsg, &nMsgNum );
+				SteamNetworkingSockets()->SendMessages( 1, &pMsg, &nMsgNum, true );
 				++nMsgSent[k_LaneGameplay];
 				assert( nMsgNum == nMsgSent[k_LaneGameplay] );
 			}
@@ -1018,7 +1018,7 @@ void Test_lane_quick_priority_and_background()
 				pMsg->m_nFlags = std::uniform_int_distribution<>( 0, 100 )( g_rand ) < 30 ? k_nSteamNetworkingSend_ReliableNoNagle : k_nSteamNetworkingSend_UnreliableNoNagle;
 
 				int64 nMsgNum;
-				SteamNetworkingSockets()->SendMessages( 1, &pMsg, &nMsgNum );
+				SteamNetworkingSockets()->SendMessages( 1, &pMsg, &nMsgNum, true );
 				assert( nMsgNum >= 0 );
 			}
 
@@ -1134,7 +1134,7 @@ void Test_pipe()
 		void *pSendData = pSendMsg->m_pData;
 
 		int64 nMsgNum;
-		SteamNetworkingSockets()->SendMessages( 1, &pSendMsg, &nMsgNum );
+		SteamNetworkingSockets()->SendMessages( 1, &pSendMsg, &nMsgNum, true );
 		assert( nMsgNum > 0 );
 
 		SteamNetworkingMessage_t *pRecvMsg = nullptr;
@@ -1153,7 +1153,7 @@ void Test_pipe()
 		pSendMsg->m_nFlags = k_nSteamNetworkingSend_Reliable;
 
 		int64 nMsgNum;
-		SteamNetworkingSockets()->SendMessages( 1, &pSendMsg, &nMsgNum );
+		SteamNetworkingSockets()->SendMessages( 1, &pSendMsg, &nMsgNum, true );
 		assert( nMsgNum > 0 );
 
 		SteamNetworkingMessage_t *pRecvMsg = nullptr;
@@ -1265,7 +1265,7 @@ void Test_netloopback_throughput()
 					// Don't bother initializing the body
 
 					int64 nMsgNumberOrResult;
-					SteamNetworkingSockets()->SendMessages( 1, &pSendMsg, &nMsgNumberOrResult );
+					SteamNetworkingSockets()->SendMessages( 1, &pSendMsg, &nMsgNumberOrResult, true );
 					if ( nMsgNumberOrResult == -k_EResultLimitExceeded )
 					{
 						TEST_Printf( "SendMessage returned limit exceeded trying to queue %d + %d = %d\n", serverStatus.m_cbPendingReliable, cbSendMsg, serverStatus.m_cbPendingReliable + cbSendMsg );
