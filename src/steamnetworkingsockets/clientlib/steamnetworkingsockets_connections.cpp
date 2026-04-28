@@ -2053,6 +2053,7 @@ EResult CSteamNetworkConnectionBase::APISendMessageToConnection( const void *pDa
 			*pOutMessageNumber = nMsgNumberOrResult;
 		return k_EResultOK;
 	}
+	pMsg->Release();
 	return EResult( -nMsgNumberOrResult );
 }
 
@@ -2069,16 +2070,12 @@ int64 CSteamNetworkConnectionBase::APISendMessageToConnection( CSteamNetworkingM
 		case k_ESteamNetworkingConnectionState_Dead:
 		default:
 			AssertMsg( false, "Why are making API calls on this connection?" );
-			pMsg->Release();
 			return -k_EResultInvalidState;
 
 		case k_ESteamNetworkingConnectionState_Connecting:
 		case k_ESteamNetworkingConnectionState_FindingRoute:
 			if ( pMsg->m_nFlags & k_nSteamNetworkingSend_NoDelay )
-			{
-				pMsg->Release();
 				return -k_EResultIgnored;
-			}
 			break;
 
 		case k_ESteamNetworkingConnectionState_Connected:
@@ -2086,7 +2083,6 @@ int64 CSteamNetworkConnectionBase::APISendMessageToConnection( CSteamNetworkingM
 
 		case k_ESteamNetworkingConnectionState_ClosedByPeer:
 		case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
-			pMsg->Release();
 			return -k_EResultNoConnection;
 	}
 
@@ -2095,7 +2091,6 @@ int64 CSteamNetworkConnectionBase::APISendMessageToConnection( CSteamNetworkingM
 	if ( (unsigned)pMsg->m_cbSize > (unsigned)cbMaxMessageSizeSend )
 	{
 		SpewWarning( "Message size %u is too big.  Max is %d", pMsg->m_cbSize, cbMaxMessageSizeSend );
-		pMsg->Release();
 		return -k_EResultInvalidParam;
 	}
 
@@ -2112,7 +2107,6 @@ int64 CSteamNetworkConnectionBase::_APISendMessageToConnection( CSteamNetworking
 	if ( (unsigned)pMsg->m_cbSize > (unsigned)k_cbMaxSteamNetworkingSocketsMessageSizeSend_Internal )
 	{
 		AssertMsg2( false, "Message size %d is too big.  Max internal size is %d", pMsg->m_cbSize, k_cbMaxSteamNetworkingSocketsMessageSizeSend_Internal );
-		pMsg->Release();
 		return -k_EResultInvalidParam;
 	}
 
@@ -4069,13 +4063,11 @@ int64 CSteamNetworkConnectionPipe::_APISendMessageToConnection( CSteamNetworking
 	{
 		// Caller should have checked the connection at a higher level, so this is a bug
 		AssertMsg( false, "No partner pipe?" );
-		pMsg->Release();
 		return -k_EResultFail;
 	}
 
 	if ( (int)pMsg->m_idxLane >= len( m_senderState.m_vecLanes ) )
 	{
-		pMsg->Release();
 		return -k_EResultInvalidParam;
 	}
 	SSNPSenderState::Lane &lane = m_senderState.m_vecLanes[ pMsg->m_idxLane ];

@@ -368,7 +368,8 @@ public:
 	/// Send a message
 	EResult APISendMessageToConnection( const void *pData, uint32 cbData, int nSendFlags, int64 *pOutMessageNumber );
 
-	/// Send a message.  Returns the assigned message number, or a negative EResult value
+	/// Send a message.  Returns the assigned message number, or a negative EResult value.
+	/// Does NOT Release the message on failure -- the caller is responsible for that.
 	int64 APISendMessageToConnection( CSteamNetworkingMessage *pMsg, SteamNetworkingMicroseconds usecNow, bool *pbThinkImmediately = nullptr );
 
 	/// Flush any messages queued for Nagle

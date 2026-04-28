@@ -1364,6 +1364,8 @@ void CSteamNetworkingSockets::SendMessages( int nMessages, SteamNetworkingMessag
 			result = pConn->APISendMessageToConnection( pMsg, usecNow, &bThinkImmediately );
 			if ( bThinkImmediately )
 				bConnectionThinkImmediately = true;
+			if ( result <= 0 )
+				pMsg->Release();
 		}
 		else
 		{

@@ -518,6 +518,7 @@ EResult CSteamNetworkingMessages::SendMessageToUser( const SteamNetworkingIdenti
 	int64 nMsgNumberOrResult = pConn->_APISendMessageToConnection( pMsg, usecNow, nullptr );
 	if ( nMsgNumberOrResult > 0 )
 		return k_EResultOK;
+	pMsg->Release();
 	return EResult( -nMsgNumberOrResult );
 }
 
