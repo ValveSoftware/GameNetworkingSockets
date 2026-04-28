@@ -678,6 +678,11 @@ public:
 	static constexpr CMessagesEndPointSession *m_pMessagesEndPointSessionOwner = nullptr;
 	#endif
 
+	/// Get the max message size that can be passed to APISendMessageToConnection.
+	/// Most connections use k_cbMaxSteamNetworkingSocketsMessageSizeSend, but pipe
+	/// connections have no network path and can accept much larger messages.
+	virtual int GetMaxMessageSizeSend() const { return k_cbMaxSteamNetworkingSocketsMessageSizeSend; }
+
 	/// Get the effective value of the RecvMaxMessageSize value.
 	/// Connections used by the ISteamNetworkingMessages interface need a little extra space
 	int GetEffectiveRecvMaxMessageSize() const
@@ -1072,6 +1077,7 @@ public:
 	CSteamNetworkConnectionPipe *m_pPartner;
 
 	// CSteamNetworkConnectionBase overrides
+	virtual int GetMaxMessageSizeSend() const override { return m_connectionConfig.RecvMaxMessageSize.Get(); } //!KLUDGE! Techcnially, we should use the value from our partner.  Really this convar should just stay a huge value and people should not change it.
 	virtual int64 _APISendMessageToConnection( CSteamNetworkingMessage *pMsg, SteamNetworkingMicroseconds usecNow, bool *pbThinkImmediately ) override;
 	virtual EResult AcceptConnection( SteamNetworkingMicroseconds usecNow ) override;
 	virtual void InitConnectionCrypto( SteamNetworkingMicroseconds usecNow ) override;
