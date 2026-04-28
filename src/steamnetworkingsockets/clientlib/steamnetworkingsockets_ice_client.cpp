@@ -1486,14 +1486,14 @@ void CSteamNetworkingICESession::Think( SteamNetworkingMicroseconds usecNow )
                 return;
             }
 
-            // STUN gathering finished but we have peer candidates to check — move on
+            // STUN gathering finished but we have peer candidates to check -- move on
             m_sessionState = kICESessionState_TestingPeerConnectivity;
         }
     }
 
     if ( m_sessionState == kICESessionState_TestingPeerConnectivity )
     {
-        // Don't start checks before we have the remote password — we'd send
+        // Don't start checks before we have the remote password -- we'd send
         // unauthenticated requests and couldn't verify the response integrity.
         if ( !m_strRemotePassword.empty() )
         {

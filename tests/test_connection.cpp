@@ -1125,7 +1125,7 @@ void Test_pipe()
 	TestNetworkConditions( 10*1000*1000, 0, 0, 0, 0, false, ETestConnectionMode::Cursory );
 
 	// Zero-copy: for a pipe connection the received message must point at the
-	// exact same data buffer that was handed to SendMessages — no copy through
+	// exact same data buffer that was handed to SendMessages -- no copy through
 	// any network or encryption layer.
 	{
 		SteamNetworkingMessage_t *pSendMsg = SteamNetworkingUtils()->AllocateMessage( 256 );
