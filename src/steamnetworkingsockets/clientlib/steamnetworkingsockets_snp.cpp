@@ -312,7 +312,6 @@ int64 CSteamNetworkConnectionBase::SNP_SendMessage( CSteamNetworkingMessage *pSe
 	if ( (size_t)pSendMessage->m_idxLane >= m_senderState.m_vecLanes.size() )
 	{
 		SpewBug( "Invalid lane %d.  Only %d lanes configured\n", (int)pSendMessage->m_idxLane, (int)m_senderState.m_vecLanes.size() );
-		pSendMessage->Release();
 		return -k_EResultInvalidParam;
 	}
 	SSNPSenderState::Lane &lane = m_senderState.m_vecLanes[ pSendMessage->m_idxLane ];
@@ -321,7 +320,6 @@ int64 CSteamNetworkConnectionBase::SNP_SendMessage( CSteamNetworkingMessage *pSe
 	if ( m_senderState.PendingBytesTotal() + cbData > m_connectionConfig.SendBufferSize.Get() )
 	{
 		SpewWarningRateLimited( usecNow, "Connection already has %u bytes pending, cannot queue any more messages\n", m_senderState.PendingBytesTotal() );
-		pSendMessage->Release();
 		return -k_EResultLimitExceeded;
 	}
 
