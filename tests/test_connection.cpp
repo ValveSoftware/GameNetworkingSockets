@@ -1086,6 +1086,89 @@ void Test_lane_quick_priority_and_background()
 
 }
 
+void Test_pipe()
+{
+	TEST_Printf( "***************************************************\n" );
+	TEST_Printf( "Pipe (socket pair, no network loopback)\n" );
+	TEST_Printf( "***************************************************\n" );
+
+	// CreateSocketPair with bUseNetworkLoopback=false: pure internal buffer path,
+	// no encryption, no packet fragmentation, no network stack involvement.
+	HSteamNetConnection hAlice, hBob;
+	SteamNetworkingIdentity identAlice, identBob;
+	identAlice.SetGenericString( "alice" );
+	identBob.SetGenericString( "bob" );
+	// NOTE: each pPeerIdentity is the remote identity seen by the *corresponding* connection.
+	assert( SteamNetworkingSockets()->CreateSocketPair( &hAlice, &hBob, false, &identBob, &identAlice ) );
+
+	// Verify each end observes the correct remote identity.
+	{
+		SteamNetConnectionInfo_t infoAlice, infoBob;
+		assert( SteamNetworkingSockets()->GetConnectionInfo( hAlice, &infoAlice ) );
+		assert( SteamNetworkingSockets()->GetConnectionInfo( hBob, &infoBob ) );
+		assert( infoAlice.m_identityRemote == identBob );
+		assert( infoBob.m_identityRemote == identAlice );
+	}
+
+	// Wire up to the global peer state used by TestNetworkConditions / PumpCallbacksAndMakeSureStillConnected.
+	g_peerClient.Reset();
+	g_peerServer.Reset();
+	g_peerClient.m_hSteamNetConnection = hAlice;
+	g_peerClient.m_bIsConnected = true;
+	g_peerClient.SetConnectionConfig();
+	g_peerServer.m_hSteamNetConnection = hBob;
+	g_peerServer.m_bIsConnected = true;
+	g_peerServer.SetConnectionConfig();
+
+	// Cursory connection test. Fake loss/lag config has no effect on a pipe
+	// (no network path), but the send/receive loop still exercises the connection.
+	TestNetworkConditions( 10*1000*1000, 0, 0, 0, 0, false, ETestConnectionMode::Cursory );
+
+	// Zero-copy: for a pipe connection the received message must point at the
+	// exact same data buffer that was handed to SendMessages — no copy through
+	// any network or encryption layer.
+	{
+		SteamNetworkingMessage_t *pSendMsg = SteamNetworkingUtils()->AllocateMessage( 256 );
+		pSendMsg->m_conn = hAlice;
+		pSendMsg->m_nFlags = k_nSteamNetworkingSend_Reliable;
+		void *pSendData = pSendMsg->m_pData;
+
+		int64 nMsgNum;
+		SteamNetworkingSockets()->SendMessages( 1, &pSendMsg, &nMsgNum );
+		assert( nMsgNum > 0 );
+
+		SteamNetworkingMessage_t *pRecvMsg = nullptr;
+		int nRecv = SteamNetworkingSockets()->ReceiveMessagesOnConnection( hBob, &pRecvMsg, 1 );
+		assert( nRecv == 1 );
+		assert( pRecvMsg->m_pData == pSendData ); // zero-copy: must be the same pointer
+		pRecvMsg->Release();
+	}
+
+	// Oversized messages: pipe connections have no network-imposed size limit, so
+	// messages larger than k_cbMaxSteamNetworkingSocketsMessageSizeSend must work.
+	{
+		const int k_cbHuge = k_cbMaxSteamNetworkingSocketsMessageSizeSend * 3;
+		SteamNetworkingMessage_t *pSendMsg = SteamNetworkingUtils()->AllocateMessage( k_cbHuge );
+		pSendMsg->m_conn = hAlice;
+		pSendMsg->m_nFlags = k_nSteamNetworkingSend_Reliable;
+
+		int64 nMsgNum;
+		SteamNetworkingSockets()->SendMessages( 1, &pSendMsg, &nMsgNum );
+		assert( nMsgNum > 0 );
+
+		SteamNetworkingMessage_t *pRecvMsg = nullptr;
+		int nRecv = SteamNetworkingSockets()->ReceiveMessagesOnConnection( hBob, &pRecvMsg, 1 );
+		assert( nRecv == 1 );
+		assert( pRecvMsg->m_cbSize == k_cbHuge );
+		pRecvMsg->Release();
+	}
+
+	SteamNetworkingSockets()->CloseConnection( hAlice, 0, nullptr, false );
+	SteamNetworkingSockets()->CloseConnection( hBob, 0, nullptr, false );
+	g_peerClient.Reset();
+	g_peerServer.Reset();
+}
+
 void Test_netloopback_throughput()
 {
 	// Create a loopback connection, over the local network.
@@ -1283,7 +1366,8 @@ int main( int argc, const char **argv  )
 		TEST(soak),
 		TEST(netloopback_throughput),
 		TEST(lane_quick_queueanddrain),
-		TEST(lane_quick_priority_and_background)
+		TEST(lane_quick_priority_and_background),
+		TEST(pipe)
 	};
 
 	struct Suite_t {
@@ -1291,7 +1375,7 @@ int main( int argc, const char **argv  )
 		std::vector< Test_t > m_vecTests;
 	};
 	static const Suite_t test_suites[] = {
-		{ "suite-quick", { TEST(identity), TEST(quick), TEST(lane_quick_queueanddrain), TEST(netloopback_throughput), TEST(lane_quick_priority_and_background) } }
+		{ "suite-quick", { TEST(identity), TEST(quick), TEST(lane_quick_queueanddrain), TEST(netloopback_throughput), TEST(lane_quick_priority_and_background), TEST(pipe) } }
 	};
 
 	if ( argc < 2 )
