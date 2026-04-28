@@ -285,12 +285,11 @@ public:
 	/// You MUST also fill in:
 	/// - m_conn - the handle of the connection to send the message to
 	/// - m_nFlags - bitmask of k_nSteamNetworkingSend_xxx flags.
+	/// - m_idxLane - the lane to send the message on.  AllocateMessage
+	///   will set this to zero, so you can ignore this if you are not using
+	///   multiple lanes.
 	///
 	/// All other fields are currently reserved and should not be modified.
-	///
-	/// The library will take ownership of the message structures.  They may
-	/// be modified or become invalid at any time, so you must not read them
-	/// after passing them to this function.
 	///
 	/// pOutMessageNumberOrResult is an optional array that will receive,
 	/// for each message, the message number that was assigned to the message
@@ -299,7 +298,28 @@ public:
 	/// -k_EResultInvalidState if the connection was in an invalid state.
 	/// See ISteamNetworkingSockets::SendMessageToConnection for possible
 	/// failure codes.
-	virtual void SendMessages( int nMessages, SteamNetworkingMessage_t *const *pMessages, int64 *pOutMessageNumberOrResult ) = 0;
+	///
+	/// Once a message fails to send on a connection, any further messages
+	/// in the array going to the same connection will not be attempted.  The
+	/// pOutMessageNumberOrResult for such message will always be set to 0.
+	/// (Note that 0 is never used as a message number.)
+	///
+	/// bDeleteFailedMessages determines what happens to messages that
+	/// fail to send:
+	///
+	/// - false: Your pointer array will be modified, and the pointers
+	///     to messages that were successfully queued will be replaced with
+	///     nullptr.  The library has taken ownership and you must not access
+	///     them.  They will be released by the library when they are no longer
+	///     needed.
+	///     Any messages that were not queued (either failed to send, or were
+	///     not attempted because an earlier message for the same connection failed)
+	///     will be left in place.  You can release these messages or try to send
+	///     them later.
+	/// - true: The caller's pointer array is not modified, and the library assumes
+	///     ownership of all messages.  Messages that fail or are not attempted due
+	///     to earlier failure on the same connection will be released immediately.
+	virtual void SendMessages( int nMessages, SteamNetworkingMessage_t **pMessages, int64 *pOutMessageNumberOrResult, bool bDeleteFailedMessages ) = 0;
 
 	/// Flush any messages waiting on the Nagle timer and send them
 	/// at the next transmission opportunity (often that means right now).
