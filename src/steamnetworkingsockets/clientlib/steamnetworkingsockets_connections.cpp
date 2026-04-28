@@ -2091,9 +2091,10 @@ int64 CSteamNetworkConnectionBase::APISendMessageToConnection( CSteamNetworkingM
 	}
 
 	// Message too big?
-	if ( (unsigned)pMsg->m_cbSize > (unsigned)k_cbMaxSteamNetworkingSocketsMessageSizeSend )
+	const int cbMaxMessageSizeSend = GetMaxMessageSizeSend();
+	if ( (unsigned)pMsg->m_cbSize > (unsigned)cbMaxMessageSizeSend )
 	{
-		SpewWarning( "Message size %u is too big.  Max is %d", pMsg->m_cbSize, k_cbMaxSteamNetworkingSocketsMessageSizeSend );
+		SpewWarning( "Message size %u is too big.  Max is %d", pMsg->m_cbSize, cbMaxMessageSizeSend );
 		pMsg->Release();
 		return -k_EResultInvalidParam;
 	}
