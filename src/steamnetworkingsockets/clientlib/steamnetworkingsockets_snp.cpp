@@ -999,6 +999,26 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLa
 				DECODE_ERROR( "stop_waiting pktNum %llu offset %llu", nPktNum, nOffset );
 			}
 
+			// Sender is telling us that the lowest number packet we need to ack is higher
+			// than the highest one we have ever seen?  That is exceedingly strange, but maybe
+			// it could happen if the sender got way out in front, and then decided that it was
+			// going to just now worry about trying to avoid retransmitting segments from the
+			// old packets, and tell us to just ack from some point higher than the highest
+			// packet we have ever acked.
+			//
+			// But we don't have to obey the sender exactly.  We are allowed to send acks for
+			// packets earlier than the sender's requested stop waiting point.  In fact, it is
+			// expected for the sender to be receiving acks older than the last stop-waiting
+			// point it sent, due to transmission delay.
+			//
+			// Clamping the requested stop waiting point to the highest packet number we
+			// received keeps a lot of code simple.  If this clamp activates, the gap map
+			// will get totally emptied by the loop below.
+			if ( unlikely( nMinPktNumToSendAcks > m_statsEndToEnd.m_nMaxRecvPktNum ) )
+			{
+				nMinPktNumToSendAcks = m_statsEndToEnd.m_nMaxRecvPktNum;
+			}
+
 			if ( nMinPktNumToSendAcks == m_receiverState.m_nMinPktNumToSendAcks )
 				continue;
 			if ( nMinPktNumToSendAcks < m_receiverState.m_nMinPktNumToSendAcks )
@@ -1029,6 +1049,16 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLa
 			{
 				if ( h->second.m_nEnd > m_receiverState.m_nMinPktNumToSendAcks )
 				{
+
+					// We should never reach the sentinel, due to the clamp
+					// against m_statsEndToEnd.m_nMaxRecvPktNum above.  But we will
+					// add a little paranoia check here, just in case.
+					if ( unlikely( h->second.m_nEnd == INT64_MAX ) )
+					{
+						AssertMsgOnce( false, "SNP stop waiting advanced past sentinel gap.  This should never happen!" );
+						DECODE_ERROR( "stop_waiting past sentinel gap" );
+					}
+
 					// Ug.  You're not supposed to modify the key in a map.
 					// I suppose that's legit, since you could violate the ordering.
 					// but in this case I know that this change is OK.
