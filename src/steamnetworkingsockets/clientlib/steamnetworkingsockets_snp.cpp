@@ -3545,84 +3545,110 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 		// Check if this filled in one or more gaps (or made a hole in the middle!)
 		if ( !lane.m_mapReliableStreamGaps.empty() )
 		{
+			// Locate the first gap that this segment might overlap.  upper_bound
+			// returns the first gap with start strictly greater than nSegBegin;
+			// the gap that could contain nSegBegin (if any) is the one before
+			// that.  But the segment may also start before all gaps and extend
+			// forward into the first one, so we cannot bail out when there is
+			// no preceding gap.
 			auto gapFilled = lane.m_mapReliableStreamGaps.upper_bound( nSegBegin );
 			if ( gapFilled != lane.m_mapReliableStreamGaps.begin() )
 			{
 				--gapFilled;
 				Assert( gapFilled->first < gapFilled->second ); // Make sure we don't have degenerate/invalid gaps in our table
-				Assert( gapFilled->first <= nSegBegin ); // Make sure we located the gap we think we located
-				if ( gapFilled->second > nSegBegin ) // gap is not entirely before this segment
+				Assert( gapFilled->first <= nSegBegin );
+				if ( gapFilled->second <= nSegBegin )
 				{
-					do {
-
-						// Common case where we fill exactly at the start
-						if ( nSegBegin == gapFilled->first )
-						{
-							if ( nSegEnd < gapFilled->second )
-							{
-								// We filled the first bit of the gap.  Chop off the front bit that we filled.
-								// We cast away const here because we know that we aren't violating the ordering constraints
-								const_cast<int64&>( gapFilled->first ) = nSegEnd;
-								break;
-							}
-
-							// Filled the whole gap.
-							// Erase, and move forward in case this also fills more gaps
-							// !SPEED! Since exactly filing the gap should be common, we might
-							// check specifically for that case and early out here.
-							gapFilled = lane.m_mapReliableStreamGaps.erase( gapFilled );
-						}
-						else if ( nSegEnd >= gapFilled->second )
-						{
-							// Chop off the end of the gap
-							Assert( nSegBegin < gapFilled->second );
-							gapFilled->second = nSegBegin;
-
-							// And maybe subsequent gaps!
-							++gapFilled;
-						}
-						else
-						{
-							// We are fragmenting.
-							Assert( nSegBegin > gapFilled->first );
-							Assert( nSegEnd < gapFilled->second );
-
-							// Protect against malicious sender.  A good sender will
-							// fill the gaps in stream position order and not fragment
-							// like this
-							if ( len( lane.m_mapReliableStreamGaps ) >= k_nMaxReliableStreamGaps_Fragment )
-							{
-								// Stop processing the packet, and don't ack it
-								SpewWarningRateLimited( usecNow, "[%s] decode pkt %lld abort.  Reliable stream already has %d fragments, first is [%lld,%lld), last is [%lld,%lld).  We don't want to fragment [%lld,%lld) with new segment [%lld,%lld)\n",
-									GetDescription(),
-									(long long)nPktNum,
-									len( lane.m_mapReliableStreamGaps ),
-									(long long)lane.m_mapReliableStreamGaps.begin()->first, (long long)lane.m_mapReliableStreamGaps.begin()->second,
-									(long long)lane.m_mapReliableStreamGaps.rbegin()->first, (long long)lane.m_mapReliableStreamGaps.rbegin()->second,
-									(long long)gapFilled->first, (long long)gapFilled->second,
-									(long long)nSegBegin, (long long)nSegEnd
-								);
-								return false;  // DO NOT ACK THIS PACKET
-							}
-
-							// Save bounds of the right side
-							int64 nRightHandBegin = nSegEnd;
-							int64 nRightHandEnd = gapFilled->second;
-
-							// Truncate the left side
-							gapFilled->second = nSegBegin;
-
-							// Add the right hand gap
-							lane.m_mapReliableStreamGaps[ nRightHandBegin ] = nRightHandEnd;
-
-							// And we know that we cannot possible have covered any more gaps
-							break;
-						}
-
-						// In some rare cases we might fill more than one gap with a single segment.
-						// So keep searching forward.
-					} while ( gapFilled != lane.m_mapReliableStreamGaps.end() && gapFilled->first < nSegEnd );
+					// This gap is entirely before the segment.  The next gap
+					// (if any) is the candidate for overlap.
+					++gapFilled;
 				}
+			}
+			// else: gapFilled is begin(); the segment starts before all gaps.
+			// The loop below will check if it actually reaches the first gap.
+
+			// Process every gap that the segment overlaps.  The relationship
+			// between the segment [nSegBegin, nSegEnd) and a gap [g_begin, g_end)
+			// determines the action.  The reliable-stream protocol does not
+			// require a sender to retransmit segments with the same boundaries
+			// as the original transmission, so any of these geometries is legal:
+			//
+			//   nSegBegin <= g_begin && nSegEnd >= g_end : segment fully covers gap (erase, may overlap more)
+			//   nSegBegin <= g_begin && nSegEnd <  g_end : segment fills the front  (advance g_begin, done)
+			//   nSegBegin >  g_begin && nSegEnd >= g_end : segment fills the back   (truncate g_end, may overlap more)
+			//   nSegBegin >  g_begin && nSegEnd <  g_end : segment fragments gap    (split, done)
+			//
+			while ( gapFilled != lane.m_mapReliableStreamGaps.end() && gapFilled->first < nSegEnd )
+			{
+				Assert( gapFilled->first < gapFilled->second );
+				Assert( gapFilled->second > nSegBegin ); // We've already skipped any gap entirely before us
+
+				if ( nSegBegin <= gapFilled->first )
+				{
+					if ( nSegEnd >= gapFilled->second )
+					{
+						// Segment fully covers this gap.  Erase and continue --
+						// the segment may overlap subsequent gaps too.
+						gapFilled = lane.m_mapReliableStreamGaps.erase( gapFilled );
+						continue;
+					}
+
+					// Segment fills the front of the gap.  Advance g_begin to nSegEnd.
+					// We cast away const because the new key cannot violate ordering:
+					// any preceding gap is either untouched (with end <= nSegBegin)
+					// or was just truncated to end at nSegBegin in a prior iteration,
+					// so its key is < nSegEnd.  The next gap, if any, has key >=
+					// gapFilled->second > nSegEnd.
+					const_cast<int64&>( gapFilled->first ) = nSegEnd;
+					break;
+				}
+
+				// nSegBegin > gapFilled->first
+				if ( nSegEnd >= gapFilled->second )
+				{
+					// Segment fills the back of this gap.  May also overlap subsequent gaps.
+					gapFilled->second = nSegBegin;
+					++gapFilled;
+					continue;
+				}
+
+				// Segment is contained strictly inside the gap, splitting it
+				// into two.  This requires the sender to have retransmitted with
+				// different boundaries than the original transmission -- legal,
+				// but unusual for current senders.
+				Assert( nSegBegin > gapFilled->first );
+				Assert( nSegEnd < gapFilled->second );
+
+				// Protect against malicious sender.  A good sender will
+				// fill the gaps in stream position order and not fragment
+				// like this
+				if ( len( lane.m_mapReliableStreamGaps ) >= k_nMaxReliableStreamGaps_Fragment )
+				{
+					// Stop processing the packet, and don't ack it
+					SpewWarningRateLimited( usecNow, "[%s] decode pkt %lld abort.  Reliable stream already has %d fragments, first is [%lld,%lld), last is [%lld,%lld).  We don't want to fragment [%lld,%lld) with new segment [%lld,%lld)\n",
+						GetDescription(),
+						(long long)nPktNum,
+						len( lane.m_mapReliableStreamGaps ),
+						(long long)lane.m_mapReliableStreamGaps.begin()->first, (long long)lane.m_mapReliableStreamGaps.begin()->second,
+						(long long)lane.m_mapReliableStreamGaps.rbegin()->first, (long long)lane.m_mapReliableStreamGaps.rbegin()->second,
+						(long long)gapFilled->first, (long long)gapFilled->second,
+						(long long)nSegBegin, (long long)nSegEnd
+					);
+					return false;  // DO NOT ACK THIS PACKET
+				}
+
+				// Save bounds of the right side
+				int64 nRightHandBegin = nSegEnd;
+				int64 nRightHandEnd = gapFilled->second;
+
+				// Truncate the left side
+				gapFilled->second = nSegBegin;
+
+				// Add the right hand gap
+				lane.m_mapReliableStreamGaps[ nRightHandBegin ] = nRightHandEnd;
+
+				// We cannot possibly have covered any more gaps.
+				break;
 			}
 		}
 	}
