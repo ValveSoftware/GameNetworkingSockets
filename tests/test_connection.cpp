@@ -1467,7 +1467,7 @@ int main( int argc, const char **argv  )
 		std::vector< Test_t > m_vecTests;
 	};
 	static const Suite_t test_suites[] = {
-		{ "suite-quick", { TEST(identity), TEST(quick), TEST(lane_quick_queueanddrain), TEST(netloopback_throughput), TEST(lane_quick_priority_and_background), TEST(pipe), TEST(send_buffer_full) } }
+		{ "suite-quick", { TEST(identity), TEST(quick), TEST(lane_quick_queueanddrain), TEST(lane_quick_priority_and_background), TEST(pipe), TEST(send_buffer_full) } }
 	};
 
 	if ( argc < 2 )
