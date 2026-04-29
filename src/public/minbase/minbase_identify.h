@@ -110,6 +110,19 @@
 	#error "Running platform detection twice, or defining IsPosix too soon"
 #endif
 
+// Make sure exactly one of NDEBUG or _DEBUG is defined.  NDEBUG is the C/C++ standard,
+// but we have lots of code that is checking _DEBUG, which is a MSVC convention
+#if defined(NDEBUG) && defined(_DEBUG)
+	#error "Cannot define both NDEBUG and _DEBUG."
+#endif
+#if !defined(NDEBUG) && !defined(_DEBUG)
+	#ifdef _MSC_VER
+		#error "On MSVC, exactly one of NDEBUG or _DEBUG must be defined.  Check your project files."
+	#else
+		#define _DEBUG
+	#endif
+#endif
+
 #ifdef _DEBUG
 	#define IsRelease() false
 	#define IsDebug() true
