@@ -28,9 +28,9 @@ jobs:
             use_webrtc: false
             crypto: default
             crypto25519: default
-            targets: "test_p2p trivial_signaling_server publish_test_script test_crypto"
+            targets: "test_connection test_p2p trivial_signaling_server publish_test_script test_crypto"
             run_tests: true
-            tests: "test_crypto test_p2p.py:--spewlevel=debug:--loglevel-p2prendezvous=debug"
+            tests: "test_crypto test_connection:suite-quick test_p2p.py:--spewlevel=debug:--loglevel-p2prendezvous=debug"
           - row: clang-libsodium
             compiler: clang
             build_dir: build-ci-quick-sodium
@@ -38,9 +38,9 @@ jobs:
             use_webrtc: false
             crypto: libsodium
             crypto25519: libsodium
-            targets: "test_p2p trivial_signaling_server publish_test_script test_crypto"
+            targets: "test_connection test_p2p trivial_signaling_server publish_test_script test_crypto"
             run_tests: true
-            tests: "test_crypto test_p2p.py:--spewlevel=debug:--loglevel-p2prendezvous=debug"
+            tests: "test_crypto test_connection:suite-quick test_p2p.py:--spewlevel=debug:--loglevel-p2prendezvous=debug"
           - row: clang-reference-25519
             compiler: clang
             build_dir: build-ci-quick-ref25519
@@ -48,9 +48,9 @@ jobs:
             use_webrtc: false
             crypto: default
             crypto25519: Reference
-            targets: "test_p2p trivial_signaling_server publish_test_script test_crypto"
+            targets: "test_connection test_p2p trivial_signaling_server publish_test_script test_crypto"
             run_tests: true
-            tests: "test_crypto test_p2p.py:--spewlevel=debug:--loglevel-p2prendezvous=debug"
+            tests: "test_crypto test_connection:suite-quick test_p2p.py:--spewlevel=debug:--loglevel-p2prendezvous=debug"
           - row: clang-openssl-webrtc
             compiler: clang
             build_dir: build-ci-quick-webrtc
@@ -58,9 +58,9 @@ jobs:
             use_webrtc: true
             crypto: default
             crypto25519: default
-            targets: "test_p2p trivial_signaling_server publish_test_script test_crypto"
+            targets: "test_connection test_p2p trivial_signaling_server publish_test_script test_crypto"
             run_tests: true
-            tests: "test_crypto test_p2p.py:--spewlevel=debug:--loglevel-p2prendezvous=debug"
+            tests: "test_crypto test_connection:suite-quick test_p2p.py:--spewlevel=debug:--loglevel-p2prendezvous=debug"
     env:
       CI_BUILD: 1
       IMAGE: ubuntu
@@ -74,7 +74,7 @@ jobs:
         run: |
           sudo -E bash .github/install.sh
           sudo -E bash .github/install-post.sh
-      - name: Build and run selected single config
+      - name: Build and test (RelWithDebInfo)
         run: |
           set -euo pipefail
 
@@ -107,6 +107,56 @@ jobs:
               read -r -a test_args <<< "${{ matrix.tests }}"
               args+=(--tests "${test_args[@]}")
             fi
+          fi
+
+          python3 .github/run-single-config.py "${args[@]}"
+
+      - name: Build (Release)
+        run: |
+          set -euo pipefail
+
+          args=(
+            --compiler "${{ matrix.compiler }}"
+            --build-dir "build-release"
+            --build-type Release
+            --sanitizer none
+          )
+
+          if [[ "${{ matrix.use_webrtc }}" == "true" ]]; then
+            args+=(--use-webrtc)
+          fi
+
+          if [[ "${{ matrix.crypto }}" != "default" ]]; then
+            args+=(--crypto "${{ matrix.crypto }}")
+          fi
+
+          if [[ "${{ matrix.crypto25519 }}" != "default" ]]; then
+            args+=(--crypto25519 "${{ matrix.crypto25519 }}")
+          fi
+
+          python3 .github/run-single-config.py "${args[@]}"
+
+      - name: Build (Debug)
+        run: |
+          set -euo pipefail
+
+          args=(
+            --compiler "${{ matrix.compiler }}"
+            --build-dir "build-debug"
+            --build-type Debug
+            --sanitizer none
+          )
+
+          if [[ "${{ matrix.use_webrtc }}" == "true" ]]; then
+            args+=(--use-webrtc)
+          fi
+
+          if [[ "${{ matrix.crypto }}" != "default" ]]; then
+            args+=(--crypto "${{ matrix.crypto }}")
+          fi
+
+          if [[ "${{ matrix.crypto25519 }}" != "default" ]]; then
+            args+=(--crypto25519 "${{ matrix.crypto25519 }}")
           fi
 
           python3 .github/run-single-config.py "${args[@]}"
@@ -185,14 +235,14 @@ jobs:
         run: '"${{env.VCPKG_ROOT}}\vcpkg" install --vcpkg-root "${{env.VCPKG_ROOT}}" --triplet=x64-windows'
         shell: cmd
 
-      - name: cmake generate project files
+      - name: Configure CMake (RelWithDebInfo)
         run: |
           mkdir build
           cd build
-          cmake -S .. -G Ninja -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DBUILD_TESTS=ON -DBUILD_EXAMPLES=ON -DBUILD_TOOLS=ON "-DCMAKE_TOOLCHAIN_FILE=${{env.VCPKG_ROOT}}/scripts/buildsystems/vcpkg.cmake" -DUSE_CRYPTO=${{matrix.crypto}}
+          cmake -S .. -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DBUILD_TESTS=ON -DBUILD_EXAMPLES=ON -DBUILD_TOOLS=ON "-DCMAKE_TOOLCHAIN_FILE=${{env.VCPKG_ROOT}}/scripts/buildsystems/vcpkg.cmake" -DUSE_CRYPTO=${{matrix.crypto}}
         shell: cmd
 
-      - name: Build projects
+      - name: Build (RelWithDebInfo)
         working-directory: '${{ github.workspace }}/build'
         run: ninja
         shell: cmd
@@ -204,12 +254,34 @@ jobs:
 
       - name: Test connection
         working-directory: '${{ github.workspace }}/build/bin'
-        run: |
-          rem test_connection.exe suite-quick  -- Loopback throughput test not performing on github hosted runners for some reason
-          test_connection.exe identity quick lane_quick_queueanddrain lane_quick_priority_and_background
+        run: test_connection.exe suite-quick
         shell: cmd
 
       - name: Test p2p
         working-directory: '${{ github.workspace }}/build/bin'
         run: py -3 test_p2p.py --spewlevel=debug --loglevel-p2prendezvous=debug
+        shell: cmd
+
+      - name: Configure CMake (Release)
+        run: |
+          mkdir build-release
+          cd build-release
+          cmake -S .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DBUILD_TESTS=ON -DBUILD_EXAMPLES=ON -DBUILD_TOOLS=ON "-DCMAKE_TOOLCHAIN_FILE=${{env.VCPKG_ROOT}}/scripts/buildsystems/vcpkg.cmake" -DUSE_CRYPTO=${{matrix.crypto}}
+        shell: cmd
+
+      - name: Build (Release)
+        working-directory: '${{ github.workspace }}/build-release'
+        run: ninja
+        shell: cmd
+
+      - name: Configure CMake (Debug)
+        run: |
+          mkdir build-debug
+          cd build-debug
+          cmake -S .. -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl -DBUILD_TESTS=ON -DBUILD_EXAMPLES=ON -DBUILD_TOOLS=ON "-DCMAKE_TOOLCHAIN_FILE=${{env.VCPKG_ROOT}}/scripts/buildsystems/vcpkg.cmake" -DUSE_CRYPTO=${{matrix.crypto}}
+        shell: cmd
+
+      - name: Build (Debug)
+        working-directory: '${{ github.workspace }}/build-debug'
+        run: ninja
         shell: cmd
