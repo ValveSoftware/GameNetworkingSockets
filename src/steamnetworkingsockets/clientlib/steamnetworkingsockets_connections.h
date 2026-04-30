@@ -1078,7 +1078,7 @@ public:
 	CSteamNetworkConnectionPipe *m_pPartner;
 
 	// CSteamNetworkConnectionBase overrides
-	virtual int GetMaxMessageSizeSend() const override { return m_connectionConfig.RecvMaxMessageSize.Get(); } //!KLUDGE! Techcnially, we should use the value from our partner.  Really this convar should just stay a huge value and people should not change it.
+	virtual int GetMaxMessageSizeSend() const override;
 	virtual int64 _APISendMessageToConnection( CSteamNetworkingMessage *pMsg, SteamNetworkingMicroseconds usecNow, bool *pbThinkImmediately ) override;
 	virtual EResult AcceptConnection( SteamNetworkingMicroseconds usecNow ) override;
 	virtual void InitConnectionCrypto( SteamNetworkingMicroseconds usecNow ) override;

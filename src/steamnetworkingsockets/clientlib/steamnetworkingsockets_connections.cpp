@@ -3985,6 +3985,9 @@ failed:
 // All pipe connections share the same lock!
 static ConnectionLock s_sharedPipeLock;
 
+// We allow "infinity" data to be buffered in the pipe or sent in a single message
+constexpr int k_cbPipeHugeSize = 0x10000000;
+
 CSteamNetworkConnectionPipe::CSteamNetworkConnectionPipe( CSteamNetworkingSockets *pSteamNetworkingSocketsInterface, const SteamNetworkingIdentity &identity, ConnectionScopeLock &scopeLock, bool bUseFastPath )
 : CSteamNetworkConnectionBase( pSteamNetworkingSocketsInterface, scopeLock )
 , CConnectionTransport( *static_cast<CSteamNetworkConnectionBase*>( this ) ) // connection and transport object are the same
@@ -4010,15 +4013,15 @@ CSteamNetworkConnectionPipe::CSteamNetworkConnectionPipe( CSteamNetworkingSocket
 	m_connectionConfig.Unencrypted.Set( 3 );
 
 	// Slam in a really large SNP rate so that we are never rate limited
-	int nRate = 0x10000000;
+	int nRate = k_cbPipeHugeSize;
 	m_connectionConfig.SendRateMin.Set( nRate );
 	m_connectionConfig.SendRateMax.Set( nRate );
 
 	// Don't limit the recv buffer.  (Send buffer doesn't
 	// matter since we immediately transfer.)
-	m_connectionConfig.RecvBufferSize.Set( 0x10000000 );
-	m_connectionConfig.RecvBufferMessages.Set( 0x10000000 );
-	m_connectionConfig.RecvMaxMessageSize.Set( 0x10000000 );
+	m_connectionConfig.RecvBufferSize.Set( k_cbPipeHugeSize );
+	m_connectionConfig.RecvBufferMessages.Set( k_cbPipeHugeSize );
+	m_connectionConfig.RecvMaxMessageSize.Set( k_cbPipeHugeSize );
 
 	// Diagnostics usually not useful on these types of connections.
 	// (App can enable it or clear this override if it wants to.)
@@ -4053,6 +4056,23 @@ EUnsignedCert CSteamNetworkConnectionPipe::AllowLocalUnsignedCert()
 {
 	// It's definitely us, and we trust ourselves, right?  Don't even try to get a cert
 	return k_EUnsignedCert_Allow;
+}
+
+int CSteamNetworkConnectionPipe::GetMaxMessageSizeSend() const
+{
+	// If app lowers the max message size on the other side, let's
+	// go ahead and apply their limit here.  This means the pipe
+	// behaves a little bit different from the network-based socket
+	// pair, which doesn't have this "prescience", but that's OK.
+	if ( m_pPartner )
+		return m_pPartner->GetEffectiveRecvMaxMessageSize();
+
+	// Just return a huge number, there is little value
+	// in limiting stuff going through the in-memory pipe,
+	// since we are just swapping pointers around.  If you really
+	// want to test realistic network conditions, use the network
+	// mode.
+	return k_cbPipeHugeSize;
 }
 
 int64 CSteamNetworkConnectionPipe::_APISendMessageToConnection( CSteamNetworkingMessage *pMsg, SteamNetworkingMicroseconds usecNow, bool *pbThinkImmediately )
