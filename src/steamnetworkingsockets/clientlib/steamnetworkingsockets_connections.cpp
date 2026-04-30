@@ -2028,9 +2028,10 @@ EResult CSteamNetworkConnectionBase::APISendMessageToConnection( const void *pDa
 	}
 
 	// Check message size
-	if ( cbData > (unsigned)k_cbMaxSteamNetworkingSocketsMessageSizeSend )
+	const int cbMaxMessageSizeSend = GetMaxMessageSizeSend();
+	if ( cbData > (unsigned)cbMaxMessageSizeSend )
 	{
-		SpewWarning( "Message size %u is too big.  Max is %d", cbData, k_cbMaxSteamNetworkingSocketsMessageSizeSend );
+		SpewWarning( "Message size %u is too big.  Max is %d", cbData, cbMaxMessageSizeSend );
 		return k_EResultInvalidParam;
 	}
 
