@@ -156,7 +156,11 @@ struct ThreadLockDebugInfo
 
 static void (*s_fLockAcquiredCallback)( const char *tags, SteamNetworkingMicroseconds usecWaited );
 static void (*s_fLockHeldCallback)( const char *tags, SteamNetworkingMicroseconds usecWaited );
+#ifdef __SANITIZE_THREAD__
+static SteamNetworkingMicroseconds s_usecLockWaitWarningThreshold = 300*1000;
+#else
 static SteamNetworkingMicroseconds s_usecLockWaitWarningThreshold = 2*1000;
+#endif
 
 /// Get the per-thread debug info
 static ThreadLockDebugInfo &GetThreadDebugInfo()
@@ -2877,7 +2881,7 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 		// perhaps we should ignore this assert?
 		// TSan adds 10-20x overhead so the threshold is scaled up accordingly.
 		#ifdef __SANITIZE_THREAD__
-		constexpr SteamNetworkingMicroseconds k_usecServiceThreadLockWaitWarning = 50*1000*20;
+		constexpr SteamNetworkingMicroseconds k_usecServiceThreadLockWaitWarning = 300*1000;
 		#else
 		constexpr SteamNetworkingMicroseconds k_usecServiceThreadLockWaitWarning = 50*1000;
 		#endif
