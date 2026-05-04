@@ -122,8 +122,13 @@ static Lock<RecursiveTimedMutexImpl> s_mutexGlobalLock( "global", 0, LockDebugIn
 
 #if STEAMNETWORKINGSOCKETS_LOCK_DEBUG_LEVEL > 0
 
-// By default, complain if we hold the lock for more than this long
+// By default, complain if we hold the lock for more than this long.
+// TSan adds 10-20x overhead so the threshold is scaled up accordingly.
+#ifdef __SANITIZE_THREAD__
+constexpr SteamNetworkingMicroseconds k_usecDefaultLongLockHeldWarningThreshold = 5*1000*20;
+#else
 constexpr SteamNetworkingMicroseconds k_usecDefaultLongLockHeldWarningThreshold = 5*1000;
+#endif
 
 // Debug the locks active on the cu
 struct ThreadLockDebugInfo
@@ -2870,7 +2875,13 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 		SteamNetworkingMicroseconds usecElapsedWaitingForLock = SteamNetworkingSockets_GetLocalTimestamp() - usecStartedLocking;
 		// Hm, if another thread indicated that they expected to hold the lock for a while,
 		// perhaps we should ignore this assert?
-		AssertMsg1( usecElapsedWaitingForLock < 50*1000 || Plat_IsInDebugSession(),
+		// TSan adds 10-20x overhead so the threshold is scaled up accordingly.
+		#ifdef __SANITIZE_THREAD__
+		constexpr SteamNetworkingMicroseconds k_usecServiceThreadLockWaitWarning = 50*1000*20;
+		#else
+		constexpr SteamNetworkingMicroseconds k_usecServiceThreadLockWaitWarning = 50*1000;
+		#endif
+		AssertMsg1( usecElapsedWaitingForLock < k_usecServiceThreadLockWaitWarning || Plat_IsInDebugSession(),
 			"SteamnetworkingSockets service thread waited %dms for lock!  This directly adds to network latency!  It could be a bug, but it's usually caused by general performance problem such as thread starvation or a debug output handler taking too long.", int( usecElapsedWaitingForLock/1000 ) );
 	}
 	#endif
