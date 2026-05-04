@@ -156,10 +156,19 @@ struct ThreadLockDebugInfo
 
 static void (*s_fLockAcquiredCallback)( const char *tags, SteamNetworkingMicroseconds usecWaited );
 static void (*s_fLockHeldCallback)( const char *tags, SteamNetworkingMicroseconds usecWaited );
+
+// Threshold for warning about waiting on any lock.
 #ifdef __SANITIZE_THREAD__
 static SteamNetworkingMicroseconds s_usecLockWaitWarningThreshold = 300*1000;
 #else
 static SteamNetworkingMicroseconds s_usecLockWaitWarningThreshold = 2*1000;
+#endif
+
+// Threshold for the service-thread-specific *assert*
+#ifdef __SANITIZE_THREAD__
+static SteamNetworkingMicroseconds s_usecServiceThreadLockWaitWarning = 300*1000;
+#else
+static SteamNetworkingMicroseconds s_usecServiceThreadLockWaitWarning = 50*1000;
 #endif
 
 /// Get the per-thread debug info
@@ -2877,15 +2886,7 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 	#ifdef DBGFLAG_ASSERT
 	{
 		SteamNetworkingMicroseconds usecElapsedWaitingForLock = SteamNetworkingSockets_GetLocalTimestamp() - usecStartedLocking;
-		// Hm, if another thread indicated that they expected to hold the lock for a while,
-		// perhaps we should ignore this assert?
-		// TSan adds 10-20x overhead so the threshold is scaled up accordingly.
-		#ifdef __SANITIZE_THREAD__
-		constexpr SteamNetworkingMicroseconds k_usecServiceThreadLockWaitWarning = 300*1000;
-		#else
-		constexpr SteamNetworkingMicroseconds k_usecServiceThreadLockWaitWarning = 50*1000;
-		#endif
-		AssertMsg1( usecElapsedWaitingForLock < k_usecServiceThreadLockWaitWarning || Plat_IsInDebugSession(),
+		AssertMsg1( usecElapsedWaitingForLock < s_usecServiceThreadLockWaitWarning || Plat_IsInDebugSession(),
 			"SteamnetworkingSockets service thread waited %dms for lock!  This directly adds to network latency!  It could be a bug, but it's usually caused by general performance problem such as thread starvation or a debug output handler taking too long.", int( usecElapsedWaitingForLock/1000 ) );
 	}
 	#endif
@@ -4643,9 +4644,8 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetLockWaitWarningT
 {
 	#if STEAMNETWORKINGSOCKETS_LOCK_DEBUG_LEVEL > 0
 		s_usecLockWaitWarningThreshold = usecTheshold;
-	#else
-		// Should we assert here?
 	#endif
+	s_usecServiceThreadLockWaitWarning = usecTheshold;
 }
 
 STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetLockAcquiredCallback( void (*callback)( const char *tags, SteamNetworkingMicroseconds usecWaited ) )

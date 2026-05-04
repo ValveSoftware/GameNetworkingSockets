@@ -111,6 +111,10 @@ void TEST_Init( const SteamNetworkingIdentity *pIdentity )
 {
 	TEST_InitLog( "log.txt" );
 
+	// Test machines are not always realtime systems and may experience thread starvation.
+	// Set very high lock performance warnings so they don't cause test failures.
+	SteamNetworkingSockets_SetLockWaitWarningThreshold( 500*1000 );
+
 	#ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
 		SteamDatagramErrMsg errMsg;
 		if ( !GameNetworkingSockets_Init( pIdentity, errMsg ) )
