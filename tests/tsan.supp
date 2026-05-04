@@ -1,0 +1,21 @@
+# TSan suppression file for GameNetworkingSockets tests.
+#
+# Lock-order inversion: ConnectionLock -> TableLock in BInitConnection
+#
+# The normal lock order is TableLock first, then ConnectionLock (acquire the
+# table lock to look up a connection by handle, then lock the connection).
+# BInitConnection inverts this: it holds the new connection's ConnectionLock
+# and then acquires the TableLock to register the connection in the table.
+#
+# This is safe because:
+#   1) The SteamNetworkingGlobalLock is held across both paths, so only one
+#      thread can be in either code path at a time -- actual concurrent
+#      deadlock is impossible.
+#   2) The connection being registered is brand new and not yet in the table,
+#      so no thread holding the TableLock could be waiting on this
+#      connection's lock.
+#
+# The reverse direction (TableLock -> ConnectionLock) already uses TryLock
+# with a retry loop in InternalGetConnectionByHandle specifically to handle
+# the rare case where the order is inverted.
+deadlock:SteamNetworkingSocketsLib::CSteamNetworkConnectionBase::BInitConnection
