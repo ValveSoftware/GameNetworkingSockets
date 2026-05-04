@@ -99,9 +99,6 @@
 	#define SELECTANY static
 #endif
 
-#undef DLL_EXPORT
-#undef DLL_IMPORT
-
 #if defined(_WIN32) && !defined(_XBOX)
 #define PLAT_DECL_EXPORT __declspec( dllexport )
 #define PLAT_DECL_IMPORT __declspec( dllimport )
@@ -113,28 +110,6 @@
 #define PLAT_DECL_IMPORT
 #else
 #error "Unsupported Platform."
-#endif
-
-#if defined(_XBOX)
-#define DLL_EXPORT extern
-#define DLL_IMPORT extern
-
-#define DLL_CLASS_EXPORT
-#define DLL_CLASS_IMPORT
-
-#define DLL_GLOBAL_EXPORT
-#define DLL_GLOBAL_IMPORT
-#else
-// Used for dll exporting and importing
-#define DLL_EXPORT extern "C" PLAT_DECL_EXPORT
-#define DLL_IMPORT extern "C" PLAT_DECL_IMPORT
-
-// Can't use extern "C" when DLL exporting a class
-#define DLL_CLASS_EXPORT PLAT_DECL_EXPORT
-#define DLL_CLASS_IMPORT PLAT_DECL_IMPORT
-
-#define DLL_GLOBAL_EXPORT PLAT_DECL_EXPORT
-#define DLL_GLOBAL_IMPORT extern PLAT_DECL_IMPORT
 #endif
 
 #ifdef FASTCALL
