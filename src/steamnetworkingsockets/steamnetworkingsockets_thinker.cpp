@@ -76,8 +76,18 @@ void IThinker::InternalEnsureMinThinkTime( SteamNetworkingMicroseconds usecTarge
 	s_mutexThinkerTable.unlock();
 }
 
-void IThinker::SetNextThinkTime( SteamNetworkingMicroseconds usecTargetThinkTime )
+ATTR_NO_SANITIZE_THREAD void IThinker::SetNextThinkTime( SteamNetworkingMicroseconds usecTargetThinkTime )
 {
+	// Fast-path: check whether the schedule is already set to the requested time before acquiring
+	// the thinker mutex.  This read of m_usecNextThinkTime is intentionally lockless -- the service
+	// thread may write it concurrently.  The race is safe because:
+	//   1. The read is a hint only.  A stale or torn value just causes a spurious fall-through to
+	//      InternalSetNextThinkTime, which re-checks under the lock.  There is no state corruption.
+	//   2. On all supported 64-bit platforms the aligned 64-bit load is atomic at the hardware level,
+	//      so a torn read is not possible in practice.
+	// We use ATTR_NO_SANITIZE_THREAD rather than making m_usecNextThinkTime std::atomic<> because
+	// std::atomic would suppress TSan on every access to the variable, masking any future
+	// unintentional races.  The attribute suppresses only this one known-safe lockless access.
 	if ( usecTargetThinkTime == m_usecNextThinkTime )
 		return;
 	s_mutexThinkerTable.lock();

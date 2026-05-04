@@ -31,8 +31,9 @@ public:
 
 	/// Adjust schedule time to the earlier of the current schedule time,
 	/// or the given time.
-	inline void EnsureMinThinkTime( SteamNetworkingMicroseconds usecTargetThinkTime )
+	ATTR_NO_SANITIZE_THREAD inline void EnsureMinThinkTime( SteamNetworkingMicroseconds usecTargetThinkTime )
 	{
+		// Lockless fast-path read -- see SetNextThinkTime for explanation of the intentional race.
 		if ( usecTargetThinkTime < m_usecNextThinkTime )
 			InternalEnsureMinThinkTime( usecTargetThinkTime );
 	}

@@ -156,6 +156,17 @@
     #endif
 #endif
 
+// Suppress ThreadSanitizer instrumentation for a function.
+// Use this for functions that intentionally access shared data without holding a lock,
+// where the access is known to be safe (e.g. a lockless hint-read with a locked slow path).
+// Prefer this over making the variable std::atomic<>, which would suppress TSan on ALL
+// accesses to the variable and could mask unintentional races elsewhere.
+#ifdef __SANITIZE_THREAD__
+	#define ATTR_NO_SANITIZE_THREAD __attribute__(( no_sanitize_thread ))
+#else
+	#define ATTR_NO_SANITIZE_THREAD
+#endif
+
 // We have some template functions declared in header files that
 // only need static scope. Older MSVC version lets you use 'static' qualifiers
 // but GCC and new MSVC does not, where we need to use 'inline' to avoid multiple definitions.
