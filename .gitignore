@@ -28,6 +28,11 @@ perf.data.old
 # Default/recommended install directory for vcpkg
 **/vcpkg
 
+# AI assistant files
+.claude/
+CLAUDE.md
+AGENTS.md
+
 # Other misc stuff
 *.VC.*
 **/.vscode
