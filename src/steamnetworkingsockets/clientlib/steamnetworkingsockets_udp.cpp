@@ -581,7 +581,7 @@ int CConnectionTransportUDPBase::SendEncryptedDataChunk( const void *pChunk, int
 			if ( usecTimeSinceSentLast <= (uint64)k_usecTimeSinceLastPacketMaxReasonable ) // Force unsigned comparison in case assert above fails
 			{
 				// Serialize it
-				out.PutUint16( LittleWord( usecTimeSinceSentLast >> k_usecTimeSinceLastPacketSerializedPrecisionShift ) );
+				out.PutUint16( LittleWord( (uint16)( usecTimeSinceSentLast >> k_usecTimeSinceLastPacketSerializedPrecisionShift ) ) );
 				out.hdr.m_unMsgFlags |= out.hdr.kFlag_TimeSincePrev;
 			}
 		}
