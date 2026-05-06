@@ -526,8 +526,24 @@ struct Lock : LockDebugInfo
 	inline bool try_lock_for( int msTimeout, const char *pszTag = nullptr )
 	{
 		LockDebugInfo::AboutToLock( true );
-		if ( !m_impl.try_lock_for( std::chrono::milliseconds( msTimeout ) ) )
-			return false;
+		#ifdef __SANITIZE_THREAD__
+			// TSan does not intercept pthread_mutex_timedlock, so try_lock_for() leaves
+			// the lock untracked from TSan's perspective, causing false "unlock by wrong
+			// thread" reports later.  Use try_lock() in a loop instead: pthread_mutex_trylock
+			// IS intercepted, so TSan correctly tracks ownership.
+			auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds( msTimeout );
+			for (;;)
+			{
+				if ( m_impl.try_lock() )
+					break;
+				if ( std::chrono::steady_clock::now() >= deadline )
+					return false;
+				std::this_thread::sleep_for( std::chrono::milliseconds( 1 ) );
+			}
+		#else
+			if ( !m_impl.try_lock_for( std::chrono::milliseconds( msTimeout ) ) )
+				return false;
+		#endif
 		LockDebugInfo::OnLocked( pszTag );
 		return true;
 	}
