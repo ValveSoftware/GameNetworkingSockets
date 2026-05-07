@@ -73,3 +73,9 @@ Building on consoles has only been tested using Visual Studio 2017 or 2019.
 6. Open the solution and build in Visual Studio.
 
 7. You can enable/disable several features with `STEAMNETWORKINGSOCKETS_xxx` AND `SDR_xxx` defines.  For example, if you don't need to run servers in our dedicated servers, you turn off `SDR_ENABLE_HOSTED_SERVER` and `SDR_ENABLE_HOSTED_CLIENT`.  If you just want to compile the library for a console but don't wnat to talk to relays, turn off `STEAMNETWORKINGSOCKETS_ENABLE_SDR`
+
+# Reading the git history
+
+Use `git log --first-parent` to read this branch's history clearly. Without it, you
+will see most commits twice — once from the partner branch and once pulled in from
+master via merge commits — which is very confusing.
