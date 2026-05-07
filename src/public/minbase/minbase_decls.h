@@ -161,8 +161,14 @@
 // where the access is known to be safe (e.g. a lockless hint-read with a locked slow path).
 // Prefer this over making the variable std::atomic<>, which would suppress TSan on ALL
 // accesses to the variable and could mask unintentional races elsewhere.
-#ifdef __SANITIZE_THREAD__
-	#define ATTR_NO_SANITIZE_THREAD __attribute__(( no_sanitize_thread ))
+// We also add noinline, to make sure the function is not inlined into a caller that is
+// instrumented by TSan, which would cause the instrumentation to be applied to the function
+// anyway.
+#if !defined( __SANITIZE_THREAD__ ) && defined(__has_feature) && __has_feature(thread_sanitizer)
+	#define __SANITIZE_THREAD__ 1
+#endif
+#if __SANITIZE_THREAD__
+	#define ATTR_NO_SANITIZE_THREAD __attribute__(( no_sanitize("thread") ))
 #else
 	#define ATTR_NO_SANITIZE_THREAD
 #endif
