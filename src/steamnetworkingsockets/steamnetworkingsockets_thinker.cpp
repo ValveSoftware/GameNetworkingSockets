@@ -95,6 +95,13 @@ ATTR_NO_SANITIZE_THREAD void IThinker::SetNextThinkTime( SteamNetworkingMicrosec
 	s_mutexThinkerTable.unlock();
 }
 
+ATTR_NO_SANITIZE_THREAD void IThinker::EnsureMinThinkTime( SteamNetworkingMicroseconds usecTargetThinkTime )
+{
+	// Lockless fast-path read -- see SetNextThinkTime for explanation of the intentional race.
+	if ( usecTargetThinkTime < m_usecNextThinkTime )
+		InternalEnsureMinThinkTime( usecTargetThinkTime );
+}
+
 void IThinker::InternalSetNextThinkTime( SteamNetworkingMicroseconds usecTargetThinkTime )
 {
 
