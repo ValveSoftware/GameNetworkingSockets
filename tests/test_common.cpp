@@ -49,10 +49,10 @@ static void DebugOutput( ESteamNetworkingSocketsDebugOutputType eType, const cha
 			fflush( g_fpLog );
 
 		// !KLUDGE! Our logging (which is done while we hold the lock)
-		// is occasionally triggering this assert.  Just ignroe that one
+		// is occasionally triggering this assert.  Just ignore that one
 		// error for now.
 		// Yes, this is a kludge.
-		if ( strstr( pszMsg, "SteamNetworkingGlobalLock held for" ) )
+		if ( strstr( pszMsg, "lock held for" ) || strstr( pszMsg, "waited" ) && strstr( pszMsg, "for lock" ) )
 			return;
 
 		fprintf( stderr, "\n\n"
@@ -113,7 +113,11 @@ void TEST_Init( const SteamNetworkingIdentity *pIdentity )
 
 	// Test machines are not always realtime systems and may experience thread starvation.
 	// Set very high lock performance warnings so they don't cause test failures.
-	SteamNetworkingSockets_SetLockWaitWarningThreshold( 500*1000 );
+	#if __THREAD_SANITIZER__
+		SteamNetworkingSockets_SetLockWaitWarningThreshold( 2000*1000);
+	#else
+		SteamNetworkingSockets_SetLockWaitWarningThreshold( 300*1000 );
+	#endif
 
 	#ifdef STEAMNETWORKINGSOCKETS_OPENSOURCE
 		SteamDatagramErrMsg errMsg;
