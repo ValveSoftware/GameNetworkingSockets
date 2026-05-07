@@ -164,8 +164,10 @@
 // We also add noinline, to make sure the function is not inlined into a caller that is
 // instrumented by TSan, which would cause the instrumentation to be applied to the function
 // anyway.
-#if !defined( __SANITIZE_THREAD__ ) && defined(__has_feature) && __has_feature(thread_sanitizer)
-	#define __SANITIZE_THREAD__ 1
+#if !defined( __SANITIZE_THREAD__ ) && defined(__has_feature)
+	#if __has_feature(thread_sanitizer)
+		#define __SANITIZE_THREAD__ 1
+	#endif
 #endif
 #if __SANITIZE_THREAD__
 	#define ATTR_NO_SANITIZE_THREAD __attribute__(( no_sanitize("thread") ))
