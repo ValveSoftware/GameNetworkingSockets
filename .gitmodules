@@ -8,6 +8,9 @@
 [submodule "src/external/picojson"]
 	path = src/external/picojson
 	url = https://github.com/kazuho/picojson.git
+[submodule "src/external/vjson"]
+	path = src/external/vjson
+	url = https://github.com/zpostfacto/vjson.git
 [submodule "modules/partner"]
 	path = modules/partner
 	url = ../SteamNetworkingSockets_partner.git
