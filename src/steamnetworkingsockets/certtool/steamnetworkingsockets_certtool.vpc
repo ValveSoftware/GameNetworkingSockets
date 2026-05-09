@@ -35,7 +35,7 @@ $Configuration
 	{
 		$PreprocessorDefinitions			"$BASE;STEAMDATAGRAM_TICKET_STATIC_LINK;STEAMNETWORKINGSOCKETS_STATIC_LINK"
 		$PreprocessorDefinitions			"$BASE;STEAMNETWORKINGSOCKETS_ENABLE_SDR" [$STEAMNETWORKINGSOCKETS_ENABLE_SDR]
-		$AdditionalIncludeDirectories       "$BASE;$SRCDIR/external/picojson"
+		$AdditionalIncludeDirectories       "$BASE;$SRCDIR/external/vjson"
 
 		// Always compile in asserts, even in release builds
 		$PreprocessorDefinitions	"$BASE;RELEASE_ASSERTS;RETAIL_ASSERTS"
@@ -66,6 +66,7 @@ $Project "steamnetworkingsockets_certtool"
 		$File	"../steamnetworkingsockets_shared.cpp"
 		$File	"../sdr/steamdatagram_tickets.cpp"
 		$File	"$SRCDIR/common/steamid.cpp"
+		$File_NoPCH	"$SRCDIR/external/vjson/vjson.cpp"
 	}
 
 	$Folder	"Header Files"

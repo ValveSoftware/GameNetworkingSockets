@@ -24,7 +24,7 @@
 	#include <steamdatagram_gamecoordinator.h>
 #endif
 
-#include <picojson.h>
+#include <vjson.h>
 
 // Really?
 #ifdef _WIN32
@@ -101,7 +101,7 @@ int s_nExpiryDays = k_nDefaultExpiryDays;
 bool s_bOutputJSON;
 bool s_bOutputValveSrcds;
 bool s_bOutputTrimWhitespace;
-picojson::object s_jsonOutput;
+vjson::Object s_jsonOutput;
 
 #ifdef CERTTOOL_ENABLE_SDR
 	SteamDatagramRelayAuthTicket s_hostedServerTicketProperties;
@@ -263,8 +263,8 @@ static void AddPublicKeyInfoToJSON()
 	std::string sKeyID = PublicKeyIDAsString();
 	std::string sComment = "ID"+sKeyID;
 
-	s_jsonOutput[ "public_key_id" ] = picojson::value( PublicKeyIDAsString() );
-	s_jsonOutput[ "public_key" ] = picojson::value( PublicKeyAsAuthorizedKeys() );
+	s_jsonOutput[ "public_key_id" ] = PublicKeyIDAsString();
+	s_jsonOutput[ "public_key" ] = PublicKeyAsAuthorizedKeys();
 }
 
 void GenKeyPair()
@@ -319,7 +319,7 @@ void GenKeyPair()
 	else
 		Printf( "%s\n", text );
 
-	s_jsonOutput[ "private_key" ] = picojson::value( text );
+	s_jsonOutput[ "private_key" ] = text;
 
 	// Round trip sanity check
 	{
@@ -332,7 +332,7 @@ void GenKeyPair()
 static const char k_szSDRCertPEMHeader[] = "-----BEGIN STEAMDATAGRAM CERT-----";
 static const char k_szSDRCertPEMFooter[] = "-----END STEAMDATAGRAM CERT-----";
 
-void PrintCertInfo( const CMsgSteamDatagramCertificateSigned &msgSigned, picojson::object &outJSON )
+void PrintCertInfo( const CMsgSteamDatagramCertificateSigned &msgSigned, vjson::Object &outJSON )
 {
 	char szTemp[ 256 ];
 
@@ -356,7 +356,7 @@ void PrintCertInfo( const CMsgSteamDatagramCertificateSigned &msgSigned, picojso
 
 	std::string sPOPIDs;
 	{
-		picojson::array pop_ids;
+		vjson::Array pop_ids;
 		for ( SteamNetworkingPOPID id: msgCert.gameserver_datacenter_ids() )
 		{
 			GetSteamNetworkingLocationPOPStringFromID( id, szTemp );
@@ -364,17 +364,17 @@ void PrintCertInfo( const CMsgSteamDatagramCertificateSigned &msgSigned, picojso
 			if ( !sPOPIDs.empty() )
 				sPOPIDs += ' ';
 			sPOPIDs += szTemp;
-			pop_ids.push_back( picojson::value( szTemp ) );
+			pop_ids.push_back( szTemp );
 		}
 		if ( !pop_ids.empty() )
 		{
-			outJSON[ "pop_ids" ] = picojson::value( pop_ids );
+			outJSON[ "pop_ids" ] = pop_ids;
 		}
 	}
 
 	std::string sAppIDs;
 	{
-		picojson::array app_ids;
+		vjson::Array app_ids;
 		for ( AppId_t id: msgCert.app_ids() )
 		{
 			V_sprintf_safe( szTemp, "%u", id );
@@ -382,21 +382,21 @@ void PrintCertInfo( const CMsgSteamDatagramCertificateSigned &msgSigned, picojso
 			if ( !sAppIDs.empty() )
 				sAppIDs += ' ';
 			sAppIDs += szTemp;
-			app_ids.push_back( picojson::value( (double)id ) );
+			app_ids.push_back( (double)id );
 		}
 		if ( !app_ids.empty() )
 		{
-			outJSON[ "app_ids" ] = picojson::value( app_ids );
+			outJSON[ "app_ids" ] = app_ids;
 		}
 	}
 
 	uint64 key_id = CalculatePublicKeyID( pubKey );
 
-	outJSON[ "time_created" ] = picojson::value( (double)timeCreated );
-	outJSON[ "time_created_string" ] = picojson::value( szTimeCreated );
-	outJSON[ "time_expiry" ] = picojson::value( (double)timeExpiry );
-	outJSON[ "time_expiry_string" ] = picojson::value( szTimeExpiry );
-	outJSON[ "ca_key_id" ] = picojson::value( KeyIDAsString( msgSigned.ca_key_id() ) );
+	outJSON[ "time_created" ] = (double)timeCreated;
+	outJSON[ "time_created_string" ] = szTimeCreated;
+	outJSON[ "time_expiry" ] = (double)timeExpiry;
+	outJSON[ "time_expiry_string" ] = szTimeExpiry;
+	outJSON[ "ca_key_id" ] = KeyIDAsString( msgSigned.ca_key_id() );
 
 	Printf( "#Public key . . . : %s ID%s\n", PublicKeyAsAuthorizedKeys( pubKey ).c_str(), KeyIDAsString( key_id ).c_str() );
 	Printf( "#Created. . . . . : %s (%llu)\n", szTimeCreated, (unsigned long long)timeCreated );
@@ -458,7 +458,7 @@ void CreateCert()
 		Printf( "%s", pem.c_str() );
 
 	std::string pem_json = Base64EncodeProtobuf( msgSigned, "" );
-	s_jsonOutput[ "cert" ] = picojson::value( pem_json );
+	s_jsonOutput[ "cert" ] = pem_json;
 
 	PrintCertInfo( msgSigned, s_jsonOutput );
 }
@@ -478,7 +478,7 @@ void PrintDHKey( const TCryptoKey &key, const char *pszPlainTextHeader, const ch
 	DbgVerify( CCrypto::HexEncode( bufTemp.Base(), cbRaw, pszHex, cbText ) );
 
 	Printf( "%s: %s\n", pszPlainTextHeader, pszHex );
-	s_jsonOutput[ pszJSON ] = picojson::value( pszHex );
+	s_jsonOutput[ pszJSON ] = pszHex;
 
 	// !TEST! Round-trip to make sure we are working
 	TCryptoKey keyCheck;
@@ -541,7 +541,7 @@ void CreateHostedServerTicket()
 
 	std::string ticket_base64 = Base64EncodeProtobuf( msgSignedTicket, "" );
 	Printf( "SDR_DEVTICKET=%s\n", ticket_base64.c_str() );
-	s_jsonOutput[ "ticket" ] = picojson::value( ticket_base64 );
+	s_jsonOutput[ "ticket" ] = ticket_base64;
 }
 
 #endif
@@ -774,7 +774,7 @@ int main( int argc, char **argv )
 
 	if ( s_bOutputJSON )
 	{
-		puts( picojson::value( s_jsonOutput ).serialize( true ).c_str() );
+		puts( s_jsonOutput.PrintJSON().c_str() );
 	}
 
 	return 0;
