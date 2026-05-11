@@ -12,6 +12,7 @@
 #include <steam/steamnetworkingsockets.h>
 #include <steam/isteamnetworkingutils.h>
 #include "../examples/trivial_signaling_client.h"
+#include "../src/steamnetworkingsockets/clientlib/steamnetworkingsockets_mock.h"
 
 HSteamListenSocket g_hListenSock;
 HSteamNetConnection g_hConnection;

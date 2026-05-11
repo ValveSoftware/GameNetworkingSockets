@@ -387,9 +387,6 @@ if (BUILD_TESTS AND BUILD_STATIC_LIB AND ENABLE_ICE)
 	target_compile_definitions(GameNetworkingSockets_test_s INTERFACE STEAMNETWORKINGSOCKETS_STATIC_LINK)
 	set_clientlib_target_properties(GameNetworkingSockets_test_s)
 	target_compile_definitions(GameNetworkingSockets_test_s PUBLIC STEAMNETWORKINGSOCKETS_ENABLE_MOCK)
-	target_sources(GameNetworkingSockets_test_s PRIVATE
-		"steamnetworkingsockets/clientlib/steamnetworkingsockets_mock.cpp"
-	)
 endif()
 
 #
