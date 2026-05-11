@@ -378,6 +378,20 @@ if (BUILD_STATIC_LIB)
 	set_clientlib_target_properties(GameNetworkingSockets_s)
 endif()
 
+# Test-only static library variant — includes the mock network framework.
+# Never shipped; only built when tests are enabled. test_p2p links against
+# this instead of the regular static library.
+if (BUILD_TESTS AND BUILD_STATIC_LIB AND ENABLE_ICE)
+	add_library(GameNetworkingSockets_test_s STATIC "")
+	add_library(GameNetworkingSockets::static_mock ALIAS GameNetworkingSockets_test_s)
+	target_compile_definitions(GameNetworkingSockets_test_s INTERFACE STEAMNETWORKINGSOCKETS_STATIC_LINK)
+	set_clientlib_target_properties(GameNetworkingSockets_test_s)
+	target_compile_definitions(GameNetworkingSockets_test_s PUBLIC STEAMNETWORKINGSOCKETS_ENABLE_MOCK)
+	target_sources(GameNetworkingSockets_test_s PRIVATE
+		"steamnetworkingsockets/clientlib/steamnetworkingsockets_mock.cpp"
+	)
+endif()
+
 #
 # Cert tool
 #

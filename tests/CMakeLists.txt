@@ -38,7 +38,7 @@ if(ENABLE_ICE)
 		test_p2p.cpp
 		../examples/trivial_signaling_client.cpp)
 	set_target_common_gns_properties( test_p2p )
-	target_link_libraries(test_p2p ${GAMENETWORKINGSOCKETS_LIB})
+	target_link_libraries(test_p2p GameNetworkingSockets::static_mock)
 	add_sanitizers(test_p2p)
 
 	# Publish the test script
