@@ -13,6 +13,7 @@
 #include <atomic>
 
 #include "steamnetworkingsockets_lowlevel.h"
+#include "steamnetworkingsockets_mock.h"
 #include <tier0/platform_sockets.h>
 #include "../steamnetworkingsockets_internal.h"
 #include "../steamnetworkingsockets_thinker.h"
@@ -106,6 +107,14 @@ static volatile bool s_bManualPollMode;
 // False negatives: We can't always tell if a route is local.
 bool IsRouteToAddressProbablyLocal( netadr_t addr )
 {
+
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_MOCK
+		// In mock mode 127.0.100.x is the simulated public internet, not a local route,
+		// even though it falls in the reserved 127.x.x.x range.
+		if ( TEST_mocknetwork_active && addr.GetType() == k_EIPTypeV4
+			&& ( addr.GetIPv4() & 0xFF00 ) == ( 100 << 8 ) )
+			return false;
+	#endif
 
 	// Assume that if we are able to send to any "reserved" route, that is is local.
 	// Note that this will be true for VPNs, too!
@@ -1699,8 +1708,356 @@ static CRawUDPSocketImpl *OpenRawUDPSocketInternal( CRecvPacketCallback callback
 	return pSock;
 }
 
+#if STEAMNETWORKINGSOCKETS_ENABLE_MOCK
+
+#include <algorithm>
+#include <memory>
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Mock network
+//
+/////////////////////////////////////////////////////////////////////////////
+
+// Config supplied by TEST_mocknetwork_init(); valid when TEST_mocknetwork_active == true
+static TEST_mocknetwork_config_t s_mockNetworkConfig;
+
+// Third octet identifies the network in 127.0.X.Y addressing.
+// Third octet = 100 means public/gateway network (127.0.100.x)
+const uint32 k_nMockPublicIPv4Net = (100 << 8);
+
+// Custom implementation of IRawUDPSocket that applies the appropriate routing
+// rules from the mocked network environment
+class CUDPSocketMock : public IRawUDPSocket
+{
+public:
+
+	bool BindLocal( CRecvPacketCallback userCallback, SteamNetworkingErrMsg &errMsg, const SteamNetworkingIPAddr &addrLocal )
+	{
+		Assert( !m_pSockLocal );
+		m_userCallback = userCallback;
+		m_pSockLocal = OpenRawUDPSocketInternal( { StaticRecvInternalPacketThunk, this }, errMsg, &addrLocal, nullptr );
+		if ( !m_pSockLocal )
+			return false;
+		m_boundAddr = m_pSockLocal->m_boundAddr;
+		return true;
+	}
+
+	virtual void SetCallbackRecvPacket( CRecvPacketCallback callback ) override
+	{
+		m_userCallback = callback;
+	}
+
+	// Implements IRawUDPSocket
+	virtual bool BSendRawPacketGather( int nChunks, const iovec *pChunks, const netadr_t &adrTo, int ecn = -1 ) const override final
+	{
+		if ( !m_pSockLocal )
+			return false;
+
+		DbgAssert( m_boundAddr == m_pSockLocal->m_boundAddr );
+
+		if ( adrTo.GetType() == k_EIPTypeV4 )
+		{
+			if ( !m_boundAddr.IsIPv4() )
+			{
+				// Can't send to IPv4 address if we don't have an IPv4 socket
+				return false;
+			}
+			Assert( m_pSockLocal->m_nAddressFamilies & k_nAddressFamily_IPv4 );
+
+			const uint32 net_remote = adrTo.GetIPv4() & 0xFF00;
+
+			// Check if this is a 'public IP'; if so, route via NAT
+			if ( net_remote == k_nMockPublicIPv4Net )
+				return const_cast<CUDPSocketMock *>(this)->BCreateNATAndSend( nChunks, pChunks, adrTo, ecn );
+
+			const uint32 net_local = m_boundAddr.GetIPv4() & 0xFF00;
+
+			if ( net_local == net_remote )
+			{
+				// Same 'LAN', send directly
+				return m_pSockLocal->BSendRawPacketGather( nChunks, pChunks, adrTo, ecn );
+			}
+		}
+
+		// No route
+		return false;
+	}
+
+	virtual void Close() override
+	{
+		if ( m_pSockLocal )
+		{
+			m_pSockLocal->Close();
+			m_pSockLocal = nullptr;
+		}
+	}
+
+protected:
+
+	// The internal (LAN-side) socket
+	CRawUDPSocketImpl *m_pSockLocal = nullptr;
+
+	// The user-provided callback, kept separately so we can wrap it
+	CRecvPacketCallback m_userCallback;
+
+	// Derived classes override this to apply NAT rules
+	virtual bool BCreateNATAndSend( int nChunks, const iovec *pChunks, const netadr_t &adrTo, int ecn ) = 0;
+
+	// Forward a packet received on an external (public) port to the user callback.
+	// Fixes up info.m_pSock to point to this mock socket so replies route correctly.
+	void DispatchExternalPacket( const RecvPktInfo_t &info )
+	{
+		if ( !m_userCallback.m_fnCallback )
+			return;
+		RecvPktInfo_t fixedInfo = info;
+		fixedInfo.m_pSock = this;
+		m_userCallback( fixedInfo );
+	}
+
+	// Allocate a port on the public gateway IP for a NAT entry
+	static CRawUDPSocketImpl *CreateExternalSock( CRecvPacketCallback callback )
+	{
+		Assert( s_mockNetworkConfig.m_ipv4_gateway.IsIPv4() );
+		Assert( s_mockNetworkConfig.m_ipv4_gateway.m_port == 0 );
+		SteamNetworkingIPAddr addrLocal = s_mockNetworkConfig.m_ipv4_gateway;
+		SteamNetworkingErrMsg errMsg;
+		CRawUDPSocketImpl *pSock = OpenRawUDPSocketInternal( callback, errMsg, &addrLocal, nullptr );
+		if ( !pSock )
+			SpewError( "Failed to create external socket for NAT.  %s\n", errMsg );
+		return pSock;
+	}
+
+private:
+	static void StaticRecvInternalPacketThunk( const RecvPktInfo_t &info, CUDPSocketMock *pSelf )
+	{
+		// Fix up m_pSock to point to this mock socket, not the internal one, so replies route correctly
+		RecvPktInfo_t fixedInfo = info;
+		fixedInfo.m_pSock = pSelf;
+		pSelf->m_userCallback( fixedInfo );
+	}
+};
+
+// No NAT -- local IP is already on the public network
+class CUDPSocketMock_None final : public CUDPSocketMock
+{
+public:
+	virtual bool BCreateNATAndSend( int nChunks, const iovec *pChunks, const netadr_t &adrTo, int ecn ) override
+	{
+		// No NAT, send directly
+		return m_pSockLocal->BSendRawPacketGather( nChunks, pChunks, adrTo, ecn );
+	}
+};
+
+// FullCone, RestrictedCone, and PortRestrictedCone all map one internal port to one external
+// port.  They differ only in which inbound packets are allowed.
+class CUDPSocketMock_OnePublicPort final : public CUDPSocketMock
+{
+public:
+	const TEST_mocknetwork_nat_type m_eNATType;
+
+	CUDPSocketMock_OnePublicPort( TEST_mocknetwork_nat_type eNATType ) : m_eNATType( eNATType )
+	{
+		Assert( m_eNATType == TEST_mocknetwork_nat_type::FullCone
+			|| m_eNATType == TEST_mocknetwork_nat_type::RestrictedCone
+			|| m_eNATType == TEST_mocknetwork_nat_type::PortRestrictedCone );
+	}
+
+	virtual void Close() override
+	{
+		if ( m_pSockExternal )
+		{
+			m_pSockExternal->Close();
+			m_pSockExternal = nullptr;
+		}
+		CUDPSocketMock::Close();
+	}
+
+private:
+
+	CRawUDPSocketImpl *m_pSockExternal = nullptr;
+	std::vector<netadr_t> m_vecAdrsSentTo;
+
+	static void StaticRecvPacketThunk( const RecvPktInfo_t &info, CUDPSocketMock_OnePublicPort *self )
+	{
+		self->RecvPacketExternal( info );
+	}
+
+	virtual bool BCreateNATAndSend( int nChunks, const iovec *pChunks, const netadr_t &adrTo, int ecn ) override
+	{
+		// Create the external socket on first send
+		if ( !m_pSockExternal )
+		{
+			m_pSockExternal = CreateExternalSock( { StaticRecvPacketThunk, this } );
+			if ( !m_pSockExternal )
+				return false;
+
+			SpewVerbose( "[MOCK NAT] Created  [internal %s] <-> [public %s] <-> (any)\n",
+				SteamNetworkingIPAddrRender( m_pSockLocal->m_boundAddr ).c_str(),
+				SteamNetworkingIPAddrRender( m_pSockExternal->m_boundAddr ).c_str() );
+		}
+
+		// Track destinations for restricted NAT types
+		if ( m_eNATType != TEST_mocknetwork_nat_type::FullCone )
+		{
+			netadr_t adrRecordSent = adrTo;
+			if ( m_eNATType == TEST_mocknetwork_nat_type::RestrictedCone )
+				adrRecordSent.SetPort(0);
+			if ( std::find( m_vecAdrsSentTo.begin(), m_vecAdrsSentTo.end(), adrRecordSent ) == m_vecAdrsSentTo.end() )
+				m_vecAdrsSentTo.push_back( adrRecordSent );
+		}
+
+		return m_pSockExternal->BSendRawPacketGather( nChunks, pChunks, adrTo, ecn );
+	}
+
+	void RecvPacketExternal( const RecvPktInfo_t &info )
+	{
+		// For restricted NAT types, drop packets from addresses we haven't sent to
+		if ( m_eNATType != TEST_mocknetwork_nat_type::FullCone )
+		{
+			netadr_t adrCheck = info.m_adrFrom;
+			if ( m_eNATType == TEST_mocknetwork_nat_type::RestrictedCone )
+				adrCheck.SetPort(0);
+			if ( std::find( m_vecAdrsSentTo.begin(), m_vecAdrsSentTo.end(), adrCheck ) == m_vecAdrsSentTo.end() )
+			{
+				SpewVerbose( "[MOCK NAT] Dropped  [public %s] <- [remote %s]\n",
+					SteamNetworkingIPAddrRender( m_pSockExternal->m_boundAddr ).c_str(),
+					CUtlNetAdrRender( info.m_adrFrom ).String() );
+				return;
+			}
+		}
+
+		DispatchExternalPacket( info );
+	}
+};
+
+// Symmetric NAT: every unique remote destination gets a separate external port
+class CUDPSocketMock_Symmetric final : public CUDPSocketMock
+{
+	virtual void Close() override
+	{
+		m_vecNATEntries.clear();  // NATEntry_t destructor closes external sockets
+		CUDPSocketMock::Close();
+	}
+
+private:
+
+	struct NATEntry_t
+	{
+		CUDPSocketMock_Symmetric *m_pOwner = nullptr;
+		netadr_t m_adrRemote;
+		CRawUDPSocketImpl *m_pSockExternal = nullptr;
+		~NATEntry_t()
+		{
+			if ( m_pSockExternal )
+			{
+				m_pSockExternal->Close();
+				m_pSockExternal = nullptr;
+			}
+		}
+	};
+	std::vector<std::unique_ptr<NATEntry_t>> m_vecNATEntries;
+
+	static void StaticRecvPacketThunk( const RecvPktInfo_t &info, NATEntry_t *pEntry )
+	{
+		if ( pEntry->m_adrRemote != info.m_adrFrom )
+		{
+			SpewVerbose( "[MOCK NAT] Dropped  [public %s] <- [remote %s] (expected %s)\n",
+				SteamNetworkingIPAddrRender( pEntry->m_pSockExternal->m_boundAddr ).c_str(),
+				CUtlNetAdrRender( info.m_adrFrom ).String(),
+				CUtlNetAdrRender( pEntry->m_adrRemote ).String() );
+			return;
+		}
+		pEntry->m_pOwner->DispatchExternalPacket( info );
+	}
+
+	virtual bool BCreateNATAndSend( int nChunks, const iovec *pChunks, const netadr_t &adrTo, int ecn ) override
+	{
+		// Find existing NAT entry for this remote address
+		NATEntry_t *pNatEntry = nullptr;
+		for ( const auto &pEntry : m_vecNATEntries )
+		{
+			if ( pEntry->m_adrRemote == adrTo )
+			{
+				pNatEntry = pEntry.get();
+				break;
+			}
+		}
+
+		if ( !pNatEntry )
+		{
+			auto pNewEntry = std::make_unique<NATEntry_t>();
+			pNewEntry->m_pOwner = this;
+			pNewEntry->m_adrRemote = adrTo;
+
+			pNewEntry->m_pSockExternal = CreateExternalSock( { StaticRecvPacketThunk, pNewEntry.get() } );
+			if ( !pNewEntry->m_pSockExternal )
+				return false;
+
+			SpewVerbose( "[MOCK NAT] Created  [internal %s] <-> [public %s] <-> [remote %s]\n",
+				SteamNetworkingIPAddrRender( m_pSockLocal->m_boundAddr ).c_str(),
+				SteamNetworkingIPAddrRender( pNewEntry->m_pSockExternal->m_boundAddr ).c_str(),
+				CUtlNetAdrRender( adrTo ).String() );
+
+			pNatEntry = pNewEntry.get();
+			m_vecNATEntries.push_back( std::move( pNewEntry ) );
+		}
+
+		return pNatEntry->m_pSockExternal->BSendRawPacketGather( nChunks, pChunks, adrTo, ecn );
+	}
+};
+
+#endif // STEAMNETWORKINGSOCKETS_ENABLE_MOCK
+
+
 IRawUDPSocket *OpenRawUDPSocket( CRecvPacketCallback callback, SteamNetworkingErrMsg &errMsg, SteamNetworkingIPAddr *pAddrLocal, int *pnAddressFamilies )
 {
+	#if STEAMNETWORKINGSOCKETS_ENABLE_MOCK
+	if ( TEST_mocknetwork_active )
+	{
+		// Determine the local address to bind to
+		SteamNetworkingIPAddr addrLocal;
+		if ( pAddrLocal && pAddrLocal->IsIPv4() && pAddrLocal->GetIPv4() != 0 )
+			addrLocal = *pAddrLocal;
+		else
+		{
+			Assert( !s_mockNetworkConfig.m_vecInterfaces.empty() );
+			addrLocal = s_mockNetworkConfig.m_vecInterfaces[0].m_ip;
+		}
+
+		// Create the appropriate mock socket type based on NAT config
+		CUDPSocketMock *pMock;
+		switch ( s_mockNetworkConfig.m_natType )
+		{
+			default:
+			case TEST_mocknetwork_nat_type::None:
+				pMock = new CUDPSocketMock_None();
+				break;
+			case TEST_mocknetwork_nat_type::FullCone:
+			case TEST_mocknetwork_nat_type::RestrictedCone:
+			case TEST_mocknetwork_nat_type::PortRestrictedCone:
+				pMock = new CUDPSocketMock_OnePublicPort( s_mockNetworkConfig.m_natType );
+				break;
+			case TEST_mocknetwork_nat_type::Symmetric:
+				pMock = new CUDPSocketMock_Symmetric();
+				break;
+		}
+
+		if ( !pMock->BindLocal( callback, errMsg, addrLocal ) )
+		{
+			delete pMock;
+			return nullptr;
+		}
+
+		if ( pAddrLocal )
+			*pAddrLocal = pMock->m_boundAddr;
+		if ( pnAddressFamilies )
+			*pnAddressFamilies = k_nAddressFamily_IPv4;
+
+		return pMock;
+	}
+	#endif
+
 	return OpenRawUDPSocketInternal( callback, errMsg, pAddrLocal, pnAddressFamilies );
 }
 
@@ -3474,12 +3831,20 @@ inline bool GetLocalAddresses_IsReserved( const SteamNetworkingIPAddr &ipAddr )
 	return false;
 }
 
-#if IsWindows()
-
-#pragma comment( lib, "iphlpapi.lib" )
-
 bool GetLocalAddresses( CUtlVector< SteamNetworkingIPAddr >* pAddrs )
 {
+
+	#if STEAMNETWORKINGSOCKETS_ENABLE_MOCK
+	if ( TEST_mocknetwork_active )
+	{
+		for ( const TEST_mocknetwork_interface_t &iface : s_mockNetworkConfig.m_vecInterfaces )
+			pAddrs->AddToTail( iface.m_ip );
+		return true;
+	}
+	#endif
+
+#if IsWindows()
+	#pragma comment( lib, "iphlpapi.lib" )
 	if ( pAddrs == nullptr )
 		return false;
 
@@ -3552,10 +3917,9 @@ bool GetLocalAddresses( CUtlVector< SteamNetworkingIPAddr >* pAddrs )
 
     free( pAddrInfo );
 	return true;
-}
+
 #elif IsPosix() && !IsPlaystation() && !IsAndroid() && !IsNintendoSwitch()
-bool GetLocalAddresses( CUtlVector< SteamNetworkingIPAddr >* pAddrs )
-{
+
 	ifaddrs *pMyAddrInfo = NULL;
 	int r = getifaddrs( &pMyAddrInfo );
 	if ( r != 0 )
@@ -3592,14 +3956,11 @@ bool GetLocalAddresses( CUtlVector< SteamNetworkingIPAddr >* pAddrs )
 	}
 	freeifaddrs( pMyAddrInfo );
 	return true;
-}
 #else
-bool GetLocalAddresses( CUtlVector< SteamNetworkingIPAddr >* pAddrs )
-{
 	AssertMsg( false, "Write me!" );
 	return false;
-}
 #endif
+}
 
 
 } // namespace SteamNetworkingSocketsLib
@@ -3659,3 +4020,39 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetServiceThreadIni
 	AssertMsg( !IsServiceThreadRunning(), "Too late!" );
 	s_fnServiceThreadInitCallback = callback;
 }
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Mock network — public API
+//
+/////////////////////////////////////////////////////////////////////////////
+
+#if STEAMNETWORKINGSOCKETS_ENABLE_MOCK
+
+bool TEST_mocknetwork_active = false;
+
+void TEST_mocknetwork_init( const TEST_mocknetwork_config_t &config )
+{
+	AssertMsg( !TEST_mocknetwork_active, "TEST_mocknetwork_init called twice" );
+	AssertMsg( !config.m_vecInterfaces.empty(), "Mock network must have at least one interface" );
+	s_mockNetworkConfig = config;
+	TEST_mocknetwork_active = true;
+
+	const char *pszNATType = "???";
+	switch ( config.m_natType )
+	{
+		case TEST_mocknetwork_nat_type::None:              pszNATType = "None (public IP)"; break;
+		case TEST_mocknetwork_nat_type::FullCone:          pszNATType = "Full Cone"; break;
+		case TEST_mocknetwork_nat_type::RestrictedCone:    pszNATType = "Restricted Cone"; break;
+		case TEST_mocknetwork_nat_type::PortRestrictedCone: pszNATType = "Port Restricted Cone"; break;
+		case TEST_mocknetwork_nat_type::Symmetric:         pszNATType = "Symmetric"; break;
+	}
+
+	SpewMsg( "Mock network active.  NAT type: %s\n", pszNATType );
+	if ( config.m_ipv4_gateway.IsIPv4() )
+		SpewMsg( "  Gateway: %s\n", SteamNetworkingIPAddrRender( config.m_ipv4_gateway, false ).c_str() );
+	for ( const TEST_mocknetwork_interface_t &iface : config.m_vecInterfaces )
+		SpewMsg( "  Adapter: %s\n", SteamNetworkingIPAddrRender( iface.m_ip, false ).c_str() );
+}
+
+#endif // STEAMNETWORKINGSOCKETS_ENABLE_MOCK
