@@ -13,8 +13,8 @@ $Folder "SteamNetworkingSockets"
 		$File_NoPCH	"$SRCDIR/steamnetworkingsockets/clientlib/steamnetworkingsockets_connections.cpp"
 		$File	"$SRCDIR/steamnetworkingsockets/clientlib/steamnetworkingsockets_connections.h"
 
-		$File_NoPCH	"$SRCDIR/steamnetworkingsockets/clientlib/steamnetworkingsockets_lowlevel.cpp"
 		$File	"$SRCDIR/steamnetworkingsockets/clientlib/steamnetworkingsockets_lowlevel.h"
+		$File_NoPCH	"$SRCDIR/steamnetworkingsockets/clientlib/steamnetworkingsockets_socketthread.cpp"
 		$File_NoPCH	"$SRCDIR/steamnetworkingsockets/clientlib/steamnetworkingsockets_spew.cpp"
 		$File_NoPCH	"$SRCDIR/steamnetworkingsockets/clientlib/steamnetworkingsockets_taskqueue.cpp"
 
