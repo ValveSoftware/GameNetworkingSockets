@@ -321,15 +321,28 @@ private:
 
 extern int g_cbUDPSocketBufferSize;
 
-/////////////////////////////////////////////////////////////////////////////
-//
-// Misc low level service thread stuff
-//
-/////////////////////////////////////////////////////////////////////////////
-
 /// Called when we know it's safe to actually destroy sockets pending deletion.
 /// This is when: 1.) We own the lock and 2.) we aren't polling in the service thread.
 extern void ProcessPendingDestroyClosedRawUDPSockets();
+
+/// Return true if the service thread is running
+extern bool IsServiceThreadRunning();
+
+/// Wake up the service thread ASAP.  Intended to be called from other threads,
+/// but is safe to call from the service thread as well.
+extern void WakeServiceThread();
+
+/// Return true if it looks like the address is a local address
+extern bool IsRouteToAddressProbablyLocal( netadr_t addr );
+
+extern bool ResolveHostname( const char* pszHostname, CUtlVector< SteamNetworkingIPAddr > *pAddrs );
+extern bool GetLocalAddresses( CUtlVector< SteamNetworkingIPAddr >* pAddrs );
+
+/////////////////////////////////////////////////////////////////////////////
+//
+// Spew
+//
+/////////////////////////////////////////////////////////////////////////////
 
 /// Last time that we spewed something that was subject to rate limit
 extern SteamNetworkingMicroseconds g_usecLastRateLimitSpew;
@@ -628,10 +641,12 @@ using ShortDurationScopeLock = ScopeLock<ShortDurationLock>;
 	#define AssertHeldByCurrentThread( ... ) _AssertHeldByCurrentThread( __FILE__, __LINE__ ,## __VA_ARGS__ )
 	#define AssertLocksHeldByCurrentThread( ... ) _AssertLocksHeldByCurrentThread( __FILE__, __LINE__,## __VA_ARGS__ )
 	#define TakeLockOwnership( pLock, ... ) _TakeLockOwnership( (pLock), __FILE__, __LINE__,## __VA_ARGS__ )
+	extern void AssertGlobalLockHeldExactlyOnce();
 #else
 	#define AssertHeldByCurrentThread( ... ) _AssertHeldByCurrentThread( nullptr, 0,## __VA_ARGS__ )
 	#define AssertLocksHeldByCurrentThread( ... ) _AssertLocksHeldByCurrentThread( nullptr, 0,## __VA_ARGS__ )
 	#define TakeLockOwnership( pLock, ... ) _TakeLockOwnership( (pLock), nullptr, 0,## __VA_ARGS__ )
+	inline void AssertGlobalLockHeldExactlyOnce() {}
 #endif
 
 /// Special utilities for acquiring the global lock
@@ -654,16 +669,13 @@ struct SteamNetworkingGlobalLock
 	#endif
 };
 
-#ifdef DBGFLAG_VALIDATE
-extern void SteamNetworkingSocketsLowLevelValidate( CValidator &validator );
-#endif
+extern SteamNetworkingMicroseconds s_usecServiceThreadLockWaitWarning;
 
-/// Return true if the service thread is running
-extern bool IsServiceThreadRunning();
-
-/// Wake up the service thread ASAP.  Intended to be called from other threads,
-/// but is safe to call from the service thread as well.
-extern void WakeServiceThread();
+/////////////////////////////////////////////////////////////////////////////
+//
+// Task queue
+//
+/////////////////////////////////////////////////////////////////////////////
 
 class CQueuedTask;
 
@@ -826,19 +838,20 @@ extern CTaskList g_taskListRunInBackground;
 //
 /////////////////////////////////////////////////////////////////////////////
 
-/// Fetch current time
-extern SteamNetworkingMicroseconds SteamNetworkingSockets_GetLocalTimestamp();
+#ifdef DBGFLAG_VALIDATE
+extern void SteamNetworkingSocketsLowLevelValidate( CValidator &validator );
+#endif
+
+extern void SeedWeakRandomGenerator();
+extern void ETW_LongOp( const char *opName, SteamNetworkingMicroseconds usec, const char *pszInfo );
 
 /// Set debug output hook
 extern void SteamNetworkingSockets_SetDebugOutputFunction( ESteamNetworkingSocketsDebugOutputType eDetailLevel, FSteamNetworkingSocketsDebugOutput pfnFunc );
 
-/// Return true if it looks like the address is a local address
-extern bool IsRouteToAddressProbablyLocal( netadr_t addr );
-
-extern bool ResolveHostname( const char* pszHostname, CUtlVector< SteamNetworkingIPAddr > *pAddrs );
-extern bool GetLocalAddresses( CUtlVector< SteamNetworkingIPAddr >* pAddrs );
-
 } // namespace SteamNetworkingSocketsLib
+
+/// Fetch current time
+extern SteamNetworkingMicroseconds SteamNetworkingSockets_GetLocalTimestamp();
 
 STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_DefaultPreFormatDebugOutputHandler( ESteamNetworkingSocketsDebugOutputType eType, bool bFmt, const char* pstrFile, int nLine, const char *pMsg, va_list ap );
 

@@ -14,6 +14,7 @@ $Folder "SteamNetworkingSockets"
 		$File	"$SRCDIR/steamnetworkingsockets/clientlib/steamnetworkingsockets_connections.h"
 
 		$File	"$SRCDIR/steamnetworkingsockets/clientlib/steamnetworkingsockets_lowlevel.h"
+		$File_NoPCH	"$SRCDIR/steamnetworkingsockets/clientlib/steamnetworkingsockets_lowlevel_misc.cpp"
 		$File_NoPCH	"$SRCDIR/steamnetworkingsockets/clientlib/steamnetworkingsockets_socketthread.cpp"
 		$File_NoPCH	"$SRCDIR/steamnetworkingsockets/clientlib/steamnetworkingsockets_spew.cpp"
 		$File_NoPCH	"$SRCDIR/steamnetworkingsockets/clientlib/steamnetworkingsockets_taskqueue.cpp"
