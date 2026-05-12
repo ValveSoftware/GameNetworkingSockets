@@ -261,7 +261,7 @@ public:
 	{
 		return m_pRawSock->BSendRawPacket( pPkt, cbPkt, adrTo );
 	}
-	
+
 	bool BSendRawPacketGather( int nChunks, const iovec *pChunks, const SteamNetworkingIPAddr &adrTo ) const
 	{
 		return m_pRawSock->BSendRawPacketGather( nChunks, pChunks, adrTo );
@@ -331,7 +331,7 @@ extern int g_cbUDPSocketBufferSize;
 /// This is when: 1.) We own the lock and 2.) we aren't polling in the service thread.
 extern void ProcessPendingDestroyClosedRawUDPSockets();
 
-/// Last time that we spewed something that was subject to rate limit 
+/// Last time that we spewed something that was subject to rate limit
 extern SteamNetworkingMicroseconds g_usecLastRateLimitSpew;
 extern int g_nRateLimitSpewCount;
 
@@ -381,6 +381,10 @@ extern bool BSteamNetworkingSocketsLowLevelAddRef( SteamDatagramErrMsg &errMsg )
 /// Nuke common stuff
 extern void SteamNetworkingSocketsLowLevelDecRef();
 
+extern void FlushSystemSpew();
+extern void InitSpew();
+extern void KillSpew();
+
 /////////////////////////////////////////////////////////////////////////////
 //
 // Locking
@@ -405,7 +409,7 @@ extern void SteamNetworkingSocketsLowLevelDecRef();
 // prefer to keep the code simple until we have a proven example of bad performance.
 //
 // Here are the locks that are used:
-// 
+//
 // - Global lock.  You must hold this lock while:
 //   - Changing any data not specifically carved out below.
 //   - Creating or destroying objects

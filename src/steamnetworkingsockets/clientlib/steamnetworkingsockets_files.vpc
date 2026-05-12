@@ -15,6 +15,9 @@ $Folder "SteamNetworkingSockets"
 
 		$File_NoPCH	"$SRCDIR/steamnetworkingsockets/clientlib/steamnetworkingsockets_lowlevel.cpp"
 		$File	"$SRCDIR/steamnetworkingsockets/clientlib/steamnetworkingsockets_lowlevel.h"
+		$File_NoPCH	"$SRCDIR/steamnetworkingsockets/clientlib/steamnetworkingsockets_spew.cpp"
+		$File_NoPCH	"$SRCDIR/steamnetworkingsockets/clientlib/steamnetworkingsockets_taskqueue.cpp"
+
 		$File	"$SRCDIR/public/tier0/platform_sockets.h"
 		$File	"$SRCDIR/public/tier0/platform_sockets_nswitch.h" [$NSWITCH]
 		$File	"$SRCDIR/public/tier0/platform_sockets_playstation.h" [$PLAYSTATIONANY]
