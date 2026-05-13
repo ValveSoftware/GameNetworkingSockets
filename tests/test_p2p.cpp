@@ -14,6 +14,8 @@
 #include "../examples/trivial_signaling_client.h"
 #include "../src/steamnetworkingsockets/clientlib/steamnetworkingsockets_mock.h"
 
+#define DEFAULT_STUN_SERVER "stun.l.google.com:19302"
+
 HSteamListenSocket g_hListenSock;
 HSteamNetConnection g_hConnection;
 enum ETestRole
@@ -43,6 +45,7 @@ void PrintUsage()
 		"  --log <file>                        Write log to file\n"
 		"  --spewlevel <level>                 Console spew level: msg, verbose, debug\n"
 		"  --loglevel-p2prendezvous <level>    P2P rendezvous log level: msg, verbose, debug\n"
+		"  --stun-server <host:port>           STUN server address (default: " DEFAULT_STUN_SERVER ")\n"
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_MOCK
 		"\n"
 		"Mock network options:\n"
@@ -193,6 +196,7 @@ int main( int argc, const char **argv )
 	SteamNetworkingIdentity identityLocal; identityLocal.Clear();
 	SteamNetworkingIdentity identityRemote; identityRemote.Clear();
 	const char *pszTrivialSignalingService = "localhost:10000";
+	const char *pszSTUNServer = DEFAULT_STUN_SERVER;
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_MOCK
 	TEST_mocknetwork_config_t mockConfig;
 #endif
@@ -219,6 +223,8 @@ int main( int argc, const char **argv )
 			ParseIdentity( identityRemote );
 		else if ( !strcmp( pszSwitch, "--signaling-server" ) )
 			pszTrivialSignalingService = GetArg();
+		else if ( !strcmp( pszSwitch, "--stun-server" ) )
+			pszSTUNServer = GetArg();
 		else if ( !strcmp( pszSwitch, "--client" ) )
 			g_eTestRole = k_ETestRole_Client;
 		else if ( !strcmp( pszSwitch, "--server" ) )
@@ -303,8 +309,7 @@ int main( int argc, const char **argv )
 	// Initialize library, with the desired local identity
 	TEST_Init( &identityLocal );
 
-	// Hardcode STUN servers
-	SteamNetworkingUtils()->SetGlobalConfigValueString( k_ESteamNetworkingConfig_P2P_STUN_ServerList, "stun.l.google.com:19302" );
+	SteamNetworkingUtils()->SetGlobalConfigValueString( k_ESteamNetworkingConfig_P2P_STUN_ServerList, pszSTUNServer );
 
 	// Hardcode TURN servers
 	// comma seperated setting lists
