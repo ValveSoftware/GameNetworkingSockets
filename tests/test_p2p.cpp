@@ -29,6 +29,32 @@ int g_nVirtualPortLocal = 0; // Used when listening, and when connecting
 int g_nVirtualPortRemote = 0; // Only used when connecting
 ESteamNetworkingSocketsDebugOutputType g_eTestP2PRendezvousLogLevel = k_ESteamNetworkingSocketsDebugOutputType_Verbose;
 
+void PrintUsage()
+{
+	fprintf( stderr,
+		"Usage: test_p2p [options]\n"
+		"\n"
+		"  --identity-local <identity>        Local identity string\n"
+		"  --identity-remote <identity>        Remote identity string (not needed for --server)\n"
+		"  --signaling-server <host:port>      Trivial signaling server (default: localhost:10000)\n"
+		"  --server                            Act as server (listen for connection)\n"
+		"  --client                            Act as client (connect to server)\n"
+		"  --symmetric                         Symmetric connect mode\n"
+		"  --log <file>                        Write log to file\n"
+		"  --spewlevel <level>                 Console spew level: msg, verbose, debug\n"
+		"  --loglevel-p2prendezvous <level>    P2P rendezvous log level: msg, verbose, debug\n"
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_MOCK
+		"\n"
+		"Mock network options:\n"
+		"  --mock-adapter <ip>                 Add a mock network adapter IP (repeatable)\n"
+		"  --mock-gateway <ip>                 Gateway/public IP for mock network\n"
+		"                                        (required if --mock-nat is not 'none')\n"
+		"  --mock-nat <type>                   NAT type: none (default), full-cone,\n"
+		"                                        restricted-cone, port-restricted-cone, symmetric\n"
+#endif
+	);
+}
+
 static ESteamNetworkingSocketsDebugOutputType ParseLogLevelValue( const char *pszArg, const char *pszSwitchName )
 {
 	if ( !strcmp( pszArg, "msg" ) )
@@ -167,6 +193,9 @@ int main( int argc, const char **argv )
 	SteamNetworkingIdentity identityLocal; identityLocal.Clear();
 	SteamNetworkingIdentity identityRemote; identityRemote.Clear();
 	const char *pszTrivialSignalingService = "localhost:10000";
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_MOCK
+	TEST_mocknetwork_config_t mockConfig;
+#endif
 
 	// Parse the command line
 	for ( int idxArg = 1 ; idxArg < argc ; ++idxArg )
@@ -212,6 +241,45 @@ int main( int argc, const char **argv )
 			const char *pszArg = pszSwitch[24] == '=' ? pszSwitch + 25 : GetArg();
 			g_eTestP2PRendezvousLogLevel = ParseLogLevelValue( pszArg, "--loglevel-p2prendezvous" );
 		}
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_MOCK
+		else if ( !strcmp( pszSwitch, "--mock-adapter" ) )
+		{
+			const char *pszArg = GetArg();
+			TEST_mocknetwork_interface_t iface;
+			if ( !iface.m_ip.ParseString( pszArg ) || !iface.m_ip.IsIPv4() )
+				TEST_Fatal( "'%s' is not a valid IPv4 address for --mock-adapter", pszArg );
+			iface.m_ip.m_port = 0;
+			mockConfig.m_vecInterfaces.push_back( iface );
+		}
+		else if ( !strcmp( pszSwitch, "--mock-gateway" ) )
+		{
+			const char *pszArg = GetArg();
+			if ( !mockConfig.m_ipv4_gateway.ParseString( pszArg ) || !mockConfig.m_ipv4_gateway.IsIPv4() )
+				TEST_Fatal( "'%s' is not a valid IPv4 address for --mock-gateway", pszArg );
+			mockConfig.m_ipv4_gateway.m_port = 0;
+		}
+		else if ( !strcmp( pszSwitch, "--mock-nat" ) )
+		{
+			const char *pszArg = GetArg();
+			if ( !strcmp( pszArg, "none" ) )
+				mockConfig.m_natType = TEST_mocknetwork_nat_type::None;
+			else if ( !strcmp( pszArg, "full-cone" ) )
+				mockConfig.m_natType = TEST_mocknetwork_nat_type::FullCone;
+			else if ( !strcmp( pszArg, "restricted-cone" ) )
+				mockConfig.m_natType = TEST_mocknetwork_nat_type::RestrictedCone;
+			else if ( !strcmp( pszArg, "port-restricted-cone" ) )
+				mockConfig.m_natType = TEST_mocknetwork_nat_type::PortRestrictedCone;
+			else if ( !strcmp( pszArg, "symmetric" ) )
+				mockConfig.m_natType = TEST_mocknetwork_nat_type::Symmetric;
+			else
+				TEST_Fatal( "Invalid --mock-nat '%s'. Expected: none, full-cone, restricted-cone, port-restricted-cone, symmetric", pszArg );
+		}
+#endif
+		else if ( !strcmp( pszSwitch, "--help" ) || !strcmp( pszSwitch, "-h" ) )
+		{
+			PrintUsage();
+			exit(0);
+		}
 		else
 			TEST_Fatal( "Unexpected command line argument '%s'", pszSwitch );
 	}
@@ -222,6 +290,15 @@ int main( int argc, const char **argv )
 		TEST_Fatal( "Must specify local identity using --identity-local" );
 	if ( identityRemote.IsInvalid() && g_eTestRole != k_ETestRole_Server )
 		TEST_Fatal( "Must specify remote identity using --identity-remote" );
+
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_MOCK
+	if ( !mockConfig.m_vecInterfaces.empty() )
+	{
+		if ( mockConfig.m_natType != TEST_mocknetwork_nat_type::None && !mockConfig.m_ipv4_gateway.IsIPv4() )
+			TEST_Fatal( "--mock-gateway is required when --mock-nat is not 'none'" );
+		TEST_mocknetwork_init( mockConfig );
+	}
+#endif
 
 	// Initialize library, with the desired local identity
 	TEST_Init( &identityLocal );
