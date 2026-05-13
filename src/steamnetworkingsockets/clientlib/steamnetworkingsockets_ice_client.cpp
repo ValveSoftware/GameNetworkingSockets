@@ -1032,7 +1032,6 @@ CSteamNetworkingICESession::CSteamNetworkingICESession( EICERole role, CSteamNet
     m_nEncoding = nEncoding;
     m_pCallbacks = pCallbacks;
     m_bInterfaceListStale = true;
-    m_sessionState = kICESessionState_Idle;
     m_nextKeepalive = 0;
     m_role = role;
     m_pSelectedCandidatePair = nullptr;
@@ -1046,7 +1045,6 @@ CSteamNetworkingICESession::CSteamNetworkingICESession( const ICESessionConfig& 
 	m_nEncoding = kSTUNPacketEncodingFlags_MessageIntegrity;
 	m_pCallbacks = pCallbacks;
 	m_bInterfaceListStale = true;
-    m_sessionState = kICESessionState_Idle;
     m_nextKeepalive = 0;
     m_role = cfg.m_eRole;
     m_pSelectedCandidatePair = nullptr;
@@ -1079,7 +1077,6 @@ CSteamNetworkingICESession::~CSteamNetworkingICESession()
 {
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
 
-    m_sessionState = kICESessionState_Idle;
     for ( int i = len( m_vecPendingServerReflexiveRequests ) - 1; i >= 0; --i )
     {
         m_vecPendingServerReflexiveRequests[i]->Cancel();
@@ -1101,11 +1098,6 @@ CSteamNetworkingICESession::~CSteamNetworkingICESession()
 	for ( IRawUDPSocket *pSock: m_vecHostCandidateSockets )
 		pSock->Close();
 	m_vecHostCandidateSockets.clear();
-}
-
-CSteamNetworkingICESession::ICESessionState CSteamNetworkingICESession::GetSessionState()
-{
-    return m_sessionState;
 }
 
 SteamNetworkingIPAddr CSteamNetworkingICESession::GetSelectedDestination()
@@ -1176,8 +1168,6 @@ void CSteamNetworkingICESession::AddPeerCandidate( const ICECandidate& candidate
 		m_vecPeerCandidates.push_back( ICEPeerCandidate( candidate, pszFoundation ) );
 	}
     m_bCandidatePairsNeedUpdate = true;
-    if ( m_sessionState == kICESessionState_Idle || m_sessionState == kICESessionState_GatheringCandidates )
-        m_sessionState = kICESessionState_TestingPeerConnectivity;
     SetNextThinkTimeASAP();
 }
 
@@ -1462,8 +1452,6 @@ void CSteamNetworkingICESession::Think( SteamNetworkingMicroseconds usecNow )
 
     if ( m_bInterfaceListStale )
     {
-		if ( m_sessionState == kICESessionState_Idle )
-			m_sessionState = kICESessionState_GatheringCandidates;
         GatherInterfaces();
         // We tried to update interfaces but failed. Try again later.
         if ( m_bInterfaceListStale )
@@ -1473,36 +1461,12 @@ void CSteamNetworkingICESession::Think( SteamNetworkingMicroseconds usecNow )
     }
 
     Think_KeepAliveOnCandidates( usecNow );
+    Think_DiscoverServerReflexiveCandidates();
 
-    if ( m_sessionState == kICESessionState_GatheringCandidates
-        || m_sessionState == kICESessionState_TestingPeerConnectivity )
-    {
-        Think_DiscoverServerReflexiveCandidates();
-        if ( m_sessionState == kICESessionState_GatheringCandidates && m_vecPendingServerReflexiveRequests.empty() )
-        {
-            if ( m_vecPeerCandidates.empty() )
-            {
-                m_sessionState = kICESessionState_Idle;
-                return;
-            }
-
-            // STUN gathering finished but we have peer candidates to check -- move on
-            m_sessionState = kICESessionState_TestingPeerConnectivity;
-        }
-    }
-
-    if ( m_sessionState == kICESessionState_TestingPeerConnectivity )
-    {
-        // Don't start checks before we have the remote password -- we'd send
-        // unauthenticated requests and couldn't verify the response integrity.
-        if ( !m_strRemotePassword.empty() )
-        {
-            Think_TestPeerConnectivity();
-            if ( !m_vecPendingPeerRequests.empty() )
-                return;
-            m_sessionState = kICESessionState_Idle;
-        }
-    }
+    // Don't start checks before we have peer candidates and the remote password --
+    // we'd send unauthenticated requests and couldn't verify the response integrity.
+    if ( !m_vecPeerCandidates.empty() && !m_strRemotePassword.empty() )
+        Think_TestPeerConnectivity();
 }
 
 void CSteamNetworkingICESession::Think_DiscoverServerReflexiveCandidates()
@@ -1665,9 +1629,7 @@ bool CSteamNetworkingICESession::IsCandidatePermitted( const ICECandidate& local
 void CSteamNetworkingICESession::STUNRequestCallback_ServerReflexiveCandidate( const RecvSTUNPktInfo_t &info )
 {
     find_and_remove_element( m_vecPendingServerReflexiveRequests, info.m_pRequest );
-    // It's possible this is a late return.
-    if ( m_sessionState != kICESessionState_GatheringCandidates )
-        return;
+
 
     const SteamNetworkingIPAddr localAddr = info.m_pRequest->m_localAddr;
     for ( int i = 0 ; i < len(m_vecCandidates) ; ++i )

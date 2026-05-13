@@ -178,13 +178,6 @@ namespace SteamNetworkingSocketsLib {
 			EICECandidateType CalcType() const;
         };
         EICERole GetRole() { return m_role; }
-        enum ICESessionState
-        {
-            kICESessionState_Idle,
-            kICESessionState_GatheringCandidates,
-            kICESessionState_TestingPeerConnectivity
-        };
-        ICESessionState GetSessionState();
         void AddPeerCandidate( const ICECandidate& peerCandidate, const char* pszFoundation );
         void SetRemoteUsername( const char *pszUsername );
 		void SetRemotePassword( const char *pszPassword );
@@ -237,7 +230,6 @@ namespace SteamNetworkingSocketsLib {
         CSteamNetworkingICESessionCallbacks *m_pCallbacks;
         EICERole m_role;
         uint64 m_nRoleTiebreaker;
-        ICESessionState m_sessionState;
         bool m_bInterfaceListStale;
         int m_nEncoding;
         std::string m_strLocalUsernameFragment;
