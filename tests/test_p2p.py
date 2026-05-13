@@ -16,9 +16,12 @@ import time
 
 g_failed = False
 g_server_ready = threading.Event()
+g_stun_ready = threading.Event()
 g_server_startup_timeout = 3  # seconds
 g_spew_level = None
 g_p2p_rendezvous_level = None
+g_stun_ip = "127.0.100.1"
+g_stun_port = 3478
 
 def ParseArgs():
     global g_spew_level
@@ -117,7 +120,7 @@ def StartProcessInThread( tag, cmdline, env=None, ready_message=None, ready_even
     thread.start()
     return thread
 
-def StartClientInThread( role, local, remote ):
+def StartClientInThread( role, local, remote, extra_args=[] ):
     cmdline = [
         "./test_p2p",
         "--" + role,
@@ -127,6 +130,8 @@ def StartClientInThread( role, local, remote ):
         "--log", local + ".verbose.log"
     ]
 
+    cmdline += [ '--stun-server', "%s:%d" % (g_stun_ip, g_stun_port) ]
+    cmdline += extra_args
     if g_spew_level is not None:
         cmdline.append( '--spewlevel=' + g_spew_level )
     if g_p2p_rendezvous_level is not None:
@@ -142,27 +147,48 @@ def StartClientInThread( role, local, remote ):
 
     return StartProcessInThread( local, cmdline, env );
 
-# Run a standard client/server connection-oriented case.
-# where one peer is the "server" and "listens" and a "client" connects.
-def ClientServerTest():
-    print( "Running basic socket client/server test" )
+# Mock network address constants
+_SRV_GW  = '127.0.100.2'   # server-side NAT gateway (public)
+_CLI_GW  = '127.0.100.3'   # client-side NAT gateway (public)
+_SRV_INT = '127.0.1.2'     # server internal address behind NAT
+_CLI_INT = '127.0.2.2'     # client internal address behind NAT
 
-    client1 = StartClientInThread( "server", "peer_server", "peer_client" )
-    client2 = StartClientInThread( "client", "peer_client", "peer_server" )
+def _nat( internal, gateway, nat_type ):
+    return [ '--mock-adapter', internal, '--mock-gateway', gateway, '--mock-nat', nat_type ]
+
+# Each entry: ( description, server_extra_args, client_extra_args )
+CLIENT_SERVER_TEST_CASES = [
+    ( 'no-mock',
+      [],
+      [] ),
+    ( 'no-nat (both public)',
+      [ '--mock-adapter', _SRV_GW ],
+      [ '--mock-adapter', _CLI_GW ] ),
+    ( 'full-cone NAT',
+      _nat( _SRV_INT, _SRV_GW, 'full-cone' ),
+      _nat( _CLI_INT, _CLI_GW, 'full-cone' ) ),
+    ( 'restricted-cone NAT',
+      _nat( _SRV_INT, _SRV_GW, 'restricted-cone' ),
+      _nat( _CLI_INT, _CLI_GW, 'restricted-cone' ) ),
+    ( 'port-restricted-cone NAT',
+      _nat( _SRV_INT, _SRV_GW, 'port-restricted-cone' ),
+      _nat( _CLI_INT, _CLI_GW, 'port-restricted-cone' ) ),
+    # symmetric-vs-symmetric requires TURN relay; ICE alone cannot traverse it
+    ( 'asymmetric: server public, client full-cone',
+      [ '--mock-adapter', _SRV_GW ],
+      _nat( _CLI_INT, _CLI_GW, 'full-cone' ) ),
+    ( 'asymmetric: server full-cone, client symmetric',
+      _nat( _SRV_INT, _SRV_GW, 'full-cone' ),
+      _nat( _CLI_INT, _CLI_GW, 'symmetric' ) ),
+]
+
+def ClientServerTest( server_extra_args=[], client_extra_args=[] ):
+    server = StartClientInThread( "server", "peer_server", "peer_client", server_extra_args )
+    client = StartClientInThread( "client", "peer_client", "peer_server", client_extra_args )
 
     # Wait for clients to shutdown.  Nuke them if necessary
-    client1.join( timeout=20 )
-    client2.join( timeout=20 )
-
-def SymmetricTest():
-    print( "Running socket symmetric test" )
-
-    client1 = StartClientInThread( "symmetric", "alice", "bob" )
-    client2 = StartClientInThread( "symmetric", "bob", "alice" )
-
-    # Wait for clients to shutdown.  Nuke them if necessary
-    client1.join( timeout=20 )
-    client2.join( timeout=20 )
+    server.join( timeout=20 )
+    client.join( timeout=20 )
 
 #
 # Main
@@ -170,12 +196,32 @@ def SymmetricTest():
 
 ParseArgs()
 
+# Find and start the STUN server
+stun_server_script = './stun_server.py'
+if not os.path.exists( stun_server_script ):
+    stun_server_script = '../tests/stun_server.py'
+if not os.path.exists( stun_server_script ):
+    print( "Can't find stun_server.py" )
+    sys.exit(1)
+
+stun = StartProcessInThread( "stun", [ sys.executable, stun_server_script, '--host', g_stun_ip, '--port', str(g_stun_port) ],
+                             ready_message="STUN server listening on", ready_event=g_stun_ready )
+
+if not g_stun_ready.wait( timeout=g_server_startup_timeout ):
+    print( "ERROR: STUN server failed to start within %d seconds" % g_server_startup_timeout )
+    g_failed = True
+    stun.term()
+    sys.exit(1)
+
+print( "STUN server is ready" )
+
 # Start the signaling server
 trivial_signaling_server = './trivial_signaling_server.py'
 if not os.path.exists( trivial_signaling_server ):
     trivial_signaling_server = '../examples/trivial_signaling_server.py'
 if not os.path.exists( trivial_signaling_server ):
     print( "Can't find trivial_signaling_server.py" )
+    stun.term()
     sys.exit(1)
 
 signaling = StartProcessInThread( "signaling", [ sys.executable, trivial_signaling_server ],
@@ -186,25 +232,25 @@ if not g_server_ready.wait( timeout=g_server_startup_timeout ):
     print( "ERROR: Signaling server failed to start within %d seconds" % g_server_startup_timeout )
     g_failed = True
     signaling.term()
+    stun.term()
     sys.exit(1)
 
 print( "Signaling server is ready, starting test clients" )
 
 # Run the tests
-for test in [ ClientServerTest, SymmetricTest ]:
+for desc, srv_args, cli_args in CLIENT_SERVER_TEST_CASES:
     print( "=================================================================" )
+    print( "Test: " + desc )
     print( "=================================================================" )
-    test()
-    print( "=================================================================" )
-    print( "=================================================================" )
+    ClientServerTest( srv_args, cli_args )
     if g_failed:
         break
 
-# Ignore any "failure" detected in signaling server shutdown.
+# Ignore any "failure" detected in server shutdowns.
 really_failed = g_failed
 
-# Shutdown signaling
 signaling.term()
+stun.term()
 
 if really_failed:
     print( "TEST FAILED" )
