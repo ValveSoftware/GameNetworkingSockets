@@ -41,13 +41,19 @@ if(ENABLE_ICE)
 	target_link_libraries(test_p2p GameNetworkingSockets::static_mock)
 	add_sanitizers(test_p2p)
 
-	# Publish the test script
+	# Publish the test scripts
 	set( P2P_TEST_SCRIPT ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test_p2p.py )
 	set( P2P_TEST_SCRIPT_SRC ${CMAKE_CURRENT_SOURCE_DIR}/test_p2p.py )
+	set( STUN_SERVER_SCRIPT ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/stun_server.py )
+	set( STUN_SERVER_SCRIPT_SRC ${CMAKE_CURRENT_SOURCE_DIR}/stun_server.py )
 	add_custom_command(
 		OUTPUT ${P2P_TEST_SCRIPT}
 		COMMAND ${CMAKE_COMMAND} -E copy ${P2P_TEST_SCRIPT_SRC} ${P2P_TEST_SCRIPT}
 		DEPENDS ${P2P_TEST_SCRIPT_SRC} )
-	add_custom_target( publish_test_script ALL DEPENDS ${P2P_TEST_SCRIPT} )
+	add_custom_command(
+		OUTPUT ${STUN_SERVER_SCRIPT}
+		COMMAND ${CMAKE_COMMAND} -E copy ${STUN_SERVER_SCRIPT_SRC} ${STUN_SERVER_SCRIPT}
+		DEPENDS ${STUN_SERVER_SCRIPT_SRC} )
+	add_custom_target( publish_test_script ALL DEPENDS ${P2P_TEST_SCRIPT} ${STUN_SERVER_SCRIPT} )
 	add_test(NAME p2p COMMAND ${P2P_TEST_SCRIPT} WORKING_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
 endif()
