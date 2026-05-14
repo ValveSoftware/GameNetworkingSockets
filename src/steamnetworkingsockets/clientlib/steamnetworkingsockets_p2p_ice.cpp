@@ -610,13 +610,10 @@ void CConnectionTransportP2PICE::TransportPopulateConnectionInfo( SteamNetConnec
 			break;
 
 		case k_ESteamNetTransport_UDPProbablyLocal:
-		{
-			int nPingMin, nPingMax;
-			m_pingEndToEnd.GetPingRangeFromRecentBuckets( nPingMin, nPingMax, SteamNetworkingSockets_GetLocalTimestamp() );
-			if ( nPingMin < k_nMinPingTimeLocalTolerance )
-				info.m_nFlags |= k_nSteamNetworkConnectionInfoFlags_Fast;
+			// Both ICE candidates are host type (no NAT traversal), so this is a direct
+			// LAN-style connection regardless of measured ping.
+			info.m_nFlags |= k_nSteamNetworkConnectionInfoFlags_Fast;
 			break;
-		}
 
 		case k_ESteamNetTransport_TURN:
 			info.m_nFlags |= k_nSteamNetworkConnectionInfoFlags_Relayed;
@@ -629,8 +626,6 @@ void CConnectionTransportP2PICE::GetDetailedConnectionStatus( SteamNetworkingDet
 {
 	CConnectionTransportUDPBase::GetDetailedConnectionStatus( stats, usecNow );
 	stats.m_eTransportKind = m_eCurrentRouteKind;
-	if ( stats.m_eTransportKind == k_ESteamNetTransport_UDPProbablyLocal && !( stats.m_info.m_nFlags & k_nSteamNetworkConnectionInfoFlags_Fast ) )
-		stats.m_eTransportKind = k_ESteamNetTransport_UDP;
 }
 
 // Base-64 encode the least significant 30 bits.
