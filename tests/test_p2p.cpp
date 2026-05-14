@@ -95,6 +95,25 @@ void Quit( int rc )
 	exit(rc);
 }
 
+// Print a parseable route summary for the active connection.
+// Output format: "TEST ROUTE: addr=<ip:port> type=<local|udp|relay>"
+void PrintRouteInfo()
+{
+	SteamNetConnectionInfo_t info;
+	if ( !SteamNetworkingSockets()->GetConnectionInfo( g_hConnection, &info ) )
+		return;
+	const char *pszType;
+	if ( info.m_nFlags & k_nSteamNetworkConnectionInfoFlags_Relayed )
+		pszType = "relay";
+	else if ( info.m_nFlags & k_nSteamNetworkConnectionInfoFlags_Fast )
+		pszType = "local";
+	else
+		pszType = "udp";
+	char szAddr[64];
+	info.m_addrRemote.ToString( szAddr, sizeof(szAddr), true );
+	TEST_Printf( "TEST ROUTE: addr=%s type=%s\n", szAddr, pszType );
+}
+
 // Send a simple string message to out peer, using reliable transport.
 void SendMessageToPeer( const char *pszMsg )
 {
@@ -449,6 +468,8 @@ int main( int argc, const char **argv )
 
 				// Free message struct and buffer.
 				pMessage->Release();
+
+				PrintRouteInfo();
 
 				// If we're the client, go ahead and shut down.  In this example we just
 				// wanted to establish a connection and exchange a message, and we've done that.
