@@ -13,6 +13,7 @@ import os
 import sys
 import copy
 import time
+import re
 
 g_failed = False
 g_server_ready = threading.Event()
@@ -60,6 +61,7 @@ class RunProcessInThread(threading.Thread):
         self.popen_kwargs = popen_kwargs
         self.log = open( self.tag + ".log", "wt" )
         self.process = None
+        self.route_type = None
 
     def WriteLn( self, ln ):
         print( "%s> %s" % (self.tag, ln ) )
@@ -88,6 +90,9 @@ class RunProcessInThread(threading.Thread):
                     # Check if this is the ready message, then set requested event
                     if self.ready_message and self.ready_event and self.ready_message in sOutput:
                         self.ready_event.set()
+                    m = re.search( r'TEST ROUTE: addr=\S+ type=(\w+)', sOutput )
+                    if m:
+                        self.route_type = m.group(1)
                 elif self.process.poll() is not None:
                     break
             self.process.wait()
@@ -156,39 +161,65 @@ _CLI_INT = '127.0.2.2'     # client internal address behind NAT
 def _nat( internal, gateway, nat_type ):
     return [ '--mock-adapter', internal, '--mock-gateway', gateway, '--mock-nat', nat_type ]
 
-# Each entry: ( description, server_extra_args, client_extra_args )
+# Each entry: ( description, server_extra_args, client_extra_args, expected_server_route, expected_client_route )
+# Route types: 'local' = host-to-host (no NAT traversal needed)
+#              'udp'   = srflx or peer-reflexive (NAT traversal used)
+#              'relay' = TURN relay
 CLIENT_SERVER_TEST_CASES = [
     ( 'no-mock',
-      [],
-      [] ),
+      [], [],
+      'local', 'local' ),
     ( 'no-nat (both public)',
       [ '--mock-adapter', _SRV_GW ],
-      [ '--mock-adapter', _CLI_GW ] ),
+      [ '--mock-adapter', _CLI_GW ],
+      'local', 'local' ),
     ( 'full-cone NAT',
       _nat( _SRV_INT, _SRV_GW, 'full-cone' ),
-      _nat( _CLI_INT, _CLI_GW, 'full-cone' ) ),
+      _nat( _CLI_INT, _CLI_GW, 'full-cone' ),
+      'udp', 'udp' ),
     ( 'restricted-cone NAT',
       _nat( _SRV_INT, _SRV_GW, 'restricted-cone' ),
-      _nat( _CLI_INT, _CLI_GW, 'restricted-cone' ) ),
+      _nat( _CLI_INT, _CLI_GW, 'restricted-cone' ),
+      'udp', 'udp' ),
     ( 'port-restricted-cone NAT',
       _nat( _SRV_INT, _SRV_GW, 'port-restricted-cone' ),
-      _nat( _CLI_INT, _CLI_GW, 'port-restricted-cone' ) ),
+      _nat( _CLI_INT, _CLI_GW, 'port-restricted-cone' ),
+      'udp', 'udp' ),
     # symmetric-vs-symmetric requires TURN relay; ICE alone cannot traverse it
     ( 'asymmetric: server public, client full-cone',
       [ '--mock-adapter', _SRV_GW ],
-      _nat( _CLI_INT, _CLI_GW, 'full-cone' ) ),
+      _nat( _CLI_INT, _CLI_GW, 'full-cone' ),
+      'udp', 'local' ),  # server sees client's srflx; client's host-host pair wins via NAT passthrough
     ( 'asymmetric: server full-cone, client symmetric',
       _nat( _SRV_INT, _SRV_GW, 'full-cone' ),
-      _nat( _CLI_INT, _CLI_GW, 'symmetric' ) ),
+      _nat( _CLI_INT, _CLI_GW, 'symmetric' ),
+      'udp', 'udp' ),
 ]
 
-def ClientServerTest( server_extra_args=[], client_extra_args=[] ):
+def ClientServerTest( server_extra_args=[], client_extra_args=[], expected_server_route=None, expected_client_route=None ):
+    global g_failed
     server = StartClientInThread( "server", "peer_server", "peer_client", server_extra_args )
     client = StartClientInThread( "client", "peer_client", "peer_server", client_extra_args )
 
     # Wait for clients to shutdown.  Nuke them if necessary
     server.join( timeout=20 )
     client.join( timeout=20 )
+
+    # Verify route types if expected values were provided
+    if expected_server_route is not None:
+        if server.route_type is None:
+            print( "ERROR: server did not report a route type" )
+            g_failed = True
+        elif server.route_type != expected_server_route:
+            print( "ERROR: server route type '%s', expected '%s'" % ( server.route_type, expected_server_route ) )
+            g_failed = True
+    if expected_client_route is not None:
+        if client.route_type is None:
+            print( "ERROR: client did not report a route type" )
+            g_failed = True
+        elif client.route_type != expected_client_route:
+            print( "ERROR: client route type '%s', expected '%s'" % ( client.route_type, expected_client_route ) )
+            g_failed = True
 
 #
 # Main
@@ -238,11 +269,11 @@ if not g_server_ready.wait( timeout=g_server_startup_timeout ):
 print( "Signaling server is ready, starting test clients" )
 
 # Run the tests
-for desc, srv_args, cli_args in CLIENT_SERVER_TEST_CASES:
+for desc, srv_args, cli_args, exp_srv_route, exp_cli_route in CLIENT_SERVER_TEST_CASES:
     print( "=================================================================" )
     print( "Test: " + desc )
     print( "=================================================================" )
-    ClientServerTest( srv_args, cli_args )
+    ClientServerTest( srv_args, cli_args, exp_srv_route, exp_cli_route )
     if g_failed:
         break
 
