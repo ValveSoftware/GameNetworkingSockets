@@ -2030,11 +2030,12 @@ void CSteamNetworkingICESession::STUNRequestCallback_PeerConnectivityCheck( cons
     }
 	else if ( m_role == k_EICERole_Controlling )
     {
-		bool bAlreadyHaveANomination = false;
+		// Once we have a selected pair, or any nominated pair (including ones queued
+		// but not yet sent), don't nominate more.
+		bool bAlreadyHaveANomination = ( m_pSelectedCandidatePair != nullptr );
         for ( ICECandidatePair *pOtherPair : m_vecCandidatePairs )
         {
-            if ( pOtherPair->m_bNominated == true
-                && ( pOtherPair->m_nState == kICECandidatePairState_InProgress || pOtherPair->m_nState == kICECandidatePairState_Waiting ) )
+            if ( pOtherPair->m_bNominated )
                 bAlreadyHaveANomination = true;
         }
 		if ( !bAlreadyHaveANomination )
