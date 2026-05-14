@@ -1160,6 +1160,16 @@ void CSteamNetworkingICESession::AddPeerCandidate( const ICECandidate& candidate
             (ICECandidate&)c = candidate;
             c.m_sFoundation = pszFoundation;
 			bNeedsNewEntry = false;
+
+			// Propagate the updated candidate type to any existing pairs that have a stale copy.
+			// Pairs are created from incoming binding requests before signaling arrives, giving
+			// them peer-reflexive type.  When the signaling later confirms the address is a host
+			// candidate, update the pair's copy so OnConnectionSelected sees the correct type.
+			for ( ICECandidatePair *pPair : m_vecCandidatePairs )
+			{
+				if ( pPair->m_remoteCandidate.m_addr == candidate.m_addr )
+					(ICECandidate&)pPair->m_remoteCandidate = candidate;
+			}
             break; // fall through to update state and trigger a think
         }
     }
