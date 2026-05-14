@@ -1400,7 +1400,8 @@ void CSteamNetworkingICESession::OnPacketReceived( const RecvPktInfo_t &info )
                 if ( FindAttributeOfType( vecAttrs.Base(), vecAttrs.Count(), k_nSTUN_Attr_UseCandidate ) )
                 {
                     SpewMsg( "UseCandidate was set!" );
-                    if ( pThisPair->m_nState == kICECandidatePairState_Succeeded )
+                    if ( pThisPair->m_nState == kICECandidatePairState_Succeeded
+                         && ( m_pSelectedCandidatePair == nullptr || m_pSelectedCandidatePair == pThisPair ) )
                     {
                         SetSelectedCandidatePair( pThisPair );
                     }
