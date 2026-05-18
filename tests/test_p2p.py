@@ -162,6 +162,7 @@ _CLI_INT  = '127.0.2.2'    # client internal address behind NAT
 _SRV_INT2 = '127.0.3.2'    # second server internal address
 _CLI_INT2 = '127.0.4.2'    # second client internal address
 _DEAD_INT = '127.0.9.2'    # address used for disabled adapters
+_CLI_SAME_LAN = '127.0.1.3' # client on the same /24 private LAN as _SRV_INT
 
 def _nat( internal, gateway, nat_type ):
     # Gateway must be declared before the adapter that uses it
@@ -173,59 +174,81 @@ def _disabled_adapter( ip ):
 def _slow_nat( internal, gateway, nat_type, latency_ms ):
     return [ '--mock-gateway', gateway, '--mock-nat', nat_type, '--mock-adapter', internal, '--mock-latency', str(latency_ms) ]
 
-# Each entry: ( description, server_extra_args, client_extra_args, expected_server_route, expected_client_route )
-# Route types: 'local' = host-to-host (no NAT traversal needed)
-#              'udp'   = srflx or peer-reflexive (NAT traversal used)
+# Each entry: ( description, server_extra_args, client_extra_args, expected_route )
+# Both sides must report the same route type — ICE nominates one candidate pair
+# and both ends classify the same path, so agreement is guaranteed by the protocol.
+# Route types: 'local' = Fast flag set: both host candidates on the same private /24 LAN subnet
+#              'udp'   = direct UDP but not same-LAN (NAT traversal, or public IPs)
 #              'relay' = TURN relay
 CLIENT_SERVER_TEST_CASES = [
     ( 'no-mock',
       [], [],
-      'local', 'local' ),
+      'local' ),
+
+    # Both on the same private /24 LAN: the core case for 'local' classification.
+    ( 'same LAN (private subnet, no NAT)',
+      [ '--mock-adapter', _SRV_INT ],
+      [ '--mock-adapter', _CLI_SAME_LAN ],
+      'local' ),
+
+    # Both on the same LAN but each also has a NAT to the public internet via the
+    # same shared gateway — the typical home/office scenario.  Both a direct host path
+    # and a hairpin path through the gateway exist; ICE must select the direct host
+    # path (higher priority) and classify it as 'local'.
+    ( 'same LAN, shared gateway (hairpin)',
+      _nat( _SRV_INT, _SRV_GW, 'full-cone' ),
+      _nat( _CLI_SAME_LAN, _SRV_GW, 'full-cone' ),
+      'local' ),
+
+    # Both on the public network: direct host-to-host but NOT 'local' — public IPs
+    # are not classified as fast even when they share a subnet.
     ( 'no-nat (both public)',
       [ '--mock-adapter', _SRV_GW ],
       [ '--mock-adapter', _CLI_GW ],
-      'local', 'local' ),
+      'udp' ),
+
     ( 'full-cone NAT',
       _nat( _SRV_INT, _SRV_GW, 'full-cone' ),
       _nat( _CLI_INT, _CLI_GW, 'full-cone' ),
-      'udp', 'udp' ),
+      'udp' ),
     ( 'restricted-cone NAT',
       _nat( _SRV_INT, _SRV_GW, 'restricted-cone' ),
       _nat( _CLI_INT, _CLI_GW, 'restricted-cone' ),
-      'udp', 'udp' ),
+      'udp' ),
     ( 'port-restricted-cone NAT',
       _nat( _SRV_INT, _SRV_GW, 'port-restricted-cone' ),
       _nat( _CLI_INT, _CLI_GW, 'port-restricted-cone' ),
-      'udp', 'udp' ),
+      'udp' ),
     # symmetric-vs-symmetric requires TURN relay; ICE alone cannot traverse it
     ( 'asymmetric: server public, client full-cone',
       [ '--mock-adapter', _SRV_GW ],
       _nat( _CLI_INT, _CLI_GW, 'full-cone' ),
-      'udp', 'local' ),  # server sees client's srflx; client's host-host pair wins via NAT passthrough
+      'udp' ),  # client host (127.0.2.x) to server host (127.0.100.x): different subnets
     ( 'asymmetric: server full-cone, client symmetric',
       _nat( _SRV_INT, _SRV_GW, 'full-cone' ),
       _nat( _CLI_INT, _CLI_GW, 'symmetric' ),
-      'udp', 'udp' ),
+      'udp' ),
 
     # Disabled adapter: verify connection still succeeds when one adapter is down
     ( 'server has disabled second adapter',
       [ '--mock-adapter', _SRV_GW ] + _disabled_adapter( _DEAD_INT ),
       _nat( _CLI_INT, _CLI_GW, 'full-cone' ),
-      'udp', 'local' ),
+      'udp' ),
     ( 'client has disabled second adapter',
       [ '--mock-adapter', _SRV_GW ],
       _nat( _CLI_INT, _CLI_GW, 'full-cone' ) + _disabled_adapter( _DEAD_INT ),
-      'udp', 'local' ),
+      'udp' ),
 
     # Multi-adapter with latency: fast public adapter + slow NATd adapter.
-    # ICE should prefer the low-latency host-to-host path.
+    # ICE should prefer the low-latency host-to-host path.  Both public adapters
+    # are on 127.0.100.x (not a private subnet) so the route is 'udp', not 'local'.
     ( 'both multi-adapter: fast public + slow NATd',
       [ '--mock-adapter', _SRV_GW ] + _slow_nat( _SRV_INT2, _SRV_GW2, 'full-cone', 50 ),
       [ '--mock-adapter', _CLI_GW ] + _slow_nat( _CLI_INT2, _CLI_GW2, 'full-cone', 50 ),
-      'local', 'local' ),
+      'udp' ),
 ]
 
-def ClientServerTest( server_extra_args=[], client_extra_args=[], expected_server_route=None, expected_client_route=None ):
+def ClientServerTest( server_extra_args=[], client_extra_args=[], expected_route=None ):
     global g_failed
     server = StartClientInThread( "server", "peer_server", "peer_client", server_extra_args )
     client = StartClientInThread( "client", "peer_client", "peer_server", client_extra_args )
@@ -234,21 +257,15 @@ def ClientServerTest( server_extra_args=[], client_extra_args=[], expected_serve
     server.join( timeout=20 )
     client.join( timeout=20 )
 
-    # Verify route types if expected values were provided
-    if expected_server_route is not None:
-        if server.route_type is None:
-            print( "ERROR: server did not report a route type" )
-            g_failed = True
-        elif server.route_type != expected_server_route:
-            print( "ERROR: server route type '%s', expected '%s'" % ( server.route_type, expected_server_route ) )
-            g_failed = True
-    if expected_client_route is not None:
-        if client.route_type is None:
-            print( "ERROR: client did not report a route type" )
-            g_failed = True
-        elif client.route_type != expected_client_route:
-            print( "ERROR: client route type '%s', expected '%s'" % ( client.route_type, expected_client_route ) )
-            g_failed = True
+    # Verify route types if an expected value was provided
+    if expected_route is not None:
+        for peer, thread in [ ( 'server', server ), ( 'client', client ) ]:
+            if thread.route_type is None:
+                print( "ERROR: %s did not report a route type" % peer )
+                g_failed = True
+            elif thread.route_type != expected_route:
+                print( "ERROR: %s route type '%s', expected '%s'" % ( peer, thread.route_type, expected_route ) )
+                g_failed = True
 
 #
 # Main
@@ -298,11 +315,11 @@ if not g_server_ready.wait( timeout=g_server_startup_timeout ):
 print( "Signaling server is ready, starting test clients" )
 
 # Run the tests
-for desc, srv_args, cli_args, exp_srv_route, exp_cli_route in CLIENT_SERVER_TEST_CASES:
+for desc, srv_args, cli_args, exp_route in CLIENT_SERVER_TEST_CASES:
     print( "=================================================================" )
     print( "Test: " + desc )
     print( "=================================================================" )
-    ClientServerTest( srv_args, cli_args, exp_srv_route, exp_cli_route )
+    ClientServerTest( srv_args, cli_args, exp_route )
     if g_failed:
         break
 
