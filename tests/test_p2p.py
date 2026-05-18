@@ -10,6 +10,7 @@ import argparse
 import subprocess
 import threading
 import os
+import platform
 import sys
 import copy
 import time
@@ -23,10 +24,14 @@ g_spew_level = None
 g_p2p_rendezvous_level = None
 g_stun_ip = "127.0.100.1"
 g_stun_port = 3478
+g_setup_mock_ips = False
+g_cleanup_mock_ips = False
 
 def ParseArgs():
     global g_spew_level
     global g_p2p_rendezvous_level
+    global g_setup_mock_ips
+    global g_cleanup_mock_ips
 
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -40,9 +45,21 @@ def ParseArgs():
         choices=[ 'msg', 'verbose', 'debug' ],
         help='Control detail level specifically for P2P rendezvous-related spew.'
     )
+    parser.add_argument(
+        '--setup-mock-ips',
+        action='store_true',
+        help='Add any addresses needed by the mock network that are not already bindable. Exits without running tests.'
+    )
+    parser.add_argument(
+        '--cleanup-mock-ips',
+        action='store_true',
+        help='Remove addresses added by --setup-mock-ips. Exits without running tests.'
+    )
     args = parser.parse_args()
     g_spew_level = args.spewlevel
     g_p2p_rendezvous_level = args.loglevel_p2prendezvous
+    g_setup_mock_ips = args.setup_mock_ips
+    g_cleanup_mock_ips = args.cleanup_mock_ips
 
 # Thread class that runs a process and captures its output
 class RunProcessInThread(threading.Thread):
@@ -164,6 +181,54 @@ _CLI_INT2 = '127.0.4.2'    # second client internal address
 _DEAD_INT = '127.0.9.2'    # address used for disabled adapters
 _CLI_SAME_LAN = '127.0.1.3' # client on the same /24 private LAN as _SRV_INT
 
+# All addresses that the mock network needs to be able to bind sockets to.
+_ALL_MOCK_ADDRS = [
+    g_stun_ip,
+    _SRV_GW, _CLI_GW, _SRV_GW2, _CLI_GW2,
+    _SRV_INT, _CLI_INT, _SRV_INT2, _CLI_INT2, _DEAD_INT, _CLI_SAME_LAN,
+]
+
+def _IsAddressBindable( addr ):
+    import socket
+    try:
+        s = socket.socket( socket.AF_INET, socket.SOCK_DGRAM )
+        s.bind( ( addr, 0 ) )
+        s.close()
+        return True
+    except OSError:
+        return False
+
+def SetupMockIPs():
+    """Add loopback aliases for every mock address that is not already bindable."""
+    if platform.system() != 'Darwin':
+        print( "Nothing to do on this platform." )
+        return
+    for addr in _ALL_MOCK_ADDRS:
+        subprocess.run( [ 'ifconfig', 'lo0', 'alias', addr ], check=True )
+    print( "Added %d loopback alias(es)." % len( _ALL_MOCK_ADDRS ) )
+
+def CleanupMockIPs():
+    """Remove loopback aliases added by --setup-mock-ips."""
+    if platform.system() != 'Darwin':
+        print( "Nothing to do on this platform." )
+        return
+    for addr in _ALL_MOCK_ADDRS:
+        if addr == '127.0.0.1':
+            continue
+        subprocess.run( [ 'ifconfig', 'lo0', '-alias', addr ], check=False )
+    print( "Removed loopback aliases." )
+
+def CheckMockIPsBindable():
+    """Verify all mock addresses are bindable; exit with an error if any are not."""
+    missing = [ addr for addr in _ALL_MOCK_ADDRS if not _IsAddressBindable( addr ) ]
+    if not missing:
+        return
+    print( "ERROR: the following addresses required by the mock network are not bindable:" )
+    for addr in missing:
+        print( "  " + addr )
+    print( "Run 'sudo %s --setup-mock-ips' to add the required loopback aliases." % sys.argv[0] )
+    sys.exit(1)
+
 def _nat( internal, gateway, nat_type ):
     # Gateway must be declared before the adapter that uses it
     return [ '--mock-gateway', gateway, '--mock-nat', nat_type, '--mock-adapter', internal ]
@@ -281,6 +346,16 @@ def ClientServerTest( server_extra_args=[], client_extra_args=[], expected_route
 #
 
 ParseArgs()
+
+if g_setup_mock_ips:
+    SetupMockIPs()
+    sys.exit(0)
+
+if g_cleanup_mock_ips:
+    CleanupMockIPs()
+    sys.exit(0)
+
+CheckMockIPsBindable()
 
 # Find and start the STUN server
 stun_server_script = './stun_server.py'
