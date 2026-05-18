@@ -204,6 +204,7 @@ def SetupMockIPs():
         print( "Nothing to do on this platform." )
         return
     for addr in _ALL_MOCK_ADDRS:
+        print( "Running 'ifconfig lo0 alias %s'" % addr )
         subprocess.run( [ 'ifconfig', 'lo0', 'alias', addr ], check=True )
     print( "Added %d loopback alias(es)." % len( _ALL_MOCK_ADDRS ) )
 
@@ -215,6 +216,7 @@ def CleanupMockIPs():
     for addr in _ALL_MOCK_ADDRS:
         if addr == '127.0.0.1':
             continue
+        print( "Running 'ifconfig lo0 -alias %s'" % addr )
         subprocess.run( [ 'ifconfig', 'lo0', '-alias', addr ], check=False )
     print( "Removed loopback aliases." )
 
