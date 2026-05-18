@@ -208,6 +208,8 @@ def _IsAddressBindable( addr ):
     except OSError:
         return False
 
+_WINDOWS_LOOPBACK_IFACE = 'Loopback Pseudo-Interface 1'
+
 def _AddLoopbackAddr( addr ):
     is_ipv6 = ':' in addr
     sys_name = platform.system()
@@ -223,7 +225,12 @@ def _AddLoopbackAddr( addr ):
             print( "Running 'ip -6 addr add %s/112 dev lo'" % addr )
             subprocess.run( [ 'ip', '-6', 'addr', 'add', addr + '/112', 'dev', 'lo' ], check=True )
         # IPv4 on Linux: the entire 127/8 block is routable on lo, nothing to do.
-    # Windows: TBD when needed
+    elif sys_name == 'Windows':
+        if is_ipv6:
+            print( "Running 'netsh interface ipv6 add address \"%s\" %s'" % ( _WINDOWS_LOOPBACK_IFACE, addr ) )
+            subprocess.run( [ 'netsh', 'interface', 'ipv6', 'add', 'address',
+                               _WINDOWS_LOOPBACK_IFACE, addr ], check=True )
+        # IPv4 on Windows: the entire 127/8 block is routable on the loopback adapter, nothing to do.
 
 def _RemoveLoopbackAddr( addr ):
     is_ipv6 = ':' in addr
@@ -240,7 +247,12 @@ def _RemoveLoopbackAddr( addr ):
             print( "Running 'ip -6 addr del %s/112 dev lo'" % addr )
             subprocess.run( [ 'ip', '-6', 'addr', 'del', addr + '/112', 'dev', 'lo' ], check=False )
         # IPv4 on Linux: nothing was added, nothing to remove.
-    # Windows: TBD when needed
+    elif sys_name == 'Windows':
+        if is_ipv6:
+            print( "Running 'netsh interface ipv6 delete address \"%s\" %s'" % ( _WINDOWS_LOOPBACK_IFACE, addr ) )
+            subprocess.run( [ 'netsh', 'interface', 'ipv6', 'delete', 'address',
+                               _WINDOWS_LOOPBACK_IFACE, addr ], check=False )
+        # IPv4 on Windows: nothing was added, nothing to remove.
 
 def SetupMockIPs():
     """Add loopback aliases for every mock address that is not already bindable."""
@@ -264,7 +276,10 @@ def CheckMockIPsBindable():
     print( "ERROR: the following addresses required by the mock network are not bindable:" )
     for addr in missing:
         print( "  " + addr )
-    print( "Run 'sudo %s --setup-mock-ips' to add the required loopback aliases." % sys.argv[0] )
+    if platform.system() == 'Windows':
+        print( "Run '%s --setup-mock-ips' from an elevated (Administrator) prompt." % sys.argv[0] )
+    else:
+        print( "Run 'sudo %s --setup-mock-ips' to add the required loopback aliases." % sys.argv[0] )
     sys.exit(1)
 
 def _nat( internal, gateway, nat_type ):
