@@ -188,6 +188,10 @@ namespace SteamNetworkingSocketsLib {
         SteamNetworkingIPAddr GetSelectedDestination();
 		int GetPing() const;
 
+        // Returns the subnet prefix length for the local interface matching addr,
+        // or 0 if the interface was not found or has no valid prefix data.
+        int GetLocalCandidatePrefixLen( const SteamNetworkingIPAddr &addr ) const;
+
     protected:
         void Think( SteamNetworkingMicroseconds usecNow ) override;
 
