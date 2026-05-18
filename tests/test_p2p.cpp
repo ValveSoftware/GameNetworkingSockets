@@ -46,6 +46,7 @@ void PrintUsage()
 		"  --spewlevel <level>                 Console spew level: msg, verbose, debug\n"
 		"  --loglevel-p2prendezvous <level>    P2P rendezvous log level: msg, verbose, debug\n"
 		"  --stun-server <host:port>           STUN server address (default: " DEFAULT_STUN_SERVER ")\n"
+		"  --ice-implementation <n>            ICE implementation: 0=default, 1=native\n"
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_MOCK
 		"\n"
 		"Mock network options:\n"
@@ -222,6 +223,7 @@ int main( int argc, const char **argv )
 	SteamNetworkingIdentity identityRemote; identityRemote.Clear();
 	const char *pszTrivialSignalingService = "localhost:10000";
 	const char *pszSTUNServer = DEFAULT_STUN_SERVER;
+	int g_nICEImplementation = -1; // -1 = not set, use library default
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_MOCK
 	TEST_mocknetwork_config_t mockConfig;
 #endif
@@ -250,6 +252,8 @@ int main( int argc, const char **argv )
 			pszTrivialSignalingService = GetArg();
 		else if ( !strcmp( pszSwitch, "--stun-server" ) )
 			pszSTUNServer = GetArg();
+		else if ( !strcmp( pszSwitch, "--ice-implementation" ) )
+			g_nICEImplementation = atoi( GetArg() );
 		else if ( !strcmp( pszSwitch, "--client" ) )
 			g_eTestRole = k_ETestRole_Client;
 		else if ( !strcmp( pszSwitch, "--server" ) )
@@ -360,6 +364,8 @@ int main( int argc, const char **argv )
 	TEST_Init( &identityLocal );
 
 	SteamNetworkingUtils()->SetGlobalConfigValueString( k_ESteamNetworkingConfig_P2P_STUN_ServerList, pszSTUNServer );
+	if ( g_nICEImplementation >= 0 )
+		SteamNetworkingUtils()->SetGlobalConfigValueInt32( k_ESteamNetworkingConfig_P2P_Transport_ICE_Implementation, g_nICEImplementation );
 
 	// Hardcode TURN servers
 	// comma seperated setting lists

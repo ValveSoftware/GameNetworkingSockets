@@ -174,22 +174,30 @@ def _disabled_adapter( ip ):
 def _slow_nat( internal, gateway, nat_type, latency_ms ):
     return [ '--mock-gateway', gateway, '--mock-nat', nat_type, '--mock-adapter', internal, '--mock-latency', str(latency_ms) ]
 
-# Each entry: ( description, server_extra_args, client_extra_args, expected_route )
+# Each entry: ( description, server_extra_args, client_extra_args, expected_route, ice_impl )
 # Both sides must report the same route type — ICE nominates one candidate pair
 # and both ends classify the same path, so agreement is guaranteed by the protocol.
 # Route types: 'local' = Fast flag set: both host candidates on the same private /24 LAN subnet
 #              'udp'   = direct UDP but not same-LAN (NAT traversal, or public IPs)
 #              'relay' = TURN relay
+# ice_impl: 0 = default (WebRTC if compiled in), 1 = force native ICE client.
+# All mocked tests must use 1: the mock network is only wired into the native ICE path.
+# The two no-mock entries exercise both implementations on the real loopback network.
 CLIENT_SERVER_TEST_CASES = [
-    ( 'no-mock',
+    # No-mock tests: run on real network (same host), both implementations.
+    # We verify the route is 'local' (same-host loopback) but do not check the IP.
+    ( 'no-mock, default ICE implementation',
       [], [],
-      'local' ),
+      'local', 0 ),
+    ( 'no-mock, native ICE implementation',
+      [], [],
+      'local', 1 ),
 
     # Both on the same private /24 LAN: the core case for 'local' classification.
     ( 'same LAN (private subnet, no NAT)',
       [ '--mock-adapter', _SRV_INT ],
       [ '--mock-adapter', _CLI_SAME_LAN ],
-      'local' ),
+      'local', 1 ),
 
     # Both on the same LAN but each also has a NAT to the public internet via the
     # same shared gateway — the typical home/office scenario.  Both a direct host path
@@ -198,46 +206,46 @@ CLIENT_SERVER_TEST_CASES = [
     ( 'same LAN, shared gateway (hairpin)',
       _nat( _SRV_INT, _SRV_GW, 'full-cone' ),
       _nat( _CLI_SAME_LAN, _SRV_GW, 'full-cone' ),
-      'local' ),
+      'local', 1 ),
 
     # Both on the public network: direct host-to-host but NOT 'local' — public IPs
     # are not classified as fast even when they share a subnet.
     ( 'no-nat (both public)',
       [ '--mock-adapter', _SRV_GW ],
       [ '--mock-adapter', _CLI_GW ],
-      'udp' ),
+      'udp', 1 ),
 
     ( 'full-cone NAT',
       _nat( _SRV_INT, _SRV_GW, 'full-cone' ),
       _nat( _CLI_INT, _CLI_GW, 'full-cone' ),
-      'udp' ),
+      'udp', 1 ),
     ( 'restricted-cone NAT',
       _nat( _SRV_INT, _SRV_GW, 'restricted-cone' ),
       _nat( _CLI_INT, _CLI_GW, 'restricted-cone' ),
-      'udp' ),
+      'udp', 1 ),
     ( 'port-restricted-cone NAT',
       _nat( _SRV_INT, _SRV_GW, 'port-restricted-cone' ),
       _nat( _CLI_INT, _CLI_GW, 'port-restricted-cone' ),
-      'udp' ),
+      'udp', 1 ),
     # symmetric-vs-symmetric requires TURN relay; ICE alone cannot traverse it
     ( 'asymmetric: server public, client full-cone',
       [ '--mock-adapter', _SRV_GW ],
       _nat( _CLI_INT, _CLI_GW, 'full-cone' ),
-      'udp' ),  # client host (127.0.2.x) to server host (127.0.100.x): different subnets
+      'udp', 1 ),  # client host (127.0.2.x) to server host (127.0.100.x): different subnets
     ( 'asymmetric: server full-cone, client symmetric',
       _nat( _SRV_INT, _SRV_GW, 'full-cone' ),
       _nat( _CLI_INT, _CLI_GW, 'symmetric' ),
-      'udp' ),
+      'udp', 1 ),
 
     # Disabled adapter: verify connection still succeeds when one adapter is down
     ( 'server has disabled second adapter',
       [ '--mock-adapter', _SRV_GW ] + _disabled_adapter( _DEAD_INT ),
       _nat( _CLI_INT, _CLI_GW, 'full-cone' ),
-      'udp' ),
+      'udp', 1 ),
     ( 'client has disabled second adapter',
       [ '--mock-adapter', _SRV_GW ],
       _nat( _CLI_INT, _CLI_GW, 'full-cone' ) + _disabled_adapter( _DEAD_INT ),
-      'udp' ),
+      'udp', 1 ),
 
     # Multi-adapter with latency: fast public adapter + slow NATd adapter.
     # ICE should prefer the low-latency host-to-host path.  Both public adapters
@@ -245,13 +253,14 @@ CLIENT_SERVER_TEST_CASES = [
     ( 'both multi-adapter: fast public + slow NATd',
       [ '--mock-adapter', _SRV_GW ] + _slow_nat( _SRV_INT2, _SRV_GW2, 'full-cone', 50 ),
       [ '--mock-adapter', _CLI_GW ] + _slow_nat( _CLI_INT2, _CLI_GW2, 'full-cone', 50 ),
-      'udp' ),
+      'udp', 1 ),
 ]
 
-def ClientServerTest( server_extra_args=[], client_extra_args=[], expected_route=None ):
+def ClientServerTest( server_extra_args=[], client_extra_args=[], expected_route=None, ice_impl=1 ):
     global g_failed
-    server = StartClientInThread( "server", "peer_server", "peer_client", server_extra_args )
-    client = StartClientInThread( "client", "peer_client", "peer_server", client_extra_args )
+    impl_args = [ '--ice-implementation', str(ice_impl) ]
+    server = StartClientInThread( "server", "peer_server", "peer_client", server_extra_args + impl_args )
+    client = StartClientInThread( "client", "peer_client", "peer_server", client_extra_args + impl_args )
 
     # Wait for clients to shutdown.  Nuke them if necessary
     server.join( timeout=20 )
@@ -315,11 +324,11 @@ if not g_server_ready.wait( timeout=g_server_startup_timeout ):
 print( "Signaling server is ready, starting test clients" )
 
 # Run the tests
-for desc, srv_args, cli_args, exp_route in CLIENT_SERVER_TEST_CASES:
+for desc, srv_args, cli_args, exp_route, ice_impl in CLIENT_SERVER_TEST_CASES:
     print( "=================================================================" )
     print( "Test: " + desc )
     print( "=================================================================" )
-    ClientServerTest( srv_args, cli_args, exp_route )
+    ClientServerTest( srv_args, cli_args, exp_route, ice_impl )
     if g_failed:
         break
 
