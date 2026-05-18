@@ -39,7 +39,9 @@ $Configuration
 		$PreprocessorDefinitions			"$BASE;_RETAIL" [$RETAIL && $SDR_PUBLIC]
 		$PreprocessorDefinitions			"$BASE;_CERT" [$RETAIL && ( $PLAYSTATIONANY || $NINTENDOSWITCH || $XBOXONE ) ]
 		$AdditionalIncludeDirectories		"$BASE;$SRCDIR/public/steam"
+
 		$AdditionalIncludeDirectories       "$BASE;$SRCDIR/external/vjson" [$STEAMNETWORKINGSOCKETS_ENABLE_SDR] // We only need vjson to parse the SDR network config
+		$PreprocessorDefinitions			"$BASE;VJSON_VALVE"
 
 		// We don't need exception handling, so disable it
 		$EnableCPPExceptions				"false"
