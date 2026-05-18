@@ -153,13 +153,25 @@ def StartClientInThread( role, local, remote, extra_args=[] ):
     return StartProcessInThread( local, cmdline, env );
 
 # Mock network address constants
-_SRV_GW  = '127.0.100.2'   # server-side NAT gateway (public)
-_CLI_GW  = '127.0.100.3'   # client-side NAT gateway (public)
-_SRV_INT = '127.0.1.2'     # server internal address behind NAT
-_CLI_INT = '127.0.2.2'     # client internal address behind NAT
+_SRV_GW   = '127.0.100.2'  # server-side NAT gateway (public)
+_CLI_GW   = '127.0.100.3'  # client-side NAT gateway (public)
+_SRV_GW2  = '127.0.100.4'  # second server gateway (public)
+_CLI_GW2  = '127.0.100.5'  # second client gateway (public)
+_SRV_INT  = '127.0.1.2'    # server internal address behind NAT
+_CLI_INT  = '127.0.2.2'    # client internal address behind NAT
+_SRV_INT2 = '127.0.3.2'    # second server internal address
+_CLI_INT2 = '127.0.4.2'    # second client internal address
+_DEAD_INT = '127.0.9.2'    # address used for disabled adapters
 
 def _nat( internal, gateway, nat_type ):
-    return [ '--mock-adapter', internal, '--mock-gateway', gateway, '--mock-nat', nat_type ]
+    # Gateway must be declared before the adapter that uses it
+    return [ '--mock-gateway', gateway, '--mock-nat', nat_type, '--mock-adapter', internal ]
+
+def _disabled_adapter( ip ):
+    return [ '--mock-adapter', ip, '--mock-disabled' ]
+
+def _slow_nat( internal, gateway, nat_type, latency_ms ):
+    return [ '--mock-gateway', gateway, '--mock-nat', nat_type, '--mock-adapter', internal, '--mock-latency', str(latency_ms) ]
 
 # Each entry: ( description, server_extra_args, client_extra_args, expected_server_route, expected_client_route )
 # Route types: 'local' = host-to-host (no NAT traversal needed)
@@ -194,6 +206,23 @@ CLIENT_SERVER_TEST_CASES = [
       _nat( _SRV_INT, _SRV_GW, 'full-cone' ),
       _nat( _CLI_INT, _CLI_GW, 'symmetric' ),
       'udp', 'udp' ),
+
+    # Disabled adapter: verify connection still succeeds when one adapter is down
+    ( 'server has disabled second adapter',
+      [ '--mock-adapter', _SRV_GW ] + _disabled_adapter( _DEAD_INT ),
+      _nat( _CLI_INT, _CLI_GW, 'full-cone' ),
+      'udp', 'local' ),
+    ( 'client has disabled second adapter',
+      [ '--mock-adapter', _SRV_GW ],
+      _nat( _CLI_INT, _CLI_GW, 'full-cone' ) + _disabled_adapter( _DEAD_INT ),
+      'udp', 'local' ),
+
+    # Multi-adapter with latency: fast public adapter + slow NATd adapter.
+    # ICE should prefer the low-latency host-to-host path.
+    ( 'both multi-adapter: fast public + slow NATd',
+      [ '--mock-adapter', _SRV_GW ] + _slow_nat( _SRV_INT2, _SRV_GW2, 'full-cone', 50 ),
+      [ '--mock-adapter', _CLI_GW ] + _slow_nat( _CLI_INT2, _CLI_GW2, 'full-cone', 50 ),
+      'local', 'local' ),
 ]
 
 def ClientServerTest( server_extra_args=[], client_extra_args=[], expected_server_route=None, expected_client_route=None ):

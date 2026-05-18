@@ -1754,6 +1754,10 @@ public:
 		if ( !m_pSockLocal )
 			return false;
 
+		// Drop all packets if this interface is disabled
+		if ( !m_ifaceConfig.m_bEnabled )
+			return true;
+
 		DbgAssert( m_boundAddr == m_pSockLocal->m_boundAddr );
 
 		if ( adrTo.GetType() == k_EIPTypeV4 )
@@ -1772,11 +1776,10 @@ public:
 				return const_cast<CUDPSocketMock *>(this)->BCreateNATAndSend( nChunks, pChunks, adrTo, ecn );
 
 			const uint32 net_local = m_boundAddr.GetIPv4() & 0xFF00;
-
 			if ( net_local == net_remote )
 			{
-				// Same 'LAN', send directly
-				return m_pSockLocal->BSendRawPacketGather( nChunks, pChunks, adrTo, ecn );
+				// Same LAN — send directly with interface latency only (no gateway involved)
+				return SendDelayed( m_pSockLocal, nChunks, pChunks, adrTo, ecn, m_ifaceConfig.m_nSendLatencyMS );
 			}
 		}
 
@@ -1795,6 +1798,22 @@ public:
 
 protected:
 
+	TEST_mocknetwork_interface_t m_ifaceConfig;
+	const TEST_mocknetwork_gateway_t *m_pGatewayConfig; // null for public interfaces (no NAT)
+
+	CUDPSocketMock( const TEST_mocknetwork_interface_t &ifaceConfig, const TEST_mocknetwork_gateway_t *pGatewayConfig )
+		: m_ifaceConfig( ifaceConfig ), m_pGatewayConfig( pGatewayConfig ) {}
+
+	// Total one-way latency for packets going to the public internet via this interface.
+	// Sums interface send latency + gateway internal latency (VPN tunnel) + gateway external latency (WAN).
+	int GetPublicSendLatencyMS() const
+	{
+		int ms = m_ifaceConfig.m_nSendLatencyMS;
+		if ( m_pGatewayConfig )
+			ms += m_pGatewayConfig->m_nInternalLatencyMS + m_pGatewayConfig->m_nExternalLatencyMS;
+		return ms;
+	}
+
 	// The internal (LAN-side) socket
 	CRawUDPSocketImpl *m_pSockLocal = nullptr;
 
@@ -1810,27 +1829,51 @@ protected:
 	{
 		if ( !m_userCallback.m_fnCallback )
 			return;
+		if ( m_pGatewayConfig && m_pGatewayConfig->m_nInternalLatencyMS > 0 )
+		{
+			iovec iov_buf;
+			iov_buf.iov_base = (void *)info.m_pPkt;
+			iov_buf.iov_len = info.m_cbPkt;
+			SteamNetworkingMicroseconds usecDeliverAt = SteamNetworkingSockets_GetLocalTimestamp() + (SteamNetworkingMicroseconds)m_pGatewayConfig->m_nInternalLatencyMS * 1000;
+			s_packetLagQueueRecv.LagPacket( m_pSockLocal, info.m_adrFrom, usecDeliverAt, 1, &iov_buf, info.m_tos );
+			return;
+		}
 		RecvPktInfo_t fixedInfo = info;
 		fixedInfo.m_pSock = this;
 		m_userCallback( fixedInfo );
 	}
 
-	// Allocate a port on the public gateway IP for a NAT entry
-	static CRawUDPSocketImpl *CreateExternalSock( CRecvPacketCallback callback )
+	// Allocate a port on this interface's gateway public IP for a NAT entry
+	CRawUDPSocketImpl *CreateExternalSock( CRecvPacketCallback callback )
 	{
-		Assert( s_mockNetworkConfig.m_ipv4_gateway.IsIPv4() );
-		Assert( s_mockNetworkConfig.m_ipv4_gateway.m_port == 0 );
-		SteamNetworkingIPAddr addrLocal = s_mockNetworkConfig.m_ipv4_gateway;
+		Assert( m_pGatewayConfig );
+		Assert( m_pGatewayConfig->m_ipv4_public.IsIPv4() );
+		Assert( m_pGatewayConfig->m_ipv4_public.m_port == 0 );
+		SteamNetworkingIPAddr addrGateway = m_pGatewayConfig->m_ipv4_public;
 		SteamNetworkingErrMsg errMsg;
-		CRawUDPSocketImpl *pSock = OpenRawUDPSocketInternal( callback, errMsg, &addrLocal, nullptr );
+		CRawUDPSocketImpl *pSock = OpenRawUDPSocketInternal( callback, errMsg, &addrGateway, nullptr );
 		if ( !pSock )
 			SpewError( "Failed to create external socket for NAT.  %s\n", errMsg );
 		return pSock;
 	}
 
+	// Send a packet, optionally delaying delivery by nDelayMS milliseconds.
+	// NAT bookkeeping must be completed before calling this; only the wire send is delayed.
+	bool SendDelayed( CRawUDPSocketImpl *pSock, int nChunks, const iovec *pChunks, const netadr_t &adrTo, int ecn, int nDelayMS ) const
+	{
+		if ( nDelayMS <= 0 )
+			return pSock->BSendRawPacketGather( nChunks, pChunks, adrTo, ecn );
+
+		SteamNetworkingMicroseconds usecDeliverAt = SteamNetworkingSockets_GetLocalTimestamp() + (SteamNetworkingMicroseconds)nDelayMS * 1000;
+		s_packetLagQueueSend.LagPacket( pSock, adrTo, usecDeliverAt, nChunks, pChunks, ecn == -1 ? 0xff : (uint8)ecn );
+		return true;
+	}
+
 private:
 	static void StaticRecvInternalPacketThunk( const RecvPktInfo_t &info, CUDPSocketMock *pSelf )
 	{
+		if ( !pSelf->m_ifaceConfig.m_bEnabled )
+			return;
 		// Fix up m_pSock to point to this mock socket, not the internal one, so replies route correctly
 		RecvPktInfo_t fixedInfo = info;
 		fixedInfo.m_pSock = pSelf;
@@ -1838,14 +1881,16 @@ private:
 	}
 };
 
-// No NAT -- local IP is already on the public network
-class CUDPSocketMock_None final : public CUDPSocketMock
+// Public interface — local IP is already on the public network, no NAT
+class CUDPSocketMock_Public final : public CUDPSocketMock
 {
 public:
+	CUDPSocketMock_Public( const TEST_mocknetwork_interface_t &iface )
+		: CUDPSocketMock( iface, nullptr ) {}
+
 	virtual bool BCreateNATAndSend( int nChunks, const iovec *pChunks, const netadr_t &adrTo, int ecn ) override
 	{
-		// No NAT, send directly
-		return m_pSockLocal->BSendRawPacketGather( nChunks, pChunks, adrTo, ecn );
+		return SendDelayed( m_pSockLocal, nChunks, pChunks, adrTo, ecn, m_ifaceConfig.m_nSendLatencyMS );
 	}
 };
 
@@ -1854,13 +1899,12 @@ public:
 class CUDPSocketMock_OnePublicPort final : public CUDPSocketMock
 {
 public:
-	const TEST_mocknetwork_nat_type m_eNATType;
-
-	CUDPSocketMock_OnePublicPort( TEST_mocknetwork_nat_type eNATType ) : m_eNATType( eNATType )
+	CUDPSocketMock_OnePublicPort( const TEST_mocknetwork_interface_t &iface, const TEST_mocknetwork_gateway_t &gw )
+		: CUDPSocketMock( iface, &gw )
 	{
-		Assert( m_eNATType == TEST_mocknetwork_nat_type::FullCone
-			|| m_eNATType == TEST_mocknetwork_nat_type::RestrictedCone
-			|| m_eNATType == TEST_mocknetwork_nat_type::PortRestrictedCone );
+		Assert( gw.m_natType == TEST_mocknetwork_nat_type::FullCone
+			|| gw.m_natType == TEST_mocknetwork_nat_type::RestrictedCone
+			|| gw.m_natType == TEST_mocknetwork_nat_type::PortRestrictedCone );
 	}
 
 	virtual void Close() override
@@ -1898,25 +1942,27 @@ private:
 		}
 
 		// Track destinations for restricted NAT types
-		if ( m_eNATType != TEST_mocknetwork_nat_type::FullCone )
+		TEST_mocknetwork_nat_type eNATType = m_pGatewayConfig->m_natType;
+		if ( eNATType != TEST_mocknetwork_nat_type::FullCone )
 		{
 			netadr_t adrRecordSent = adrTo;
-			if ( m_eNATType == TEST_mocknetwork_nat_type::RestrictedCone )
+			if ( eNATType == TEST_mocknetwork_nat_type::RestrictedCone )
 				adrRecordSent.SetPort(0);
 			if ( std::find( m_vecAdrsSentTo.begin(), m_vecAdrsSentTo.end(), adrRecordSent ) == m_vecAdrsSentTo.end() )
 				m_vecAdrsSentTo.push_back( adrRecordSent );
 		}
 
-		return m_pSockExternal->BSendRawPacketGather( nChunks, pChunks, adrTo, ecn );
+		return SendDelayed( m_pSockExternal, nChunks, pChunks, adrTo, ecn, GetPublicSendLatencyMS() );
 	}
 
 	void RecvPacketExternal( const RecvPktInfo_t &info )
 	{
 		// For restricted NAT types, drop packets from addresses we haven't sent to
-		if ( m_eNATType != TEST_mocknetwork_nat_type::FullCone )
+		TEST_mocknetwork_nat_type eNATType = m_pGatewayConfig->m_natType;
+		if ( eNATType != TEST_mocknetwork_nat_type::FullCone )
 		{
 			netadr_t adrCheck = info.m_adrFrom;
-			if ( m_eNATType == TEST_mocknetwork_nat_type::RestrictedCone )
+			if ( eNATType == TEST_mocknetwork_nat_type::RestrictedCone )
 				adrCheck.SetPort(0);
 			if ( std::find( m_vecAdrsSentTo.begin(), m_vecAdrsSentTo.end(), adrCheck ) == m_vecAdrsSentTo.end() )
 			{
@@ -1934,6 +1980,10 @@ private:
 // Symmetric NAT: every unique remote destination gets a separate external port
 class CUDPSocketMock_Symmetric final : public CUDPSocketMock
 {
+public:
+	CUDPSocketMock_Symmetric( const TEST_mocknetwork_interface_t &iface, const TEST_mocknetwork_gateway_t &gw )
+		: CUDPSocketMock( iface, &gw ) {}
+
 	virtual void Close() override
 	{
 		m_vecNATEntries.clear();  // NATEntry_t destructor closes external sockets
@@ -2003,7 +2053,7 @@ private:
 			m_vecNATEntries.push_back( std::move( pNewEntry ) );
 		}
 
-		return pNatEntry->m_pSockExternal->BSendRawPacketGather( nChunks, pChunks, adrTo, ecn );
+		return SendDelayed( pNatEntry->m_pSockExternal, nChunks, pChunks, adrTo, ecn, GetPublicSendLatencyMS() );
 	}
 };
 
@@ -2015,35 +2065,62 @@ IRawUDPSocket *OpenRawUDPSocket( CRecvPacketCallback callback, SteamNetworkingEr
 	#if STEAMNETWORKINGSOCKETS_ENABLE_MOCK
 	if ( TEST_mocknetwork_active )
 	{
-		// Determine the local address to bind to
-		SteamNetworkingIPAddr addrLocal;
+		// Find the matching interface config by address
+		const TEST_mocknetwork_interface_t *pIfaceConfig = nullptr;
 		if ( pAddrLocal && pAddrLocal->IsIPv4() && pAddrLocal->GetIPv4() != 0 )
-			addrLocal = *pAddrLocal;
+		{
+			uint32 nLookupIP = pAddrLocal->GetIPv4();
+			for ( const TEST_mocknetwork_interface_t &iface : s_mockNetworkConfig.m_vecInterfaces )
+			{
+				if ( iface.m_ip.IsIPv4() && iface.m_ip.GetIPv4() == nLookupIP )
+				{
+					pIfaceConfig = &iface;
+					break;
+				}
+			}
+			if ( !pIfaceConfig )
+			{
+				V_sprintf_safe( errMsg, "Mock: no interface configured for %s", SteamNetworkingIPAddrRender( *pAddrLocal ).c_str() );
+				return nullptr;
+			}
+		}
 		else
 		{
 			Assert( !s_mockNetworkConfig.m_vecInterfaces.empty() );
-			addrLocal = s_mockNetworkConfig.m_vecInterfaces[0].m_ip;
+			pIfaceConfig = &s_mockNetworkConfig.m_vecInterfaces[0];
 		}
 
-		// Create the appropriate mock socket type based on NAT config
-		CUDPSocketMock *pMock;
-		switch ( s_mockNetworkConfig.m_natType )
+		// Look up gateway config (null for public interfaces)
+		const TEST_mocknetwork_gateway_t *pGatewayConfig = nullptr;
+		if ( pIfaceConfig->m_iGateway >= 0 )
 		{
-			default:
-			case TEST_mocknetwork_nat_type::None:
-				pMock = new CUDPSocketMock_None();
-				break;
-			case TEST_mocknetwork_nat_type::FullCone:
-			case TEST_mocknetwork_nat_type::RestrictedCone:
-			case TEST_mocknetwork_nat_type::PortRestrictedCone:
-				pMock = new CUDPSocketMock_OnePublicPort( s_mockNetworkConfig.m_natType );
-				break;
-			case TEST_mocknetwork_nat_type::Symmetric:
-				pMock = new CUDPSocketMock_Symmetric();
-				break;
+			Assert( pIfaceConfig->m_iGateway < (int)s_mockNetworkConfig.m_vecGateways.size() );
+			pGatewayConfig = &s_mockNetworkConfig.m_vecGateways[ pIfaceConfig->m_iGateway ];
 		}
 
-		if ( !pMock->BindLocal( callback, errMsg, addrLocal ) )
+		// Create the appropriate mock socket type
+		CUDPSocketMock *pMock;
+		if ( !pGatewayConfig )
+		{
+			pMock = new CUDPSocketMock_Public( *pIfaceConfig );
+		}
+		else
+		{
+			switch ( pGatewayConfig->m_natType )
+			{
+				default:
+				case TEST_mocknetwork_nat_type::FullCone:
+				case TEST_mocknetwork_nat_type::RestrictedCone:
+				case TEST_mocknetwork_nat_type::PortRestrictedCone:
+					pMock = new CUDPSocketMock_OnePublicPort( *pIfaceConfig, *pGatewayConfig );
+					break;
+				case TEST_mocknetwork_nat_type::Symmetric:
+					pMock = new CUDPSocketMock_Symmetric( *pIfaceConfig, *pGatewayConfig );
+					break;
+			}
+		}
+
+		if ( !pMock->BindLocal( callback, errMsg, pIfaceConfig->m_ip ) )
 		{
 			delete pMock;
 			return nullptr;
@@ -3838,7 +3915,10 @@ bool GetLocalAddresses( CUtlVector< SteamNetworkingIPAddr >* pAddrs )
 	if ( TEST_mocknetwork_active )
 	{
 		for ( const TEST_mocknetwork_interface_t &iface : s_mockNetworkConfig.m_vecInterfaces )
-			pAddrs->AddToTail( iface.m_ip );
+		{
+			if ( iface.m_bEnabled )
+				pAddrs->AddToTail( iface.m_ip );
+		}
 		return true;
 	}
 	#endif
@@ -4038,21 +4118,41 @@ void TEST_mocknetwork_init( const TEST_mocknetwork_config_t &config )
 	s_mockNetworkConfig = config;
 	TEST_mocknetwork_active = true;
 
-	const char *pszNATType = "???";
-	switch ( config.m_natType )
+	SpewMsg( "Mock network active.\n" );
+	for ( int i = 0; i < (int)config.m_vecGateways.size(); ++i )
 	{
-		case TEST_mocknetwork_nat_type::None:              pszNATType = "None (public IP)"; break;
-		case TEST_mocknetwork_nat_type::FullCone:          pszNATType = "Full Cone"; break;
-		case TEST_mocknetwork_nat_type::RestrictedCone:    pszNATType = "Restricted Cone"; break;
-		case TEST_mocknetwork_nat_type::PortRestrictedCone: pszNATType = "Port Restricted Cone"; break;
-		case TEST_mocknetwork_nat_type::Symmetric:         pszNATType = "Symmetric"; break;
+		const TEST_mocknetwork_gateway_t &gw = config.m_vecGateways[i];
+		const char *pszNATType = "???";
+		switch ( gw.m_natType )
+		{
+			case TEST_mocknetwork_nat_type::FullCone:           pszNATType = "full-cone"; break;
+			case TEST_mocknetwork_nat_type::RestrictedCone:     pszNATType = "restricted-cone"; break;
+			case TEST_mocknetwork_nat_type::PortRestrictedCone: pszNATType = "port-restricted-cone"; break;
+			case TEST_mocknetwork_nat_type::Symmetric:          pszNATType = "symmetric"; break;
+		}
+		SpewMsg( "  Gateway[%d]: %s  NAT=%s  int=%dms  ext=%dms\n",
+			i, SteamNetworkingIPAddrRender( gw.m_ipv4_public, false ).c_str(),
+			pszNATType, gw.m_nInternalLatencyMS, gw.m_nExternalLatencyMS );
 	}
-
-	SpewMsg( "Mock network active.  NAT type: %s\n", pszNATType );
-	if ( config.m_ipv4_gateway.IsIPv4() )
-		SpewMsg( "  Gateway: %s\n", SteamNetworkingIPAddrRender( config.m_ipv4_gateway, false ).c_str() );
 	for ( const TEST_mocknetwork_interface_t &iface : config.m_vecInterfaces )
-		SpewMsg( "  Adapter: %s\n", SteamNetworkingIPAddrRender( iface.m_ip, false ).c_str() );
+	{
+		if ( iface.m_bEnabled )
+		{
+			if ( iface.m_iGateway >= 0 )
+				SpewMsg( "  Adapter: %s  gw[%d]  latency=%dms\n",
+					SteamNetworkingIPAddrRender( iface.m_ip, false ).c_str(),
+					iface.m_iGateway, iface.m_nSendLatencyMS );
+			else
+				SpewMsg( "  Adapter: %s  (public)  latency=%dms\n",
+					SteamNetworkingIPAddrRender( iface.m_ip, false ).c_str(),
+					iface.m_nSendLatencyMS );
+		}
+		else
+		{
+			SpewMsg( "  Adapter: %s  (DISABLED)\n",
+				SteamNetworkingIPAddrRender( iface.m_ip, false ).c_str() );
+		}
+	}
 }
 
 #endif // STEAMNETWORKINGSOCKETS_ENABLE_MOCK

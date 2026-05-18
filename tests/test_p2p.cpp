@@ -49,11 +49,17 @@ void PrintUsage()
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_MOCK
 		"\n"
 		"Mock network options:\n"
-		"  --mock-adapter <ip>                 Add a mock network adapter IP (repeatable)\n"
-		"  --mock-gateway <ip>                 Gateway/public IP for mock network\n"
-		"                                        (required if --mock-nat is not 'none')\n"
-		"  --mock-nat <type>                   NAT type: none (default), full-cone,\n"
+		"  --mock-adapter <ip>                 Add a mock network adapter (repeatable).\n"
+		"                                        Assigned to the most recently declared gateway,\n"
+		"                                        or public (no NAT) if no gateway declared yet.\n"
+		"  --mock-latency <ms>                 One-way send latency for the last --mock-adapter.\n"
+		"  --mock-disabled                     Mark the last --mock-adapter as down.\n"
+		"  --mock-gateway <ip>                 Declare a NAT gateway with this public IP.\n"
+		"                                        Subsequent --mock-adapters are assigned to it.\n"
+		"  --mock-nat <type>                   NAT type for last gateway: full-cone (default),\n"
 		"                                        restricted-cone, port-restricted-cone, symmetric\n"
+		"  --mock-internal-latency <ms>        VPN-tunnel latency for last gateway (host->exit).\n"
+		"  --mock-external-latency <ms>        WAN latency for last gateway (exit->internet).\n"
 #endif
 	);
 }
@@ -267,6 +273,45 @@ int main( int argc, const char **argv )
 			g_eTestP2PRendezvousLogLevel = ParseLogLevelValue( pszArg, "--loglevel-p2prendezvous" );
 		}
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_MOCK
+		else if ( !strcmp( pszSwitch, "--mock-gateway" ) )
+		{
+			const char *pszArg = GetArg();
+			TEST_mocknetwork_gateway_t gw;
+			if ( !gw.m_ipv4_public.ParseString( pszArg ) || !gw.m_ipv4_public.IsIPv4() )
+				TEST_Fatal( "'%s' is not a valid IPv4 address for --mock-gateway", pszArg );
+			gw.m_ipv4_public.m_port = 0;
+			mockConfig.m_vecGateways.push_back( gw );
+		}
+		else if ( !strcmp( pszSwitch, "--mock-nat" ) )
+		{
+			if ( mockConfig.m_vecGateways.empty() )
+				TEST_Fatal( "--mock-nat must follow --mock-gateway" );
+			const char *pszArg = GetArg();
+			TEST_mocknetwork_nat_type eNATType;
+			if ( !strcmp( pszArg, "full-cone" ) )
+				eNATType = TEST_mocknetwork_nat_type::FullCone;
+			else if ( !strcmp( pszArg, "restricted-cone" ) )
+				eNATType = TEST_mocknetwork_nat_type::RestrictedCone;
+			else if ( !strcmp( pszArg, "port-restricted-cone" ) )
+				eNATType = TEST_mocknetwork_nat_type::PortRestrictedCone;
+			else if ( !strcmp( pszArg, "symmetric" ) )
+				eNATType = TEST_mocknetwork_nat_type::Symmetric;
+			else
+				TEST_Fatal( "Invalid --mock-nat '%s'. Expected: full-cone, restricted-cone, port-restricted-cone, symmetric", pszArg );
+			mockConfig.m_vecGateways.back().m_natType = eNATType;
+		}
+		else if ( !strcmp( pszSwitch, "--mock-internal-latency" ) )
+		{
+			if ( mockConfig.m_vecGateways.empty() )
+				TEST_Fatal( "--mock-internal-latency must follow --mock-gateway" );
+			mockConfig.m_vecGateways.back().m_nInternalLatencyMS = atoi( GetArg() );
+		}
+		else if ( !strcmp( pszSwitch, "--mock-external-latency" ) )
+		{
+			if ( mockConfig.m_vecGateways.empty() )
+				TEST_Fatal( "--mock-external-latency must follow --mock-gateway" );
+			mockConfig.m_vecGateways.back().m_nExternalLatencyMS = atoi( GetArg() );
+		}
 		else if ( !strcmp( pszSwitch, "--mock-adapter" ) )
 		{
 			const char *pszArg = GetArg();
@@ -274,30 +319,20 @@ int main( int argc, const char **argv )
 			if ( !iface.m_ip.ParseString( pszArg ) || !iface.m_ip.IsIPv4() )
 				TEST_Fatal( "'%s' is not a valid IPv4 address for --mock-adapter", pszArg );
 			iface.m_ip.m_port = 0;
+			iface.m_iGateway = mockConfig.m_vecGateways.empty() ? -1 : (int)mockConfig.m_vecGateways.size() - 1;
 			mockConfig.m_vecInterfaces.push_back( iface );
 		}
-		else if ( !strcmp( pszSwitch, "--mock-gateway" ) )
+		else if ( !strcmp( pszSwitch, "--mock-latency" ) )
 		{
-			const char *pszArg = GetArg();
-			if ( !mockConfig.m_ipv4_gateway.ParseString( pszArg ) || !mockConfig.m_ipv4_gateway.IsIPv4() )
-				TEST_Fatal( "'%s' is not a valid IPv4 address for --mock-gateway", pszArg );
-			mockConfig.m_ipv4_gateway.m_port = 0;
+			if ( mockConfig.m_vecInterfaces.empty() )
+				TEST_Fatal( "--mock-latency must follow --mock-adapter" );
+			mockConfig.m_vecInterfaces.back().m_nSendLatencyMS = atoi( GetArg() );
 		}
-		else if ( !strcmp( pszSwitch, "--mock-nat" ) )
+		else if ( !strcmp( pszSwitch, "--mock-disabled" ) )
 		{
-			const char *pszArg = GetArg();
-			if ( !strcmp( pszArg, "none" ) )
-				mockConfig.m_natType = TEST_mocknetwork_nat_type::None;
-			else if ( !strcmp( pszArg, "full-cone" ) )
-				mockConfig.m_natType = TEST_mocknetwork_nat_type::FullCone;
-			else if ( !strcmp( pszArg, "restricted-cone" ) )
-				mockConfig.m_natType = TEST_mocknetwork_nat_type::RestrictedCone;
-			else if ( !strcmp( pszArg, "port-restricted-cone" ) )
-				mockConfig.m_natType = TEST_mocknetwork_nat_type::PortRestrictedCone;
-			else if ( !strcmp( pszArg, "symmetric" ) )
-				mockConfig.m_natType = TEST_mocknetwork_nat_type::Symmetric;
-			else
-				TEST_Fatal( "Invalid --mock-nat '%s'. Expected: none, full-cone, restricted-cone, port-restricted-cone, symmetric", pszArg );
+			if ( mockConfig.m_vecInterfaces.empty() )
+				TEST_Fatal( "--mock-disabled must follow --mock-adapter" );
+			mockConfig.m_vecInterfaces.back().m_bEnabled = false;
 		}
 #endif
 		else if ( !strcmp( pszSwitch, "--help" ) || !strcmp( pszSwitch, "-h" ) )
@@ -318,11 +353,7 @@ int main( int argc, const char **argv )
 
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_MOCK
 	if ( !mockConfig.m_vecInterfaces.empty() )
-	{
-		if ( mockConfig.m_natType != TEST_mocknetwork_nat_type::None && !mockConfig.m_ipv4_gateway.IsIPv4() )
-			TEST_Fatal( "--mock-gateway is required when --mock-nat is not 'none'" );
 		TEST_mocknetwork_init( mockConfig );
-	}
 #endif
 
 	// Initialize library, with the desired local identity
