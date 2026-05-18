@@ -22,6 +22,60 @@ static void ConvertNetAddr_tToSteamNetworkingIPAddr( const netadr_t& in, SteamNe
 static void ConvertSteamNetworkingIPAddrToNetAdr_t( const SteamNetworkingIPAddr& in, netadr_t *pOut );
 static uint32 CRC32( const unsigned char *buf, int len );
 
+// Returns true if remoteAddr falls on the same LAN as localAddr/nPrefixLen.
+// Requires the local address to be in private/reserved IP space; this prevents
+// two hosts with public datacenter IPs on a shared subnet from being mistakenly
+// classified as a fast LAN hop.
+static bool IsRemoteAddressOnLocalSubnet( const SteamNetworkingIPAddr &localAddr, int nPrefixLen, const SteamNetworkingIPAddr &remoteAddr )
+{
+    if ( nPrefixLen <= 0 )
+        return false;
+
+    if ( localAddr.IsIPv4() )
+    {
+        if ( !remoteAddr.IsIPv4() )
+            return false;
+
+        uint32 local = localAddr.GetIPv4();
+        uint8 a = (uint8)( local >> 24 );
+        uint8 b = (uint8)( local >> 16 );
+        bool bPrivate = ( a == 127 )                           // loopback (includes mock network LANs)
+            || ( a == 10 )                                     // RFC 1918 10/8
+            || ( a == 172 && b >= 16 && b <= 31 )             // RFC 1918 172.16/12
+            || ( a == 192 && b == 168 );                       // RFC 1918 192.168/16
+        if ( !bPrivate )
+            return false;
+
+        uint32 mask = ( nPrefixLen >= 32 ) ? ~0u : ~( ~0u >> nPrefixLen );
+        return ( local & mask ) == ( remoteAddr.GetIPv4() & mask );
+    }
+    else
+    {
+        if ( remoteAddr.IsIPv4() )
+            return false;
+
+        const uint8 *pLocal  = localAddr.m_ipv6;
+        const uint8 *pRemote = remoteAddr.m_ipv6;
+
+        // Only ULA (fc00::/7) is the IPv6 equivalent of private RFC 1918 space.
+        if ( pLocal[0] != 0xfc && pLocal[0] != 0xfd )
+            return false;
+
+        int nFullBytes = nPrefixLen / 8;
+        int nRemBits   = nPrefixLen % 8;
+        if ( nFullBytes > 16 ) nFullBytes = 16;
+        if ( memcmp( pLocal, pRemote, nFullBytes ) != 0 )
+            return false;
+        if ( nRemBits > 0 && nFullBytes < 16 )
+        {
+            uint8 mask = (uint8)( 0xFF << ( 8 - nRemBits ) );
+            if ( ( pLocal[nFullBytes] & mask ) != ( pRemote[nFullBytes] & mask ) )
+                return false;
+        }
+        return true;
+    }
+}
+
 static void UnpackSTUNHeader( const uint32 *pHeader, STUNHeader* pUnpackedHeader )
 {
     if ( pHeader == nullptr || pUnpackedHeader == nullptr )
@@ -1231,6 +1285,20 @@ void CSteamNetworkingICESession::GatherInterfaces()
     }
 }
 
+int CSteamNetworkingICESession::GetLocalCandidatePrefixLen( const SteamNetworkingIPAddr &addr ) const
+{
+    // m_localaddr entries have port=0 (from getifaddrs); candidate bases carry the bound port.
+    // Strip the port before comparing so the lookup succeeds.
+    SteamNetworkingIPAddr addrNoPort = addr;
+    addrNoPort.m_port = 0;
+    for ( const Interface &intf : m_vecInterfaces )
+    {
+        if ( intf.m_localaddr == addrNoPort )
+            return intf.m_nPrefixLen;
+    }
+    return 0;
+}
+
 IRawUDPSocket *CSteamNetworkingICESession::FindSocketForCandidate( const SteamNetworkingIPAddr& addr )
 {
     for ( IRawUDPSocket *pSock : m_vecHostCandidateSockets )
@@ -2327,13 +2395,13 @@ void CConnectionTransportP2PICE_Valve::OnConnectionSelected( const CSteamNetwork
     ConnectionScopeLock lock( Connection(), "CConnectionTransportP2PICE_Valve::OnConnectionSelected");
 
     m_currentRouteRemoteAddress = remoteCandidate.m_addr;
-    if ( localCandidate.m_type == CSteamNetworkingICESession::kICECandidateType_Host && remoteCandidate.m_type == CSteamNetworkingICESession::kICECandidateType_Host )
+    m_eCurrentRouteKind = k_ESteamNetTransport_UDP;
+    if ( localCandidate.m_type == CSteamNetworkingICESession::kICECandidateType_Host
+        && remoteCandidate.m_type == CSteamNetworkingICESession::kICECandidateType_Host )
     {
-        m_eCurrentRouteKind = k_ESteamNetTransport_UDPProbablyLocal;
-    }
-    else
-    {
-        m_eCurrentRouteKind = k_ESteamNetTransport_UDP;
+        int nPrefixLen = m_pICESession->GetLocalCandidatePrefixLen( localCandidate.m_base );
+        if ( IsRemoteAddressOnLocalSubnet( localCandidate.m_base, nPrefixLen, remoteCandidate.m_addr ) )
+            m_eCurrentRouteKind = k_ESteamNetTransport_UDPProbablyLocal;
     }
 	m_pingEndToEnd.Reset();
 	m_pingEndToEnd.ReceivedPing( m_pICESession->GetPing(), SteamNetworkingSockets_GetLocalTimestamp() );
