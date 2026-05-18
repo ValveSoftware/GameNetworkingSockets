@@ -11,42 +11,73 @@
 
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_MOCK
 
-struct TEST_mocknetwork_interface_t
-{
-	SteamNetworkingIPAddr m_ip; // port not relevant and must be zero
-	int m_nSendLatencyMS = 0;
-};
-
 enum class TEST_mocknetwork_nat_type
 {
+	// Internal IP:port mapped to public IP:port.  Any peer can send to the public port.
+	FullCone,
 
-    // IPs are not translated at all, they are "public IPs"
-    None,
+	// Inbound traffic to public port from IP X will only be forwarded if
+	// an outbound packet was previously sent to X (but any port).
+	RestrictedCone,
 
-    // Internal IP:port mapped to public IP:port.  Any peer can send to the
-    // public port
-    FullCone,
+	// Inbound traffic to public port from IP X and port P will only be
+	// forwarded if an outbound packet was previously sent to X *and* port P.
+	PortRestrictedCone,
 
-    // Inbound traffic to public port from IP X will only be forwarded if
-    // an inbound traffic was previously sent to X(but any port)
-    RestrictedCone,
+	// Every unique remote IP:port gets a separate external port.
+	Symmetric,
+};
 
-    // Inbound traffic to public port from IP X and port P will only be
-    // forwarded if an inbound traffic was previously sent to X *and* port P
-    PortRestrictedCone,
+struct TEST_mocknetwork_gateway_t
+{
+	SteamNetworkingIPAddr m_ipv4_public; // NAT public IP (127.0.100.x); port must be zero
 
-    // Every internal IP:port <-> remote IP:port generates a new NAT port
-    Symmetric,
+	TEST_mocknetwork_nat_type m_natType = TEST_mocknetwork_nat_type::FullCone;
+
+	// Whether the gateway supports hairpinning: internally-originated packets addressed
+	// to another host on the same gateway's public IP are looped back internally.
+	// Many consumer routers do NOT support this.  (Not yet implemented; reserved for future use.)
+	bool m_bHairpinSupported = true;
+
+	// Latency from the local host to this gateway's exit point.
+	// Models VPN-style scenarios where the exit node is geographically distant.
+	int m_nInternalLatencyMS = 0;
+
+	// Extra latency applied to all packets leaving this gateway to the public internet.
+	// Models WAN/ISP link quality; applies to all destinations equally (including STUN servers).
+	int m_nExternalLatencyMS = 0;
+};
+
+struct TEST_mocknetwork_interface_t
+{
+	SteamNetworkingIPAddr m_ip; // local IP to bind on; port must be zero
+
+	// Index into TEST_mocknetwork_config_t::m_vecGateways, or -1 if this is a
+	// public-facing interface (no NAT).  Public interfaces must use an IP in the
+	// 127.0.100.x range.
+	int m_iGateway = -1;
+
+	// Artificial one-way latency applied to every outbound packet on this interface.
+	// Models local link quality (e.g. WiFi jitter vs Ethernet).
+	int m_nSendLatencyMS = 0;
+
+	// If false, the interface is "down": no packets are sent or received.
+	bool m_bEnabled = true;
 };
 
 struct TEST_mocknetwork_config_t
 {
-    std::vector<TEST_mocknetwork_interface_t> m_vecInterfaces;
-	SteamNetworkingIPAddr m_ipv4_gateway; // Port not relevant and must be zero
-    TEST_mocknetwork_nat_type m_natType = TEST_mocknetwork_nat_type::None;
+	// NAT gateways.  Interfaces with m_iGateway >= 0 route outbound traffic through
+	// the corresponding entry here.
+	std::vector<TEST_mocknetwork_gateway_t> m_vecGateways;
+
+	// Network interfaces on this host.  Public interfaces (m_iGateway == -1) must use
+	// addresses in the 127.0.100.x range.  Private interfaces use 127.0.X.x (X != 100).
+	// The same 127.0.X subnet can be shared across interfaces to model hosts on the same LAN.
+	std::vector<TEST_mocknetwork_interface_t> m_vecInterfaces;
 };
 
-void TEST_mocknetwork_init( const TEST_mocknetwork_config_t &info );
+void TEST_mocknetwork_init( const TEST_mocknetwork_config_t &config );
 
 extern bool TEST_mocknetwork_active;
 
