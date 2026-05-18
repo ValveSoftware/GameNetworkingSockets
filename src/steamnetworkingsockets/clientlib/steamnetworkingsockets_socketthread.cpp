@@ -109,11 +109,22 @@ bool IsRouteToAddressProbablyLocal( netadr_t addr )
 {
 
 	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_MOCK
-		// In mock mode 127.0.100.x is the simulated public internet, not a local route,
-		// even though it falls in the reserved 127.x.x.x range.
-		if ( TEST_mocknetwork_active && addr.GetType() == k_EIPTypeV4
-			&& ( addr.GetIPv4() & 0xFF00 ) == ( 100 << 8 ) )
-			return false;
+		// In mock mode the public-network ranges are simulated internet, not local routes,
+		// even though they fall in reserved address space.
+		// IPv4 public: 127.0.100.x (third octet == 100)
+		// IPv6 public: fd7f:0:100::x (bytes [4:6] == 0x0100)
+		if ( TEST_mocknetwork_active )
+		{
+			if ( addr.GetType() == k_EIPTypeV4 && ( addr.GetIPv4() & 0xFF00 ) == ( 100 << 8 ) )
+				return false;
+			if ( addr.GetType() == k_EIPTypeV6 )
+			{
+				const uint8 *b = addr.GetIPV6Bytes();
+				if ( b[0] == 0xfd && b[1] == 0x7f && b[2] == 0x00 && b[3] == 0x00
+					&& b[4] == 0x01 && b[5] == 0x00 )
+					return false;
+			}
+		}
 	#endif
 
 	// Assume that if we are able to send to any "reserved" route, that is is local.
@@ -1726,6 +1737,19 @@ static TEST_mocknetwork_config_t s_mockNetworkConfig;
 // Third octet = 100 means public/gateway network (127.0.100.x)
 const uint32 k_nMockPublicIPv4Net = (100 << 8);
 
+// IPv6 mock addresses use fd7f:0:X::Y.  Groups [4:6] (bytes 4-5) identify the network,
+// mirroring the IPv4 third-octet scheme.  0x0100 ("100" in hex) = public network.
+const uint16 k_nMockPublicIPv6NetID = 0x0100;
+
+// Returns the network ID from bytes [4:6] of a mock IPv6 address (fd7f:0:X::Y),
+// or 0 if the address is not in the mock IPv6 range.
+static inline uint16 GetMockIPv6NetID( const uint8 *b )
+{
+	if ( b[0] != 0xfd || b[1] != 0x7f || b[2] != 0x00 || b[3] != 0x00 )
+		return 0;
+	return ( uint16(b[4]) << 8 ) | b[5];
+}
+
 // Custom implementation of IRawUDPSocket that applies the appropriate routing
 // rules from the mocked network environment
 class CUDPSocketMock : public IRawUDPSocket
@@ -1779,6 +1803,29 @@ public:
 			if ( net_local == net_remote )
 			{
 				// Same LAN — send directly with interface latency only (no gateway involved)
+				return SendDelayed( m_pSockLocal, nChunks, pChunks, adrTo, ecn, m_ifaceConfig.m_nSendLatencyMS );
+			}
+		}
+		else if ( adrTo.GetType() == k_EIPTypeV6 )
+		{
+			if ( m_boundAddr.IsIPv4() )
+			{
+				// Can't send to IPv6 address from an IPv4 socket
+				return false;
+			}
+
+			const uint16 net_remote = GetMockIPv6NetID( adrTo.GetIPV6Bytes() );
+			if ( net_remote == 0 )
+				return false; // Not a mock IPv6 address
+
+			// Check if this is a 'public IP'; if so, route via NAT
+			if ( net_remote == k_nMockPublicIPv6NetID )
+				return const_cast<CUDPSocketMock *>(this)->BCreateNATAndSend( nChunks, pChunks, adrTo, ecn );
+
+			const uint16 net_local = GetMockIPv6NetID( m_ifaceConfig.m_ip.m_ipv6 );
+			if ( net_local == net_remote )
+			{
+				// Same LAN — send directly
 				return SendDelayed( m_pSockLocal, nChunks, pChunks, adrTo, ecn, m_ifaceConfig.m_nSendLatencyMS );
 			}
 		}
@@ -1847,9 +1894,8 @@ protected:
 	CRawUDPSocketImpl *CreateExternalSock( CRecvPacketCallback callback )
 	{
 		Assert( m_pGatewayConfig );
-		Assert( m_pGatewayConfig->m_ipv4_public.IsIPv4() );
-		Assert( m_pGatewayConfig->m_ipv4_public.m_port == 0 );
-		SteamNetworkingIPAddr addrGateway = m_pGatewayConfig->m_ipv4_public;
+		Assert( m_pGatewayConfig->m_public_ip.m_port == 0 );
+		SteamNetworkingIPAddr addrGateway = m_pGatewayConfig->m_public_ip;
 		SteamNetworkingErrMsg errMsg;
 		CRawUDPSocketImpl *pSock = OpenRawUDPSocketInternal( callback, errMsg, &addrGateway, nullptr );
 		if ( !pSock )
@@ -2067,24 +2113,55 @@ IRawUDPSocket *OpenRawUDPSocket( CRecvPacketCallback callback, SteamNetworkingEr
 	{
 		// Find the matching interface config by address
 		const TEST_mocknetwork_interface_t *pIfaceConfig = nullptr;
-		if ( pAddrLocal && pAddrLocal->IsIPv4() && pAddrLocal->GetIPv4() != 0 )
+		if ( pAddrLocal )
 		{
-			uint32 nLookupIP = pAddrLocal->GetIPv4();
-			for ( const TEST_mocknetwork_interface_t &iface : s_mockNetworkConfig.m_vecInterfaces )
+			if ( pAddrLocal->IsIPv4() )
 			{
-				if ( iface.m_ip.IsIPv4() && iface.m_ip.GetIPv4() == nLookupIP )
+				uint32 nLookupIP = pAddrLocal->GetIPv4();
+				if ( nLookupIP != 0 )
 				{
-					pIfaceConfig = &iface;
-					break;
+					for ( const TEST_mocknetwork_interface_t &iface : s_mockNetworkConfig.m_vecInterfaces )
+					{
+						if ( iface.m_ip.IsIPv4() && iface.m_ip.GetIPv4() == nLookupIP )
+						{
+							pIfaceConfig = &iface;
+							break;
+						}
+					}
+					if ( !pIfaceConfig )
+					{
+						V_sprintf_safe( errMsg, "Mock: no interface configured for %s", SteamNetworkingIPAddrRender( *pAddrLocal ).c_str() );
+						return nullptr;
+					}
 				}
 			}
-			if ( !pIfaceConfig )
+			else
 			{
-				V_sprintf_safe( errMsg, "Mock: no interface configured for %s", SteamNetworkingIPAddrRender( *pAddrLocal ).c_str() );
-				return nullptr;
+				// IPv6: check if not the unspecified address (all zeros)
+				bool bHasAddr = false;
+				for ( int i = 0; i < 16; ++i )
+				{
+					if ( pAddrLocal->m_ipv6[i] != 0 ) { bHasAddr = true; break; }
+				}
+				if ( bHasAddr )
+				{
+					for ( const TEST_mocknetwork_interface_t &iface : s_mockNetworkConfig.m_vecInterfaces )
+					{
+						if ( !iface.m_ip.IsIPv4() && memcmp( iface.m_ip.m_ipv6, pAddrLocal->m_ipv6, 16 ) == 0 )
+						{
+							pIfaceConfig = &iface;
+							break;
+						}
+					}
+					if ( !pIfaceConfig )
+					{
+						V_sprintf_safe( errMsg, "Mock: no interface configured for %s", SteamNetworkingIPAddrRender( *pAddrLocal ).c_str() );
+						return nullptr;
+					}
+				}
 			}
 		}
-		else
+		if ( !pIfaceConfig )
 		{
 			Assert( !s_mockNetworkConfig.m_vecInterfaces.empty() );
 			pIfaceConfig = &s_mockNetworkConfig.m_vecInterfaces[0];
@@ -2129,7 +2206,7 @@ IRawUDPSocket *OpenRawUDPSocket( CRecvPacketCallback callback, SteamNetworkingEr
 		if ( pAddrLocal )
 			*pAddrLocal = pMock->m_boundAddr;
 		if ( pnAddressFamilies )
-			*pnAddressFamilies = k_nAddressFamily_IPv4;
+			*pnAddressFamilies = pIfaceConfig->m_ip.IsIPv4() ? k_nAddressFamily_IPv4 : k_nAddressFamily_IPv6;
 
 		return pMock;
 	}
@@ -3966,10 +4043,18 @@ bool GetLocalAddresses( CUtlVector<LocalAddress_t> *pAddrs )
 			{
 				LocalAddress_t &entry = *pAddrs->AddToTailGetPtr();
 				entry.m_addr = iface.m_ip;
-				// All mock private LANs are /24s identified by the third octet.
-				// The public "internet" range (third octet == 100) is not a local LAN.
-				bool bPublic = iface.m_ip.IsIPv4() && ( ( iface.m_ip.GetIPv4() & 0xFF00 ) == k_nMockPublicIPv4Net );
-				entry.m_nPrefixLen = bPublic ? 0 : 24;
+				if ( iface.m_ip.IsIPv4() )
+				{
+					// IPv4 mock private LANs are /24s; public range (third octet == 100) is not local.
+					bool bPublic = ( iface.m_ip.GetIPv4() & 0xFF00 ) == k_nMockPublicIPv4Net;
+					entry.m_nPrefixLen = bPublic ? 0 : 24;
+				}
+				else
+				{
+					// IPv6 mock private LANs are /112s; public range (net ID == 0x0100) is not local.
+					bool bPublic = GetMockIPv6NetID( iface.m_ip.m_ipv6 ) == k_nMockPublicIPv6NetID;
+					entry.m_nPrefixLen = bPublic ? 0 : 112;
+				}
 			}
 		}
 		return true;
@@ -4200,7 +4285,7 @@ void TEST_mocknetwork_init( const TEST_mocknetwork_config_t &config )
 			case TEST_mocknetwork_nat_type::Symmetric:          pszNATType = "symmetric"; break;
 		}
 		SpewMsg( "  Gateway[%d]: %s  NAT=%s  int=%dms  ext=%dms\n",
-			i, SteamNetworkingIPAddrRender( gw.m_ipv4_public, false ).c_str(),
+			i, SteamNetworkingIPAddrRender( gw.m_public_ip, false ).c_str(),
 			pszNATType, gw.m_nInternalLatencyMS, gw.m_nExternalLatencyMS );
 	}
 	for ( const TEST_mocknetwork_interface_t &iface : config.m_vecInterfaces )

@@ -169,7 +169,8 @@ def StartClientInThread( role, local, remote, extra_args=[] ):
 
     return StartProcessInThread( local, cmdline, env );
 
-# Mock network address constants
+# Mock network address constants — IPv4
+# Public range: 127.0.100.x  Private LANs: 127.0.X.x (X != 100)
 _SRV_GW   = '127.0.100.2'  # server-side NAT gateway (public)
 _CLI_GW   = '127.0.100.3'  # client-side NAT gateway (public)
 _SRV_GW2  = '127.0.100.4'  # second server gateway (public)
@@ -181,44 +182,79 @@ _CLI_INT2 = '127.0.4.2'    # second client internal address
 _DEAD_INT = '127.0.9.2'    # address used for disabled adapters
 _CLI_SAME_LAN = '127.0.1.3' # client on the same /24 private LAN as _SRV_INT
 
+# Mock network address constants — IPv6
+# Mirrors the IPv4 layout: fd7f:0:100::x = public, fd7f:0:X::x = private LAN X
+_SRV_GW_V6  = 'fd7f:0:100::2'  # server-side NAT gateway (public, IPv6)
+_CLI_GW_V6  = 'fd7f:0:100::3'  # client-side NAT gateway (public, IPv6)
+_SRV_INT_V6 = 'fd7f:0:1::2'    # server internal address behind NAT (IPv6)
+_CLI_INT_V6 = 'fd7f:0:2::2'    # client internal address behind NAT (IPv6)
+
 # All addresses that the mock network needs to be able to bind sockets to.
 _ALL_MOCK_ADDRS = [
     g_stun_ip,
     _SRV_GW, _CLI_GW, _SRV_GW2, _CLI_GW2,
     _SRV_INT, _CLI_INT, _SRV_INT2, _CLI_INT2, _DEAD_INT, _CLI_SAME_LAN,
+    _SRV_GW_V6, _CLI_GW_V6, _SRV_INT_V6, _CLI_INT_V6,
 ]
 
 def _IsAddressBindable( addr ):
     import socket
+    family = socket.AF_INET6 if ':' in addr else socket.AF_INET
     try:
-        s = socket.socket( socket.AF_INET, socket.SOCK_DGRAM )
+        s = socket.socket( family, socket.SOCK_DGRAM )
         s.bind( ( addr, 0 ) )
         s.close()
         return True
     except OSError:
         return False
 
+def _AddLoopbackAddr( addr ):
+    is_ipv6 = ':' in addr
+    sys_name = platform.system()
+    if sys_name == 'Darwin':
+        if is_ipv6:
+            print( "Running 'ifconfig lo0 inet6 %s'" % addr )
+            subprocess.run( [ 'ifconfig', 'lo0', 'inet6', addr ], check=True )
+        else:
+            print( "Running 'ifconfig lo0 alias %s'" % addr )
+            subprocess.run( [ 'ifconfig', 'lo0', 'alias', addr ], check=True )
+    elif sys_name == 'Linux':
+        if is_ipv6:
+            print( "Running 'ip -6 addr add %s/112 dev lo'" % addr )
+            subprocess.run( [ 'ip', '-6', 'addr', 'add', addr + '/112', 'dev', 'lo' ], check=True )
+        # IPv4 on Linux: the entire 127/8 block is routable on lo, nothing to do.
+    # Windows: TBD when needed
+
+def _RemoveLoopbackAddr( addr ):
+    is_ipv6 = ':' in addr
+    sys_name = platform.system()
+    if sys_name == 'Darwin':
+        if is_ipv6:
+            print( "Running 'ifconfig lo0 inet6 %s delete'" % addr )
+            subprocess.run( [ 'ifconfig', 'lo0', 'inet6', addr, 'delete' ], check=False )
+        else:
+            print( "Running 'ifconfig lo0 -alias %s'" % addr )
+            subprocess.run( [ 'ifconfig', 'lo0', '-alias', addr ], check=False )
+    elif sys_name == 'Linux':
+        if is_ipv6:
+            print( "Running 'ip -6 addr del %s/112 dev lo'" % addr )
+            subprocess.run( [ 'ip', '-6', 'addr', 'del', addr + '/112', 'dev', 'lo' ], check=False )
+        # IPv4 on Linux: nothing was added, nothing to remove.
+    # Windows: TBD when needed
+
 def SetupMockIPs():
     """Add loopback aliases for every mock address that is not already bindable."""
-    if platform.system() != 'Darwin':
-        print( "Nothing to do on this platform." )
-        return
     for addr in _ALL_MOCK_ADDRS:
-        print( "Running 'ifconfig lo0 alias %s'" % addr )
-        subprocess.run( [ 'ifconfig', 'lo0', 'alias', addr ], check=True )
-    print( "Added %d loopback alias(es)." % len( _ALL_MOCK_ADDRS ) )
+        _AddLoopbackAddr( addr )
+    print( "Setup complete." )
 
 def CleanupMockIPs():
     """Remove loopback aliases added by --setup-mock-ips."""
-    if platform.system() != 'Darwin':
-        print( "Nothing to do on this platform." )
-        return
     for addr in _ALL_MOCK_ADDRS:
-        if addr == '127.0.0.1':
+        if addr in ( '127.0.0.1', '::1' ):
             continue
-        print( "Running 'ifconfig lo0 -alias %s'" % addr )
-        subprocess.run( [ 'ifconfig', 'lo0', '-alias', addr ], check=False )
-    print( "Removed loopback aliases." )
+        _RemoveLoopbackAddr( addr )
+    print( "Cleanup complete." )
 
 def CheckMockIPsBindable():
     """Verify all mock addresses are bindable; exit with an error if any are not."""
@@ -321,6 +357,16 @@ CLIENT_SERVER_TEST_CASES = [
       [ '--mock-adapter', _SRV_GW ] + _slow_nat( _SRV_INT2, _SRV_GW2, 'full-cone', 50 ),
       [ '--mock-adapter', _CLI_GW ] + _slow_nat( _CLI_INT2, _CLI_GW2, 'full-cone', 50 ),
       'udp', 1 ),
+
+    # IPv6 host candidates: both endpoints have a public IPv6 address, no NAT.
+    # fd7f:0:100::x is the mock public IPv6 network (not classified as 'local').
+    ( 'IPv6 no-nat (both public)',
+      [ '--mock-adapter', _SRV_GW_V6 ],
+      [ '--mock-adapter', _CLI_GW_V6 ],
+      'udp', 1 ),
+
+    # NOTE: IPv6 NAT cases require STUN to discover server-reflexive candidates.
+    # The STUN server does not yet support IPv6, so those tests are deferred.
 ]
 
 def ClientServerTest( server_extra_args=[], client_extra_args=[], expected_route=None, ice_impl=1 ):
