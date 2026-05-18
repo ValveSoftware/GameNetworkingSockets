@@ -74,6 +74,8 @@ jobs:
         run: |
           sudo -E bash .github/install.sh
           sudo -E bash .github/install-post.sh
+      - name: Setup mock IPs
+        run: sudo python3 tests/test_p2p.py --setup-mock-ips
       - name: Build and test (RelWithDebInfo)
         run: |
           set -euo pipefail
@@ -185,6 +187,10 @@ jobs:
       VCPKG_BINARY_SOURCES: clear;files,${{ github.workspace }}/vcpkg-bincache,readwrite
     steps:
       - uses: actions/checkout@main
+
+      - name: Setup mock IPs
+        run: py -3 tests/test_p2p.py --setup-mock-ips
+        shell: cmd
 
       # Mark all directories as safe so checkouts performed in CMakeLists.txt don't cause "unsafe repository" errors.
       # See https://github.com/actions/checkout/issues/766
