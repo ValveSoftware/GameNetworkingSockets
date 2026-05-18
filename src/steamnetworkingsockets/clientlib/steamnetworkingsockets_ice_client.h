@@ -196,7 +196,8 @@ namespace SteamNetworkingSocketsLib {
         {
             SteamNetworkingIPAddr m_localaddr;
             uint32 m_nPriority;
-            Interface( const SteamNetworkingIPAddr& ipAddr, uint32 p ) : m_localaddr( ipAddr ), m_nPriority( p ) {}
+            int m_nPrefixLen; // Subnet prefix length from adapter enumeration; 0 if unavailable
+            Interface( const SteamNetworkingIPAddr& ipAddr, uint32 p, int nPrefixLen ) : m_localaddr( ipAddr ), m_nPriority( p ), m_nPrefixLen( nPrefixLen ) {}
         };
 
         struct ICEPeerCandidate : public ICECandidate

@@ -1216,7 +1216,7 @@ void CSteamNetworkingICESession::GatherInterfaces()
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "CSteamNetworkingICESession::GatherInterfaces" );
 
     m_vecInterfaces.clear();
-    CUtlVector< SteamNetworkingIPAddr > vecAddrs;
+    CUtlVector<LocalAddress_t> vecAddrs;
     if ( !GetLocalAddresses( &vecAddrs ) )
         return;
 
@@ -1226,7 +1226,7 @@ void CSteamNetworkingICESession::GatherInterfaces()
     m_vecInterfaces.reserve( vecAddrs.Count() );
     for ( int i = 0; i < vecAddrs.Count(); ++i )
     {
-        m_vecInterfaces.push_back( Interface( vecAddrs[i], uPriority ) );
+        m_vecInterfaces.push_back( Interface( vecAddrs[i].m_addr, uPriority, vecAddrs[i].m_nPrefixLen ) );
         --uPriority;
     }
 }

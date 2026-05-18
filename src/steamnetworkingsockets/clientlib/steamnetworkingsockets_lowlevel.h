@@ -336,7 +336,13 @@ extern void WakeServiceThread();
 extern bool IsRouteToAddressProbablyLocal( netadr_t addr );
 
 extern bool ResolveHostname( const char* pszHostname, CUtlVector< SteamNetworkingIPAddr > *pAddrs );
-extern bool GetLocalAddresses( CUtlVector< SteamNetworkingIPAddr >* pAddrs );
+
+struct LocalAddress_t
+{
+	SteamNetworkingIPAddr m_addr;
+	int m_nPrefixLen; // Subnet prefix length, e.g. 24 for a /24.  0 if unavailable or bogus.
+};
+extern bool GetLocalAddresses( CUtlVector<LocalAddress_t> *pAddrs );
 
 /////////////////////////////////////////////////////////////////////////////
 //

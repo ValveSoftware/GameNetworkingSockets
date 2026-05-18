@@ -3908,7 +3908,53 @@ inline bool GetLocalAddresses_IsReserved( const SteamNetworkingIPAddr &ipAddr )
 	return false;
 }
 
-bool GetLocalAddresses( CUtlVector< SteamNetworkingIPAddr >* pAddrs )
+// Convert an IPv4 netmask (host byte order) to a prefix length.
+// Returns 0 if the mask is zero, non-contiguous, or otherwise bogus.
+static int IPv4MaskToPrefixLen( uint32 mask )
+{
+	if ( mask == 0 )
+		return 0;
+	// Count leading 1-bits
+	int n = 0;
+	while ( n < 32 && ( mask & ( 0x80000000u >> n ) ) )
+		++n;
+	// Validate: reconstruct expected mask and compare
+	uint32 expected = ( n == 32 ) ? 0xFFFFFFFFu : ~( 0xFFFFFFFFu >> n );
+	return ( mask == expected ) ? n : 0;
+}
+
+// Convert a 16-byte IPv6 netmask to a prefix length.
+// Returns 0 if the mask is zero, non-contiguous, or otherwise bogus.
+static int IPv6MaskToPrefixLen( const uint8 *pMask )
+{
+	int n = 0;
+	for ( int i = 0; i < 16; ++i )
+	{
+		uint8 b = pMask[i];
+		if ( b == 0xFF ) { n += 8; continue; }
+		if ( b == 0 )
+		{
+			// All remaining bytes must be 0
+			for ( int j = i + 1; j < 16; ++j )
+				if ( pMask[j] != 0 ) return 0;
+			break;
+		}
+		// Partial byte: count leading 1-bits, then validate the rest is 0
+		int nBits = 0;
+		for ( uint8 m = 0x80; m && ( b & m ); m >>= 1 )
+			++nBits;
+		uint8 expected = (uint8)( 0xFF << ( 8 - nBits ) );
+		if ( b != expected ) return 0; // non-contiguous
+		n += nBits;
+		// All remaining bytes must be 0
+		for ( int j = i + 1; j < 16; ++j )
+			if ( pMask[j] != 0 ) return 0;
+		break;
+	}
+	return n; // 0 means all-zero mask, which is bogus
+}
+
+bool GetLocalAddresses( CUtlVector<LocalAddress_t> *pAddrs )
 {
 
 	#if STEAMNETWORKINGSOCKETS_ENABLE_MOCK
@@ -3917,7 +3963,14 @@ bool GetLocalAddresses( CUtlVector< SteamNetworkingIPAddr >* pAddrs )
 		for ( const TEST_mocknetwork_interface_t &iface : s_mockNetworkConfig.m_vecInterfaces )
 		{
 			if ( iface.m_bEnabled )
-				pAddrs->AddToTail( iface.m_ip );
+			{
+				LocalAddress_t &entry = *pAddrs->AddToTailGetPtr();
+				entry.m_addr = iface.m_ip;
+				// All mock private LANs are /24s identified by the third octet.
+				// The public "internet" range (third octet == 100) is not a local LAN.
+				bool bPublic = iface.m_ip.IsIPv4() && ( ( iface.m_ip.GetIPv4() & 0xFF00 ) == k_nMockPublicIPv4Net );
+				entry.m_nPrefixLen = bPublic ? 0 : 24;
+			}
 		}
 		return true;
 	}
@@ -3991,7 +4044,9 @@ bool GetLocalAddresses( CUtlVector< SteamNetworkingIPAddr >* pAddrs )
 				continue;
 
             // Got a host address, record it!
-            pAddrs->AddToTail( ipAddr );
+			LocalAddress_t &entry = *pAddrs->AddToTailGetPtr();
+			entry.m_addr = ipAddr;
+			entry.m_nPrefixLen = pThisAddr->OnLinkPrefixLength; // UINT8; 0 is bogus for a unicast addr
         }
     }
 
@@ -4032,7 +4087,21 @@ bool GetLocalAddresses( CUtlVector< SteamNetworkingIPAddr >* pAddrs )
 			continue;
 
 		// Got a host address, record it!
-		pAddrs->AddToTail( ipAddr );
+		LocalAddress_t &entry = *pAddrs->AddToTailGetPtr();
+		entry.m_addr = ipAddr;
+		entry.m_nPrefixLen = 0;
+		if ( pAddr->ifa_netmask )
+		{
+			if ( pAddr->ifa_netmask->sa_family == AF_INET )
+			{
+				uint32 mask = BigDWord( ((sockaddr_in *)pAddr->ifa_netmask)->sin_addr.s_addr );
+				entry.m_nPrefixLen = IPv4MaskToPrefixLen( mask );
+			}
+			else if ( pAddr->ifa_netmask->sa_family == AF_INET6 )
+			{
+				entry.m_nPrefixLen = IPv6MaskToPrefixLen( ((sockaddr_in6 *)pAddr->ifa_netmask)->sin6_addr.s6_addr );
+			}
+		}
 	}
 	freeifaddrs( pMyAddrInfo );
 	return true;
