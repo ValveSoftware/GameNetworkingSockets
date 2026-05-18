@@ -120,6 +120,15 @@ int g_nSendECNAuto = -1;
 /// Global lock for all local data structures
 static Lock<RecursiveTimedMutexImpl> s_mutexGlobalLock( "global", 0, LockDebugInfo::k_nOrder_Global );
 
+// Threshold for the service-thread-specific *assert*
+#ifdef DBGFLAG_ASSERT
+#ifdef __SANITIZE_THREAD__
+static SteamNetworkingMicroseconds s_usecServiceThreadLockWaitWarning = 300*1000;
+#else
+static SteamNetworkingMicroseconds s_usecServiceThreadLockWaitWarning = 50*1000;
+#endif
+#endif
+
 #if STEAMNETWORKINGSOCKETS_LOCK_DEBUG_LEVEL > 0
 
 // By default, complain if we hold the lock for more than this long.
@@ -128,6 +137,13 @@ static Lock<RecursiveTimedMutexImpl> s_mutexGlobalLock( "global", 0, LockDebugIn
 constexpr SteamNetworkingMicroseconds k_usecDefaultLongLockHeldWarningThreshold = 5*1000*20;
 #else
 constexpr SteamNetworkingMicroseconds k_usecDefaultLongLockHeldWarningThreshold = 5*1000;
+#endif
+
+// Threshold for warning about waiting on any lock.
+#ifdef __SANITIZE_THREAD__
+static SteamNetworkingMicroseconds s_usecLockWaitWarningThreshold = 300*1000;
+#else
+static SteamNetworkingMicroseconds s_usecLockWaitWarningThreshold = 2*1000;
 #endif
 
 // Debug the locks active on the cu
@@ -156,20 +172,6 @@ struct ThreadLockDebugInfo
 
 static void (*s_fLockAcquiredCallback)( const char *tags, SteamNetworkingMicroseconds usecWaited );
 static void (*s_fLockHeldCallback)( const char *tags, SteamNetworkingMicroseconds usecWaited );
-
-// Threshold for warning about waiting on any lock.
-#ifdef __SANITIZE_THREAD__
-static SteamNetworkingMicroseconds s_usecLockWaitWarningThreshold = 300*1000;
-#else
-static SteamNetworkingMicroseconds s_usecLockWaitWarningThreshold = 2*1000;
-#endif
-
-// Threshold for the service-thread-specific *assert*
-#ifdef __SANITIZE_THREAD__
-static SteamNetworkingMicroseconds s_usecServiceThreadLockWaitWarning = 300*1000;
-#else
-static SteamNetworkingMicroseconds s_usecServiceThreadLockWaitWarning = 50*1000;
-#endif
 
 /// Get the per-thread debug info
 static ThreadLockDebugInfo &GetThreadDebugInfo()
@@ -4645,7 +4647,9 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetLockWaitWarningT
 	#if STEAMNETWORKINGSOCKETS_LOCK_DEBUG_LEVEL > 0
 		s_usecLockWaitWarningThreshold = usecTheshold;
 	#endif
-	s_usecServiceThreadLockWaitWarning = usecTheshold;
+	#ifdef DBGFLAG_ASSERT
+		s_usecServiceThreadLockWaitWarning = usecTheshold;
+	#endif
 }
 
 STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetLockAcquiredCallback( void (*callback)( const char *tags, SteamNetworkingMicroseconds usecWaited ) )
