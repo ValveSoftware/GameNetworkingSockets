@@ -30,7 +30,7 @@ enum class TEST_mocknetwork_nat_type
 
 struct TEST_mocknetwork_gateway_t
 {
-	SteamNetworkingIPAddr m_ipv4_public; // NAT public IP (127.0.100.x); port must be zero
+	SteamNetworkingIPAddr m_public_ip; // NAT public IP (127.0.100.x for IPv4, fd7f:0:100::x for IPv6); port must be zero
 
 	TEST_mocknetwork_nat_type m_natType = TEST_mocknetwork_nat_type::FullCone;
 
@@ -71,9 +71,9 @@ struct TEST_mocknetwork_config_t
 	// the corresponding entry here.
 	std::vector<TEST_mocknetwork_gateway_t> m_vecGateways;
 
-	// Network interfaces on this host.  Public interfaces (m_iGateway == -1) must use
-	// addresses in the 127.0.100.x range.  Private interfaces use 127.0.X.x (X != 100).
-	// The same 127.0.X subnet can be shared across interfaces to model hosts on the same LAN.
+	// Network interfaces on this host.  Public interfaces (m_iGateway == -1) use
+	// 127.0.100.x (IPv4) or fd7f:0:100::x (IPv6).  Private interfaces use 127.0.X.x / fd7f:0:X::x
+	// (X != 100).  The same subnet can be shared across interfaces to model hosts on the same LAN.
 	std::vector<TEST_mocknetwork_interface_t> m_vecInterfaces;
 };
 

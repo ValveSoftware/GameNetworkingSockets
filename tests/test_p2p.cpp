@@ -281,9 +281,9 @@ int main( int argc, const char **argv )
 		{
 			const char *pszArg = GetArg();
 			TEST_mocknetwork_gateway_t gw;
-			if ( !gw.m_ipv4_public.ParseString( pszArg ) || !gw.m_ipv4_public.IsIPv4() )
-				TEST_Fatal( "'%s' is not a valid IPv4 address for --mock-gateway", pszArg );
-			gw.m_ipv4_public.m_port = 0;
+			if ( !gw.m_public_ip.ParseString( pszArg ) )
+				TEST_Fatal( "'%s' is not a valid IP address for --mock-gateway", pszArg );
+			gw.m_public_ip.m_port = 0;
 			mockConfig.m_vecGateways.push_back( gw );
 		}
 		else if ( !strcmp( pszSwitch, "--mock-nat" ) )
@@ -320,10 +320,17 @@ int main( int argc, const char **argv )
 		{
 			const char *pszArg = GetArg();
 			TEST_mocknetwork_interface_t iface;
-			if ( !iface.m_ip.ParseString( pszArg ) || !iface.m_ip.IsIPv4() )
-				TEST_Fatal( "'%s' is not a valid IPv4 address for --mock-adapter", pszArg );
+			if ( !iface.m_ip.ParseString( pszArg ) )
+				TEST_Fatal( "'%s' is not a valid IP address for --mock-adapter", pszArg );
 			iface.m_ip.m_port = 0;
 			iface.m_iGateway = mockConfig.m_vecGateways.empty() ? -1 : (int)mockConfig.m_vecGateways.size() - 1;
+			if ( iface.m_iGateway >= 0 )
+			{
+				const SteamNetworkingIPAddr &gwIP = mockConfig.m_vecGateways[ iface.m_iGateway ].m_public_ip;
+				if ( iface.m_ip.IsIPv4() != gwIP.IsIPv4() )
+					TEST_Fatal( "--mock-adapter '%s' address family does not match its gateway '%s'",
+						pszArg, SteamNetworkingIPAddrRender( gwIP, false ).c_str() );
+			}
 			mockConfig.m_vecInterfaces.push_back( iface );
 		}
 		else if ( !strcmp( pszSwitch, "--mock-latency" ) )
