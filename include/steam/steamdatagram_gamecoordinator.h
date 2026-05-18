@@ -16,11 +16,19 @@
 #include "steamdatagram_tickets.h"
 
 #if defined( STEAMDATAGRAM_GAMECOORDINATOR_FOREXPORT )
-	#define STEAMDATAGRAM_GAMECOORDINATOR_INTERFACE DLL_EXPORT
+	#if defined( _WIN32 )
+		#define STEAMDATAGRAM_GAMECOORDINATOR_INTERFACE extern "C" __declspec( dllexport )
+	#else
+		#define STEAMDATAGRAM_GAMECOORDINATOR_INTERFACE extern "C" __attribute__((visibility("default")))
+	#endif
 #elif defined( STEAMNETWORKINGSOCKETS_STATIC_LINK )
 	#define STEAMDATAGRAM_GAMECOORDINATOR_INTERFACE extern "C"
 #else
-	#define STEAMDATAGRAM_GAMECOORDINATOR_INTERFACE DLL_IMPORT
+	#ifdef _WIN32
+		#define STEAMDATAGRAM_GAMECOORDINATOR_INTERFACE extern "C" __declspec( dllimport )
+	#else
+		#define STEAMDATAGRAM_GAMECOORDINATOR_INTERFACE extern "C"
+	#endif
 #endif
 
 ///
