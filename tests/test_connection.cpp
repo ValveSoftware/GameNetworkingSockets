@@ -566,7 +566,7 @@ const int k_nStartingServerPort = 27200;
 
 static void Test_quick()
 {
-	int nServerPort = k_nStartingServerPort;
+	uint16 nServerPort = k_nStartingServerPort;
 	SteamNetworkingIPAddr bindAddr, connectAddr;
 
 	//
@@ -603,7 +603,7 @@ static void Test_quick()
 
 static void Test_soak()
 {
-	int nServerPort = k_nStartingServerPort;
+	uint16 nServerPort = k_nStartingServerPort;
 	SteamNetworkingIPAddr bindAddr, connectAddr;
 
 	// Dual-stack server, IPv4 client (IPv4-mapped path)
