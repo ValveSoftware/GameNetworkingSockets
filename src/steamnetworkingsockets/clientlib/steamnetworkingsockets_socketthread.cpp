@@ -3895,6 +3895,17 @@ void SteamNetworkingSocketsLowLevelValidate( CValidator &validator )
 bool ResolveHostname( const char* pszHostname, CUtlVector< SteamNetworkingIPAddr > *pAddrs )
 {
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_RESOLVEHOSTNAME
+	// If the string parses as a literal IP address (IPv4, IPv6, or [IPv6]:port),
+	// skip DNS entirely.
+	{
+		SteamNetworkingIPAddr addr;
+		if ( addr.ParseString( pszHostname ) )
+		{
+			pAddrs->AddToTail( addr );
+			return true;
+		}
+	}
+
 	char szHostnameBuffer[256];
 	const char* pszPortStr = V_strchr( (char*)pszHostname, ':' );
 	if ( pszPortStr != nullptr )
