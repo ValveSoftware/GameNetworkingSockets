@@ -1560,8 +1560,6 @@ void CSteamNetworkingICESession::Think_DiscoverServerReflexiveCandidates()
     {
         if ( c.m_type != kICECandidateType_Host )
             continue;
-        if ( !c.m_base.IsIPv4() )
-            continue;
         // Do we have a server-reflexive candidate for this host already?
         bool bFound = false;
         if ( !bFound )
@@ -1589,12 +1587,25 @@ void CSteamNetworkingICESession::Think_DiscoverServerReflexiveCandidates()
         if ( bFound )
             continue;
 
+        // Find first STUN server matching this candidate's address family
+        const SteamNetworkingIPAddr *pSTUNServer = nullptr;
+        for ( const SteamNetworkingIPAddr &srv : m_vecSTUNServers )
+        {
+            if ( srv.IsIPv4() == c.m_base.IsIPv4() )
+            {
+                pSTUNServer = &srv;
+                break;
+            }
+        }
+        if ( !pSTUNServer )
+            continue;
+
         IRawUDPSocket * const pSocket = FindSocketForCandidate( c.m_base );
         // No socket for this candidate?
         if ( pSocket == nullptr )
             continue;
 
-        CSteamNetworkingSocketsSTUNRequest *pNewRequest = CSteamNetworkingSocketsSTUNRequest::SendBindRequest( pSocket, m_vecSTUNServers[0], CRecvSTUNPktCallback( StaticSTUNRequestCallback_ServerReflexiveCandidate, this ), m_nEncoding | kSTUNPacketEncodingFlags_MappedAddress );
+        CSteamNetworkingSocketsSTUNRequest *pNewRequest = CSteamNetworkingSocketsSTUNRequest::SendBindRequest( pSocket, *pSTUNServer, CRecvSTUNPktCallback( StaticSTUNRequestCallback_ServerReflexiveCandidate, this ), m_nEncoding | kSTUNPacketEncodingFlags_MappedAddress );
         if ( pNewRequest != nullptr )
         {
             m_vecPendingServerReflexiveRequests.push_back( pNewRequest );
