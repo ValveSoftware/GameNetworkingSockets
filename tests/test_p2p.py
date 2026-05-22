@@ -23,6 +23,7 @@ g_server_startup_timeout = 3  # seconds
 g_spew_level = None
 g_p2p_rendezvous_level = None
 g_stun_ip = "127.0.100.1"
+g_stun_ipv6 = "fd7f:0:100::1"
 g_stun_port = 3478
 g_setup_mock_ips = False
 g_cleanup_mock_ips = False
@@ -152,7 +153,7 @@ def StartClientInThread( role, local, remote, extra_args=[] ):
         "--log", local + ".verbose.log"
     ]
 
-    cmdline += [ '--stun-server', "%s:%d" % (g_stun_ip, g_stun_port) ]
+    cmdline += [ '--stun-server', "%s:%d,[%s]:%d" % (g_stun_ip, g_stun_port, g_stun_ipv6, g_stun_port) ]
     cmdline += extra_args
     if g_spew_level is not None:
         cmdline.append( '--spewlevel=' + g_spew_level )
@@ -194,6 +195,7 @@ _ALL_MOCK_ADDRS = [
     g_stun_ip,
     _SRV_GW, _CLI_GW, _SRV_GW2, _CLI_GW2,
     _SRV_INT, _CLI_INT, _SRV_INT2, _CLI_INT2, _DEAD_INT, _CLI_SAME_LAN,
+    g_stun_ipv6,
     _SRV_GW_V6, _CLI_GW_V6, _SRV_INT_V6, _CLI_INT_V6,
 ]
 
@@ -380,8 +382,11 @@ CLIENT_SERVER_TEST_CASES = [
       [ '--mock-adapter', _CLI_GW_V6 ],
       'udp', 1 ),
 
-    # NOTE: IPv6 NAT cases require STUN to discover server-reflexive candidates.
-    # The STUN server does not yet support IPv6, so those tests are deferred.
+    # IPv6 full-cone NAT
+    ( 'IPv6 full-cone NAT',
+      _nat( _SRV_INT_V6, _SRV_GW_V6, 'full-cone' ),
+      _nat( _CLI_INT_V6, _CLI_GW_V6, 'full-cone' ),
+      'udp', 1 ),
 ]
 
 def ClientServerTest( server_extra_args=[], client_extra_args=[], expected_route=None, ice_impl=1 ):
@@ -428,7 +433,8 @@ if not os.path.exists( stun_server_script ):
     print( "Can't find stun_server.py" )
     sys.exit(1)
 
-stun = StartProcessInThread( "stun", [ sys.executable, stun_server_script, '--host', g_stun_ip, '--port', str(g_stun_port) ],
+stun = StartProcessInThread( "stun", [ sys.executable, stun_server_script,
+                                       '--host', g_stun_ip, '--host6', g_stun_ipv6, '--port', str(g_stun_port) ],
                              ready_message="STUN server listening on", ready_event=g_stun_ready )
 
 if not g_stun_ready.wait( timeout=g_server_startup_timeout ):
