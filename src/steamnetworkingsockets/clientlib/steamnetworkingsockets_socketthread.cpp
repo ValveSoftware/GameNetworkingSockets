@@ -2600,7 +2600,6 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 
 	// We're back awake.  Grab the lock again
 	SteamNetworkingMicroseconds usecStartedLocking = SteamNetworkingSockets_GetLocalTimestamp();
-	UpdateFakeRateLimitTokenBuckets( usecStartedLocking );
 	for (;;)
 	{
 
