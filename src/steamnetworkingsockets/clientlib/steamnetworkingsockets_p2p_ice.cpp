@@ -134,8 +134,11 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 				server.append( pszAddress );
 
 				vecStunServers.push_back( std::move( server ) );
-				vecStunServersPsz.push_back( vecStunServers.rbegin()->c_str() );
 			}
+			// Build the pointer array after vecStunServers is fully populated;
+			// doing it inside the loop would produce dangling pointers on reallocation.
+			for ( const std::string &s: vecStunServers )
+				vecStunServersPsz.push_back( s.c_str() );
 		}
 		if ( vecStunServers.empty() )
 			SpewWarningGroup( LogLevel_P2PRendezvous(), "[%s] Reflexive candidates enabled by P2P_Transport_ICE_Enable, but P2P_STUN_ServerList is empty\n", GetDescription() );
