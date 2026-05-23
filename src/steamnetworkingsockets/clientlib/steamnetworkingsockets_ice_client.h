@@ -233,31 +233,121 @@ namespace SteamNetworkingSocketsLib {
         };
 
         CSteamNetworkingICESessionCallbacks *m_pCallbacks;
+
+        // ICE defines two asymmetric roles: the controlling agent drives candidate
+        // nomination (picks which path wins), the controlled agent follows its lead.
+        // Roles are assigned by the signaling layer before ICE starts and stay fixed
+        // unless a role-conflict packet forces a swap.
         EICERole m_role;
+
+        // Random 64-bit value generated fresh each session, included in every
+        // outgoing connectivity check.  When both sides accidentally claim the same
+        // role, whichever has the numerically larger tiebreaker keeps that role and
+        // the other side switches.
         uint64 m_nRoleTiebreaker;
+
+        // Set to true whenever the local network topology might have changed (e.g.
+        // at startup, or on a network-change notification).  The next Think() pass
+        // will re-enumerate interfaces and rebuild candidates, then clear this flag.
         bool m_bInterfaceListStale;
+
+        // Bitmask of kSTUNPacketEncodingFlags_* controlling STUN wire format quirks:
+        // whether to include a fingerprint, whether to use legacy MappedAddress vs
+        // XOR-MappedAddress, and whether to sign with HMAC-SHA1 (MessageIntegrity)
+        // vs HMAC-SHA256.  Set to MessageIntegrity at construction for compatibility
+        // with peers that don't support SHA256.
         int m_nEncoding;
+
+        // Our ICE credentials for this session, generated once at startup from the
+        // connection ID and a random block.  The username fragment identifies us;
+        // the password is the HMAC key used to sign and verify connectivity checks.
         std::string m_strLocalUsernameFragment;
         std::string m_strLocalPassword;
+
+        // The remote peer's ICE credentials, delivered via signaling.  Empty until
+        // the first auth message arrives; connectivity checks cannot be validated
+        // or sent until both are populated.
         std::string m_strRemoteUsernameFragment;
         std::string m_strRemotePassword;
-        std::string m_strIncomingUsername;
-        std::string m_strOutgoingUsername;
-        bool m_bCandidatePairsNeedUpdate;
-		int m_nPermittedCandidateTypes;
 
+        // Pre-built USERNAME attribute strings derived from the two ufrag values above.
+        // ICE mandates the format "recipient:sender" — so the direction reverses
+        // depending on whether a packet is inbound or outbound.  Caching them avoids
+        // repeated string concatenation in the hot path.
+        // Both are empty until remote credentials have arrived via signaling.
+        std::string m_strIncomingUsername;  // local:remote — expected in packets we receive
+        std::string m_strOutgoingUsername;  // remote:local — placed in packets we send
+
+        // Dirty flag set whenever a local or remote candidate is added or removed.
+        // The next Think() pass rebuilds m_vecCandidatePairs from the current
+        // cross-product, then clears this flag.
+        bool m_bCandidatePairsNeedUpdate;
+
+        // Bitmask of k_EICECandidate_* types the caller has authorized us to gather
+        // and use.  Host-only vs reflexive vs relay, IPv4 vs IPv6, are all controlled
+        // here.  A candidate whose type bit is absent is silently dropped during
+        // gathering rather than advertised to the peer.
+        int m_nPermittedCandidateTypes;
+
+        // Timestamp of the next keepalive to send on the selected path.  Zero means
+        // "send immediately on the next Think()."  Only meaningful once
+        // m_pSelectedCandidatePair is non-null.
         SteamNetworkingMicroseconds m_nextKeepalive;
+
+        // The candidate pair currently in use for sending and receiving application
+        // data.  Null until ICE nominates a winner.  Once set, changes only if the
+        // selected path fails and a new one is nominated.
+        // m_pSelectedSocket is the pre-looked-up raw socket for the local candidate
+        // in that pair, kept here to avoid the per-send lookup overhead.
         ICECandidatePair *m_pSelectedCandidatePair;
-        IRawUDPSocket *m_pSelectedSocket;
+        IRawUDPSocket    *m_pSelectedSocket;
+
+        // Local network interfaces discovered during the most recent enumeration.
+        // Each entry represents one usable local address.  Rebuilt whenever
+        // m_bInterfaceListStale is set.
         std_vector< Interface > m_vecInterfaces;
+
+        // Raw UDP sockets bound for host candidates, one per kICECandidateType_Host
+        // entry in m_vecCandidates.  Kept alive for the session lifetime so incoming
+        // packets on any of these addresses are dispatched to us.
         std_vector< IRawUDPSocket* > m_vecHostCandidateSockets;
+
+        // Resolved addresses of STUN servers, populated once at construction from the
+        // config string.  Used to discover server-reflexive candidates and to dispatch
+        // STUN responses back to the correct server.
         std_vector< SteamNetworkingIPAddr > m_vecSTUNServers;
+
+        // All local candidates gathered so far (host and server-reflexive), advertised
+        // to the peer via signaling.  Rebuilt on every interface re-enumeration and
+        // grows as STUN responses arrive.
         std_vector< ICECandidate > m_vecCandidates;
+
+        // In-flight STUN Binding requests sent to STUN servers for initial
+        // server-reflexive discovery.  An entry is removed when its response arrives
+        // (success or timeout) and the resulting candidate is added to m_vecCandidates.
+        // The keepalive vector holds analogous follow-up requests sent periodically to
+        // refresh the NAT mapping after a candidate is established.
         std_vector< CSteamNetworkingSocketsSTUNRequest* > m_vecPendingServerReflexiveRequests;
         std_vector< CSteamNetworkingSocketsSTUNRequest* > m_vecPendingServerReflexiveKeepAliveRequests;
+
+        // Candidates received from the remote peer via signaling.  Paired with
+        // m_vecCandidates to form m_vecCandidatePairs.
         std_vector< ICEPeerCandidate > m_vecPeerCandidates;
+
+        // In-flight STUN Binding requests being used as ICE connectivity checks,
+        // one per candidate pair currently under active test.
         std_vector< CSteamNetworkingSocketsSTUNRequest* > m_vecPendingPeerRequests;
+
+        // All formed candidate pairs (cross-product of local × remote candidates,
+        // pruned for duplicates).  Checked in priority order during Think(); each
+        // pair tracks its own state (waiting, in-progress, succeeded, failed).
         std_vector< ICECandidatePair* > m_vecCandidatePairs;
+
+        // Pairs needing an immediate out-of-turn connectivity check, bypassing the
+        // normal paced schedule.  Used when the controlling agent nominates a pair
+        // (one final check with USE-CANDIDATE must be sent) or when an incoming check
+        // reveals a new valid pair that should be verified promptly.  Drained LIFO on
+        // each Think() pass before the regular check list.
         std_vector< ICECandidatePair* > m_vecTriggeredCheckQueue;
 
         IRawUDPSocket *FindSocketForCandidate( const SteamNetworkingIPAddr& addr );
