@@ -27,12 +27,14 @@ g_stun_ipv6 = "fd7f:0:100::1"
 g_stun_port = 3478
 g_setup_mock_ips = False
 g_cleanup_mock_ips = False
+g_repeat = 1
 
 def ParseArgs():
     global g_spew_level
     global g_p2p_rendezvous_level
     global g_setup_mock_ips
     global g_cleanup_mock_ips
+    global g_repeat
 
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -56,11 +58,19 @@ def ParseArgs():
         action='store_true',
         help='Remove addresses added by --setup-mock-ips. Exits without running tests.'
     )
+    parser.add_argument(
+        '--repeat',
+        type=int,
+        default=1,
+        metavar='N',
+        help='Repeat each connection N times (passed through to the test executable).'
+    )
     args = parser.parse_args()
     g_spew_level = args.spewlevel
     g_p2p_rendezvous_level = args.loglevel_p2prendezvous
     g_setup_mock_ips = args.setup_mock_ips
     g_cleanup_mock_ips = args.cleanup_mock_ips
+    g_repeat = args.repeat
 
 # Thread class that runs a process and captures its output
 class RunProcessInThread(threading.Thread):
@@ -154,6 +164,8 @@ def StartClientInThread( role, local, remote, extra_args=[] ):
     ]
 
     cmdline += [ '--stun-server', "%s:%d,[%s]:%d" % (g_stun_ip, g_stun_port, g_stun_ipv6, g_stun_port) ]
+    if g_repeat > 1:
+        cmdline += [ '--repeat', str(g_repeat) ]
     cmdline += extra_args
     if g_spew_level is not None:
         cmdline.append( '--spewlevel=' + g_spew_level )
@@ -396,8 +408,8 @@ def ClientServerTest( server_extra_args=[], client_extra_args=[], expected_route
     client = StartClientInThread( "client", "peer_client", "peer_server", client_extra_args + impl_args )
 
     # Wait for clients to shutdown.  Nuke them if necessary
-    server.join( timeout=20 )
-    client.join( timeout=20 )
+    server.join( timeout=20 * g_repeat )
+    client.join( timeout=20 * g_repeat )
 
     # Verify route types if an expected value was provided
     if expected_route is not None:
