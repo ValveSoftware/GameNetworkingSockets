@@ -18,6 +18,8 @@
 
 HSteamListenSocket g_hListenSock;
 HSteamNetConnection g_hConnection;
+int g_nRepeat = 1;
+int g_nConnectionsDone = 0;
 enum ETestRole
 {
 	k_ETestRole_Undefined,
@@ -47,6 +49,7 @@ void PrintUsage()
 		"  --loglevel-p2prendezvous <level>    P2P rendezvous log level: msg, verbose, debug\n"
 		"  --stun-server <host:port>           STUN server address (default: " DEFAULT_STUN_SERVER ")\n"
 		"  --ice-implementation <n>            ICE implementation: 0=default, 1=native\n"
+		"  --repeat <n>                        Repeat the connection test N times (default: 1)\n"
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_MOCK
 		"\n"
 		"Mock network options:\n"
@@ -153,17 +156,17 @@ void OnSteamNetConnectionStatusChanged( SteamNetConnectionStatusChangedCallback_
 		{
 			g_hConnection = k_HSteamNetConnection_Invalid;
 
-			// In this example, we will bail the test whenever this happens.
-			// Was this a normal termination?
-			int rc = 0;
-			if ( rc == k_ESteamNetworkingConnectionState_ProblemDetectedLocally || pInfo->m_info.m_eEndReason != k_ESteamNetConnectionEnd_App_Generic )
-				rc = 1; // failure
-			Quit( rc );
+			bool bError = ( pInfo->m_info.m_eState == k_ESteamNetworkingConnectionState_ProblemDetectedLocally )
+			           || ( pInfo->m_info.m_eEndReason != k_ESteamNetConnectionEnd_App_Generic );
+			if ( bError )
+				Quit( 1 );
+
+			// Clean close — the main loop will start the next iteration or exit.
+			++g_nConnectionsDone;
 		}
 		else
 		{
-			// Why are we hearing about any another connection?
-			assert( false );
+			// Stale handle from a previous iteration being cleaned up — ignore.
 		}
 
 		break;
@@ -178,9 +181,16 @@ void OnSteamNetConnectionStatusChanged( SteamNetConnectionStatusChangedCallback_
 		// Is this a connection we initiated, or one that we are receiving?
 		if ( g_hListenSock != k_HSteamListenSocket_Invalid && pInfo->m_info.m_hListenSocket == g_hListenSock )
 		{
-			// Somebody's knocking
-			// Note that we assume we will only ever receive a single connection
-			assert( g_hConnection == k_HSteamNetConnection_Invalid ); // not really a bug in this code, but a bug in the test
+			// Somebody's knocking.  With --repeat, the new connection request (signaled
+			// via TCP) can race ahead of the close notification for the previous connection
+			// (sent via UDP).  If the old handle is still around, clean it up now.
+			if ( g_hConnection != k_HSteamNetConnection_Invalid )
+			{
+				TEST_Printf( "Got new connection request while previous connection was still active.  Closing previous connection\n" );
+				SteamNetworkingSockets()->CloseConnection( g_hConnection, 0, nullptr, false );
+				g_hConnection = k_HSteamNetConnection_Invalid;
+				++g_nConnectionsDone;
+			}
 
 			TEST_Printf( "[%s] Accepting\n", pInfo->m_info.m_szConnectionDescription );
 			g_hConnection = pInfo->m_hConn;
@@ -254,6 +264,8 @@ int main( int argc, const char **argv )
 			pszSTUNServer = GetArg();
 		else if ( !strcmp( pszSwitch, "--ice-implementation" ) )
 			g_nICEImplementation = atoi( GetArg() );
+		else if ( !strcmp( pszSwitch, "--repeat" ) )
+			g_nRepeat = atoi( GetArg() );
 		else if ( !strcmp( pszSwitch, "--client" ) )
 			g_eTestRole = k_ETestRole_Client;
 		else if ( !strcmp( pszSwitch, "--server" ) )
@@ -432,8 +444,8 @@ int main( int argc, const char **argv )
 		assert( g_hListenSock != k_HSteamListenSocket_Invalid  );
 	}
 
-	// Begin connecting to peer, unless we are the server
-	if ( g_eTestRole != k_ETestRole_Server )
+	// Lambda to initiate a new outbound connection and send the first message.
+	auto ConnectToPeer = [&]()
 	{
 		std::vector< SteamNetworkingConfigValue_t > vecOpts;
 
@@ -487,7 +499,11 @@ int main( int argc, const char **argv )
 		// Go ahead and send a message now.  The message will be queued until route finding
 		// completes.
 		SendMessageToPeer( "Greetings!" );
-	}
+	};
+
+	// Begin connecting to peer, unless we are the server
+	if ( g_eTestRole != k_ETestRole_Server )
+		ConnectToPeer();
 
 	// Main test loop
 	for (;;)
@@ -526,17 +542,31 @@ int main( int argc, const char **argv )
 				// possible that we need to flush out our message that we sent.
 				if ( g_eTestRole != k_ETestRole_Server )
 				{
-					TEST_Printf( "Closing connection and shutting down.\n" );
+					// Close this connection.  Use linger on the final iteration so the
+					// server has time to receive our close before we exit.
+					TEST_Printf( "Closing connection\n" );
 					SteamNetworkingSockets()->CloseConnection( g_hConnection, 0, "Test completed OK", true );
-					break;
+					g_hConnection = k_HSteamNetConnection_Invalid;
+					++g_nConnectionsDone;
+					if ( g_nConnectionsDone >= g_nRepeat )
+						break;
+					TEST_Printf( "Starting next iteration\n" );
+					ConnectToPeer();
 				}
-
-				// We're the server.  Send a reply.
-				SendMessageToPeer( "I got your message" );
+				else
+				{
+					// We're the server.  Send a reply.
+					SendMessageToPeer( "I got your message" );
+				}
 			}
 		}
+
+		// Server exits once it has handled the expected number of connections.
+		if ( g_eTestRole == k_ETestRole_Server && g_nConnectionsDone >= g_nRepeat )
+			break;
 	}
 
+	TEST_Printf( "Shutting down\n" );
 	Quit(0);
 	return 0;
 }
