@@ -447,7 +447,7 @@ if not os.path.exists( stun_server_script ):
 
 stun = StartProcessInThread( "stun", [ sys.executable, stun_server_script,
                                        '--host', g_stun_ip, '--host6', g_stun_ipv6, '--port', str(g_stun_port) ],
-                             ready_message="STUN server listening on", ready_event=g_stun_ready )
+                             ready_message="STUN/TURN server listening on", ready_event=g_stun_ready )
 
 if not g_stun_ready.wait( timeout=g_server_startup_timeout ):
     print( "ERROR: STUN server failed to start within %d seconds" % g_server_startup_timeout )

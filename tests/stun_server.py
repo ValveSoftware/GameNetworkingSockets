@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """
-Minimal STUN server implementing RFC 5389 Binding Request/Response.
+Minimal STUN (RFC 5389) + TURN (RFC 5766) server
 
-Supports both IPv4 and IPv6.  Other STUN message types (TURN Allocate,
-Send/Data/Channel, etc.) are silently ignored.  Message integrity
-(HMAC-SHA1) is not implemented.
+Handles Binding requests (STUN) and Allocate/Refresh/CreatePermission/
+Send/Data (TURN).
 """
 
 import argparse
@@ -12,81 +11,363 @@ import select
 import socket
 import struct
 import sys
+import time
 
-STUN_MAGIC_COOKIE       = 0x2112A442
-MSG_BINDING_REQUEST     = 0x0001
-MSG_BINDING_SUCCESS     = 0x0101
-ATTR_XOR_MAPPED_ADDRESS = 0x0020
+STUN_MAGIC_COOKIE = 0x2112A442
 
-def build_xor_mapped_address(addr, port, transaction_id):
+# Allocations expire after TURN_DEFAULT_LIFETIME seconds if not refreshed.
+# A Refresh with LIFETIME=0 immediately releases the allocation.
+TURN_DEFAULT_LIFETIME = 600  # seconds
+
+# Message types
+MSG_BINDING_REQUEST             = 0x0001
+MSG_BINDING_SUCCESS             = 0x0101
+MSG_ALLOCATE_REQUEST            = 0x0003
+MSG_ALLOCATE_SUCCESS            = 0x0103
+MSG_ALLOCATE_ERROR              = 0x0113
+MSG_REFRESH_REQUEST             = 0x0004
+MSG_REFRESH_SUCCESS             = 0x0104
+MSG_REFRESH_ERROR               = 0x0114
+MSG_CREATE_PERMISSION_REQUEST   = 0x0008
+MSG_CREATE_PERMISSION_SUCCESS   = 0x0108
+MSG_CREATE_PERMISSION_ERROR     = 0x0118
+MSG_SEND_INDICATION             = 0x0016
+MSG_DATA_INDICATION             = 0x0017
+
+# Attribute types
+ATTR_XOR_MAPPED_ADDRESS         = 0x0020
+ATTR_XOR_RELAYED_ADDRESS        = 0x0016
+ATTR_XOR_PEER_ADDRESS           = 0x0012
+ATTR_DATA                       = 0x0013
+ATTR_LIFETIME                   = 0x000D
+ATTR_REQUESTED_TRANSPORT        = 0x0019
+ATTR_ERROR_CODE                 = 0x0009
+
+
+class Allocation:
+    def __init__(self, relay_sock, relay_host, relay_port, server_sock, client_addr, lifetime):
+        self.relay_sock   = relay_sock
+        self.relay_host   = relay_host
+        self.relay_port   = relay_port
+        self.server_sock  = server_sock   # server socket to reply on
+        self.client_addr  = client_addr   # (ip, port) of TURN client
+        self.permissions  = set()         # permitted peer IPs
+        self.expiry       = time.monotonic() + lifetime
+        self.first_packet = True          # True until the first packet is successfully forwarded
+
+    def is_expired(self):
+        return time.monotonic() > self.expiry
+
+    def refresh(self, lifetime):
+        self.expiry = time.monotonic() + lifetime
+
+
+# allocations keyed by (client_ip, client_port)
+_allocations = {}
+# relay_sock -> Allocation, for dispatching incoming relay packets
+_relay_sock_map = {}
+
+
+# ---------------------------------------------------------------------------
+# Attribute builders
+# ---------------------------------------------------------------------------
+
+def _build_xor_addr_attr(attr_type, addr, port, transaction_id):
     xport = port ^ (STUN_MAGIC_COOKIE >> 16)
     if ':' in addr:
-        # IPv6: XOR 16-byte address with magic_cookie || transaction_id
-        raw = socket.inet_pton(socket.AF_INET6, addr)
+        raw     = socket.inet_pton(socket.AF_INET6, addr)
         xor_key = struct.pack('!I', STUN_MAGIC_COOKIE) + transaction_id
-        xraw = bytes(a ^ b for a, b in zip(raw, xor_key))
-        attr_body = struct.pack('!BBH', 0x00, 0x02, xport) + xraw
+        xraw    = bytes(a ^ b for a, b in zip(raw, xor_key))
+        body    = struct.pack('!BBH', 0x00, 0x02, xport) + xraw
     else:
-        # IPv4: XOR 4-byte address with magic cookie
-        xip = struct.unpack('!I', socket.inet_aton(addr))[0] ^ STUN_MAGIC_COOKIE
-        attr_body = struct.pack('!BBH I', 0x00, 0x01, xport, xip)
-    return struct.pack('!HH', ATTR_XOR_MAPPED_ADDRESS, len(attr_body)) + attr_body
+        xip  = struct.unpack('!I', socket.inet_aton(addr))[0] ^ STUN_MAGIC_COOKIE
+        body = struct.pack('!BBHI', 0x00, 0x01, xport, xip)
+    return struct.pack('!HH', attr_type, len(body)) + body
 
-def handle_packet(sock, data, addr):
+def _build_lifetime_attr(lifetime):
+    return struct.pack('!HHI', ATTR_LIFETIME, 4, lifetime)
+
+def _build_error_attr(code, reason=b''):
+    body = struct.pack('!BBBb', 0, 0, code // 100, code % 100) + reason
+    pad  = (4 - len(body) % 4) % 4
+    return struct.pack('!HH', ATTR_ERROR_CODE, len(body)) + body + b'\x00' * pad
+
+def _build_data_attr(payload):
+    pad = (4 - len(payload) % 4) % 4
+    return struct.pack('!HH', ATTR_DATA, len(payload)) + payload + b'\x00' * pad
+
+def _build_response(msg_type, transaction_id, *attr_bytes):
+    body = b''.join(attr_bytes)
+    return struct.pack('!HHI', msg_type, len(body), STUN_MAGIC_COOKIE) + transaction_id + body
+
+
+# ---------------------------------------------------------------------------
+# Attribute parser
+# ---------------------------------------------------------------------------
+
+def _parse_attrs(data, offset=20):
+    """Return list of (attr_type, attr_bytes) pairs."""
+    result = []
+    while offset + 4 <= len(data):
+        attr_type, attr_len = struct.unpack_from('!HH', data, offset)
+        offset += 4
+        if offset + attr_len > len(data):
+            break
+        result.append((attr_type, data[offset:offset + attr_len]))
+        offset += attr_len + (4 - attr_len % 4) % 4
+    return result
+
+def _get_attr(attrs, attr_type):
+    for t, v in attrs:
+        if t == attr_type:
+            return v
+    return None
+
+def _get_attrs(attrs, attr_type):
+    return [v for t, v in attrs if t == attr_type]
+
+def _decode_xor_addr(attr_bytes, transaction_id):
+    """Decode an XOR-PEER/RELAYED/MAPPED address attribute. Returns (ip, port) or (None, None)."""
+    if len(attr_bytes) < 4:
+        return None, None
+    family = attr_bytes[1]
+    xport  = struct.unpack_from('!H', attr_bytes, 2)[0]
+    port   = xport ^ (STUN_MAGIC_COOKIE >> 16)
+    if family == 0x01:   # IPv4
+        if len(attr_bytes) < 8:
+            return None, None
+        xip = struct.unpack_from('!I', attr_bytes, 4)[0]
+        ip  = socket.inet_ntoa(struct.pack('!I', xip ^ STUN_MAGIC_COOKIE))
+    elif family == 0x02: # IPv6
+        if len(attr_bytes) < 20:
+            return None, None
+        xor_key = struct.pack('!I', STUN_MAGIC_COOKIE) + transaction_id
+        raw     = bytes(a ^ b for a, b in zip(attr_bytes[4:20], xor_key))
+        ip      = socket.inet_ntop(socket.AF_INET6, raw)
+    else:
+        return None, None
+    return ip, port
+
+
+# ---------------------------------------------------------------------------
+# Message handlers
+# ---------------------------------------------------------------------------
+
+def _handle_binding_request(sock, data, addr):
+    tid  = data[8:20]
+    print("Binding request from %s:%d" % (addr[0], addr[1]), flush=True)
+    attr = _build_xor_addr_attr(ATTR_XOR_MAPPED_ADDRESS, addr[0], addr[1], tid)
+    sock.sendto(_build_response(MSG_BINDING_SUCCESS, tid, attr), addr)
+
+
+def _handle_allocate_request(sock, data, addr, server_host):
+    tid  = data[8:20]
+    key  = (addr[0], addr[1])
+    print("Allocate request from %s:%d" % (addr[0], addr[1]), flush=True)
+
+    if key in _allocations and not _allocations[key].is_expired():
+        err = _build_error_attr(437, b'Allocation Mismatch')
+        sock.sendto(_build_response(MSG_ALLOCATE_ERROR, tid, err), addr)
+        return
+
+    # Clean up any expired allocation for this client before creating a new one
+    if key in _allocations:
+        _delete_allocation(key)
+
+    family     = socket.AF_INET6 if ':' in server_host else socket.AF_INET
+    relay_sock = socket.socket(family, socket.SOCK_DGRAM)
+    relay_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    if family == socket.AF_INET6:
+        relay_sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
+    relay_sock.bind((server_host, 0))
+    relay_host, relay_port = relay_sock.getsockname()[:2]
+
+    alloc = Allocation(relay_sock, relay_host, relay_port, sock, addr, TURN_DEFAULT_LIFETIME)
+    _allocations[key]           = alloc
+    _relay_sock_map[relay_sock] = alloc
+
+    print("  Relay %s:%d allocated for %s:%d" % (relay_host, relay_port, addr[0], addr[1]), flush=True)
+
+    relayed = _build_xor_addr_attr(ATTR_XOR_RELAYED_ADDRESS, relay_host, relay_port, tid)
+    mapped  = _build_xor_addr_attr(ATTR_XOR_MAPPED_ADDRESS,  addr[0],    addr[1],    tid)
+    lftime  = _build_lifetime_attr(TURN_DEFAULT_LIFETIME)
+    sock.sendto(_build_response(MSG_ALLOCATE_SUCCESS, tid, relayed, mapped, lftime), addr)
+
+
+def _handle_refresh_request(sock, data, addr):
+    tid  = data[8:20]
+    key  = (addr[0], addr[1])
+    alloc = _allocations.get(key)
+    if alloc is None or alloc.is_expired():
+        err = _build_error_attr(437, b'No Allocation')
+        sock.sendto(_build_response(MSG_REFRESH_ERROR, tid, err), addr)
+        return
+
+    attrs    = _parse_attrs(data)
+    lf_bytes = _get_attr(attrs, ATTR_LIFETIME)
+    lifetime = struct.unpack('!I', lf_bytes)[0] if lf_bytes else TURN_DEFAULT_LIFETIME
+
+    if lifetime == 0:
+        print("Explicit deallocation from %s:%d" % addr, flush=True)
+        _delete_allocation(key)
+    else:
+        alloc.refresh(lifetime)
+
+    sock.sendto(_build_response(MSG_REFRESH_SUCCESS, tid, _build_lifetime_attr(lifetime)), addr)
+
+
+def _handle_create_permission_request(sock, data, addr):
+    tid  = data[8:20]
+    key  = (addr[0], addr[1])
+    alloc = _allocations.get(key)
+    if alloc is None or alloc.is_expired():
+        err = _build_error_attr(437, b'No Allocation')
+        sock.sendto(_build_response(MSG_CREATE_PERMISSION_ERROR, tid, err), addr)
+        return
+
+    attrs = _parse_attrs(data)
+    for peer_bytes in _get_attrs(attrs, ATTR_XOR_PEER_ADDRESS):
+        peer_ip, _ = _decode_xor_addr(peer_bytes, tid)
+        if peer_ip:
+            alloc.permissions.add(peer_ip)
+            print("  Permission: %s may reach relay %s:%d" % (peer_ip, alloc.relay_host, alloc.relay_port), flush=True)
+
+    sock.sendto(_build_response(MSG_CREATE_PERMISSION_SUCCESS, tid), addr)
+
+
+def _handle_send_indication(data, addr):
+    tid   = data[8:20]
+    key   = (addr[0], addr[1])
+    alloc = _allocations.get(key)
+    if alloc is None or alloc.is_expired():
+        return
+
+    attrs = _parse_attrs(data)
+    peer_bytes = _get_attr(attrs, ATTR_XOR_PEER_ADDRESS)
+    payload    = _get_attr(attrs, ATTR_DATA)
+    if peer_bytes is None or payload is None:
+        return
+
+    peer_ip, peer_port = _decode_xor_addr(peer_bytes, tid)
+    if peer_ip is None:
+        return
+
+    if peer_ip not in alloc.permissions:
+        print("  Dropped Send to %s — no permission" % peer_ip, flush=True)
+        return
+
+    alloc.relay_sock.sendto(payload, (peer_ip, peer_port))
+
+
+def _handle_relay_packet(relay_sock, payload, peer_addr):
+    """Data arriving on a relay socket — wrap in a Data indication and forward to the client."""
+    alloc = _relay_sock_map.get(relay_sock)
+    if alloc is None:
+        return
+    if peer_addr[0] not in alloc.permissions:
+        print("  Dropped relay packet from %s:%d on relay port %d — no permission (would forward to %s:%d)" % (peer_addr[0], peer_addr[1], alloc.relay_port, alloc.client_addr[0], alloc.client_addr[1]), flush=True)
+        return
+
+    if alloc.first_packet:
+        alloc.first_packet = False
+        print("  Forwarding first packet from %s:%d on relay port %d to %s:%d" % (peer_addr[0], peer_addr[1], alloc.relay_port, alloc.client_addr[0], alloc.client_addr[1]), flush=True)
+
+    # Transaction ID doesn't matter for indications; use zeros.
+    tid      = b'\x00' * 12
+    peer_attr = _build_xor_addr_attr(ATTR_XOR_PEER_ADDRESS, peer_addr[0], peer_addr[1], tid)
+    data_attr = _build_data_attr(payload)
+    indication = _build_response(MSG_DATA_INDICATION, tid, peer_attr, data_attr)
+    alloc.server_sock.sendto(indication, alloc.client_addr)
+
+
+def _handle_packet(sock, data, addr, server_host):
     if len(data) < 20:
-        print("Dropped runt packet (%d bytes) from %s:%d" % (len(data), addr[0], addr[1]), flush=True)
         return
     msg_type, _msg_len, magic = struct.unpack_from('!HHI', data)
     if magic != STUN_MAGIC_COOKIE:
-        print("Dropped packet from %s:%d: bad magic 0x%08x" % (addr[0], addr[1], magic), flush=True)
         return
-    if msg_type != MSG_BINDING_REQUEST:
-        print("Dropped packet from %s:%d: unexpected message type 0x%04x" % (addr[0], addr[1], msg_type), flush=True)
-        return
-    print("Binding request from %s:%d" % (addr[0], addr[1]), flush=True)
-    transaction_id = data[8:20]
-    attr = build_xor_mapped_address(addr[0], addr[1], transaction_id)
-    response = struct.pack('!HHI', MSG_BINDING_SUCCESS, len(attr), STUN_MAGIC_COOKIE) \
-               + transaction_id + attr
-    sock.sendto(response, addr)
+
+    if   msg_type == MSG_BINDING_REQUEST:
+        _handle_binding_request(sock, data, addr)
+    elif msg_type == MSG_ALLOCATE_REQUEST:
+        _handle_allocate_request(sock, data, addr, server_host)
+    elif msg_type == MSG_REFRESH_REQUEST:
+        _handle_refresh_request(sock, data, addr)
+    elif msg_type == MSG_CREATE_PERMISSION_REQUEST:
+        _handle_create_permission_request(sock, data, addr)
+    elif msg_type == MSG_SEND_INDICATION:
+        _handle_send_indication(data, addr)
+    else:
+        print("Unhandled message type 0x%04x from %s:%d" % (msg_type, addr[0], addr[1]), flush=True)
+
+
+# ---------------------------------------------------------------------------
+# Allocation cleanup
+# ---------------------------------------------------------------------------
+
+def _delete_allocation(key):
+    alloc = _allocations.pop(key, None)
+    if alloc:
+        _relay_sock_map.pop(alloc.relay_sock, None)
+        alloc.relay_sock.close()
+
+def _cleanup_expired():
+    expired = [k for k, a in _allocations.items() if a.is_expired()]
+    for k in expired:
+        print("Allocation expired for %s:%d" % k, flush=True)
+        _delete_allocation(k)
+
+
+# ---------------------------------------------------------------------------
+# Main loop
+# ---------------------------------------------------------------------------
 
 def run(host4, host6, port):
-    socks = []
+    server_socks  = []
+    host_by_sock  = {}
 
     if host4:
         s4 = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s4.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         s4.bind((host4, port))
-        print("STUN server listening on %s:%d" % (host4, port), flush=True)
-        socks.append(s4)
+        print("STUN/TURN server listening on %s:%d" % (host4, port), flush=True)
+        server_socks.append(s4)
+        host_by_sock[s4] = host4
 
     if host6:
         s6 = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
         s6.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         s6.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
         s6.bind((host6, port))
-        print("STUN server listening on [%s]:%d" % (host6, port), flush=True)
-        socks.append(s6)
+        print("STUN/TURN server listening on [%s]:%d" % (host6, port), flush=True)
+        server_socks.append(s6)
+        host_by_sock[s6] = host6
 
     while True:
         try:
-            readable, _, _ = select.select(socks, [], [])
+            all_socks = server_socks + list(_relay_sock_map.keys())
+            readable, _, _ = select.select(all_socks, [], [], 30.0)
             for sock in readable:
-                data, addr = sock.recvfrom(2048)
-                handle_packet(sock, data, addr)
+                data, addr = sock.recvfrom(65535)
+                if sock in host_by_sock:
+                    _handle_packet(sock, data, addr, host_by_sock[sock])
+                else:
+                    _handle_relay_packet(sock, data, addr)
+            _cleanup_expired()
         except KeyboardInterrupt:
             break
         except Exception as e:
             print("Error: %s" % e, file=sys.stderr, flush=True)
 
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
-        description='Minimal STUN server (RFC 5389 Binding Request only; no message integrity)')
-    parser.add_argument('--host', default='0.0.0.0',
+        description='STUN (RFC 5389) + TURN (RFC 5766, no auth) server')
+    parser.add_argument('--host',  default='0.0.0.0',
                         help='IPv4 address to bind (default: 0.0.0.0)')
     parser.add_argument('--host6', default=None,
                         help='IPv6 address to bind (optional)')
-    parser.add_argument('--port', type=int, default=3478,
-                        help='UDP port to listen on (default: 3478)')
+    parser.add_argument('--port',  type=int, default=3478,
+                        help='UDP port (default: 3478)')
     args = parser.parse_args()
     run(args.host, args.host6, args.port)
