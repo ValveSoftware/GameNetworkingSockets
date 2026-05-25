@@ -904,6 +904,14 @@ bool ParseRFC5245CandidateAttribute( const char *pszAttr, RFC5245CandidateAttr *
 
 } // namespace <anonymous>
 
+// Compare IP addresses, ignoring the port.
+// Should we promotet this to a more public header?  Or perhaps
+// make it a member of SteamNetworkingIPAddr?
+inline bool IPAddrEqualIgnoringPort( const SteamNetworkingIPAddr &a, const SteamNetworkingIPAddr &b )
+{
+    return memcmp( a.m_ipv6, b.m_ipv6, sizeof(a.m_ipv6) ) == 0;
+}
+
 
 /////////////////////////////////////////////////////////////////////////////
 //
@@ -1242,7 +1250,7 @@ void CSteamNetworkingICESession::GatherInterfaces()
         bool bFound = false;
         for ( int j = 0; j < vecAddrs.Count(); ++j )
         {
-            if ( vecAddrs[j].m_addr == intf.m_localaddr )
+            if ( IPAddrEqualIgnoringPort( vecAddrs[j].m_addr, intf.m_pSocket->m_boundAddr ) )
             {
                 vecAddrs.FastRemove( j );
                 bFound = true;
@@ -1284,7 +1292,7 @@ void CSteamNetworkingICESession::GatherInterfaces()
             continue;
         }
 
-        m_vecInterfaces.emplace_back( std::make_unique<Interface>( addr.m_addr, uNextPriority, addr.m_nPrefixLen, pSock ) );
+        m_vecInterfaces.emplace_back( std::make_unique<Interface>( uNextPriority, addr.m_nPrefixLen, pSock ) );
         if ( uNextPriority > 0 )
             --uNextPriority;
     }
@@ -1292,13 +1300,9 @@ void CSteamNetworkingICESession::GatherInterfaces()
 
 int CSteamNetworkingICESession::GetLocalCandidatePrefixLen( const SteamNetworkingIPAddr &addr ) const
 {
-    // m_localaddr entries have port=0 (from getifaddrs); candidate bases carry the bound port.
-    // Strip the port before comparing so the lookup succeeds.
-    SteamNetworkingIPAddr addrNoPort = addr;
-    addrNoPort.m_port = 0;
     for ( const auto &pIntf : m_vecInterfaces )
     {
-        if ( pIntf->m_localaddr == addrNoPort )
+        if ( IPAddrEqualIgnoringPort( pIntf->m_pSocket->m_boundAddr, addr ) )
             return pIntf->m_nPrefixLen;
     }
     return 0;
@@ -1685,7 +1689,7 @@ void CSteamNetworkingICESession::STUNRequestCallback_ServerReflexiveCandidate( c
     uint32 uLocalPriority = 0;
     for ( const std::unique_ptr<Interface> &pIface : m_vecInterfaces )
     {
-        if ( pIface->m_localaddr == localAddr )
+        if ( pIface->m_pSocket->m_boundAddr == localAddr )
         {
             uLocalPriority = pIface->m_nPriority;
             break;
