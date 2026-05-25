@@ -101,7 +101,6 @@ namespace SteamNetworkingSocketsLib {
     {
     public:
         IRawUDPSocket *m_pRawSocket = nullptr;
-        IBoundUDPSocket *m_pBoundSocket = nullptr;
         SteamNetworkingIPAddr m_localAddr;
         SteamNetworkingIPAddr m_remoteAddr;
         int m_nRetryCount;
@@ -114,7 +113,6 @@ namespace SteamNetworkingSocketsLib {
 		SteamNetworkingMicroseconds m_usecLastSentTime;
 
         static CSteamNetworkingSocketsSTUNRequest *SendBindRequest( IRawUDPSocket *pRawSock, SteamNetworkingIPAddr remoteAddr, CRecvSTUNPktCallback cb, int nEncoding );
-        static CSteamNetworkingSocketsSTUNRequest *SendBindRequest( IBoundUDPSocket *pBoundSock, SteamNetworkingIPAddr remoteAddr, CRecvSTUNPktCallback cb, int nEncoding );
 
         static CSteamNetworkingSocketsSTUNRequest *CreatePeerConnectivityCheckRequest( IRawUDPSocket *pRawSock, SteamNetworkingIPAddr remoteAddr, CRecvSTUNPktCallback cb, int nEncoding );
         void Send( SteamNetworkingIPAddr remoteAddr, CRecvSTUNPktCallback cb );

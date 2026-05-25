@@ -919,11 +919,6 @@ CSteamNetworkingSocketsSTUNRequest::~CSteamNetworkingSocketsSTUNRequest()
 {
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
 
-    if ( m_pBoundSocket != nullptr )
-    {
-        m_pBoundSocket->Close();
-        m_pBoundSocket = nullptr;
-    }
     m_pRawSocket = nullptr;
     for ( STUNAttribute &a : m_vecExtraAttrs )
     {
@@ -945,21 +940,6 @@ void CSteamNetworkingSocketsSTUNRequest::Send( SteamNetworkingIPAddr remoteAddr,
     SetNextThinkTimeASAP();
 }
 
-CSteamNetworkingSocketsSTUNRequest *CSteamNetworkingSocketsSTUNRequest::SendBindRequest( IBoundUDPSocket *pBoundSock, SteamNetworkingIPAddr remoteAddr, CRecvSTUNPktCallback cb, int nEncoding )
-{
-	SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "CSteamNetworkingSocketsSTUNRequest::SendBindRequest" );
-
-    if ( pBoundSock == nullptr || pBoundSock->GetRawSock() == nullptr )
-        return nullptr;
-
-    CSteamNetworkingSocketsSTUNRequest * pRequest = new CSteamNetworkingSocketsSTUNRequest;
-    pRequest->m_pBoundSocket = pBoundSock;
-    pRequest->m_pRawSocket = pBoundSock->GetRawSock();
-    pRequest->m_localAddr = pBoundSock->GetRawSock()->m_boundAddr;
-    pRequest->m_nEncoding = nEncoding;
-    pRequest->Send( remoteAddr, cb );
-    return pRequest;
-}
 
 CSteamNetworkingSocketsSTUNRequest *CSteamNetworkingSocketsSTUNRequest::SendBindRequest( IRawUDPSocket *pRawSock, SteamNetworkingIPAddr remoteAddr, CRecvSTUNPktCallback cb, int nEncoding )
 {
@@ -992,11 +972,6 @@ CSteamNetworkingSocketsSTUNRequest *CSteamNetworkingSocketsSTUNRequest::CreatePe
 
 void CSteamNetworkingSocketsSTUNRequest::Cancel()
 {
-	if ( m_pBoundSocket != nullptr )
-	{
-		m_pBoundSocket->Close();
-	}
-    m_pBoundSocket = nullptr;
     m_pRawSocket = nullptr;
 
     RecvSTUNPktInfo_t subInfo;
@@ -1065,9 +1040,6 @@ bool CSteamNetworkingSocketsSTUNRequest::OnPacketReceived( const RecvPktInfo_t &
     subInfo.m_nAttributes = vecAttributes.Count();
     subInfo.m_pAttributes = vecAttributes.Base();
 
-	if ( m_pBoundSocket != nullptr )
-		m_pBoundSocket->Close();
-    m_pBoundSocket = nullptr;
     m_pRawSocket = nullptr;
     m_callback( subInfo );
 
