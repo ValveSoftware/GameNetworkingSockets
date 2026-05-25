@@ -194,22 +194,27 @@ namespace SteamNetworkingSocketsLib {
             kICECandidateType_PeerReflexive,
             kICECandidateType_None
         };
-        struct ICECandidate
+        struct ICECandidateBase
         {
             ICECandidateType m_type;
             SteamNetworkingIPAddr m_addr;
             SteamNetworkingIPAddr m_base;
-            SteamNetworkingIPAddr m_stunServer;
             uint32 m_nPriority;
-            ICECandidate();
-            ICECandidate( ICECandidateType t, const SteamNetworkingIPAddr& addr, const SteamNetworkingIPAddr& base );
-            ICECandidate( ICECandidateType t, const SteamNetworkingIPAddr& addr, const SteamNetworkingIPAddr& base, const SteamNetworkingIPAddr& stunServer );
+            ICECandidateBase();
+            ICECandidateBase( ICECandidateType t, const SteamNetworkingIPAddr& addr, const SteamNetworkingIPAddr& base );
             uint32 CalcPriority( uint32 nLocalPreference );
-            void CalcCandidateAttribute( char *pszBuffer, size_t nBufferSize ) const;
 			EICECandidateType CalcType() const;
         };
+        struct ICELocalCandidate : public ICECandidateBase
+        {
+            SteamNetworkingIPAddr m_stunServer;
+            ICELocalCandidate();
+            ICELocalCandidate( ICECandidateType t, const SteamNetworkingIPAddr& addr, const SteamNetworkingIPAddr& base );
+            ICELocalCandidate( ICECandidateType t, const SteamNetworkingIPAddr& addr, const SteamNetworkingIPAddr& base, const SteamNetworkingIPAddr& stunServer );
+            void CalcCandidateAttribute( char *pszBuffer, size_t nBufferSize ) const;
+        };
         EICERole GetRole() { return m_role; }
-        void AddPeerCandidate( const ICECandidate& peerCandidate, const char* pszFoundation );
+        void AddPeerCandidate( const ICECandidateBase& peerCandidate, const char* pszFoundation );
         void SetRemoteUsername( const char *pszUsername );
 		void SetRemotePassword( const char *pszPassword );
 
@@ -226,10 +231,10 @@ namespace SteamNetworkingSocketsLib {
         void Think( SteamNetworkingMicroseconds usecNow ) override;
 
     private:
-        struct ICEPeerCandidate : public ICECandidate
+        struct ICEPeerCandidate : public ICECandidateBase
         {
             std::string m_sFoundation;
-            ICEPeerCandidate( const ICECandidate& c, const char *pszFoundation ) : ICECandidate( c ), m_sFoundation( pszFoundation ) {}
+            ICEPeerCandidate( const ICECandidateBase& c, const char *pszFoundation ) : ICECandidateBase( c ), m_sFoundation( pszFoundation ) {}
         };
 
         enum ICECandidatePairState
@@ -247,11 +252,11 @@ namespace SteamNetworkingSocketsLib {
             ICECandidatePairState m_nState;
             bool m_bNominated;
             uint64 m_nPriority;
-            ICECandidate m_localCandidate;
+            ICELocalCandidate m_localCandidate;
             ICEPeerCandidate m_remoteCandidate;
             CSteamNetworkingSocketsSTUNRequest *m_pPeerRequest;
 			int m_nLastRecordedPing;
-            ICECandidatePair( const ICECandidate& localCandidate, const ICEPeerCandidate& remoteCandidate, EICERole role );
+            ICECandidatePair( const ICELocalCandidate& localCandidate, const ICEPeerCandidate& remoteCandidate, EICERole role );
         };
 
         CSteamNetworkingICESessionCallbacks *m_pCallbacks;
@@ -337,7 +342,7 @@ namespace SteamNetworkingSocketsLib {
         // All local candidates gathered so far (host and server-reflexive), advertised
         // to the peer via signaling.  Rebuilt on every interface re-enumeration and
         // grows as STUN responses arrive.
-        std_vector< ICECandidate > m_vecCandidates;
+        std_vector< ICELocalCandidate > m_vecCandidates;
 
         // Candidates received from the remote peer via signaling.  Paired with
         // m_vecCandidates to form m_vecCandidatePairs.
@@ -363,9 +368,9 @@ namespace SteamNetworkingSocketsLib {
         CSteamNetworkingSocketsSTUNRequest *FindPendingRequestByTransactionID( const uint32 nTransactionID[3] ) const;
         void GatherInterfaces();
         void UpdateHostCandidates();
-        void UpdateKeepalive( const ICECandidate& c );
+        void UpdateKeepalive( const ICELocalCandidate& c );
         uint32 GetInterfaceLocalPreference( const SteamNetworkingIPAddr& addr );
-		bool IsCandidatePermitted( const ICECandidate& localCandidate );
+		bool IsCandidatePermitted( const ICELocalCandidate& localCandidate );
 
         void Think_KeepAliveOnCandidates( SteamNetworkingMicroseconds usecNow );
         void Think_DiscoverServerReflexiveCandidates();
@@ -387,9 +392,9 @@ namespace SteamNetworkingSocketsLib {
     class CSteamNetworkingICESessionCallbacks
     {
     public:
-        virtual void OnLocalCandidateDiscovered( const CSteamNetworkingICESession::ICECandidate& candidate ) {}
+        virtual void OnLocalCandidateDiscovered( const CSteamNetworkingICESession::ICELocalCandidate& candidate ) {}
         virtual void OnPacketReceived( const RecvPktInfo_t &info ) {}
-        virtual void OnConnectionSelected( const CSteamNetworkingICESession::ICECandidate& localCandidate, const CSteamNetworkingICESession::ICECandidate& remoteCandidate ) {}
+        virtual void OnConnectionSelected( const CSteamNetworkingICESession::ICELocalCandidate& localCandidate, const CSteamNetworkingICESession::ICECandidateBase& remoteCandidate ) {}
     };
 
 
@@ -414,9 +419,9 @@ namespace SteamNetworkingSocketsLib {
         virtual bool SendPacketGather( int nChunks, const iovec *pChunks, int cbSendTotal ) override;
 
     protected:
-        virtual void OnLocalCandidateDiscovered( const CSteamNetworkingICESession::ICECandidate& candidate ) override;
+        virtual void OnLocalCandidateDiscovered( const CSteamNetworkingICESession::ICELocalCandidate& candidate ) override;
         virtual void OnPacketReceived( const RecvPktInfo_t &info ) override;
-        virtual void OnConnectionSelected( const CSteamNetworkingICESession::ICECandidate& localCandidate, const CSteamNetworkingICESession::ICECandidate& remoteCandidate ) override;
+        virtual void OnConnectionSelected( const CSteamNetworkingICESession::ICELocalCandidate& localCandidate, const CSteamNetworkingICESession::ICECandidateBase& remoteCandidate ) override;
     };
 
 } // namespace SteamNetworkingSocketsLib
