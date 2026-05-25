@@ -196,10 +196,6 @@ namespace SteamNetworkingSocketsLib {
     private:
         struct Interface
         {
-            // Local IP address of this network interface.  Port is always 0;
-            // the actual bound port lives on the socket.
-            SteamNetworkingIPAddr m_localaddr;
-
             // Local-preference component of the ICE priority formula
             // (RFC 8445 §5.1.2).  Assigned as a countdown from 65535 in
             // enumeration order so the first adapter returned by the OS gets
@@ -213,10 +209,11 @@ namespace SteamNetworkingSocketsLib {
 
             // Raw UDP socket bound to this interface for sending and receiving
             // ICE traffic.  Always non-NULL, owned by this object.
+            // m_pSocket->m_boundAddr is the local IP:port for this interface.
             IRawUDPSocket * const m_pSocket;
 
-            Interface( const SteamNetworkingIPAddr& ipAddr, uint32 p, int nPrefixLen, IRawUDPSocket *pSocket )
-                : m_localaddr( ipAddr ), m_nPriority( p ), m_nPrefixLen( nPrefixLen ), m_pSocket( pSocket ) {}
+            Interface( uint32 p, int nPrefixLen, IRawUDPSocket *pSocket )
+                : m_nPriority( p ), m_nPrefixLen( nPrefixLen ), m_pSocket( pSocket ) {}
 
             ~Interface()
             {
