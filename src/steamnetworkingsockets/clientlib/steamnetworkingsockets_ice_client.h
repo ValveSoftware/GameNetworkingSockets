@@ -13,6 +13,8 @@
 
 namespace SteamNetworkingSocketsLib {
     class CSteamNetworkingSocketsSTUNRequest;
+    class CSteamNetworkingICESessionCallbacks;
+    struct RFC5245CandidateAttr;
 
     /// Represents one local network interface used for ICE candidate gathering.
     /// Owns its socket and tracks at most one in-flight server-reflexive STUN request.
@@ -169,8 +171,6 @@ namespace SteamNetworkingSocketsLib {
         CSteamNetworkingSocketsSTUNRequest& operator=( const CSteamNetworkingSocketsSTUNRequest& );
     };
 
-    class CSteamNetworkingICESessionCallbacks;
-
 	/// Main logic of establishing an ICE session with a peer.  In real-world
 	/// uses cases this is always associated one-to-one with a CConnectionTransportP2PICE_Valve.
 	/// But breaking it out into a separate object helps with testing.
@@ -214,7 +214,7 @@ namespace SteamNetworkingSocketsLib {
             void CalcCandidateAttribute( char *pszBuffer, size_t nBufferSize ) const;
         };
         EICERole GetRole() { return m_role; }
-        void AddPeerCandidate( const ICECandidateBase& peerCandidate, const char* pszFoundation );
+        EICECandidateType AddPeerCandidate( const RFC5245CandidateAttr& attr );
         void SetRemoteUsername( const char *pszUsername );
 		void SetRemotePassword( const char *pszPassword );
 
@@ -387,6 +387,19 @@ namespace SteamNetworkingSocketsLib {
 
         void OnPacketReceived( const RecvPktInfo_t &info );
         static void StaticPacketReceived( const RecvPktInfo_t &info, CSteamNetworkingICESession *pContext );
+    };
+
+    // Parsed representation of an RFC 5245 candidate-attribute line.
+    // https://datatracker.ietf.org/doc/html/rfc5245#section-15.1
+    struct RFC5245CandidateAttr {
+        std::string sFoundation;
+        int nComponent;
+        std::string sTransport;
+        int nPriority;
+        SteamNetworkingIPAddr address;
+        std::string sType;
+        CSteamNetworkingICESession::ICECandidateType nType;
+        CUtlVector< std::pair< std::string, std::string > > vAttrs;
     };
 
     class CSteamNetworkingICESessionCallbacks
