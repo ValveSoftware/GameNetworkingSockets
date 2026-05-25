@@ -2139,9 +2139,9 @@ EICECandidateType CSteamNetworkingICESession::ICECandidateBase::CalcType() const
 	switch ( m_type )
 	{
 	case ICECandidateKind::Host:
-		if ( m_base.IsIPv4() )
+		if ( m_addr.IsIPv4() )
 		{
-			if ( IsPrivateIPv4( m_base.m_ipv4.m_ip ) )
+			if ( IsPrivateIPv4( m_addr.m_ipv4.m_ip ) )
 				return k_EICECandidate_IPv4_HostPrivate;
 			else
 				return k_EICECandidate_IPv4_HostPublic;
@@ -2153,17 +2153,17 @@ EICECandidateType CSteamNetworkingICESession::ICECandidateBase::CalcType() const
 		break;
 	case ICECandidateKind::ServerReflexive:
 	case ICECandidateKind::PeerReflexive:
-		if ( m_base.IsIPv4() )
+		if ( m_addr.IsIPv4() )
 			return k_EICECandidate_IPv4_Reflexive;
 		else
 			return k_EICECandidate_IPv6_Reflexive;
 		break;
 
 	/* case ICECandidateKind::Relayed:
-		if ( localCandidate.m_base.IsIPv4() )
-			nCandidateType = k_EICECandidate_IPv4_Relay;
+		if ( m_addr.IsIPv4() )
+			return k_EICECandidate_IPv4_Relay;
 		else
-			nCandidateType = k_EICECandidate_IPv6_Relay;
+			return k_EICECandidate_IPv6_Relay;
 		break;
 	*/
 	default:
