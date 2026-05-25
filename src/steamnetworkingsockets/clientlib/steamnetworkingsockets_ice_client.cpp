@@ -727,17 +727,6 @@ static uint32 CRC32( const unsigned char *buf, int len )
 
 // Parse a candidate-attribute from https://datatracker.ietf.org/doc/html/rfc5245#section-15.1
 // Ex: candidate:2442523459 0 udp 2122262784 2602:801:f001:1034:5078:221c:76b:a3d6 63368 typ host generation 0 ufrag WLM82 network-id 2
-struct RFC5245CandidateAttr {
-    std::string sFoundation;
-    int nComponent;
-    std::string sTransport;
-    int nPriority;
-    std::string sAddress;
-    int nPort;
-    std::string sType;
-    CSteamNetworkingICESession::ICECandidateType nType;
-    CUtlVector< std::pair< std::string, std::string > > vAttrs;
-};
 bool ParseRFC5245CandidateAttribute( const char *pszAttr, RFC5245CandidateAttr *pAttr )
 {
     if ( pszAttr == nullptr || pAttr == nullptr )
@@ -878,9 +867,10 @@ bool ParseRFC5245CandidateAttribute( const char *pszAttr, RFC5245CandidateAttr *
     pAttr->nPriority = atoi( pPriorityBegin );
     {
         std::string connectionAddr( pConnectionAddressBegin, pConnectionAddressEnd - pConnectionAddressBegin );
-        pAttr->sAddress.swap( connectionAddr );
+        if ( !pAttr->address.ParseString( connectionAddr.c_str() ) )
+            return false;
     }
-    pAttr->nPort = atoi( pPortBegin );
+    pAttr->address.m_port = (uint16)atoi( pPortBegin );
     {
         std::string candidateType( pCandidateTypeBegin, pCandidateTypeEnd - pCandidateTypeBegin );
         pAttr->sType.swap( candidateType );
@@ -1146,9 +1136,15 @@ void CSteamNetworkingICESession::SetRemotePassword( const char *pszPassword )
     SetNextThinkTimeASAP();
 }
 
-void CSteamNetworkingICESession::AddPeerCandidate( const ICECandidateBase& candidate, const char* pszFoundation )
+EICECandidateType CSteamNetworkingICESession::AddPeerCandidate( const RFC5245CandidateAttr& attr )
 {
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
+
+    ICECandidateBase candidate( attr.nType, attr.address, attr.address );
+    candidate.m_nPriority = attr.nPriority;
+    const char *pszFoundation = attr.sFoundation.c_str();
+
+    EICECandidateType eCandidateType = candidate.CalcType();
 
     // Do we already have a candidate for this peer? If so, just update the foundation and move on.
 	bool bNeedsNewEntry = true;
@@ -1158,7 +1154,7 @@ void CSteamNetworkingICESession::AddPeerCandidate( const ICECandidateBase& candi
         {
 			// If the foundation is the same, don't do anything - this is redundant.
 			if ( V_strcmp( c.m_sFoundation.c_str(), pszFoundation ) == 0 )
-				return;
+				return eCandidateType;
 
             (ICECandidateBase&)c = candidate;
             c.m_sFoundation = pszFoundation;
@@ -1182,6 +1178,7 @@ void CSteamNetworkingICESession::AddPeerCandidate( const ICECandidateBase& candi
 	}
     m_bCandidatePairsNeedUpdate = true;
     SetNextThinkTimeASAP();
+    return eCandidateType;
 }
 
 void CSteamNetworkingICESession::InvalidateInterfaceList()
@@ -2244,23 +2241,19 @@ void CConnectionTransportP2PICE_Valve::RecvRendezvous( const CMsgICERendezvous &
     {
         // candidate-attribute from https://datatracker.ietf.org/doc/html/rfc5245#section-15.1
         const std::string& s = msg.add_candidate().candidate();
-        SpewMsg( "Got remote candidate \'%s\'\n", s.c_str() );
         RFC5245CandidateAttr attr;
-        if ( ParseRFC5245CandidateAttribute( s.c_str(), &attr ) )
+        if ( !ParseRFC5245CandidateAttribute( s.c_str(), &attr ) )
         {
-            SteamNetworkingIPAddr candidateAddr;
-            if ( !candidateAddr.ParseString( attr.sAddress.c_str() ) )
-            {
-                SpewMsg( "Failed to parse address \'%s\' as an IP address.", attr.sAddress.c_str() );
-                return;
-            }
-            candidateAddr.m_port = attr.nPort;
-
-            SpewMsg( "Got a rendezvous candidate at \"%s\"\n", SteamNetworkingIPAddrRender( candidateAddr ).c_str() );
-            CSteamNetworkingICESession::ICECandidateBase newCandidate( attr.nType, candidateAddr, candidateAddr );
-            newCandidate.m_nPriority = attr.nPriority;
-            m_pICESession->AddPeerCandidate( newCandidate, attr.sFoundation.c_str() );
-            Connection().m_msgICESessionSummary.set_remote_candidate_types( Connection().m_msgICESessionSummary.remote_candidate_types() | newCandidate.CalcType() );
+            SpewMsg( "[%s] Failed to parse remote candidate \'%s\'\n",
+                Connection().GetDescription(), s.c_str() );
+        }
+        else
+        {
+            SpewMsg( "[%s] Got remote candidate \'%s\'\n",
+                Connection().GetDescription(), s.c_str() );
+            EICECandidateType nType = m_pICESession->AddPeerCandidate( attr );
+            Connection().m_msgICESessionSummary.set_remote_candidate_types(
+                Connection().m_msgICESessionSummary.remote_candidate_types() | nType );
         }
     }
 }
