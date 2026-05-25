@@ -1137,22 +1137,6 @@ SteamNetworkingIPAddr CSteamNetworkingICESession::GetSelectedDestination()
     return m_pSelectedCandidatePair->m_remoteCandidate.m_addr;
 }
 
-bool CSteamNetworkingICESession::GetCandidates( CUtlVector< ICECandidate > *pOutVecCandidates )
-{
-	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
-
-    if ( pOutVecCandidates == nullptr )
-        return false;
-
-    pOutVecCandidates->RemoveAll();
-    if ( m_bInterfaceListStale )
-        return false;
-
-    pOutVecCandidates->EnsureCapacity( len( m_vecCandidates ) );
-    pOutVecCandidates->AddMultipleToTail( len( m_vecCandidates ), m_vecCandidates.data() );
-    return true;
-}
-
 void CSteamNetworkingICESession::SetRemoteUsername( const char *pszUsername )
 {
     m_strRemoteUsernameFragment = pszUsername;

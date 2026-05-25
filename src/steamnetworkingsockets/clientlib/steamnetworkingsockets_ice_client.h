@@ -180,7 +180,6 @@ namespace SteamNetworkingSocketsLib {
         void SetRemoteUsername( const char *pszUsername );
 		void SetRemotePassword( const char *pszPassword );
 
-        bool GetCandidates( CUtlVector< ICECandidate >* pOutVecCandidates );
         const char* GetLocalPassword() { return m_strLocalPassword.c_str(); }
         IRawUDPSocket *GetSelectedSocket() { return m_pSelectedSocket; }
         SteamNetworkingIPAddr GetSelectedDestination();
