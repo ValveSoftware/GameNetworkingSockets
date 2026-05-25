@@ -194,7 +194,7 @@ namespace SteamNetworkingSocketsLib {
         void Think( SteamNetworkingMicroseconds usecNow ) override;
 
     private:
-        struct Interface
+        struct ICESessionInterface
         {
             // Local-preference component of the ICE priority formula
             // (RFC 8445 §5.1.2).  Assigned as a countdown from 65535 in
@@ -212,17 +212,17 @@ namespace SteamNetworkingSocketsLib {
             // m_pSocket->m_boundAddr is the local IP:port for this interface.
             IRawUDPSocket * const m_pSocket;
 
-            Interface( uint32 p, int nPrefixLen, IRawUDPSocket *pSocket )
+            ICESessionInterface( uint32 p, int nPrefixLen, IRawUDPSocket *pSocket )
                 : m_nPriority( p ), m_nPrefixLen( nPrefixLen ), m_pSocket( pSocket ) {}
 
-            ~Interface()
+            ~ICESessionInterface()
             {
                 m_pSocket->Close();
             }
 
             // Make sure we don't ever try to copy this object, since each one owns its own socket
-            Interface( const Interface& ) = delete;
-            Interface& operator=( const Interface& ) = delete;
+            ICESessionInterface( const ICESessionInterface& ) = delete;
+            ICESessionInterface& operator=( const ICESessionInterface& ) = delete;
 
         };
 
@@ -327,7 +327,7 @@ namespace SteamNetworkingSocketsLib {
         // Local network interfaces discovered during the most recent enumeration.
         // Each entry represents one usable local address.  Rebuilt whenever
         // m_bInterfaceListStale is set.
-        std_vector< std::unique_ptr<Interface> > m_vecInterfaces;
+        std_vector< std::unique_ptr<ICESessionInterface> > m_vecInterfaces;
 
         // Resolved addresses of STUN servers, populated once at construction from the
         // config string.  Used to discover server-reflexive candidates and to dispatch
