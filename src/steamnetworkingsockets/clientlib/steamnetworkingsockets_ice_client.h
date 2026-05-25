@@ -7,6 +7,7 @@
 #include "steamnetworkingsockets_connections.h"
 #include "../steamnetworkingsockets_thinker.h"
 #include "steamnetworkingsockets_p2p_ice.h"
+#include <memory>
 
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
 
@@ -196,7 +197,7 @@ namespace SteamNetworkingSocketsLib {
         struct Interface
         {
             // Local IP address of this network interface.  Port is always 0;
-            // the actual bound port lives on m_pSocket.
+            // the actual bound port lives on the socket.
             SteamNetworkingIPAddr m_localaddr;
 
             // Local-preference component of the ICE priority formula
@@ -211,13 +212,21 @@ namespace SteamNetworkingSocketsLib {
             int m_nPrefixLen;
 
             // Raw UDP socket bound to this interface for sending and receiving
-            // ICE traffic.  Created in UpdateHostCandidates() the first time
-            // this interface is seen.  Owned here; closed when the interface
-            // is removed from m_vecInterfaces.
-            IRawUDPSocket *m_pSocket;
+            // ICE traffic.  Always non-NULL, owned by this object.
+            IRawUDPSocket * const m_pSocket;
 
-            Interface( const SteamNetworkingIPAddr& ipAddr, uint32 p, int nPrefixLen )
-                : m_localaddr( ipAddr ), m_nPriority( p ), m_nPrefixLen( nPrefixLen ), m_pSocket( nullptr ) {}
+            Interface( const SteamNetworkingIPAddr& ipAddr, uint32 p, int nPrefixLen, IRawUDPSocket *pSocket )
+                : m_localaddr( ipAddr ), m_nPriority( p ), m_nPrefixLen( nPrefixLen ), m_pSocket( pSocket ) {}
+
+            ~Interface()
+            {
+                m_pSocket->Close();
+            }
+
+            // Make sure we don't ever try to copy this object, since each one owns its own socket
+            Interface( const Interface& ) = delete;
+            Interface& operator=( const Interface& ) = delete;
+
         };
 
         struct ICEPeerCandidate : public ICECandidate
@@ -321,7 +330,7 @@ namespace SteamNetworkingSocketsLib {
         // Local network interfaces discovered during the most recent enumeration.
         // Each entry represents one usable local address.  Rebuilt whenever
         // m_bInterfaceListStale is set.
-        std_vector< Interface > m_vecInterfaces;
+        std_vector< std::unique_ptr<Interface> > m_vecInterfaces;
 
         // Resolved addresses of STUN servers, populated once at construction from the
         // config string.  Used to discover server-reflexive candidates and to dispatch

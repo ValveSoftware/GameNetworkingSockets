@@ -1121,14 +1121,7 @@ CSteamNetworkingICESession::~CSteamNetworkingICESession()
         delete pPair;
     m_vecCandidatePairs.clear();
 
-	for ( Interface &intf: m_vecInterfaces )
-	{
-		if ( intf.m_pSocket != nullptr )
-		{
-			intf.m_pSocket->Close();
-			intf.m_pSocket = nullptr;
-		}
-	}
+    m_vecInterfaces.clear();
 }
 
 SteamNetworkingIPAddr CSteamNetworkingICESession::GetSelectedDestination()
@@ -1234,41 +1227,66 @@ void CSteamNetworkingICESession::GatherInterfaces()
     if ( !GetLocalAddresses( &vecAddrs ) )
         return;
 
-    // Save previous interface list so we can preserve sockets across re-enumeration.
-    std_vector<Interface> vecOldInterfaces;
-    std::swap( vecOldInterfaces, m_vecInterfaces );
-
-    uint32 uPriority = 65535;
     m_bInterfaceListStale = false;
 
-    m_vecInterfaces.reserve( vecAddrs.Count() );
-    for ( int i = 0; i < vecAddrs.Count(); ++i )
+    // First pass: scan existing interfaces against the new address list.
+    // Remove any that are no longer present; consume matched addresses from
+    // vecAddrs so only genuinely new ones remain after this pass.
+    // Also track the lowest priority among survivors so new interfaces are
+    // assigned priorities below all existing ones.
+    uint32 uNextPriority = 65535;
+    for ( int i = len( m_vecInterfaces ) - 1; i >= 0; --i )
     {
-        Interface newIntf( vecAddrs[i].m_addr, uPriority, vecAddrs[i].m_nPrefixLen );
+        Interface &intf = *m_vecInterfaces[i];
 
-        // Transfer the socket from the old entry if this interface was already known.
-        for ( Interface &oldIntf : vecOldInterfaces )
+        bool bFound = false;
+        for ( int j = 0; j < vecAddrs.Count(); ++j )
         {
-            if ( oldIntf.m_localaddr == newIntf.m_localaddr )
+            if ( vecAddrs[j].m_addr == intf.m_localaddr )
             {
-                newIntf.m_pSocket = oldIntf.m_pSocket;
-                oldIntf.m_pSocket = nullptr; // ownership transferred
+                vecAddrs.FastRemove( j );
+                bFound = true;
                 break;
             }
         }
 
-        m_vecInterfaces.push_back( newIntf );
-        --uPriority;
+        if ( !bFound )
+        {
+            // Interface disappeared — cancel its pending STUN requests.
+            // The socket is closed by the Interface destructor when we erase below.
+            for ( int k = len( m_vecPendingServerReflexiveRequests ) - 1; k >= 0; --k )
+            {
+                if ( m_vecPendingServerReflexiveRequests[k]->m_localAddr == intf.m_pSocket->m_boundAddr )
+                {
+                    m_vecPendingServerReflexiveRequests[k]->Cancel();
+                    erase_at( m_vecPendingServerReflexiveRequests, k );
+                }
+            }
+            erase_at( m_vecInterfaces, i );
+            continue;
+        }
+
+        if ( intf.m_nPriority <= uNextPriority )
+            uNextPriority = intf.m_nPriority-1;
     }
 
-    // Close sockets for interfaces that disappeared.
-    for ( Interface &oldIntf : vecOldInterfaces )
+    // Second pass: add genuinely new interfaces.  Assign priorities counting
+    // down from just below the lowest surviving priority (or from 65535 if
+    // the list was empty).
+    for ( const LocalAddress_t &addr: vecAddrs )
     {
-        if ( oldIntf.m_pSocket != nullptr )
+        SteamDatagramErrMsg errMsg;
+        SteamNetworkingIPAddr bindAddr = addr.m_addr;
+        IRawUDPSocket *pSock = OpenRawUDPSocket( CRecvPacketCallback( CSteamNetworkingICESession::StaticPacketReceived, this ), errMsg, &bindAddr, nullptr );
+        if ( pSock == nullptr )
         {
-            oldIntf.m_pSocket->Close();
-            oldIntf.m_pSocket = nullptr;
+            SpewWarning( "Could not bind to %s, skipping interface.  %s\n", SteamNetworkingIPAddrRender( addr.m_addr ).c_str(), errMsg );
+            continue;
         }
+
+        m_vecInterfaces.emplace_back( std::make_unique<Interface>( addr.m_addr, uNextPriority, addr.m_nPrefixLen, pSock ) );
+        if ( uNextPriority > 0 )
+            --uNextPriority;
     }
 }
 
@@ -1278,20 +1296,20 @@ int CSteamNetworkingICESession::GetLocalCandidatePrefixLen( const SteamNetworkin
     // Strip the port before comparing so the lookup succeeds.
     SteamNetworkingIPAddr addrNoPort = addr;
     addrNoPort.m_port = 0;
-    for ( const Interface &intf : m_vecInterfaces )
+    for ( const auto &pIntf : m_vecInterfaces )
     {
-        if ( intf.m_localaddr == addrNoPort )
-            return intf.m_nPrefixLen;
+        if ( pIntf->m_localaddr == addrNoPort )
+            return pIntf->m_nPrefixLen;
     }
     return 0;
 }
 
 IRawUDPSocket *CSteamNetworkingICESession::FindSocketForCandidate( const SteamNetworkingIPAddr& addr )
 {
-    for ( Interface &intf : m_vecInterfaces )
+    for ( const auto &pIntf : m_vecInterfaces )
     {
-        if ( intf.m_pSocket != nullptr && addr == intf.m_pSocket->m_boundAddr )
-            return intf.m_pSocket;
+        if ( addr == pIntf->m_pSocket->m_boundAddr )
+            return pIntf->m_pSocket;
     }
     return nullptr;
 }
@@ -1608,69 +1626,29 @@ void CSteamNetworkingICESession::UpdateHostCandidates()
     std_vector<ICECandidate> vecPreviousCandidates;
     std::swap( vecPreviousCandidates, m_vecCandidates );
 
-    for ( Interface& intf: m_vecInterfaces )
+    for ( const std::unique_ptr<Interface> &pIntf : m_vecInterfaces )
     {
-        SteamNetworkingIPAddr hostCandidateAddr = intf.m_localaddr;
-		hostCandidateAddr.m_port = 0;
+        const SteamNetworkingIPAddr &hostCandidateAddr = pIntf->m_pSocket->m_boundAddr;
 
-        const uint32 nLocalPriority = intf.m_nPriority;
-		ICECandidate *pAddedCandidate = nullptr;
-        for( const ICECandidate& prevCandidate : vecPreviousCandidates )
+        // Restore any candidates previously discovered for this interface.
+        ICECandidate *pHostCandidate = nullptr;
+        for ( const ICECandidate& prevCandidate : vecPreviousCandidates )
         {
             if ( prevCandidate.m_base == hostCandidateAddr )
-                pAddedCandidate = push_back_get_ptr( m_vecCandidates, prevCandidate );
-        }
-        if ( intf.m_pSocket == nullptr )
-        {
-            SteamDatagramErrMsg errMsg;
-            SteamNetworkingIPAddr bindAddr = hostCandidateAddr;
-            IRawUDPSocket *pSock = OpenRawUDPSocket( CRecvPacketCallback( CSteamNetworkingICESession::StaticPacketReceived, this ), errMsg, &bindAddr, nullptr );
-            if ( pSock != nullptr )
             {
-				hostCandidateAddr.m_port = pSock->m_boundAddr.m_port;
-                intf.m_pSocket = pSock;
-            }
-            else
-            {
-                SpewError( "Could not bind to %s.  %s\n", SteamNetworkingIPAddrRender( hostCandidateAddr ).c_str(), errMsg );
-                continue;
+                ICECandidate *pAdded = push_back_get_ptr( m_vecCandidates, prevCandidate );
+                if ( prevCandidate.m_type == kICECandidateType_Host )
+                    pHostCandidate = pAdded;
             }
         }
-        else
-        {
-            hostCandidateAddr.m_port = intf.m_pSocket->m_boundAddr.m_port;
-        }
-        if ( pAddedCandidate == nullptr )
-            pAddedCandidate = push_back_get_ptr( m_vecCandidates, ICECandidate( kICECandidateType_Host, hostCandidateAddr, hostCandidateAddr ) );
-        pAddedCandidate->m_nPriority = pAddedCandidate->CalcPriority( nLocalPriority );
+
+        if ( pHostCandidate == nullptr )
+            pHostCandidate = push_back_get_ptr( m_vecCandidates, ICECandidate( kICECandidateType_Host, hostCandidateAddr, hostCandidateAddr ) );
+        pHostCandidate->m_nPriority = pHostCandidate->CalcPriority( pIntf->m_nPriority );
         if ( m_pCallbacks != nullptr )
-            m_pCallbacks->OnLocalCandidateDiscovered( *pAddedCandidate );
+            m_pCallbacks->OnLocalCandidateDiscovered( *pHostCandidate );
     }
 
-    // Cancel all pending STUN requests that refer to interfaces that no longer exist.
-    // (Socket cleanup for disappeared interfaces is handled in GatherInterfaces.)
-    for ( int i = len( m_vecPendingServerReflexiveRequests ) - 1; i >= 0; )
-    {
-        SteamNetworkingIPAddr ifAddr = m_vecPendingServerReflexiveRequests[i]->m_localAddr;
-        ifAddr.m_port = 0;
-        bool bFound = false;
-		for ( const Interface& intf: m_vecInterfaces )
-        {
-            if ( intf.m_localaddr == ifAddr )
-            {
-                bFound = true;
-                break;
-            }
-        }
-        if ( bFound )
-        {
-            --i;
-            continue;
-        }
-
-        m_vecPendingServerReflexiveRequests[i]->Cancel();
-        erase_at( m_vecPendingServerReflexiveRequests, i );
-    }
 }
 
 bool CSteamNetworkingICESession::IsCandidatePermitted( const ICECandidate& localCandidate)
@@ -1705,11 +1683,11 @@ void CSteamNetworkingICESession::STUNRequestCallback_ServerReflexiveCandidate( c
     }
 
     uint32 uLocalPriority = 0;
-    for ( const Interface& iface : m_vecInterfaces )
+    for ( const std::unique_ptr<Interface> &pIface : m_vecInterfaces )
     {
-        if ( iface.m_localaddr == localAddr )
+        if ( pIface->m_localaddr == localAddr )
         {
-            uLocalPriority = iface.m_nPriority;
+            uLocalPriority = pIface->m_nPriority;
             break;
         }
     }
