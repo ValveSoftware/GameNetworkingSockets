@@ -1121,9 +1121,14 @@ CSteamNetworkingICESession::~CSteamNetworkingICESession()
         delete pPair;
     m_vecCandidatePairs.clear();
 
-	for ( IRawUDPSocket *pSock: m_vecHostCandidateSockets )
-		pSock->Close();
-	m_vecHostCandidateSockets.clear();
+	for ( Interface &intf: m_vecInterfaces )
+	{
+		if ( intf.m_pSocket != nullptr )
+		{
+			intf.m_pSocket->Close();
+			intf.m_pSocket = nullptr;
+		}
+	}
 }
 
 SteamNetworkingIPAddr CSteamNetworkingICESession::GetSelectedDestination()
@@ -1225,10 +1230,13 @@ void CSteamNetworkingICESession::GatherInterfaces()
 {
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "CSteamNetworkingICESession::GatherInterfaces" );
 
-    m_vecInterfaces.clear();
     CUtlVector<LocalAddress_t> vecAddrs;
     if ( !GetLocalAddresses( &vecAddrs ) )
         return;
+
+    // Save previous interface list so we can preserve sockets across re-enumeration.
+    std_vector<Interface> vecOldInterfaces;
+    std::swap( vecOldInterfaces, m_vecInterfaces );
 
     uint32 uPriority = 65535;
     m_bInterfaceListStale = false;
@@ -1236,8 +1244,31 @@ void CSteamNetworkingICESession::GatherInterfaces()
     m_vecInterfaces.reserve( vecAddrs.Count() );
     for ( int i = 0; i < vecAddrs.Count(); ++i )
     {
-        m_vecInterfaces.push_back( Interface( vecAddrs[i].m_addr, uPriority, vecAddrs[i].m_nPrefixLen ) );
+        Interface newIntf( vecAddrs[i].m_addr, uPriority, vecAddrs[i].m_nPrefixLen );
+
+        // Transfer the socket from the old entry if this interface was already known.
+        for ( Interface &oldIntf : vecOldInterfaces )
+        {
+            if ( oldIntf.m_localaddr == newIntf.m_localaddr )
+            {
+                newIntf.m_pSocket = oldIntf.m_pSocket;
+                oldIntf.m_pSocket = nullptr; // ownership transferred
+                break;
+            }
+        }
+
+        m_vecInterfaces.push_back( newIntf );
         --uPriority;
+    }
+
+    // Close sockets for interfaces that disappeared.
+    for ( Interface &oldIntf : vecOldInterfaces )
+    {
+        if ( oldIntf.m_pSocket != nullptr )
+        {
+            oldIntf.m_pSocket->Close();
+            oldIntf.m_pSocket = nullptr;
+        }
     }
 }
 
@@ -1257,10 +1288,10 @@ int CSteamNetworkingICESession::GetLocalCandidatePrefixLen( const SteamNetworkin
 
 IRawUDPSocket *CSteamNetworkingICESession::FindSocketForCandidate( const SteamNetworkingIPAddr& addr )
 {
-    for ( IRawUDPSocket *pSock : m_vecHostCandidateSockets )
+    for ( Interface &intf : m_vecInterfaces )
     {
-        if ( addr == pSock->m_boundAddr )
-            return pSock;
+        if ( intf.m_pSocket != nullptr && addr == intf.m_pSocket->m_boundAddr )
+            return intf.m_pSocket;
     }
     return nullptr;
 }
@@ -1577,33 +1608,27 @@ void CSteamNetworkingICESession::UpdateHostCandidates()
     std_vector<ICECandidate> vecPreviousCandidates;
     std::swap( vecPreviousCandidates, m_vecCandidates );
 
-    for ( const Interface& intf: m_vecInterfaces )
+    for ( Interface& intf: m_vecInterfaces )
     {
         SteamNetworkingIPAddr hostCandidateAddr = intf.m_localaddr;
 		hostCandidateAddr.m_port = 0;
 
         const uint32 nLocalPriority = intf.m_nPriority;
-        bool bSawPrevCandidate = false;
 		ICECandidate *pAddedCandidate = nullptr;
         for( const ICECandidate& prevCandidate : vecPreviousCandidates )
         {
             if ( prevCandidate.m_base == hostCandidateAddr )
-            {
-                bSawPrevCandidate = true;
                 pAddedCandidate = push_back_get_ptr( m_vecCandidates, prevCandidate );
-            }
         }
-        if ( !bSawPrevCandidate )
+        if ( intf.m_pSocket == nullptr )
         {
             SteamDatagramErrMsg errMsg;
             SteamNetworkingIPAddr bindAddr = hostCandidateAddr;
             IRawUDPSocket *pSock = OpenRawUDPSocket( CRecvPacketCallback( CSteamNetworkingICESession::StaticPacketReceived, this ), errMsg, &bindAddr, nullptr );
             if ( pSock != nullptr )
             {
-				if ( hostCandidateAddr.m_port == 0 )
-					hostCandidateAddr.m_port = pSock->m_boundAddr.m_port;
-                m_vecHostCandidateSockets.push_back( pSock );
-                pAddedCandidate = push_back_get_ptr( m_vecCandidates, ICECandidate( kICECandidateType_Host, hostCandidateAddr, hostCandidateAddr ) );
+				hostCandidateAddr.m_port = pSock->m_boundAddr.m_port;
+                intf.m_pSocket = pSock;
             }
             else
             {
@@ -1611,12 +1636,19 @@ void CSteamNetworkingICESession::UpdateHostCandidates()
                 continue;
             }
         }
+        else
+        {
+            hostCandidateAddr.m_port = intf.m_pSocket->m_boundAddr.m_port;
+        }
+        if ( pAddedCandidate == nullptr )
+            pAddedCandidate = push_back_get_ptr( m_vecCandidates, ICECandidate( kICECandidateType_Host, hostCandidateAddr, hostCandidateAddr ) );
         pAddedCandidate->m_nPriority = pAddedCandidate->CalcPriority( nLocalPriority );
         if ( m_pCallbacks != nullptr )
             m_pCallbacks->OnLocalCandidateDiscovered( *pAddedCandidate );
     }
 
     // Cancel all pending STUN requests that refer to interfaces that no longer exist.
+    // (Socket cleanup for disappeared interfaces is handled in GatherInterfaces.)
     for ( int i = len( m_vecPendingServerReflexiveRequests ) - 1; i >= 0; )
     {
         SteamNetworkingIPAddr ifAddr = m_vecPendingServerReflexiveRequests[i]->m_localAddr;
@@ -1638,29 +1670,6 @@ void CSteamNetworkingICESession::UpdateHostCandidates()
 
         m_vecPendingServerReflexiveRequests[i]->Cancel();
         erase_at( m_vecPendingServerReflexiveRequests, i );
-    }
-
-    // Close all host candidate sockets that refer to interfaces that no longer exist.
-    for ( int i = len( m_vecHostCandidateSockets ) - 1; i >= 0; )
-    {
-        SteamNetworkingIPAddr ifAddr = m_vecHostCandidateSockets[i]->m_boundAddr;
-        ifAddr.m_port = 0;
-        bool bFound = false;
-		for ( const Interface& intf: m_vecInterfaces )
-        {
-            if ( intf.m_localaddr == ifAddr )
-            {
-                bFound = true;
-                break;
-            }
-        }
-        if ( bFound )
-        {
-            --i;
-            continue;
-        }
-        m_vecHostCandidateSockets[i]->Close();
-        erase_at( m_vecHostCandidateSockets, i );
     }
 }
 
