@@ -1140,7 +1140,7 @@ EICECandidateType CSteamNetworkingICESession::AddPeerCandidate( const RFC5245Can
 {
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
 
-    ICECandidateBase candidate( attr.nType, attr.address, attr.address );
+    ICECandidateBase candidate( attr.nType, attr.address );
     candidate.m_nPriority = attr.nPriority;
     const char *pszFoundation = attr.sFoundation.c_str();
 
@@ -1440,7 +1440,7 @@ void CSteamNetworkingICESession::OnPacketReceived( const RecvPktInfo_t &info )
                 }
                 if ( pRemoteCandidate == nullptr )
                 {
-                    ICECandidateBase newRemoteCandidate( ICECandidateKind::PeerReflexive, fromAddr, fromAddr );
+                    ICECandidateBase newRemoteCandidate( ICECandidateKind::PeerReflexive, fromAddr );
                     const STUNAttribute *pPriorityAttr = FindAttributeOfType( vecAttrs.Base(), vecAttrs.Count(), k_nSTUN_Attr_Priority );
                     if ( pPriorityAttr != nullptr )
                     {
@@ -2029,31 +2029,26 @@ CSteamNetworkingICESession::ICECandidateBase::ICECandidateBase()
 {
     m_type = ICECandidateKind::None;
     m_addr.Clear();
-    m_base.Clear();
     m_nPriority = 0;
 }
 
-CSteamNetworkingICESession::ICECandidateBase::ICECandidateBase( ICECandidateKind t, const SteamNetworkingIPAddr& addr, const SteamNetworkingIPAddr& base )
+CSteamNetworkingICESession::ICECandidateBase::ICECandidateBase( ICECandidateKind t, const SteamNetworkingIPAddr& addr )
 {
     m_type = t;
     m_addr = addr;
-    m_base = base;
     m_nPriority = 0;
 }
 
-CSteamNetworkingICESession::ICELocalCandidate::ICELocalCandidate()
-{
-    m_stunServer.Clear();
-}
-
 CSteamNetworkingICESession::ICELocalCandidate::ICELocalCandidate( ICECandidateKind t, const SteamNetworkingIPAddr& addr, const SteamNetworkingIPAddr& base )
-    : ICECandidateBase( t, addr, base )
+    : ICECandidateBase( t, addr )
+    , m_base( base )
 {
     m_stunServer.Clear();
 }
 
 CSteamNetworkingICESession::ICELocalCandidate::ICELocalCandidate( ICECandidateKind t, const SteamNetworkingIPAddr& addr, const SteamNetworkingIPAddr& base, const SteamNetworkingIPAddr& stunServer )
-    : ICECandidateBase( t, addr, base )
+    : ICECandidateBase( t, addr )
+    , m_base( base )
 {
     m_stunServer = stunServer;
 }
