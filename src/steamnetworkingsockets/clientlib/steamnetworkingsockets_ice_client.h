@@ -195,10 +195,29 @@ namespace SteamNetworkingSocketsLib {
     private:
         struct Interface
         {
+            // Local IP address of this network interface.  Port is always 0;
+            // the actual bound port lives on m_pSocket.
             SteamNetworkingIPAddr m_localaddr;
+
+            // Local-preference component of the ICE priority formula
+            // (RFC 8445 §5.1.2).  Assigned as a countdown from 65535 in
+            // enumeration order so the first adapter returned by the OS gets
+            // the highest preference.
             uint32 m_nPriority;
-            int m_nPrefixLen; // Subnet prefix length from adapter enumeration; 0 if unavailable
-            Interface( const SteamNetworkingIPAddr& ipAddr, uint32 p, int nPrefixLen ) : m_localaddr( ipAddr ), m_nPriority( p ), m_nPrefixLen( nPrefixLen ) {}
+
+            // Subnet prefix length from the OS adapter enumeration (e.g. 24
+            // for a /24 network).  Used to detect same-LAN peers.  0 if the
+            // OS did not provide this information.
+            int m_nPrefixLen;
+
+            // Raw UDP socket bound to this interface for sending and receiving
+            // ICE traffic.  Created in UpdateHostCandidates() the first time
+            // this interface is seen.  Owned here; closed when the interface
+            // is removed from m_vecInterfaces.
+            IRawUDPSocket *m_pSocket;
+
+            Interface( const SteamNetworkingIPAddr& ipAddr, uint32 p, int nPrefixLen )
+                : m_localaddr( ipAddr ), m_nPriority( p ), m_nPrefixLen( nPrefixLen ), m_pSocket( nullptr ) {}
         };
 
         struct ICEPeerCandidate : public ICECandidate
@@ -303,11 +322,6 @@ namespace SteamNetworkingSocketsLib {
         // Each entry represents one usable local address.  Rebuilt whenever
         // m_bInterfaceListStale is set.
         std_vector< Interface > m_vecInterfaces;
-
-        // Raw UDP sockets bound for host candidates, one per kICECandidateType_Host
-        // entry in m_vecCandidates.  Kept alive for the session lifetime so incoming
-        // packets on any of these addresses are dispatched to us.
-        std_vector< IRawUDPSocket* > m_vecHostCandidateSockets;
 
         // Resolved addresses of STUN servers, populated once at construction from the
         // config string.  Used to discover server-reflexive candidates and to dispatch
