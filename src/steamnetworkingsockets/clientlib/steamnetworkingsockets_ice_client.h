@@ -211,17 +211,16 @@ namespace SteamNetworkingSocketsLib {
         {
             ICECandidateKind m_type;
             SteamNetworkingIPAddr m_addr;
-            SteamNetworkingIPAddr m_base;
             uint32 m_nPriority;
             ICECandidateBase();
-            ICECandidateBase( ICECandidateKind t, const SteamNetworkingIPAddr& addr, const SteamNetworkingIPAddr& base );
+            ICECandidateBase( ICECandidateKind t, const SteamNetworkingIPAddr& addr );
             uint32 CalcPriority( uint32 nLocalPreference );
 			EICECandidateType CalcType() const;
         };
         struct ICELocalCandidate : public ICECandidateBase
         {
             SteamNetworkingIPAddr m_stunServer;
-            ICELocalCandidate();
+            SteamNetworkingIPAddr m_base; // FIXME Each local candidate should remember what interface it came from, and the interface's bound address is the base
             ICELocalCandidate( ICECandidateKind t, const SteamNetworkingIPAddr& addr, const SteamNetworkingIPAddr& base );
             ICELocalCandidate( ICECandidateKind t, const SteamNetworkingIPAddr& addr, const SteamNetworkingIPAddr& base, const SteamNetworkingIPAddr& stunServer );
             void CalcCandidateAttribute( char *pszBuffer, size_t nBufferSize ) const;
