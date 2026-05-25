@@ -14,7 +14,6 @@
 namespace SteamNetworkingSocketsLib {
     class CSteamNetworkingSocketsSTUNRequest;
     class CSteamNetworkingICESessionCallbacks;
-    struct RFC5245CandidateAttr;
 
     /// Represents one local network interface used for ICE candidate gathering.
     /// Owns its socket and tracks at most one in-flight server-reflexive STUN request.
@@ -46,6 +45,28 @@ namespace SteamNetworkingSocketsLib {
 
         ICESessionInterface( const ICESessionInterface& ) = delete;
         ICESessionInterface& operator=( const ICESessionInterface& ) = delete;
+    };
+
+    enum class ICECandidateKind
+    {
+        None,
+        Host,
+        ServerReflexive,
+        //Relayed,
+        PeerReflexive,
+    };
+
+    // Parsed representation of an RFC 5245 candidate-attribute line.
+    // https://datatracker.ietf.org/doc/html/rfc5245#section-15.1
+    struct RFC5245CandidateAttr {
+        std::string sFoundation;
+        int nComponent;
+        std::string sTransport;
+        int nPriority;
+        SteamNetworkingIPAddr address;
+        std::string sType;
+        ICECandidateKind nType;
+        CUtlVector< std::pair< std::string, std::string > > vAttrs;
     };
 
     const uint32 k_nSTUN_CookieValue = 0x2112A442;
@@ -186,22 +207,14 @@ namespace SteamNetworkingSocketsLib {
         void StartSession();
         void InvalidateInterfaceList();
 
-        enum ICECandidateType
-        {
-            kICECandidateType_Host,
-            kICECandidateType_ServerReflexive,
-            //kICECandidateType_Relayed,
-            kICECandidateType_PeerReflexive,
-            kICECandidateType_None
-        };
         struct ICECandidateBase
         {
-            ICECandidateType m_type;
+            ICECandidateKind m_type;
             SteamNetworkingIPAddr m_addr;
             SteamNetworkingIPAddr m_base;
             uint32 m_nPriority;
             ICECandidateBase();
-            ICECandidateBase( ICECandidateType t, const SteamNetworkingIPAddr& addr, const SteamNetworkingIPAddr& base );
+            ICECandidateBase( ICECandidateKind t, const SteamNetworkingIPAddr& addr, const SteamNetworkingIPAddr& base );
             uint32 CalcPriority( uint32 nLocalPreference );
 			EICECandidateType CalcType() const;
         };
@@ -209,8 +222,8 @@ namespace SteamNetworkingSocketsLib {
         {
             SteamNetworkingIPAddr m_stunServer;
             ICELocalCandidate();
-            ICELocalCandidate( ICECandidateType t, const SteamNetworkingIPAddr& addr, const SteamNetworkingIPAddr& base );
-            ICELocalCandidate( ICECandidateType t, const SteamNetworkingIPAddr& addr, const SteamNetworkingIPAddr& base, const SteamNetworkingIPAddr& stunServer );
+            ICELocalCandidate( ICECandidateKind t, const SteamNetworkingIPAddr& addr, const SteamNetworkingIPAddr& base );
+            ICELocalCandidate( ICECandidateKind t, const SteamNetworkingIPAddr& addr, const SteamNetworkingIPAddr& base, const SteamNetworkingIPAddr& stunServer );
             void CalcCandidateAttribute( char *pszBuffer, size_t nBufferSize ) const;
         };
         EICERole GetRole() { return m_role; }
@@ -387,19 +400,6 @@ namespace SteamNetworkingSocketsLib {
 
         void OnPacketReceived( const RecvPktInfo_t &info );
         static void StaticPacketReceived( const RecvPktInfo_t &info, CSteamNetworkingICESession *pContext );
-    };
-
-    // Parsed representation of an RFC 5245 candidate-attribute line.
-    // https://datatracker.ietf.org/doc/html/rfc5245#section-15.1
-    struct RFC5245CandidateAttr {
-        std::string sFoundation;
-        int nComponent;
-        std::string sTransport;
-        int nPriority;
-        SteamNetworkingIPAddr address;
-        std::string sType;
-        CSteamNetworkingICESession::ICECandidateType nType;
-        CUtlVector< std::pair< std::string, std::string > > vAttrs;
     };
 
     class CSteamNetworkingICESessionCallbacks

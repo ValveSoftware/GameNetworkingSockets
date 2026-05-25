@@ -876,15 +876,15 @@ bool ParseRFC5245CandidateAttribute( const char *pszAttr, RFC5245CandidateAttr *
         pAttr->sType.swap( candidateType );
     }
     if ( pAttr->sType == "host" )
-        pAttr->nType = CSteamNetworkingICESession::kICECandidateType_Host;
+        pAttr->nType = ICECandidateKind::Host;
     else if ( pAttr->sType == "srflx" )
-        pAttr->nType = CSteamNetworkingICESession::kICECandidateType_ServerReflexive;
+        pAttr->nType = ICECandidateKind::ServerReflexive;
     else if ( pAttr->sType == "prflx" )
-        pAttr->nType = CSteamNetworkingICESession::kICECandidateType_PeerReflexive;
+        pAttr->nType = ICECandidateKind::PeerReflexive;
     else if ( pAttr->sType == "relay" )
-        pAttr->nType = CSteamNetworkingICESession::kICECandidateType_None; // CSteamNetworkingICESession::kICECandidateType_Relayed
+        pAttr->nType = ICECandidateKind::None; // ICECandidateKind::Relayed
     else
-        pAttr->nType = CSteamNetworkingICESession::kICECandidateType_None;
+        pAttr->nType = ICECandidateKind::None;
     for ( int i = 0; i < vAttrNameBegin.Count(); ++i )
     {
         pAttr->vAttrs.AddToTail( std::pair<std::string,std::string>( std::string( vAttrNameBegin[i], vAttrNameEnd[i]-vAttrNameBegin[i] ), std::string( vAttrValueBegin[i], vAttrValueEnd[i]-vAttrValueBegin[i] ) ) );
@@ -1440,7 +1440,7 @@ void CSteamNetworkingICESession::OnPacketReceived( const RecvPktInfo_t &info )
                 }
                 if ( pRemoteCandidate == nullptr )
                 {
-                    ICECandidateBase newRemoteCandidate( kICECandidateType_PeerReflexive, fromAddr, fromAddr );
+                    ICECandidateBase newRemoteCandidate( ICECandidateKind::PeerReflexive, fromAddr, fromAddr );
                     const STUNAttribute *pPriorityAttr = FindAttributeOfType( vecAttrs.Base(), vecAttrs.Count(), k_nSTUN_Attr_Priority );
                     if ( pPriorityAttr != nullptr )
                     {
@@ -1541,13 +1541,13 @@ void CSteamNetworkingICESession::Think_DiscoverServerReflexiveCandidates()
     if ( m_vecSTUNServers.empty() )
         return;
 
-    // Send a STUN request to check for a kICECandidateType_ServerReflexive candidate.
+    // Send a STUN request to check for a ICECandidateKind::ServerReflexive candidate.
     // This search is O(n^2) over the number of candidates. We assume this number is a pretty small
     // integer such that basically all of m_vecCandidates ends up in L1 cache.
     // If it gets large, we'll want to manage these requests using queues or something.
     for ( const ICELocalCandidate& c : m_vecCandidates )
     {
-        if ( c.m_type != kICECandidateType_Host )
+        if ( c.m_type != ICECandidateKind::Host )
             continue;
         // Do we have a server-reflexive candidate for this host already?
         bool bFound = false;
@@ -1555,7 +1555,7 @@ void CSteamNetworkingICESession::Think_DiscoverServerReflexiveCandidates()
         {
             for ( const ICELocalCandidate& c2 : m_vecCandidates )
             {
-                if ( c2.m_type == kICECandidateType_ServerReflexive && c2.m_base == c.m_base )
+                if ( c2.m_type == ICECandidateKind::ServerReflexive && c2.m_base == c.m_base )
                 {
                     bFound = true;
                     break;
@@ -1612,13 +1612,13 @@ void CSteamNetworkingICESession::UpdateHostCandidates()
             if ( prevCandidate.m_base == hostCandidateAddr )
             {
                 ICELocalCandidate *pAdded = push_back_get_ptr( m_vecCandidates, prevCandidate );
-                if ( prevCandidate.m_type == kICECandidateType_Host )
+                if ( prevCandidate.m_type == ICECandidateKind::Host )
                     pHostCandidate = pAdded;
             }
         }
 
         if ( pHostCandidate == nullptr )
-            pHostCandidate = push_back_get_ptr( m_vecCandidates, ICELocalCandidate( kICECandidateType_Host, hostCandidateAddr, hostCandidateAddr ) );
+            pHostCandidate = push_back_get_ptr( m_vecCandidates, ICELocalCandidate( ICECandidateKind::Host, hostCandidateAddr, hostCandidateAddr ) );
         pHostCandidate->m_nPriority = pHostCandidate->CalcPriority( pIntf->m_nPriority );
         if ( m_pCallbacks != nullptr )
             m_pCallbacks->OnLocalCandidateDiscovered( *pHostCandidate );
@@ -1642,7 +1642,7 @@ void CSteamNetworkingICESession::STUNRequestCallback_ServerReflexiveCandidate( c
     for ( int i = 0 ; i < len(m_vecCandidates) ; ++i )
     {
         ICELocalCandidate& c = m_vecCandidates[i];
-        if ( c.m_type == kICECandidateType_ServerReflexive && c.m_base == localAddr )
+        if ( c.m_type == ICECandidateKind::ServerReflexive && c.m_base == localAddr )
         {
             // Another response for a candidate we already have.
 
@@ -1663,7 +1663,7 @@ void CSteamNetworkingICESession::STUNRequestCallback_ServerReflexiveCandidate( c
     {   // Got a response... is it redundant (this happens when we get a STUN response but we're not behind a NAT)
         if ( bindResult == localAddr )
             bindResult.Clear();
-        ICELocalCandidate *pCand = push_back_get_ptr( m_vecCandidates, ICELocalCandidate( kICECandidateType_ServerReflexive, bindResult, localAddr, info.m_pRequest->m_remoteAddr ) );
+        ICELocalCandidate *pCand = push_back_get_ptr( m_vecCandidates, ICELocalCandidate( ICECandidateKind::ServerReflexive, bindResult, localAddr, info.m_pRequest->m_remoteAddr ) );
         pCand->m_nPriority = pCand->CalcPriority( pIntf->m_nPriority );
         if ( m_pCallbacks != nullptr && !bindResult.IsIPv6AllZeros() )
             m_pCallbacks->OnLocalCandidateDiscovered( *pCand );
@@ -1682,7 +1682,7 @@ void CSteamNetworkingICESession::STUNRequestCallback_ServerReflexiveCandidate( c
         // candidate" or "pending request".  Without this marker, a total STUN failure would
         // be retried forever every think tick, creating unbounded churn.
         bindResult.Clear();
-        ICELocalCandidate *pCand = push_back_get_ptr( m_vecCandidates, ICELocalCandidate( kICECandidateType_ServerReflexive, bindResult, localAddr, info.m_pRequest->m_remoteAddr ) );
+        ICELocalCandidate *pCand = push_back_get_ptr( m_vecCandidates, ICELocalCandidate( ICECandidateKind::ServerReflexive, bindResult, localAddr, info.m_pRequest->m_remoteAddr ) );
         pCand->m_nPriority = 0;
         return;
     }
@@ -1707,7 +1707,7 @@ void CSteamNetworkingICESession::STUNRequestCallback_ServerReflexiveKeepAlive( c
     ICELocalCandidate *pCandidate = nullptr;
     for ( ICELocalCandidate& c : m_vecCandidates )
     {
-        if ( c.m_type == kICECandidateType_ServerReflexive && c.m_base == localAddr )
+        if ( c.m_type == ICECandidateKind::ServerReflexive && c.m_base == localAddr )
         {
             pCandidate = &c;
             break;
@@ -1745,7 +1745,7 @@ void CSteamNetworkingICESession::StaticSTUNRequestCallback_ServerReflexiveKeepAl
 
 void CSteamNetworkingICESession::UpdateKeepalive( const ICELocalCandidate& c )
 {
-    if ( c.m_type != kICECandidateType_ServerReflexive )
+    if ( c.m_type != ICECandidateKind::ServerReflexive )
         return;
     if ( c.m_addr.IsIPv6AllZeros() )
         return;
@@ -2027,13 +2027,13 @@ void CSteamNetworkingICESession::StaticSTUNRequestCallback_PeerConnectivityCheck
 
 CSteamNetworkingICESession::ICECandidateBase::ICECandidateBase()
 {
-    m_type = kICECandidateType_None;
+    m_type = ICECandidateKind::None;
     m_addr.Clear();
     m_base.Clear();
     m_nPriority = 0;
 }
 
-CSteamNetworkingICESession::ICECandidateBase::ICECandidateBase( ICECandidateType t, const SteamNetworkingIPAddr& addr, const SteamNetworkingIPAddr& base )
+CSteamNetworkingICESession::ICECandidateBase::ICECandidateBase( ICECandidateKind t, const SteamNetworkingIPAddr& addr, const SteamNetworkingIPAddr& base )
 {
     m_type = t;
     m_addr = addr;
@@ -2046,13 +2046,13 @@ CSteamNetworkingICESession::ICELocalCandidate::ICELocalCandidate()
     m_stunServer.Clear();
 }
 
-CSteamNetworkingICESession::ICELocalCandidate::ICELocalCandidate( ICECandidateType t, const SteamNetworkingIPAddr& addr, const SteamNetworkingIPAddr& base )
+CSteamNetworkingICESession::ICELocalCandidate::ICELocalCandidate( ICECandidateKind t, const SteamNetworkingIPAddr& addr, const SteamNetworkingIPAddr& base )
     : ICECandidateBase( t, addr, base )
 {
     m_stunServer.Clear();
 }
 
-CSteamNetworkingICESession::ICELocalCandidate::ICELocalCandidate( ICECandidateType t, const SteamNetworkingIPAddr& addr, const SteamNetworkingIPAddr& base, const SteamNetworkingIPAddr& stunServer )
+CSteamNetworkingICESession::ICELocalCandidate::ICELocalCandidate( ICECandidateKind t, const SteamNetworkingIPAddr& addr, const SteamNetworkingIPAddr& base, const SteamNetworkingIPAddr& stunServer )
     : ICECandidateBase( t, addr, base )
 {
     m_stunServer = stunServer;
@@ -2064,7 +2064,7 @@ uint32 CSteamNetworkingICESession::ICECandidateBase::CalcPriority( uint32 nLocal
               (2^8)*(local preference) +
               (2^0)*(256 - component ID) */
 
-    if ( m_type == kICECandidateType_None )
+    if ( m_type == ICECandidateKind::None )
         return 0;
     if ( m_addr.IsIPv6AllZeros() )
         return 0;
@@ -2075,10 +2075,10 @@ uint32 CSteamNetworkingICESession::ICECandidateBase::CalcPriority( uint32 nLocal
         reflexive candidates, and 0 for relayed candidates. */
     switch ( m_type )
     {
-        case kICECandidateType_Host: nTypePreference = 126; break;
-        case kICECandidateType_ServerReflexive: nTypePreference = 100; break;
-        case kICECandidateType_PeerReflexive: nTypePreference = 110; break;
-        case kICECandidateType_None: default: nTypePreference = 0; break;
+        case ICECandidateKind::Host: nTypePreference = 126; break;
+        case ICECandidateKind::ServerReflexive: nTypePreference = 100; break;
+        case ICECandidateKind::PeerReflexive: nTypePreference = 110; break;
+        case ICECandidateKind::None: default: nTypePreference = 0; break;
     }
 
     uint32 nComponentID = 1;
@@ -2108,10 +2108,10 @@ void CSteamNetworkingICESession::ICELocalCandidate::CalcCandidateAttribute( char
     const char *pszType = "";
     switch ( m_type )
     {
-        case kICECandidateType_Host: pszType = "host"; break;
-        case kICECandidateType_ServerReflexive: pszType = "srflx"; break;
-        //case  kICECandidateType_Relayed: pszType = "relay"; break;
-        case  kICECandidateType_PeerReflexive: pszType = "prflx"; break;
+        case ICECandidateKind::Host: pszType = "host"; break;
+        case ICECandidateKind::ServerReflexive: pszType = "srflx"; break;
+        //case  ICECandidateKind::Relayed: pszType = "relay"; break;
+        case  ICECandidateKind::PeerReflexive: pszType = "prflx"; break;
         default: break;
     }
     /*If relayed, add these too:
@@ -2138,7 +2138,7 @@ EICECandidateType CSteamNetworkingICESession::ICECandidateBase::CalcType() const
 {
 	switch ( m_type )
 	{
-	case kICECandidateType_Host:
+	case ICECandidateKind::Host:
 		if ( m_base.IsIPv4() )
 		{
 			if ( IsPrivateIPv4( m_base.m_ipv4.m_ip ) )
@@ -2151,15 +2151,15 @@ EICECandidateType CSteamNetworkingICESession::ICECandidateBase::CalcType() const
 			return k_EICECandidate_IPv6_HostPublic;
 		}
 		break;
-	case kICECandidateType_ServerReflexive:
-	case kICECandidateType_PeerReflexive:
+	case ICECandidateKind::ServerReflexive:
+	case ICECandidateKind::PeerReflexive:
 		if ( m_base.IsIPv4() )
 			return k_EICECandidate_IPv4_Reflexive;
 		else
 			return k_EICECandidate_IPv6_Reflexive;
 		break;
 
-	/* case kICECandidateType_Relayed:
+	/* case ICECandidateKind::Relayed:
 		if ( localCandidate.m_base.IsIPv4() )
 			nCandidateType = k_EICECandidate_IPv4_Relay;
 		else
@@ -2293,8 +2293,8 @@ void CConnectionTransportP2PICE_Valve::OnConnectionSelected( const CSteamNetwork
 
     m_currentRouteRemoteAddress = remoteCandidate.m_addr;
     m_eCurrentRouteKind = k_ESteamNetTransport_UDP;
-    if ( localCandidate.m_type == CSteamNetworkingICESession::kICECandidateType_Host
-        && remoteCandidate.m_type == CSteamNetworkingICESession::kICECandidateType_Host )
+    if ( localCandidate.m_type == ICECandidateKind::Host
+        && remoteCandidate.m_type == ICECandidateKind::Host )
     {
         int nPrefixLen = m_pICESession->GetLocalCandidatePrefixLen( localCandidate.m_base );
         if ( IsRemoteAddressOnLocalSubnet( localCandidate.m_base, nPrefixLen, remoteCandidate.m_addr ) )
