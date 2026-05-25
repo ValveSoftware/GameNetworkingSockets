@@ -1245,7 +1245,7 @@ void CSteamNetworkingICESession::GatherInterfaces()
     uint32 uNextPriority = 65535;
     for ( int i = len( m_vecInterfaces ) - 1; i >= 0; --i )
     {
-        Interface &intf = *m_vecInterfaces[i];
+        ICESessionInterface &intf = *m_vecInterfaces[i];
 
         bool bFound = false;
         for ( int j = 0; j < vecAddrs.Count(); ++j )
@@ -1260,8 +1260,8 @@ void CSteamNetworkingICESession::GatherInterfaces()
 
         if ( !bFound )
         {
-            // Interface disappeared — cancel its pending STUN requests.
-            // The socket is closed by the Interface destructor when we erase below.
+            // Interface disappeared - cancel its pending STUN requests.
+            // The socket is closed by the ICESessionInterface destructor when we erase below.
             for ( int k = len( m_vecPendingServerReflexiveRequests ) - 1; k >= 0; --k )
             {
                 if ( m_vecPendingServerReflexiveRequests[k]->m_localAddr == intf.m_pSocket->m_boundAddr )
@@ -1292,7 +1292,7 @@ void CSteamNetworkingICESession::GatherInterfaces()
             continue;
         }
 
-        m_vecInterfaces.emplace_back( std::make_unique<Interface>( uNextPriority, addr.m_nPrefixLen, pSock ) );
+        m_vecInterfaces.emplace_back( std::make_unique<ICESessionInterface>( uNextPriority, addr.m_nPrefixLen, pSock ) );
         if ( uNextPriority > 0 )
             --uNextPriority;
     }
@@ -1630,7 +1630,7 @@ void CSteamNetworkingICESession::UpdateHostCandidates()
     std_vector<ICECandidate> vecPreviousCandidates;
     std::swap( vecPreviousCandidates, m_vecCandidates );
 
-    for ( const std::unique_ptr<Interface> &pIntf : m_vecInterfaces )
+    for ( const std::unique_ptr<ICESessionInterface> &pIntf : m_vecInterfaces )
     {
         const SteamNetworkingIPAddr &hostCandidateAddr = pIntf->m_pSocket->m_boundAddr;
 
@@ -1687,7 +1687,7 @@ void CSteamNetworkingICESession::STUNRequestCallback_ServerReflexiveCandidate( c
     }
 
     uint32 uLocalPriority = 0;
-    for ( const std::unique_ptr<Interface> &pIface : m_vecInterfaces )
+    for ( const std::unique_ptr<ICESessionInterface> &pIface : m_vecInterfaces )
     {
         if ( pIface->m_pSocket->m_boundAddr == localAddr )
         {
