@@ -14,6 +14,38 @@
 namespace SteamNetworkingSocketsLib {
     class CSteamNetworkingSocketsSTUNRequest;
 
+    /// Represents one local network interface used for ICE candidate gathering.
+    /// Owns its socket and tracks at most one in-flight server-reflexive STUN request.
+    struct ICESessionInterface
+    {
+        // Local-preference component of the ICE priority formula
+        // (RFC 8445 §5.1.2).  Assigned as a countdown from 65535 in
+        // enumeration order so the first adapter returned by the OS gets
+        // the highest preference.
+        uint32 m_nPriority;
+
+        // Subnet prefix length from the OS adapter enumeration (e.g. 24
+        // for a /24 network).  Used to detect same-LAN peers.  0 if the
+        // OS did not provide this information.
+        int m_nPrefixLen;
+
+        // Raw UDP socket bound to this interface for sending and receiving
+        // ICE traffic.  Always non-NULL, owned by this object.
+        // m_pSocket->m_boundAddr is the local IP:port for this interface.
+        IRawUDPSocket * const m_pSocket;
+
+        // In-flight STUN bind request for server-reflexive discovery or
+        // keepalive, or null if none is active.  At most one per interface.
+        CSteamNetworkingSocketsSTUNRequest *m_pPendingSTUNRequest = nullptr;
+
+        ICESessionInterface( uint32 p, int nPrefixLen, IRawUDPSocket *pSocket )
+            : m_nPriority( p ), m_nPrefixLen( nPrefixLen ), m_pSocket( pSocket ) {}
+        ~ICESessionInterface() { m_pSocket->Close(); }
+
+        ICESessionInterface( const ICESessionInterface& ) = delete;
+        ICESessionInterface& operator=( const ICESessionInterface& ) = delete;
+    };
+
     const uint32 k_nSTUN_CookieValue = 0x2112A442;
     const uint32 k_nSTUN_BindingRequest = 0x0001;
     const uint32 k_nSTUN_BindingResponse = 0x0101;
@@ -101,8 +133,8 @@ namespace SteamNetworkingSocketsLib {
     class CSteamNetworkingSocketsSTUNRequest : private IThinker
     {
     public:
-        IRawUDPSocket *m_pRawSocket = nullptr;
-        SteamNetworkingIPAddr m_localAddr;
+        // The local interface this request was sent from.  Set at construction, never null.
+        ICESessionInterface * const m_pInterface;
         SteamNetworkingIPAddr m_remoteAddr;
         int m_nRetryCount;
         int m_nMaxRetries;
@@ -113,9 +145,9 @@ namespace SteamNetworkingSocketsLib {
         std::string m_strPassword;
 		SteamNetworkingMicroseconds m_usecLastSentTime;
 
-        static CSteamNetworkingSocketsSTUNRequest *SendBindRequest( IRawUDPSocket *pRawSock, SteamNetworkingIPAddr remoteAddr, CRecvSTUNPktCallback cb, int nEncoding );
+        static CSteamNetworkingSocketsSTUNRequest *SendBindRequest( ICESessionInterface *pIntf, SteamNetworkingIPAddr remoteAddr, CRecvSTUNPktCallback cb, int nEncoding );
 
-        static CSteamNetworkingSocketsSTUNRequest *CreatePeerConnectivityCheckRequest( IRawUDPSocket *pRawSock, SteamNetworkingIPAddr remoteAddr, CRecvSTUNPktCallback cb, int nEncoding );
+        static CSteamNetworkingSocketsSTUNRequest *CreatePeerConnectivityCheckRequest( ICESessionInterface *pIntf, SteamNetworkingIPAddr remoteAddr, CRecvSTUNPktCallback cb, int nEncoding );
         void Send( SteamNetworkingIPAddr remoteAddr, CRecvSTUNPktCallback cb );
         void Cancel();
 
@@ -128,7 +160,7 @@ namespace SteamNetworkingSocketsLib {
         friend class CSteamNetworkingSocketsSTUN;
 
     private:
-        CSteamNetworkingSocketsSTUNRequest();
+        explicit CSteamNetworkingSocketsSTUNRequest( ICESessionInterface *pInterface );
         ~CSteamNetworkingSocketsSTUNRequest();
 
         static void StaticPacketReceived( const RecvPktInfo_t &info, CSteamNetworkingSocketsSTUNRequest *pContext );
@@ -194,38 +226,6 @@ namespace SteamNetworkingSocketsLib {
         void Think( SteamNetworkingMicroseconds usecNow ) override;
 
     private:
-        struct ICESessionInterface
-        {
-            // Local-preference component of the ICE priority formula
-            // (RFC 8445 §5.1.2).  Assigned as a countdown from 65535 in
-            // enumeration order so the first adapter returned by the OS gets
-            // the highest preference.
-            uint32 m_nPriority;
-
-            // Subnet prefix length from the OS adapter enumeration (e.g. 24
-            // for a /24 network).  Used to detect same-LAN peers.  0 if the
-            // OS did not provide this information.
-            int m_nPrefixLen;
-
-            // Raw UDP socket bound to this interface for sending and receiving
-            // ICE traffic.  Always non-NULL, owned by this object.
-            // m_pSocket->m_boundAddr is the local IP:port for this interface.
-            IRawUDPSocket * const m_pSocket;
-
-            ICESessionInterface( uint32 p, int nPrefixLen, IRawUDPSocket *pSocket )
-                : m_nPriority( p ), m_nPrefixLen( nPrefixLen ), m_pSocket( pSocket ) {}
-
-            ~ICESessionInterface()
-            {
-                m_pSocket->Close();
-            }
-
-            // Make sure we don't ever try to copy this object, since each one owns its own socket
-            ICESessionInterface( const ICESessionInterface& ) = delete;
-            ICESessionInterface& operator=( const ICESessionInterface& ) = delete;
-
-        };
-
         struct ICEPeerCandidate : public ICECandidate
         {
             std::string m_sFoundation;
@@ -339,14 +339,6 @@ namespace SteamNetworkingSocketsLib {
         // grows as STUN responses arrive.
         std_vector< ICECandidate > m_vecCandidates;
 
-        // In-flight STUN Binding requests sent to STUN servers for initial
-        // server-reflexive discovery.  An entry is removed when its response arrives
-        // (success or timeout) and the resulting candidate is added to m_vecCandidates.
-        // The keepalive vector holds analogous follow-up requests sent periodically to
-        // refresh the NAT mapping after a candidate is established.
-        std_vector< CSteamNetworkingSocketsSTUNRequest* > m_vecPendingServerReflexiveRequests;
-        std_vector< CSteamNetworkingSocketsSTUNRequest* > m_vecPendingServerReflexiveKeepAliveRequests;
-
         // Candidates received from the remote peer via signaling.  Paired with
         // m_vecCandidates to form m_vecCandidatePairs.
         std_vector< ICEPeerCandidate > m_vecPeerCandidates;
@@ -367,7 +359,7 @@ namespace SteamNetworkingSocketsLib {
         // each Think() pass before the regular check list.
         std_vector< ICECandidatePair* > m_vecTriggeredCheckQueue;
 
-        IRawUDPSocket *FindSocketForCandidate( const SteamNetworkingIPAddr& addr );
+        ICESessionInterface *FindInterfaceForCandidate( const SteamNetworkingIPAddr& addr );
         CSteamNetworkingSocketsSTUNRequest *FindPendingRequestByTransactionID( const uint32 nTransactionID[3] ) const;
         void GatherInterfaces();
         void UpdateHostCandidates();
