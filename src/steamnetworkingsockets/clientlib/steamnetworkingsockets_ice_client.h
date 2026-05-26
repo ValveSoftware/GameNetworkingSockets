@@ -91,10 +91,8 @@ namespace SteamNetworkingSocketsLib {
 
     struct STUNHeader
     {
-        uint32 m_nZeroPad;
         uint32 m_nMessageType;
         uint32 m_nMessageLength;
-        uint32 m_nCookie;
         uint32 m_nTransactionID[3];
     };
 
@@ -110,9 +108,9 @@ namespace SteamNetworkingSocketsLib {
     {
         CSteamNetworkingSocketsSTUNRequest *m_pRequest;
 		SteamNetworkingMicroseconds m_usecNow;
-        STUNHeader *m_pHeader;
+        const STUNHeader *m_pHeader;
         uint32 m_nAttributes;
-        STUNAttribute *m_pAttributes;
+        const STUNAttribute *m_pAttributes;
     };
 
     /// Store the callback and its context together
@@ -179,9 +177,10 @@ namespace SteamNetworkingSocketsLib {
         void Send( SteamNetworkingIPAddr remoteAddr, CRecvSTUNPktCallback cb );
         void Cancel();
 
-        constexpr static bool kPacketNotProcessed = true;
-        constexpr static bool kPacketProcessed = true;
-        bool OnPacketReceived( const RecvPktInfo_t &info );
+        // Handle an incoming STUN reply that has already been matched to this request
+        // by transaction ID.  Verifies message integrity, fires the callback, then
+        // deletes this request.
+        void ReplyPacketReceived( const RecvPktInfo_t &info, const STUNHeader &header );
 
         ~CSteamNetworkingSocketsSTUNRequest();
 
@@ -192,7 +191,6 @@ namespace SteamNetworkingSocketsLib {
     private:
         explicit CSteamNetworkingSocketsSTUNRequest( ICESessionInterface *pInterface );
 
-        static void StaticPacketReceived( const RecvPktInfo_t &info, CSteamNetworkingSocketsSTUNRequest *pContext );
 
         CSteamNetworkingSocketsSTUNRequest( const CSteamNetworkingSocketsSTUNRequest& );
         CSteamNetworkingSocketsSTUNRequest& operator=( const CSteamNetworkingSocketsSTUNRequest& );

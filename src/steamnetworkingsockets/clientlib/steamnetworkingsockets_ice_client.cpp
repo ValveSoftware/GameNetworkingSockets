@@ -76,75 +76,7 @@ static bool IsRemoteAddressOnLocalSubnet( const SteamNetworkingIPAddr &localAddr
     }
 }
 
-static void UnpackSTUNHeader( const uint32 *pHeader, STUNHeader* pUnpackedHeader )
-{
-    if ( pHeader == nullptr || pUnpackedHeader == nullptr )
-        return;
 
-    /*  All STUN messages comprise a 20-byte header followed by zero or more
-        attributes.  The STUN header contains a STUN message type, message
-        length, magic cookie, and transaction ID.
-
-      0                   1                   2                   3
-      0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
-     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-     |0 0|     STUN Message Type     |         Message Length        |
-     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-     |                         Magic Cookie                          |
-     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-     |                                                               |
-     |                     Transaction ID (96 bits)                  |
-     |                                                               |
-     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-
-                  Figure 2: Format of STUN Message Header
-    */
-    const uint32 nHeaderWord = ntohl( pHeader[0] );
-    pUnpackedHeader->m_nZeroPad = ( nHeaderWord >> 30 ) & 3;
-    pUnpackedHeader->m_nMessageType = ( nHeaderWord >> 16 ) & 0x3FFF;
-    pUnpackedHeader->m_nMessageLength = ( nHeaderWord & 0xFFFF );
-    pUnpackedHeader->m_nCookie = ntohl( pHeader[1] );
-    pUnpackedHeader->m_nTransactionID[0] = pHeader[2]; // Treat transaction ID as opaque bits.
-    pUnpackedHeader->m_nTransactionID[1] = pHeader[3];
-    pUnpackedHeader->m_nTransactionID[2] = pHeader[4];
-}
-
-bool IsValidSTUNHeader( STUNHeader* pHeader, uint32 uPacketSize, uint32* pTransactionID )
-{
-    if ( pHeader == nullptr )
-        return false;
-
-    /*  The most significant 2 bits of every STUN message MUST be zeroes.
-        This can be used to differentiate STUN packets from other protocols
-        when STUN is multiplexed with other protocols on the same port. */
-    if ( pHeader->m_nZeroPad != 0 )
-        return false;
-
-    /*  The message length MUST contain the size of the message in bytes, not
-        including the 20-byte STUN header.  Since all STUN attributes are
-        padded to a multiple of 4 bytes, the last 2 bits of this field are
-        always zero.  This provides another way to distinguish STUN packets
-        from packets of other protocols. */
-    // if ( ( pHeader->nMessageLength & 3 ) != 0 )
-    //     return false;
-    if ( ( ( pHeader->m_nMessageLength + 20 ) != uPacketSize ) )
-        return false;
-
-    /*  The Magic Cookie field MUST contain the fixed value 0x2112A442 in
-        network byte order. */
-    if ( pHeader->m_nCookie != k_nSTUN_CookieValue )
-        return false;
-
-    /*  Verify transaction ID */
-    if ( pTransactionID != nullptr )
-    {
-        if ( pTransactionID[0] != pHeader->m_nTransactionID[0]
-            || pTransactionID[1] != pHeader->m_nTransactionID[1]
-            || pTransactionID[2] != pHeader->m_nTransactionID[2] )
-            return false;
-    }
-    return true;
-}
 
 /* After the STUN header are zero or more attributes.  Each attribute
    MUST be TLV encoded, with a 16-bit type, 16-bit length, and value.
@@ -435,21 +367,12 @@ static uint32* WriteMessageIntegrityAttribute( uint32 *pBuffer, uint32 *pMessage
     return pBuffer + 1 + ( k_cubSHA1Hash / 4 );
 }
 
-static bool DecodeSTUNPacket( const RecvPktInfo_t &info, uint32* nTransactionID, const uint8 *pubKey, uint32 cubKey, STUNHeader *pHeader, CUtlVector< STUNAttribute >* pVecAttrs )
+// Parse STUN attributes and verify message integrity/fingerprint.
+// pubKey/cubKey may be null/0 to skip integrity verification.
+static bool ParseSTUNAttributes( const RecvPktInfo_t &info, const uint8 *pubKey, uint32 cubKey, CUtlVector< STUNAttribute >* pVecAttrs )
 {
-    const void * const pPkt = info.m_pPkt;
-    const uint32 cbPkt = (uint32)info.m_cbPkt;
-
-    // Always require at least the 20 byte header.
-    if ( pPkt == nullptr || cbPkt < 20 )
-        return false;
-
-    const uint32 * const pMessage = reinterpret_cast< const uint32* >( pPkt );
-    UnpackSTUNHeader( pMessage, pHeader );
-    if ( !IsValidSTUNHeader( pHeader, cbPkt, nTransactionID ) )
-        return false;
-
-    const uint32 * const pMessageEnd = reinterpret_cast< const uint32* >( pPkt ) + cbPkt / 4;
+    const uint32 * const pMessage = reinterpret_cast< const uint32* >( info.m_pPkt );
+    const uint32 * const pMessageEnd = pMessage + info.m_cbPkt / 4;
     const uint32 *pAttrPtr = &pMessage[5];
     while ( pAttrPtr < pMessageEnd )
     {
@@ -1009,18 +932,11 @@ void CSteamNetworkingSocketsSTUNRequest::Think( SteamNetworkingMicroseconds usec
 	}
 }
 
-void CSteamNetworkingSocketsSTUNRequest::StaticPacketReceived( const RecvPktInfo_t &info, CSteamNetworkingSocketsSTUNRequest *pContext )
+void CSteamNetworkingSocketsSTUNRequest::ReplyPacketReceived( const RecvPktInfo_t &info, const STUNHeader &header )
 {
-    if ( pContext != nullptr )
-        pContext->OnPacketReceived( info );
-}
-
-bool CSteamNetworkingSocketsSTUNRequest::OnPacketReceived( const RecvPktInfo_t &info )
-{
-    STUNHeader header;
     CUtlVector< STUNAttribute > vecAttributes;
-    if ( !DecodeSTUNPacket( info, m_nTransactionID, (const byte*)m_strPassword.c_str(), (uint32)m_strPassword.size(), &header, &vecAttributes ) )
-        return kPacketNotProcessed;
+    if ( !ParseSTUNAttributes( info, (const byte*)m_strPassword.c_str(), (uint32)m_strPassword.size(), &vecAttributes ) )
+        return;
 
     RecvSTUNPktInfo_t subInfo;
     subInfo.m_pRequest = this;
@@ -1032,7 +948,6 @@ bool CSteamNetworkingSocketsSTUNRequest::OnPacketReceived( const RecvPktInfo_t &
     m_callback( subInfo );
 
     delete this;
-    return kPacketProcessed;
 }
 
 
@@ -1323,201 +1238,245 @@ void CSteamNetworkingICESession::OnPacketReceived( const RecvPktInfo_t &info, IC
 {
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "CSteamNetworkingICESession::OnPacketReceived" );
 
-    // First route STUN responses to the in-flight request using transaction ID.
-    // This lets us keep one raw socket per interface while handling many remotes.
-    if ( info.m_cbPkt >= 20 )
+    //
+    // Quick check if packet might be a STUN packet, and unpacket the header
+    //
+    //  0                   1                   2                   3
+    //  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+    // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    // |0 0|     STUN Message Type     |         Message Length        |
+    // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    // |                         Magic Cookie                          |
+    // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    // |                     Transaction ID (96 bits)                  |
+    // +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    //
+    if ( info.m_cbPkt < 20 )
     {
-        STUNHeader quickHeader = {};
-        UnpackSTUNHeader( reinterpret_cast<const uint32 *>( info.m_pPkt ), &quickHeader );
-        if ( IsValidSTUNHeader( &quickHeader, info.m_cbPkt, nullptr ) && quickHeader.m_nMessageType != k_nSTUN_BindingRequest )
-        {
-            CSteamNetworkingSocketsSTUNRequest *pRequest = pInterface->m_pPendingSTUNRequest;
-            if (
-                pRequest == nullptr
-                || pRequest->m_nTransactionID[0] != quickHeader.m_nTransactionID[0]
-                || pRequest->m_nTransactionID[1] != quickHeader.m_nTransactionID[1]
-                || pRequest->m_nTransactionID[2] != quickHeader.m_nTransactionID[2]
-            ) {
-                pRequest = nullptr;
-                for ( CSteamNetworkingSocketsSTUNRequest *p : m_vecPendingPeerRequests )
-                {
-                    if (
-                        p->m_pInterface == pInterface
-                        && p->m_nTransactionID[0] == quickHeader.m_nTransactionID[0]
-                        && p->m_nTransactionID[1] == quickHeader.m_nTransactionID[1]
-                        && p->m_nTransactionID[2] == quickHeader.m_nTransactionID[2]
-                    ) {
-                        pRequest = p;
-                        break;
-                    }
-                }
-            }
-            if ( pRequest != nullptr )
-            {
-                pRequest->OnPacketReceived( info );
-                return;
-            }
-        }
-    }
-
-    STUNHeader header;
-    CUtlVector< STUNAttribute > vecAttrs;
-    if ( !DecodeSTUNPacket( info, nullptr, (const uint8*)m_strLocalPassword.c_str(), (uint32)m_strLocalPassword.size(), &header, &vecAttrs ) )
-    {
+not_stun:
         if ( m_pCallbacks != nullptr )
             m_pCallbacks->OnPacketReceived( info );
         return;
     }
 
-    if ( header.m_nMessageType == k_nSTUN_BindingRequest )
+    STUNHeader header;
     {
-        const STUNAttribute *pUsernameAttr = FindAttributeOfType( vecAttrs.Base(), vecAttrs.Count(), k_nSTUN_Attr_UserName );
-        if ( pUsernameAttr != nullptr )
-        {
-            if ( pUsernameAttr->m_nLength < (uint32)m_strIncomingUsername.size() )
-            {
-                SpewMsg( "Incorrect username length; at least %d expected, got %d.", (int)m_strIncomingUsername.size(), pUsernameAttr->m_nLength );
-                return;
-            }
-            if ( m_strIncomingUsername.size() == 0 )
-            {
-                const char* pCh = (const char*)( pUsernameAttr->m_pData );
-                size_t nLen = 0;
-                for( size_t i = 0; i < pUsernameAttr->m_nLength; ++i )
-                {
-                    if ( pCh[i] == ':' )
-                    {
-                        nLen = i;
-                        break;
-                    }
-                }
-                if ( nLen == 0 )
-                {
-                    SpewMsg( "Invalid username; no : found in %s", std::string( (const char*)( pUsernameAttr->m_pData ),pUsernameAttr->m_nLength ).c_str() );
-                    return;
-                }
 
-                std::string discoveredRemoteName( (char*)pUsernameAttr->m_pData + nLen + 1, pUsernameAttr->m_nLength - nLen - 1 );
-                SetRemoteUsername( discoveredRemoteName.c_str() );
-            }
-            else if ( V_memcmp( pUsernameAttr->m_pData, m_strIncomingUsername.c_str(), m_strIncomingUsername.size() ) != 0 )
-            {
-                std::string remoteName( (char*)pUsernameAttr->m_pData, pUsernameAttr->m_nLength );
-                SpewMsg( "Incorrect username: got '%s' expected '%s'.", remoteName.c_str(), m_strIncomingUsername.c_str() );
-                return;
-            }
+        const uint32 * const pWords = reinterpret_cast<const uint32 *>( info.m_pPkt );
+        const uint32 nFirstWord = ntohl( pWords[0] );
+        if (
+            ( nFirstWord & 0xc000FFFF ) + 20 != (uint32)info.m_cbPkt      // top 2 bits zero and length field matches
+            || pWords[1] != htonl( k_nSTUN_CookieValue )     // magic cookie
+        ) {
+            goto not_stun;
         }
 
-        // Role conflict resolution?
-        SteamNetworkingIPAddr fromAddr;
-        ConvertNetAddr_tToSteamNetworkingIPAddr( info.m_adrFrom, &fromAddr );
-        CUtlVector< STUNAttribute > outAttrs;
+        header.m_nMessageType   = ( nFirstWord >> 16 ) & 0x3FFF;
+        header.m_nMessageLength = ( nFirstWord & 0xFFFF );
+        header.m_nTransactionID[0] = pWords[2]; // treat as opaque bits, no byte-swap
+        header.m_nTransactionID[1] = pWords[3];
+        header.m_nTransactionID[2] = pWords[4];
+    }
 
+    // STUN responses: route to the matching in-flight request by transaction ID.
+    if ( header.m_nMessageType != k_nSTUN_BindingRequest )
+    {
+        // Fast path: check the interface's own server-reflexive request first (O(1)).
+        CSteamNetworkingSocketsSTUNRequest *pRequest = pInterface->m_pPendingSTUNRequest;
+        if ( pRequest == nullptr
+            || pRequest->m_nTransactionID[0] != header.m_nTransactionID[0]
+            || pRequest->m_nTransactionID[1] != header.m_nTransactionID[1]
+            || pRequest->m_nTransactionID[2] != header.m_nTransactionID[2] )
         {
-            SpewMsg( "Incoming binding request from %s to %s.\n\n", SteamNetworkingIPAddrRender( fromAddr ).c_str(), SteamNetworkingIPAddrRender( pInterface->m_pSocket->m_boundAddr ).c_str() );
-
-            ICECandidatePair *pThisPair = nullptr;
-            for ( ICECandidatePair *pPair : m_vecCandidatePairs )
+            pRequest = nullptr;
+            for ( CSteamNetworkingSocketsSTUNRequest *p : m_vecPendingPeerRequests )
             {
-                if ( pPair->m_remoteCandidate.m_addr == fromAddr
-                    && pPair->m_localCandidate.m_pInterface == pInterface )
+                if ( p->m_pInterface == pInterface
+                    && p->m_nTransactionID[0] == header.m_nTransactionID[0]
+                    && p->m_nTransactionID[1] == header.m_nTransactionID[1]
+                    && p->m_nTransactionID[2] == header.m_nTransactionID[2] )
                 {
-                    pThisPair = pPair;
+                    pRequest = p;
                     break;
                 }
             }
+        }
+        if ( pRequest != nullptr )
+            pRequest->ReplyPacketReceived( info, header );
 
-            // Stale request on a pair we're not using? Ignore.
-            if ( m_pSelectedCandidatePair != nullptr && m_pSelectedCandidatePair != pThisPair )
+        // Unknown or stale response — drop silently.
+        return;
+    }
+
+    //
+    // Incoming binding request
+    //
+
+    // Parse attributes and verify message integrity.
+    CUtlVector< STUNAttribute > vecAttrs;
+    if ( !ParseSTUNAttributes( info, (const uint8*)m_strLocalPassword.c_str(), (uint32)m_strLocalPassword.size(), &vecAttrs ) )
+        return;
+
+    const STUNAttribute *pUsernameAttr = FindAttributeOfType( vecAttrs.Base(), vecAttrs.Count(), k_nSTUN_Attr_UserName );
+    if ( pUsernameAttr != nullptr )
+    {
+        if ( pUsernameAttr->m_nLength < (uint32)m_strIncomingUsername.size() )
+        {
+            SpewMsg( "Incorrect username length; at least %d expected, got %d.", (int)m_strIncomingUsername.size(), pUsernameAttr->m_nLength );
+            return;
+        }
+        if ( m_strIncomingUsername.size() == 0 )
+        {
+            const char* pCh = (const char*)( pUsernameAttr->m_pData );
+            size_t nLen = 0;
+            for( size_t i = 0; i < pUsernameAttr->m_nLength; ++i )
             {
+                if ( pCh[i] == ':' )
+                {
+                    nLen = i;
+                    break;
+                }
+            }
+            if ( nLen == 0 )
+            {
+                SpewMsg( "Invalid username; no : found in %s", std::string( (const char*)( pUsernameAttr->m_pData ),pUsernameAttr->m_nLength ).c_str() );
                 return;
             }
 
-            if ( pThisPair == nullptr )
-            {   // Find the local candidate
-                ICELocalCandidate *pLocalCandidate = nullptr;
-                for ( ICELocalCandidate &c : m_vecCandidates )
-                {
-                    if ( c.m_pInterface == pInterface )
-                    {
-                        pLocalCandidate = &c;
-                        break;
-                    }
-                }
-                ICEPeerCandidate *pRemoteCandidate = nullptr;
-                for ( ICEPeerCandidate &c : m_vecPeerCandidates )
-                {
-                    if ( c.m_addr == fromAddr )
-                    {
-                        pRemoteCandidate = &c;
-                        break;
-                    }
-                }
-                if ( pRemoteCandidate == nullptr )
-                {
-                    ICECandidateBase newRemoteCandidate( ICECandidateKind::PeerReflexive, fromAddr );
-                    const STUNAttribute *pPriorityAttr = FindAttributeOfType( vecAttrs.Base(), vecAttrs.Count(), k_nSTUN_Attr_Priority );
-                    if ( pPriorityAttr != nullptr )
-                    {
-                        newRemoteCandidate.m_nPriority = ntohl( pPriorityAttr->m_pData[0] );
-                    }
-                    pRemoteCandidate = push_back_get_ptr( m_vecPeerCandidates, ICEPeerCandidate( newRemoteCandidate, SteamNetworkingIPAddrRender( fromAddr ).c_str() ) );
-                }
-                pThisPair = new ICECandidatePair( *pLocalCandidate, *pRemoteCandidate, m_role );
-                m_vecCandidatePairs.push_back( pThisPair );
-            }
+            std::string discoveredRemoteName( (char*)pUsernameAttr->m_pData + nLen + 1, pUsernameAttr->m_nLength - nLen - 1 );
+            SetRemoteUsername( discoveredRemoteName.c_str() );
+        }
+        else if ( V_memcmp( pUsernameAttr->m_pData, m_strIncomingUsername.c_str(), m_strIncomingUsername.size() ) != 0 )
+        {
+            std::string remoteName( (char*)pUsernameAttr->m_pData, pUsernameAttr->m_nLength );
+            SpewMsg( "Incorrect username: got '%s' expected '%s'.", remoteName.c_str(), m_strIncomingUsername.c_str() );
+            return;
+        }
+    }
 
-            if ( pThisPair != nullptr )
+    SteamNetworkingIPAddr fromAddr;
+    ConvertNetAddr_tToSteamNetworkingIPAddr( info.m_adrFrom, &fromAddr );
+    CUtlVector< STUNAttribute > outAttrs;
+
+    //
+    // Find the candidate pair for this binding request, if any
+    //
+
+    SpewMsg( "Incoming binding request from %s to %s.\n\n", SteamNetworkingIPAddrRender( fromAddr ).c_str(), SteamNetworkingIPAddrRender( pInterface->m_pSocket->m_boundAddr ).c_str() );
+
+    ICECandidatePair *pThisPair = nullptr;
+    for ( ICECandidatePair *pPair : m_vecCandidatePairs )
+    {
+        if ( pPair->m_remoteCandidate.m_addr == fromAddr
+            && pPair->m_localCandidate.m_pInterface == pInterface )
+        {
+            pThisPair = pPair;
+            break;
+        }
+    }
+
+    // Stale request on a pair we're not using? Ignore.
+    if ( m_pSelectedCandidatePair != nullptr && m_pSelectedCandidatePair != pThisPair )
+    {
+        return;
+    }
+
+    //
+    // Didn't find a pair?  Then maybe we can create one
+    //
+    if ( pThisPair == nullptr )
+    {
+
+        // Find the local candidate
+        ICELocalCandidate *pLocalCandidate = nullptr;
+        for ( ICELocalCandidate &c : m_vecCandidates )
+        {
+            if ( c.m_pInterface == pInterface )
             {
-                if ( FindAttributeOfType( vecAttrs.Base(), vecAttrs.Count(), k_nSTUN_Attr_UseCandidate ) )
-                {
-                    if ( pThisPair->m_nState == kICECandidatePairState_Succeeded
-                         && ( m_pSelectedCandidatePair == nullptr || m_pSelectedCandidatePair == pThisPair ) )
-                    {
-                        SetSelectedCandidatePair( pThisPair );
-                    }
-                    else if ( m_pSelectedCandidatePair == nullptr )
-                    {
-                        bool bAlreadyHaveANomination = ( m_pSelectedCandidatePair != nullptr );
-                        for ( ICECandidatePair *pOtherPair : m_vecCandidatePairs )
-                        {
-                            if ( pOtherPair->m_bNominated == true
-                                && ( pOtherPair->m_nState == kICECandidatePairState_InProgress || pOtherPair->m_nState == kICECandidatePairState_Waiting ) )
-                                bAlreadyHaveANomination = true;
-                        }
-
-                        // Do we already have a valid triggered check in flight?
-                        if ( pThisPair->m_pPeerRequest != nullptr )
-                        {
-                            pThisPair->m_pPeerRequest->Cancel();
-                            pThisPair->m_pPeerRequest = nullptr;
-                            pThisPair->m_nState = kICECandidatePairState_Waiting;
-                        }
-
-                        if ( !bAlreadyHaveANomination )
-                        {
-                            pThisPair->m_nState = kICECandidatePairState_Waiting;
-                            pThisPair->m_bNominated = true;
-                            m_vecTriggeredCheckQueue.push_back( pThisPair );
-                        }
-                    }
-                }
-            }
-
-            if ( m_strIncomingUsername.size() > 0 )
-            {
-                STUNAttribute attrUsername;
-                attrUsername.m_nType = k_nSTUN_Attr_UserName;
-                int nUsernameLength = (int)m_strIncomingUsername.size();
-                attrUsername.m_nLength = nUsernameLength;
-                attrUsername.m_pData = new uint32[ (nUsernameLength + 3) / 4 ];
-                V_memcpy( (void*)attrUsername.m_pData, m_strIncomingUsername.c_str(), m_strIncomingUsername.size() );
-                outAttrs.AddToTail( attrUsername );
+                pLocalCandidate = &c;
+                break;
             }
         }
+        if ( !pLocalCandidate )
+        {
+            // We should at least have a host candidate!
+            AssertMsg( false, "We have an interface, but no candidates?" );
+            return;
+        }
 
-        SendSTUNResponsePacket( info.m_pSock, m_nEncoding, header.m_nTransactionID, fromAddr, (const uint8*)m_strLocalPassword.c_str(), (uint32)m_strLocalPassword.size(), outAttrs.Base(), outAttrs.Count() );
+        // Find / create local candidate
+        ICEPeerCandidate *pRemoteCandidate = nullptr;
+        for ( ICEPeerCandidate &c : m_vecPeerCandidates )
+        {
+            if ( c.m_addr == fromAddr )
+            {
+                pRemoteCandidate = &c;
+                break;
+            }
+        }
+        if ( pRemoteCandidate == nullptr )
+        {
+            ICECandidateBase newRemoteCandidate( ICECandidateKind::PeerReflexive, fromAddr );
+            const STUNAttribute *pPriorityAttr = FindAttributeOfType( vecAttrs.Base(), vecAttrs.Count(), k_nSTUN_Attr_Priority );
+            if ( pPriorityAttr != nullptr )
+            {
+                newRemoteCandidate.m_nPriority = ntohl( pPriorityAttr->m_pData[0] );
+            }
+            pRemoteCandidate = push_back_get_ptr( m_vecPeerCandidates, ICEPeerCandidate( newRemoteCandidate, SteamNetworkingIPAddrRender( fromAddr ).c_str() ) );
+        }
+        pThisPair = new ICECandidatePair( *pLocalCandidate, *pRemoteCandidate, m_role );
+        m_vecCandidatePairs.push_back( pThisPair );
     }
+
+    if ( pThisPair != nullptr )
+    {
+        if ( FindAttributeOfType( vecAttrs.Base(), vecAttrs.Count(), k_nSTUN_Attr_UseCandidate ) )
+        {
+            if ( pThisPair->m_nState == kICECandidatePairState_Succeeded
+                    && ( m_pSelectedCandidatePair == nullptr || m_pSelectedCandidatePair == pThisPair ) )
+            {
+                SetSelectedCandidatePair( pThisPair );
+            }
+            else if ( m_pSelectedCandidatePair == nullptr )
+            {
+                bool bAlreadyHaveANomination = ( m_pSelectedCandidatePair != nullptr );
+                for ( ICECandidatePair *pOtherPair : m_vecCandidatePairs )
+                {
+                    if ( pOtherPair->m_bNominated == true
+                        && ( pOtherPair->m_nState == kICECandidatePairState_InProgress || pOtherPair->m_nState == kICECandidatePairState_Waiting ) )
+                        bAlreadyHaveANomination = true;
+                }
+
+                // Do we already have a valid triggered check in flight?
+                if ( pThisPair->m_pPeerRequest != nullptr )
+                {
+                    pThisPair->m_pPeerRequest->Cancel();
+                    pThisPair->m_pPeerRequest = nullptr;
+                    pThisPair->m_nState = kICECandidatePairState_Waiting;
+                }
+
+                if ( !bAlreadyHaveANomination )
+                {
+                    pThisPair->m_nState = kICECandidatePairState_Waiting;
+                    pThisPair->m_bNominated = true;
+                    m_vecTriggeredCheckQueue.push_back( pThisPair );
+                }
+            }
+        }
+    }
+
+    if ( m_strIncomingUsername.size() > 0 )
+    {
+        STUNAttribute attrUsername;
+        attrUsername.m_nType = k_nSTUN_Attr_UserName;
+        int nUsernameLength = (int)m_strIncomingUsername.size();
+        attrUsername.m_nLength = nUsernameLength;
+        attrUsername.m_pData = new uint32[ (nUsernameLength + 3) / 4 ];
+        V_memcpy( (void*)attrUsername.m_pData, m_strIncomingUsername.c_str(), m_strIncomingUsername.size() );
+        outAttrs.AddToTail( attrUsername );
+    }
+
+    SendSTUNResponsePacket( info.m_pSock, m_nEncoding, header.m_nTransactionID, fromAddr, (const uint8*)m_strLocalPassword.c_str(), (uint32)m_strLocalPassword.size(), outAttrs.Base(), outAttrs.Count() );
 }
 
 void CSteamNetworkingICESession::StaticPacketReceived( const RecvPktInfo_t &info, ICESessionInterface *pContext )
