@@ -1189,7 +1189,7 @@ void CSteamNetworkingICESession::InvalidateInterfaceList()
 
 void CSteamNetworkingICESession::SetSelectedCandidatePair( ICECandidatePair *pPair )
 {
-    SpewMsg( "\n\nSelected candidate %s -> %s.\n\n", SteamNetworkingIPAddrRender( pPair->m_localCandidate.m_base ).c_str(), SteamNetworkingIPAddrRender( pPair->m_remoteCandidate.m_addr ).c_str() );
+    SpewMsg( "\n\nSelected candidate %s -> %s.\n\n", SteamNetworkingIPAddrRender( pPair->m_localCandidate.m_pInterface->m_pSocket->m_boundAddr ).c_str(), SteamNetworkingIPAddrRender( pPair->m_remoteCandidate.m_addr ).c_str() );
     m_pSelectedCandidatePair = pPair;
     m_pSelectedSocket = pPair->m_localCandidate.m_pInterface->m_pSocket;
     if ( m_pCallbacks )
@@ -1421,7 +1421,7 @@ void CSteamNetworkingICESession::OnPacketReceived( const RecvPktInfo_t &info )
             for ( ICECandidatePair *pPair : m_vecCandidatePairs )
             {
                 if ( pPair->m_remoteCandidate.m_addr == fromAddr
-                    && pPair->m_localCandidate.m_base == localAddr )
+                    && pPair->m_localCandidate.m_pInterface->m_pSocket == info.m_pSock )
                 {
                     pThisPair = pPair;
                     break;
@@ -1439,7 +1439,7 @@ void CSteamNetworkingICESession::OnPacketReceived( const RecvPktInfo_t &info )
                 ICELocalCandidate *pLocalCandidate = nullptr;
                 for ( ICELocalCandidate &c : m_vecCandidates )
                 {
-                    if ( c.m_base == localAddr )
+                    if ( c.m_pInterface->m_pSocket == info.m_pSock )
                     {
                         pLocalCandidate = &c;
                         break;
@@ -1573,7 +1573,7 @@ void CSteamNetworkingICESession::Think_DiscoverServerReflexiveCandidates()
         {
             for ( const ICELocalCandidate& c2 : m_vecCandidates )
             {
-                if ( c2.m_type == ICECandidateKind::ServerReflexive && c2.m_base == c.m_base )
+                if ( c2.m_type == ICECandidateKind::ServerReflexive && c2.m_pInterface == c.m_pInterface )
                 {
                     bFound = true;
                     break;
@@ -1593,7 +1593,7 @@ void CSteamNetworkingICESession::Think_DiscoverServerReflexiveCandidates()
         const SteamNetworkingIPAddr *pSTUNServer = nullptr;
         for ( const SteamNetworkingIPAddr &srv : m_vecSTUNServers )
         {
-            if ( srv.IsIPv4() == c.m_base.IsIPv4() )
+            if ( srv.IsIPv4() == c.m_pInterface->m_pSocket->m_boundAddr.IsIPv4() )
             {
                 pSTUNServer = &srv;
                 break;
@@ -1623,7 +1623,7 @@ void CSteamNetworkingICESession::UpdateHostCandidates()
         ICELocalCandidate *pHostCandidate = nullptr;
         for ( const ICELocalCandidate& prevCandidate : vecPreviousCandidates )
         {
-            if ( prevCandidate.m_base == hostCandidateAddr )
+            if ( prevCandidate.m_pInterface == pIntf.get() )
             {
                 ICELocalCandidate *pAdded = push_back_get_ptr( m_vecCandidates, prevCandidate );
                 if ( prevCandidate.m_type == ICECandidateKind::Host )
@@ -1656,7 +1656,7 @@ void CSteamNetworkingICESession::STUNRequestCallback_ServerReflexiveCandidate( c
     for ( int i = 0 ; i < len(m_vecCandidates) ; ++i )
     {
         ICELocalCandidate& c = m_vecCandidates[i];
-        if ( c.m_type == ICECandidateKind::ServerReflexive && c.m_base == localAddr )
+        if ( c.m_type == ICECandidateKind::ServerReflexive && c.m_pInterface == pIntf )
         {
             // Another response for a candidate we already have.
 
@@ -1719,11 +1719,10 @@ void CSteamNetworkingICESession::STUNRequestCallback_ServerReflexiveKeepAlive( c
     ICESessionInterface * const pIntf = info.m_pRequest->m_pInterface;
     pIntf->m_pPendingSTUNRequest = nullptr;
 
-    const SteamNetworkingIPAddr &localAddr = pIntf->m_pSocket->m_boundAddr;
     ICELocalCandidate *pCandidate = nullptr;
     for ( ICELocalCandidate& c : m_vecCandidates )
     {
-        if ( c.m_type == ICECandidateKind::ServerReflexive && c.m_base == localAddr )
+        if ( c.m_type == ICECandidateKind::ServerReflexive && c.m_pInterface == pIntf )
         {
             pCandidate = &c;
             break;
@@ -1820,7 +1819,7 @@ void CSteamNetworkingICESession::Think_TestPeerConnectivity()
                 }
                 if ( bFound )
                     continue;
-                if ( localCandidate.m_base.IsIPv4() != remoteCandidate.m_addr.IsIPv4() )
+                if ( localCandidate.m_pInterface->m_pSocket->m_boundAddr.IsIPv4() != remoteCandidate.m_addr.IsIPv4() )
                     continue;
 
                 if ( !bFound )
@@ -2050,7 +2049,6 @@ CSteamNetworkingICESession::ICECandidateBase::ICECandidateBase( ICECandidateKind
 CSteamNetworkingICESession::ICELocalCandidate::ICELocalCandidate( ICECandidateKind t, const SteamNetworkingIPAddr& addr, ICESessionInterface *pInterface )
     : ICECandidateBase( t, addr )
     , m_pInterface( pInterface )
-    , m_base( pInterface->m_pSocket->m_boundAddr )
 {
     m_stunServer.Clear();
 }
@@ -2092,13 +2090,14 @@ void CSteamNetworkingICESession::ICELocalCandidate::CalcCandidateAttribute( char
       server.*/
     uint32 nFoundation = 0;
     {
+        const SteamNetworkingIPAddr &base = m_pInterface->m_pSocket->m_boundAddr;
         uint16 uCounter = 0;
         for( int i = 0; i < 16; ++i )
         {
-            uCounter += m_base.m_ipv6[i];
+            uCounter += base.m_ipv6[i];
             uCounter += m_stunServer.m_ipv6[i];
         }
-        nFoundation = ( m_base.m_port + m_stunServer.m_port ) + ( uCounter << 15 ) + (int)m_type;
+        nFoundation = ( base.m_port + m_stunServer.m_port ) + ( uCounter << 15 ) + (int)m_type;
     }
     char connectionAddr[ SteamNetworkingIPAddr::k_cchMaxString];
     m_addr.ToString( connectionAddr, V_ARRAYSIZE( connectionAddr ), false );
@@ -2294,7 +2293,7 @@ void CConnectionTransportP2PICE_Valve::OnConnectionSelected( const CSteamNetwork
         && remoteCandidate.m_type == ICECandidateKind::Host )
     {
         int nPrefixLen = localCandidate.m_pInterface->m_nPrefixLen;
-        if ( IsRemoteAddressOnLocalSubnet( localCandidate.m_base, nPrefixLen, remoteCandidate.m_addr ) )
+        if ( IsRemoteAddressOnLocalSubnet( localCandidate.m_pInterface->m_pSocket->m_boundAddr, nPrefixLen, remoteCandidate.m_addr ) )
             m_eCurrentRouteKind = k_ESteamNetTransport_UDPProbablyLocal;
     }
 	m_pingEndToEnd.Reset();

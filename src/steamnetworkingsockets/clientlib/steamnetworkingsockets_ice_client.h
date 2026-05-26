@@ -222,7 +222,6 @@ namespace SteamNetworkingSocketsLib {
         {
             ICESessionInterface *m_pInterface;
             SteamNetworkingIPAddr m_stunServer;
-            SteamNetworkingIPAddr m_base; // FIXME Remove this, fetch it from the interface
             ICELocalCandidate( ICECandidateKind t, const SteamNetworkingIPAddr& addr, ICESessionInterface *pInterface );
             void CalcCandidateAttribute( char *pszBuffer, size_t nBufferSize ) const;
         };
