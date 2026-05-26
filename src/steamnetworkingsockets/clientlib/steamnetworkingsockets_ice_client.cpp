@@ -1104,11 +1104,11 @@ void CSteamNetworkingICESession::InvalidateInterfaceList()
 
 void CSteamNetworkingICESession::SetSelectedCandidatePair( ICECandidatePair *pPair )
 {
-    SpewMsg( "\n\nSelected candidate %s -> %s.\n\n", SteamNetworkingIPAddrRender( pPair->m_localCandidate.m_pInterface->m_pSocket->m_boundAddr ).c_str(), SteamNetworkingIPAddrRender( pPair->m_remoteCandidate.m_addr ).c_str() );
+    SpewMsg( "\n\nSelected candidate %s -> %s.\n\n", SteamNetworkingIPAddrRender( pPair->m_pInterface->m_pSocket->m_boundAddr ).c_str(), SteamNetworkingIPAddrRender( pPair->m_remoteCandidate.m_addr ).c_str() );
     m_pSelectedCandidatePair = pPair;
-    m_pSelectedSocket = pPair->m_localCandidate.m_pInterface->m_pSocket;
+    m_pSelectedSocket = pPair->m_pInterface->m_pSocket;
     if ( m_pCallbacks )
-        m_pCallbacks->OnConnectionSelected( pPair->m_localCandidate, pPair->m_remoteCandidate );
+        m_pCallbacks->OnConnectionSelected( *pPair->m_pInterface, pPair->m_remoteCandidate );
 }
 
 void CSteamNetworkingICESession::InternalDeleteCandidatePair( ICECandidatePair *pPair )
@@ -1187,7 +1187,7 @@ void CSteamNetworkingICESession::GatherInterfaces()
             for ( int j = len( m_vecCandidatePairs ) - 1; j >= 0; --j )
             {
                 ICECandidatePair *pPair = m_vecCandidatePairs[j];
-                if ( pPair->m_localCandidate.m_pInterface == intf )
+                if ( pPair->m_pInterface == intf )
                 {
                     InternalDeleteCandidatePair( pPair );
                     erase_at( m_vecCandidatePairs, j );
@@ -1368,7 +1368,7 @@ not_stun:
     for ( ICECandidatePair *pPair : m_vecCandidatePairs )
     {
         if ( pPair->m_remoteCandidate.m_addr == fromAddr
-            && pPair->m_localCandidate.m_pInterface == pInterface )
+            && pPair->m_pInterface == pInterface )
         {
             pThisPair = pPair;
             break;
@@ -1387,24 +1387,6 @@ not_stun:
     if ( pThisPair == nullptr )
     {
 
-        // Find the local candidate
-        ICELocalCandidate *pLocalCandidate = nullptr;
-        for ( ICELocalCandidate &c : m_vecCandidates )
-        {
-            if ( c.m_pInterface == pInterface )
-            {
-                pLocalCandidate = &c;
-                break;
-            }
-        }
-        if ( !pLocalCandidate )
-        {
-            // We should at least have a host candidate!
-            AssertMsg( false, "We have an interface, but no candidates?" );
-            return;
-        }
-
-        // Find / create local candidate
         ICEPeerCandidate *pRemoteCandidate = nullptr;
         for ( ICEPeerCandidate &c : m_vecPeerCandidates )
         {
@@ -1424,7 +1406,7 @@ not_stun:
             }
             pRemoteCandidate = push_back_get_ptr( m_vecPeerCandidates, ICEPeerCandidate( newRemoteCandidate, SteamNetworkingIPAddrRender( fromAddr ).c_str() ) );
         }
-        pThisPair = new ICECandidatePair( *pLocalCandidate, *pRemoteCandidate, m_role );
+        pThisPair = new ICECandidatePair( pInterface, *pRemoteCandidate, m_role );
         m_vecCandidatePairs.push_back( pThisPair );
     }
 
@@ -1597,11 +1579,6 @@ void CSteamNetworkingICESession::UpdateHostCandidates()
 
 }
 
-bool CSteamNetworkingICESession::IsCandidatePermitted( const ICELocalCandidate& localCandidate)
-{
-	int nCandidateType = localCandidate.CalcType();
-	return ( m_nPermittedCandidateTypes & nCandidateType ) == nCandidateType;
-}
 
 
 void CSteamNetworkingICESession::STUNRequestCallback_ServerReflexiveCandidate( const RecvSTUNPktInfo_t &info )
@@ -1738,13 +1715,17 @@ void CSteamNetworkingICESession::Think_KeepAliveOnCandidates( SteamNetworkingMic
 
     if ( m_pSelectedCandidatePair != nullptr )
     {
-        UpdateKeepalive( m_pSelectedCandidatePair->m_localCandidate );
+        for ( const ICELocalCandidate& c : m_vecCandidates )
+        {
+            if ( c.m_pInterface == m_pSelectedCandidatePair->m_pInterface )
+                UpdateKeepalive( c );
+        }
     }
     else
     {
         for ( const ICELocalCandidate& c : m_vecCandidates )
         {
-            UpdateKeepalive( c ) ;
+            UpdateKeepalive( c );
         }
     }
 }
@@ -1757,31 +1738,25 @@ void CSteamNetworkingICESession::Think_TestPeerConnectivity()
     {
         m_bCandidatePairsNeedUpdate = false;
 
-        // For every peer, for every local candidate, make sure the pair is present in the pairs list...
-        for ( ICELocalCandidate &localCandidate : m_vecCandidates )
+        // For every interface, for every peer candidate, make sure the pair is present.
+        for ( const std::unique_ptr<ICESessionInterface> &pIntf : m_vecInterfaces )
         {
-			if ( !IsCandidatePermitted( localCandidate ) )
-				continue;
-
             for ( ICEPeerCandidate &remoteCandidate : m_vecPeerCandidates )
             {
+                if ( pIntf->m_pSocket->m_boundAddr.IsIPv4() != remoteCandidate.m_addr.IsIPv4() )
+                    continue;
                 bool bFound = false;
                 for ( ICECandidatePair *pPair : m_vecCandidatePairs )
                 {
-                    if ( pPair->m_localCandidate.m_addr == localCandidate.m_addr && pPair->m_remoteCandidate.m_addr == remoteCandidate.m_addr )
+                    if ( pPair->m_pInterface == pIntf.get() && pPair->m_remoteCandidate.m_addr == remoteCandidate.m_addr )
                     {
                         bFound = true;
                         break;
                     }
                 }
-                if ( bFound )
-                    continue;
-                if ( localCandidate.m_pInterface->m_pSocket->m_boundAddr.IsIPv4() != remoteCandidate.m_addr.IsIPv4() )
-                    continue;
-
                 if ( !bFound )
                 {
-                    ICECandidatePair *pNewCandidatePair = new ICECandidatePair( localCandidate, remoteCandidate, m_role );
+                    ICECandidatePair *pNewCandidatePair = new ICECandidatePair( pIntf.get(), remoteCandidate, m_role );
                     m_vecCandidatePairs.push_back( pNewCandidatePair );
                 }
             }
@@ -1847,7 +1822,7 @@ void CSteamNetworkingICESession::Think_TestPeerConnectivity()
     if ( pPairToCheck != nullptr )
     {
         // Trigger the connectivity check here...
-        ICESessionInterface * const pIntf = pPairToCheck->m_localCandidate.m_pInterface;
+        ICESessionInterface * const pIntf = pPairToCheck->m_pInterface;
         pPairToCheck->m_nState = kICECandidatePairState_InProgress;
         pPairToCheck->m_pPeerRequest = CSteamNetworkingSocketsSTUNRequest::CreatePeerConnectivityCheckRequest( pIntf, pPairToCheck->m_remoteCandidate.m_addr, CRecvSTUNPktCallback( StaticSTUNRequestCallback_PeerConnectivityCheck, this ), m_nEncoding );
         if ( pPairToCheck->m_pPeerRequest == nullptr )
@@ -1872,9 +1847,8 @@ void CSteamNetworkingICESession::Think_TestPeerConnectivity()
             attrPriority.m_nType = k_nSTUN_Attr_Priority;
             attrPriority.m_nLength = 4;
             attrPriority.m_pData = new uint32[1];
-            uint32 uPriority = pPairToCheck->m_localCandidate.m_nPriority;
-            // Adjust priority to be peer-reflexity type preference.
-            uPriority = ( uPriority & 0xFFFFFF ) | ( 110 << 24ul );
+            // RFC 8445 section 7.2.2: priority attr uses peer-reflexive type preference (110).
+            uint32 uPriority = ( 110u << 24 ) | ( ( pPairToCheck->m_pInterface->m_nPriority & 0xFFFF ) << 8 ) | 255u;
             *const_cast<uint32*>(attrPriority.m_pData) = htonl( uPriority );
             pPairToCheck->m_pPeerRequest->m_vecExtraAttrs.AddToTail( attrPriority );
         }
@@ -2131,14 +2105,16 @@ EICECandidateType CSteamNetworkingICESession::ICECandidateBase::CalcType() const
 // CSteamNetworkingICESession::ICECandidatePair
 //
 /////////////////////////////////////////////////////////////////////////////
-CSteamNetworkingICESession::ICECandidatePair::ICECandidatePair( const ICELocalCandidate& localCandidate, const ICEPeerCandidate& remoteCandidate, EICERole role )
-    : m_localCandidate( localCandidate ),
+CSteamNetworkingICESession::ICECandidatePair::ICECandidatePair( ICESessionInterface *pInterface, const ICEPeerCandidate& remoteCandidate, EICERole role )
+    : m_pInterface( pInterface ),
       m_remoteCandidate( remoteCandidate ),
       m_nState( kICECandidatePairState_Frozen ),
       m_bNominated( false )
 {
-    const uint64 D = ( role == k_EICERole_Controlling ) ? localCandidate.m_nPriority : remoteCandidate.m_nPriority;
-    const uint64 G = ( role == k_EICERole_Controlling ) ? remoteCandidate.m_nPriority : localCandidate.m_nPriority;
+    // Use the highest possible local priority: host-type preference (126) on this interface.
+    const uint32 nLocalPriority = ( 126u << 24 ) + ( ( pInterface->m_nPriority & 0xFFFF ) << 8 ) + 255u;
+    const uint64 D = ( role == k_EICERole_Controlling ) ? nLocalPriority : remoteCandidate.m_nPriority;
+    const uint64 G = ( role == k_EICERole_Controlling ) ? remoteCandidate.m_nPriority : nLocalPriority;
     m_nPriority = ( 1ull << 32 ) * MIN( G, D ) + 2 * MAX( G, D ) + ( G > D ? 1 : 0 );
     m_pPeerRequest = nullptr;
 	m_nLastRecordedPing = -1;
@@ -2240,22 +2216,17 @@ void CConnectionTransportP2PICE_Valve::OnLocalCandidateDiscovered( const CSteamN
 	LocalCandidateGathered( candidate.CalcType(), std::move( c ) );
 }
 
-void CConnectionTransportP2PICE_Valve::OnConnectionSelected( const CSteamNetworkingICESession::ICELocalCandidate& localCandidate, const CSteamNetworkingICESession::ICECandidateBase& remoteCandidate )
+void CConnectionTransportP2PICE_Valve::OnConnectionSelected( const ICESessionInterface& localInterface, const CSteamNetworkingICESession::ICECandidateBase& remoteCandidate )
 {
     ConnectionScopeLock lock( Connection(), "CConnectionTransportP2PICE_Valve::OnConnectionSelected");
 
     m_currentRouteRemoteAddress = remoteCandidate.m_addr;
     m_eCurrentRouteKind = k_ESteamNetTransport_UDP;
-    if ( localCandidate.m_type == ICECandidateKind::Host
-        && remoteCandidate.m_type == ICECandidateKind::Host )
-    {
-        int nPrefixLen = localCandidate.m_pInterface->m_nPrefixLen;
-        if ( IsRemoteAddressOnLocalSubnet( localCandidate.m_pInterface->m_pSocket->m_boundAddr, nPrefixLen, remoteCandidate.m_addr ) )
-            m_eCurrentRouteKind = k_ESteamNetTransport_UDPProbablyLocal;
-    }
-	m_pingEndToEnd.Reset();
-	m_pingEndToEnd.ReceivedPing( m_pICESession->GetPing(), SteamNetworkingSockets_GetLocalTimestamp() );
-	Connection().TransportEndToEndConnectivityChanged( this, SteamNetworkingSockets_GetLocalTimestamp() );
+    if ( IsRemoteAddressOnLocalSubnet( localInterface.m_pSocket->m_boundAddr, localInterface.m_nPrefixLen, remoteCandidate.m_addr ) )
+        m_eCurrentRouteKind = k_ESteamNetTransport_UDPProbablyLocal;
+    m_pingEndToEnd.Reset();
+    m_pingEndToEnd.ReceivedPing( m_pICESession->GetPing(), SteamNetworkingSockets_GetLocalTimestamp() );
+    Connection().TransportEndToEndConnectivityChanged( this, SteamNetworkingSockets_GetLocalTimestamp() );
 }
 
 void CConnectionTransportP2PICE_Valve::OnPacketReceived( const RecvPktInfo_t &info )

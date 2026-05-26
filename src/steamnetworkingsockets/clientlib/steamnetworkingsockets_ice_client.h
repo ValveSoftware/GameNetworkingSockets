@@ -263,11 +263,11 @@ namespace SteamNetworkingSocketsLib {
             ICECandidatePairState m_nState;
             bool m_bNominated;
             uint64 m_nPriority;
-            ICELocalCandidate m_localCandidate;
+            ICESessionInterface *m_pInterface;   // local socket; identifies which local address to send from
             ICEPeerCandidate m_remoteCandidate;
             CSteamNetworkingSocketsSTUNRequest *m_pPeerRequest;
 			int m_nLastRecordedPing;
-            ICECandidatePair( const ICELocalCandidate& localCandidate, const ICEPeerCandidate& remoteCandidate, EICERole role );
+            ICECandidatePair( ICESessionInterface *pInterface, const ICEPeerCandidate& remoteCandidate, EICERole role );
         };
 
         CSteamNetworkingICESessionCallbacks *m_pCallbacks;
@@ -379,7 +379,6 @@ namespace SteamNetworkingSocketsLib {
         void UpdateHostCandidates();
         void UpdateKeepalive( const ICELocalCandidate& c );
         uint32 GetInterfaceLocalPreference( const SteamNetworkingIPAddr& addr );
-		bool IsCandidatePermitted( const ICELocalCandidate& localCandidate );
 
         void Think_KeepAliveOnCandidates( SteamNetworkingMicroseconds usecNow );
         void Think_DiscoverServerReflexiveCandidates();
@@ -410,7 +409,7 @@ namespace SteamNetworkingSocketsLib {
     public:
         virtual void OnLocalCandidateDiscovered( const CSteamNetworkingICESession::ICELocalCandidate& candidate ) {}
         virtual void OnPacketReceived( const RecvPktInfo_t &info ) {}
-        virtual void OnConnectionSelected( const CSteamNetworkingICESession::ICELocalCandidate& localCandidate, const CSteamNetworkingICESession::ICECandidateBase& remoteCandidate ) {}
+        virtual void OnConnectionSelected( const ICESessionInterface& localInterface, const CSteamNetworkingICESession::ICECandidateBase& remoteCandidate ) {}
     };
 
 
@@ -437,7 +436,7 @@ namespace SteamNetworkingSocketsLib {
     protected:
         virtual void OnLocalCandidateDiscovered( const CSteamNetworkingICESession::ICELocalCandidate& candidate ) override;
         virtual void OnPacketReceived( const RecvPktInfo_t &info ) override;
-        virtual void OnConnectionSelected( const CSteamNetworkingICESession::ICELocalCandidate& localCandidate, const CSteamNetworkingICESession::ICECandidateBase& remoteCandidate ) override;
+        virtual void OnConnectionSelected( const ICESessionInterface& localInterface, const CSteamNetworkingICESession::ICECandidateBase& remoteCandidate ) override;
     };
 
 } // namespace SteamNetworkingSocketsLib
