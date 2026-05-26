@@ -178,13 +178,14 @@ namespace SteamNetworkingSocketsLib {
         constexpr static bool kPacketProcessed = true;
         bool OnPacketReceived( const RecvPktInfo_t &info );
 
+        ~CSteamNetworkingSocketsSTUNRequest();
+
     protected:
         void Think( SteamNetworkingMicroseconds usecNow ) override;
         friend class CSteamNetworkingSocketsSTUN;
 
     private:
         explicit CSteamNetworkingSocketsSTUNRequest( ICESessionInterface *pInterface );
-        ~CSteamNetworkingSocketsSTUNRequest();
 
         static void StaticPacketReceived( const RecvPktInfo_t &info, CSteamNetworkingSocketsSTUNRequest *pContext );
 
@@ -219,10 +220,10 @@ namespace SteamNetworkingSocketsLib {
         };
         struct ICELocalCandidate : public ICECandidateBase
         {
+            ICESessionInterface *m_pInterface;
             SteamNetworkingIPAddr m_stunServer;
-            SteamNetworkingIPAddr m_base; // FIXME Each local candidate should remember what interface it came from, and the interface's bound address is the base
-            ICELocalCandidate( ICECandidateKind t, const SteamNetworkingIPAddr& addr, const SteamNetworkingIPAddr& base );
-            ICELocalCandidate( ICECandidateKind t, const SteamNetworkingIPAddr& addr, const SteamNetworkingIPAddr& base, const SteamNetworkingIPAddr& stunServer );
+            SteamNetworkingIPAddr m_base; // FIXME Remove this, fetch it from the interface
+            ICELocalCandidate( ICECandidateKind t, const SteamNetworkingIPAddr& addr, ICESessionInterface *pInterface );
             void CalcCandidateAttribute( char *pszBuffer, size_t nBufferSize ) const;
         };
         EICERole GetRole() { return m_role; }
@@ -234,10 +235,6 @@ namespace SteamNetworkingSocketsLib {
         IRawUDPSocket *GetSelectedSocket() { return m_pSelectedSocket; }
         SteamNetworkingIPAddr GetSelectedDestination();
 		int GetPing() const;
-
-        // Returns the subnet prefix length for the local interface matching addr,
-        // or 0 if the interface was not found or has no valid prefix data.
-        int GetLocalCandidatePrefixLen( const SteamNetworkingIPAddr &addr ) const;
 
     protected:
         void Think( SteamNetworkingMicroseconds usecNow ) override;
@@ -376,7 +373,6 @@ namespace SteamNetworkingSocketsLib {
         // each Think() pass before the regular check list.
         std_vector< ICECandidatePair* > m_vecTriggeredCheckQueue;
 
-        ICESessionInterface *FindInterfaceForCandidate( const SteamNetworkingIPAddr& addr );
         CSteamNetworkingSocketsSTUNRequest *FindPendingRequestByTransactionID( const uint32 nTransactionID[3] ) const;
         void GatherInterfaces();
         void UpdateHostCandidates();
@@ -389,6 +385,13 @@ namespace SteamNetworkingSocketsLib {
         void Think_TestPeerConnectivity();
 
         void SetSelectedCandidatePair( ICECandidatePair *pPair );
+
+        // Delete a candidate pair and perform all associated cleanup:
+        // clears the selected-pair state if this was the active path, cancels
+        // any in-flight peer connectivity check, and removes the pair from the
+        // triggered-check queue.  Does NOT remove it from m_vecCandidatePairs —
+        // that is the caller's responsibility.
+        void InternalDeleteCandidatePair( ICECandidatePair *pPair );
 
         void STUNRequestCallback_ServerReflexiveCandidate( const RecvSTUNPktInfo_t &info );
         static void StaticSTUNRequestCallback_ServerReflexiveCandidate( const RecvSTUNPktInfo_t &info, CSteamNetworkingICESession* pContext );
