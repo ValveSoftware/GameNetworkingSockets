@@ -1231,6 +1231,13 @@ void CSteamNetworkingICESession::GatherInterfaces()
         m_vecInterfaces.emplace_back( std::move( pIntf ) );
         if ( uNextPriority > 0 )
             --uNextPriority;
+
+        ICESessionInterface *pNewIntf = m_vecInterfaces.back().get();
+        ICELocalCandidate *pHostCandidate = push_back_get_ptr( m_vecCandidates,
+            ICELocalCandidate( ICECandidateKind::Host, pNewIntf->m_pSocket->m_boundAddr, pNewIntf ) );
+        if ( m_pCallbacks != nullptr )
+            m_pCallbacks->OnLocalCandidateDiscovered( *pHostCandidate );
+        m_bCandidatePairsNeedUpdate = true;
     }
 }
 
@@ -1478,8 +1485,6 @@ void CSteamNetworkingICESession::Think( SteamNetworkingMicroseconds usecNow )
         // We tried to update interfaces but failed. Try again later.
         if ( m_bInterfaceListStale )
             return;
-
-        UpdateHostCandidates();
     }
 
     Think_KeepAliveOnCandidates( usecNow );
@@ -1547,38 +1552,6 @@ void CSteamNetworkingICESession::Think_DiscoverServerReflexiveCandidates()
     }
 }
 
-void CSteamNetworkingICESession::UpdateHostCandidates()
-{
-	SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "CSteamNetworkingICESession::UpdateHostCandidates" );
-
-    std_vector<ICELocalCandidate> vecPreviousCandidates;
-    std::swap( vecPreviousCandidates, m_vecCandidates );
-
-    for ( const std::unique_ptr<ICESessionInterface> &pIntf : m_vecInterfaces )
-    {
-        const SteamNetworkingIPAddr &hostCandidateAddr = pIntf->m_pSocket->m_boundAddr;
-
-        // Restore any candidates previously discovered for this interface.
-        ICELocalCandidate *pHostCandidate = nullptr;
-        for ( const ICELocalCandidate& prevCandidate : vecPreviousCandidates )
-        {
-            if ( prevCandidate.m_pInterface == pIntf.get() )
-            {
-                ICELocalCandidate *pAdded = push_back_get_ptr( m_vecCandidates, prevCandidate );
-                if ( prevCandidate.m_type == ICECandidateKind::Host )
-                    pHostCandidate = pAdded;
-            }
-        }
-
-        if ( pHostCandidate == nullptr )
-            pHostCandidate = push_back_get_ptr( m_vecCandidates, ICELocalCandidate( ICECandidateKind::Host, hostCandidateAddr, pIntf.get() ) );
-        pHostCandidate->m_nPriority = pHostCandidate->CalcPriority( pIntf->m_nPriority );
-        if ( m_pCallbacks != nullptr )
-            m_pCallbacks->OnLocalCandidateDiscovered( *pHostCandidate );
-    }
-
-}
-
 
 
 void CSteamNetworkingICESession::STUNRequestCallback_ServerReflexiveCandidate( const RecvSTUNPktInfo_t &info )
@@ -1612,7 +1585,6 @@ void CSteamNetworkingICESession::STUNRequestCallback_ServerReflexiveCandidate( c
         if ( bindResult == localAddr )
             bindResult.Clear();
         ICELocalCandidate *pCand = push_back_get_ptr( m_vecCandidates, ICELocalCandidate( ICECandidateKind::ServerReflexive, bindResult, pIntf ) );
-        pCand->m_nPriority = pCand->CalcPriority( pIntf->m_nPriority );
         pCand->m_stunServer = info.m_pRequest->m_remoteAddr;
         if ( m_pCallbacks != nullptr && !bindResult.IsIPv6AllZeros() )
             m_pCallbacks->OnLocalCandidateDiscovered( *pCand );
@@ -1632,7 +1604,6 @@ void CSteamNetworkingICESession::STUNRequestCallback_ServerReflexiveCandidate( c
         // be retried forever every think tick, creating unbounded churn.
         bindResult.Clear();
         ICELocalCandidate *pCand = push_back_get_ptr( m_vecCandidates, ICELocalCandidate( ICECandidateKind::ServerReflexive, bindResult, pIntf ) );
-        pCand->m_nPriority = 0;
         pCand->m_stunServer = info.m_pRequest->m_remoteAddr;
         return;
     }
@@ -1982,33 +1953,21 @@ CSteamNetworkingICESession::ICELocalCandidate::ICELocalCandidate( ICECandidateKi
     , m_pInterface( pInterface )
 {
     m_stunServer.Clear();
-}
 
-uint32 CSteamNetworkingICESession::ICECandidateBase::CalcPriority( uint32 nLocalPreference )
-{
-    /*priority = (2^24)*(type preference) +
-              (2^8)*(local preference) +
-              (2^0)*(256 - component ID) */
-
-    if ( m_type == ICECandidateKind::None )
-        return 0;
-    if ( m_addr.IsIPv6AllZeros() )
-        return 0;
-
-    uint32 nTypePreference = 0;
-    /*  The RECOMMENDED values for type preferences are 126 for host
-        candidates, 110 for peer-reflexive candidates, 100 for server-
-        reflexive candidates, and 0 for relayed candidates. */
-    switch ( m_type )
+    // priority = (2^24)*(type preference) + (2^8)*(local preference) + (2^0)*(256 - component ID)
+    // Type preferences per RFC 8445: host=126, peer-reflexive=110, server-reflexive=100, relay=0.
+    if ( m_type != ICECandidateKind::None && !m_addr.IsIPv6AllZeros() )
     {
-        case ICECandidateKind::Host: nTypePreference = 126; break;
-        case ICECandidateKind::ServerReflexive: nTypePreference = 100; break;
-        case ICECandidateKind::PeerReflexive: nTypePreference = 110; break;
-        case ICECandidateKind::None: default: nTypePreference = 0; break;
+        uint32 nTypePreference;
+        switch ( m_type )
+        {
+            case ICECandidateKind::Host:            nTypePreference = 126; break;
+            case ICECandidateKind::ServerReflexive: nTypePreference = 100; break;
+            case ICECandidateKind::PeerReflexive:   nTypePreference = 110; break;
+            default:                                nTypePreference =   0; break;
+        }
+        m_nPriority = ( nTypePreference << 24 ) + ( ( pInterface->m_nPriority & 0xFFFF ) << 8 ) + 255u;
     }
-
-    uint32 nComponentID = 1;
-    return (( nTypePreference & 0xFF ) << 24 ) + (( nLocalPreference & 0xFFFF ) << 8 ) + ( 256 - ( nComponentID & 0xFF ) );
 }
 
 // Compute a candidate-attribute from https://datatracker.ietf.org/doc/html/rfc5245#section-15.1
