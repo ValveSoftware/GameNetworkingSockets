@@ -14,11 +14,15 @@
 namespace SteamNetworkingSocketsLib {
     class CSteamNetworkingSocketsSTUNRequest;
     class CSteamNetworkingICESessionCallbacks;
+    class CSteamNetworkingICESession;
 
     /// Represents one local network interface used for ICE candidate gathering.
     /// Owns its socket and tracks at most one in-flight server-reflexive STUN request.
     struct ICESessionInterface
     {
+        // The session that owns this interface.
+        CSteamNetworkingICESession &m_session;
+
         // Local-preference component of the ICE priority formula
         // (RFC 8445 §5.1.2).  Assigned as a countdown from 65535 in
         // enumeration order so the first adapter returned by the OS gets
@@ -31,17 +35,18 @@ namespace SteamNetworkingSocketsLib {
         int m_nPrefixLen;
 
         // Raw UDP socket bound to this interface for sending and receiving
-        // ICE traffic.  Always non-NULL, owned by this object.
+        // ICE traffic.  Null only transiently during construction before
+        // the socket is successfully opened.  Owned by this object;
         // m_pSocket->m_boundAddr is the local IP:port for this interface.
-        IRawUDPSocket * const m_pSocket;
+        IRawUDPSocket *m_pSocket;
 
         // In-flight STUN bind request for server-reflexive discovery or
         // keepalive, or null if none is active.  At most one per interface.
         CSteamNetworkingSocketsSTUNRequest *m_pPendingSTUNRequest = nullptr;
 
-        ICESessionInterface( uint32 p, int nPrefixLen, IRawUDPSocket *pSocket )
-            : m_nPriority( p ), m_nPrefixLen( nPrefixLen ), m_pSocket( pSocket ) {}
-        ~ICESessionInterface() { m_pSocket->Close(); }
+        ICESessionInterface( CSteamNetworkingICESession &session, uint32 nPriority, int nPrefixLen )
+            : m_session( session ), m_nPriority( nPriority ), m_nPrefixLen( nPrefixLen ), m_pSocket( nullptr ) {}
+        ~ICESessionInterface() { if ( m_pSocket ) m_pSocket->Close(); }
 
         ICESessionInterface( const ICESessionInterface& ) = delete;
         ICESessionInterface& operator=( const ICESessionInterface& ) = delete;
@@ -372,7 +377,6 @@ namespace SteamNetworkingSocketsLib {
         // each Think() pass before the regular check list.
         std_vector< ICECandidatePair* > m_vecTriggeredCheckQueue;
 
-        CSteamNetworkingSocketsSTUNRequest *FindPendingRequestByTransactionID( const uint32 nTransactionID[3] ) const;
         void GatherInterfaces();
         void UpdateHostCandidates();
         void UpdateKeepalive( const ICELocalCandidate& c );
@@ -399,8 +403,8 @@ namespace SteamNetworkingSocketsLib {
         void STUNRequestCallback_PeerConnectivityCheck( const RecvSTUNPktInfo_t &info );
         static void StaticSTUNRequestCallback_PeerConnectivityCheck( const RecvSTUNPktInfo_t &info, CSteamNetworkingICESession* pContext );
 
-        void OnPacketReceived( const RecvPktInfo_t &info );
-        static void StaticPacketReceived( const RecvPktInfo_t &info, CSteamNetworkingICESession *pContext );
+        void OnPacketReceived( const RecvPktInfo_t &info, ICESessionInterface *pInterface );
+        static void StaticPacketReceived( const RecvPktInfo_t &info, ICESessionInterface *pContext );
     };
 
     class CSteamNetworkingICESessionCallbacks
