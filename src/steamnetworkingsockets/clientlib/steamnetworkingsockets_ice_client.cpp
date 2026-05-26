@@ -1091,19 +1091,20 @@ CSteamNetworkingICESession::~CSteamNetworkingICESession()
 {
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
 
+    // Make sure we don't fire any more callbacks while doing any of this processing
+    m_pCallbacks = nullptr;
+
     for ( const auto &pIntf : m_vecInterfaces )
     {
         if ( pIntf->m_pPendingSTUNRequest )
-            pIntf->m_pPendingSTUNRequest->Cancel();
-    }
-
-    for ( int i = len( m_vecPendingPeerRequests ) - 1; i >= 0; --i )
-    {
-        m_vecPendingPeerRequests[i]->Cancel();
+        {
+            delete pIntf->m_pPendingSTUNRequest;
+            pIntf->m_pPendingSTUNRequest = nullptr;
+        }
     }
 
     for ( ICECandidatePair *pPair: m_vecCandidatePairs )
-        delete pPair;
+        InternalDeleteCandidatePair( pPair );
     m_vecCandidatePairs.clear();
 
     m_vecInterfaces.clear();
@@ -1189,16 +1190,30 @@ void CSteamNetworkingICESession::InvalidateInterfaceList()
 void CSteamNetworkingICESession::SetSelectedCandidatePair( ICECandidatePair *pPair )
 {
     SpewMsg( "\n\nSelected candidate %s -> %s.\n\n", SteamNetworkingIPAddrRender( pPair->m_localCandidate.m_base ).c_str(), SteamNetworkingIPAddrRender( pPair->m_remoteCandidate.m_addr ).c_str() );
-    ICESessionInterface *pIntf = FindInterfaceForCandidate( pPair->m_localCandidate.m_base );
-    if ( !pIntf )
-    {
-        AssertMsg( false, "Tried to select a candidate pair but cannot find the local interface?" );
-        return;
-    }
     m_pSelectedCandidatePair = pPair;
-    m_pSelectedSocket = pIntf->m_pSocket;
+    m_pSelectedSocket = pPair->m_localCandidate.m_pInterface->m_pSocket;
     if ( m_pCallbacks )
         m_pCallbacks->OnConnectionSelected( pPair->m_localCandidate, pPair->m_remoteCandidate );
+}
+
+void CSteamNetworkingICESession::InternalDeleteCandidatePair( ICECandidatePair *pPair )
+{
+    if ( pPair == m_pSelectedCandidatePair )
+    {
+        m_pSelectedCandidatePair = nullptr;
+        m_pSelectedSocket = nullptr;
+    }
+
+    if ( pPair->m_pPeerRequest != nullptr )
+    {
+        find_and_remove_element( m_vecPendingPeerRequests, pPair->m_pPeerRequest );
+        delete pPair->m_pPeerRequest;
+        pPair->m_pPeerRequest = nullptr;
+    }
+
+    find_and_remove_element( m_vecTriggeredCheckQueue, pPair );
+
+    delete pPair;
 }
 
 int CSteamNetworkingICESession::GetPing() const
@@ -1235,14 +1250,14 @@ void CSteamNetworkingICESession::GatherInterfaces()
     uint32 uNextPriority = 65535;
     for ( int i = len( m_vecInterfaces ) - 1; i >= 0; --i )
     {
-        ICESessionInterface &intf = *m_vecInterfaces[i];
+        ICESessionInterface *intf = m_vecInterfaces[i].get();
 
         bool bFound = false;
         for ( int j = 0; j < vecAddrs.Count(); ++j )
         {
-            if ( IPAddrEqualIgnoringPort( vecAddrs[j].m_addr, intf.m_pSocket->m_boundAddr ) )
+            if ( IPAddrEqualIgnoringPort( vecAddrs[j].m_addr, intf->m_pSocket->m_boundAddr ) )
             {
-                vecAddrs.FastRemove( j );
+                vecAddrs.Remove( j );
                 bFound = true;
                 break;
             }
@@ -1250,16 +1265,37 @@ void CSteamNetworkingICESession::GatherInterfaces()
 
         if ( !bFound )
         {
-            // ICESessionInterface disappeared — cancel its pending STUN request if any.
-            // The socket is closed by the ICESessionInterface destructor when we erase below.
-            if ( intf.m_pPendingSTUNRequest )
-                intf.m_pPendingSTUNRequest->Cancel();
+            // ICESessionInterface disappeared!  Delete the socket and all candidates
+            // and pairs that use it
+            SpewMsg( "Local interface %s removed\n", SteamNetworkingIPAddrRender( intf->m_pSocket->m_boundAddr ).c_str() );
+
+            for ( int j = len( m_vecCandidatePairs ) - 1; j >= 0; --j )
+            {
+                ICECandidatePair *pPair = m_vecCandidatePairs[j];
+                if ( pPair->m_localCandidate.m_pInterface == intf )
+                {
+                    InternalDeleteCandidatePair( pPair );
+                    erase_at( m_vecCandidatePairs, j );
+                }
+            }
+            for ( int j = len( m_vecCandidates ) - 1; j >= 0; --j )
+            {
+                if ( m_vecCandidates[j].m_pInterface == intf )
+                    erase_at( m_vecCandidates, j );
+            }
+
+            if ( intf->m_pPendingSTUNRequest )
+            {
+                delete intf->m_pPendingSTUNRequest;
+                intf->m_pPendingSTUNRequest = nullptr;
+            }
+
             erase_at( m_vecInterfaces, i );
             continue;
         }
 
-        if ( intf.m_nPriority <= uNextPriority )
-            uNextPriority = intf.m_nPriority-1;
+        if ( intf->m_nPriority <= uNextPriority )
+            uNextPriority = intf->m_nPriority-1;
     }
 
     // Second pass: add genuinely new interfaces.  Assign priorities counting
@@ -1280,26 +1316,6 @@ void CSteamNetworkingICESession::GatherInterfaces()
         if ( uNextPriority > 0 )
             --uNextPriority;
     }
-}
-
-int CSteamNetworkingICESession::GetLocalCandidatePrefixLen( const SteamNetworkingIPAddr &addr ) const
-{
-    for ( const auto &pIntf : m_vecInterfaces )
-    {
-        if ( IPAddrEqualIgnoringPort( pIntf->m_pSocket->m_boundAddr, addr ) )
-            return pIntf->m_nPrefixLen;
-    }
-    return 0;
-}
-
-ICESessionInterface *CSteamNetworkingICESession::FindInterfaceForCandidate( const SteamNetworkingIPAddr& addr )
-{
-    for ( const auto &pIntf : m_vecInterfaces )
-    {
-        if ( addr == pIntf->m_pSocket->m_boundAddr )
-            return pIntf.get();
-    }
-    return nullptr;
 }
 
 CSteamNetworkingSocketsSTUNRequest *CSteamNetworkingICESession::FindPendingRequestByTransactionID( const uint32 nTransactionID[3] ) const
@@ -1549,6 +1565,8 @@ void CSteamNetworkingICESession::Think_DiscoverServerReflexiveCandidates()
     {
         if ( c.m_type != ICECandidateKind::Host )
             continue;
+        ICESessionInterface *pIntf = c.m_pInterface;
+
         // Do we have a server-reflexive candidate for this host already?
         bool bFound = false;
         if ( !bFound )
@@ -1563,8 +1581,8 @@ void CSteamNetworkingICESession::Think_DiscoverServerReflexiveCandidates()
             }
         }
         if ( !bFound )
-        {   // Is there a STUN request pending for this interface?
-            ICESessionInterface *pIntf = FindInterfaceForCandidate( c.m_base );
+        {
+            // Is there a STUN request pending for this interface?
             if ( pIntf != nullptr && pIntf->m_pPendingSTUNRequest != nullptr )
                 bFound = true;
         }
@@ -1582,10 +1600,6 @@ void CSteamNetworkingICESession::Think_DiscoverServerReflexiveCandidates()
             }
         }
         if ( !pSTUNServer )
-            continue;
-
-        ICESessionInterface *pIntf = FindInterfaceForCandidate( c.m_base );
-        if ( pIntf == nullptr )
             continue;
 
         CSteamNetworkingSocketsSTUNRequest *pNewRequest = CSteamNetworkingSocketsSTUNRequest::SendBindRequest( pIntf, *pSTUNServer, CRecvSTUNPktCallback( StaticSTUNRequestCallback_ServerReflexiveCandidate, this ), m_nEncoding | kSTUNPacketEncodingFlags_MappedAddress );
@@ -1618,7 +1632,7 @@ void CSteamNetworkingICESession::UpdateHostCandidates()
         }
 
         if ( pHostCandidate == nullptr )
-            pHostCandidate = push_back_get_ptr( m_vecCandidates, ICELocalCandidate( ICECandidateKind::Host, hostCandidateAddr, hostCandidateAddr ) );
+            pHostCandidate = push_back_get_ptr( m_vecCandidates, ICELocalCandidate( ICECandidateKind::Host, hostCandidateAddr, pIntf.get() ) );
         pHostCandidate->m_nPriority = pHostCandidate->CalcPriority( pIntf->m_nPriority );
         if ( m_pCallbacks != nullptr )
             m_pCallbacks->OnLocalCandidateDiscovered( *pHostCandidate );
@@ -1663,8 +1677,9 @@ void CSteamNetworkingICESession::STUNRequestCallback_ServerReflexiveCandidate( c
     {   // Got a response... is it redundant (this happens when we get a STUN response but we're not behind a NAT)
         if ( bindResult == localAddr )
             bindResult.Clear();
-        ICELocalCandidate *pCand = push_back_get_ptr( m_vecCandidates, ICELocalCandidate( ICECandidateKind::ServerReflexive, bindResult, localAddr, info.m_pRequest->m_remoteAddr ) );
+        ICELocalCandidate *pCand = push_back_get_ptr( m_vecCandidates, ICELocalCandidate( ICECandidateKind::ServerReflexive, bindResult, pIntf ) );
         pCand->m_nPriority = pCand->CalcPriority( pIntf->m_nPriority );
+        pCand->m_stunServer = info.m_pRequest->m_remoteAddr;
         if ( m_pCallbacks != nullptr && !bindResult.IsIPv6AllZeros() )
             m_pCallbacks->OnLocalCandidateDiscovered( *pCand );
         return;
@@ -1682,8 +1697,9 @@ void CSteamNetworkingICESession::STUNRequestCallback_ServerReflexiveCandidate( c
         // candidate" or "pending request".  Without this marker, a total STUN failure would
         // be retried forever every think tick, creating unbounded churn.
         bindResult.Clear();
-        ICELocalCandidate *pCand = push_back_get_ptr( m_vecCandidates, ICELocalCandidate( ICECandidateKind::ServerReflexive, bindResult, localAddr, info.m_pRequest->m_remoteAddr ) );
+        ICELocalCandidate *pCand = push_back_get_ptr( m_vecCandidates, ICELocalCandidate( ICECandidateKind::ServerReflexive, bindResult, pIntf ) );
         pCand->m_nPriority = 0;
+        pCand->m_stunServer = info.m_pRequest->m_remoteAddr;
         return;
     }
 
@@ -1750,9 +1766,7 @@ void CSteamNetworkingICESession::UpdateKeepalive( const ICELocalCandidate& c )
     if ( c.m_addr.IsIPv6AllZeros() )
         return;
 
-    ICESessionInterface * const pIntf = FindInterfaceForCandidate( c.m_base );
-    if ( pIntf == nullptr )
-        return;
+    ICESessionInterface * const pIntf = c.m_pInterface;
     if ( pIntf->m_pPendingSTUNRequest != nullptr )
         return;
 
@@ -1877,14 +1891,8 @@ void CSteamNetworkingICESession::Think_TestPeerConnectivity()
     if ( pPairToCheck != nullptr )
     {
         // Trigger the connectivity check here...
+        ICESessionInterface * const pIntf = pPairToCheck->m_localCandidate.m_pInterface;
         pPairToCheck->m_nState = kICECandidatePairState_InProgress;
-        ICESessionInterface * const pIntf = FindInterfaceForCandidate( pPairToCheck->m_localCandidate.m_base );
-        if ( pIntf == nullptr )
-        {
-            pPairToCheck->m_nState = kICECandidatePairState_Failed;
-            return;
-        }
-
         pPairToCheck->m_pPeerRequest = CSteamNetworkingSocketsSTUNRequest::CreatePeerConnectivityCheckRequest( pIntf, pPairToCheck->m_remoteCandidate.m_addr, CRecvSTUNPktCallback( StaticSTUNRequestCallback_PeerConnectivityCheck, this ), m_nEncoding );
         if ( pPairToCheck->m_pPeerRequest == nullptr )
         {
@@ -2039,18 +2047,12 @@ CSteamNetworkingICESession::ICECandidateBase::ICECandidateBase( ICECandidateKind
     m_nPriority = 0;
 }
 
-CSteamNetworkingICESession::ICELocalCandidate::ICELocalCandidate( ICECandidateKind t, const SteamNetworkingIPAddr& addr, const SteamNetworkingIPAddr& base )
+CSteamNetworkingICESession::ICELocalCandidate::ICELocalCandidate( ICECandidateKind t, const SteamNetworkingIPAddr& addr, ICESessionInterface *pInterface )
     : ICECandidateBase( t, addr )
-    , m_base( base )
+    , m_pInterface( pInterface )
+    , m_base( pInterface->m_pSocket->m_boundAddr )
 {
     m_stunServer.Clear();
-}
-
-CSteamNetworkingICESession::ICELocalCandidate::ICELocalCandidate( ICECandidateKind t, const SteamNetworkingIPAddr& addr, const SteamNetworkingIPAddr& base, const SteamNetworkingIPAddr& stunServer )
-    : ICECandidateBase( t, addr )
-    , m_base( base )
-{
-    m_stunServer = stunServer;
 }
 
 uint32 CSteamNetworkingICESession::ICECandidateBase::CalcPriority( uint32 nLocalPreference )
@@ -2291,7 +2293,7 @@ void CConnectionTransportP2PICE_Valve::OnConnectionSelected( const CSteamNetwork
     if ( localCandidate.m_type == ICECandidateKind::Host
         && remoteCandidate.m_type == ICECandidateKind::Host )
     {
-        int nPrefixLen = m_pICESession->GetLocalCandidatePrefixLen( localCandidate.m_base );
+        int nPrefixLen = localCandidate.m_pInterface->m_nPrefixLen;
         if ( IsRemoteAddressOnLocalSubnet( localCandidate.m_base, nPrefixLen, remoteCandidate.m_addr ) )
             m_eCurrentRouteKind = k_ESteamNetTransport_UDPProbablyLocal;
     }
