@@ -218,7 +218,6 @@ namespace SteamNetworkingSocketsLib {
             uint32 m_nPriority;
             ICECandidateBase();
             ICECandidateBase( ICECandidateKind t, const SteamNetworkingIPAddr& addr );
-            uint32 CalcPriority( uint32 nLocalPreference );
 			EICECandidateType CalcType() const;
         };
         struct ICELocalCandidate : public ICECandidateBase
@@ -376,7 +375,6 @@ namespace SteamNetworkingSocketsLib {
         std_vector< ICECandidatePair* > m_vecTriggeredCheckQueue;
 
         void GatherInterfaces();
-        void UpdateHostCandidates();
         void UpdateKeepalive( const ICELocalCandidate& c );
         uint32 GetInterfaceLocalPreference( const SteamNetworkingIPAddr& addr );
 
