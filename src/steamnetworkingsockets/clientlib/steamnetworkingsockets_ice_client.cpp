@@ -1303,43 +1303,23 @@ void CSteamNetworkingICESession::GatherInterfaces()
     // the list was empty).
     for ( const LocalAddress_t &addr: vecAddrs )
     {
+        std::unique_ptr<ICESessionInterface> pIntf = std::make_unique<ICESessionInterface>( *this, uNextPriority, addr.m_nPrefixLen );
         SteamDatagramErrMsg errMsg;
         SteamNetworkingIPAddr bindAddr = addr.m_addr;
-        IRawUDPSocket *pSock = OpenRawUDPSocket( CRecvPacketCallback( CSteamNetworkingICESession::StaticPacketReceived, this ), errMsg, &bindAddr, nullptr );
-        if ( pSock == nullptr )
+        pIntf->m_pSocket = OpenRawUDPSocket( CRecvPacketCallback( CSteamNetworkingICESession::StaticPacketReceived, pIntf.get() ), errMsg, &bindAddr, nullptr );
+        if ( pIntf->m_pSocket == nullptr )
         {
             SpewWarning( "Could not bind to %s, skipping interface.  %s\n", SteamNetworkingIPAddrRender( addr.m_addr ).c_str(), errMsg );
             continue;
         }
 
-        m_vecInterfaces.emplace_back( std::make_unique<ICESessionInterface>( uNextPriority, addr.m_nPrefixLen, pSock ) );
+        m_vecInterfaces.emplace_back( std::move( pIntf ) );
         if ( uNextPriority > 0 )
             --uNextPriority;
     }
 }
 
-CSteamNetworkingSocketsSTUNRequest *CSteamNetworkingICESession::FindPendingRequestByTransactionID( const uint32 nTransactionID[3] ) const
-{
-    auto fnMatches = [nTransactionID]( const CSteamNetworkingSocketsSTUNRequest *pRequest )
-    {
-        return pRequest != nullptr
-            && pRequest->m_nTransactionID[0] == nTransactionID[0]
-            && pRequest->m_nTransactionID[1] == nTransactionID[1]
-            && pRequest->m_nTransactionID[2] == nTransactionID[2];
-    };
-
-    for ( const auto &pIntf : m_vecInterfaces )
-        if ( fnMatches( pIntf->m_pPendingSTUNRequest ) )
-            return pIntf->m_pPendingSTUNRequest;
-
-    for ( CSteamNetworkingSocketsSTUNRequest *pRequest : m_vecPendingPeerRequests )
-        if ( fnMatches( pRequest ) )
-            return pRequest;
-
-    return nullptr;
-}
-
-void CSteamNetworkingICESession::OnPacketReceived( const RecvPktInfo_t &info )
+void CSteamNetworkingICESession::OnPacketReceived( const RecvPktInfo_t &info, ICESessionInterface *pInterface )
 {
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "CSteamNetworkingICESession::OnPacketReceived" );
 
@@ -1351,7 +1331,27 @@ void CSteamNetworkingICESession::OnPacketReceived( const RecvPktInfo_t &info )
         UnpackSTUNHeader( reinterpret_cast<const uint32 *>( info.m_pPkt ), &quickHeader );
         if ( IsValidSTUNHeader( &quickHeader, info.m_cbPkt, nullptr ) && quickHeader.m_nMessageType != k_nSTUN_BindingRequest )
         {
-            CSteamNetworkingSocketsSTUNRequest *pRequest = FindPendingRequestByTransactionID( quickHeader.m_nTransactionID );
+            CSteamNetworkingSocketsSTUNRequest *pRequest = pInterface->m_pPendingSTUNRequest;
+            if (
+                pRequest == nullptr
+                || pRequest->m_nTransactionID[0] != quickHeader.m_nTransactionID[0]
+                || pRequest->m_nTransactionID[1] != quickHeader.m_nTransactionID[1]
+                || pRequest->m_nTransactionID[2] != quickHeader.m_nTransactionID[2]
+            ) {
+                pRequest = nullptr;
+                for ( CSteamNetworkingSocketsSTUNRequest *p : m_vecPendingPeerRequests )
+                {
+                    if (
+                        p->m_pInterface == pInterface
+                        && p->m_nTransactionID[0] == quickHeader.m_nTransactionID[0]
+                        && p->m_nTransactionID[1] == quickHeader.m_nTransactionID[1]
+                        && p->m_nTransactionID[2] == quickHeader.m_nTransactionID[2]
+                    ) {
+                        pRequest = p;
+                        break;
+                    }
+                }
+            }
             if ( pRequest != nullptr )
             {
                 pRequest->OnPacketReceived( info );
@@ -1414,14 +1414,13 @@ void CSteamNetworkingICESession::OnPacketReceived( const RecvPktInfo_t &info )
         CUtlVector< STUNAttribute > outAttrs;
 
         {
-            const SteamNetworkingIPAddr localAddr = info.m_pSock->m_boundAddr;
-            SpewMsg( "Incoming binding request from %s to %s.\n\n", SteamNetworkingIPAddrRender( fromAddr ).c_str(),  SteamNetworkingIPAddrRender( localAddr ).c_str() );
+            SpewMsg( "Incoming binding request from %s to %s.\n\n", SteamNetworkingIPAddrRender( fromAddr ).c_str(), SteamNetworkingIPAddrRender( pInterface->m_pSocket->m_boundAddr ).c_str() );
 
             ICECandidatePair *pThisPair = nullptr;
             for ( ICECandidatePair *pPair : m_vecCandidatePairs )
             {
                 if ( pPair->m_remoteCandidate.m_addr == fromAddr
-                    && pPair->m_localCandidate.m_pInterface->m_pSocket == info.m_pSock )
+                    && pPair->m_localCandidate.m_pInterface == pInterface )
                 {
                     pThisPair = pPair;
                     break;
@@ -1439,7 +1438,7 @@ void CSteamNetworkingICESession::OnPacketReceived( const RecvPktInfo_t &info )
                 ICELocalCandidate *pLocalCandidate = nullptr;
                 for ( ICELocalCandidate &c : m_vecCandidates )
                 {
-                    if ( c.m_pInterface->m_pSocket == info.m_pSock )
+                    if ( c.m_pInterface == pInterface )
                     {
                         pLocalCandidate = &c;
                         break;
@@ -1521,10 +1520,9 @@ void CSteamNetworkingICESession::OnPacketReceived( const RecvPktInfo_t &info )
     }
 }
 
-void CSteamNetworkingICESession::StaticPacketReceived( const RecvPktInfo_t &info, CSteamNetworkingICESession *pContext )
+void CSteamNetworkingICESession::StaticPacketReceived( const RecvPktInfo_t &info, ICESessionInterface *pContext )
 {
-    if ( pContext != nullptr )
-        pContext->OnPacketReceived( info );
+    pContext->m_session.OnPacketReceived( info, pContext );
 }
 
 void CSteamNetworkingICESession::Think( SteamNetworkingMicroseconds usecNow )
