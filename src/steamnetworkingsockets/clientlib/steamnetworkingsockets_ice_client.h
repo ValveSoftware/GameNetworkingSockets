@@ -16,6 +16,32 @@ namespace SteamNetworkingSocketsLib {
     class CSteamNetworkingICESessionCallbacks;
     class CSteamNetworkingICESession;
 
+    struct STUNHeader
+    {
+        uint32 m_nMessageType;
+        uint32 m_nMessageLength;
+        uint32 m_nTransactionID[3];
+    };
+
+    struct STUNAttribute
+    {
+        uint32 m_nType;
+        uint32 m_nLength;
+        const uint32 *m_pData;
+    };
+
+    /// Passed to RecvSTUNPacketCallback_t when a STUN request gets a reply
+    struct RecvSTUNPktInfo_t
+    {
+        CSteamNetworkingSocketsSTUNRequest *m_pRequest;
+		SteamNetworkingMicroseconds m_usecNow;
+        const STUNHeader *m_pHeader;
+        uint32 m_nAttributes;
+        const STUNAttribute *m_pAttributes;
+    };
+
+    typedef void (CSteamNetworkingICESession::*RecvSTUNPacketCallback_t)( const RecvSTUNPktInfo_t &info );
+
     enum class ICECandidateKind
     {
         None,
@@ -76,6 +102,12 @@ namespace SteamNetworkingSocketsLib {
         // EICECandidateType, then calls m_session's OnLocalCandidateDiscovered callback.
         void NotifyLocalCandidateDiscovered( ICECandidateKind kind, const SteamNetworkingIPAddr& addr );
 
+        // Send a STUN binding/keepalive request
+        void QueueBindRequest( const SteamNetworkingIPAddr &addrSTUNServer, RecvSTUNPacketCallback_t cb, int nEncoding );
+
+        // Send a TURN Allocate request
+        void QueueAllocateRequest( const SteamNetworkingIPAddr &addrTURNServer, RecvSTUNPacketCallback_t cb, int nEncoding );
+
         ICESessionInterface( CSteamNetworkingICESession &session, uint32 nPriority, int nPrefixLen )
             : m_session( session ), m_nPriority( nPriority ), m_nPrefixLen( nPrefixLen ), m_pSocket( nullptr ) {}
         ~ICESessionInterface() { if ( m_pSocket ) m_pSocket->Close(); }
@@ -97,6 +129,7 @@ namespace SteamNetworkingSocketsLib {
         CUtlVector< std::pair< std::string, std::string > > vAttrs;
     };
 
+    const uint32 k_nSTUN_MaxPacketSize_Bytes = 576; //  RFC 5389 7.1
     const uint32 k_nSTUN_CookieValue = 0x2112A442;
     const uint32 k_nSTUN_BindingRequest = 0x0001;
     const uint32 k_nSTUN_BindingResponse = 0x0101;
@@ -130,59 +163,6 @@ namespace SteamNetworkingSocketsLib {
     const uint32 k_nTURN_Attr_XORRelayedAddress  = 0x0016;
     const uint32 k_nTURN_Attr_RequestedTransport = 0x0019;
 
-    struct STUNHeader
-    {
-        uint32 m_nMessageType;
-        uint32 m_nMessageLength;
-        uint32 m_nTransactionID[3];
-    };
-
-    struct STUNAttribute
-    {
-        uint32 m_nType;
-        uint32 m_nLength;
-        const uint32 *m_pData;
-    };
-
-    /// Info about an incoming packet passed to the CRecvSTUNPktCallback
-    struct RecvSTUNPktInfo_t
-    {
-        CSteamNetworkingSocketsSTUNRequest *m_pRequest;
-		SteamNetworkingMicroseconds m_usecNow;
-        const STUNHeader *m_pHeader;
-        uint32 m_nAttributes;
-        const STUNAttribute *m_pAttributes;
-    };
-
-    /// Store the callback and its context together
-    class CRecvSTUNPktCallback
-    {
-    public:
-        /// Prototype of the callback
-        typedef void (*FCallbackRecvSTUNPkt)( const RecvSTUNPktInfo_t &info, void *pContext );
-
-        /// Default constructor sets stuff to null
-        inline CRecvSTUNPktCallback() : m_fnCallback( nullptr ), m_pContext( nullptr ) {}
-
-        /// A template constructor so you can use type safe context and avoid messy casting
-        template< typename T >
-        inline CRecvSTUNPktCallback( void (*fnCallback)( const RecvSTUNPktInfo_t &info, T context ), T context )
-        : m_fnCallback ( reinterpret_cast< FCallbackRecvSTUNPkt>( fnCallback ) )
-        , m_pContext( reinterpret_cast< void * >( context ) )
-        {
-            COMPILE_TIME_ASSERT( sizeof(T) == sizeof(void*) );
-        }
-
-        FCallbackRecvSTUNPkt m_fnCallback;
-        void *m_pContext;
-
-        /// Shortcut notation to execute the callback
-        inline void operator()( const RecvSTUNPktInfo_t &info ) const
-        {
-            if ( m_fnCallback )
-                m_fnCallback( info, m_pContext );
-        }
-    };
 
     enum STUNPacketEncodingFlags
     {
@@ -197,27 +177,24 @@ namespace SteamNetworkingSocketsLib {
 	/// retry and timeout.  Note, that there is no list of in-flight requests,
 	/// we use the thinker system to extant requests.  All read and write access
 	/// to these objects require holding the global lock
-    class CSteamNetworkingSocketsSTUNRequest : private IThinker
+    class CSteamNetworkingSocketsSTUNRequest final : private IThinker
     {
     public:
+        explicit CSteamNetworkingSocketsSTUNRequest( ICESessionInterface *pInterface );
+        ~CSteamNetworkingSocketsSTUNRequest();
+
         // The local interface this request was sent from.  Set at construction, never null.
         ICESessionInterface * const m_pInterface;
         SteamNetworkingIPAddr m_remoteAddr;
         int m_nRetryCount;
         int m_nMaxRetries;
-        CRecvSTUNPktCallback m_callback;
-        uint32 m_nTransactionID[3];
-        int m_nEncoding;
-        uint16 m_nMessageType;  // STUN/TURN message type to send (k_nSTUN_BindingRequest, k_nTURN_AllocateRequest, ...)
-        CUtlVector< STUNAttribute > m_vecExtraAttrs;
+        RecvSTUNPacketCallback_t m_callback = nullptr;
+        uint32 m_nTransactionID[3];  // generated at construction
         std::string m_strPassword;
 		SteamNetworkingMicroseconds m_usecLastSentTime;
 
-        static CSteamNetworkingSocketsSTUNRequest *SendBindRequest( ICESessionInterface *pIntf, SteamNetworkingIPAddr remoteAddr, CRecvSTUNPktCallback cb, int nEncoding );
-        static CSteamNetworkingSocketsSTUNRequest *SendAllocateRequest( ICESessionInterface *pIntf, SteamNetworkingIPAddr remoteAddr, CRecvSTUNPktCallback cb, int nEncoding );
-
-        static CSteamNetworkingSocketsSTUNRequest *CreatePeerConnectivityCheckRequest( ICESessionInterface *pIntf, SteamNetworkingIPAddr remoteAddr, CRecvSTUNPktCallback cb, int nEncoding );
-        void Send( SteamNetworkingIPAddr remoteAddr, CRecvSTUNPktCallback cb );
+        // Serialize the packet and start the retry loop.
+        void Queue( uint32 nMessageType, int nEncoding, SteamNetworkingIPAddr remoteAddr, RecvSTUNPacketCallback_t cb, STUNAttribute *pExtraAttrs = nullptr, int nExtraAttrs = 0 );
         void Cancel();
 
         // Handle an incoming STUN reply that has already been matched to this request
@@ -225,17 +202,13 @@ namespace SteamNetworkingSocketsLib {
         // deletes this request.
         void ReplyPacketReceived( const RecvPktInfo_t &info, const STUNHeader &header );
 
-        ~CSteamNetworkingSocketsSTUNRequest();
-
-    protected:
-        void Think( SteamNetworkingMicroseconds usecNow ) override;
-
     private:
-        explicit CSteamNetworkingSocketsSTUNRequest( ICESessionInterface *pInterface );
+        // Implements IThinker
+        virtual void Think( SteamNetworkingMicroseconds usecNow ) override;
 
-
-        CSteamNetworkingSocketsSTUNRequest( const CSteamNetworkingSocketsSTUNRequest& );
-        CSteamNetworkingSocketsSTUNRequest& operator=( const CSteamNetworkingSocketsSTUNRequest& );
+        // Serialized packet built by Queue(); Think() retransmits verbatim.
+        uint32 m_packet[ k_nSTUN_MaxPacketSize_Bytes/4 ];
+        int m_cbPacketSize;
     };
 
 	/// Main logic of establishing an ICE session with a peer.  In real-world
@@ -428,13 +401,9 @@ namespace SteamNetworkingSocketsLib {
         void InternalDeleteCandidatePair( ICECandidatePair *pPair );
 
         void STUNRequestCallback_ServerReflexiveCandidate( const RecvSTUNPktInfo_t &info );
-        static void StaticSTUNRequestCallback_ServerReflexiveCandidate( const RecvSTUNPktInfo_t &info, CSteamNetworkingICESession* pContext );
         void STUNRequestCallback_ServerReflexiveKeepAlive( const RecvSTUNPktInfo_t &info );
-        static void StaticSTUNRequestCallback_ServerReflexiveKeepAlive( const RecvSTUNPktInfo_t &info, CSteamNetworkingICESession* pContext );
         void STUNRequestCallback_AllocateRelay( const RecvSTUNPktInfo_t &info );
-        static void StaticSTUNRequestCallback_AllocateRelay( const RecvSTUNPktInfo_t &info, CSteamNetworkingICESession* pContext );
         void STUNRequestCallback_PeerConnectivityCheck( const RecvSTUNPktInfo_t &info );
-        static void StaticSTUNRequestCallback_PeerConnectivityCheck( const RecvSTUNPktInfo_t &info, CSteamNetworkingICESession* pContext );
 
         void OnPacketReceived( const RecvPktInfo_t &info, ICESessionInterface *pInterface );
         static void StaticPacketReceived( const RecvPktInfo_t &info, ICESessionInterface *pContext );
