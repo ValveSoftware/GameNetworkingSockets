@@ -249,9 +249,10 @@ namespace SteamNetworkingSocketsLib {
 		void SetRemotePassword( const char *pszPassword );
 
         const char* GetLocalPassword() { return m_strLocalPassword.c_str(); }
-        IRawUDPSocket *GetSelectedSocket() { return m_pSelectedSocket; }
-        SteamNetworkingIPAddr GetSelectedDestination();
+        bool BCanSendEndToEnd() const { return m_pSelectedCandidatePair != nullptr; }
 		int GetPing() const;
+
+        bool SendPacketGather( int nChunks, const iovec *pChunks, int cbSendTotal );
 
     protected:
         void Think( SteamNetworkingMicroseconds usecNow ) override;
@@ -355,7 +356,6 @@ namespace SteamNetworkingSocketsLib {
         // m_pSelectedSocket is the pre-looked-up raw socket for the local candidate
         // in that pair, kept here to avoid the per-send lookup overhead.
         ICECandidatePair *m_pSelectedCandidatePair;
-        IRawUDPSocket    *m_pSelectedSocket;
 
         // Local network interfaces discovered during the most recent enumeration.
         // Each entry represents one usable local address.  Rebuilt whenever
