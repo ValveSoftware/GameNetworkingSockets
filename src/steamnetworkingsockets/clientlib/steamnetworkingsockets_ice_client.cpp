@@ -865,6 +865,7 @@ inline bool IPAddrEqualIgnoringPort( const SteamNetworkingIPAddr &a, const Steam
 
 CSteamNetworkingSocketsSTUNRequest::CSteamNetworkingSocketsSTUNRequest( ICESessionInterface *pInterface )
     : m_pInterface( pInterface )
+    , m_addrRelay{}
 {
     CCrypto::GenerateRandomBlock( m_nTransactionID, 12 );
 }
@@ -920,7 +921,10 @@ void CSteamNetworkingSocketsSTUNRequest::Think( SteamNetworkingMicroseconds usec
         if ( retryTimeout > 60000000 ) // Max timeout of 60s.
             retryTimeout = 60000000;
 
-        if ( m_pInterface->m_pSocket->BSendRawPacket( m_packet, m_cbPacketSize, m_remoteAddr ) )
+        iovec temp;
+        temp.iov_base = m_packet;
+        temp.iov_len = m_cbPacketSize;
+        if ( m_pInterface->SendPacketGather( 1, &temp, m_cbPacketSize, m_remoteAddr, m_addrRelay ) )
         {
             m_usecLastSentTime = usecNow;
             SetNextThinkTime( usecNow + retryTimeout );
@@ -986,6 +990,73 @@ void ICESessionInterface::QueueAllocateRequest( const SteamNetworkingIPAddr &add
 
     m_pPendingSTUNRequest = new CSteamNetworkingSocketsSTUNRequest( this );
     m_pPendingSTUNRequest->Queue( k_nTURN_AllocateRequest, nEncoding | kSTUNPacketEncodingFlags_NoMappedAddress, addrTURNServer, cb, &reqTransport, 1 );
+}
+
+// Send a gathered packet to the pair, routing via TURN Send Indication if the
+// local candidate is a relay.  For non-relay pairs this is a thin wrapper around
+// BSendRawPacketGather.
+bool ICESessionInterface::SendPacketGather( int nChunks, const iovec *pChunks, int cbPayload, const SteamNetworkingIPAddr &addrPeer, const SteamNetworkingIPAddr &addrRelay )
+{
+    if ( addrRelay.IsIPv6AllZeros() )
+        return m_pSocket->BSendRawPacketGather( nChunks, pChunks, addrPeer );
+
+    // Relay: wrap in a TURN Send Indication.
+    if ( nChunks > 3 )
+    {
+        AssertMsg( false, "Too many chunks to send via TURN relay (max 3)" );
+        return false;
+    }
+
+    // Build Send Indication: STUN header + XOR-PEER-ADDRESS + DATA.
+    const int cbPad      = ( 4 - ( cbPayload & 3 ) ) & 3;
+    const int cbPeerAttr = addrPeer.IsIPv4() ? 12 : 24;
+    const int cbAttrs    = cbPeerAttr + 4 + cbPayload + cbPad;
+    uint8 hdrBuf[ 20 + 24 + 8 ];  // header + max peer attr + DATA attr header
+    uint32 *p = (uint32 *)hdrBuf;
+
+    // STUN header
+    p[0] = htonl( ( k_nTURN_SendIndication << 16 ) | (uint16)cbAttrs );
+    p[1] = htonl( k_nSTUN_CookieValue );
+    p[2] = p[3] = p[4] = 0;  // transaction ID = zeros; indications don't need one
+    p += 5;
+
+    // XOR-PEER-ADDRESS
+    const uint32 nXORPort = (uint32)addrPeer.m_port ^ ( k_nSTUN_CookieValue >> 16 );
+    if ( addrPeer.IsIPv4() )
+    {
+        p[0] = htonl( ( k_nTURN_Attr_XORPeerAddress << 16 ) | 8 );
+        p[1] = htonl( ( 0x01u << 16 ) | nXORPort );
+        p[2] = htonl( addrPeer.GetIPv4() ^ k_nSTUN_CookieValue );
+        p += 3;
+    }
+    else
+    {
+        p[0] = htonl( ( k_nTURN_Attr_XORPeerAddress << 16 ) | 20 );
+        p[1] = htonl( ( 0x02u << 16 ) | nXORPort );
+        V_memcpy( &p[2], addrPeer.m_ipv6, 16 );
+        p[2] ^= htonl( k_nSTUN_CookieValue );
+        // Transaction ID is zeros so no additional XOR needed for IPv6
+        p += 6;
+    }
+
+    // DATA attribute type+length  (payload and padding follow in separate iovecs)
+    p[0] = htonl( ( k_nTURN_Attr_Data << 16 ) | (uint16)cbPayload );
+
+    static const uint32 k_zeroPad = 0;
+    iovec relayChunks[5];
+    relayChunks[0].iov_base = hdrBuf;
+    relayChunks[0].iov_len = (size_t)( (uint8*)(p+1) - hdrBuf );
+    int nRelayChunks = 1;
+    for ( int i = 0; i < nChunks; ++i )
+        relayChunks[nRelayChunks++] = pChunks[i];
+    if ( cbPad )
+    {
+        relayChunks[nRelayChunks].iov_base = (void*)&k_zeroPad;
+        relayChunks[nRelayChunks].iov_len = cbPad;
+        ++nRelayChunks;
+    }
+
+    return m_pSocket->BSendRawPacketGather( nRelayChunks, relayChunks, addrRelay );
 }
 
 /////////////////////////////////////////////////////////////////////////////
@@ -1079,9 +1150,8 @@ bool CSteamNetworkingICESession::SendPacketGather( int nChunks, const iovec *pCh
 {
     if ( !m_pSelectedCandidatePair )
         return false;
-    ICESessionInterface *pInterface = m_pSelectedCandidatePair->m_pInterface;
-
-    return pInterface->m_pSocket->BSendRawPacketGather( nChunks, pChunks, m_pSelectedCandidatePair->m_remoteCandidate.m_addr );
+    return m_pSelectedCandidatePair->m_localCandidate.m_pInterface->SendPacketGather( nChunks, pChunks, cbSendTotal,
+        m_pSelectedCandidatePair->m_remoteCandidate.m_addr, m_pSelectedCandidatePair->m_localCandidate.m_addrTURNServer );
 }
 
 void CSteamNetworkingICESession::SetRemoteUsername( const char *pszUsername )
@@ -1210,10 +1280,10 @@ void CSteamNetworkingICESession::InvalidateInterfaceList()
 
 void CSteamNetworkingICESession::SetSelectedCandidatePair( ICECandidatePair *pPair )
 {
-    SpewMsg( "\n\nSelected candidate %s -> %s.\n\n", SteamNetworkingIPAddrRender( pPair->m_pInterface->m_pSocket->m_boundAddr ).c_str(), SteamNetworkingIPAddrRender( pPair->m_remoteCandidate.m_addr ).c_str() );
+    SpewMsg( "\n\nSelected candidate %s -> %s.\n\n", SteamNetworkingIPAddrRender( pPair->m_localCandidate.m_pInterface->m_pSocket->m_boundAddr ).c_str(), SteamNetworkingIPAddrRender( pPair->m_remoteCandidate.m_addr ).c_str() );
     m_pSelectedCandidatePair = pPair;
     if ( m_pCallbacks )
-        m_pCallbacks->OnConnectionSelected( *pPair->m_pInterface, pPair->m_remoteCandidate );
+        m_pCallbacks->OnConnectionSelected( *pPair->m_localCandidate.m_pInterface, pPair->m_remoteCandidate );
 }
 
 void CSteamNetworkingICESession::InternalDeleteCandidatePair( ICECandidatePair *pPair )
@@ -1290,7 +1360,7 @@ void CSteamNetworkingICESession::GatherInterfaces()
             for ( int j = len( m_vecCandidatePairs ) - 1; j >= 0; --j )
             {
                 ICECandidatePair *pPair = m_vecCandidatePairs[j];
-                if ( pPair->m_pInterface == intf )
+                if ( pPair->m_localCandidate.m_pInterface == intf )
                 {
                     InternalDeleteCandidatePair( pPair );
                     erase_at( m_vecCandidatePairs, j );
@@ -1378,6 +1448,42 @@ not_stun:
         header.m_nTransactionID[0] = pWords[2]; // treat as opaque bits, no byte-swap
         header.m_nTransactionID[1] = pWords[3];
         header.m_nTransactionID[2] = pWords[4];
+    }
+
+    // TURN Data Indications are the most common STUN-framed packet once a relay is active.
+    // Handle them first.  They are server-initiated (no matching transaction ID) so the
+    // normal response-routing path below would just drop them.
+    if ( header.m_nMessageType == k_nTURN_DataIndication )
+    {
+        // Must originate from the TURN server we allocated with; discard anything else.
+        SteamNetworkingIPAddr fromAddr;
+        ConvertNetAddr_tToSteamNetworkingIPAddr( info.m_adrFrom, &fromAddr );
+        if ( !( fromAddr == pInterface->m_addrTURNServer ) )
+            return;
+
+        // TODO: avoid heap allocation per packet
+        CUtlVector<STUNAttribute> vecAttrs;
+        ParseSTUNAttributes( info, nullptr, 0, &vecAttrs );
+
+        const STUNAttribute *pPeerAttr = FindAttributeOfType( vecAttrs.Base(), vecAttrs.Count(), k_nTURN_Attr_XORPeerAddress );
+        const STUNAttribute *pDataAttr = FindAttributeOfType( vecAttrs.Base(), vecAttrs.Count(), k_nTURN_Attr_Data );
+        if ( pPeerAttr == nullptr || pDataAttr == nullptr )
+            return;
+
+        SteamNetworkingIPAddr peerAddr;
+        peerAddr.Clear();
+        if ( !ReadXORAddressAttribute( pPeerAttr, &header, &peerAddr ) )
+            return;
+
+        // Re-enter with the inner payload, as if it arrived directly from the peer.
+        RecvPktInfo_t innerInfo;
+        innerInfo.m_pPkt    = reinterpret_cast<const uint8 *>( pDataAttr->m_pData );
+        innerInfo.m_cbPkt   = (int)pDataAttr->m_nLength;
+        innerInfo.m_usecNow = info.m_usecNow;
+        innerInfo.m_pSock   = info.m_pSock;
+        ConvertSteamNetworkingIPAddrToNetAdr_t( peerAddr, &innerInfo.m_adrFrom );
+        OnPacketReceived( innerInfo, pInterface );
+        return;
     }
 
     // STUN responses: route to the matching in-flight request by transaction ID.
@@ -1470,7 +1576,7 @@ not_stun:
     for ( ICECandidatePair *pPair : m_vecCandidatePairs )
     {
         if ( pPair->m_remoteCandidate.m_addr == fromAddr
-            && pPair->m_pInterface == pInterface )
+            && pPair->m_localCandidate.m_pInterface == pInterface )
         {
             pThisPair = pPair;
             break;
@@ -1508,7 +1614,7 @@ not_stun:
             }
             pRemoteCandidate = push_back_get_ptr( m_vecPeerCandidates, ICEPeerCandidate( newRemoteCandidate, SteamNetworkingIPAddrRender( fromAddr ).c_str() ) );
         }
-        pThisPair = new ICECandidatePair( pInterface, *pRemoteCandidate, m_role );
+        pThisPair = new ICECandidatePair( ICELocalCandidate{ pInterface, {} }, *pRemoteCandidate, m_role );
         m_vecCandidatePairs.push_back( pThisPair );
     }
 
@@ -1856,7 +1962,7 @@ void CSteamNetworkingICESession::Think_KeepAliveOnCandidates( SteamNetworkingMic
 
     if ( m_pSelectedCandidatePair != nullptr )
     {
-        UpdateKeepalive( m_pSelectedCandidatePair->m_pInterface );
+        UpdateKeepalive( m_pSelectedCandidatePair->m_localCandidate.m_pInterface );
     }
     else
     {
@@ -1873,26 +1979,43 @@ void CSteamNetworkingICESession::Think_TestPeerConnectivity()
     {
         m_bCandidatePairsNeedUpdate = false;
 
-        // For every interface, for every peer candidate, make sure the pair is present.
+        // For every local candidate (host + relay if available), for every peer candidate,
+        // make sure the pair is present.
         for ( const std::unique_ptr<ICESessionInterface> &pIntf : m_vecInterfaces )
         {
-            for ( ICEPeerCandidate &remoteCandidate : m_vecPeerCandidates )
+            ICELocalCandidate localCandidates[2];
+            int nLocalCandidates = 0;
+
+            // Host candidate — always present.
+            localCandidates[nLocalCandidates++] = { pIntf.get(), {} };
+
+            // Relay candidate — only when an allocation has succeeded.
+            if ( !pIntf->m_addrTURNServer.IsIPv6AllZeros() && !pIntf->m_bRelayFailed )
+                localCandidates[nLocalCandidates++] = { pIntf.get(), pIntf->m_addrTURNServer };
+
+            for ( int iLocal = 0; iLocal < nLocalCandidates; ++iLocal )
             {
-                if ( pIntf->m_pSocket->m_boundAddr.IsIPv4() != remoteCandidate.m_addr.IsIPv4() )
-                    continue;
-                bool bFound = false;
-                for ( ICECandidatePair *pPair : m_vecCandidatePairs )
+                const ICELocalCandidate &localCand = localCandidates[iLocal];
+                for ( ICEPeerCandidate &remoteCandidate : m_vecPeerCandidates )
                 {
-                    if ( pPair->m_pInterface == pIntf.get() && pPair->m_remoteCandidate.m_addr == remoteCandidate.m_addr )
+                    if ( localCand.m_pInterface->m_pSocket->m_boundAddr.IsIPv4() != remoteCandidate.m_addr.IsIPv4() )
+                        continue;
+                    bool bFound = false;
+                    for ( ICECandidatePair *pPair : m_vecCandidatePairs )
                     {
-                        bFound = true;
-                        break;
+                        if ( pPair->m_localCandidate.m_pInterface == localCand.m_pInterface
+                            && pPair->m_localCandidate.m_addrTURNServer == localCand.m_addrTURNServer
+                            && pPair->m_remoteCandidate.m_addr == remoteCandidate.m_addr )
+                        {
+                            bFound = true;
+                            break;
+                        }
                     }
-                }
-                if ( !bFound )
-                {
-                    ICECandidatePair *pNewCandidatePair = new ICECandidatePair( pIntf.get(), remoteCandidate, m_role );
-                    m_vecCandidatePairs.push_back( pNewCandidatePair );
+                    if ( !bFound )
+                    {
+                        ICECandidatePair *pNewCandidatePair = new ICECandidatePair( localCand, remoteCandidate, m_role );
+                        m_vecCandidatePairs.push_back( pNewCandidatePair );
+                    }
                 }
             }
         }
@@ -1957,7 +2080,7 @@ void CSteamNetworkingICESession::Think_TestPeerConnectivity()
     if ( pPairToCheck != nullptr )
     {
         // Trigger the connectivity check here...
-        ICESessionInterface * const pIntf = pPairToCheck->m_pInterface;
+        ICESessionInterface * const pIntf = pPairToCheck->m_localCandidate.m_pInterface;
         pPairToCheck->m_nState = kICECandidatePairState_InProgress;
         pPairToCheck->m_pPeerRequest = new CSteamNetworkingSocketsSTUNRequest( pIntf );
 
@@ -1980,7 +2103,7 @@ void CSteamNetworkingICESession::Think_TestPeerConnectivity()
 
         {
             // RFC 8445 section 7.2.2: priority attr uses peer-reflexive type preference (110).
-            uPriority = htonl( ( 110u << 24 ) | ( ( pPairToCheck->m_pInterface->m_nPriority & 0xFFFF ) << 8 ) | 255u );
+            uPriority = htonl( ( 110u << 24 ) | ( ( pPairToCheck->m_localCandidate.m_pInterface->m_nPriority & 0xFFFF ) << 8 ) | 255u );
             extraAttrs[nExtraAttrs].m_nType   = k_nSTUN_Attr_Priority;
             extraAttrs[nExtraAttrs].m_nLength = 4;
             extraAttrs[nExtraAttrs].m_pData   = &uPriority;
@@ -2017,7 +2140,9 @@ void CSteamNetworkingICESession::Think_TestPeerConnectivity()
         }
 
         pPairToCheck->m_pPeerRequest->m_strPassword = m_strRemotePassword;
+
         pPairToCheck->m_pPeerRequest->Queue( k_nSTUN_BindingRequest, m_nEncoding | kSTUNPacketEncodingFlags_NoMappedAddress, pPairToCheck->m_remoteCandidate.m_addr, &CSteamNetworkingICESession::STUNRequestCallback_PeerConnectivityCheck, extraAttrs, nExtraAttrs );
+        pPairToCheck->m_pPeerRequest->m_addrRelay = pPairToCheck->m_localCandidate.m_addrTURNServer;
         m_vecPendingPeerRequests.push_back( pPairToCheck->m_pPeerRequest );
     }
 }
@@ -2212,14 +2337,15 @@ EICECandidateType CalcICECandidateType( ICECandidateKind kind, const SteamNetwor
 // CSteamNetworkingICESession::ICECandidatePair
 //
 /////////////////////////////////////////////////////////////////////////////
-CSteamNetworkingICESession::ICECandidatePair::ICECandidatePair( ICESessionInterface *pInterface, const ICEPeerCandidate& remoteCandidate, EICERole role )
-    : m_pInterface( pInterface ),
+CSteamNetworkingICESession::ICECandidatePair::ICECandidatePair( const ICELocalCandidate& localCandidate, const ICEPeerCandidate& remoteCandidate, EICERole role )
+    : m_localCandidate( localCandidate ),
       m_remoteCandidate( remoteCandidate ),
       m_nState( kICECandidatePairState_Frozen ),
       m_bNominated( false )
 {
-    // Use the highest possible local priority: host-type preference (126) on this interface.
-    const uint32 nLocalPriority = ( 126u << 24 ) + ( ( pInterface->m_nPriority & 0xFFFF ) << 8 ) + 255u;
+    // RFC 8445 §5.1.2 type preference: host=126, srflx=100, relay=0.
+    const uint32 nTypePreference = localCandidate.IsRelay() ? 0u : 126u;
+    const uint32 nLocalPriority = ( nTypePreference << 24 ) + ( ( localCandidate.m_pInterface->m_nPriority & 0xFFFF ) << 8 ) + 255u;
     const uint64 D = ( role == k_EICERole_Controlling ) ? nLocalPriority : remoteCandidate.m_nPriority;
     const uint64 G = ( role == k_EICERole_Controlling ) ? remoteCandidate.m_nPriority : nLocalPriority;
     m_nPriority = ( 1ull << 32 ) * MIN( G, D ) + 2 * MAX( G, D ) + ( G > D ? 1 : 0 );

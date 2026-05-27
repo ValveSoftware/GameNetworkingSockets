@@ -102,6 +102,10 @@ namespace SteamNetworkingSocketsLib {
         // new CreatePermission sweep is needed.
         int m_nTURNPermissionRevision = 0;
 
+        /// Send a packet through this interface to the destination remote address.
+        /// If relay address is non-zero, send via Send Indication to the TURN server
+        bool SendPacketGather( int nChunks, const iovec *pChunks, int cbPayload, const SteamNetworkingIPAddr &addrPeer, const SteamNetworkingIPAddr &addrRelay );
+
         // Build and dispatch a local candidate discovery notification.
         // Computes the RFC 5245 candidate-attribute string and the family-specific
         // EICECandidateType, then calls m_session's OnLocalCandidateDiscovered callback.
@@ -119,6 +123,17 @@ namespace SteamNetworkingSocketsLib {
 
         ICESessionInterface( const ICESessionInterface& ) = delete;
         ICESessionInterface& operator=( const ICESessionInterface& ) = delete;
+    };
+
+    /// Identifies one local candidate: a socket (interface) plus an optional TURN relay.
+    /// An interface with a relay allocation produces two local candidates — one host
+    /// (m_addrTURNServer all-zeros, send directly from the socket) and one relay
+    /// (m_addrTURNServer non-zero, send via Send Indication to the TURN server).
+    struct ICELocalCandidate
+    {
+        ICESessionInterface *m_pInterface;
+        SteamNetworkingIPAddr m_addrTURNServer;  // all-zeros = host candidate
+        bool IsRelay() const { return !m_addrTURNServer.IsIPv6AllZeros(); }
     };
 
     // Parsed representation of an RFC 5245 candidate-attribute line.
@@ -191,7 +206,8 @@ namespace SteamNetworkingSocketsLib {
         // The local interface this request was sent from.  Set at construction, never null.
         ICESessionInterface * const m_pInterface;
         uint32 m_nTransactionID[3];  // generated at construction
-        SteamNetworkingIPAddr m_remoteAddr;
+        SteamNetworkingIPAddr m_remoteAddr; // Address of the peer
+        SteamNetworkingIPAddr m_addrRelay;
         int m_nRetryCount;
         int m_nMaxRetries;
         RecvSTUNPacketCallback_t m_callback = nullptr;
@@ -281,11 +297,11 @@ namespace SteamNetworkingSocketsLib {
             ICECandidatePairState m_nState;
             bool m_bNominated;
             uint64 m_nPriority;
-            ICESessionInterface *m_pInterface;   // local socket; identifies which local address to send from
+            ICELocalCandidate m_localCandidate;
             ICEPeerCandidate m_remoteCandidate;
             CSteamNetworkingSocketsSTUNRequest *m_pPeerRequest;
 			int m_nLastRecordedPing;
-            ICECandidatePair( ICESessionInterface *pInterface, const ICEPeerCandidate& remoteCandidate, EICERole role );
+            ICECandidatePair( const ICELocalCandidate& localCandidate, const ICEPeerCandidate& remoteCandidate, EICERole role );
         };
 
         CSteamNetworkingICESessionCallbacks *m_pCallbacks;
