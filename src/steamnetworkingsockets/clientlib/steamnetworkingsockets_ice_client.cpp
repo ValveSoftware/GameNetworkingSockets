@@ -1003,7 +1003,6 @@ CSteamNetworkingICESession::CSteamNetworkingICESession( EICERole role, CSteamNet
     m_nextKeepalive = 0;
     m_role = role;
     m_pSelectedCandidatePair = nullptr;
-    m_pSelectedSocket = nullptr;
     m_vecInterfaces.reserve( 16 );
 	m_nPermittedCandidateTypes = k_EICECandidate_Any;
 }
@@ -1016,7 +1015,6 @@ CSteamNetworkingICESession::CSteamNetworkingICESession( const ICESessionConfig& 
     m_nextKeepalive = 0;
     m_role = cfg.m_eRole;
     m_pSelectedCandidatePair = nullptr;
-    m_pSelectedSocket = nullptr;
     m_vecInterfaces.reserve( 16 );
 
 	m_vecSTUNServers.reserve( cfg.m_nStunServers );
@@ -1079,15 +1077,13 @@ CSteamNetworkingICESession::~CSteamNetworkingICESession()
     m_vecInterfaces.clear();
 }
 
-SteamNetworkingIPAddr CSteamNetworkingICESession::GetSelectedDestination()
+bool CSteamNetworkingICESession::SendPacketGather( int nChunks, const iovec *pChunks, int cbSendTotal )
 {
-    if ( m_pSelectedCandidatePair == nullptr )
-    {
-        SteamNetworkingIPAddr result;
-        result.Clear();
-        return result;
-    }
-    return m_pSelectedCandidatePair->m_remoteCandidate.m_addr;
+    if ( !m_pSelectedCandidatePair )
+        return false;
+    ICESessionInterface *pInterface = m_pSelectedCandidatePair->m_pInterface;
+
+    return pInterface->m_pSocket->BSendRawPacketGather( nChunks, pChunks, m_pSelectedCandidatePair->m_remoteCandidate.m_addr );
 }
 
 void CSteamNetworkingICESession::SetRemoteUsername( const char *pszUsername )
@@ -1218,7 +1214,6 @@ void CSteamNetworkingICESession::SetSelectedCandidatePair( ICECandidatePair *pPa
 {
     SpewMsg( "\n\nSelected candidate %s -> %s.\n\n", SteamNetworkingIPAddrRender( pPair->m_pInterface->m_pSocket->m_boundAddr ).c_str(), SteamNetworkingIPAddrRender( pPair->m_remoteCandidate.m_addr ).c_str() );
     m_pSelectedCandidatePair = pPair;
-    m_pSelectedSocket = pPair->m_pInterface->m_pSocket;
     if ( m_pCallbacks )
         m_pCallbacks->OnConnectionSelected( *pPair->m_pInterface, pPair->m_remoteCandidate );
 }
@@ -1228,7 +1223,6 @@ void CSteamNetworkingICESession::InternalDeleteCandidatePair( ICECandidatePair *
     if ( pPair == m_pSelectedCandidatePair )
     {
         m_pSelectedCandidatePair = nullptr;
-        m_pSelectedSocket = nullptr;
     }
 
     if ( pPair->m_pPeerRequest != nullptr )
@@ -1254,7 +1248,6 @@ void CSteamNetworkingICESession::StartSession()
 {
     m_nextKeepalive = 0;
     m_pSelectedCandidatePair = nullptr;
-    m_pSelectedSocket = nullptr;
     CCrypto::GenerateRandomBlock( &m_nRoleTiebreaker, sizeof( m_nRoleTiebreaker ) );
     SetNextThinkTimeASAP();
 }
@@ -2271,7 +2264,7 @@ void CConnectionTransportP2PICE_Valve::TransportFreeResources()
 
 bool CConnectionTransportP2PICE_Valve::BCanSendEndToEndData() const
 {
-    return ( m_pICESession->GetSelectedSocket() != nullptr );
+    return m_pICESession->BCanSendEndToEnd();
 }
 
 void CConnectionTransportP2PICE_Valve::RecvRendezvous( const CMsgICERendezvous &msg, SteamNetworkingMicroseconds usecNow )
@@ -2307,19 +2300,15 @@ void CConnectionTransportP2PICE_Valve::RecvRendezvous( const CMsgICERendezvous &
 
 bool CConnectionTransportP2PICE_Valve::SendPacket( const void *pkt, int cbPkt )
 {
-    IRawUDPSocket *pSock = m_pICESession->GetSelectedSocket();
-    if ( pSock == nullptr )
-        return false;
-    return pSock->BSendRawPacket( pkt, cbPkt, m_pICESession->GetSelectedDestination() );
+	iovec temp;
+	temp.iov_base = const_cast<void*>( pkt );
+	temp.iov_len = cbPkt;
+	return m_pICESession->SendPacketGather( 1, &temp, cbPkt );
 }
 
 bool CConnectionTransportP2PICE_Valve::SendPacketGather( int nChunks, const iovec *pChunks, int cbSendTotal )
 {
-    IRawUDPSocket *pSock = m_pICESession->GetSelectedSocket();
-    if ( pSock == nullptr )
-        return false;
-
-    return pSock->BSendRawPacketGather( nChunks, pChunks, m_pICESession->GetSelectedDestination() );
+	return m_pICESession->SendPacketGather( nChunks,pChunks, cbSendTotal );
 }
 
 void CConnectionTransportP2PICE_Valve::OnLocalCandidateDiscovered( EICECandidateType type, const char *pszCandidateStr )
