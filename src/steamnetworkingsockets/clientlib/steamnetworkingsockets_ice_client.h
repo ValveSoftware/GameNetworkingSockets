@@ -405,7 +405,6 @@ namespace SteamNetworkingSocketsLib {
 
         void GatherInterfaces();
         void UpdateKeepalive( ICESessionInterface *pIntf );
-        uint32 GetInterfaceLocalPreference( const SteamNetworkingIPAddr& addr );
 
         void Think_KeepAliveOnCandidates( SteamNetworkingMicroseconds usecNow );
         void Think_DiscoverServerReflexiveCandidates();
