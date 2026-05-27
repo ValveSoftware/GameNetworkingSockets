@@ -97,6 +97,11 @@ namespace SteamNetworkingSocketsLib {
         SteamNetworkingIPAddr m_addrTURNServer = {};  // TURN server that gave us the relay
         bool m_bRelayFailed = false;                  // true if all TURN servers timed out/failed
 
+        // Revision of the session's permitted-IP list that we last sent CreatePermission for.
+        // When less than the session's m_nTURNPermissionRevision[v4/v6] for our family, a
+        // new CreatePermission sweep is needed.
+        int m_nTURNPermissionRevision = 0;
+
         // Build and dispatch a local candidate discovery notification.
         // Computes the RFC 5245 candidate-attribute string and the family-specific
         // EICECandidateType, then calls m_session's OnLocalCandidateDiscovered callback.
@@ -185,13 +190,17 @@ namespace SteamNetworkingSocketsLib {
 
         // The local interface this request was sent from.  Set at construction, never null.
         ICESessionInterface * const m_pInterface;
+        uint32 m_nTransactionID[3];  // generated at construction
         SteamNetworkingIPAddr m_remoteAddr;
         int m_nRetryCount;
         int m_nMaxRetries;
         RecvSTUNPacketCallback_t m_callback = nullptr;
-        uint32 m_nTransactionID[3];  // generated at construction
         std::string m_strPassword;
 		SteamNetworkingMicroseconds m_usecLastSentTime;
+
+        // For TURN CreatePermission requests, the revision number of our permissions list in this request.
+        // Not used for other request types
+        int m_nTURNPermissionRevision;
 
         // Serialize the packet and start the retry loop.
         void Queue( uint32 nMessageType, int nEncoding, SteamNetworkingIPAddr remoteAddr, RecvSTUNPacketCallback_t cb, STUNAttribute *pExtraAttrs = nullptr, int nExtraAttrs = 0 );
@@ -362,6 +371,18 @@ namespace SteamNetworkingSocketsLib {
         // config.  Used to allocate relay candidates.
         std_vector< SteamNetworkingIPAddr > m_vecTURNServers;
 
+        // De-duplicated lists of peer IP addresses (port zeroed) that we should
+        // ask each relay to permit forwarding from.  LAN/loopback/link-local
+        // addresses are excluded.  Updated whenever AddPeerCandidate() adds a
+        // new public IP for a family; the corresponding revision counter is
+        // incremented so relay interfaces can detect the need to re-send
+        // CreatePermission.  IPv4 and IPv6 are tracked separately because each
+        // relay interface only needs permissions for its own address family.
+        std_vector<SteamNetworkingIPAddr> m_vecTURNPermittedIPv4;
+        std_vector<SteamNetworkingIPAddr> m_vecTURNPermittedIPv6;
+        int m_nTURNPermissionRevisionIPv4 = 0;
+        int m_nTURNPermissionRevisionIPv6 = 0;
+
         // Candidates received from the remote peer via signaling.  Paired with
         // m_vecInterfaces to form m_vecCandidatePairs.
         std_vector< ICEPeerCandidate > m_vecPeerCandidates;
@@ -389,6 +410,7 @@ namespace SteamNetworkingSocketsLib {
         void Think_KeepAliveOnCandidates( SteamNetworkingMicroseconds usecNow );
         void Think_DiscoverServerReflexiveCandidates();
         void Think_DiscoverRelayCandidate();
+        void Think_TURNCreatePermissions();
         void Think_TestPeerConnectivity();
 
         void SetSelectedCandidatePair( ICECandidatePair *pPair );
@@ -403,6 +425,7 @@ namespace SteamNetworkingSocketsLib {
         void STUNRequestCallback_ServerReflexiveCandidate( const RecvSTUNPktInfo_t &info );
         void STUNRequestCallback_ServerReflexiveKeepAlive( const RecvSTUNPktInfo_t &info );
         void STUNRequestCallback_AllocateRelay( const RecvSTUNPktInfo_t &info );
+        void STUNRequestCallback_CreatePermission( const RecvSTUNPktInfo_t &info );
         void STUNRequestCallback_PeerConnectivityCheck( const RecvSTUNPktInfo_t &info );
 
         void OnPacketReceived( const RecvPktInfo_t &info, ICESessionInterface *pInterface );

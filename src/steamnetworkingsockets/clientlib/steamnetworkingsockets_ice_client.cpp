@@ -10,6 +10,7 @@
 #include "csteamnetworkingsockets.h"
 #include <tier0/platform_sockets.h>
 #include "crypto.h"
+#include "steamnetworkingsockets_mock.h"
 
 // Put everything in a namespace, so we don't violate the one definition rule
 namespace SteamNetworkingSocketsLib {
@@ -867,6 +868,7 @@ inline bool IPAddrEqualIgnoringPort( const SteamNetworkingIPAddr &a, const Steam
 CSteamNetworkingSocketsSTUNRequest::CSteamNetworkingSocketsSTUNRequest( ICESessionInterface *pInterface )
     : m_pInterface( pInterface )
 {
+    CCrypto::GenerateRandomBlock( m_nTransactionID, 12 );
 }
 
 CSteamNetworkingSocketsSTUNRequest::~CSteamNetworkingSocketsSTUNRequest()
@@ -881,7 +883,6 @@ void CSteamNetworkingSocketsSTUNRequest::Queue( uint32 nMessageType, int nEncodi
     m_nMaxRetries = 7;
     m_callback = cb;
 	m_usecLastSentTime = 0;
-    CCrypto::GenerateRandomBlock( m_nTransactionID, 12 );
     m_cbPacketSize = EncodeSTUNPacket( m_packet, nMessageType, nEncoding, m_nTransactionID,
         m_pInterface->m_pSocket->m_boundAddr,
         (const uint8*)m_strPassword.c_str(), (uint32)m_strPassword.size(),
@@ -1105,6 +1106,40 @@ void CSteamNetworkingICESession::SetRemotePassword( const char *pszPassword )
     SetNextThinkTimeASAP();
 }
 
+// Returns true if addr is a public IP that we should ask our TURN relay to permit.
+// Excludes loopback, RFC-1918 private, and link-local addresses — forwarding from
+// those would be meaningless (or expose internal topology).
+static bool IsTURNPermissibleIP( const SteamNetworkingIPAddr &addr )
+{
+    if ( addr.IsIPv4() )
+    {
+        const uint8 *ip = addr.m_ipv4.m_ip;
+        // Mock network: 127.0.100.x is the simulated public internet (third octet == 100).
+        // All other 127.x.x.x addresses are private/LAN.
+        if ( TEST_mocknetwork_active )
+            return ip[0] == 127 && ip[1] == 0 && ip[2] == 100;
+        if ( ip[0] == 127 ) return false;                                   // loopback
+        if ( ip[0] == 10  ) return false;                                   // RFC 1918 10/8
+        if ( ip[0] == 172 && ip[1] >= 16 && ip[1] <= 31 ) return false;    // RFC 1918 172.16/12
+        if ( ip[0] == 192 && ip[1] == 168 ) return false;                   // RFC 1918 192.168/16
+        if ( ip[0] == 169 && ip[1] == 254 ) return false;                   // link-local
+        return true;
+    }
+    else
+    {
+        const uint8 *ip = addr.m_ipv6;
+        // Mock network: fd7f:0:100::x is the simulated public internet.
+        if ( TEST_mocknetwork_active )
+            return ip[0] == 0xfd && ip[1] == 0x7f && ip[2] == 0x00 && ip[3] == 0x00
+                && ip[4] == 0x01 && ip[5] == 0x00;
+        static const uint8 k_ipv6Loopback[16] = {0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,1};
+        if ( memcmp( ip, k_ipv6Loopback, 16 ) == 0 ) return false;         // ::1
+        if ( ip[0] == 0xfe && (ip[1] & 0xc0) == 0x80 ) return false;       // fe80::/10 link-local
+        if ( ip[0] == 0xfc || ip[0] == 0xfd ) return false;                 // fc00::/7 ULA
+        return true;
+    }
+}
+
 EICECandidateType CSteamNetworkingICESession::AddPeerCandidate( const RFC5245CandidateAttr& attr )
 {
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
@@ -1144,6 +1179,30 @@ EICECandidateType CSteamNetworkingICESession::AddPeerCandidate( const RFC5245Can
 	if ( bNeedsNewEntry )
 	{
 		m_vecPeerCandidates.push_back( ICEPeerCandidate( candidate, pszFoundation ) );
+
+		// If this is a public IP, register it for TURN CreatePermission so our relay
+		// will forward traffic from it.  Dedup by IP (port is ignored for permissions).
+		SteamNetworkingIPAddr permAddr = candidate.m_addr;
+		permAddr.m_port = 0;
+		if ( IsTURNPermissibleIP( permAddr ) )
+		{
+			std_vector<SteamNetworkingIPAddr> &vecPermitted = permAddr.IsIPv4() ? m_vecTURNPermittedIPv4 : m_vecTURNPermittedIPv6;
+			int &nRevision = permAddr.IsIPv4() ? m_nTURNPermissionRevisionIPv4 : m_nTURNPermissionRevisionIPv6;
+			bool bAlreadyPermitted = false;
+			for ( const SteamNetworkingIPAddr &existing : vecPermitted )
+			{
+				if ( IPAddrEqualIgnoringPort( existing, permAddr ) )
+				{
+					bAlreadyPermitted = true;
+					break;
+				}
+			}
+			if ( !bAlreadyPermitted )
+			{
+				vecPermitted.push_back( permAddr );
+				++nRevision;
+			}
+		}
 	}
     m_bCandidatePairsNeedUpdate = true;
     SetNextThinkTimeASAP();
@@ -1535,6 +1594,7 @@ void CSteamNetworkingICESession::Think( SteamNetworkingMicroseconds usecNow )
     Think_KeepAliveOnCandidates( usecNow );
     Think_DiscoverServerReflexiveCandidates();
     Think_DiscoverRelayCandidate();
+    Think_TURNCreatePermissions();
 
     // Don't start checks before we have peer candidates and the remote password --
     // we'd send unauthenticated requests and couldn't verify the response integrity.
@@ -1635,6 +1695,88 @@ void CSteamNetworkingICESession::STUNRequestCallback_AllocateRelay( const RecvST
 
     // Try the next TURN server.
     pIntf->QueueAllocateRequest( m_vecTURNServers[nNextTURNServerIdx], &CSteamNetworkingICESession::STUNRequestCallback_AllocateRelay, m_nEncoding );
+}
+
+void CSteamNetworkingICESession::Think_TURNCreatePermissions()
+{
+    for ( const std::unique_ptr<ICESessionInterface> &pIntf : m_vecInterfaces )
+    {
+        // Must have a completed relay allocation, not a busy slot, and no in-flight request.
+        if ( pIntf->m_addrTURNServer.IsIPv6AllZeros() || pIntf->m_bRelayFailed )
+            continue;
+        if ( pIntf->m_pPendingSTUNRequest != nullptr )
+            continue;
+
+        bool bIsIPv4 = pIntf->m_pSocket->m_boundAddr.IsIPv4();
+        const std_vector<SteamNetworkingIPAddr> &vecPermitted = bIsIPv4 ? m_vecTURNPermittedIPv4 : m_vecTURNPermittedIPv6;
+        int nSessionRevision = bIsIPv4 ? m_nTURNPermissionRevisionIPv4 : m_nTURNPermissionRevisionIPv6;
+
+        if ( pIntf->m_nTURNPermissionRevision >= nSessionRevision || vecPermitted.empty() )
+            continue;
+
+        // Build one XOR-PEER-ADDRESS attribute per permitted IP.
+        // STUNAttribute is a non-owning view; back the data in stack buffers.
+        // IPv4 value: 8 bytes (2 uint32s); IPv6 value: 20 bytes (5 uint32s).
+        const int k_nMaxPeers = 10;
+        STUNAttribute peerAttrs[ k_nMaxPeers ];
+        uint32 peerAttrData[ k_nMaxPeers ][ 5 ];
+
+        // Construct the request first so m_nTransactionID is set before we XOR IPv6 addrs.
+        auto *pRequest = new CSteamNetworkingSocketsSTUNRequest( pIntf.get() );
+
+        int nPeerAttrs = 0;
+        for ( const SteamNetworkingIPAddr &addr : vecPermitted )
+        {
+            if ( nPeerAttrs >= k_nMaxPeers )
+                break;
+            if ( addr.IsIPv4() )
+            {
+                // Port is zero; XOR-port = 0 ^ (magic >> 16) = magic >> 16.
+                peerAttrData[nPeerAttrs][0] = htonl( (0x0001u << 16) | (k_nSTUN_CookieValue >> 16) );
+                peerAttrData[nPeerAttrs][1] = htonl( addr.GetIPv4() ^ k_nSTUN_CookieValue );
+                peerAttrs[nPeerAttrs].m_nType   = k_nTURN_Attr_XORPeerAddress;
+                peerAttrs[nPeerAttrs].m_nLength = 8;
+                peerAttrs[nPeerAttrs].m_pData   = peerAttrData[nPeerAttrs];
+            }
+            else
+            {
+                peerAttrData[nPeerAttrs][0] = htonl( (0x0002u << 16) | (k_nSTUN_CookieValue >> 16) );
+                V_memcpy( &peerAttrData[nPeerAttrs][1], addr.m_ipv6, 16 );
+                peerAttrData[nPeerAttrs][1] ^= htonl( k_nSTUN_CookieValue );
+                peerAttrData[nPeerAttrs][2] ^= pRequest->m_nTransactionID[0];
+                peerAttrData[nPeerAttrs][3] ^= pRequest->m_nTransactionID[1];
+                peerAttrData[nPeerAttrs][4] ^= pRequest->m_nTransactionID[2];
+                peerAttrs[nPeerAttrs].m_nType   = k_nTURN_Attr_XORPeerAddress;
+                peerAttrs[nPeerAttrs].m_nLength = 20;
+                peerAttrs[nPeerAttrs].m_pData   = peerAttrData[nPeerAttrs];
+            }
+            ++nPeerAttrs;
+        }
+
+        pRequest->m_nTURNPermissionRevision = nSessionRevision;
+        pIntf->m_pPendingSTUNRequest = pRequest;
+        pRequest->Queue( k_nTURN_CreatePermissionRequest, m_nEncoding | kSTUNPacketEncodingFlags_NoMappedAddress,
+            pIntf->m_addrTURNServer, &CSteamNetworkingICESession::STUNRequestCallback_CreatePermission,
+            peerAttrs, nPeerAttrs );
+    }
+}
+
+void CSteamNetworkingICESession::STUNRequestCallback_CreatePermission( const RecvSTUNPktInfo_t &info )
+{
+    ICESessionInterface * const pIntf = info.m_pRequest->m_pInterface;
+    pIntf->m_pPendingSTUNRequest = nullptr;
+
+    if ( info.m_pHeader == nullptr )
+    {
+        // Timed out.  m_nTURNPermissionRevision is still stale, so Think_TURNCreatePermissions
+        // will retry on the next Think() sweep.
+        return;
+    }
+
+    // Advance to the revision that was current when we sent this request.
+    // If more IPs arrived while the request was in flight, the revision will still be
+    // behind the session's current revision, and we'll send another CreatePermission.
+    pIntf->m_nTURNPermissionRevision = info.m_pRequest->m_nTURNPermissionRevision;
 }
 
 void CSteamNetworkingICESession::STUNRequestCallback_ServerReflexiveCandidate( const RecvSTUNPktInfo_t &info )
