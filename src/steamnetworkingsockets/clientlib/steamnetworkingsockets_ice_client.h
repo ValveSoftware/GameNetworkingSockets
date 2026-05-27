@@ -16,6 +16,19 @@ namespace SteamNetworkingSocketsLib {
     class CSteamNetworkingICESessionCallbacks;
     class CSteamNetworkingICESession;
 
+    enum class ICECandidateKind
+    {
+        None,
+        Host,
+        ServerReflexive,
+        //Relayed,
+        PeerReflexive,
+    };
+
+    /// Convert EICECandidateType, which is not family specific, to the more
+    /// detailed and address-family-specific EICECandidateType.
+    EICECandidateType CalcICECandidateType( ICECandidateKind kind, const SteamNetworkingIPAddr& addr );
+
     /// Represents one local network interface used for ICE candidate gathering.
     /// Owns its socket and tracks at most one in-flight server-reflexive STUN request.
     struct ICESessionInterface
@@ -44,21 +57,24 @@ namespace SteamNetworkingSocketsLib {
         // keepalive, or null if none is active.  At most one per interface.
         CSteamNetworkingSocketsSTUNRequest *m_pPendingSTUNRequest = nullptr;
 
+        // Server-reflexive discovery results.  m_addrSTUNServer is also used
+        // as a "discovery complete" signal: it is all-zeros until a terminal
+        // result (success, no-NAT, or timeout) has been recorded.
+        SteamNetworkingIPAddr m_addrServerReflexive = {};  // all-zeros = not found / no-NAT
+        SteamNetworkingIPAddr m_addrSTUNServer = {};       // server that gave us the result
+        bool m_bServerReflexiveFailed = false;             // true if all STUN servers timed out
+
+        // Build and dispatch a local candidate discovery notification.
+        // Computes the RFC 5245 candidate-attribute string and the family-specific
+        // EICECandidateType, then calls m_session's OnLocalCandidateDiscovered callback.
+        void NotifyLocalCandidateDiscovered( ICECandidateKind kind, const SteamNetworkingIPAddr& addr );
+
         ICESessionInterface( CSteamNetworkingICESession &session, uint32 nPriority, int nPrefixLen )
             : m_session( session ), m_nPriority( nPriority ), m_nPrefixLen( nPrefixLen ), m_pSocket( nullptr ) {}
         ~ICESessionInterface() { if ( m_pSocket ) m_pSocket->Close(); }
 
         ICESessionInterface( const ICESessionInterface& ) = delete;
         ICESessionInterface& operator=( const ICESessionInterface& ) = delete;
-    };
-
-    enum class ICECandidateKind
-    {
-        None,
-        Host,
-        ServerReflexive,
-        //Relayed,
-        PeerReflexive,
     };
 
     // Parsed representation of an RFC 5245 candidate-attribute line.
@@ -218,14 +234,6 @@ namespace SteamNetworkingSocketsLib {
             uint32 m_nPriority;
             ICECandidateBase();
             ICECandidateBase( ICECandidateKind t, const SteamNetworkingIPAddr& addr );
-			EICECandidateType CalcType() const;
-        };
-        struct ICELocalCandidate : public ICECandidateBase
-        {
-            ICESessionInterface *m_pInterface;
-            SteamNetworkingIPAddr m_stunServer;
-            ICELocalCandidate( ICECandidateKind t, const SteamNetworkingIPAddr& addr, ICESessionInterface *pInterface );
-            void CalcCandidateAttribute( char *pszBuffer, size_t nBufferSize ) const;
         };
         EICERole GetRole() { return m_role; }
         EICECandidateType AddPeerCandidate( const RFC5245CandidateAttr& attr );
@@ -239,6 +247,8 @@ namespace SteamNetworkingSocketsLib {
 
     protected:
         void Think( SteamNetworkingMicroseconds usecNow ) override;
+
+        friend struct ICESessionInterface;
 
     private:
         struct ICEPeerCandidate : public ICECandidateBase
@@ -349,13 +359,8 @@ namespace SteamNetworkingSocketsLib {
         // STUN responses back to the correct server.
         std_vector< SteamNetworkingIPAddr > m_vecSTUNServers;
 
-        // All local candidates gathered so far (host and server-reflexive), advertised
-        // to the peer via signaling.  Rebuilt on every interface re-enumeration and
-        // grows as STUN responses arrive.
-        std_vector< ICELocalCandidate > m_vecCandidates;
-
         // Candidates received from the remote peer via signaling.  Paired with
-        // m_vecCandidates to form m_vecCandidatePairs.
+        // m_vecInterfaces to form m_vecCandidatePairs.
         std_vector< ICEPeerCandidate > m_vecPeerCandidates;
 
         // In-flight STUN Binding requests being used as ICE connectivity checks,
@@ -375,7 +380,7 @@ namespace SteamNetworkingSocketsLib {
         std_vector< ICECandidatePair* > m_vecTriggeredCheckQueue;
 
         void GatherInterfaces();
-        void UpdateKeepalive( const ICELocalCandidate& c );
+        void UpdateKeepalive( ICESessionInterface *pIntf );
         uint32 GetInterfaceLocalPreference( const SteamNetworkingIPAddr& addr );
 
         void Think_KeepAliveOnCandidates( SteamNetworkingMicroseconds usecNow );
@@ -405,7 +410,7 @@ namespace SteamNetworkingSocketsLib {
     class CSteamNetworkingICESessionCallbacks
     {
     public:
-        virtual void OnLocalCandidateDiscovered( const CSteamNetworkingICESession::ICELocalCandidate& candidate ) {}
+        virtual void OnLocalCandidateDiscovered( EICECandidateType type, const char *pszCandidateStr ) {}
         virtual void OnPacketReceived( const RecvPktInfo_t &info ) {}
         virtual void OnConnectionSelected( const ICESessionInterface& localInterface, const CSteamNetworkingICESession::ICECandidateBase& remoteCandidate ) {}
     };
@@ -432,7 +437,7 @@ namespace SteamNetworkingSocketsLib {
         virtual bool SendPacketGather( int nChunks, const iovec *pChunks, int cbSendTotal ) override;
 
     protected:
-        virtual void OnLocalCandidateDiscovered( const CSteamNetworkingICESession::ICELocalCandidate& candidate ) override;
+        virtual void OnLocalCandidateDiscovered( EICECandidateType type, const char *pszCandidateStr ) override;
         virtual void OnPacketReceived( const RecvPktInfo_t &info ) override;
         virtual void OnConnectionSelected( const ICESessionInterface& localInterface, const CSteamNetworkingICESession::ICECandidateBase& remoteCandidate ) override;
     };
