@@ -200,6 +200,40 @@ static uint32* WriteMappedAddress( uint32* pBuffer, const SteamNetworkingIPAddr&
     }
 }
 
+// Decode any XOR-encoded address attribute (XOR-MAPPED-ADDRESS, XOR-RELAYED-ADDRESS, etc.).
+// Does NOT check the attribute type — callers are responsible for passing the right attr.
+static bool ReadXORAddressAttribute( const STUNAttribute *pAttr, const STUNHeader *pHeader, SteamNetworkingIPAddr* pAddr )
+{
+    if ( pAttr == nullptr || pHeader == nullptr || pAddr == nullptr )
+        return false;
+
+    if ( pAttr->m_nLength != 8 && pAttr->m_nLength != 20 )
+        return false;
+
+    const uint32 nFamily = ( ( ntohl( pAttr->m_pData[0] ) >> 16 ) & 0xF );
+    const uint32 nPort = ( ntohl( pAttr->m_pData[0] ) & 0xFFFF ) ^ ( k_nSTUN_CookieValue >> 16 );
+    if ( pAttr->m_nLength == 8 && nFamily == 0x1 )
+    {
+        const uint32 uIPv4 = ntohl( pAttr->m_pData[1] ) ^ k_nSTUN_CookieValue;
+        pAddr->SetIPv4( uIPv4, nPort );
+        return true;
+    }
+    else if ( pAttr->m_nLength == 20 && nFamily == 0x2 )
+    {
+        uint32 uXORBuffer[] = {
+            pAttr->m_pData[1] ^ htonl( k_nSTUN_CookieValue ),
+            pAttr->m_pData[2] ^ pHeader->m_nTransactionID[0],
+            pAttr->m_pData[3] ^ pHeader->m_nTransactionID[1],
+            pAttr->m_pData[4] ^ pHeader->m_nTransactionID[2] };
+        pAddr->SetIPv6( reinterpret_cast<const uint8 *>( uXORBuffer ), nPort );
+        return true;
+    }
+    else
+    {
+        return false;
+    }
+}
+
 static bool ReadXORMappedAddress( const STUNAttribute *pAttr, const STUNHeader *pHeader, SteamNetworkingIPAddr* pAddr )
 {
     if ( pAttr == nullptr || pHeader == nullptr || pAddr == nullptr )
@@ -805,7 +839,7 @@ bool ParseRFC5245CandidateAttribute( const char *pszAttr, RFC5245CandidateAttr *
     else if ( pAttr->sType == "prflx" )
         pAttr->nType = ICECandidateKind::PeerReflexive;
     else if ( pAttr->sType == "relay" )
-        pAttr->nType = ICECandidateKind::None; // ICECandidateKind::Relayed
+        pAttr->nType = ICECandidateKind::Relayed;
     else
         pAttr->nType = ICECandidateKind::None;
     for ( int i = 0; i < vAttrNameBegin.Count(); ++i )
@@ -834,6 +868,7 @@ inline bool IPAddrEqualIgnoringPort( const SteamNetworkingIPAddr &a, const Steam
 
 CSteamNetworkingSocketsSTUNRequest::CSteamNetworkingSocketsSTUNRequest( ICESessionInterface *pInterface )
     : m_pInterface( pInterface )
+    , m_nMessageType( (uint16)k_nSTUN_BindingRequest )
 {
 }
 
@@ -871,6 +906,31 @@ CSteamNetworkingSocketsSTUNRequest *CSteamNetworkingSocketsSTUNRequest::SendBind
 
     CSteamNetworkingSocketsSTUNRequest *pRequest = new CSteamNetworkingSocketsSTUNRequest( pIntf );
     pRequest->m_nEncoding = nEncoding;
+    pIntf->m_pPendingSTUNRequest = pRequest;
+    pRequest->Send( remoteAddr, cb );
+    return pRequest;
+}
+
+CSteamNetworkingSocketsSTUNRequest *CSteamNetworkingSocketsSTUNRequest::SendAllocateRequest( ICESessionInterface *pIntf, SteamNetworkingIPAddr remoteAddr, CRecvSTUNPktCallback cb, int nEncoding )
+{
+	SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "CSteamNetworkingSocketsSTUNRequest::SendAllocateRequest" );
+
+    if ( pIntf == nullptr )
+        return nullptr;
+
+    CSteamNetworkingSocketsSTUNRequest *pRequest = new CSteamNetworkingSocketsSTUNRequest( pIntf );
+    pRequest->m_nEncoding = nEncoding | kSTUNPacketEncodingFlags_NoMappedAddress;
+    pRequest->m_nMessageType = (uint16)k_nTURN_AllocateRequest;
+
+    // REQUESTED-TRANSPORT: UDP (IANA protocol 17)
+    STUNAttribute reqTransport;
+    reqTransport.m_nType = k_nTURN_Attr_RequestedTransport;
+    reqTransport.m_nLength = 4;
+    uint32 *pBuf = new uint32[1];
+    pBuf[0] = htonl( 17u << 24 );  // protocol byte + 3 RFFU bytes
+    reqTransport.m_pData = pBuf;
+    pRequest->m_vecExtraAttrs.AddToTail( reqTransport );
+
     pIntf->m_pPendingSTUNRequest = pRequest;
     pRequest->Send( remoteAddr, cb );
     return pRequest;
@@ -920,7 +980,7 @@ void CSteamNetworkingSocketsSTUNRequest::Think( SteamNetworkingMicroseconds usec
 
     uint32 messageBuffer[ k_nSTUN_MaxPacketSize_Bytes / 4 ];
     IRawUDPSocket * const pSocket = m_pInterface->m_pSocket;
-    const int nByteCount = EncodeSTUNPacket( messageBuffer, k_nSTUN_BindingRequest, m_nEncoding, m_nTransactionID, pSocket->m_boundAddr, (const uint8*)m_strPassword.c_str(), (uint32)m_strPassword.size(), m_vecExtraAttrs.Base(), m_vecExtraAttrs.Count() );
+    const int nByteCount = EncodeSTUNPacket( messageBuffer, m_nMessageType, m_nEncoding, m_nTransactionID, pSocket->m_boundAddr, (const uint8*)m_strPassword.c_str(), (uint32)m_strPassword.size(), m_vecExtraAttrs.Base(), m_vecExtraAttrs.Count() );
     if ( !pSocket->BSendRawPacket( messageBuffer, nByteCount, m_remoteAddr ) )
     {
 		m_usecLastSentTime = 0;
@@ -994,6 +1054,21 @@ CSteamNetworkingICESession::CSteamNetworkingICESession( const ICESessionConfig& 
 			for ( const SteamNetworkingIPAddr &ip: stunServers )
 				m_vecSTUNServers.push_back( ip );
 		}
+	}
+
+	m_vecTURNServers.reserve( cfg.m_nTurnServers );
+	for ( int i = 0; i < cfg.m_nTurnServers; ++i )
+	{
+		const char *pszHostname = cfg.m_pTurnServers[i].m_pszHost;
+		if ( pszHostname == nullptr )
+			continue;
+		if ( V_strnicmp( pszHostname, "turn:", 5 ) == 0 )
+			pszHostname = pszHostname + 5;
+		CUtlVector< SteamNetworkingIPAddr > turnServers;
+		ResolveHostname( pszHostname, &turnServers );
+		m_vecTURNServers.reserve( m_vecTURNServers.size() + turnServers.Count() );
+		for ( const SteamNetworkingIPAddr &ip: turnServers )
+			m_vecTURNServers.push_back( ip );
 	}
 
 	m_nPermittedCandidateTypes = cfg.m_nCandidateTypes;
@@ -1481,6 +1556,7 @@ void CSteamNetworkingICESession::Think( SteamNetworkingMicroseconds usecNow )
 
     Think_KeepAliveOnCandidates( usecNow );
     Think_DiscoverServerReflexiveCandidates();
+    Think_DiscoverRelayCandidate();
 
     // Don't start checks before we have peer candidates and the remote password --
     // we'd send unauthenticated requests and couldn't verify the response integrity.
@@ -1519,6 +1595,89 @@ void CSteamNetworkingICESession::Think_DiscoverServerReflexiveCandidates()
 }
 
 
+
+void CSteamNetworkingICESession::Think_DiscoverRelayCandidate()
+{
+    if ( m_vecTURNServers.empty() )
+        return;
+
+    for ( const std::unique_ptr<ICESessionInterface> &pIntf : m_vecInterfaces )
+    {
+        // Skip if relay discovery is done or a request is already in flight.
+        if ( !pIntf->m_addrTURNServer.IsIPv6AllZeros() || pIntf->m_pPendingSTUNRequest != nullptr )
+            continue;
+
+        // Find the first TURN server matching this interface's address family.
+        const SteamNetworkingIPAddr *pTURNServer = nullptr;
+        for ( const SteamNetworkingIPAddr &srv : m_vecTURNServers )
+        {
+            if ( srv.IsIPv4() == pIntf->m_pSocket->m_boundAddr.IsIPv4() )
+            {
+                pTURNServer = &srv;
+                break;
+            }
+        }
+        if ( !pTURNServer )
+            continue;
+
+        CSteamNetworkingSocketsSTUNRequest *pNewRequest = CSteamNetworkingSocketsSTUNRequest::SendAllocateRequest( pIntf.get(), *pTURNServer, CRecvSTUNPktCallback( StaticSTUNRequestCallback_AllocateRelay, this ), m_nEncoding );
+        if ( pNewRequest != nullptr )
+            return;
+    }
+}
+
+void CSteamNetworkingICESession::STUNRequestCallback_AllocateRelay( const RecvSTUNPktInfo_t &info )
+{
+    ICESessionInterface * const pIntf = info.m_pRequest->m_pInterface;
+    pIntf->m_pPendingSTUNRequest = nullptr;
+
+    // If we already have a result for this interface, ignore duplicates.
+    if ( !pIntf->m_addrTURNServer.IsIPv6AllZeros() )
+        return;
+
+    if ( info.m_pHeader != nullptr )
+    {
+        // Got a response — check for XOR-RELAYED-ADDRESS.
+        const STUNAttribute *pRelayAttr = FindAttributeOfType( info.m_pAttributes, info.m_nAttributes, k_nTURN_Attr_XORRelayedAddress );
+        if ( pRelayAttr != nullptr )
+        {
+            SteamNetworkingIPAddr addrRelayed;
+            addrRelayed.Clear();
+            if ( ReadXORAddressAttribute( pRelayAttr, info.m_pHeader, &addrRelayed ) )
+            {
+                pIntf->m_addrTURNServer = info.m_pRequest->m_remoteAddr;
+                pIntf->m_addrRelayed = addrRelayed;
+                pIntf->m_bRelayFailed = false;
+                pIntf->NotifyLocalCandidateDiscovered( ICECandidateKind::Relayed, addrRelayed );
+                return;
+            }
+        }
+        // Response received but no usable relay address — error response.
+        pIntf->m_addrTURNServer = info.m_pRequest->m_remoteAddr;
+        pIntf->m_bRelayFailed = true;
+        return;
+    }
+
+    // Timed out — try the next TURN server if available.
+    const int nTURNServerIdx = index_of( m_vecTURNServers, info.m_pRequest->m_remoteAddr );
+    const int nNextTURNServerIdx = nTURNServerIdx + 1;
+    if ( nTURNServerIdx < 0 || nNextTURNServerIdx >= len( m_vecTURNServers ) )
+    {
+        // Exhausted all TURN servers. Mark failed.
+        pIntf->m_addrTURNServer = info.m_pRequest->m_remoteAddr;
+        pIntf->m_bRelayFailed = true;
+        return;
+    }
+
+    // Try the next TURN server.
+    CSteamNetworkingSocketsSTUNRequest::SendAllocateRequest( pIntf, m_vecTURNServers[nNextTURNServerIdx], CRecvSTUNPktCallback( StaticSTUNRequestCallback_AllocateRelay, this ), m_nEncoding );
+}
+
+void CSteamNetworkingICESession::StaticSTUNRequestCallback_AllocateRelay( const RecvSTUNPktInfo_t &info, CSteamNetworkingICESession* pContext )
+{
+    if ( pContext != nullptr )
+        pContext->STUNRequestCallback_AllocateRelay( info );
+}
 
 void CSteamNetworkingICESession::STUNRequestCallback_ServerReflexiveCandidate( const RecvSTUNPktInfo_t &info )
 {
@@ -1894,6 +2053,7 @@ void ICESessionInterface::NotifyLocalCandidateDiscovered( ICECandidateKind kind,
     {
         case ICECandidateKind::Host:            nTypePreference = 126; break;
         case ICECandidateKind::ServerReflexive: nTypePreference = 100; break;
+        case ICECandidateKind::Relayed:         nTypePreference =   0; break;
         case ICECandidateKind::PeerReflexive:   nTypePreference = 110; break;
         default:                                nTypePreference =   0; break;
     }
@@ -1921,13 +2081,11 @@ void ICESessionInterface::NotifyLocalCandidateDiscovered( ICECandidateKind kind,
     {
         case ICECandidateKind::Host:            pszType = "host";  break;
         case ICECandidateKind::ServerReflexive: pszType = "srflx"; break;
-        //case ICECandidateKind::Relayed:       pszType = "relay"; break;
+        case ICECandidateKind::Relayed:         pszType = "relay"; break;
         case ICECandidateKind::PeerReflexive:   pszType = "prflx"; break;
         default: break;
     }
-    /*If relayed, add these too:
-    rel-addr              = "raddr" SP connection-address
-    rel-port              = "rport" SP port*/
+    // TODO: relay candidates should include rel-addr/rel-port (RFC 5245 §15.1)
     char szCandidate[128];
     V_snprintf( szCandidate, sizeof(szCandidate), "candidate:%u 0 udp %u %s %d typ %s", nFoundation, nPriority, connectionAddr, addr.m_port, pszType );
 
@@ -1974,13 +2132,12 @@ EICECandidateType CalcICECandidateType( ICECandidateKind kind, const SteamNetwor
 			return k_EICECandidate_IPv6_Reflexive;
 		break;
 
-	/* case ICECandidateKind::Relayed:
+	case ICECandidateKind::Relayed:
 		if ( addr.IsIPv4() )
 			return k_EICECandidate_IPv4_Relay;
 		else
 			return k_EICECandidate_IPv6_Relay;
 		break;
-	*/
 	default:
 		break;
 	}

@@ -21,7 +21,7 @@ namespace SteamNetworkingSocketsLib {
         None,
         Host,
         ServerReflexive,
-        //Relayed,
+        Relayed,
         PeerReflexive,
     };
 
@@ -64,6 +64,13 @@ namespace SteamNetworkingSocketsLib {
         SteamNetworkingIPAddr m_addrSTUNServer = {};       // server that gave us the result
         bool m_bServerReflexiveFailed = false;             // true if all STUN servers timed out
 
+        // Relay (TURN) discovery results.  m_addrTURNServer is also used
+        // as a "discovery complete" signal: it is all-zeros until a terminal
+        // result (success or timeout) has been recorded.
+        SteamNetworkingIPAddr m_addrRelayed = {};     // all-zeros = no relay / not yet allocated
+        SteamNetworkingIPAddr m_addrTURNServer = {};  // TURN server that gave us the relay
+        bool m_bRelayFailed = false;                  // true if all TURN servers timed out/failed
+
         // Build and dispatch a local candidate discovery notification.
         // Computes the RFC 5245 candidate-attribute string and the family-specific
         // EICECandidateType, then calls m_session's OnLocalCandidateDiscovered callback.
@@ -104,6 +111,24 @@ namespace SteamNetworkingSocketsLib {
     const uint32 k_nSTUN_Attr_Fingerprint = 0x8028;
     const uint32 k_nSTUN_Attr_ICEControlled = 0x8029;
     const uint32 k_nSTUN_Attr_ICEControlling = 0x802A;
+
+    // TURN message types (RFC 5766)
+    const uint32 k_nTURN_AllocateRequest         = 0x0003;
+    const uint32 k_nTURN_AllocateSuccess         = 0x0103;
+    const uint32 k_nTURN_AllocateError           = 0x0113;
+    const uint32 k_nTURN_RefreshRequest          = 0x0004;
+    const uint32 k_nTURN_RefreshSuccess          = 0x0104;
+    const uint32 k_nTURN_CreatePermissionRequest = 0x0008;
+    const uint32 k_nTURN_CreatePermissionSuccess = 0x0108;
+    const uint32 k_nTURN_SendIndication          = 0x0016;
+    const uint32 k_nTURN_DataIndication          = 0x0017;
+
+    // TURN attribute types (RFC 5766)
+    const uint32 k_nTURN_Attr_Lifetime           = 0x000D;
+    const uint32 k_nTURN_Attr_XORPeerAddress     = 0x0012;
+    const uint32 k_nTURN_Attr_Data               = 0x0013;
+    const uint32 k_nTURN_Attr_XORRelayedAddress  = 0x0016;
+    const uint32 k_nTURN_Attr_RequestedTransport = 0x0019;
 
     struct STUNHeader
     {
@@ -183,11 +208,13 @@ namespace SteamNetworkingSocketsLib {
         CRecvSTUNPktCallback m_callback;
         uint32 m_nTransactionID[3];
         int m_nEncoding;
+        uint16 m_nMessageType;  // STUN/TURN message type to send (k_nSTUN_BindingRequest, k_nTURN_AllocateRequest, ...)
         CUtlVector< STUNAttribute > m_vecExtraAttrs;
         std::string m_strPassword;
 		SteamNetworkingMicroseconds m_usecLastSentTime;
 
         static CSteamNetworkingSocketsSTUNRequest *SendBindRequest( ICESessionInterface *pIntf, SteamNetworkingIPAddr remoteAddr, CRecvSTUNPktCallback cb, int nEncoding );
+        static CSteamNetworkingSocketsSTUNRequest *SendAllocateRequest( ICESessionInterface *pIntf, SteamNetworkingIPAddr remoteAddr, CRecvSTUNPktCallback cb, int nEncoding );
 
         static CSteamNetworkingSocketsSTUNRequest *CreatePeerConnectivityCheckRequest( ICESessionInterface *pIntf, SteamNetworkingIPAddr remoteAddr, CRecvSTUNPktCallback cb, int nEncoding );
         void Send( SteamNetworkingIPAddr remoteAddr, CRecvSTUNPktCallback cb );
@@ -202,7 +229,6 @@ namespace SteamNetworkingSocketsLib {
 
     protected:
         void Think( SteamNetworkingMicroseconds usecNow ) override;
-        friend class CSteamNetworkingSocketsSTUN;
 
     private:
         explicit CSteamNetworkingSocketsSTUNRequest( ICESessionInterface *pInterface );
@@ -359,6 +385,10 @@ namespace SteamNetworkingSocketsLib {
         // STUN responses back to the correct server.
         std_vector< SteamNetworkingIPAddr > m_vecSTUNServers;
 
+        // Resolved addresses of TURN servers, populated once at construction from the
+        // config.  Used to allocate relay candidates.
+        std_vector< SteamNetworkingIPAddr > m_vecTURNServers;
+
         // Candidates received from the remote peer via signaling.  Paired with
         // m_vecInterfaces to form m_vecCandidatePairs.
         std_vector< ICEPeerCandidate > m_vecPeerCandidates;
@@ -385,6 +415,7 @@ namespace SteamNetworkingSocketsLib {
 
         void Think_KeepAliveOnCandidates( SteamNetworkingMicroseconds usecNow );
         void Think_DiscoverServerReflexiveCandidates();
+        void Think_DiscoverRelayCandidate();
         void Think_TestPeerConnectivity();
 
         void SetSelectedCandidatePair( ICECandidatePair *pPair );
@@ -400,6 +431,8 @@ namespace SteamNetworkingSocketsLib {
         static void StaticSTUNRequestCallback_ServerReflexiveCandidate( const RecvSTUNPktInfo_t &info, CSteamNetworkingICESession* pContext );
         void STUNRequestCallback_ServerReflexiveKeepAlive( const RecvSTUNPktInfo_t &info );
         static void StaticSTUNRequestCallback_ServerReflexiveKeepAlive( const RecvSTUNPktInfo_t &info, CSteamNetworkingICESession* pContext );
+        void STUNRequestCallback_AllocateRelay( const RecvSTUNPktInfo_t &info );
+        static void StaticSTUNRequestCallback_AllocateRelay( const RecvSTUNPktInfo_t &info, CSteamNetworkingICESession* pContext );
         void STUNRequestCallback_PeerConnectivityCheck( const RecvSTUNPktInfo_t &info );
         static void StaticSTUNRequestCallback_PeerConnectivityCheck( const RecvSTUNPktInfo_t &info, CSteamNetworkingICESession* pContext );
 
