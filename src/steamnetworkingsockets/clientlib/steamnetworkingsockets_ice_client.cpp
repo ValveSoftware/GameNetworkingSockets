@@ -578,8 +578,6 @@ static bool SendSTUNResponsePacket( IRawUDPSocket* pSocket, int nEncoding, uint3
 {
     uint32 messageBuffer[ k_nSTUN_MaxPacketSize_Bytes / 4 ];
     const int nByteCount = EncodeSTUNPacket( messageBuffer, k_nSTUN_BindingResponse, nEncoding, pTransactionID, toAddr, pubKey, cubKey, pAttrs, nAttrs );
-	for ( int i = 0; i < nAttrs; ++i )
-		delete []( pAttrs[i].m_pData );
     if ( nByteCount == 0 )
         return false;
 
@@ -1555,10 +1553,8 @@ not_stun:
     {
         STUNAttribute attrUsername;
         attrUsername.m_nType = k_nSTUN_Attr_UserName;
-        int nUsernameLength = (int)m_strIncomingUsername.size();
-        attrUsername.m_nLength = nUsernameLength;
-        attrUsername.m_pData = new uint32[ (nUsernameLength + 3) / 4 ];
-        V_memcpy( (void*)attrUsername.m_pData, m_strIncomingUsername.c_str(), m_strIncomingUsername.size() );
+        attrUsername.m_nLength = (int)m_strIncomingUsername.size();
+        attrUsername.m_pData = reinterpret_cast<const uint32 *>( m_strIncomingUsername.c_str() );
         outAttrs.AddToTail( attrUsername );
     }
 
