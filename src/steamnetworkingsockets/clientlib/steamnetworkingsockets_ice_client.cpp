@@ -1060,7 +1060,7 @@ EICECandidateType CSteamNetworkingICESession::AddPeerCandidate( const RFC5245Can
     candidate.m_nPriority = attr.nPriority;
     const char *pszFoundation = attr.sFoundation.c_str();
 
-    EICECandidateType eCandidateType = candidate.CalcType();
+    EICECandidateType eCandidateType = CalcICECandidateType( attr.nType, attr.address );
 
     // Do we already have a candidate for this peer? If so, just update the foundation and move on.
 	bool bNeedsNewEntry = true;
@@ -1193,11 +1193,6 @@ void CSteamNetworkingICESession::GatherInterfaces()
                     erase_at( m_vecCandidatePairs, j );
                 }
             }
-            for ( int j = len( m_vecCandidates ) - 1; j >= 0; --j )
-            {
-                if ( m_vecCandidates[j].m_pInterface == intf )
-                    erase_at( m_vecCandidates, j );
-            }
 
             if ( intf->m_pPendingSTUNRequest )
             {
@@ -1233,10 +1228,7 @@ void CSteamNetworkingICESession::GatherInterfaces()
             --uNextPriority;
 
         ICESessionInterface *pNewIntf = m_vecInterfaces.back().get();
-        ICELocalCandidate *pHostCandidate = push_back_get_ptr( m_vecCandidates,
-            ICELocalCandidate( ICECandidateKind::Host, pNewIntf->m_pSocket->m_boundAddr, pNewIntf ) );
-        if ( m_pCallbacks != nullptr )
-            m_pCallbacks->OnLocalCandidateDiscovered( *pHostCandidate );
+        pNewIntf->NotifyLocalCandidateDiscovered( ICECandidateKind::Host, pNewIntf->m_pSocket->m_boundAddr );
         m_bCandidatePairsNeedUpdate = true;
     }
 }
@@ -1501,43 +1493,17 @@ void CSteamNetworkingICESession::Think_DiscoverServerReflexiveCandidates()
     if ( m_vecSTUNServers.empty() )
         return;
 
-    // Send a STUN request to check for a ICECandidateKind::ServerReflexive candidate.
-    // This search is O(n^2) over the number of candidates. We assume this number is a pretty small
-    // integer such that basically all of m_vecCandidates ends up in L1 cache.
-    // If it gets large, we'll want to manage these requests using queues or something.
-    for ( const ICELocalCandidate& c : m_vecCandidates )
+    for ( const std::unique_ptr<ICESessionInterface> &pIntf : m_vecInterfaces )
     {
-        if ( c.m_type != ICECandidateKind::Host )
-            continue;
-        ICESessionInterface *pIntf = c.m_pInterface;
-
-        // Do we have a server-reflexive candidate for this host already?
-        bool bFound = false;
-        if ( !bFound )
-        {
-            for ( const ICELocalCandidate& c2 : m_vecCandidates )
-            {
-                if ( c2.m_type == ICECandidateKind::ServerReflexive && c2.m_pInterface == c.m_pInterface )
-                {
-                    bFound = true;
-                    break;
-                }
-            }
-        }
-        if ( !bFound )
-        {
-            // Is there a STUN request pending for this interface?
-            if ( pIntf != nullptr && pIntf->m_pPendingSTUNRequest != nullptr )
-                bFound = true;
-        }
-        if ( bFound )
+        // Skip if discovery is done or a request is already in flight.
+        if ( !pIntf->m_addrSTUNServer.IsIPv6AllZeros() || pIntf->m_pPendingSTUNRequest != nullptr )
             continue;
 
-        // Find first STUN server matching this candidate's address family
+        // Find the first STUN server matching this interface's address family.
         const SteamNetworkingIPAddr *pSTUNServer = nullptr;
         for ( const SteamNetworkingIPAddr &srv : m_vecSTUNServers )
         {
-            if ( srv.IsIPv4() == c.m_pInterface->m_pSocket->m_boundAddr.IsIPv4() )
+            if ( srv.IsIPv4() == pIntf->m_pSocket->m_boundAddr.IsIPv4() )
             {
                 pSTUNServer = &srv;
                 break;
@@ -1546,7 +1512,7 @@ void CSteamNetworkingICESession::Think_DiscoverServerReflexiveCandidates()
         if ( !pSTUNServer )
             continue;
 
-        CSteamNetworkingSocketsSTUNRequest *pNewRequest = CSteamNetworkingSocketsSTUNRequest::SendBindRequest( pIntf, *pSTUNServer, CRecvSTUNPktCallback( StaticSTUNRequestCallback_ServerReflexiveCandidate, this ), m_nEncoding | kSTUNPacketEncodingFlags_MappedAddress );
+        CSteamNetworkingSocketsSTUNRequest *pNewRequest = CSteamNetworkingSocketsSTUNRequest::SendBindRequest( pIntf.get(), *pSTUNServer, CRecvSTUNPktCallback( StaticSTUNRequestCallback_ServerReflexiveCandidate, this ), m_nEncoding | kSTUNPacketEncodingFlags_MappedAddress );
         if ( pNewRequest != nullptr )
             return;
     }
@@ -1559,52 +1525,37 @@ void CSteamNetworkingICESession::STUNRequestCallback_ServerReflexiveCandidate( c
     ICESessionInterface * const pIntf = info.m_pRequest->m_pInterface;
     pIntf->m_pPendingSTUNRequest = nullptr;
 
-    const SteamNetworkingIPAddr &localAddr = pIntf->m_pSocket->m_boundAddr;
-    for ( int i = 0 ; i < len(m_vecCandidates) ; ++i )
-    {
-        ICELocalCandidate& c = m_vecCandidates[i];
-        if ( c.m_type == ICECandidateKind::ServerReflexive && c.m_pInterface == pIntf )
-        {
-            // Another response for a candidate we already have.
-
-            // But if the current candidate is a "failed" placeholder, remove it
-            // and keep going to process this new response.
-            if ( c.m_addr.IsIPv6AllZeros() )
-            {
-                erase_at( m_vecCandidates, i );
-                break;
-            }
-            return;
-        }
-    }
+    // If we already have a real SR address for this interface, ignore duplicate responses.
+    // (A previous failed-placeholder is overwriteable — that means we set bServerReflexiveFailed
+    // earlier but a late response arrived; accept it.)
+    if ( !pIntf->m_addrServerReflexive.IsIPv6AllZeros() )
+        return;
 
     SteamNetworkingIPAddr bindResult;
     bindResult.Clear();
     if ( ReadAnyMappedAddress( info.m_pAttributes, info.m_nAttributes, info.m_pHeader, &bindResult ) )
-    {   // Got a response... is it redundant (this happens when we get a STUN response but we're not behind a NAT)
-        if ( bindResult == localAddr )
+    {
+        // Got a response.  If mapped address == local address we're not behind a NAT:
+        // record the STUN server so discovery is marked done, but don't advertise.
+        pIntf->m_addrSTUNServer = info.m_pRequest->m_remoteAddr;
+        if ( bindResult == pIntf->m_pSocket->m_boundAddr )
             bindResult.Clear();
-        ICELocalCandidate *pCand = push_back_get_ptr( m_vecCandidates, ICELocalCandidate( ICECandidateKind::ServerReflexive, bindResult, pIntf ) );
-        pCand->m_stunServer = info.m_pRequest->m_remoteAddr;
-        if ( m_pCallbacks != nullptr && !bindResult.IsIPv6AllZeros() )
-            m_pCallbacks->OnLocalCandidateDiscovered( *pCand );
+        pIntf->m_addrServerReflexive = bindResult;
+        pIntf->m_bServerReflexiveFailed = false;
+        if ( !pIntf->m_addrServerReflexive.IsIPv6AllZeros() )
+            pIntf->NotifyLocalCandidateDiscovered( ICECandidateKind::ServerReflexive, pIntf->m_addrServerReflexive );
         return;
     }
 
-    // So we timed out to this STUN server
+    // Timed out to this STUN server — try the next one if available.
     const int nSTUNServerIdx = index_of( m_vecSTUNServers, info.m_pRequest->m_remoteAddr );
     const int nNextSTUNServerIdx = nSTUNServerIdx + 1;
     if ( nSTUNServerIdx < 0 || nNextSTUNServerIdx >= len( m_vecSTUNServers ) )
     {
-        // We have exhausted STUN attempts for this base address.  Insert a placeholder
-        // server-reflexive candidate with zero address/priority as a "failed" marker.
-        //
-        // Why this exists: Think_DiscoverServerReflexiveCandidates() only tracks "found
-        // candidate" or "pending request".  Without this marker, a total STUN failure would
-        // be retried forever every think tick, creating unbounded churn.
-        bindResult.Clear();
-        ICELocalCandidate *pCand = push_back_get_ptr( m_vecCandidates, ICELocalCandidate( ICECandidateKind::ServerReflexive, bindResult, pIntf ) );
-        pCand->m_stunServer = info.m_pRequest->m_remoteAddr;
+        // Exhausted all STUN servers.  Mark failed so Think_DiscoverServerReflexiveCandidates
+        // does not retry this interface indefinitely.
+        pIntf->m_addrSTUNServer = info.m_pRequest->m_remoteAddr;
+        pIntf->m_bServerReflexiveFailed = true;
         return;
     }
 
@@ -1624,31 +1575,19 @@ void CSteamNetworkingICESession::STUNRequestCallback_ServerReflexiveKeepAlive( c
     ICESessionInterface * const pIntf = info.m_pRequest->m_pInterface;
     pIntf->m_pPendingSTUNRequest = nullptr;
 
-    ICELocalCandidate *pCandidate = nullptr;
-    for ( ICELocalCandidate& c : m_vecCandidates )
-    {
-        if ( c.m_type == ICECandidateKind::ServerReflexive && c.m_pInterface == pIntf )
-        {
-            pCandidate = &c;
-            break;
-        }
-    }
-
     SteamNetworkingIPAddr bindResult;
     bindResult.Clear();
     if ( ReadAnyMappedAddress( info.m_pAttributes, info.m_nAttributes, info.m_pHeader, &bindResult ) )
     {
-        // Update the STUN info for keepalive and we're done.
-        if ( !( pCandidate->m_stunServer == info.m_pRequest->m_remoteAddr ) )
-            pCandidate->m_stunServer = info.m_pRequest->m_remoteAddr;
-        if ( !( pCandidate->m_addr == bindResult ) )
+        if ( !( pIntf->m_addrSTUNServer == info.m_pRequest->m_remoteAddr ) )
+            pIntf->m_addrSTUNServer = info.m_pRequest->m_remoteAddr;
+        if ( !( pIntf->m_addrServerReflexive == bindResult ) )
             /*STUN server gave us a new address - what should we do here?*/
-            SpewError( "Mismatching address in STUN response: got %s expected %s.", SteamNetworkingIPAddrRender( bindResult, true ).c_str(), SteamNetworkingIPAddrRender( pCandidate->m_addr, true ).c_str());
-
+            SpewError( "Mismatching address in STUN response: got %s expected %s.", SteamNetworkingIPAddrRender( bindResult, true ).c_str(), SteamNetworkingIPAddrRender( pIntf->m_addrServerReflexive, true ).c_str() );
         return;
     }
 
-    // So we timed out to this STUN server, so try the next one if we have any.
+    // Timed out — try the next STUN server (cycling through the list).
     if ( m_vecSTUNServers.empty() )
         return;
 
@@ -1663,18 +1602,14 @@ void CSteamNetworkingICESession::StaticSTUNRequestCallback_ServerReflexiveKeepAl
         pContext->STUNRequestCallback_ServerReflexiveKeepAlive( info );
 }
 
-void CSteamNetworkingICESession::UpdateKeepalive( const ICELocalCandidate& c )
+void CSteamNetworkingICESession::UpdateKeepalive( ICESessionInterface *pIntf )
 {
-    if ( c.m_type != ICECandidateKind::ServerReflexive )
+    if ( pIntf->m_addrServerReflexive.IsIPv6AllZeros() )
         return;
-    if ( c.m_addr.IsIPv6AllZeros() )
-        return;
-
-    ICESessionInterface * const pIntf = c.m_pInterface;
     if ( pIntf->m_pPendingSTUNRequest != nullptr )
         return;
 
-    CSteamNetworkingSocketsSTUNRequest::SendBindRequest( pIntf, c.m_stunServer, CRecvSTUNPktCallback( StaticSTUNRequestCallback_ServerReflexiveKeepAlive, this ), m_nEncoding );
+    CSteamNetworkingSocketsSTUNRequest::SendBindRequest( pIntf, pIntf->m_addrSTUNServer, CRecvSTUNPktCallback( StaticSTUNRequestCallback_ServerReflexiveKeepAlive, this ), m_nEncoding );
 }
 
 void CSteamNetworkingICESession::Think_KeepAliveOnCandidates( SteamNetworkingMicroseconds usecNow )
@@ -1686,18 +1621,12 @@ void CSteamNetworkingICESession::Think_KeepAliveOnCandidates( SteamNetworkingMic
 
     if ( m_pSelectedCandidatePair != nullptr )
     {
-        for ( const ICELocalCandidate& c : m_vecCandidates )
-        {
-            if ( c.m_pInterface == m_pSelectedCandidatePair->m_pInterface )
-                UpdateKeepalive( c );
-        }
+        UpdateKeepalive( m_pSelectedCandidatePair->m_pInterface );
     }
     else
     {
-        for ( const ICELocalCandidate& c : m_vecCandidates )
-        {
-            UpdateKeepalive( c );
-        }
+        for ( const std::unique_ptr<ICESessionInterface> &pIntf : m_vecInterfaces )
+            UpdateKeepalive( pIntf.get() );
     }
 }
 
@@ -1930,7 +1859,7 @@ void CSteamNetworkingICESession::StaticSTUNRequestCallback_PeerConnectivityCheck
 
 /////////////////////////////////////////////////////////////////////////////
 //
-// CSteamNetworkingICESession::ICECandidateBase / ICELocalCandidate
+// ICESessionInterface / CSteamNetworkingICESession::ICECandidateBase
 //
 /////////////////////////////////////////////////////////////////////////////
 
@@ -1948,62 +1877,62 @@ CSteamNetworkingICESession::ICECandidateBase::ICECandidateBase( ICECandidateKind
     m_nPriority = 0;
 }
 
-CSteamNetworkingICESession::ICELocalCandidate::ICELocalCandidate( ICECandidateKind t, const SteamNetworkingIPAddr& addr, ICESessionInterface *pInterface )
-    : ICECandidateBase( t, addr )
-    , m_pInterface( pInterface )
+// Compute the RFC 5245 candidate-attribute string, determine the family-specific
+// EICECandidateType, and dispatch OnLocalCandidateDiscovered to the session callbacks.
+// Ex: candidate:2442523459 0 udp 2122262784 2602:801:f001:1034:5078:221c:76b:a3d6 63368 typ host generation 0 ufrag WLM82 network-id 2
+void ICESessionInterface::NotifyLocalCandidateDiscovered( ICECandidateKind kind, const SteamNetworkingIPAddr& addr )
 {
-    m_stunServer.Clear();
+    CSteamNetworkingICESessionCallbacks *pCallbacks = m_session.m_pCallbacks;
+    if ( pCallbacks == nullptr )
+        return;
+
+    const SteamNetworkingIPAddr &base = m_pSocket->m_boundAddr;
 
     // priority = (2^24)*(type preference) + (2^8)*(local preference) + (2^0)*(256 - component ID)
-    // Type preferences per RFC 8445: host=126, peer-reflexive=110, server-reflexive=100, relay=0.
-    if ( m_type != ICECandidateKind::None && !m_addr.IsIPv6AllZeros() )
+    uint32 nTypePreference = 0;
+    switch ( kind )
     {
-        uint32 nTypePreference;
-        switch ( m_type )
-        {
-            case ICECandidateKind::Host:            nTypePreference = 126; break;
-            case ICECandidateKind::ServerReflexive: nTypePreference = 100; break;
-            case ICECandidateKind::PeerReflexive:   nTypePreference = 110; break;
-            default:                                nTypePreference =   0; break;
-        }
-        m_nPriority = ( nTypePreference << 24 ) + ( ( pInterface->m_nPriority & 0xFFFF ) << 8 ) + 255u;
+        case ICECandidateKind::Host:            nTypePreference = 126; break;
+        case ICECandidateKind::ServerReflexive: nTypePreference = 100; break;
+        case ICECandidateKind::PeerReflexive:   nTypePreference = 110; break;
+        default:                                nTypePreference =   0; break;
     }
-}
+    const uint32 nPriority = ( nTypePreference << 24 ) + ( ( m_nPriority & 0xFFFF ) << 8 ) + 255u;
 
-// Compute a candidate-attribute from https://datatracker.ietf.org/doc/html/rfc5245#section-15.1
-// Ex: candidate:2442523459 0 udp 2122262784 2602:801:f001:1034:5078:221c:76b:a3d6 63368 typ host generation 0 ufrag WLM82 network-id 2
-void CSteamNetworkingICESession::ICELocalCandidate::CalcCandidateAttribute( char *pszBuffer, size_t nBufferSize ) const
-{
     /* <foundation>:  is composed of 1 to 32 <ice-char>s.  It is an
       identifier that is equivalent for two candidates that are of the
       same type, share the same base, and come from the same STUN
       server.*/
     uint32 nFoundation = 0;
     {
-        const SteamNetworkingIPAddr &base = m_pInterface->m_pSocket->m_boundAddr;
         uint16 uCounter = 0;
-        for( int i = 0; i < 16; ++i )
+        for ( int i = 0; i < 16; ++i )
         {
             uCounter += base.m_ipv6[i];
-            uCounter += m_stunServer.m_ipv6[i];
+            uCounter += m_addrSTUNServer.m_ipv6[i];
         }
-        nFoundation = ( base.m_port + m_stunServer.m_port ) + ( uCounter << 15 ) + (int)m_type;
+        nFoundation = ( base.m_port + m_addrSTUNServer.m_port ) + ( uCounter << 15 ) + (int)kind;
     }
+
     char connectionAddr[ SteamNetworkingIPAddr::k_cchMaxString];
-    m_addr.ToString( connectionAddr, V_ARRAYSIZE( connectionAddr ), false );
+    addr.ToString( connectionAddr, V_ARRAYSIZE( connectionAddr ), false );
     const char *pszType = "";
-    switch ( m_type )
+    switch ( kind )
     {
-        case ICECandidateKind::Host: pszType = "host"; break;
+        case ICECandidateKind::Host:            pszType = "host";  break;
         case ICECandidateKind::ServerReflexive: pszType = "srflx"; break;
-        //case  ICECandidateKind::Relayed: pszType = "relay"; break;
-        case  ICECandidateKind::PeerReflexive: pszType = "prflx"; break;
+        //case ICECandidateKind::Relayed:       pszType = "relay"; break;
+        case ICECandidateKind::PeerReflexive:   pszType = "prflx"; break;
         default: break;
     }
     /*If relayed, add these too:
     rel-addr              = "raddr" SP connection-address
     rel-port              = "rport" SP port*/
-    V_snprintf( pszBuffer, nBufferSize, "candidate:%u 0 udp %u %s %d typ %s", nFoundation, m_nPriority, connectionAddr, m_addr.m_port, pszType );
+    char szCandidate[128];
+    V_snprintf( szCandidate, sizeof(szCandidate), "candidate:%u 0 udp %u %s %d typ %s", nFoundation, nPriority, connectionAddr, addr.m_port, pszType );
+
+    EICECandidateType eType = CalcICECandidateType( kind, addr );
+    pCallbacks->OnLocalCandidateDiscovered( eType, szCandidate );
 }
 
 static bool IsPrivateIPv4( const uint8 m_ip[ 4 ] )
@@ -2020,14 +1949,14 @@ static bool IsPrivateIPv4( const uint8 m_ip[ 4 ] )
 	return false;
 }
 
-EICECandidateType CSteamNetworkingICESession::ICECandidateBase::CalcType() const
+EICECandidateType CalcICECandidateType( ICECandidateKind kind, const SteamNetworkingIPAddr& addr )
 {
-	switch ( m_type )
+	switch ( kind )
 	{
 	case ICECandidateKind::Host:
-		if ( m_addr.IsIPv4() )
+		if ( addr.IsIPv4() )
 		{
-			if ( IsPrivateIPv4( m_addr.m_ipv4.m_ip ) )
+			if ( IsPrivateIPv4( addr.m_ipv4.m_ip ) )
 				return k_EICECandidate_IPv4_HostPrivate;
 			else
 				return k_EICECandidate_IPv4_HostPublic;
@@ -2039,14 +1968,14 @@ EICECandidateType CSteamNetworkingICESession::ICECandidateBase::CalcType() const
 		break;
 	case ICECandidateKind::ServerReflexive:
 	case ICECandidateKind::PeerReflexive:
-		if ( m_addr.IsIPv4() )
+		if ( addr.IsIPv4() )
 			return k_EICECandidate_IPv4_Reflexive;
 		else
 			return k_EICECandidate_IPv6_Reflexive;
 		break;
 
 	/* case ICECandidateKind::Relayed:
-		if ( m_addr.IsIPv4() )
+		if ( addr.IsIPv4() )
 			return k_EICECandidate_IPv4_Relay;
 		else
 			return k_EICECandidate_IPv6_Relay;
@@ -2163,16 +2092,12 @@ bool CConnectionTransportP2PICE_Valve::SendPacketGather( int nChunks, const iove
     return pSock->BSendRawPacketGather( nChunks, pChunks, m_pICESession->GetSelectedDestination() );
 }
 
-void CConnectionTransportP2PICE_Valve::OnLocalCandidateDiscovered( const CSteamNetworkingICESession::ICELocalCandidate& candidate )
+void CConnectionTransportP2PICE_Valve::OnLocalCandidateDiscovered( EICECandidateType type, const char *pszCandidateStr )
 {
-    char chBuffer[512];
-    candidate.CalcCandidateAttribute( chBuffer, V_ARRAYSIZE( chBuffer ) - 1 );
-
     ConnectionScopeLock lock( Connection(), "OnLocalCandidateDiscovered");
-
     CMsgICECandidate c;
-    c.set_candidate( chBuffer );
-	LocalCandidateGathered( candidate.CalcType(), std::move( c ) );
+    c.set_candidate( pszCandidateStr );
+    LocalCandidateGathered( type, std::move( c ) );
 }
 
 void CConnectionTransportP2PICE_Valve::OnConnectionSelected( const ICESessionInterface& localInterface, const CSteamNetworkingICESession::ICECandidateBase& remoteCandidate )
