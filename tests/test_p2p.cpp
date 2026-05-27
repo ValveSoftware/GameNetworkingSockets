@@ -48,6 +48,7 @@ void PrintUsage()
 		"  --spewlevel <level>                 Console spew level: msg, verbose, debug\n"
 		"  --loglevel-p2prendezvous <level>    P2P rendezvous log level: msg, verbose, debug\n"
 		"  --stun-server <host:port>           STUN server address (default: " DEFAULT_STUN_SERVER ")\n"
+		"  --turn-server <host:port>           TURN relay server address\n"
 		"  --ice-implementation <n>            ICE implementation: 0=default, 1=native\n"
 		"  --repeat <n>                        Repeat the connection test N times (default: 1)\n"
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_MOCK
@@ -233,6 +234,7 @@ int main( int argc, const char **argv )
 	SteamNetworkingIdentity identityRemote; identityRemote.Clear();
 	const char *pszTrivialSignalingService = "localhost:10000";
 	const char *pszSTUNServer = DEFAULT_STUN_SERVER;
+	const char *pszTURNServer = nullptr;
 	int g_nICEImplementation = -1; // -1 = not set, use library default
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_MOCK
 	TEST_mocknetwork_config_t mockConfig;
@@ -262,6 +264,8 @@ int main( int argc, const char **argv )
 			pszTrivialSignalingService = GetArg();
 		else if ( !strcmp( pszSwitch, "--stun-server" ) )
 			pszSTUNServer = GetArg();
+		else if ( !strcmp( pszSwitch, "--turn-server" ) )
+			pszTURNServer = GetArg();
 		else if ( !strcmp( pszSwitch, "--ice-implementation" ) )
 			g_nICEImplementation = atoi( GetArg() );
 		else if ( !strcmp( pszSwitch, "--repeat" ) )
@@ -383,18 +387,10 @@ int main( int argc, const char **argv )
 	TEST_Init( &identityLocal );
 
 	SteamNetworkingUtils()->SetGlobalConfigValueString( k_ESteamNetworkingConfig_P2P_STUN_ServerList, pszSTUNServer );
+	if ( pszTURNServer != nullptr )
+		SteamNetworkingUtils()->SetGlobalConfigValueString( k_ESteamNetworkingConfig_P2P_TURN_ServerList, pszTURNServer );
 	if ( g_nICEImplementation >= 0 )
 		SteamNetworkingUtils()->SetGlobalConfigValueInt32( k_ESteamNetworkingConfig_P2P_Transport_ICE_Implementation, g_nICEImplementation );
-
-	// Hardcode TURN servers
-	// comma seperated setting lists
-	//const char* turnList = "turn:123.45.45:3478";
-	//const char* userList = "username";
-	//const char* passList = "pass";
-
-	//SteamNetworkingUtils()->SetGlobalConfigValueString(k_ESteamNetworkingConfig_P2P_TURN_ServerList, turnList);
-	//SteamNetworkingUtils()->SetGlobalConfigValueString(k_ESteamNetworkingConfig_P2P_TURN_UserList, userList);
-	//SteamNetworkingUtils()->SetGlobalConfigValueString(k_ESteamNetworkingConfig_P2P_TURN_PassList, passList);
 
 	// Allow sharing of any kind of ICE address.
 	// We don't have any method of relaying (TURN) in this example, so we are essentially

@@ -164,6 +164,7 @@ def StartClientInThread( role, local, remote, extra_args=[] ):
     ]
 
     cmdline += [ '--stun-server', "%s:%d,[%s]:%d" % (g_stun_ip, g_stun_port, g_stun_ipv6, g_stun_port) ]
+    cmdline += [ '--turn-server', "%s:%d" % (g_stun_ip, g_stun_port) ]
     if g_repeat > 1:
         cmdline += [ '--repeat', str(g_repeat) ]
     cmdline += extra_args
