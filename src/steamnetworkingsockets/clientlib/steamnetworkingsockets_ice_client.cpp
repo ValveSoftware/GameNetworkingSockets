@@ -1607,6 +1607,24 @@ not_stun:
         m_vecCandidatePairs.push_back( pThisPair );
     }
 
+    // RFC 8445 sec 7.3.1.4: queue a triggered check when a binding request arrives.
+    // An incoming request proves the remote side can reach us, so retry immediately
+    // rather than waiting for the normal schedule or a retransmit timeout.
+    // Skip when USE-CANDIDATE is set — that path handles its own triggered check below.
+    if ( !FindAttributeOfType( vecAttrs.Base(), vecAttrs.Count(), k_nSTUN_Attr_UseCandidate )
+        && pThisPair->m_nState != kICECandidatePairState_Succeeded )
+    {
+        if ( pThisPair->m_pPeerRequest != nullptr )
+        {
+            // InProgress: cancel the existing request so we don't have two in flight.
+            pThisPair->m_pPeerRequest->Cancel();
+            pThisPair->m_pPeerRequest = nullptr;
+        }
+        pThisPair->m_nState = kICECandidatePairState_Waiting;
+        if ( !has_element( m_vecTriggeredCheckQueue, pThisPair ) )
+            m_vecTriggeredCheckQueue.push_back( pThisPair );
+    }
+
     if ( FindAttributeOfType( vecAttrs.Base(), vecAttrs.Count(), k_nSTUN_Attr_UseCandidate ) )
     {
         if ( pThisPair->m_nState == kICECandidatePairState_Succeeded
@@ -2023,9 +2041,9 @@ void CSteamNetworkingICESession::Think_TestPeerConnectivity()
 
     if ( !m_vecTriggeredCheckQueue.empty() )
     {
-		int i = len( m_vecTriggeredCheckQueue ) - 1;
-        pPairToCheck = m_vecTriggeredCheckQueue[ i ];
-        erase_at( m_vecTriggeredCheckQueue, i );
+        // RFC 8445 sec 5.1.3.2: triggered checks are processed in FIFO order.
+        pPairToCheck = m_vecTriggeredCheckQueue[ 0 ];
+        erase_at( m_vecTriggeredCheckQueue, 0 );
     }
 
     if ( pPairToCheck == nullptr )
