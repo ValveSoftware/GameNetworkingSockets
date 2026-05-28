@@ -67,6 +67,19 @@ _allocations = {}
 # relay_sock -> Allocation, for dispatching incoming relay packets
 _relay_sock_map = {}
 
+# Pending delayed sends: list of (send_at, sock, data, addr) sorted by send_at.
+# Used when --relay-latency > 0.
+_pending_sends = []
+_relay_latency_sec = 0.0
+
+
+def _schedule_relay_send(sock, data, addr):
+    """Send a relay packet, optionally after a configured delay."""
+    if _relay_latency_sec <= 0.0:
+        sock.sendto(data, addr)
+    else:
+        _pending_sends.append( (time.monotonic() + _relay_latency_sec, sock, data, addr) )
+
 
 # ---------------------------------------------------------------------------
 # Attribute builders
@@ -256,7 +269,7 @@ def _handle_send_indication(data, addr):
         print("  Dropped Send to %s — no permission" % peer_ip, flush=True)
         return
 
-    alloc.relay_sock.sendto(payload, (peer_ip, peer_port))
+    _schedule_relay_send(alloc.relay_sock, payload, (peer_ip, peer_port))
 
 
 def _handle_relay_packet(relay_sock, payload, peer_addr):
@@ -277,7 +290,7 @@ def _handle_relay_packet(relay_sock, payload, peer_addr):
     peer_attr = _build_xor_addr_attr(ATTR_XOR_PEER_ADDRESS, peer_addr[0], peer_addr[1], tid)
     data_attr = _build_data_attr(payload)
     indication = _build_response(MSG_DATA_INDICATION, tid, peer_attr, data_attr)
-    alloc.server_sock.sendto(indication, alloc.client_addr)
+    _schedule_relay_send(alloc.server_sock, indication, alloc.client_addr)
 
 
 def _handle_packet(sock, data, addr, server_host):
@@ -345,8 +358,19 @@ def run(host4, host6, port):
 
     while True:
         try:
+            # Flush any sends that are ready to go, or figure out when the next one is due.
+            select_timeout = 2.0
+            now = time.monotonic()
+            while _pending_sends:
+                remaining = _pending_sends[0][0] - now
+                if remaining > 0:
+                    select_timeout = remaining
+                    break
+                _, sock, data, addr = _pending_sends.pop(0)
+                sock.sendto(data, addr)
+
             all_socks = server_socks + list(_relay_sock_map.keys())
-            readable, _, _ = select.select(all_socks, [], [], 30.0)
+            readable, _, _ = select.select(all_socks, [], [], select_timeout)
             for sock in readable:
                 data, addr = sock.recvfrom(65535)
                 if sock in host_by_sock:
@@ -369,5 +393,8 @@ if __name__ == '__main__':
                         help='IPv6 address to bind (optional)')
     parser.add_argument('--port',  type=int, default=3478,
                         help='UDP port (default: 3478)')
+    parser.add_argument('--relay-latency', type=float, default=0.0, metavar='MS',
+                        help='Extra one-way latency in milliseconds applied to all relayed packets (default: 0)')
     args = parser.parse_args()
+    _relay_latency_sec = args.relay_latency / 1000.0
     run(args.host, args.host6, args.port)

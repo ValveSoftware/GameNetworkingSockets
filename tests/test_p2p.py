@@ -447,7 +447,8 @@ if not os.path.exists( stun_server_script ):
     sys.exit(1)
 
 stun = StartProcessInThread( "stun", [ sys.executable, stun_server_script,
-                                       '--host', g_stun_ip, '--host6', g_stun_ipv6, '--port', str(g_stun_port) ],
+                                       '--host', g_stun_ip, '--host6', g_stun_ipv6, '--port', str(g_stun_port),
+                                       '--relay-latency', '75' ],
                              ready_message="STUN/TURN server listening on", ready_event=g_stun_ready )
 
 if not g_stun_ready.wait( timeout=g_server_startup_timeout ):
