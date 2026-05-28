@@ -1714,7 +1714,9 @@ not_stun:
         if ( nByteCount > 0 )
         {
             SpewVerboseGroup( nLogLevel, "ICE: Sending a STUN response to %s from %s.", SteamNetworkingIPAddrRender( fromAddr, true ).c_str(), SteamNetworkingIPAddrRender( pInterface->m_pSocket->m_boundAddr, true ).c_str() );
-            iovec iov{ responseBuffer, (size_t)nByteCount };
+            iovec iov;
+            iov.iov_base = (void*)responseBuffer;
+            iov.iov_len = nByteCount;
             pInterface->SendPacketGather( 1, &iov, nByteCount, fromAddr, localCandidate.m_addrTURNServer );
         }
     }
