@@ -452,7 +452,7 @@ namespace SteamNetworkingSocketsLib {
     public:
         virtual void OnLocalCandidateDiscovered( EICECandidateType type, const char *pszCandidateStr ) {}
         virtual void OnPacketReceived( const RecvPktInfo_t &info ) {}
-        virtual void OnConnectionSelected( const ICESessionInterface& localInterface, const CSteamNetworkingICESession::ICECandidateBase& remoteCandidate ) {}
+        virtual void OnConnectionSelected( const ICELocalCandidate& localCandidate, const CSteamNetworkingICESession::ICECandidateBase& remoteCandidate ) {}
     };
 
 
@@ -479,7 +479,7 @@ namespace SteamNetworkingSocketsLib {
     protected:
         virtual void OnLocalCandidateDiscovered( EICECandidateType type, const char *pszCandidateStr ) override;
         virtual void OnPacketReceived( const RecvPktInfo_t &info ) override;
-        virtual void OnConnectionSelected( const ICESessionInterface& localInterface, const CSteamNetworkingICESession::ICECandidateBase& remoteCandidate ) override;
+        virtual void OnConnectionSelected( const ICELocalCandidate& localCandidate, const CSteamNetworkingICESession::ICECandidateBase& remoteCandidate ) override;
     };
 
 } // namespace SteamNetworkingSocketsLib
