@@ -1266,7 +1266,21 @@ void CSteamNetworkingICESession::InvalidateInterfaceList()
 
 void CSteamNetworkingICESession::SetSelectedCandidatePair( ICECandidatePair *pPair )
 {
-    SpewMsg( "\n\nSelected candidate %s -> %s.\n\n", SteamNetworkingIPAddrRender( pPair->m_localCandidate.m_pInterface->m_pSocket->m_boundAddr ).c_str(), SteamNetworkingIPAddrRender( pPair->m_remoteCandidate.m_addr ).c_str() );
+    // FIXME Should get info and config value from connection
+    const int nLogLevel = GlobalConfig::LogLevel_P2PRendezvous.Get();
+    if ( pPair->m_localCandidate.IsRelay() )
+    {
+        SpewVerboseGroup( nLogLevel, "ICE selected candidate %s -> %s -> %s.",
+            SteamNetworkingIPAddrRender( pPair->m_localCandidate.m_pInterface->m_pSocket->m_boundAddr ).c_str(),
+            SteamNetworkingIPAddrRender( pPair->m_localCandidate.m_addrTURNServer ).c_str(),
+            SteamNetworkingIPAddrRender( pPair->m_remoteCandidate.m_addr ).c_str() );
+    }
+    else
+    {
+        SpewVerboseGroup( nLogLevel, "ICE selected candidate %s -> %s.",
+            SteamNetworkingIPAddrRender( pPair->m_localCandidate.m_pInterface->m_pSocket->m_boundAddr ).c_str(),
+            SteamNetworkingIPAddrRender( pPair->m_remoteCandidate.m_addr ).c_str() );
+    }
     m_pSelectedCandidatePair = pPair;
     if ( m_pCallbacks )
         m_pCallbacks->OnConnectionSelected( pPair->m_localCandidate, pPair->m_remoteCandidate );
@@ -1341,7 +1355,7 @@ void CSteamNetworkingICESession::GatherInterfaces()
         {
             // ICESessionInterface disappeared!  Delete the socket and all candidates
             // and pairs that use it
-            SpewMsg( "Local interface %s removed\n", SteamNetworkingIPAddrRender( intf->m_pSocket->m_boundAddr ).c_str() );
+            SpewMsg( "ICE: Local interface %s removed\n", SteamNetworkingIPAddrRender( intf->m_pSocket->m_boundAddr ).c_str() );
 
             for ( int j = len( m_vecCandidatePairs ) - 1; j >= 0; --j )
             {
@@ -1378,7 +1392,7 @@ void CSteamNetworkingICESession::GatherInterfaces()
         pIntf->m_pSocket = OpenRawUDPSocket( CRecvPacketCallback( CSteamNetworkingICESession::StaticPacketReceived, pIntf.get() ), errMsg, &bindAddr, nullptr );
         if ( pIntf->m_pSocket == nullptr )
         {
-            SpewWarning( "Could not bind to %s, skipping interface.  %s\n", SteamNetworkingIPAddrRender( addr.m_addr ).c_str(), errMsg );
+            SpewWarning( "ICE: Could not bind to %s, skipping interface.  %s\n", SteamNetworkingIPAddrRender( addr.m_addr ).c_str(), errMsg );
             continue;
         }
 
@@ -1502,6 +1516,8 @@ not_stun:
         return;
     }
 
+    const int nLogLevel = GlobalConfig::LogLevel_P2PRendezvous.Get();
+
     //
     // Incoming binding request
     //
@@ -1516,7 +1532,7 @@ not_stun:
     {
         if ( pUsernameAttr->m_nLength < (uint32)m_strIncomingUsername.size() )
         {
-            SpewMsg( "Incorrect username length; at least %d expected, got %d.", (int)m_strIncomingUsername.size(), pUsernameAttr->m_nLength );
+            SpewMsgGroup( nLogLevel, "ICE: Incorrect username length; at least %d expected, got %d.", (int)m_strIncomingUsername.size(), pUsernameAttr->m_nLength );
             return;
         }
         if ( m_strIncomingUsername.size() == 0 )
@@ -1533,7 +1549,7 @@ not_stun:
             }
             if ( nLen == 0 )
             {
-                SpewMsg( "Invalid username; no : found in %s", std::string( (const char*)( pUsernameAttr->m_pData ),pUsernameAttr->m_nLength ).c_str() );
+                SpewMsgGroup( nLogLevel, "ICE: Invalid username; no : found in %s", std::string( (const char*)( pUsernameAttr->m_pData ),pUsernameAttr->m_nLength ).c_str() );
                 return;
             }
 
@@ -1543,7 +1559,7 @@ not_stun:
         else if ( V_memcmp( pUsernameAttr->m_pData, m_strIncomingUsername.c_str(), m_strIncomingUsername.size() ) != 0 )
         {
             std::string remoteName( (char*)pUsernameAttr->m_pData, pUsernameAttr->m_nLength );
-            SpewMsg( "Incorrect username: got '%s' expected '%s'.", remoteName.c_str(), m_strIncomingUsername.c_str() );
+            SpewMsgGroup( nLogLevel, "ICE: Incorrect username: got '%s' expected '%s'.", remoteName.c_str(), m_strIncomingUsername.c_str() );
             return;
         }
     }
@@ -1556,7 +1572,7 @@ not_stun:
     // Find the candidate pair for this binding request, if any
     //
 
-    SpewMsg( "Incoming binding request from %s to %s.\n\n", SteamNetworkingIPAddrRender( fromAddr ).c_str(), SteamNetworkingIPAddrRender( pInterface->m_pSocket->m_boundAddr ).c_str() );
+    SpewVerboseGroup( nLogLevel, "ICE: Incoming binding request from %s to %s.\n\n", SteamNetworkingIPAddrRender( fromAddr ).c_str(), SteamNetworkingIPAddrRender( pInterface->m_pSocket->m_boundAddr ).c_str() );
 
     ICELocalCandidate localCandidate{ pInterface, pAddrRelay ? *pAddrRelay : SteamNetworkingIPAddr{} };
 
@@ -1674,7 +1690,7 @@ not_stun:
             (const uint8*)m_strLocalPassword.c_str(), (uint32)m_strLocalPassword.size(), outAttrs.Base(), outAttrs.Count() );
         if ( nByteCount > 0 )
         {
-            SpewMsg( "Sending a STUN response to %s from %s.", SteamNetworkingIPAddrRender( fromAddr, true ).c_str(), SteamNetworkingIPAddrRender( pInterface->m_pSocket->m_boundAddr, true ).c_str() );
+            SpewVerboseGroup( nLogLevel, "ICE: Sending a STUN response to %s from %s.", SteamNetworkingIPAddrRender( fromAddr, true ).c_str(), SteamNetworkingIPAddrRender( pInterface->m_pSocket->m_boundAddr, true ).c_str() );
             iovec iov{ responseBuffer, (size_t)nByteCount };
             pInterface->SendPacketGather( 1, &iov, nByteCount, fromAddr, localCandidate.m_addrTURNServer );
         }
