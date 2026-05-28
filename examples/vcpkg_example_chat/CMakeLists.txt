@@ -14,5 +14,11 @@ add_executable(
 	example_chat
 	../example_chat.cpp)
 
-# This example links GameNetworkingSockets as a shared lib.
-target_link_libraries(example_chat GameNetworkingSockets::shared)
+# Link against shared or static depending on how vcpkg built the library.
+# Pass -DGNS_LINK_STATIC=ON to link statically (e.g. with x64-windows-static triplet).
+option(GNS_LINK_STATIC "Link GameNetworkingSockets statically" OFF)
+if(GNS_LINK_STATIC)
+	target_link_libraries(example_chat GameNetworkingSockets::static)
+else()
+	target_link_libraries(example_chat GameNetworkingSockets::shared)
+endif()

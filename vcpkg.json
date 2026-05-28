@@ -5,7 +5,12 @@
 	"description": "A basic transport layer for games.",
 	"homepage": "https://github.com/ValveSoftware/GameNetworkingSockets",
 	"builtin-baseline": "522253caf47268c1724f486a035e927a42a90092",
-	"dependencies": [ "protobuf", "openssl" ],
+	"dependencies": [
+		"protobuf",
+		"openssl",
+		{ "name": "vcpkg-cmake", "host": true },
+		{ "name": "vcpkg-cmake-config", "host": true }
+	],
 	"default-features": [ "openssl" ],
 	"features": {
 		"openssl": {
