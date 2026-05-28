@@ -1269,7 +1269,7 @@ void CSteamNetworkingICESession::SetSelectedCandidatePair( ICECandidatePair *pPa
     SpewMsg( "\n\nSelected candidate %s -> %s.\n\n", SteamNetworkingIPAddrRender( pPair->m_localCandidate.m_pInterface->m_pSocket->m_boundAddr ).c_str(), SteamNetworkingIPAddrRender( pPair->m_remoteCandidate.m_addr ).c_str() );
     m_pSelectedCandidatePair = pPair;
     if ( m_pCallbacks )
-        m_pCallbacks->OnConnectionSelected( *pPair->m_localCandidate.m_pInterface, pPair->m_remoteCandidate );
+        m_pCallbacks->OnConnectionSelected( pPair->m_localCandidate, pPair->m_remoteCandidate );
 }
 
 void CSteamNetworkingICESession::InternalDeleteCandidatePair( ICECandidatePair *pPair )
@@ -2437,14 +2437,17 @@ void CConnectionTransportP2PICE_Valve::OnLocalCandidateDiscovered( EICECandidate
     LocalCandidateGathered( type, std::move( c ) );
 }
 
-void CConnectionTransportP2PICE_Valve::OnConnectionSelected( const ICESessionInterface& localInterface, const CSteamNetworkingICESession::ICECandidateBase& remoteCandidate )
+void CConnectionTransportP2PICE_Valve::OnConnectionSelected( const ICELocalCandidate& localCandidate, const CSteamNetworkingICESession::ICECandidateBase& remoteCandidate )
 {
     ConnectionScopeLock lock( Connection(), "CConnectionTransportP2PICE_Valve::OnConnectionSelected");
 
     m_currentRouteRemoteAddress = remoteCandidate.m_addr;
-    m_eCurrentRouteKind = k_ESteamNetTransport_UDP;
-    if ( IsRemoteAddressOnLocalSubnet( localInterface.m_pSocket->m_boundAddr, localInterface.m_nPrefixLen, remoteCandidate.m_addr ) )
+    if ( localCandidate.IsRelay() || remoteCandidate.m_type == ICECandidateKind::Relayed )
+        m_eCurrentRouteKind = k_ESteamNetTransport_TURN;
+    else if ( IsRemoteAddressOnLocalSubnet( localCandidate.m_pInterface->m_pSocket->m_boundAddr, localCandidate.m_pInterface->m_nPrefixLen, remoteCandidate.m_addr ) )
         m_eCurrentRouteKind = k_ESteamNetTransport_UDPProbablyLocal;
+    else
+        m_eCurrentRouteKind = k_ESteamNetTransport_UDP;
     m_pingEndToEnd.Reset();
     m_pingEndToEnd.ReceivedPing( m_pICESession->GetPing(), SteamNetworkingSockets_GetLocalTimestamp() );
     Connection().TransportEndToEndConnectivityChanged( this, SteamNetworkingSockets_GetLocalTimestamp() );
