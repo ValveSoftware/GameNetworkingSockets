@@ -443,7 +443,7 @@ namespace SteamNetworkingSocketsLib {
         void STUNRequestCallback_CreatePermission( const RecvSTUNPktInfo_t &info );
         void STUNRequestCallback_PeerConnectivityCheck( const RecvSTUNPktInfo_t &info );
 
-        void OnPacketReceived( const RecvPktInfo_t &info, ICESessionInterface *pInterface );
+        void OnPacketReceived( const RecvPktInfo_t &info, ICESessionInterface *pInterface, SteamNetworkingIPAddr *pAddrRelay = nullptr );
         static void StaticPacketReceived( const RecvPktInfo_t &info, ICESessionInterface *pContext );
     };
 

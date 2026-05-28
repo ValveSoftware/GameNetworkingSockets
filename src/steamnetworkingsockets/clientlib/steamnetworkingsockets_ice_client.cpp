@@ -574,20 +574,6 @@ static uint32 EncodeSTUNPacket( uint32* messageBuffer, uint16 nMessageType, int 
     return ( pAttributePtr - messageBuffer ) * 4;
 }
 
-static bool SendSTUNResponsePacket( IRawUDPSocket* pSocket, int nEncoding, uint32 *pTransactionID, const SteamNetworkingIPAddr& toAddr, const uint8 *pubKey, uint32 cubKey, STUNAttribute* pAttrs, int nAttrs )
-{
-    uint32 messageBuffer[ k_nSTUN_MaxPacketSize_Bytes / 4 ];
-    const int nByteCount = EncodeSTUNPacket( messageBuffer, k_nSTUN_BindingResponse, nEncoding, pTransactionID, toAddr, pubKey, cubKey, pAttrs, nAttrs );
-    if ( nByteCount == 0 )
-        return false;
-
-    SpewMsg( "Sending a STUN response to %s from %s.", SteamNetworkingIPAddrRender( toAddr, true ).c_str(), SteamNetworkingIPAddrRender( pSocket->m_boundAddr, true ).c_str() );
-    {
-        netadr_t netadr_t_toAdr;
-        ConvertSteamNetworkingIPAddrToNetAdr_t( toAddr, &netadr_t_toAdr );
-        return pSocket->BSendRawPacket( messageBuffer, nByteCount, netadr_t_toAdr );
-    }
-}
 
 static void ConvertNetAddr_tToSteamNetworkingIPAddr( const netadr_t& in, SteamNetworkingIPAddr *pOut )
 {
@@ -1406,7 +1392,7 @@ void CSteamNetworkingICESession::GatherInterfaces()
     }
 }
 
-void CSteamNetworkingICESession::OnPacketReceived( const RecvPktInfo_t &info, ICESessionInterface *pInterface )
+void CSteamNetworkingICESession::OnPacketReceived( const RecvPktInfo_t &info, ICESessionInterface *pInterface, SteamNetworkingIPAddr *pAddrRelay )
 {
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "CSteamNetworkingICESession::OnPacketReceived" );
 
@@ -1453,7 +1439,7 @@ not_stun:
     // TURN Data Indications are the most common STUN-framed packet once a relay is active.
     // Handle them first.  They are server-initiated (no matching transaction ID) so the
     // normal response-routing path below would just drop them.
-    if ( header.m_nMessageType == k_nTURN_DataIndication )
+    if ( !pAddrRelay && header.m_nMessageType == k_nTURN_DataIndication )
     {
         // Must originate from the TURN server we allocated with; discard anything else.
         SteamNetworkingIPAddr fromAddr;
@@ -1482,7 +1468,7 @@ not_stun:
         innerInfo.m_usecNow = info.m_usecNow;
         innerInfo.m_pSock   = info.m_pSock;
         ConvertSteamNetworkingIPAddrToNetAdr_t( peerAddr, &innerInfo.m_adrFrom );
-        OnPacketReceived( innerInfo, pInterface );
+        OnPacketReceived( innerInfo, pInterface, &pInterface->m_addrTURNServer );
         return;
     }
 
@@ -1572,12 +1558,15 @@ not_stun:
 
     SpewMsg( "Incoming binding request from %s to %s.\n\n", SteamNetworkingIPAddrRender( fromAddr ).c_str(), SteamNetworkingIPAddrRender( pInterface->m_pSocket->m_boundAddr ).c_str() );
 
+    ICELocalCandidate localCandidate{ pInterface, pAddrRelay ? *pAddrRelay : SteamNetworkingIPAddr{} };
+
     ICECandidatePair *pThisPair = nullptr;
     for ( ICECandidatePair *pPair : m_vecCandidatePairs )
     {
         if ( pPair->m_remoteCandidate.m_addr == fromAddr
-            && pPair->m_localCandidate.m_pInterface == pInterface )
-        {
+            && pPair->m_localCandidate.m_pInterface == localCandidate.m_pInterface
+            && pPair->m_localCandidate.m_addrTURNServer == localCandidate.m_addrTURNServer
+        ) {
             pThisPair = pPair;
             break;
         }
@@ -1614,43 +1603,40 @@ not_stun:
             }
             pRemoteCandidate = push_back_get_ptr( m_vecPeerCandidates, ICEPeerCandidate( newRemoteCandidate, SteamNetworkingIPAddrRender( fromAddr ).c_str() ) );
         }
-        pThisPair = new ICECandidatePair( ICELocalCandidate{ pInterface, {} }, *pRemoteCandidate, m_role );
+        pThisPair = new ICECandidatePair( localCandidate, *pRemoteCandidate, m_role );
         m_vecCandidatePairs.push_back( pThisPair );
     }
 
-    if ( pThisPair != nullptr )
+    if ( FindAttributeOfType( vecAttrs.Base(), vecAttrs.Count(), k_nSTUN_Attr_UseCandidate ) )
     {
-        if ( FindAttributeOfType( vecAttrs.Base(), vecAttrs.Count(), k_nSTUN_Attr_UseCandidate ) )
+        if ( pThisPair->m_nState == kICECandidatePairState_Succeeded
+                && ( m_pSelectedCandidatePair == nullptr || m_pSelectedCandidatePair == pThisPair ) )
         {
-            if ( pThisPair->m_nState == kICECandidatePairState_Succeeded
-                    && ( m_pSelectedCandidatePair == nullptr || m_pSelectedCandidatePair == pThisPair ) )
+            SetSelectedCandidatePair( pThisPair );
+        }
+        else if ( m_pSelectedCandidatePair == nullptr )
+        {
+            bool bAlreadyHaveANomination = ( m_pSelectedCandidatePair != nullptr );
+            for ( ICECandidatePair *pOtherPair : m_vecCandidatePairs )
             {
-                SetSelectedCandidatePair( pThisPair );
+                if ( pOtherPair->m_bNominated == true
+                    && ( pOtherPair->m_nState == kICECandidatePairState_InProgress || pOtherPair->m_nState == kICECandidatePairState_Waiting ) )
+                    bAlreadyHaveANomination = true;
             }
-            else if ( m_pSelectedCandidatePair == nullptr )
+
+            // Do we already have a valid triggered check in flight?
+            if ( pThisPair->m_pPeerRequest != nullptr )
             {
-                bool bAlreadyHaveANomination = ( m_pSelectedCandidatePair != nullptr );
-                for ( ICECandidatePair *pOtherPair : m_vecCandidatePairs )
-                {
-                    if ( pOtherPair->m_bNominated == true
-                        && ( pOtherPair->m_nState == kICECandidatePairState_InProgress || pOtherPair->m_nState == kICECandidatePairState_Waiting ) )
-                        bAlreadyHaveANomination = true;
-                }
+                pThisPair->m_pPeerRequest->Cancel();
+                pThisPair->m_pPeerRequest = nullptr;
+                pThisPair->m_nState = kICECandidatePairState_Waiting;
+            }
 
-                // Do we already have a valid triggered check in flight?
-                if ( pThisPair->m_pPeerRequest != nullptr )
-                {
-                    pThisPair->m_pPeerRequest->Cancel();
-                    pThisPair->m_pPeerRequest = nullptr;
-                    pThisPair->m_nState = kICECandidatePairState_Waiting;
-                }
-
-                if ( !bAlreadyHaveANomination )
-                {
-                    pThisPair->m_nState = kICECandidatePairState_Waiting;
-                    pThisPair->m_bNominated = true;
-                    m_vecTriggeredCheckQueue.push_back( pThisPair );
-                }
+            if ( !bAlreadyHaveANomination )
+            {
+                pThisPair->m_nState = kICECandidatePairState_Waiting;
+                pThisPair->m_bNominated = true;
+                m_vecTriggeredCheckQueue.push_back( pThisPair );
             }
         }
     }
@@ -1664,12 +1650,22 @@ not_stun:
         outAttrs.AddToTail( attrUsername );
     }
 
-    SendSTUNResponsePacket( info.m_pSock, m_nEncoding, header.m_nTransactionID, fromAddr, (const uint8*)m_strLocalPassword.c_str(), (uint32)m_strLocalPassword.size(), outAttrs.Base(), outAttrs.Count() );
+    {
+        uint32 responseBuffer[ k_nSTUN_MaxPacketSize_Bytes / 4 ];
+        const int nByteCount = EncodeSTUNPacket( responseBuffer, k_nSTUN_BindingResponse, m_nEncoding, header.m_nTransactionID, fromAddr,
+            (const uint8*)m_strLocalPassword.c_str(), (uint32)m_strLocalPassword.size(), outAttrs.Base(), outAttrs.Count() );
+        if ( nByteCount > 0 )
+        {
+            SpewMsg( "Sending a STUN response to %s from %s.", SteamNetworkingIPAddrRender( fromAddr, true ).c_str(), SteamNetworkingIPAddrRender( pInterface->m_pSocket->m_boundAddr, true ).c_str() );
+            iovec iov{ responseBuffer, (size_t)nByteCount };
+            pInterface->SendPacketGather( 1, &iov, nByteCount, fromAddr, localCandidate.m_addrTURNServer );
+        }
+    }
 }
 
 void CSteamNetworkingICESession::StaticPacketReceived( const RecvPktInfo_t &info, ICESessionInterface *pContext )
 {
-    pContext->m_session.OnPacketReceived( info, pContext );
+    pContext->m_session.OnPacketReceived( info, pContext, nullptr );
 }
 
 void CSteamNetworkingICESession::Think( SteamNetworkingMicroseconds usecNow )
