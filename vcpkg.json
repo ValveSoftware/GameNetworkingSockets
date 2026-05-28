@@ -1,7 +1,7 @@
 {
 	"$schema": "https://raw.githubusercontent.com/microsoft/vcpkg/master/scripts/vcpkg.schema.json",
 	"name": "gamenetworkingsockets",
-	"version-string": "1.4.0",
+	"version-string": "1.5.1",
 	"description": "A basic transport layer for games.",
 	"homepage": "https://github.com/ValveSoftware/GameNetworkingSockets",
 	"builtin-baseline": "522253caf47268c1724f486a035e927a42a90092",
