@@ -895,6 +895,12 @@ void CSteamNetworkingSocketsSTUNRequest::Cancel()
     delete this;
 }
 
+void CSteamNetworkingSocketsSTUNRequest::RetriggerNow()
+{
+    m_nRetryCount = 0;
+    SetNextThinkTimeASAP();
+}
+
 void CSteamNetworkingSocketsSTUNRequest::Think( SteamNetworkingMicroseconds usecNow )
 {
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "CSteamNetworkingSocketsSTUNRequest::Think" );
@@ -1627,50 +1633,67 @@ not_stun:
     // An incoming request proves the remote side can reach us, so retry immediately
     // rather than waiting for the normal schedule or a retransmit timeout.
     // Skip when USE-CANDIDATE is set — that path handles its own triggered check below.
-    if ( !FindAttributeOfType( vecAttrs.Base(), vecAttrs.Count(), k_nSTUN_Attr_UseCandidate )
-        && pThisPair->m_nState != kICECandidatePairState_Succeeded )
-    {
+    if (
+        pThisPair->m_nState != kICECandidatePairState_Succeeded
+        && !FindAttributeOfType( vecAttrs.Base(), vecAttrs.Count(), k_nSTUN_Attr_UseCandidate )
+    ) {
         if ( pThisPair->m_pPeerRequest != nullptr )
         {
-            // InProgress: cancel the existing request so we don't have two in flight.
-            pThisPair->m_pPeerRequest->Cancel();
-            pThisPair->m_pPeerRequest = nullptr;
+            Assert( pThisPair->m_nState == kICECandidatePairState_InProgress );
+
+            // Retrigger the existing in-flight request rather than canceling it.
+            // Canceling would assign a new transaction ID, orphaning any response
+            // already in flight for the old ID.
+            pThisPair->m_pPeerRequest->RetriggerNow();
         }
-        pThisPair->m_nState = kICECandidatePairState_Waiting;
-        if ( !has_element( m_vecTriggeredCheckQueue, pThisPair ) )
-            m_vecTriggeredCheckQueue.push_back( pThisPair );
+        else
+        {
+            Assert( pThisPair->m_nState != kICECandidatePairState_InProgress );
+            pThisPair->m_nState = kICECandidatePairState_Waiting;
+            if ( !has_element( m_vecTriggeredCheckQueue, pThisPair ) )
+                m_vecTriggeredCheckQueue.push_back( pThisPair );
+        }
     }
 
     if ( FindAttributeOfType( vecAttrs.Base(), vecAttrs.Count(), k_nSTUN_Attr_UseCandidate ) )
     {
-        if ( pThisPair->m_nState == kICECandidatePairState_Succeeded
-                && ( m_pSelectedCandidatePair == nullptr || m_pSelectedCandidatePair == pThisPair ) )
-        {
+        if (
+            pThisPair->m_nState == kICECandidatePairState_Succeeded
+            && ( m_pSelectedCandidatePair == nullptr || m_pSelectedCandidatePair == pThisPair )
+        ) {
             SetSelectedCandidatePair( pThisPair );
         }
         else if ( m_pSelectedCandidatePair == nullptr )
         {
-            bool bAlreadyHaveANomination = ( m_pSelectedCandidatePair != nullptr );
+            bool bAlreadyHaveANomination = false;
             for ( ICECandidatePair *pOtherPair : m_vecCandidatePairs )
             {
-                if ( pOtherPair->m_bNominated == true
-                    && ( pOtherPair->m_nState == kICECandidatePairState_InProgress || pOtherPair->m_nState == kICECandidatePairState_Waiting ) )
+                if (
+                    pOtherPair->m_bNominated
+                    && ( pOtherPair->m_nState == kICECandidatePairState_InProgress || pOtherPair->m_nState == kICECandidatePairState_Waiting )
+                ) {
                     bAlreadyHaveANomination = true;
-            }
-
-            // Do we already have a valid triggered check in flight?
-            if ( pThisPair->m_pPeerRequest != nullptr )
-            {
-                pThisPair->m_pPeerRequest->Cancel();
-                pThisPair->m_pPeerRequest = nullptr;
-                pThisPair->m_nState = kICECandidatePairState_Waiting;
+                }
             }
 
             if ( !bAlreadyHaveANomination )
             {
-                pThisPair->m_nState = kICECandidatePairState_Waiting;
                 pThisPair->m_bNominated = true;
-                m_vecTriggeredCheckQueue.push_back( pThisPair );
+                if ( pThisPair->m_pPeerRequest != nullptr )
+                {
+                    Assert( pThisPair->m_nState == kICECandidatePairState_InProgress );
+
+                    // The in-flight request will call SetSelectedCandidatePair when it
+                    // succeeds; m_bNominated is now set so the callback will handle it.
+                    // Retrigger rather than cancel so the existing transaction ID is preserved.
+                    pThisPair->m_pPeerRequest->RetriggerNow();
+                }
+                else
+                {
+                    Assert( pThisPair->m_nState != kICECandidatePairState_InProgress );
+                    pThisPair->m_nState = kICECandidatePairState_Waiting;
+                    m_vecTriggeredCheckQueue.push_back( pThisPair );
+                }
             }
         }
     }

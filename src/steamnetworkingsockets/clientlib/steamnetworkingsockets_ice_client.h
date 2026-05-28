@@ -222,6 +222,11 @@ namespace SteamNetworkingSocketsLib {
         void Queue( uint32 nMessageType, int nEncoding, SteamNetworkingIPAddr remoteAddr, RecvSTUNPacketCallback_t cb, STUNAttribute *pExtraAttrs = nullptr, int nExtraAttrs = 0 );
         void Cancel();
 
+        // Immediately retransmit and reset the exponential backoff schedule, as if
+        // the request were freshly queued.  The transaction ID is preserved, so any
+        // response already in flight will still be matched and processed.
+        void RetriggerNow();
+
         // Handle an incoming STUN reply that has already been matched to this request
         // by transaction ID.  Verifies message integrity, fires the callback, then
         // deletes this request.
