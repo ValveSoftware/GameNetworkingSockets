@@ -317,6 +317,14 @@ def _slow_nat( internal, gateway, nat_type, latency_ms ):
 # All mocked tests must use 1: the mock network is only wired into the native ICE path.
 # The two no-mock entries exercise both implementations on the real loopback network.
 CLIENT_SERVER_TEST_CASES = [
+    # Symmetric NAT on both sides: reflexive candidates cannot traverse this NAT type,
+    # so connectivity requires TURN relay.  This test is expected to fail until the
+    # relay data path (Send/Data Indication) is implemented.
+    ( 'symmetric NAT vs symmetric NAT (requires TURN relay)',
+      _nat( _SRV_INT, _SRV_GW, 'symmetric' ),
+      _nat( _CLI_INT, _CLI_GW, 'symmetric' ),
+      'relay', 1 ),
+
     # No-mock tests: run on real network (same host), both implementations.
     # We verify the route is 'local' (same-host loopback) but do not check the IP.
     ( 'no-mock, default ICE implementation',
