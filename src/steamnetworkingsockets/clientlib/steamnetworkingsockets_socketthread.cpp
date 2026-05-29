@@ -2599,7 +2599,9 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 	#endif
 
 	// We're back awake.  Grab the lock again
+	#ifdef DBGFLAG_ASSERT
 	SteamNetworkingMicroseconds usecStartedLocking = SteamNetworkingSockets_GetLocalTimestamp();
+	#endif
 	for (;;)
 	{
 
