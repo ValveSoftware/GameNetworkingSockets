@@ -1392,7 +1392,7 @@ void CSteamNetworkingICESession::GatherInterfaces()
     // the list was empty).
     for ( const LocalAddress_t &addr: vecAddrs )
     {
-        std::unique_ptr<ICESessionInterface> pIntf = std::make_unique<ICESessionInterface>( *this, uNextPriority, addr.m_nPrefixLen );
+        std::unique_ptr<ICESessionInterface> pIntf( new ICESessionInterface( *this, uNextPriority, addr.m_nPrefixLen ) );
         SteamDatagramErrMsg errMsg;
         SteamNetworkingIPAddr bindAddr = addr.m_addr;
         pIntf->m_pSocket = OpenRawUDPSocket( CRecvPacketCallback( CSteamNetworkingICESession::StaticPacketReceived, pIntf.get() ), errMsg, &bindAddr, nullptr );
