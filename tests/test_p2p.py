@@ -90,6 +90,7 @@ class RunProcessInThread(threading.Thread):
         self.log = open( self.tag + ".log", "wt" )
         self.process = None
         self.route_type = None
+        self.counters = {}  # populated from TEST_ICE_ctr_xxx=N lines in output
 
     def WriteLn( self, ln ):
         print( "%s> %s" % (self.tag, ln ) )
@@ -121,6 +122,9 @@ class RunProcessInThread(threading.Thread):
                     m = re.search( r'TEST ROUTE: addr=\S+ type=(\w+)', sOutput )
                     if m:
                         self.route_type = m.group(1)
+                    m = re.search( r'TEST_ICE_ctr_(\w+)=(\d+)', sOutput )
+                    if m:
+                        self.counters[m.group(1)] = int( m.group(2) )
                 elif self.process.poll() is not None:
                     break
             self.process.wait()
@@ -307,7 +311,24 @@ def _disabled_adapter( ip ):
 def _slow_nat( internal, gateway, nat_type, latency_ms ):
     return [ '--mock-gateway', gateway, '--mock-nat', nat_type, '--mock-adapter', internal, '--mock-latency', str(latency_ms) ]
 
-# Each entry: ( description, server_extra_args, client_extra_args, expected_route, ice_impl )
+# Counter constraint dicts: map short counter name -> (min, max), None = no bound.
+# Applied to both server and client after each test.
+# Only the relay-path counters are pinned; binding_req counts vary with retransmit timing.
+_CTR_RELAY = {          # TURN relay path was used for data
+    'allocate_send':  (1, None),
+    'send_ind_send':  (1, None),
+    'data_ind_recv':  (1, None),
+}
+_CTR_DIRECT = {         # Direct path; TURN was allocated (but relay candidates are still probed)
+    'allocate_send':  (1, None),
+}
+_CTR_DIRECT_NO_TURN = { # Direct path; no TURN allocated (e.g. IPv6-only adapter with IPv4-only TURN server)
+    'allocate_send':  (0, 0),
+    'send_ind_send':  (0, 0),
+    'data_ind_recv':  (0, 0),
+}
+
+# Each entry: ( description, server_extra_args, client_extra_args, expected_route, ice_impl, counter_constraints )
 # Both sides must report the same route type — ICE nominates one candidate pair
 # and both ends classify the same path, so agreement is guaranteed by the protocol.
 # Route types: 'local' = Fast flag set: both host candidates on the same private /24 LAN subnet
@@ -323,22 +344,24 @@ CLIENT_SERVER_TEST_CASES = [
     ( 'symmetric NAT vs symmetric NAT (requires TURN relay)',
       _nat( _SRV_INT, _SRV_GW, 'symmetric' ),
       _nat( _CLI_INT, _CLI_GW, 'symmetric' ),
-      'relay', 1 ),
+      'relay', 1, _CTR_RELAY ),
 
     # No-mock tests: run on real network (same host), both implementations.
     # We verify the route is 'local' (same-host loopback) but do not check the IP.
+    # No counter constraints for the default-impl test: it may use WebRTC instead of
+    # our native ICE, in which case the counters will all be zero.
     ( 'no-mock, default ICE implementation',
       [], [],
-      'local', 0 ),
+      'local', 0, None ),
     ( 'no-mock, native ICE implementation',
       [], [],
-      'local', 1 ),
+      'local', 1, _CTR_DIRECT ),
 
     # Both on the same private /24 LAN: the core case for 'local' classification.
     ( 'same LAN (private subnet, no NAT)',
       [ '--mock-adapter', _SRV_INT ],
       [ '--mock-adapter', _CLI_SAME_LAN ],
-      'local', 1 ),
+      'local', 1, _CTR_DIRECT ),
 
     # Both on the same LAN but each also has a NAT to the public internet via the
     # same shared gateway — the typical home/office scenario.  Both a direct host path
@@ -347,46 +370,46 @@ CLIENT_SERVER_TEST_CASES = [
     ( 'same LAN, shared gateway (hairpin)',
       _nat( _SRV_INT, _SRV_GW, 'full-cone' ),
       _nat( _CLI_SAME_LAN, _SRV_GW, 'full-cone' ),
-      'local', 1 ),
+      'local', 1, _CTR_DIRECT ),
 
     # Both on the public network: direct host-to-host but NOT 'local' — public IPs
     # are not classified as fast even when they share a subnet.
     ( 'no-nat (both public)',
       [ '--mock-adapter', _SRV_GW ],
       [ '--mock-adapter', _CLI_GW ],
-      'udp', 1 ),
+      'udp', 1, _CTR_DIRECT ),
 
     ( 'full-cone NAT',
       _nat( _SRV_INT, _SRV_GW, 'full-cone' ),
       _nat( _CLI_INT, _CLI_GW, 'full-cone' ),
-      'udp', 1 ),
+      'udp', 1, _CTR_DIRECT ),
     ( 'restricted-cone NAT',
       _nat( _SRV_INT, _SRV_GW, 'restricted-cone' ),
       _nat( _CLI_INT, _CLI_GW, 'restricted-cone' ),
-      'udp', 1 ),
+      'udp', 1, _CTR_DIRECT ),
     ( 'port-restricted-cone NAT',
       _nat( _SRV_INT, _SRV_GW, 'port-restricted-cone' ),
       _nat( _CLI_INT, _CLI_GW, 'port-restricted-cone' ),
-      'udp', 1 ),
+      'udp', 1, _CTR_DIRECT ),
     # symmetric-vs-symmetric requires TURN relay; ICE alone cannot traverse it
     ( 'asymmetric: server public, client full-cone',
       [ '--mock-adapter', _SRV_GW ],
       _nat( _CLI_INT, _CLI_GW, 'full-cone' ),
-      'udp', 1 ),  # client host (127.0.2.x) to server host (127.0.100.x): different subnets
+      'udp', 1, _CTR_DIRECT ),  # client host (127.0.2.x) to server host (127.0.100.x): different subnets
     ( 'asymmetric: server full-cone, client symmetric',
       _nat( _SRV_INT, _SRV_GW, 'full-cone' ),
       _nat( _CLI_INT, _CLI_GW, 'symmetric' ),
-      'udp', 1 ),
+      'udp', 1, _CTR_DIRECT ),
 
     # Disabled adapter: verify connection still succeeds when one adapter is down
     ( 'server has disabled second adapter',
       [ '--mock-adapter', _SRV_GW ] + _disabled_adapter( _DEAD_INT ),
       _nat( _CLI_INT, _CLI_GW, 'full-cone' ),
-      'udp', 1 ),
+      'udp', 1, _CTR_DIRECT ),
     ( 'client has disabled second adapter',
       [ '--mock-adapter', _SRV_GW ],
       _nat( _CLI_INT, _CLI_GW, 'full-cone' ) + _disabled_adapter( _DEAD_INT ),
-      'udp', 1 ),
+      'udp', 1, _CTR_DIRECT ),
 
     # Multi-adapter with latency: fast public adapter + slow NATd adapter.
     # ICE should prefer the low-latency host-to-host path.  Both public adapters
@@ -394,23 +417,24 @@ CLIENT_SERVER_TEST_CASES = [
     ( 'both multi-adapter: fast public + slow NATd',
       [ '--mock-adapter', _SRV_GW ] + _slow_nat( _SRV_INT2, _SRV_GW2, 'full-cone', 50 ),
       [ '--mock-adapter', _CLI_GW ] + _slow_nat( _CLI_INT2, _CLI_GW2, 'full-cone', 50 ),
-      'udp', 1 ),
+      'udp', 1, _CTR_DIRECT ),
 
     # IPv6 host candidates: both endpoints have a public IPv6 address, no NAT.
     # fd7f:0:100::x is the mock public IPv6 network (not classified as 'local').
+    # No TURN allocation: the TURN server is IPv4-only; IPv6 adapters skip it.
     ( 'IPv6 no-nat (both public)',
       [ '--mock-adapter', _SRV_GW_V6 ],
       [ '--mock-adapter', _CLI_GW_V6 ],
-      'udp', 1 ),
+      'udp', 1, _CTR_DIRECT_NO_TURN ),
 
     # IPv6 full-cone NAT
     ( 'IPv6 full-cone NAT',
       _nat( _SRV_INT_V6, _SRV_GW_V6, 'full-cone' ),
       _nat( _CLI_INT_V6, _CLI_GW_V6, 'full-cone' ),
-      'udp', 1 ),
+      'udp', 1, _CTR_DIRECT_NO_TURN ),
 ]
 
-def ClientServerTest( server_extra_args=[], client_extra_args=[], expected_route=None, ice_impl=1 ):
+def ClientServerTest( server_extra_args=[], client_extra_args=[], expected_route=None, ice_impl=1, expected_counters=None ):
     global g_failed
     impl_args = [ '--ice-implementation', str(ice_impl) ]
     server = StartClientInThread( "server", "peer_server", "peer_client", server_extra_args + impl_args )
@@ -429,6 +453,18 @@ def ClientServerTest( server_extra_args=[], client_extra_args=[], expected_route
             elif thread.route_type != expected_route:
                 print( "ERROR: %s route type '%s', expected '%s'" % ( peer, thread.route_type, expected_route ) )
                 g_failed = True
+
+    # Verify packet counters if constraints were provided
+    if expected_counters is not None:
+        for peer, thread in [ ( 'server', server ), ( 'client', client ) ]:
+            for name, (lo, hi) in expected_counters.items():
+                val = thread.counters.get( name, 0 )
+                if lo is not None and val < lo:
+                    print( "ERROR: %s TEST_ICE_ctr_%s=%d, expected >= %d" % ( peer, name, val, lo ) )
+                    g_failed = True
+                if hi is not None and val > hi:
+                    print( "ERROR: %s TEST_ICE_ctr_%s=%d, expected <= %d" % ( peer, name, val, hi ) )
+                    g_failed = True
 
 #
 # Main
@@ -490,11 +526,11 @@ if not g_server_ready.wait( timeout=g_server_startup_timeout ):
 print( "Signaling server is ready, starting test clients" )
 
 # Run the tests
-for desc, srv_args, cli_args, exp_route, ice_impl in CLIENT_SERVER_TEST_CASES:
+for desc, srv_args, cli_args, exp_route, ice_impl, exp_counters in CLIENT_SERVER_TEST_CASES:
     print( "=================================================================" )
     print( "Test: " + desc )
     print( "=================================================================" )
-    ClientServerTest( srv_args, cli_args, exp_route, ice_impl )
+    ClientServerTest( srv_args, cli_args, exp_route, ice_impl, exp_counters )
     if g_failed:
         break
 
