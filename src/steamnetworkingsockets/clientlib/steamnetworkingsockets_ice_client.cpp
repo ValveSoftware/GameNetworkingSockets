@@ -834,6 +834,47 @@ bool ParseRFC5245CandidateAttribute( const char *pszAttr, RFC5245CandidateAttr *
 
 } // namespace <anonymous>
 
+/////////////////////////////////////////////////////////////////////////////
+//
+// Test counters
+//
+// Simple per-connection counters for use by the test suite.  Incremented
+// deep in the ICE stack; read and reset by test_p2p.cpp.  Not thread-safe
+// (ICE runs under the global lock) and not compiled for shipping builds.
+//
+/////////////////////////////////////////////////////////////////////////////
+
+int TEST_ICE_ctr_binding_req_send = 0;  // binding requests we sent (srflx gather + connectivity checks)
+int TEST_ICE_ctr_binding_req_recv = 0;  // binding requests received from peer
+int TEST_ICE_ctr_binding_resp_send = 0; // binding responses we sent
+int TEST_ICE_ctr_binding_resp_recv = 0; // binding responses we received
+int TEST_ICE_ctr_allocate_send    = 0;  // TURN allocate requests sent
+int TEST_ICE_ctr_send_ind_send    = 0;  // TURN send indications sent (data out via relay)
+int TEST_ICE_ctr_data_ind_recv    = 0;  // TURN data indications received (data in via relay)
+
+void TEST_ICE_ctr_Reset()
+{
+    SpewMsg( "ICE counters reset\n" );
+    TEST_ICE_ctr_binding_req_send = 0;
+    TEST_ICE_ctr_binding_req_recv = 0;
+    TEST_ICE_ctr_binding_resp_send = 0;
+    TEST_ICE_ctr_binding_resp_recv = 0;
+    TEST_ICE_ctr_allocate_send    = 0;
+    TEST_ICE_ctr_send_ind_send    = 0;
+    TEST_ICE_ctr_data_ind_recv    = 0;
+}
+
+void TEST_ICE_ctr_Print()
+{
+    SpewMsg( "TEST_ICE_ctr_binding_req_send=%d\n",  TEST_ICE_ctr_binding_req_send );
+    SpewMsg( "TEST_ICE_ctr_binding_req_recv=%d\n",  TEST_ICE_ctr_binding_req_recv );
+    SpewMsg( "TEST_ICE_ctr_binding_resp_send=%d\n", TEST_ICE_ctr_binding_resp_send );
+    SpewMsg( "TEST_ICE_ctr_binding_resp_recv=%d\n", TEST_ICE_ctr_binding_resp_recv );
+    SpewMsg( "TEST_ICE_ctr_allocate_send=%d\n",     TEST_ICE_ctr_allocate_send );
+    SpewMsg( "TEST_ICE_ctr_send_ind_send=%d\n",     TEST_ICE_ctr_send_ind_send );
+    SpewMsg( "TEST_ICE_ctr_data_ind_recv=%d\n",     TEST_ICE_ctr_data_ind_recv );
+}
+
 // Compare IP addresses, ignoring the port.
 // Should we promotet this to a more public header?  Or perhaps
 // make it a member of SteamNetworkingIPAddr?
@@ -872,6 +913,11 @@ void CSteamNetworkingSocketsSTUNRequest::Queue( uint32 nMessageType, int nEncodi
         m_pInterface->m_pSocket->m_boundAddr,
         (const uint8*)m_strPassword.c_str(), (uint32)m_strPassword.size(),
         pExtraAttrs, nExtraAttrs );
+
+    if ( nMessageType == k_nSTUN_BindingRequest )
+        ++TEST_ICE_ctr_binding_req_send;
+    else if ( nMessageType == k_nTURN_AllocateRequest )
+        ++TEST_ICE_ctr_allocate_send;
 
     // Schedule send.  We do it this way instead of sending imediately, in case we fail and need to Cancel.
     // That way, Cancel always only happens from one call stack, inside Think(). and we don't get tangled up.
@@ -926,8 +972,13 @@ void CSteamNetworkingSocketsSTUNRequest::Think( SteamNetworkingMicroseconds usec
         // Immediate failure to send is actually very common, e.g. unroutable between two different private subnets.
         m_usecLastSentTime = 0;
     }
+    else
+    {
+        SpewVerboseGroup( GlobalConfig::LogLevel_P2PRendezvous.Get(), "ICE: STUN request to %s timed out.\n",
+            SteamNetworkingIPAddrRender( m_remoteAddr ).c_str() );
+    }
 
-    // Call the callback to notify that we've failed, and SELF DESTRUCT
+    // Call the callback to notify that we've failed, and SELF DESTRUCT.
     Cancel();
 
     // WARNING: We don't exist here!
@@ -938,7 +989,14 @@ void CSteamNetworkingSocketsSTUNRequest::ReplyPacketReceived( const RecvPktInfo_
     // Parse attributes.  Drop packet if there is a problem.
     CUtlVector< STUNAttribute > vecAttributes;
     if ( !ParseSTUNAttributes( info, (const byte*)m_strPassword.c_str(), (uint32)m_strPassword.size(), &vecAttributes ) )
+    {
+        SpewVerboseGroup( GlobalConfig::LogLevel_P2PRendezvous.Get(), "ICE: Dropping STUN response from %s: attribute parse or integrity failure.\n",
+            SteamNetworkingIPAddrRender( m_remoteAddr ).c_str() );
         return;
+    }
+
+    if ( header.m_nMessageType == k_nSTUN_BindingResponse )
+        ++TEST_ICE_ctr_binding_resp_recv;
 
     if ( m_callback )
     {
@@ -1048,6 +1106,7 @@ bool ICESessionInterface::SendPacketGather( int nChunks, const iovec *pChunks, i
         ++nRelayChunks;
     }
 
+    ++TEST_ICE_ctr_send_ind_send;
     return m_pSocket->BSendRawPacketGather( nRelayChunks, relayChunks, addrRelay );
 }
 
@@ -1465,7 +1524,14 @@ not_stun:
         SteamNetworkingIPAddr fromAddr;
         ConvertNetAddr_tToSteamNetworkingIPAddr( info.m_adrFrom, &fromAddr );
         if ( !( fromAddr == pInterface->m_addrTURNServer ) )
+        {
+            SpewVerboseGroup( GlobalConfig::LogLevel_P2PRendezvous.Get(), "ICE: Dropping Data Indication from %s: not our TURN server (%s).\n",
+                SteamNetworkingIPAddrRender( fromAddr ).c_str(),
+                SteamNetworkingIPAddrRender( pInterface->m_addrTURNServer ).c_str() );
             return;
+        }
+
+        ++TEST_ICE_ctr_data_ind_recv;
 
         // TODO: avoid heap allocation per packet
         CUtlVector<STUNAttribute> vecAttrs;
@@ -1474,7 +1540,10 @@ not_stun:
         const STUNAttribute *pPeerAttr = FindAttributeOfType( vecAttrs.Base(), vecAttrs.Count(), k_nTURN_Attr_XORPeerAddress );
         const STUNAttribute *pDataAttr = FindAttributeOfType( vecAttrs.Base(), vecAttrs.Count(), k_nTURN_Attr_Data );
         if ( pPeerAttr == nullptr || pDataAttr == nullptr )
+        {
+            SpewVerboseGroup( GlobalConfig::LogLevel_P2PRendezvous.Get(), "ICE: Dropping Data Indication from TURN: missing peer-address or data attribute.\n" );
             return;
+        }
 
         SteamNetworkingIPAddr peerAddr;
         peerAddr.Clear();
@@ -1515,10 +1584,16 @@ not_stun:
                 }
             }
         }
-        if ( pRequest != nullptr )
+        if ( pRequest )
+        {
             pRequest->ReplyPacketReceived( info, header );
+        }
+        else
+        {
+            // Unknown or stale response -- drop it
+            SpewVerboseGroup( GlobalConfig::LogLevel_P2PRendezvous.Get(), "ICE: Dropping STUN message 0x%x from %s.\n", header.m_nMessageType, CUtlNetAdrRender( info.m_adrFrom ).String() );
+        }
 
-        // Unknown or stale response — drop silently.
         return;
     }
 
@@ -1531,7 +1606,10 @@ not_stun:
     // Parse attributes and verify message integrity.
     CUtlVector< STUNAttribute > vecAttrs;
     if ( !ParseSTUNAttributes( info, (const uint8*)m_strLocalPassword.c_str(), (uint32)m_strLocalPassword.size(), &vecAttrs ) )
+    {
+        SpewVerboseGroup( nLogLevel, "ICE: Dropping binding request: attribute parse or integrity failure.\n" );
         return;
+    }
 
     const STUNAttribute *pUsernameAttr = FindAttributeOfType( vecAttrs.Base(), vecAttrs.Count(), k_nSTUN_Attr_UserName );
     if ( pUsernameAttr != nullptr )
@@ -1569,6 +1647,8 @@ not_stun:
             return;
         }
     }
+
+    ++TEST_ICE_ctr_binding_req_recv;
 
     SteamNetworkingIPAddr fromAddr;
     ConvertNetAddr_tToSteamNetworkingIPAddr( info.m_adrFrom, &fromAddr );
@@ -1713,7 +1793,8 @@ not_stun:
             (const uint8*)m_strLocalPassword.c_str(), (uint32)m_strLocalPassword.size(), outAttrs.Base(), outAttrs.Count() );
         if ( nByteCount > 0 )
         {
-            SpewVerboseGroup( nLogLevel, "ICE: Sending a STUN response to %s from %s.", SteamNetworkingIPAddrRender( fromAddr, true ).c_str(), SteamNetworkingIPAddrRender( pInterface->m_pSocket->m_boundAddr, true ).c_str() );
+            SpewVerboseGroup( nLogLevel, "ICE: Sending a STUN binding response to %s from %s.", SteamNetworkingIPAddrRender( fromAddr, true ).c_str(), SteamNetworkingIPAddrRender( pInterface->m_pSocket->m_boundAddr, true ).c_str() );
+            ++TEST_ICE_ctr_binding_resp_send;
             iovec iov;
             iov.iov_base = (void*)responseBuffer;
             iov.iov_len = nByteCount;
