@@ -193,6 +193,7 @@ void OnSteamNetConnectionStatusChanged( SteamNetConnectionStatusChangedCallback_
 				++g_nConnectionsDone;
 			}
 
+			SteamNetworkingSocketsLib::TEST_ICE_ctr_Reset();
 			TEST_Printf( "[%s] Accepting\n", pInfo->m_info.m_szConnectionDescription );
 			g_hConnection = pInfo->m_hConn;
 			SteamNetworkingSockets()->AcceptConnection( pInfo->m_hConn );
@@ -443,6 +444,7 @@ int main( int argc, const char **argv )
 	// Lambda to initiate a new outbound connection and send the first message.
 	auto ConnectToPeer = [&]()
 	{
+		SteamNetworkingSocketsLib::TEST_ICE_ctr_Reset();
 		std::vector< SteamNetworkingConfigValue_t > vecOpts;
 
 		// If we want the local and virtual port to differ, we must set
@@ -526,6 +528,7 @@ int main( int argc, const char **argv )
 				pMessage->Release();
 
 				PrintRouteInfo();
+				SteamNetworkingSocketsLib::TEST_ICE_ctr_Print();
 
 				// If we're the client, go ahead and shut down.  In this example we just
 				// wanted to establish a connection and exchange a message, and we've done that.

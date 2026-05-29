@@ -30,3 +30,17 @@ extern void TEST_Fatal( const char *fmt, ... );
 extern void TEST_Init( const SteamNetworkingIdentity *pIdentity );
 extern void TEST_Kill();
 extern void TEST_PumpCallbacks();
+
+// ICE packet counters.  Defined in steamnetworkingsockets_ice_client.cpp.
+// Reset at the start of each connection; printed after route selection.
+namespace SteamNetworkingSocketsLib {
+    extern int TEST_ICE_ctr_binding_req_send;
+    extern int TEST_ICE_ctr_binding_req_recv;
+    extern int TEST_ICE_ctr_binding_resp_send;
+    extern int TEST_ICE_ctr_binding_resp_recv;
+    extern int TEST_ICE_ctr_allocate_send;
+    extern int TEST_ICE_ctr_send_ind_send;
+    extern int TEST_ICE_ctr_data_ind_recv;
+    extern void TEST_ICE_ctr_Reset();
+    extern void TEST_ICE_ctr_Print();
+}
