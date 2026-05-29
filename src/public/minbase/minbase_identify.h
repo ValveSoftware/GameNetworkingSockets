@@ -167,7 +167,7 @@
 	#if TARGET_OS_TV
 		#define IsTVOS() true
 		#define IsPosix() true
-	#elif TARGET_OS_IOS
+	#elif defined(TARGET_OS_IOS) && TARGET_OS_IOS
 		#define IsIOS() true
 		#define IsPosix() true
 	#else
