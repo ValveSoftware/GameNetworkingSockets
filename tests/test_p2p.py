@@ -596,6 +596,32 @@ CLIENT_SERVER_TEST_CASES = [
       _nat( _CLI_INT_V6, _CLI_GW_V6, 'full-cone' ),
       'udp', 1, _CTR_DIRECT_NO_TURN,
       ( _CAND_IPV6_NAT, _CAND_IPV6_NAT ) ),
+
+    # Packet loss: verify that connection succeeds despite 20% outbound packet loss.
+    # Route type is intentionally not checked.  With outbound-only loss, the relay
+    # path has a higher per-attempt round-trip success rate than the direct path:
+    # the relay response arrives via the TURN server's inbound socket, bypassing the
+    # lossy adapter, whereas the direct-path response must traverse the remote peer's
+    # lossy adapter.  Under aggressive nomination (first pair to succeed wins), relay
+    # can beat the higher-priority direct path to nomination.  This is current
+    # behaviour; route optimisation can be addressed later.
+    ( 'full-cone NAT, 20% packet loss',
+      [ '--mock-loss', '20' ] + _nat( _SRV_INT, _SRV_GW, 'full-cone' ),
+      [ '--mock-loss', '20' ] + _nat( _CLI_INT, _CLI_GW, 'full-cone' ),
+      None, 1, None, None ),
+
+    # Signaling impairment: verify connection succeeds despite lossy or duplicate
+    # signals.  Uses real loopback (no mock network), so the route is always 'local'.
+    # Signaling loss only slows setup (the library retransmits rendezvous messages);
+    # it does not affect route selection or ICE counter values in a predictable way.
+    ( 'no-mock native ICE, 30% signaling loss',
+      [ '--signaling-loss', '30' ],
+      [ '--signaling-loss', '30' ],
+      'local', 1, None, None ),
+    ( 'no-mock native ICE, 50% signaling duplicates',
+      [ '--signaling-dup', '50' ],
+      [ '--signaling-dup', '50' ],
+      'local', 1, None, None ),
 ]
 
 def ClientServerTest( server_extra_args=[], client_extra_args=[], expected_route=None, ice_impl=1, expected_counters=None, expected_candidates=None ):
