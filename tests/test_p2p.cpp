@@ -7,6 +7,8 @@
 #include <random>
 #include <chrono>
 #include <thread>
+#include <vector>
+#include <cmath>
 
 
 #include <steam/steamnetworkingsockets.h>
@@ -35,6 +37,22 @@ int g_nVirtualPortLocal = 0; // Used when listening, and when connecting
 int g_nVirtualPortRemote = 0; // Only used when connecting
 ESteamNetworkingSocketsDebugOutputType g_eTestP2PRendezvousLogLevel = k_ESteamNetworkingSocketsDebugOutputType_Verbose;
 
+// Bail on sending if total pending bytes exceed this.
+static const int k_nSendBufferLimit = 32*1024;
+
+// Number of ticks to exchange messages before the non-server side closes.
+int g_nTicks = 40; // 40 ticks * 50ms/tick = ~2 seconds
+
+// Per-connection state, reset at the start of each connection.
+bool g_bConnected = false;
+int g_nTicksDone = 0;
+int g_nSendCounterReliable = 0;
+int g_nSendCounterUnreliable = 0;
+int g_nRecvExpectedReliable = 0;
+int g_nRecvExpectedUnreliable = 0;
+
+static std::mt19937 g_rng( std::random_device{}() );
+
 void PrintUsage()
 {
 	fprintf( stderr,
@@ -53,6 +71,7 @@ void PrintUsage()
 		"  --turn-server <host:port>           TURN relay server address\n"
 		"  --ice-implementation <n>            ICE implementation: 0=default, 1=native\n"
 		"  --repeat <n>                        Repeat the connection test N times (default: 1)\n"
+		"  --ticks <n>                         Number of 50ms send/receive ticks per connection (default: 40 = ~2s)\n"
 		"  --expect-failure                    Treat connection failure as success, success as failure\n"
 		"  --timeout-ms <n>                    Override initial connection timeout in milliseconds\n"
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_MOCK
@@ -129,13 +148,91 @@ void PrintRouteInfo()
 	TEST_Printf( "TEST ROUTE: addr=%s type=%s\n", szAddr, pszType );
 }
 
-// Send a simple string message to out peer, using reliable transport.
-void SendMessageToPeer( const char *pszMsg )
+// Reset all per-connection counters.  Called at the start of each new connection.
+void ResetConnectionCounters()
 {
-	TEST_Printf( "Sending msg '%s'\n", pszMsg );
-	EResult r = SteamNetworkingSockets()->SendMessageToConnection(
-		g_hConnection, pszMsg, (int)strlen(pszMsg)+1, k_nSteamNetworkingSend_Reliable, nullptr );
-	assert( r == k_EResultOK );
+	g_bConnected = false;
+	g_nTicksDone = 0;
+	g_nSendCounterReliable = 0;
+	g_nSendCounterUnreliable = 0;
+	g_nRecvExpectedReliable = 0;
+	g_nRecvExpectedUnreliable = 0;
+}
+
+// Each tick: if the send buffer is below the limit, roll 0-4 messages to send.
+// Each message is randomly reliable or unreliable, with a counter in the first
+// 4 bytes and an exponentially-distributed size (8-10k, biased toward small).
+void SendRandomMessages()
+{
+	// Bail if send buffer is already full.
+	SteamNetConnectionRealTimeStatus_t status;
+	if ( SteamNetworkingSockets()->GetConnectionRealTimeStatus( g_hConnection, &status, 0, nullptr ) != k_EResultOK )
+		return;
+	if ( status.m_cbPendingReliable + status.m_cbPendingUnreliable >= k_nSendBufferLimit )
+		return;
+
+	int nCount = std::uniform_int_distribution<int>( 0, 4 )( g_rng );
+	for ( int i = 0; i < nCount; ++i )
+	{
+		bool bReliable = std::uniform_int_distribution<int>( 0, 1 )( g_rng ) != 0;
+
+		// Exponentially distributed size from 8 to 10240 bytes, most messages small.
+		double u = std::uniform_real_distribution<double>( 0.0, 1.0 )( g_rng );
+		int nSize = 8 + (int)std::exp( u * std::log( 10232.0 ) );
+		nSize = std::min( nSize, 10240 );
+
+		// First 4 bytes are the per-channel counter; rest is uninitialized payload.
+		std::vector<uint8_t> buf( nSize );
+		int32_t nCounter = bReliable ? g_nSendCounterReliable : g_nSendCounterUnreliable;
+		memcpy( buf.data(), &nCounter, sizeof(nCounter) );
+
+		int nFlags = bReliable ? k_nSteamNetworkingSend_Reliable : k_nSteamNetworkingSend_Unreliable;
+		EResult r = SteamNetworkingSockets()->SendMessageToConnection(
+			g_hConnection, buf.data(), nSize, nFlags, nullptr );
+		if ( r != k_EResultOK )
+			break; // stop if the send fails (e.g. buffer filled mid-tick)
+
+		if ( bReliable )
+			++g_nSendCounterReliable;
+		else
+			++g_nSendCounterUnreliable;
+	}
+}
+
+// Drain all pending received messages and verify their counters.
+// Reliable counter mismatches are fatal; unreliable are expected and just logged.
+void ReceiveAndCheckMessages()
+{
+	for (;;)
+	{
+		SteamNetworkingMessage_t *pMsg = nullptr;
+		int r = SteamNetworkingSockets()->ReceiveMessagesOnConnection( g_hConnection, &pMsg, 1 );
+		assert( r == 0 || r == 1 ); // <0 indicates an error
+		if ( r == 0 )
+			break;
+
+		if ( pMsg->m_cbSize < (int)sizeof(int32_t) )
+			TEST_Fatal( "Received message too short (%d bytes)", pMsg->m_cbSize );
+
+		int32_t nCounter;
+		memcpy( &nCounter, pMsg->GetData(), sizeof(nCounter) );
+		// For received messages, only the k_nSteamNetworkingSend_Reliable bit is valid in m_nFlags.
+		bool bReliable = ( pMsg->m_nFlags & k_nSteamNetworkingSend_Reliable ) != 0;
+		pMsg->Release();
+
+		if ( bReliable )
+		{
+			if ( nCounter != g_nRecvExpectedReliable )
+				TEST_Fatal( "Reliable message counter mismatch: expected %d, got %d", g_nRecvExpectedReliable, nCounter );
+			++g_nRecvExpectedReliable;
+		}
+		else
+		{
+			if ( nCounter != g_nRecvExpectedUnreliable )
+				TEST_Printf( "Unreliable message %d arrived out of order (expected %d)\n", nCounter, g_nRecvExpectedUnreliable );
+			g_nRecvExpectedUnreliable = nCounter + 1;
+		}
+	}
 }
 
 // Called when a connection undergoes a state transition.
@@ -154,12 +251,18 @@ void OnSteamNetConnectionStatusChanged( SteamNetConnectionStatusChangedCallback_
 			pInfo->m_info.m_szEndDebug
 		);
 
-		// Close our end
-		SteamNetworkingSockets()->CloseConnection( pInfo->m_hConn, 0, nullptr, false );
-
 		if ( g_hConnection == pInfo->m_hConn )
 		{
+			// Print route info before closing the handle; GetConnectionInfo won't work after.
+			// The non-server side prints this in the main loop; the server side does it here
+			// since it never initiates the close itself.
+			if ( !g_bExpectFailure && g_eTestRole == k_ETestRole_Server )
+				PrintRouteInfo();
+
+			// Close our end
+			SteamNetworkingSockets()->CloseConnection( pInfo->m_hConn, 0, nullptr, false );
 			g_hConnection = k_HSteamNetConnection_Invalid;
+			g_bConnected = false;
 
 			if ( g_bExpectFailure )
 			{
@@ -182,6 +285,9 @@ void OnSteamNetConnectionStatusChanged( SteamNetConnectionStatusChangedCallback_
 				           || ( pInfo->m_info.m_eEndReason != k_ESteamNetConnectionEnd_App_Generic );
 				if ( bError )
 					Quit( 1 );
+
+				if ( g_eTestRole == k_ETestRole_Server )
+					SteamNetworkingSocketsLib::TEST_ICE_ctr_Print();
 			}
 
 			// Clean close (or expected failure) — main loop starts next iteration or exits.
@@ -190,6 +296,7 @@ void OnSteamNetConnectionStatusChanged( SteamNetConnectionStatusChangedCallback_
 		else
 		{
 			// Stale handle from a previous iteration being cleaned up — ignore.
+			SteamNetworkingSockets()->CloseConnection( pInfo->m_hConn, 0, nullptr, false );
 		}
 
 		break;
@@ -216,6 +323,7 @@ void OnSteamNetConnectionStatusChanged( SteamNetConnectionStatusChangedCallback_
 			}
 
 			SteamNetworkingSocketsLib::TEST_ICE_ctr_Reset();
+			ResetConnectionCounters();
 			TEST_Printf( "[%s] Accepting\n", pInfo->m_info.m_szConnectionDescription );
 			g_hConnection = pInfo->m_hConn;
 			SteamNetworkingSockets()->AcceptConnection( pInfo->m_hConn );
@@ -239,6 +347,7 @@ void OnSteamNetConnectionStatusChanged( SteamNetConnectionStatusChangedCallback_
 		// We got fully connected
 		assert( pInfo->m_hConn == g_hConnection ); // We don't initiate or accept any other connections, so this should be out own connection
 		TEST_Printf( "[%s] connected\n", pInfo->m_info.m_szConnectionDescription );
+		g_bConnected = true;
 		break;
 
 	default:
@@ -293,6 +402,8 @@ int main( int argc, const char **argv )
 			g_nICEImplementation = atoi( GetArg() );
 		else if ( !strcmp( pszSwitch, "--repeat" ) )
 			g_nRepeat = atoi( GetArg() );
+		else if ( !strcmp( pszSwitch, "--ticks" ) )
+			g_nTicks = atoi( GetArg() );
 		else if ( !strcmp( pszSwitch, "--expect-failure" ) )
 			g_bExpectFailure = true;
 		else if ( !strcmp( pszSwitch, "--timeout-ms" ) )
@@ -470,10 +581,11 @@ int main( int argc, const char **argv )
 		assert( g_hListenSock != k_HSteamListenSocket_Invalid  );
 	}
 
-	// Lambda to initiate a new outbound connection and send the first message.
+	// Lambda to initiate a new outbound connection.
 	auto ConnectToPeer = [&]()
 	{
 		SteamNetworkingSocketsLib::TEST_ICE_ctr_Reset();
+		ResetConnectionCounters();
 		std::vector< SteamNetworkingConfigValue_t > vecOpts;
 
 		// If we want the local and virtual port to differ, we must set
@@ -522,10 +634,6 @@ int main( int argc, const char **argv )
 		assert( pConnSignaling );
 		g_hConnection = SteamNetworkingSockets()->ConnectP2PCustomSignaling( pConnSignaling, &identityRemote, g_nVirtualPortRemote, (int)vecOpts.size(), vecOpts.data() );
 		assert( g_hConnection != k_HSteamNetConnection_Invalid );
-
-		// Go ahead and send a message now.  The message will be queued until route finding
-		// completes.
-		SendMessageToPeer( "Greetings!" );
 	};
 
 	// Begin connecting to peer, unless we are the server
@@ -541,67 +649,52 @@ int main( int argc, const char **argv )
 		// Check callbacks
 		TEST_PumpCallbacks();
 
-		// If we have a connection, then poll it for messages
-		if ( g_hConnection != k_HSteamNetConnection_Invalid )
+		// If we have a fully connected connection, exchange messages this tick.
+		if ( g_bConnected && g_hConnection != k_HSteamNetConnection_Invalid )
 		{
-			SteamNetworkingMessage_t *pMessage;
-			int r = SteamNetworkingSockets()->ReceiveMessagesOnConnection( g_hConnection, &pMessage, 1 );
-			assert( r == 0 || r == 1 ); // <0 indicates an error
-			if ( r == 1 )
+			if ( g_bExpectFailure )
 			{
-				// In this example code we will assume all messages are '\0'-terminated strings.
-				// Obviously, this is not secure.
-				TEST_Printf( "Received message '%s'\n", pMessage->GetData() );
-				if ( g_bExpectFailure )
-				{
-					TEST_Printf( "ERROR: received a message but connection failure was expected\n" );
-					pMessage->Release();
-					Quit( 1 );
-				}
+				TEST_Printf( "ERROR: received a message but connection failure was expected\n" );
+				Quit( 1 );
+			}
 
-				// Free message struct and buffer.
-				pMessage->Release();
+			ReceiveAndCheckMessages();
+			SendRandomMessages();
 
+			++g_nTicksDone;
+
+			// Non-server side drives the close after the target number of ticks.
+			if ( g_eTestRole != k_ETestRole_Server && g_nTicksDone >= g_nTicks )
+			{
 				PrintRouteInfo();
 				SteamNetworkingSocketsLib::TEST_ICE_ctr_Print();
+				TEST_Printf( "Closing connection after %d ticks (%d reliable, %d unreliable sent)\n",
+					g_nTicksDone, g_nSendCounterReliable, g_nSendCounterUnreliable );
 
-				// If we're the client, go ahead and shut down.  In this example we just
-				// wanted to establish a connection and exchange a message, and we've done that.
-				// Note that we use "linger" functionality.  This flushes out any remaining
-				// messages that we have queued.  Essentially to us, the connection is closed,
-				// but on thew wire, we will not actually close it until all reliable messages
-				// have been confirmed as received by the client.  (Or the connection is closed
-				// by the peer or drops.)  If we are the "client" role, then we know that no such
-				// messages are in the pipeline in this test.  But in symmetric mode, it is
-				// possible that we need to flush out our message that we sent.
-				if ( g_eTestRole != k_ETestRole_Server )
-				{
-					// Close this connection.  Use linger on the final iteration so the
-					// server has time to receive our close before we exit.
-					TEST_Printf( "Closing connection\n" );
-					SteamNetworkingSockets()->CloseConnection( g_hConnection, 0, "Test completed OK", true );
-					g_hConnection = k_HSteamNetConnection_Invalid;
-					++g_nConnectionsDone;
-					if ( g_nConnectionsDone >= g_nRepeat )
-						break;
-					TEST_Printf( "Starting next iteration\n" );
-					ConnectToPeer();
-				}
-				else
-				{
-					// We're the server.  Send a reply.
-					SendMessageToPeer( "I got your message" );
-				}
+				// Close with linger so the server has time to receive any messages
+				// we queued before the close notice arrives.
+				SteamNetworkingSockets()->CloseConnection( g_hConnection, k_ESteamNetConnectionEnd_App_Generic, "Test completed OK", true );
+				g_hConnection = k_HSteamNetConnection_Invalid;
+				g_bConnected = false;
+				++g_nConnectionsDone;
+				if ( g_nConnectionsDone >= g_nRepeat )
+					break;
+				TEST_Printf( "Starting next iteration\n" );
+				ConnectToPeer();
 			}
 		}
 
 		// Exit once all expected connections are done.
 		// For the server, this means N accepted+closed connections.
-		// For the client, normal exits happen inside the message handler, but
+		// For the client, normal exits happen inside the message handler above, but
 		// when --expect-failure is set the failure is detected in the state callback,
 		// so we need this check here too.
 		if ( g_nConnectionsDone >= g_nRepeat && g_hConnection == k_HSteamNetConnection_Invalid )
 			break;
+
+		// Each tick is at least 50ms.  The networking code has no concept of ticks;
+		// this sleep is only here to pace the test's send loop.
+		std::this_thread::sleep_for( std::chrono::milliseconds( 50 ) );
 	}
 
 	TEST_Printf( "Shutting down\n" );
