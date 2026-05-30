@@ -1782,6 +1782,10 @@ public:
 		if ( !m_ifaceConfig.m_bEnabled )
 			return true;
 
+		// Simulate packet loss on this interface
+		if ( m_ifaceConfig.m_nSendLossPct > 0 && RandomBoolWithOdds( m_ifaceConfig.m_nSendLossPct ) )
+			return true;
+
 		DbgAssert( m_boundAddr == m_pSockLocal->m_boundAddr );
 
 		if ( adrTo.GetType() == k_EIPTypeV4 )
@@ -4305,13 +4309,13 @@ void TEST_mocknetwork_init( const TEST_mocknetwork_config_t &config )
 		if ( iface.m_bEnabled )
 		{
 			if ( iface.m_iGateway >= 0 )
-				SpewMsg( "  Adapter: %s  gw[%d]  latency=%dms\n",
+				SpewMsg( "  Adapter: %s  gw[%d]  latency=%dms  loss=%d%%\n",
 					SteamNetworkingIPAddrRender( iface.m_ip, false ).c_str(),
-					iface.m_iGateway, iface.m_nSendLatencyMS );
+					iface.m_iGateway, iface.m_nSendLatencyMS, iface.m_nSendLossPct );
 			else
-				SpewMsg( "  Adapter: %s  (public)  latency=%dms\n",
+				SpewMsg( "  Adapter: %s  (public)  latency=%dms  loss=%d%%\n",
 					SteamNetworkingIPAddrRender( iface.m_ip, false ).c_str(),
-					iface.m_nSendLatencyMS );
+					iface.m_nSendLatencyMS, iface.m_nSendLossPct );
 		}
 		else
 		{
