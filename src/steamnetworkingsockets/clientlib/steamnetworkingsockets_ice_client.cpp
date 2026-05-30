@@ -851,8 +851,9 @@ int TEST_ICE_ctr_binding_resp_recv = 0; // binding responses we received
 int TEST_ICE_ctr_allocate_send    = 0;  // TURN allocate requests sent
 int TEST_ICE_ctr_send_ind_send      = 0;  // TURN send indications sent (data out via relay)
 int TEST_ICE_ctr_data_ind_recv      = 0;  // TURN data indications received (data in via relay)
-int TEST_ICE_ctr_binding_req_retx   = 0;  // binding request retransmissions (not counting initial send)
-int TEST_ICE_ctr_allocate_retx      = 0;  // TURN allocate request retransmissions
+int TEST_ICE_ctr_binding_req_retx        = 0;  // binding request retransmissions (not counting initial send)
+int TEST_ICE_ctr_allocate_retx           = 0;  // TURN allocate request retransmissions
+int TEST_ICE_ctr_create_permission_retx  = 0;  // TURN CreatePermission request retransmissions
 
 void TEST_ICE_ctr_Reset()
 {
@@ -864,8 +865,9 @@ void TEST_ICE_ctr_Reset()
     TEST_ICE_ctr_allocate_send    = 0;
     TEST_ICE_ctr_send_ind_send      = 0;
     TEST_ICE_ctr_data_ind_recv      = 0;
-    TEST_ICE_ctr_binding_req_retx   = 0;
-    TEST_ICE_ctr_allocate_retx      = 0;
+    TEST_ICE_ctr_binding_req_retx        = 0;
+    TEST_ICE_ctr_allocate_retx           = 0;
+    TEST_ICE_ctr_create_permission_retx  = 0;
 }
 
 void TEST_ICE_ctr_Print()
@@ -877,8 +879,9 @@ void TEST_ICE_ctr_Print()
     SpewMsg( "TEST_ICE_ctr_allocate_send=%d\n",     TEST_ICE_ctr_allocate_send );
     SpewMsg( "TEST_ICE_ctr_send_ind_send=%d\n",     TEST_ICE_ctr_send_ind_send );
     SpewMsg( "TEST_ICE_ctr_data_ind_recv=%d\n",     TEST_ICE_ctr_data_ind_recv );
-    SpewMsg( "TEST_ICE_ctr_binding_req_retx=%d\n",  TEST_ICE_ctr_binding_req_retx );
-    SpewMsg( "TEST_ICE_ctr_allocate_retx=%d\n",     TEST_ICE_ctr_allocate_retx );
+    SpewMsg( "TEST_ICE_ctr_binding_req_retx=%d\n",           TEST_ICE_ctr_binding_req_retx );
+    SpewMsg( "TEST_ICE_ctr_allocate_retx=%d\n",              TEST_ICE_ctr_allocate_retx );
+    SpewMsg( "TEST_ICE_ctr_create_permission_retx=%d\n",     TEST_ICE_ctr_create_permission_retx );
 }
 
 // Compare IP addresses, ignoring the port.
@@ -988,6 +991,8 @@ void CSteamNetworkingSocketsSTUNRequest::Think( SteamNetworkingMicroseconds usec
                     ++TEST_ICE_ctr_binding_req_retx;
                 else if ( nMsgType == k_nTURN_AllocateRequest )
                     ++TEST_ICE_ctr_allocate_retx;
+                else if ( nMsgType == k_nTURN_CreatePermissionRequest )
+                    ++TEST_ICE_ctr_create_permission_retx;
                 else
                     AssertMsg( false, "Untracked STUN retransmit type 0x%x", nMsgType );
             }
