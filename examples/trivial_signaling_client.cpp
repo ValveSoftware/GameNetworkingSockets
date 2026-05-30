@@ -113,6 +113,8 @@ class CTrivialSignalingClient : public ITrivialSignalingClient
 	ISteamNetworkingSockets *const m_pSteamNetworkingSockets;
 	std::string m_sGreeting;
 	std::deque< std::string > m_queueSend;
+	int m_nLossPct; // percentage of outbound signals to silently drop
+	int m_nDupPct;  // percentage of outbound signals to send twice
 
 	std::recursive_mutex sockMutex;
 	SOCKET m_sock;
@@ -161,8 +163,8 @@ class CTrivialSignalingClient : public ITrivialSignalingClient
 	}
 
 public:
-	CTrivialSignalingClient( const sockaddr *adrServer, size_t adrServerSize, ISteamNetworkingSockets *pSteamNetworkingSockets )
-	: m_adrServerSize( adrServerSize ), m_pSteamNetworkingSockets( pSteamNetworkingSockets )
+	CTrivialSignalingClient( const sockaddr *adrServer, size_t adrServerSize, ISteamNetworkingSockets *pSteamNetworkingSockets, int nLossPct, int nDupPct )
+	: m_adrServerSize( adrServerSize ), m_pSteamNetworkingSockets( pSteamNetworkingSockets ), m_nLossPct( nLossPct ), m_nDupPct( nDupPct )
 	{
 		memcpy( &m_adrServer, adrServer, adrServerSize );
 		m_sock = INVALID_SOCKET;
@@ -185,6 +187,10 @@ public:
 	{
 		assert( s.length() > 0 && s[ s.length()-1 ] == '\n' ); // All of our signals are '\n'-terminated
 
+		// Simulate unreliable signaling channel: randomly drop signals.
+		if ( m_nLossPct > 0 && ( rand() % 100 ) < m_nLossPct )
+			return;
+
 		sockMutex.lock();
 
 		// If we're getting backed up, delete the oldest entries.  Remember,
@@ -198,6 +204,11 @@ public:
 		}
 
 		m_queueSend.push_back( s );
+
+		// Simulate duplicate delivery.
+		if ( m_nDupPct > 0 && ( rand() % 100 ) < m_nDupPct )
+			m_queueSend.push_back( s );
+
 		sockMutex.unlock();
 	}
 
@@ -389,7 +400,9 @@ next_message:
 ITrivialSignalingClient *CreateTrivialSignalingClient(
 	const char *pszServerAddress, // Address of the server.
 	ISteamNetworkingSockets *pSteamNetworkingSockets, // Where should we send signals when we get them?
-	SteamNetworkingErrMsg &errMsg // Error message is retjrned here if we fail
+	SteamNetworkingErrMsg &errMsg, // Error message is returned here if we fail
+	int nLossPct,
+	int nDupPct
 ) {
 
 	std::string sAddress( pszServerAddress );
@@ -414,7 +427,7 @@ ITrivialSignalingClient *CreateTrivialSignalingClient(
 		return nullptr;
 	}
 
-	auto *pClient = new CTrivialSignalingClient( pAddrInfo->ai_addr, pAddrInfo->ai_addrlen, pSteamNetworkingSockets );
+	CTrivialSignalingClient *pClient = new CTrivialSignalingClient( pAddrInfo->ai_addr, pAddrInfo->ai_addrlen, pSteamNetworkingSockets, nLossPct, nDupPct );
 
 	freeaddrinfo( pAddrInfo );
 
