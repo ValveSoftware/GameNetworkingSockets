@@ -20,6 +20,8 @@ HSteamListenSocket g_hListenSock;
 HSteamNetConnection g_hConnection;
 int g_nRepeat = 1;
 int g_nConnectionsDone = 0;
+bool g_bExpectFailure = false;  // if true, connection failure is the expected outcome
+int g_nConnectionTimeoutMS = -1; // -1 = library default
 enum ETestRole
 {
 	k_ETestRole_Undefined,
@@ -51,6 +53,8 @@ void PrintUsage()
 		"  --turn-server <host:port>           TURN relay server address\n"
 		"  --ice-implementation <n>            ICE implementation: 0=default, 1=native\n"
 		"  --repeat <n>                        Repeat the connection test N times (default: 1)\n"
+		"  --expect-failure                    Treat connection failure as success, success as failure\n"
+		"  --timeout-ms <n>                    Override initial connection timeout in milliseconds\n"
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_MOCK
 		"\n"
 		"Mock network options:\n"
@@ -157,12 +161,30 @@ void OnSteamNetConnectionStatusChanged( SteamNetConnectionStatusChangedCallback_
 		{
 			g_hConnection = k_HSteamNetConnection_Invalid;
 
-			bool bError = ( pInfo->m_info.m_eState == k_ESteamNetworkingConnectionState_ProblemDetectedLocally )
-			           || ( pInfo->m_info.m_eEndReason != k_ESteamNetConnectionEnd_App_Generic );
-			if ( bError )
-				Quit( 1 );
+			if ( g_bExpectFailure )
+			{
+				// Connection failure is the expected outcome.
+				// ProblemDetectedLocally (or ClosedByPeer with non-app reason) = expected.
+				// ClosedByPeer with App_Generic = the peer completed successfully, which is wrong.
+				bool bUnexpectedSuccess = ( pInfo->m_info.m_eState == k_ESteamNetworkingConnectionState_ClosedByPeer )
+				                       && ( pInfo->m_info.m_eEndReason == k_ESteamNetConnectionEnd_App_Generic );
+				if ( bUnexpectedSuccess )
+				{
+					TEST_Printf( "ERROR: connection closed cleanly, but failure was expected\n" );
+					Quit( 1 );
+				}
+				TEST_Printf( "Connection failed as expected\n" );
+				SteamNetworkingSocketsLib::TEST_ICE_ctr_Print();
+			}
+			else
+			{
+				bool bError = ( pInfo->m_info.m_eState == k_ESteamNetworkingConnectionState_ProblemDetectedLocally )
+				           || ( pInfo->m_info.m_eEndReason != k_ESteamNetConnectionEnd_App_Generic );
+				if ( bError )
+					Quit( 1 );
+			}
 
-			// Clean close — the main loop will start the next iteration or exit.
+			// Clean close (or expected failure) — main loop starts next iteration or exits.
 			++g_nConnectionsDone;
 		}
 		else
@@ -271,6 +293,10 @@ int main( int argc, const char **argv )
 			g_nICEImplementation = atoi( GetArg() );
 		else if ( !strcmp( pszSwitch, "--repeat" ) )
 			g_nRepeat = atoi( GetArg() );
+		else if ( !strcmp( pszSwitch, "--expect-failure" ) )
+			g_bExpectFailure = true;
+		else if ( !strcmp( pszSwitch, "--timeout-ms" ) )
+			g_nConnectionTimeoutMS = atoi( GetArg() );
 		else if ( !strcmp( pszSwitch, "--client" ) )
 			g_eTestRole = k_ETestRole_Client;
 		else if ( !strcmp( pszSwitch, "--server" ) )
@@ -386,6 +412,9 @@ int main( int argc, const char **argv )
 
 	// Initialize library, with the desired local identity
 	TEST_Init( &identityLocal );
+
+	if ( g_nConnectionTimeoutMS > 0 )
+		SteamNetworkingUtils()->SetGlobalConfigValueInt32( k_ESteamNetworkingConfig_TimeoutInitial, g_nConnectionTimeoutMS );
 
 	SteamNetworkingUtils()->SetGlobalConfigValueString( k_ESteamNetworkingConfig_P2P_STUN_ServerList, pszSTUNServer );
 	if ( pszTURNServer != nullptr )
@@ -523,6 +552,12 @@ int main( int argc, const char **argv )
 				// In this example code we will assume all messages are '\0'-terminated strings.
 				// Obviously, this is not secure.
 				TEST_Printf( "Received message '%s'\n", pMessage->GetData() );
+				if ( g_bExpectFailure )
+				{
+					TEST_Printf( "ERROR: received a message but connection failure was expected\n" );
+					pMessage->Release();
+					Quit( 1 );
+				}
 
 				// Free message struct and buffer.
 				pMessage->Release();
@@ -560,8 +595,12 @@ int main( int argc, const char **argv )
 			}
 		}
 
-		// Server exits once it has handled the expected number of connections.
-		if ( g_eTestRole == k_ETestRole_Server && g_nConnectionsDone >= g_nRepeat )
+		// Exit once all expected connections are done.
+		// For the server, this means N accepted+closed connections.
+		// For the client, normal exits happen inside the message handler, but
+		// when --expect-failure is set the failure is detected in the state callback,
+		// so we need this check here too.
+		if ( g_nConnectionsDone >= g_nRepeat && g_hConnection == k_HSteamNetConnection_Invalid )
 			break;
 	}
 

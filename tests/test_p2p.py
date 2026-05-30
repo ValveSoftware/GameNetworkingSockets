@@ -157,7 +157,10 @@ def StartProcessInThread( tag, cmdline, env=None, ready_message=None, ready_even
     thread.start()
     return thread
 
-def StartClientInThread( role, local, remote, extra_args=[] ):
+_DEFAULT_STUN = object()  # sentinel: use the shared STUN server
+_DEFAULT_TURN = object()  # sentinel: use the shared TURN server
+
+def StartClientInThread( role, local, remote, extra_args=[], stun=_DEFAULT_STUN, turn=_DEFAULT_TURN ):
     cmdline = [
         "./test_p2p",
         "--" + role,
@@ -167,8 +170,18 @@ def StartClientInThread( role, local, remote, extra_args=[] ):
         "--log", local + ".verbose.log"
     ]
 
-    cmdline += [ '--stun-server', "%s:%d,[%s]:%d" % (g_stun_ip, g_stun_port, g_stun_ipv6, g_stun_port) ]
-    cmdline += [ '--turn-server', "%s:%d" % (g_stun_ip, g_stun_port) ]
+    if stun is _DEFAULT_STUN:
+        cmdline += [ '--stun-server', "%s:%d,[%s]:%d" % (g_stun_ip, g_stun_port, g_stun_ipv6, g_stun_port) ]
+    elif stun is not None:
+        cmdline += [ '--stun-server', stun ]
+    # stun=None: omit --stun-server entirely (executable uses its built-in default)
+
+    if turn is _DEFAULT_TURN:
+        cmdline += [ '--turn-server', "%s:%d" % (g_stun_ip, g_stun_port) ]
+    elif turn is not None:
+        cmdline += [ '--turn-server', turn ]
+    # turn=None: omit --turn-server entirely (no relay)
+
     if g_repeat > 1:
         cmdline += [ '--repeat', str(g_repeat) ]
     cmdline += extra_args
@@ -335,6 +348,104 @@ def _parse_candidate_log( filename ):
     except FileNotFoundError:
         pass
     return local, remote
+
+
+# Address used for "server is down" tests: valid loopback IP but no STUN/TURN listening.
+# Packets are sent successfully but never answered, so the connection timeout drives failure.
+_DEAD_SERVER = '%s:9999' % g_stun_ip
+
+
+def ClientServerExpectedFailureTest( server_extra_args=[], client_extra_args=[], ice_impl=1,
+                                     stun=_DEFAULT_STUN, turn=_DEFAULT_TURN,
+                                     expected_counters=None, expected_candidates=None ):
+    """Run a test where both sides are expected to fail to connect."""
+    global g_failed
+    impl_args = [ '--ice-implementation', str(ice_impl) ]
+    fail_args = [ '--expect-failure' ]
+    server = StartClientInThread( "server", "peer_server", "peer_client",
+                                  server_extra_args + impl_args + fail_args,
+                                  stun=stun, turn=turn )
+    client = StartClientInThread( "client", "peer_client", "peer_server",
+                                  client_extra_args + impl_args + fail_args,
+                                  stun=stun, turn=turn )
+
+    server.join( timeout=30 )
+    client.join( timeout=30 )
+
+    if expected_counters is not None and g_repeat == 1:
+        for peer, thread in [ ( 'server', server ), ( 'client', client ) ]:
+            for name, (lo, hi) in expected_counters.items():
+                val = thread.counters.get( name, 0 )
+                if lo is not None and val < lo:
+                    print( "ERROR: %s TEST_ICE_ctr_%s=%d, expected >= %d" % ( peer, name, val, lo ) )
+                    g_failed = True
+                if hi is not None and val > hi:
+                    print( "ERROR: %s TEST_ICE_ctr_%s=%d, expected <= %d" % ( peer, name, val, hi ) )
+                    g_failed = True
+
+    if g_repeat == 1:
+        srv_local, srv_remote = _parse_candidate_log( "peer_server.verbose.log" )
+        cli_local, cli_remote = _parse_candidate_log( "peer_client.verbose.log" )
+        if expected_candidates is not None:
+            exp_srv, exp_cli = expected_candidates
+            if exp_srv is not None and srv_local != exp_srv:
+                print( "ERROR: server gathered %s, expected %s" % ( srv_local, exp_srv ) )
+                g_failed = True
+            if exp_cli is not None and cli_local != exp_cli:
+                print( "ERROR: client gathered %s, expected %s" % ( cli_local, exp_cli ) )
+                g_failed = True
+
+
+# Failure test cases: ( description, server_args, client_args, kwargs_for_failure_test )
+# 'stun' and 'turn' kwargs override the server address; None = omit entirely.
+# _CAND_NAT_NO_TURN = behind NAT + STUN works, but no relay (TURN not configured or failed)
+_CAND_NAT_NO_TURN = {'host': 1, 'srflx': 1}
+
+FAILURE_TEST_CASES = [
+    # STUN is unavailable: no srflx gathered, no relay, host candidates can't cross NAT subnets.
+    # The STUN binding request retransmits 4 times (5 total sends) before giving up at ~5.3s,
+    # then the connection timeout fires at 10s.
+    ( 'STUN unavailable (full-cone NAT, no TURN)',
+      _nat( _SRV_INT, _SRV_GW, 'full-cone' ),
+      _nat( _CLI_INT, _CLI_GW, 'full-cone' ),
+      dict( stun=_DEAD_SERVER, turn=None,
+            expected_counters={
+                'allocate_send':      (0, 0),
+                'data_ind_recv':      (0, 0),
+                'binding_req_retx':   (4, 4),  # 5 sends total: 1 initial + 4 retransmits
+                'allocate_retx':      (0, 0),
+            },
+            expected_candidates=( {'host': 1}, {'host': 1} ) ) ),
+
+    # TURN not configured: symmetric NAT requires relay; without it the connection must fail.
+    # Connectivity checks to srflx candidates retransmit 4 times before giving up.
+    ( 'TURN not configured (symmetric NAT)',
+      _nat( _SRV_INT, _SRV_GW, 'symmetric' ),
+      _nat( _CLI_INT, _CLI_GW, 'symmetric' ),
+      dict( turn=None,
+            expected_counters={
+                'allocate_send':      (0, 0),
+                'data_ind_recv':      (0, 0),
+                'binding_req_retx':   (4, 4),
+                'allocate_retx':      (0, 0),
+            },
+            expected_candidates=( _CAND_NAT_NO_TURN, _CAND_NAT_NO_TURN ) ) ),
+
+    # TURN server unreachable: allocation requests are sent but never answered.
+    # STUN works so srflx is gathered, but symmetric NAT blocks direct paths and relay fails.
+    # Both the srflx connectivity checks and the TURN allocation each retransmit 4 times.
+    ( 'TURN unreachable (symmetric NAT)',
+      _nat( _SRV_INT, _SRV_GW, 'symmetric' ),
+      _nat( _CLI_INT, _CLI_GW, 'symmetric' ),
+      dict( turn=_DEAD_SERVER,
+            expected_counters={
+                'allocate_send':      (1, None),
+                'data_ind_recv':      (0, 0),
+                'binding_req_retx':   (4, 4),
+                'allocate_retx':      (4, 4),
+            },
+            expected_candidates=( _CAND_NAT_NO_TURN, _CAND_NAT_NO_TURN ) ) ),
+]
 
 
 # Counter constraint dicts: map short counter name -> (min, max), None = no bound.
@@ -605,7 +716,7 @@ if not g_server_ready.wait( timeout=g_server_startup_timeout ):
 
 print( "Signaling server is ready, starting test clients" )
 
-# Run the tests
+# Run the positive tests
 for desc, srv_args, cli_args, exp_route, ice_impl, exp_counters, exp_candidates in CLIENT_SERVER_TEST_CASES:
     print( "=================================================================" )
     print( "Test: " + desc )
@@ -613,6 +724,16 @@ for desc, srv_args, cli_args, exp_route, ice_impl, exp_counters, exp_candidates 
     ClientServerTest( srv_args, cli_args, exp_route, ice_impl, exp_counters, exp_candidates )
     if g_failed:
         break
+
+# Run the expected-failure tests
+if not g_failed:
+    for desc, srv_args, cli_args, kwargs in FAILURE_TEST_CASES:
+        print( "=================================================================" )
+        print( "Test (expected failure): " + desc )
+        print( "=================================================================" )
+        ClientServerExpectedFailureTest( srv_args, cli_args, **kwargs )
+        if g_failed:
+            break
 
 # Ignore any "failure" detected in server shutdowns.
 really_failed = g_failed
