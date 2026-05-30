@@ -311,6 +311,32 @@ def _disabled_adapter( ip ):
 def _slow_nat( internal, gateway, nat_type, latency_ms ):
     return [ '--mock-gateway', gateway, '--mock-nat', nat_type, '--mock-adapter', internal, '--mock-latency', str(latency_ms) ]
 
+def _parse_candidate_log( filename ):
+    """
+    Parse a verbose log file for local and remote candidate counts.
+    Returns (local_dict, remote_dict) mapping candidate type -> count.
+    Local  = lines containing 'LocalCandidateAdded' (candidates this peer gathered).
+    Remote = lines containing 'Got remote candidate'  (candidates received from peer).
+    """
+    local, remote = {}, {}
+    try:
+        with open( filename, 'rt', errors='replace' ) as f:
+            for line in f:
+                if 'LocalCandidateAdded' in line:
+                    m = re.search( r'\btyp (\w+)', line )
+                    if m:
+                        t = m.group(1)
+                        local[t] = local.get(t, 0) + 1
+                if 'Got remote candidate' in line:
+                    m = re.search( r'\btyp (\w+)', line )
+                    if m:
+                        t = m.group(1)
+                        remote[t] = remote.get(t, 0) + 1
+    except FileNotFoundError:
+        pass
+    return local, remote
+
+
 # Counter constraint dicts: map short counter name -> (min, max), None = no bound.
 # Applied to both server and client after each test.
 # Only the relay-path counters are pinned; binding_req counts vary with retransmit timing.
@@ -328,7 +354,18 @@ _CTR_DIRECT_NO_TURN = { # Direct path; no TURN allocated (e.g. IPv6-only adapter
     'data_ind_recv':  (0, 0),
 }
 
-# Each entry: ( description, server_extra_args, client_extra_args, expected_route, ice_impl, counter_constraints )
+# Candidate count dicts: map candidate type -> expected count for one connection.
+# Only checked when g_repeat == 1 (log files accumulate across repeats).
+# srflx is absent when the mapped address equals the host address (no NAT).
+_CAND_NAT_TURN    = {'host': 1, 'srflx': 1, 'relay': 1}  # single adapter behind NAT, TURN configured
+_CAND_DIRECT_TURN = {'host': 1, 'relay': 1}               # single adapter, no NAT, TURN configured
+_CAND_IPV6_NAT    = {'host': 1, 'srflx': 1}               # single IPv6 adapter behind NAT, no IPv6 TURN
+_CAND_IPV6_DIRECT = {'host': 1}                            # single IPv6 adapter, no NAT, no IPv6 TURN
+_CAND_MULTI       = {'host': 2, 'srflx': 1, 'relay': 2}   # two adapters: one public (no srflx) + one NATd
+
+# Each entry: ( description, server_extra_args, client_extra_args, expected_route, ice_impl,
+#               counter_constraints, (server_expected_candidates, client_expected_candidates) )
+# candidate pair is None to skip the check (e.g. no-mock tests with unpredictable real adapters)
 # Both sides must report the same route type — ICE nominates one candidate pair
 # and both ends classify the same path, so agreement is guaranteed by the protocol.
 # Route types: 'local' = Fast flag set: both host candidates on the same private /24 LAN subnet
@@ -344,24 +381,26 @@ CLIENT_SERVER_TEST_CASES = [
     ( 'symmetric NAT vs symmetric NAT (requires TURN relay)',
       _nat( _SRV_INT, _SRV_GW, 'symmetric' ),
       _nat( _CLI_INT, _CLI_GW, 'symmetric' ),
-      'relay', 1, _CTR_RELAY ),
+      'relay', 1, _CTR_RELAY,
+      ( _CAND_NAT_TURN, _CAND_NAT_TURN ) ),
 
     # No-mock tests: run on real network (same host), both implementations.
     # We verify the route is 'local' (same-host loopback) but do not check the IP.
-    # No counter constraints for the default-impl test: it may use WebRTC instead of
-    # our native ICE, in which case the counters will all be zero.
+    # No counter or candidate constraints: real adapters vary by host.
     ( 'no-mock, default ICE implementation',
       [], [],
-      'local', 0, None ),
+      'local', 0, None, None ),
     ( 'no-mock, native ICE implementation',
       [], [],
-      'local', 1, _CTR_DIRECT ),
+      'local', 1, _CTR_DIRECT, None ),
 
     # Both on the same private /24 LAN: the core case for 'local' classification.
+    # No NAT, so STUN mapped address == host address; srflx is suppressed.
     ( 'same LAN (private subnet, no NAT)',
       [ '--mock-adapter', _SRV_INT ],
       [ '--mock-adapter', _CLI_SAME_LAN ],
-      'local', 1, _CTR_DIRECT ),
+      'local', 1, _CTR_DIRECT,
+      ( _CAND_DIRECT_TURN, _CAND_DIRECT_TURN ) ),
 
     # Both on the same LAN but each also has a NAT to the public internet via the
     # same shared gateway — the typical home/office scenario.  Both a direct host path
@@ -370,46 +409,56 @@ CLIENT_SERVER_TEST_CASES = [
     ( 'same LAN, shared gateway (hairpin)',
       _nat( _SRV_INT, _SRV_GW, 'full-cone' ),
       _nat( _CLI_SAME_LAN, _SRV_GW, 'full-cone' ),
-      'local', 1, _CTR_DIRECT ),
+      'local', 1, _CTR_DIRECT,
+      ( _CAND_NAT_TURN, _CAND_NAT_TURN ) ),
 
     # Both on the public network: direct host-to-host but NOT 'local' — public IPs
     # are not classified as fast even when they share a subnet.
+    # No NAT: STUN mapped address == host address; srflx is suppressed.
     ( 'no-nat (both public)',
       [ '--mock-adapter', _SRV_GW ],
       [ '--mock-adapter', _CLI_GW ],
-      'udp', 1, _CTR_DIRECT ),
+      'udp', 1, _CTR_DIRECT,
+      ( _CAND_DIRECT_TURN, _CAND_DIRECT_TURN ) ),
 
     ( 'full-cone NAT',
       _nat( _SRV_INT, _SRV_GW, 'full-cone' ),
       _nat( _CLI_INT, _CLI_GW, 'full-cone' ),
-      'udp', 1, _CTR_DIRECT ),
+      'udp', 1, _CTR_DIRECT,
+      ( _CAND_NAT_TURN, _CAND_NAT_TURN ) ),
     ( 'restricted-cone NAT',
       _nat( _SRV_INT, _SRV_GW, 'restricted-cone' ),
       _nat( _CLI_INT, _CLI_GW, 'restricted-cone' ),
-      'udp', 1, _CTR_DIRECT ),
+      'udp', 1, _CTR_DIRECT,
+      ( _CAND_NAT_TURN, _CAND_NAT_TURN ) ),
     ( 'port-restricted-cone NAT',
       _nat( _SRV_INT, _SRV_GW, 'port-restricted-cone' ),
       _nat( _CLI_INT, _CLI_GW, 'port-restricted-cone' ),
-      'udp', 1, _CTR_DIRECT ),
-    # symmetric-vs-symmetric requires TURN relay; ICE alone cannot traverse it
+      'udp', 1, _CTR_DIRECT,
+      ( _CAND_NAT_TURN, _CAND_NAT_TURN ) ),
     ( 'asymmetric: server public, client full-cone',
       [ '--mock-adapter', _SRV_GW ],
       _nat( _CLI_INT, _CLI_GW, 'full-cone' ),
-      'udp', 1, _CTR_DIRECT ),  # client host (127.0.2.x) to server host (127.0.100.x): different subnets
+      'udp', 1, _CTR_DIRECT,
+      ( _CAND_DIRECT_TURN, _CAND_NAT_TURN ) ),
     ( 'asymmetric: server full-cone, client symmetric',
       _nat( _SRV_INT, _SRV_GW, 'full-cone' ),
       _nat( _CLI_INT, _CLI_GW, 'symmetric' ),
-      'udp', 1, _CTR_DIRECT ),
+      'udp', 1, _CTR_DIRECT,
+      ( _CAND_NAT_TURN, _CAND_NAT_TURN ) ),
 
-    # Disabled adapter: verify connection still succeeds when one adapter is down
+    # Disabled adapter: verify connection still succeeds when one adapter is down.
+    # The disabled adapter contributes no candidates.
     ( 'server has disabled second adapter',
       [ '--mock-adapter', _SRV_GW ] + _disabled_adapter( _DEAD_INT ),
       _nat( _CLI_INT, _CLI_GW, 'full-cone' ),
-      'udp', 1, _CTR_DIRECT ),
+      'udp', 1, _CTR_DIRECT,
+      ( _CAND_DIRECT_TURN, _CAND_NAT_TURN ) ),
     ( 'client has disabled second adapter',
       [ '--mock-adapter', _SRV_GW ],
       _nat( _CLI_INT, _CLI_GW, 'full-cone' ) + _disabled_adapter( _DEAD_INT ),
-      'udp', 1, _CTR_DIRECT ),
+      'udp', 1, _CTR_DIRECT,
+      ( _CAND_DIRECT_TURN, _CAND_NAT_TURN ) ),
 
     # Multi-adapter with latency: fast public adapter + slow NATd adapter.
     # ICE should prefer the low-latency host-to-host path.  Both public adapters
@@ -417,24 +466,28 @@ CLIENT_SERVER_TEST_CASES = [
     ( 'both multi-adapter: fast public + slow NATd',
       [ '--mock-adapter', _SRV_GW ] + _slow_nat( _SRV_INT2, _SRV_GW2, 'full-cone', 50 ),
       [ '--mock-adapter', _CLI_GW ] + _slow_nat( _CLI_INT2, _CLI_GW2, 'full-cone', 50 ),
-      'udp', 1, _CTR_DIRECT ),
+      'udp', 1, _CTR_DIRECT,
+      ( _CAND_MULTI, _CAND_MULTI ) ),
 
     # IPv6 host candidates: both endpoints have a public IPv6 address, no NAT.
     # fd7f:0:100::x is the mock public IPv6 network (not classified as 'local').
     # No TURN allocation: the TURN server is IPv4-only; IPv6 adapters skip it.
+    # No srflx: STUN mapped address equals host address (no NAT).
     ( 'IPv6 no-nat (both public)',
       [ '--mock-adapter', _SRV_GW_V6 ],
       [ '--mock-adapter', _CLI_GW_V6 ],
-      'udp', 1, _CTR_DIRECT_NO_TURN ),
+      'udp', 1, _CTR_DIRECT_NO_TURN,
+      ( _CAND_IPV6_DIRECT, _CAND_IPV6_DIRECT ) ),
 
-    # IPv6 full-cone NAT
+    # IPv6 full-cone NAT: STUN mapped address differs from host, so srflx is published.
     ( 'IPv6 full-cone NAT',
       _nat( _SRV_INT_V6, _SRV_GW_V6, 'full-cone' ),
       _nat( _CLI_INT_V6, _CLI_GW_V6, 'full-cone' ),
-      'udp', 1, _CTR_DIRECT_NO_TURN ),
+      'udp', 1, _CTR_DIRECT_NO_TURN,
+      ( _CAND_IPV6_NAT, _CAND_IPV6_NAT ) ),
 ]
 
-def ClientServerTest( server_extra_args=[], client_extra_args=[], expected_route=None, ice_impl=1, expected_counters=None ):
+def ClientServerTest( server_extra_args=[], client_extra_args=[], expected_route=None, ice_impl=1, expected_counters=None, expected_candidates=None ):
     global g_failed
     impl_args = [ '--ice-implementation', str(ice_impl) ]
     server = StartClientInThread( "server", "peer_server", "peer_client", server_extra_args + impl_args )
@@ -465,6 +518,33 @@ def ClientServerTest( server_extra_args=[], client_extra_args=[], expected_route
                 if hi is not None and val > hi:
                     print( "ERROR: %s TEST_ICE_ctr_%s=%d, expected <= %d" % ( peer, name, val, hi ) )
                     g_failed = True
+
+    # Candidate checks only make sense for a single connection (log files accumulate across repeats).
+    if g_repeat == 1:
+        srv_local, srv_remote = _parse_candidate_log( "peer_server.verbose.log" )
+        cli_local, cli_remote = _parse_candidate_log( "peer_client.verbose.log" )
+
+        # Cross-check: received candidates must be a subset of what the other side gathered.
+        # Strict equality would fail on fast connections (e.g. same-LAN) where the
+        # connection closes before late-arriving relay candidates finish signaling.
+        def _check_subset( received, gathered, receiver, gatherer ):
+            for ctype, count in received.items():
+                if count > gathered.get( ctype, 0 ):
+                    print( "ERROR: %s received %d %s candidate(s) from %s but %s only gathered %d" % (
+                        receiver, count, ctype, gatherer, gatherer, gathered.get( ctype, 0 ) ) )
+                    g_failed = True
+        _check_subset( cli_remote, srv_local, 'client', 'server' )
+        _check_subset( srv_remote, cli_local, 'server', 'client' )
+
+        # Check against expected topology if provided.
+        if expected_candidates is not None:
+            exp_srv, exp_cli = expected_candidates
+            if exp_srv is not None and srv_local != exp_srv:
+                print( "ERROR: server gathered %s, expected %s" % ( srv_local, exp_srv ) )
+                g_failed = True
+            if exp_cli is not None and cli_local != exp_cli:
+                print( "ERROR: client gathered %s, expected %s" % ( cli_local, exp_cli ) )
+                g_failed = True
 
 #
 # Main
@@ -526,11 +606,11 @@ if not g_server_ready.wait( timeout=g_server_startup_timeout ):
 print( "Signaling server is ready, starting test clients" )
 
 # Run the tests
-for desc, srv_args, cli_args, exp_route, ice_impl, exp_counters in CLIENT_SERVER_TEST_CASES:
+for desc, srv_args, cli_args, exp_route, ice_impl, exp_counters, exp_candidates in CLIENT_SERVER_TEST_CASES:
     print( "=================================================================" )
     print( "Test: " + desc )
     print( "=================================================================" )
-    ClientServerTest( srv_args, cli_args, exp_route, ice_impl, exp_counters )
+    ClientServerTest( srv_args, cli_args, exp_route, ice_impl, exp_counters, exp_candidates )
     if g_failed:
         break
 
