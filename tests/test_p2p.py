@@ -597,18 +597,21 @@ CLIENT_SERVER_TEST_CASES = [
       'udp', 1, _CTR_DIRECT_NO_TURN,
       ( _CAND_IPV6_NAT, _CAND_IPV6_NAT ) ),
 
-    # Packet loss: verify that connection succeeds despite 20% outbound packet loss.
-    # Route type is intentionally not checked.  With outbound-only loss, the relay
-    # path has a higher per-attempt round-trip success rate than the direct path:
-    # the relay response arrives via the TURN server's inbound socket, bypassing the
-    # lossy adapter, whereas the direct-path response must traverse the remote peer's
-    # lossy adapter.  Under aggressive nomination (first pair to succeed wins), relay
-    # can beat the higher-priority direct path to nomination.  This is current
-    # behaviour; route optimisation can be addressed later.
+    # Packet loss: relay can win the initial nomination race over the direct path
+    # (relay responses bypass the lossy adapter; see the route-upgrade commit for the
+    # full analysis), but the ICE client now continues probing higher-priority pairs
+    # after selection and upgrades when one succeeds.  We therefore expect to end up
+    # on 'udp' (direct srflx path).
+    #
+    # Spurious-failure analysis (at the time of this writing):
+    #   Each STUN round trip succeeds with P = 0.8 * 0.8 = 0.64 under 20% outbound
+    #   loss per side.  The request schedule is 5 total sends (1 initial + 4 retx).
+    #   P(all 5 fail) = 0.36^5 ~= 0.6%.  Triggered checks from the remote side add
+    #   extra attempts, so the real spurious-failure rate is somewhat below 0.6%.
     ( 'full-cone NAT, 20% packet loss',
       [ '--mock-loss', '20' ] + _nat( _SRV_INT, _SRV_GW, 'full-cone' ),
       [ '--mock-loss', '20' ] + _nat( _CLI_INT, _CLI_GW, 'full-cone' ),
-      None, 1, None, None ),
+      'udp', 1, _CTR_DIRECT, None ),
 
     # Signaling impairment: verify connection succeeds despite lossy or duplicate
     # signals.  Uses real loopback (no mock network), so the route is always 'local'.
