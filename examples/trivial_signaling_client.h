@@ -28,10 +28,14 @@ public:
 };
 
 // Start connecting to the signaling server.
+// nLossPct: percentage of outbound signals to silently drop (0-100), to simulate unreliable signaling.
+// nDupPct:  percentage of outbound signals to send twice (0-100), to simulate duplicate delivery.
 ITrivialSignalingClient *CreateTrivialSignalingClient(
 	const char *address, // Address:port
 	ISteamNetworkingSockets *pSteamNetworkingSockets, // Where should we send signals when we get them?
-	SteamNetworkingErrMsg &errMsg // Error message is retjrned here if we fail
+	SteamNetworkingErrMsg &errMsg, // Error message is returned here if we fail
+	int nLossPct = 0,
+	int nDupPct = 0
 );
 
 	
