@@ -1705,12 +1705,6 @@ not_stun:
         }
     }
 
-    // Stale request on a pair we're not using? Ignore.
-    if ( m_pSelectedCandidatePair != nullptr && m_pSelectedCandidatePair != pThisPair )
-    {
-        return;
-    }
-
     //
     // Didn't find a pair?  Then maybe we can create one
     //
@@ -1770,12 +1764,16 @@ not_stun:
     {
         if (
             pThisPair->m_nState == kICECandidatePairState_Succeeded
-            && ( m_pSelectedCandidatePair == nullptr || m_pSelectedCandidatePair == pThisPair )
+            && ( m_pSelectedCandidatePair == nullptr
+                 || m_pSelectedCandidatePair == pThisPair
+                 || pThisPair->m_nPriority > m_pSelectedCandidatePair->m_nPriority )
         ) {
             SetSelectedCandidatePair( pThisPair );
         }
-        else if ( m_pSelectedCandidatePair == nullptr )
-        {
+        else if (
+            m_pSelectedCandidatePair == nullptr
+            || pThisPair->m_nPriority > m_pSelectedCandidatePair->m_nPriority
+        ) {
             bool bAlreadyHaveANomination = false;
             for ( ICECandidatePair *pOtherPair : m_vecCandidatePairs )
             {
@@ -2334,38 +2332,52 @@ void CSteamNetworkingICESession::STUNRequestCallback_PeerConnectivityCheck( cons
     const SteamNetworkingMicroseconds usPing = Max( SteamNetworkingMicroseconds( 1 ), info.m_usecNow - info.m_pRequest->m_usecLastSentTime );
     pPair->m_nLastRecordedPing = Max( 1, (int)( usPing / 1000 ) );
 
-    // Stale request on a pair we're not using? Ignore.
-    if ( m_pSelectedCandidatePair != nullptr && m_pSelectedCandidatePair != pPair )
-    {
-        return;
-    }
-
+    // Always update the pair state so it is never left stuck in InProgress with no
+    // active request (which would break the invariant checked in OnPacketReceived).
     if ( info.m_pHeader == nullptr )
     {
         pPair->m_nState = kICECandidatePairState_Failed;
         return;
     }
     pPair->m_nState = kICECandidatePairState_Succeeded;
+
+    // Don't nominate or upgrade to a pair with lower-or-equal priority than the
+    // current selection — it can't improve our route.
+    if ( m_pSelectedCandidatePair != nullptr && m_pSelectedCandidatePair != pPair
+         && pPair->m_nPriority <= m_pSelectedCandidatePair->m_nPriority )
+    {
+        return;
+    }
+
     if ( pPair->m_bNominated )
     {
         SetSelectedCandidatePair( pPair );
     }
 	else if ( m_role == k_EICERole_Controlling )
     {
-		// Once we have a selected pair, or any nominated pair (including ones queued
-		// but not yet sent), don't nominate more.
-		bool bAlreadyHaveANomination = ( m_pSelectedCandidatePair != nullptr );
-        for ( ICECandidatePair *pOtherPair : m_vecCandidatePairs )
-        {
-            if ( pOtherPair->m_bNominated )
-                bAlreadyHaveANomination = true;
-        }
-		if ( !bAlreadyHaveANomination )
+		if ( m_pSelectedCandidatePair != nullptr
+             && pPair->m_nPriority > m_pSelectedCandidatePair->m_nPriority )
 		{
+			// Better path than current selection — nominate it to trigger an upgrade.
 			pPair->m_bNominated = true;
 			m_vecTriggeredCheckQueue.push_back( pPair );
 		}
-
+		else
+		{
+			// Once we have a selected pair, or any nominated pair (including ones queued
+			// but not yet sent), don't nominate more.
+			bool bAlreadyHaveANomination = ( m_pSelectedCandidatePair != nullptr );
+			for ( ICECandidatePair *pOtherPair : m_vecCandidatePairs )
+			{
+				if ( pOtherPair->m_bNominated )
+					bAlreadyHaveANomination = true;
+			}
+			if ( !bAlreadyHaveANomination )
+			{
+				pPair->m_bNominated = true;
+				m_vecTriggeredCheckQueue.push_back( pPair );
+			}
+		}
     }
 }
 
