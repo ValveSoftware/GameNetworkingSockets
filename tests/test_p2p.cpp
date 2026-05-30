@@ -74,6 +74,8 @@ void PrintUsage()
 		"  --ticks <n>                         Number of 50ms send/receive ticks per connection (default: 40 = ~2s)\n"
 		"  --expect-failure                    Treat connection failure as success, success as failure\n"
 		"  --timeout-ms <n>                    Override initial connection timeout in milliseconds\n"
+		"  --signaling-loss <pct>              Drop this %% of outbound signals (0-100, default: 0)\n"
+		"  --signaling-dup <pct>               Duplicate this %% of outbound signals (0-100, default: 0)\n"
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_MOCK
 		"\n"
 		"Mock network options:\n"
@@ -81,6 +83,7 @@ void PrintUsage()
 		"                                        Assigned to the most recently declared gateway,\n"
 		"                                        or public (no NAT) if no gateway declared yet.\n"
 		"  --mock-latency <ms>                 One-way send latency for the last --mock-adapter.\n"
+		"  --mock-loss <pct>                   Outbound packet loss %% for subsequently added adapters.\n"
 		"  --mock-disabled                     Mark the last --mock-adapter as down.\n"
 		"  --mock-gateway <ip>                 Declare a NAT gateway with this public IP.\n"
 		"                                        Subsequent --mock-adapters are assigned to it.\n"
@@ -368,8 +371,11 @@ int main( int argc, const char **argv )
 	const char *pszSTUNServer = DEFAULT_STUN_SERVER;
 	const char *pszTURNServer = nullptr;
 	int g_nICEImplementation = -1; // -1 = not set, use library default
+	int nSignalingLossPct = 0;
+	int nSignalingDupPct = 0;
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_MOCK
 	TEST_mocknetwork_config_t mockConfig;
+	int nCurrentMockLoss = 0; // applied to subsequently added adapters
 #endif
 
 	// Parse the command line
@@ -408,6 +414,10 @@ int main( int argc, const char **argv )
 			g_bExpectFailure = true;
 		else if ( !strcmp( pszSwitch, "--timeout-ms" ) )
 			g_nConnectionTimeoutMS = atoi( GetArg() );
+		else if ( !strcmp( pszSwitch, "--signaling-loss" ) )
+			nSignalingLossPct = atoi( GetArg() );
+		else if ( !strcmp( pszSwitch, "--signaling-dup" ) )
+			nSignalingDupPct = atoi( GetArg() );
 		else if ( !strcmp( pszSwitch, "--client" ) )
 			g_eTestRole = k_ETestRole_Client;
 		else if ( !strcmp( pszSwitch, "--server" ) )
@@ -485,6 +495,7 @@ int main( int argc, const char **argv )
 					TEST_Fatal( "--mock-adapter '%s' address family does not match its gateway '%s'",
 						pszArg, SteamNetworkingIPAddrRender( gwIP, false ).c_str() );
 			}
+			iface.m_nSendLossPct = nCurrentMockLoss;
 			mockConfig.m_vecInterfaces.push_back( iface );
 		}
 		else if ( !strcmp( pszSwitch, "--mock-latency" ) )
@@ -492,6 +503,10 @@ int main( int argc, const char **argv )
 			if ( mockConfig.m_vecInterfaces.empty() )
 				TEST_Fatal( "--mock-latency must follow --mock-adapter" );
 			mockConfig.m_vecInterfaces.back().m_nSendLatencyMS = atoi( GetArg() );
+		}
+		else if ( !strcmp( pszSwitch, "--mock-loss" ) )
+		{
+			nCurrentMockLoss = atoi( GetArg() );
 		}
 		else if ( !strcmp( pszSwitch, "--mock-disabled" ) )
 		{
@@ -542,7 +557,7 @@ int main( int argc, const char **argv )
 
 	// Create the signaling service
 	SteamNetworkingErrMsg errMsg;
-	ITrivialSignalingClient *pSignaling = CreateTrivialSignalingClient( pszTrivialSignalingService, SteamNetworkingSockets(), errMsg );
+	ITrivialSignalingClient *pSignaling = CreateTrivialSignalingClient( pszTrivialSignalingService, SteamNetworkingSockets(), errMsg, nSignalingLossPct, nSignalingDupPct );
 	if ( pSignaling == nullptr )
 		TEST_Fatal( "Failed to initializing signaling client.  %s", errMsg );
 
