@@ -41,6 +41,8 @@ namespace SteamNetworkingSocketsLib {
     extern int TEST_ICE_ctr_allocate_send;
     extern int TEST_ICE_ctr_send_ind_send;
     extern int TEST_ICE_ctr_data_ind_recv;
+    extern int TEST_ICE_ctr_binding_req_retx;
+    extern int TEST_ICE_ctr_allocate_retx;
     extern void TEST_ICE_ctr_Reset();
     extern void TEST_ICE_ctr_Print();
 }

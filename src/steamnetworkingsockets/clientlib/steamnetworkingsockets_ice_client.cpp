@@ -849,8 +849,10 @@ int TEST_ICE_ctr_binding_req_recv = 0;  // binding requests received from peer
 int TEST_ICE_ctr_binding_resp_send = 0; // binding responses we sent
 int TEST_ICE_ctr_binding_resp_recv = 0; // binding responses we received
 int TEST_ICE_ctr_allocate_send    = 0;  // TURN allocate requests sent
-int TEST_ICE_ctr_send_ind_send    = 0;  // TURN send indications sent (data out via relay)
-int TEST_ICE_ctr_data_ind_recv    = 0;  // TURN data indications received (data in via relay)
+int TEST_ICE_ctr_send_ind_send      = 0;  // TURN send indications sent (data out via relay)
+int TEST_ICE_ctr_data_ind_recv      = 0;  // TURN data indications received (data in via relay)
+int TEST_ICE_ctr_binding_req_retx   = 0;  // binding request retransmissions (not counting initial send)
+int TEST_ICE_ctr_allocate_retx      = 0;  // TURN allocate request retransmissions
 
 void TEST_ICE_ctr_Reset()
 {
@@ -860,8 +862,10 @@ void TEST_ICE_ctr_Reset()
     TEST_ICE_ctr_binding_resp_send = 0;
     TEST_ICE_ctr_binding_resp_recv = 0;
     TEST_ICE_ctr_allocate_send    = 0;
-    TEST_ICE_ctr_send_ind_send    = 0;
-    TEST_ICE_ctr_data_ind_recv    = 0;
+    TEST_ICE_ctr_send_ind_send      = 0;
+    TEST_ICE_ctr_data_ind_recv      = 0;
+    TEST_ICE_ctr_binding_req_retx   = 0;
+    TEST_ICE_ctr_allocate_retx      = 0;
 }
 
 void TEST_ICE_ctr_Print()
@@ -873,6 +877,8 @@ void TEST_ICE_ctr_Print()
     SpewMsg( "TEST_ICE_ctr_allocate_send=%d\n",     TEST_ICE_ctr_allocate_send );
     SpewMsg( "TEST_ICE_ctr_send_ind_send=%d\n",     TEST_ICE_ctr_send_ind_send );
     SpewMsg( "TEST_ICE_ctr_data_ind_recv=%d\n",     TEST_ICE_ctr_data_ind_recv );
+    SpewMsg( "TEST_ICE_ctr_binding_req_retx=%d\n",  TEST_ICE_ctr_binding_req_retx );
+    SpewMsg( "TEST_ICE_ctr_allocate_retx=%d\n",     TEST_ICE_ctr_allocate_retx );
 }
 
 // Compare IP addresses, ignoring the port.
@@ -973,7 +979,19 @@ void CSteamNetworkingSocketsSTUNRequest::Think( SteamNetworkingMicroseconds usec
         if ( m_pInterface->SendPacketGather( 1, &temp, m_cbPacketSize, m_remoteAddr, m_addrRelay ) )
         {
             m_usecLastSentTime = usecNow;
-            SetNextThinkTime( usecNow + retryTimeout );
+            if ( m_nRetryCount > 1 )
+            {
+                // Decode message type from the packet header (type occupies the top 16 bits
+                // of the first word) and tally by type so tests can verify the retry schedule.
+                const uint32 nMsgType = ntohl( m_packet[0] ) >> 16;
+                if ( nMsgType == k_nSTUN_BindingRequest )
+                    ++TEST_ICE_ctr_binding_req_retx;
+                else if ( nMsgType == k_nTURN_AllocateRequest )
+                    ++TEST_ICE_ctr_allocate_retx;
+                else
+                    AssertMsg( false, "Untracked STUN retransmit type 0x%x", nMsgType );
+            }
+            SetNextThinkTime( usecNow + usecInterval );
             return;
         }
 
