@@ -906,7 +906,12 @@ void CSteamNetworkingSocketsSTUNRequest::Queue( uint32 nMessageType, int nEncodi
 {
     m_remoteAddr = remoteAddr;
     m_nRetryCount = 0;
-    m_nMaxRetries = 7;
+    // Retry schedule: 400ms initial interval, growing by 1.5x each attempt.
+    // Send times (approximate): 0, 400ms, 1.0s, 1.9s, 3.25s -> give up at ~5.3s.
+    // RFC 5389 uses 500ms initial RTO doubling each retry over 7+ attempts (~32-64s total),
+    // which is far too conservative for real-time use.  We accept slightly higher
+    // packet-loss sensitivity in exchange for failing fast when the server is unreachable.
+    m_nMaxRetries = 5;
     m_callback = cb;
 	m_usecLastSentTime = 0;
     m_cbPacketSize = EncodeSTUNPacket( m_packet, nMessageType, nEncoding, m_nTransactionID,
@@ -955,9 +960,12 @@ void CSteamNetworkingSocketsSTUNRequest::Think( SteamNetworkingMicroseconds usec
     {
 
         ++m_nRetryCount;
-        SteamNetworkingMicroseconds retryTimeout = 500000 * ( 1 << m_nRetryCount ); // 2 ^ retryCount * 500ms
-        if ( retryTimeout > 60000000 ) // Max timeout of 60s.
-            retryTimeout = 60000000;
+
+        // Calculate inter-retry interval: 400ms * 1.5^(retryCount-1).
+        // Using integer 3/2 multiply in a loop — at most 4 iterations, negligibly fast.
+        SteamNetworkingMicroseconds usecInterval = 400000;
+        for ( int i = 1; i < m_nRetryCount; ++i )
+            usecInterval = usecInterval * 3 / 2;
 
         iovec temp;
         temp.iov_base = m_packet;
