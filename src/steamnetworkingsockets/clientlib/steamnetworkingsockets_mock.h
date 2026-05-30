@@ -61,6 +61,10 @@ struct TEST_mocknetwork_interface_t
 	// Models local link quality (e.g. WiFi jitter vs Ethernet).
 	int m_nSendLatencyMS = 0;
 
+	// Percentage of outbound packets to silently drop (0-100).
+	// Models a lossy link; applies before the latency queue.
+	int m_nSendLossPct = 0;
+
 	// If false, the interface is "down": no packets are sent or received.
 	bool m_bEnabled = true;
 };
