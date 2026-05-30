@@ -97,7 +97,17 @@ class CTrivialSignalingClient : public ITrivialSignalingClient
 			}
 			signal.push_back('\n');
 
+			// Simulate an unreliable signaling channel.  Applied here rather than
+			// in Send() so that only ICE signals are affected, not the connection
+			// management greeting.
+			if ( m_pOwner->m_nLossPct > 0 && ( rand() % 100 ) < m_pOwner->m_nLossPct )
+				return true;
+
 			m_pOwner->Send( signal );
+
+			if ( m_pOwner->m_nDupPct > 0 && ( rand() % 100 ) < m_pOwner->m_nDupPct )
+				m_pOwner->Send( signal );
+
 			return true;
 		}
 
@@ -182,14 +192,11 @@ public:
 		Connect();
 	}
 
-	// Send the signal.
+	// Send a raw line to the signaling server.  No fault injection here;
+	// fault injection for ICE signals lives in ConnectionSignaling::SendSignal.
 	void Send( const std::string &s )
 	{
 		assert( s.length() > 0 && s[ s.length()-1 ] == '\n' ); // All of our signals are '\n'-terminated
-
-		// Simulate unreliable signaling channel: randomly drop signals.
-		if ( m_nLossPct > 0 && ( rand() % 100 ) < m_nLossPct )
-			return;
 
 		sockMutex.lock();
 
@@ -204,11 +211,6 @@ public:
 		}
 
 		m_queueSend.push_back( s );
-
-		// Simulate duplicate delivery.
-		if ( m_nDupPct > 0 && ( rand() % 100 ) < m_nDupPct )
-			m_queueSend.push_back( s );
-
 		sockMutex.unlock();
 	}
 
