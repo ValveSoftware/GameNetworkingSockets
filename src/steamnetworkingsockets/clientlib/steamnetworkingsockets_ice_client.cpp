@@ -915,6 +915,7 @@ void CSteamNetworkingSocketsSTUNRequest::Queue( uint32 nMessageType, int nEncodi
 {
     m_remoteAddr = remoteAddr;
     m_nRetryCount = 0;
+    m_nMessageType = nMessageType;
     // Retry schedule: 400ms initial interval, growing by 1.5x each attempt.
     // Send times (approximate): 0, 400ms, 1.0s, 1.9s, 3.25s -> give up at ~5.3s.
     // RFC 5389 uses 500ms initial RTO doubling each retry over 7+ attempts (~32-64s total),
@@ -938,22 +939,6 @@ void CSteamNetworkingSocketsSTUNRequest::Queue( uint32 nMessageType, int nEncodi
     SetNextThinkTimeASAP();
 }
 
-
-void CSteamNetworkingSocketsSTUNRequest::Cancel()
-{
-    if ( m_callback )
-    {
-        RecvSTUNPktInfo_t subInfo;
-        subInfo.m_pRequest = this;
-        subInfo.m_pHeader = nullptr;
-        subInfo.m_nAttributes = 0;
-        subInfo.m_pAttributes = nullptr;
-        subInfo.m_usecNow = SteamNetworkingSockets_GetLocalTimestamp();
-        ( m_pInterface->m_session.*m_callback )( subInfo );
-    }
-
-    delete this;
-}
 
 void CSteamNetworkingSocketsSTUNRequest::RetriggerNow()
 {
@@ -1005,14 +990,24 @@ void CSteamNetworkingSocketsSTUNRequest::Think( SteamNetworkingMicroseconds usec
     }
     else
     {
-        SpewVerboseGroup( GlobalConfig::LogLevel_P2PRendezvous.Get(), "ICE: STUN request to %s timed out.\n",
-            SteamNetworkingIPAddrRender( m_remoteAddr ).c_str() );
+        SpewVerboseGroup( GlobalConfig::LogLevel_P2PRendezvous.Get(), "ICE: STUN request 0x%x to %s timed out.\n",
+            m_nMessageType, SteamNetworkingIPAddrRender( m_remoteAddr ).c_str() );
     }
 
-    // Call the callback to notify that we've failed, and SELF DESTRUCT.
-    Cancel();
+    // Call the callback to notify that we've failed
+    if ( m_callback )
+    {
+        RecvSTUNPktInfo_t subInfo;
+        subInfo.m_pRequest = this;
+        subInfo.m_pHeader = nullptr;
+        subInfo.m_nAttributes = 0;
+        subInfo.m_pAttributes = nullptr;
+        subInfo.m_usecNow = SteamNetworkingSockets_GetLocalTimestamp();
+        ( m_pInterface->m_session.*m_callback )( subInfo );
+    }
 
-    // WARNING: We don't exist here!
+    // SELF DESTRUCT
+    delete this;
 }
 
 void CSteamNetworkingSocketsSTUNRequest::ReplyPacketReceived( const RecvPktInfo_t &info, const STUNHeader &header )
@@ -1021,8 +1016,9 @@ void CSteamNetworkingSocketsSTUNRequest::ReplyPacketReceived( const RecvPktInfo_
     CUtlVector< STUNAttribute > vecAttributes;
     if ( !ParseSTUNAttributes( info, (const byte*)m_strPassword.c_str(), (uint32)m_strPassword.size(), &vecAttributes ) )
     {
-        SpewVerboseGroup( GlobalConfig::LogLevel_P2PRendezvous.Get(), "ICE: Dropping STUN response from %s: attribute parse or integrity failure.\n",
-            SteamNetworkingIPAddrRender( m_remoteAddr ).c_str() );
+        SpewVerboseGroup( GlobalConfig::LogLevel_P2PRendezvous.Get(),
+            "ICE: Dropping STUN response 0x%x from %s: attribute parse or integrity failure.\n",
+            m_nMessageType, SteamNetworkingIPAddrRender( m_remoteAddr ).c_str() );
         return;
     }
 
