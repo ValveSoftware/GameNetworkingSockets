@@ -30,6 +30,16 @@ namespace SteamNetworkingSocketsLib {
 
 class IRawUDPSocket;
 
+constexpr int k_nIPClassify_IPv4 = (1<<0);
+constexpr int k_nIPClassify_IPv6 = (1<<1);
+constexpr int k_nIPClassify_Public = (1<<2);
+constexpr int k_nIPClassify_LAN = (1<<3);
+constexpr int k_nIPClassify_Localhost = (1<<4);
+constexpr int k_nIPClassify_Mock = (1<<5);
+
+extern int ClassifyIP( const SteamNetworkingIPAddr &ip );
+extern int ClassifyIP( const CIPAddress &ip );
+
 /////////////////////////////////////////////////////////////////////////////
 //
 // Low level sockets
