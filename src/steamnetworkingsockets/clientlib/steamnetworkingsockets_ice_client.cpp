@@ -848,6 +848,7 @@ int TEST_ICE_ctr_binding_req_send = 0;  // binding requests we sent (srflx gathe
 int TEST_ICE_ctr_binding_req_recv = 0;  // binding requests received from peer
 int TEST_ICE_ctr_binding_resp_send = 0; // binding responses we sent
 int TEST_ICE_ctr_binding_resp_recv = 0; // binding responses we received
+int TEST_ICE_ctr_srflx_send       = 0;  // STUN binding requests sent for srflx discovery
 int TEST_ICE_ctr_allocate_send    = 0;  // TURN allocate requests sent
 int TEST_ICE_ctr_refresh_send     = 0;  // TURN refresh requests sent
 int TEST_ICE_ctr_send_ind_send      = 0;  // TURN send indications sent (data out via relay)
@@ -864,6 +865,7 @@ void TEST_ICE_ctr_Reset()
     TEST_ICE_ctr_binding_req_recv = 0;
     TEST_ICE_ctr_binding_resp_send = 0;
     TEST_ICE_ctr_binding_resp_recv = 0;
+    TEST_ICE_ctr_srflx_send       = 0;
     TEST_ICE_ctr_allocate_send    = 0;
     TEST_ICE_ctr_refresh_send     = 0;
     TEST_ICE_ctr_send_ind_send      = 0;
@@ -880,6 +882,7 @@ void TEST_ICE_ctr_Print()
     SpewMsg( "TEST_ICE_ctr_binding_req_recv=%d\n",  TEST_ICE_ctr_binding_req_recv );
     SpewMsg( "TEST_ICE_ctr_binding_resp_send=%d\n", TEST_ICE_ctr_binding_resp_send );
     SpewMsg( "TEST_ICE_ctr_binding_resp_recv=%d\n", TEST_ICE_ctr_binding_resp_recv );
+    SpewMsg( "TEST_ICE_ctr_srflx_send=%d\n",         TEST_ICE_ctr_srflx_send );
     SpewMsg( "TEST_ICE_ctr_allocate_send=%d\n",     TEST_ICE_ctr_allocate_send );
     SpewMsg( "TEST_ICE_ctr_refresh_send=%d\n",      TEST_ICE_ctr_refresh_send );
     SpewMsg( "TEST_ICE_ctr_send_ind_send=%d\n",     TEST_ICE_ctr_send_ind_send );
@@ -1894,6 +1897,7 @@ void CSteamNetworkingICESession::Think_DiscoverServerReflexiveCandidates()
         {
             if ( srv.IsIPv4() == pIntf->m_pSocket->m_boundAddr.IsIPv4() )
             {
+                ++TEST_ICE_ctr_srflx_send;
                 pIntf->QueueBindRequest( srv, &CSteamNetworkingICESession::STUNRequestCallback_ServerReflexiveCandidate, m_nEncoding | kSTUNPacketEncodingFlags_MappedAddress );
                 break;
             }
