@@ -208,6 +208,7 @@ namespace SteamNetworkingSocketsLib {
         uint32 m_nTransactionID[3];  // generated at construction
         SteamNetworkingIPAddr m_remoteAddr; // Address of the peer
         SteamNetworkingIPAddr m_addrRelay;
+        uint32 m_nMessageType;
         int m_nRetryCount;
         int m_nMaxRetries;
         RecvSTUNPacketCallback_t m_callback = nullptr;
@@ -220,7 +221,6 @@ namespace SteamNetworkingSocketsLib {
 
         // Serialize the packet and start the retry loop.
         void Queue( uint32 nMessageType, int nEncoding, SteamNetworkingIPAddr remoteAddr, RecvSTUNPacketCallback_t cb, STUNAttribute *pExtraAttrs = nullptr, int nExtraAttrs = 0 );
-        void Cancel();
 
         // Immediately retransmit and reset the exponential backoff schedule, as if
         // the request were freshly queued.  The transaction ID is preserved, so any
