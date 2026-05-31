@@ -627,15 +627,16 @@ CLIENT_SERVER_TEST_CASES = [
       'local', 1, None, None ),
 ]
 
-def ClientServerTest( server_extra_args=[], client_extra_args=[], expected_route=None, ice_impl=1, expected_counters=None, expected_candidates=None ):
+def ClientServerTest( server_extra_args=[], client_extra_args=[], expected_route=None, ice_impl=1, expected_counters=None, expected_candidates=None, timeout_sec=None ):
     global g_failed
     impl_args = [ '--ice-implementation', str(ice_impl) ]
     server = StartClientInThread( "server", "peer_server", "peer_client", server_extra_args + impl_args )
     client = StartClientInThread( "client", "peer_client", "peer_server", client_extra_args + impl_args )
 
     # Wait for clients to shutdown.  Nuke them if necessary
-    server.join( timeout=20 * g_repeat )
-    client.join( timeout=20 * g_repeat )
+    t = timeout_sec if timeout_sec is not None else 20 * g_repeat
+    server.join( timeout=t )
+    client.join( timeout=t )
 
     # Verify route types if an expected value was provided
     if expected_route is not None:
@@ -712,7 +713,7 @@ if not os.path.exists( stun_server_script ):
 
 stun = StartProcessInThread( "stun", [ sys.executable, stun_server_script,
                                        '--host', g_stun_ip, '--host6', g_stun_ipv6, '--port', str(g_stun_port),
-                                       '--relay-latency', '75' ],
+                                       '--relay-latency', '75', '--allocation-lifetime', '15' ],
                              ready_message="STUN/TURN server listening on", ready_event=g_stun_ready )
 
 if not g_stun_ready.wait( timeout=g_server_startup_timeout ):
@@ -753,6 +754,20 @@ for desc, srv_args, cli_args, exp_route, ice_impl, exp_counters, exp_candidates 
     ClientServerTest( srv_args, cli_args, exp_route, ice_impl, exp_counters, exp_candidates )
     if g_failed:
         break
+
+# TURN allocation refresh test: run long enough (~20s, 400 ticks) to see two refreshes.
+# With --allocation-lifetime 15, refreshes fire at ~7.5s and ~15s from allocation.
+# refresh_send >= 2 confirms both fires; allocate_send == 1 confirms no re-allocation.
+if not g_failed:
+    print( "=================================================================" )
+    print( "Test: TURN allocation refresh (symmetric NAT, 400 ticks)" )
+    print( "=================================================================" )
+    _refresh_args = [ '--ticks', '400' ] + _nat( _SRV_INT, _SRV_GW, 'symmetric' )
+    _refresh_cli_args = [ '--ticks', '400' ] + _nat( _CLI_INT, _CLI_GW, 'symmetric' )
+    ClientServerTest( _refresh_args, _refresh_cli_args,
+                      expected_route='relay', ice_impl=1,
+                      expected_counters={ 'refresh_send': (2, None), 'allocate_send': (1, 1) },
+                      timeout_sec=35 * g_repeat )
 
 # Run the expected-failure tests
 if not g_failed:
