@@ -658,6 +658,8 @@ int main( int argc, const char **argv )
 	// Main test loop
 	for (;;)
 	{
+		auto tickStart = std::chrono::steady_clock::now();
+
 		// Check for incoming signals, and dispatch them
 		pSignaling->Poll();
 
@@ -707,9 +709,19 @@ int main( int argc, const char **argv )
 		if ( g_nConnectionsDone >= g_nRepeat && g_hConnection == k_HSteamNetConnection_Invalid )
 			break;
 
-		// Each tick is at least 50ms.  The networking code has no concept of ticks;
-		// this sleep is only here to pace the test's send loop.
-		std::this_thread::sleep_for( std::chrono::milliseconds( 50 ) );
+		// Sleep the remainder of the 50ms tick budget in <=5ms chunks.
+		// Small chunks keep actual tick time close to 50ms even on slow/loaded
+		// runners where a single sleep_for(50ms) can overshoot by 30-40ms.
+		auto tickEnd = tickStart + std::chrono::milliseconds( 50 );
+		for (;;)
+		{
+			auto remaining = tickEnd - std::chrono::steady_clock::now();
+			if ( remaining <= std::chrono::milliseconds( 0 ) )
+				break;
+			if ( remaining > std::chrono::milliseconds( 5 ) )
+				remaining = std::chrono::milliseconds( 5 );
+			std::this_thread::sleep_for( remaining );
+		}
 	}
 
 	TEST_Printf( "Shutting down\n" );
