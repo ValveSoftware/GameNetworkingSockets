@@ -1885,6 +1885,8 @@ void CSteamNetworkingICESession::Think_DiscoverServerReflexiveCandidates()
 {
     if ( m_vecSTUNServers.empty() )
         return;
+    if ( !( m_nPermittedCandidateTypes & k_EICECandidate_Any_Reflexive ) )
+        return;
 
     for ( const std::unique_ptr<ICESessionInterface> &pIntf : m_vecInterfaces )
     {
@@ -1910,6 +1912,8 @@ void CSteamNetworkingICESession::Think_DiscoverServerReflexiveCandidates()
 void CSteamNetworkingICESession::Think_DiscoverRelayCandidate()
 {
     if ( m_vecTURNServers.empty() )
+        return;
+    if ( !( m_nPermittedCandidateTypes & k_EICECandidate_Any_Relay ) )
         return;
 
     for ( const std::unique_ptr<ICESessionInterface> &pIntf : m_vecInterfaces )
@@ -2533,6 +2537,8 @@ void ICESessionInterface::NotifyLocalCandidateDiscovered( ICECandidateKind kind,
     V_snprintf( szCandidate, sizeof(szCandidate), "candidate:%u 0 udp %u %s %d typ %s", nFoundation, nPriority, connectionAddr, addr.m_port, pszType );
 
     EICECandidateType eType = CalcICECandidateType( kind, addr );
+    if ( !( eType & m_session.m_nPermittedCandidateTypes ) )
+        return;
     pCallbacks->OnLocalCandidateDiscovered( eType, szCandidate );
 }
 
