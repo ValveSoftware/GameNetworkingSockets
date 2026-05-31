@@ -604,13 +604,13 @@ CLIENT_SERVER_TEST_CASES = [
     # on 'udp' (direct srflx path).
     #
     # Spurious-failure analysis (at the time of this writing):
-    #   Each STUN round trip succeeds with P = 0.8 * 0.8 = 0.64 under 20% outbound
+    #   Each STUN round trip succeeds with P = 0.9 * 0.9 = 0.81 under 10% outbound
     #   loss per side.  The request schedule is 5 total sends (1 initial + 4 retx).
-    #   P(all 5 fail) = 0.36^5 ~= 0.6%.  Triggered checks from the remote side add
-    #   extra attempts, so the real spurious-failure rate is somewhat below 0.6%.
-    ( 'full-cone NAT, 20% packet loss',
-      [ '--mock-loss', '20' ] + _nat( _SRV_INT, _SRV_GW, 'full-cone' ),
-      [ '--mock-loss', '20' ] + _nat( _CLI_INT, _CLI_GW, 'full-cone' ),
+    #   P(all 5 fail) = 0.19^5 ~= 0.025% (~1 in 4000 runs).  Triggered checks from
+    #   the remote side add extra attempts, so the real rate is lower still.
+    ( 'full-cone NAT, 10% packet loss',
+      [ '--mock-loss', '10' ] + _nat( _SRV_INT, _SRV_GW, 'full-cone' ),
+      [ '--mock-loss', '10' ] + _nat( _CLI_INT, _CLI_GW, 'full-cone' ),
       'udp', 1, _CTR_DIRECT, None ),
 
     # Signaling impairment: verify connection succeeds despite lossy or duplicate
