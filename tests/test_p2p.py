@@ -200,7 +200,7 @@ def StartClientInThread( role, local, remote, extra_args=[], stun=_DEFAULT_STUN,
 
     return StartProcessInThread( local, cmdline, env );
 
-# Mock network address constants — IPv4
+# Mock network address constants -- IPv4
 # Public range: 127.0.100.x  Private LANs: 127.0.X.x (X != 100)
 _SRV_GW   = '127.0.100.2'  # server-side NAT gateway (public)
 _CLI_GW   = '127.0.100.3'  # client-side NAT gateway (public)
@@ -213,7 +213,7 @@ _CLI_INT2 = '127.0.4.2'    # second client internal address
 _DEAD_INT = '127.0.9.2'    # address used for disabled adapters
 _CLI_SAME_LAN = '127.0.1.3' # client on the same /24 private LAN as _SRV_INT
 
-# Mock network address constants — IPv6
+# Mock network address constants -- IPv6
 # Mirrors the IPv4 layout: fd7f:0:100::x = public, fd7f:0:X::x = private LAN X
 _SRV_GW_V6  = 'fd7f:0:100::2'  # server-side NAT gateway (public, IPv6)
 _CLI_GW_V6  = 'fd7f:0:100::3'  # client-side NAT gateway (public, IPv6)
@@ -477,7 +477,7 @@ _CAND_MULTI       = {'host': 2, 'srflx': 1, 'relay': 2}   # two adapters: one pu
 # Each entry: ( description, server_extra_args, client_extra_args, expected_route, ice_impl,
 #               counter_constraints, (server_expected_candidates, client_expected_candidates) )
 # candidate pair is None to skip the check (e.g. no-mock tests with unpredictable real adapters)
-# Both sides must report the same route type — ICE nominates one candidate pair
+# Both sides must report the same route type -- ICE nominates one candidate pair
 # and both ends classify the same path, so agreement is guaranteed by the protocol.
 # Route types: 'local' = Fast flag set: both host candidates on the same private /24 LAN subnet
 #              'udp'   = direct UDP but not same-LAN (NAT traversal, or public IPs)
@@ -514,7 +514,7 @@ CLIENT_SERVER_TEST_CASES = [
       ( _CAND_DIRECT_TURN, _CAND_DIRECT_TURN ) ),
 
     # Both on the same LAN but each also has a NAT to the public internet via the
-    # same shared gateway — the typical home/office scenario.  Both a direct host path
+    # same shared gateway -- the typical home/office scenario.  Both a direct host path
     # and a hairpin path through the gateway exist; ICE must select the direct host
     # path (higher priority) and classify it as 'local'.
     ( 'same LAN, shared gateway (hairpin)',
@@ -523,7 +523,7 @@ CLIENT_SERVER_TEST_CASES = [
       'local', 1, _CTR_DIRECT,
       ( _CAND_NAT_TURN, _CAND_NAT_TURN ) ),
 
-    # Both on the public network: direct host-to-host but NOT 'local' — public IPs
+    # Both on the public network: direct host-to-host but NOT 'local' -- public IPs
     # are not classified as fast even when they share a subnet.
     # No NAT: STUN mapped address == host address; srflx is suppressed.
     ( 'no-nat (both public)',

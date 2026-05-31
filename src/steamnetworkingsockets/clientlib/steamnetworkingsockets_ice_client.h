@@ -355,12 +355,12 @@ namespace SteamNetworkingSocketsLib {
         std::string m_strRemotePassword;
 
         // Pre-built USERNAME attribute strings derived from the two ufrag values above.
-        // ICE mandates the format "recipient:sender" — so the direction reverses
+        // ICE mandates the format "recipient:sender" -- so the direction reverses
         // depending on whether a packet is inbound or outbound.  Caching them avoids
         // repeated string concatenation in the hot path.
         // Both are empty until remote credentials have arrived via signaling.
-        std::string m_strIncomingUsername;  // local:remote — expected in packets we receive
-        std::string m_strOutgoingUsername;  // remote:local — placed in packets we send
+        std::string m_strIncomingUsername;  // local:remote -- expected in packets we receive
+        std::string m_strOutgoingUsername;  // remote:local -- placed in packets we send
 
         // Dirty flag set whenever a local or remote candidate is added or removed.
         // The next Think() pass rebuilds m_vecCandidatePairs from the current
@@ -445,7 +445,7 @@ namespace SteamNetworkingSocketsLib {
         // Delete a candidate pair and perform all associated cleanup:
         // clears the selected-pair state if this was the active path, cancels
         // any in-flight peer connectivity check, and removes the pair from the
-        // triggered-check queue.  Does NOT remove it from m_vecCandidatePairs —
+        // triggered-check queue.  Does NOT remove it from m_vecCandidatePairs --
         // that is the caller's responsibility.
         void InternalDeleteCandidatePair( ICECandidatePair *pPair );
 
