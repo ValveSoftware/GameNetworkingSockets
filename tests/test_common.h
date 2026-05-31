@@ -38,6 +38,7 @@ namespace SteamNetworkingSocketsLib {
     extern int TEST_ICE_ctr_binding_req_recv;
     extern int TEST_ICE_ctr_binding_resp_send;
     extern int TEST_ICE_ctr_binding_resp_recv;
+    extern int TEST_ICE_ctr_srflx_send;
     extern int TEST_ICE_ctr_allocate_send;
     extern int TEST_ICE_ctr_refresh_send;
     extern int TEST_ICE_ctr_send_ind_send;
