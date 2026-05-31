@@ -266,19 +266,19 @@ def _handle_send_indication(data, addr):
         return
 
     if peer_ip not in alloc.permissions:
-        print("  Dropped Send to %s — no permission" % peer_ip, flush=True)
+        print("  Dropped Send to %s -- no permission" % peer_ip, flush=True)
         return
 
     _schedule_relay_send(alloc.relay_sock, payload, (peer_ip, peer_port))
 
 
 def _handle_relay_packet(relay_sock, payload, peer_addr):
-    """Data arriving on a relay socket — wrap in a Data indication and forward to the client."""
+    """Data arriving on a relay socket -- wrap in a Data indication and forward to the client."""
     alloc = _relay_sock_map.get(relay_sock)
     if alloc is None:
         return
     if peer_addr[0] not in alloc.permissions:
-        print("  Dropped relay packet from %s:%d on relay port %d — no permission (would forward to %s:%d)" % (peer_addr[0], peer_addr[1], alloc.relay_port, alloc.client_addr[0], alloc.client_addr[1]), flush=True)
+        print("  Dropped relay packet from %s:%d on relay port %d -- no permission (would forward to %s:%d)" % (peer_addr[0], peer_addr[1], alloc.relay_port, alloc.client_addr[0], alloc.client_addr[1]), flush=True)
         return
 
     if alloc.first_packet:

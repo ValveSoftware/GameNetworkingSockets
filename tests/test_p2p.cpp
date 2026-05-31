@@ -293,12 +293,12 @@ void OnSteamNetConnectionStatusChanged( SteamNetConnectionStatusChangedCallback_
 					SteamNetworkingSocketsLib::TEST_ICE_ctr_Print();
 			}
 
-			// Clean close (or expected failure) — main loop starts next iteration or exits.
+			// Clean close (or expected failure) -- main loop starts next iteration or exits.
 			++g_nConnectionsDone;
 		}
 		else
 		{
-			// Stale handle from a previous iteration being cleaned up — ignore.
+			// Stale handle from a previous iteration being cleaned up -- ignore.
 			SteamNetworkingSockets()->CloseConnection( pInfo->m_hConn, 0, nullptr, false );
 		}
 

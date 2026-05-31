@@ -378,7 +378,7 @@ if (BUILD_STATIC_LIB)
 	set_clientlib_target_properties(GameNetworkingSockets_s)
 endif()
 
-# Test-only static library variant — includes the mock network framework.
+# Test-only static library variant -- includes the mock network framework.
 # Never shipped; only built when tests are enabled. test_p2p links against
 # this instead of the regular static library.
 if (BUILD_TESTS AND BUILD_STATIC_LIB AND ENABLE_ICE)

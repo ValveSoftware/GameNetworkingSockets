@@ -100,7 +100,7 @@ int g_nSendECNAuto = -1;
 std::atomic<int> s_nLowLevelSupportRefCount(0);
 static volatile bool s_bManualPollMode;
 
-extern int ClassifyIP( const CIPAddress &ip )
+int ClassifyIP( const CIPAddress &ip )
 {
 	switch ( ip.GetType() )
 	{
@@ -119,7 +119,7 @@ extern int ClassifyIP( const CIPAddress &ip )
 						return k_nIPClassify_IPv4 | k_nIPClassify_Mock | k_nIPClassify_Public;
 					return k_nIPClassify_IPv4 | k_nIPClassify_Mock | k_nIPClassify_LAN;
 				}
-				// Not a mock address — invalid in mock mode
+				// Not a mock address -- invalid in mock mode
 				return 0;
 			}
 			if ( a == 127 )
@@ -145,15 +145,15 @@ extern int ClassifyIP( const CIPAddress &ip )
 						return k_nIPClassify_IPv6 | k_nIPClassify_Mock | k_nIPClassify_Public;
 					return k_nIPClassify_IPv6 | k_nIPClassify_Mock | k_nIPClassify_LAN;
 				}
-				// Not a mock address — invalid in mock mode
+				// Not a mock address -- invalid in mock mode
 				return 0;
 			}
 			// ::1 (loopback) should never appear in non-mock mode
 			if ( memcmp( b, k_ipv6Bytes_Loopback, 16 ) == 0 )
 				return k_nIPClassify_IPv6 | k_nIPClassify_Localhost;
-			if ( (b[0] & 0xfe) == 0xfc )  // fc00::/7 — ULA private space
+			if ( (b[0] & 0xfe) == 0xfc )  // fc00::/7 -- ULA private space
 				return k_nIPClassify_IPv6 | k_nIPClassify_LAN;
-			if ( b[0] == 0xfe && (b[1] & 0xc0) == 0x80 )  // fe80::/10 — link-local
+			if ( b[0] == 0xfe && (b[1] & 0xc0) == 0x80 )  // fe80::/10 -- link-local
 				return k_nIPClassify_IPv6 | k_nIPClassify_LAN;
 			return k_nIPClassify_IPv6 | k_nIPClassify_Public;
 		}
@@ -163,7 +163,7 @@ extern int ClassifyIP( const CIPAddress &ip )
 	return 0;
 }
 
-extern int ClassifyIP( const SteamNetworkingIPAddr &ip )
+int ClassifyIP( const SteamNetworkingIPAddr &ip )
 {
 	// FIXME We really should just get rid of all of our internal uses of the
 	// SteamNetworkingIPAddr type, and only use it for the API
@@ -1862,7 +1862,7 @@ public:
 			}
 			Assert( m_pSockLocal->m_nAddressFamilies & k_nAddressFamily_IPv4 );
 
-			// Public mock address — route via NAT (the gateway does the NATting)
+			// Public mock address -- route via NAT (the gateway does the NATting)
 			if ( nClassify & k_nIPClassify_Public )
 				return const_cast<CUDPSocketMock *>(this)->BCreateNATAndSend( nChunks, pChunks, adrTo, ecn );
 
@@ -1871,7 +1871,7 @@ public:
 			const uint32 net_local  = m_boundAddr.GetIPv4() & 0xFF00;
 			if ( net_local == net_remote )
 			{
-				// Same LAN — send directly with interface latency only (no gateway involved)
+				// Same LAN -- send directly with interface latency only (no gateway involved)
 				return SendDelayed( m_pSockLocal, nChunks, pChunks, adrTo, ecn, m_ifaceConfig.m_nSendLatencyMS );
 			}
 		}
@@ -1883,7 +1883,7 @@ public:
 				return false;
 			}
 
-			// Public mock address — route via NAT
+			// Public mock address -- route via NAT
 			if ( nClassify & k_nIPClassify_Public )
 				return const_cast<CUDPSocketMock *>(this)->BCreateNATAndSend( nChunks, pChunks, adrTo, ecn );
 
@@ -1892,7 +1892,7 @@ public:
 			const uint16 net_local  = GetMockIPv6NetID( m_ifaceConfig.m_ip.m_ipv6 );
 			if ( net_local == net_remote )
 			{
-				// Same LAN — send directly
+				// Same LAN -- send directly
 				return SendDelayed( m_pSockLocal, nChunks, pChunks, adrTo, ecn, m_ifaceConfig.m_nSendLatencyMS );
 			}
 		}
@@ -1994,7 +1994,7 @@ private:
 	}
 };
 
-// Public interface — local IP is already on the public network, no NAT
+// Public interface -- local IP is already on the public network, no NAT
 class CUDPSocketMock_Public final : public CUDPSocketMock
 {
 public:
@@ -4336,7 +4336,7 @@ STEAMNETWORKINGSOCKETS_INTERFACE void SteamNetworkingSockets_SetServiceThreadIni
 
 /////////////////////////////////////////////////////////////////////////////
 //
-// Mock network — public API
+// Mock network -- public API
 //
 /////////////////////////////////////////////////////////////////////////////
 

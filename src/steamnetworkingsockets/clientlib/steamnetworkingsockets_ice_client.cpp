@@ -193,7 +193,7 @@ static uint32* WriteMappedAddress( uint32* pBuffer, const SteamNetworkingIPAddr&
 }
 
 // Decode any XOR-encoded address attribute (XOR-MAPPED-ADDRESS, XOR-RELAYED-ADDRESS, etc.).
-// Does NOT check the attribute type — callers are responsible for passing the right attr.
+// Does NOT check the attribute type -- callers are responsible for passing the right attr.
 static bool ReadXORAddressAttribute( const STUNAttribute *pAttr, const STUNHeader *pHeader, SteamNetworkingIPAddr* pAddr )
 {
     if ( pAttr == nullptr || pHeader == nullptr || pAddr == nullptr )
@@ -960,7 +960,7 @@ void CSteamNetworkingSocketsSTUNRequest::Think( SteamNetworkingMicroseconds usec
         ++m_nRetryCount;
 
         // Calculate inter-retry interval: 400ms * 1.5^(retryCount-1).
-        // Using integer 3/2 multiply in a loop — at most 4 iterations, negligibly fast.
+        // Using integer 3/2 multiply in a loop -- at most 4 iterations, negligibly fast.
         SteamNetworkingMicroseconds usecInterval = 400000;
         for ( int i = 1; i < m_nRetryCount; ++i )
             usecInterval = usecInterval * 3 / 2;
@@ -1312,7 +1312,7 @@ EICECandidateType CSteamNetworkingICESession::AddPeerCandidate( const RFC5245Can
 
 		// If this is a public IP, register it for TURN CreatePermission so our relay
 		// will forward traffic from it.  Excludes loopback, RFC-1918 private, and
-		// link-local addresses — forwarding from those would be meaningless (or expose
+		// link-local addresses -- forwarding from those would be meaningless (or expose
 		// internal topology).  Dedup by IP (port is ignored for permissions).
 		SteamNetworkingIPAddr permAddr = candidate.m_addr;
 		permAddr.m_port = 0;
@@ -1723,7 +1723,7 @@ not_stun:
     // RFC 8445 sec 7.3.1.4: queue a triggered check when a binding request arrives.
     // An incoming request proves the remote side can reach us, so retry immediately
     // rather than waiting for the normal schedule or a retransmit timeout.
-    // Skip when USE-CANDIDATE is set — that path handles its own triggered check below.
+    // Skip when USE-CANDIDATE is set -- that path handles its own triggered check below.
     if (
         pThisPair->m_nState != kICECandidatePairState_Succeeded
         && !FindAttributeOfType( vecAttrs.Base(), vecAttrs.Count(), k_nSTUN_Attr_UseCandidate )
@@ -1936,13 +1936,13 @@ void CSteamNetworkingICESession::STUNRequestCallback_AllocateRelay( const RecvST
                 return;
             }
         }
-        // Response received but no usable relay address — error response.
+        // Response received but no usable relay address -- error response.
         pIntf->m_addrTURNServer = info.m_pRequest->m_remoteAddr;
         pIntf->m_bRelayFailed = true;
         return;
     }
 
-    // Timed out — try the next TURN server if available.
+    // Timed out -- try the next TURN server if available.
     const int nTURNServerIdx = index_of( m_vecTURNServers, info.m_pRequest->m_remoteAddr );
     const int nNextTURNServerIdx = nTURNServerIdx + 1;
     if ( nTURNServerIdx < 0 || nNextTURNServerIdx >= len( m_vecTURNServers ) )
@@ -1964,7 +1964,7 @@ void CSteamNetworkingICESession::STUNRequestCallback_RefreshAllocation( const Re
 
     if ( info.m_pHeader != nullptr )
     {
-        // Refresh succeeded — parse the returned LIFETIME and schedule the next one.
+        // Refresh succeeded -- parse the returned LIFETIME and schedule the next one.
         const STUNAttribute *pLifetimeAttr = FindAttributeOfType( info.m_pAttributes, info.m_nAttributes, k_nTURN_Attr_Lifetime );
         if ( pLifetimeAttr != nullptr && pLifetimeAttr->m_nLength == 4 )
         {
@@ -1974,7 +1974,7 @@ void CSteamNetworkingICESession::STUNRequestCallback_RefreshAllocation( const Re
         return;
     }
 
-    // Refresh timed out — the allocation is gone.  Tear down relay state so
+    // Refresh timed out -- the allocation is gone.  Tear down relay state so
     // Think_DiscoverRelayCandidate will re-allocate, and remove all candidate
     // pairs that depended on this relay.
     SpewMsg( "ICE: TURN Refresh timed out for %s — tearing down relay allocation\n",
@@ -2093,7 +2093,7 @@ void CSteamNetworkingICESession::STUNRequestCallback_ServerReflexiveCandidate( c
     pIntf->m_pPendingSTUNRequest = nullptr;
 
     // If we already have a real SR address for this interface, ignore duplicate responses.
-    // (A previous failed-placeholder is overwriteable — that means we set bServerReflexiveFailed
+    // (A previous failed-placeholder is overwriteable -- that means we set bServerReflexiveFailed
     // earlier but a late response arrived; accept it.)
     if ( !pIntf->m_addrServerReflexive.IsIPv6AllZeros() )
         return;
@@ -2199,10 +2199,10 @@ void CSteamNetworkingICESession::Think_TestPeerConnectivity()
             ICELocalCandidate localCandidates[2];
             int nLocalCandidates = 0;
 
-            // Host candidate — always present.
+            // Host candidate -- always present.
             localCandidates[nLocalCandidates++] = { pIntf.get(), {} };
 
-            // Relay candidate — only when an allocation has succeeded.
+            // Relay candidate -- only when an allocation has succeeded.
             if ( !pIntf->m_addrTURNServer.IsIPv6AllZeros() && !pIntf->m_bRelayFailed )
                 localCandidates[nLocalCandidates++] = { pIntf.get(), pIntf->m_addrTURNServer };
 
@@ -2390,7 +2390,7 @@ void CSteamNetworkingICESession::STUNRequestCallback_PeerConnectivityCheck( cons
     pPair->m_nState = kICECandidatePairState_Succeeded;
 
     // Don't nominate or upgrade to a pair with lower-or-equal priority than the
-    // current selection — it can't improve our route.
+    // current selection -- it can't improve our route.
     if ( m_pSelectedCandidatePair != nullptr && m_pSelectedCandidatePair != pPair
          && pPair->m_nPriority <= m_pSelectedCandidatePair->m_nPriority )
     {
@@ -2406,7 +2406,7 @@ void CSteamNetworkingICESession::STUNRequestCallback_PeerConnectivityCheck( cons
 		if ( m_pSelectedCandidatePair != nullptr
              && pPair->m_nPriority > m_pSelectedCandidatePair->m_nPriority )
 		{
-			// Better path than current selection — nominate it to trigger an upgrade.
+			// Better path than current selection -- nominate it to trigger an upgrade.
 			pPair->m_bNominated = true;
 			m_vecTriggeredCheckQueue.push_back( pPair );
 		}
