@@ -17,7 +17,7 @@ STUN_MAGIC_COOKIE = 0x2112A442
 
 # Allocations expire after TURN_DEFAULT_LIFETIME seconds if not refreshed.
 # A Refresh with LIFETIME=0 immediately releases the allocation.
-TURN_DEFAULT_LIFETIME = 600  # seconds
+TURN_DEFAULT_LIFETIME = 600  # seconds (overridden by --allocation-lifetime)
 
 # Message types
 MSG_BINDING_REQUEST             = 0x0001
@@ -395,6 +395,9 @@ if __name__ == '__main__':
                         help='UDP port (default: 3478)')
     parser.add_argument('--relay-latency', type=float, default=0.0, metavar='MS',
                         help='Extra one-way latency in milliseconds applied to all relayed packets (default: 0)')
+    parser.add_argument('--allocation-lifetime', type=int, default=TURN_DEFAULT_LIFETIME, metavar='SEC',
+                        help='TURN allocation lifetime in seconds (default: %d)' % TURN_DEFAULT_LIFETIME)
     args = parser.parse_args()
     _relay_latency_sec = args.relay_latency / 1000.0
+    TURN_DEFAULT_LIFETIME = args.allocation_lifetime
     run(args.host, args.host6, args.port)
