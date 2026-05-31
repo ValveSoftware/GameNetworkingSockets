@@ -97,6 +97,10 @@ namespace SteamNetworkingSocketsLib {
         SteamNetworkingIPAddr m_addrTURNServer = {};  // TURN server that gave us the relay
         bool m_bRelayFailed = false;                  // true if all TURN servers timed out/failed
 
+        // When to send the next TURN Refresh.  Zero means no active allocation.
+        // Set to now + lifetime/2 when an Allocate or Refresh response is received.
+        SteamNetworkingMicroseconds m_usecRefreshAfter = 0;
+
         // Revision of the session's permitted-IP list that we last sent CreatePermission for.
         // When less than the session's m_nTURNPermissionRevision[v4/v6] for our family, a
         // new CreatePermission sweep is needed.
@@ -116,6 +120,9 @@ namespace SteamNetworkingSocketsLib {
 
         // Send a TURN Allocate request
         void QueueAllocateRequest( const SteamNetworkingIPAddr &addrTURNServer, RecvSTUNPacketCallback_t cb, int nEncoding );
+
+        // Send a TURN Refresh request to keep the allocation alive
+        void QueueRefreshRequest( RecvSTUNPacketCallback_t cb, int nEncoding );
 
         ICESessionInterface( CSteamNetworkingICESession &session, uint32 nPriority, int nPrefixLen )
             : m_session( session ), m_nPriority( nPriority ), m_nPrefixLen( nPrefixLen ), m_pSocket( nullptr ) {}
@@ -430,7 +437,7 @@ namespace SteamNetworkingSocketsLib {
         void Think_KeepAliveOnCandidates( SteamNetworkingMicroseconds usecNow );
         void Think_DiscoverServerReflexiveCandidates();
         void Think_DiscoverRelayCandidate();
-        void Think_TURNCreatePermissions();
+        void Think_TURNMaintenance( SteamNetworkingMicroseconds usecNow );
         void Think_TestPeerConnectivity();
 
         void SetSelectedCandidatePair( ICECandidatePair *pPair );
@@ -445,6 +452,7 @@ namespace SteamNetworkingSocketsLib {
         void STUNRequestCallback_ServerReflexiveCandidate( const RecvSTUNPktInfo_t &info );
         void STUNRequestCallback_ServerReflexiveKeepAlive( const RecvSTUNPktInfo_t &info );
         void STUNRequestCallback_AllocateRelay( const RecvSTUNPktInfo_t &info );
+        void STUNRequestCallback_RefreshAllocation( const RecvSTUNPktInfo_t &info );
         void STUNRequestCallback_CreatePermission( const RecvSTUNPktInfo_t &info );
         void STUNRequestCallback_PeerConnectivityCheck( const RecvSTUNPktInfo_t &info );
 

@@ -849,10 +849,12 @@ int TEST_ICE_ctr_binding_req_recv = 0;  // binding requests received from peer
 int TEST_ICE_ctr_binding_resp_send = 0; // binding responses we sent
 int TEST_ICE_ctr_binding_resp_recv = 0; // binding responses we received
 int TEST_ICE_ctr_allocate_send    = 0;  // TURN allocate requests sent
+int TEST_ICE_ctr_refresh_send     = 0;  // TURN refresh requests sent
 int TEST_ICE_ctr_send_ind_send      = 0;  // TURN send indications sent (data out via relay)
 int TEST_ICE_ctr_data_ind_recv      = 0;  // TURN data indications received (data in via relay)
 int TEST_ICE_ctr_binding_req_retx        = 0;  // binding request retransmissions (not counting initial send)
 int TEST_ICE_ctr_allocate_retx           = 0;  // TURN allocate request retransmissions
+int TEST_ICE_ctr_refresh_retx            = 0;  // TURN refresh request retransmissions
 int TEST_ICE_ctr_create_permission_retx  = 0;  // TURN CreatePermission request retransmissions
 
 void TEST_ICE_ctr_Reset()
@@ -863,10 +865,12 @@ void TEST_ICE_ctr_Reset()
     TEST_ICE_ctr_binding_resp_send = 0;
     TEST_ICE_ctr_binding_resp_recv = 0;
     TEST_ICE_ctr_allocate_send    = 0;
+    TEST_ICE_ctr_refresh_send     = 0;
     TEST_ICE_ctr_send_ind_send      = 0;
     TEST_ICE_ctr_data_ind_recv      = 0;
     TEST_ICE_ctr_binding_req_retx        = 0;
     TEST_ICE_ctr_allocate_retx           = 0;
+    TEST_ICE_ctr_refresh_retx            = 0;
     TEST_ICE_ctr_create_permission_retx  = 0;
 }
 
@@ -877,10 +881,12 @@ void TEST_ICE_ctr_Print()
     SpewMsg( "TEST_ICE_ctr_binding_resp_send=%d\n", TEST_ICE_ctr_binding_resp_send );
     SpewMsg( "TEST_ICE_ctr_binding_resp_recv=%d\n", TEST_ICE_ctr_binding_resp_recv );
     SpewMsg( "TEST_ICE_ctr_allocate_send=%d\n",     TEST_ICE_ctr_allocate_send );
+    SpewMsg( "TEST_ICE_ctr_refresh_send=%d\n",      TEST_ICE_ctr_refresh_send );
     SpewMsg( "TEST_ICE_ctr_send_ind_send=%d\n",     TEST_ICE_ctr_send_ind_send );
     SpewMsg( "TEST_ICE_ctr_data_ind_recv=%d\n",     TEST_ICE_ctr_data_ind_recv );
     SpewMsg( "TEST_ICE_ctr_binding_req_retx=%d\n",           TEST_ICE_ctr_binding_req_retx );
     SpewMsg( "TEST_ICE_ctr_allocate_retx=%d\n",              TEST_ICE_ctr_allocate_retx );
+    SpewMsg( "TEST_ICE_ctr_refresh_retx=%d\n",               TEST_ICE_ctr_refresh_retx );
     SpewMsg( "TEST_ICE_ctr_create_permission_retx=%d\n",     TEST_ICE_ctr_create_permission_retx );
 }
 
@@ -933,6 +939,8 @@ void CSteamNetworkingSocketsSTUNRequest::Queue( uint32 nMessageType, int nEncodi
         ++TEST_ICE_ctr_binding_req_send;
     else if ( nMessageType == k_nTURN_AllocateRequest )
         ++TEST_ICE_ctr_allocate_send;
+    else if ( nMessageType == k_nTURN_RefreshRequest )
+        ++TEST_ICE_ctr_refresh_send;
 
     // Schedule send.  We do it this way instead of sending imediately, in case we fail and need to Cancel.
     // That way, Cancel always only happens from one call stack, inside Think(). and we don't get tangled up.
@@ -976,6 +984,8 @@ void CSteamNetworkingSocketsSTUNRequest::Think( SteamNetworkingMicroseconds usec
                     ++TEST_ICE_ctr_binding_req_retx;
                 else if ( nMsgType == k_nTURN_AllocateRequest )
                     ++TEST_ICE_ctr_allocate_retx;
+                else if ( nMsgType == k_nTURN_RefreshRequest )
+                    ++TEST_ICE_ctr_refresh_retx;
                 else if ( nMsgType == k_nTURN_CreatePermissionRequest )
                     ++TEST_ICE_ctr_create_permission_retx;
                 else
@@ -1067,6 +1077,16 @@ void ICESessionInterface::QueueAllocateRequest( const SteamNetworkingIPAddr &add
 
     m_pPendingSTUNRequest = new CSteamNetworkingSocketsSTUNRequest( this );
     m_pPendingSTUNRequest->Queue( k_nTURN_AllocateRequest, nEncoding | kSTUNPacketEncodingFlags_NoMappedAddress, addrTURNServer, cb, &reqTransport, 1 );
+}
+
+void ICESessionInterface::QueueRefreshRequest( RecvSTUNPacketCallback_t cb, int nEncoding )
+{
+    Assert( !m_pPendingSTUNRequest );
+    Assert( !m_addrTURNServer.IsIPv6AllZeros() );
+
+    m_pPendingSTUNRequest = new CSteamNetworkingSocketsSTUNRequest( this );
+    // No extra attributes: server uses its configured lifetime as the default.
+    m_pPendingSTUNRequest->Queue( k_nTURN_RefreshRequest, nEncoding | kSTUNPacketEncodingFlags_NoMappedAddress, m_addrTURNServer, cb );
 }
 
 // Send a gathered packet to the pair, routing via TURN Send Indication if the
@@ -1850,7 +1870,7 @@ void CSteamNetworkingICESession::Think( SteamNetworkingMicroseconds usecNow )
     Think_KeepAliveOnCandidates( usecNow );
     Think_DiscoverServerReflexiveCandidates();
     Think_DiscoverRelayCandidate();
-    Think_TURNCreatePermissions();
+    Think_TURNMaintenance( usecNow );
 
     // Don't start checks before we have peer candidates and the remote password --
     // we'd send unauthenticated requests and couldn't verify the response integrity.
@@ -1928,6 +1948,15 @@ void CSteamNetworkingICESession::STUNRequestCallback_AllocateRelay( const RecvST
                 pIntf->m_addrTURNServer = info.m_pRequest->m_remoteAddr;
                 pIntf->m_addrRelayed = addrRelayed;
                 pIntf->m_bRelayFailed = false;
+
+                // Parse the LIFETIME attribute to schedule the first refresh.
+                const STUNAttribute *pLifetimeAttr = FindAttributeOfType( info.m_pAttributes, info.m_nAttributes, k_nTURN_Attr_Lifetime );
+                if ( pLifetimeAttr != nullptr && pLifetimeAttr->m_nLength == 4 )
+                {
+                    SteamNetworkingMicroseconds usecLifetime = (SteamNetworkingMicroseconds)ntohl( pLifetimeAttr->m_pData[0] ) * k_nMillion;
+                    pIntf->m_usecRefreshAfter = info.m_usecNow + usecLifetime / 2;
+                }
+
                 pIntf->NotifyLocalCandidateDiscovered( ICECandidateKind::Relayed, addrRelayed );
                 return;
             }
@@ -1953,7 +1982,47 @@ void CSteamNetworkingICESession::STUNRequestCallback_AllocateRelay( const RecvST
     pIntf->QueueAllocateRequest( m_vecTURNServers[nNextTURNServerIdx], &CSteamNetworkingICESession::STUNRequestCallback_AllocateRelay, m_nEncoding );
 }
 
-void CSteamNetworkingICESession::Think_TURNCreatePermissions()
+void CSteamNetworkingICESession::STUNRequestCallback_RefreshAllocation( const RecvSTUNPktInfo_t &info )
+{
+    ICESessionInterface * const pIntf = info.m_pRequest->m_pInterface;
+    pIntf->m_pPendingSTUNRequest = nullptr;
+
+    if ( info.m_pHeader != nullptr )
+    {
+        // Refresh succeeded — parse the returned LIFETIME and schedule the next one.
+        const STUNAttribute *pLifetimeAttr = FindAttributeOfType( info.m_pAttributes, info.m_nAttributes, k_nTURN_Attr_Lifetime );
+        if ( pLifetimeAttr != nullptr && pLifetimeAttr->m_nLength == 4 )
+        {
+            SteamNetworkingMicroseconds usecLifetime = (SteamNetworkingMicroseconds)ntohl( pLifetimeAttr->m_pData[0] ) * k_nMillion;
+            pIntf->m_usecRefreshAfter = info.m_usecNow + usecLifetime / 2;
+        }
+        return;
+    }
+
+    // Refresh timed out — the allocation is gone.  Tear down relay state so
+    // Think_DiscoverRelayCandidate will re-allocate, and remove all candidate
+    // pairs that depended on this relay.
+    SpewMsg( "ICE: TURN Refresh timed out for %s — tearing down relay allocation\n",
+        SteamNetworkingIPAddrRender( pIntf->m_addrTURNServer ).c_str() );
+
+    for ( int j = len( m_vecCandidatePairs ) - 1; j >= 0; --j )
+    {
+        ICECandidatePair *pPair = m_vecCandidatePairs[j];
+        if ( pPair->m_localCandidate.m_pInterface == pIntf && pPair->m_localCandidate.IsRelay() )
+        {
+            InternalDeleteCandidatePair( pPair );
+            erase_at( m_vecCandidatePairs, j );
+        }
+    }
+
+    pIntf->m_addrRelayed.Clear();
+    pIntf->m_addrTURNServer.Clear();   // clears "discovery done" signal; re-allocation starts next tick
+    pIntf->m_usecRefreshAfter  = 0;
+    pIntf->m_nTURNPermissionRevision = 0;
+    // Leave m_bRelayFailed = false so Think_DiscoverRelayCandidate retries.
+}
+
+void CSteamNetworkingICESession::Think_TURNMaintenance( SteamNetworkingMicroseconds usecNow )
 {
     for ( const std::unique_ptr<ICESessionInterface> &pIntf : m_vecInterfaces )
     {
@@ -1962,6 +2031,14 @@ void CSteamNetworkingICESession::Think_TURNCreatePermissions()
             continue;
         if ( pIntf->m_pPendingSTUNRequest != nullptr )
             continue;
+
+        // Refresh takes priority over CreatePermission.
+        if ( pIntf->m_usecRefreshAfter != 0 && usecNow >= pIntf->m_usecRefreshAfter )
+        {
+            pIntf->m_usecRefreshAfter = 0; // cleared; callback resets on success or failure
+            pIntf->QueueRefreshRequest( &CSteamNetworkingICESession::STUNRequestCallback_RefreshAllocation, m_nEncoding );
+            continue;
+        }
 
         bool bIsIPv4 = pIntf->m_pSocket->m_boundAddr.IsIPv4();
         const std_vector<SteamNetworkingIPAddr> &vecPermitted = bIsIPv4 ? m_vecTURNPermittedIPv4 : m_vecTURNPermittedIPv6;
@@ -2024,7 +2101,7 @@ void CSteamNetworkingICESession::STUNRequestCallback_CreatePermission( const Rec
 
     if ( info.m_pHeader == nullptr )
     {
-        // Timed out.  m_nTURNPermissionRevision is still stale, so Think_TURNCreatePermissions
+        // Timed out.  m_nTURNPermissionRevision is still stale, so Think_TURNMaintenance
         // will retry on the next Think() sweep.
         return;
     }
