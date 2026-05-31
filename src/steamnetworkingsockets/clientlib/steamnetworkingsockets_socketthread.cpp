@@ -100,6 +100,78 @@ int g_nSendECNAuto = -1;
 std::atomic<int> s_nLowLevelSupportRefCount(0);
 static volatile bool s_bManualPollMode;
 
+extern int ClassifyIP( const CIPAddress &ip )
+{
+	switch ( ip.GetType() )
+	{
+		case k_EIPTypeV4:
+		{
+			uint32 ipv4 = ip.GetIPv4();  // host order: first octet in bits 31-24
+			uint8 a = (uint8)( ipv4 >> 24 );
+			uint8 b = (uint8)( ipv4 >> 16 );
+			if ( TEST_mocknetwork_active )
+			{
+				// All mock IPv4 addresses are 127.0.X.x.
+				// Third octet == 100 is the simulated public internet; everything else is a private LAN.
+				if ( a == 127 )
+				{
+					if ( (ipv4 & 0xFF00) == (100 << 8) )
+						return k_nIPClassify_IPv4 | k_nIPClassify_Mock | k_nIPClassify_Public;
+					return k_nIPClassify_IPv4 | k_nIPClassify_Mock | k_nIPClassify_LAN;
+				}
+				// Not a mock address — invalid in mock mode
+				return 0;
+			}
+			if ( a == 127 )
+				return k_nIPClassify_IPv4 | k_nIPClassify_Localhost;
+			if ( a == 10
+				|| ( a == 172 && b >= 16 && b <= 31 )
+				|| ( a == 192 && b == 168 )
+				|| ( a == 169 && b == 254 ) )
+				return k_nIPClassify_IPv4 | k_nIPClassify_LAN;
+			return k_nIPClassify_IPv4 | k_nIPClassify_Public;
+		}
+
+		case k_EIPTypeV6:
+		{
+			const uint8 *b = ip.GetIPV6Bytes();
+			if ( TEST_mocknetwork_active )
+			{
+				// All mock IPv6 addresses are fd7f:0:X::.
+				// Net ID 0x0100 (bytes 4-5 = {0x01, 0x00}) is the simulated public internet.
+				if ( b[0] == 0xfd && b[1] == 0x7f && b[2] == 0x00 && b[3] == 0x00 )
+				{
+					if ( b[4] == 0x01 && b[5] == 0x00 )
+						return k_nIPClassify_IPv6 | k_nIPClassify_Mock | k_nIPClassify_Public;
+					return k_nIPClassify_IPv6 | k_nIPClassify_Mock | k_nIPClassify_LAN;
+				}
+				// Not a mock address — invalid in mock mode
+				return 0;
+			}
+			// ::1 (loopback) should never appear in non-mock mode
+			if ( memcmp( b, k_ipv6Bytes_Loopback, 16 ) == 0 )
+				return k_nIPClassify_IPv6 | k_nIPClassify_Localhost;
+			if ( (b[0] & 0xfe) == 0xfc )  // fc00::/7 — ULA private space
+				return k_nIPClassify_IPv6 | k_nIPClassify_LAN;
+			if ( b[0] == 0xfe && (b[1] & 0xc0) == 0x80 )  // fe80::/10 — link-local
+				return k_nIPClassify_IPv6 | k_nIPClassify_LAN;
+			return k_nIPClassify_IPv6 | k_nIPClassify_Public;
+		}
+	}
+
+	AssertMsg( false, "Invalid IP type %d", ip.GetType() );
+	return 0;
+}
+
+extern int ClassifyIP( const SteamNetworkingIPAddr &ip )
+{
+	// FIXME We really should just get rid of all of our internal uses of the
+	// SteamNetworkingIPAddr type, and only use it for the API
+	netadr_t adr;
+	SteamNetworkingIPAddrToNetAdr( adr, ip );
+	return ClassifyIP( adr );
+}
+
 // Try to guess if the route the specified address is probably "local".
 // This is difficult to do in general.  We want something that mostly works.
 //
@@ -107,25 +179,14 @@ static volatile bool s_bManualPollMode;
 // False negatives: We can't always tell if a route is local.
 bool IsRouteToAddressProbablyLocal( netadr_t addr )
 {
+	int nClassify = ClassifyIP( addr );
+	if ( nClassify & k_nIPClassify_Public )
+		return false;  // public internet (real or mock-simulated) is never local
+	if ( nClassify & ( k_nIPClassify_LAN | k_nIPClassify_Localhost ) )
+		return true;
 
-	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_MOCK
-		// In mock mode the public-network ranges are simulated internet, not local routes,
-		// even though they fall in reserved address space.
-		// IPv4 public: 127.0.100.x (third octet == 100)
-		// IPv6 public: fd7f:0:100::x (bytes [4:6] == 0x0100)
-		if ( TEST_mocknetwork_active )
-		{
-			if ( addr.GetType() == k_EIPTypeV4 && ( addr.GetIPv4() & 0xFF00 ) == ( 100 << 8 ) )
-				return false;
-			if ( addr.GetType() == k_EIPTypeV6 )
-			{
-				const uint8 *b = addr.GetIPV6Bytes();
-				if ( b[0] == 0xfd && b[1] == 0x7f && b[2] == 0x00 && b[3] == 0x00
-					&& b[4] == 0x01 && b[5] == 0x00 )
-					return false;
-			}
-		}
-	#endif
+	// ClassifyIP returned 0 (unrecognised address in mock mode, or invalid type).
+	// Fall through to the OS-level check for real addresses.
 
 	// Assume that if we are able to send to any "reserved" route, that is is local.
 	// Note that this will be true for VPNs, too!
@@ -1788,6 +1849,10 @@ public:
 
 		DbgAssert( m_boundAddr == m_pSockLocal->m_boundAddr );
 
+		int nClassify = ClassifyIP( adrTo );
+		if ( nClassify == 0 )
+			return false;  // not a mock address
+
 		if ( adrTo.GetType() == k_EIPTypeV4 )
 		{
 			if ( !m_boundAddr.IsIPv4() )
@@ -1797,13 +1862,13 @@ public:
 			}
 			Assert( m_pSockLocal->m_nAddressFamilies & k_nAddressFamily_IPv4 );
 
-			const uint32 net_remote = adrTo.GetIPv4() & 0xFF00;
-
-			// Check if this is a 'public IP'; if so, route via NAT
-			if ( net_remote == k_nMockPublicIPv4Net )
+			// Public mock address — route via NAT (the gateway does the NATting)
+			if ( nClassify & k_nIPClassify_Public )
 				return const_cast<CUDPSocketMock *>(this)->BCreateNATAndSend( nChunks, pChunks, adrTo, ecn );
 
-			const uint32 net_local = m_boundAddr.GetIPv4() & 0xFF00;
+			// Private mock LAN: deliver directly only if on the same /24 subnet
+			const uint32 net_remote = adrTo.GetIPv4() & 0xFF00;
+			const uint32 net_local  = m_boundAddr.GetIPv4() & 0xFF00;
 			if ( net_local == net_remote )
 			{
 				// Same LAN — send directly with interface latency only (no gateway involved)
@@ -1818,15 +1883,13 @@ public:
 				return false;
 			}
 
-			const uint16 net_remote = GetMockIPv6NetID( adrTo.GetIPV6Bytes() );
-			if ( net_remote == 0 )
-				return false; // Not a mock IPv6 address
-
-			// Check if this is a 'public IP'; if so, route via NAT
-			if ( net_remote == k_nMockPublicIPv6NetID )
+			// Public mock address — route via NAT
+			if ( nClassify & k_nIPClassify_Public )
 				return const_cast<CUDPSocketMock *>(this)->BCreateNATAndSend( nChunks, pChunks, adrTo, ecn );
 
-			const uint16 net_local = GetMockIPv6NetID( m_ifaceConfig.m_ip.m_ipv6 );
+			// Private mock LAN: deliver directly only if on the same /112 subnet
+			const uint16 net_remote = GetMockIPv6NetID( adrTo.GetIPV6Bytes() );
+			const uint16 net_local  = GetMockIPv6NetID( m_ifaceConfig.m_ip.m_ipv6 );
 			if ( net_local == net_remote )
 			{
 				// Same LAN — send directly
@@ -4059,17 +4122,17 @@ bool GetLocalAddresses( CUtlVector<LocalAddress_t> *pAddrs )
 			{
 				LocalAddress_t &entry = *pAddrs->AddToTailGetPtr();
 				entry.m_addr = iface.m_ip;
-				if ( iface.m_ip.IsIPv4() )
 				{
-					// IPv4 mock private LANs are /24s; public range (third octet == 100) is not local.
-					bool bPublic = ( iface.m_ip.GetIPv4() & 0xFF00 ) == k_nMockPublicIPv4Net;
-					entry.m_nPrefixLen = bPublic ? 0 : 24;
-				}
-				else
-				{
-					// IPv6 mock private LANs are /112s; public range (net ID == 0x0100) is not local.
-					bool bPublic = GetMockIPv6NetID( iface.m_ip.m_ipv6 ) == k_nMockPublicIPv6NetID;
-					entry.m_nPrefixLen = bPublic ? 0 : 112;
+					// Private mock LANs get a prefix length (/24 for IPv4, /112 for IPv6) so
+					// IsRemoteAddressOnLocalSubnet can detect same-LAN peers.
+					// Public mock addresses get 0 (no local subnet).
+					int nClassify = ClassifyIP( iface.m_ip );
+					if ( nClassify & k_nIPClassify_Public )
+						entry.m_nPrefixLen = 0;
+					else if ( nClassify & k_nIPClassify_IPv4 )
+						entry.m_nPrefixLen = 24;
+					else
+						entry.m_nPrefixLen = 112;
 				}
 			}
 		}

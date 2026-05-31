@@ -30,21 +30,18 @@ static bool IsRemoteAddressOnLocalSubnet( const SteamNetworkingIPAddr &localAddr
     if ( nPrefixLen <= 0 )
         return false;
 
+    // Only private/LAN addresses can form a local-subnet connection.
+    // Public addresses sharing a subnet are datacenter peers, not LAN.
+    int nLocalClassify = ClassifyIP( localAddr );
+    if ( !( nLocalClassify & ( k_nIPClassify_LAN | k_nIPClassify_Localhost ) ) )
+        return false;
+
     if ( localAddr.IsIPv4() )
     {
         if ( !remoteAddr.IsIPv4() )
             return false;
 
         uint32 local = localAddr.GetIPv4();
-        uint8 a = (uint8)( local >> 24 );
-        uint8 b = (uint8)( local >> 16 );
-        bool bPrivate = ( a == 127 )                           // loopback (includes mock network LANs)
-            || ( a == 10 )                                     // RFC 1918 10/8
-            || ( a == 172 && b >= 16 && b <= 31 )             // RFC 1918 172.16/12
-            || ( a == 192 && b == 168 );                       // RFC 1918 192.168/16
-        if ( !bPrivate )
-            return false;
-
         uint32 mask = ( nPrefixLen >= 32 ) ? ~0u : ~( ~0u >> nPrefixLen );
         return ( local & mask ) == ( remoteAddr.GetIPv4() & mask );
     }
@@ -55,10 +52,6 @@ static bool IsRemoteAddressOnLocalSubnet( const SteamNetworkingIPAddr &localAddr
 
         const uint8 *pLocal  = localAddr.m_ipv6;
         const uint8 *pRemote = remoteAddr.m_ipv6;
-
-        // Only ULA (fc00::/7) is the IPv6 equivalent of private RFC 1918 space.
-        if ( pLocal[0] != 0xfc && pLocal[0] != 0xfd )
-            return false;
 
         int nFullBytes = nPrefixLen / 8;
         int nRemBits   = nPrefixLen % 8;
@@ -1271,40 +1264,6 @@ void CSteamNetworkingICESession::SetRemotePassword( const char *pszPassword )
     SetNextThinkTimeASAP();
 }
 
-// Returns true if addr is a public IP that we should ask our TURN relay to permit.
-// Excludes loopback, RFC-1918 private, and link-local addresses — forwarding from
-// those would be meaningless (or expose internal topology).
-static bool IsTURNPermissibleIP( const SteamNetworkingIPAddr &addr )
-{
-    if ( addr.IsIPv4() )
-    {
-        const uint8 *ip = addr.m_ipv4.m_ip;
-        // Mock network: 127.0.100.x is the simulated public internet (third octet == 100).
-        // All other 127.x.x.x addresses are private/LAN.
-        if ( TEST_mocknetwork_active )
-            return ip[0] == 127 && ip[1] == 0 && ip[2] == 100;
-        if ( ip[0] == 127 ) return false;                                   // loopback
-        if ( ip[0] == 10  ) return false;                                   // RFC 1918 10/8
-        if ( ip[0] == 172 && ip[1] >= 16 && ip[1] <= 31 ) return false;    // RFC 1918 172.16/12
-        if ( ip[0] == 192 && ip[1] == 168 ) return false;                   // RFC 1918 192.168/16
-        if ( ip[0] == 169 && ip[1] == 254 ) return false;                   // link-local
-        return true;
-    }
-    else
-    {
-        const uint8 *ip = addr.m_ipv6;
-        // Mock network: fd7f:0:100::x is the simulated public internet.
-        if ( TEST_mocknetwork_active )
-            return ip[0] == 0xfd && ip[1] == 0x7f && ip[2] == 0x00 && ip[3] == 0x00
-                && ip[4] == 0x01 && ip[5] == 0x00;
-        static const uint8 k_ipv6Loopback[16] = {0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,1};
-        if ( memcmp( ip, k_ipv6Loopback, 16 ) == 0 ) return false;         // ::1
-        if ( ip[0] == 0xfe && (ip[1] & 0xc0) == 0x80 ) return false;       // fe80::/10 link-local
-        if ( ip[0] == 0xfc || ip[0] == 0xfd ) return false;                 // fc00::/7 ULA
-        return true;
-    }
-}
-
 EICECandidateType CSteamNetworkingICESession::AddPeerCandidate( const RFC5245CandidateAttr& attr )
 {
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread();
@@ -1314,6 +1273,12 @@ EICECandidateType CSteamNetworkingICESession::AddPeerCandidate( const RFC5245Can
     const char *pszFoundation = attr.sFoundation.c_str();
 
     EICECandidateType eCandidateType = CalcICECandidateType( attr.nType, attr.address );
+    if ( eCandidateType == k_EICECandidate_Invalid )
+    {
+        SpewWarning( "ICE: Dropping peer candidate with invalid address %s\n",
+            SteamNetworkingIPAddrRender( attr.address ).c_str() );
+        return k_EICECandidate_Invalid;
+    }
 
     // Do we already have a candidate for this peer? If so, just update the foundation and move on.
 	bool bNeedsNewEntry = true;
@@ -1346,10 +1311,12 @@ EICECandidateType CSteamNetworkingICESession::AddPeerCandidate( const RFC5245Can
 		m_vecPeerCandidates.push_back( ICEPeerCandidate( candidate, pszFoundation ) );
 
 		// If this is a public IP, register it for TURN CreatePermission so our relay
-		// will forward traffic from it.  Dedup by IP (port is ignored for permissions).
+		// will forward traffic from it.  Excludes loopback, RFC-1918 private, and
+		// link-local addresses — forwarding from those would be meaningless (or expose
+		// internal topology).  Dedup by IP (port is ignored for permissions).
 		SteamNetworkingIPAddr permAddr = candidate.m_addr;
 		permAddr.m_port = 0;
-		if ( IsTURNPermissibleIP( permAddr ) )
+		if ( ClassifyIP( permAddr ) & k_nIPClassify_Public )
 		{
 			std_vector<SteamNetworkingIPAddr> &vecPermitted = permAddr.IsIPv4() ? m_vecTURNPermittedIPv4 : m_vecTURNPermittedIPv6;
 			int &nRevision = permAddr.IsIPv4() ? m_nTURNPermissionRevisionIPv4 : m_nTURNPermissionRevisionIPv6;
@@ -2537,61 +2504,44 @@ void ICESessionInterface::NotifyLocalCandidateDiscovered( ICECandidateKind kind,
     V_snprintf( szCandidate, sizeof(szCandidate), "candidate:%u 0 udp %u %s %d typ %s", nFoundation, nPriority, connectionAddr, addr.m_port, pszType );
 
     EICECandidateType eType = CalcICECandidateType( kind, addr );
+    if ( eType == k_EICECandidate_Invalid )
+    {
+        AssertMsg( eType != k_EICECandidate_Invalid, "Local candidate has invalid address %s - gathering bug", SteamNetworkingIPAddrRender( addr ).c_str() );
+        return;
+    }
     if ( !( eType & m_session.m_nPermittedCandidateTypes ) )
         return;
     pCallbacks->OnLocalCandidateDiscovered( eType, szCandidate );
 }
 
-static bool IsPrivateIPv4( const uint8 m_ip[ 4 ] )
-{
-	/*	Class A: 10.0. 0.0 to 10.255. 255.255.
-		Class B: 172.16. 0.0 to 172.31. 255.255.
-		Class C: 192.168. 0.0 to 192.168. 255.255. */
-	if ( m_ip[0] == 10 )
-		return true;
-	if ( m_ip[0] == 172 && m_ip[1] >= 16 && m_ip[1] <= 31 )
-		return true;
-	if ( m_ip[0] == 192 && m_ip[1] == 168 )
-		return true;
-	return false;
-}
-
 EICECandidateType CalcICECandidateType( ICECandidateKind kind, const SteamNetworkingIPAddr& addr )
 {
-	switch ( kind )
-	{
-	case ICECandidateKind::Host:
-		if ( addr.IsIPv4() )
-		{
-			if ( IsPrivateIPv4( addr.m_ipv4.m_ip ) )
-				return k_EICECandidate_IPv4_HostPrivate;
-			else
-				return k_EICECandidate_IPv4_HostPublic;
-		}
-		else
-		{
-			return k_EICECandidate_IPv6_HostPublic;
-		}
-		break;
-	case ICECandidateKind::ServerReflexive:
-	case ICECandidateKind::PeerReflexive:
+    switch ( kind )
+    {
+    case ICECandidateKind::Host:
+        if ( addr.IsIPv4() )
+        {
+            int nClassify = ClassifyIP( addr );
+            if ( nClassify & k_nIPClassify_Public )
+                return k_EICECandidate_IPv4_HostPublic;
+            if ( nClassify & k_nIPClassify_LAN )
+                return k_EICECandidate_IPv4_HostPrivate;
+            return k_EICECandidate_Invalid;
+        }
+        return k_EICECandidate_IPv6_HostPublic;
+    case ICECandidateKind::ServerReflexive:
+    case ICECandidateKind::PeerReflexive:
 		if ( addr.IsIPv4() )
 			return k_EICECandidate_IPv4_Reflexive;
-		else
-			return k_EICECandidate_IPv6_Reflexive;
-		break;
-
-	case ICECandidateKind::Relayed:
+		return k_EICECandidate_IPv6_Reflexive;
+    case ICECandidateKind::Relayed:
 		if ( addr.IsIPv4() )
 			return k_EICECandidate_IPv4_Relay;
-		else
-			return k_EICECandidate_IPv6_Relay;
-		break;
-	default:
-		break;
-	}
-
-	return k_EICECandidate_Invalid;
+		return k_EICECandidate_IPv6_Relay;
+    default:
+        break;
+    }
+    return k_EICECandidate_Invalid;
 }
 
 /////////////////////////////////////////////////////////////////////////////
