@@ -371,6 +371,7 @@ int main( int argc, const char **argv )
 	const char *pszSTUNServer = DEFAULT_STUN_SERVER;
 	const char *pszTURNServer = nullptr;
 	int g_nICEImplementation = -1; // -1 = not set, use library default
+	int g_nICEEnable = k_nSteamNetworkingConfig_P2P_Transport_ICE_Enable_All;
 	int nSignalingLossPct = 0;
 	int nSignalingDupPct = 0;
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_MOCK
@@ -406,6 +407,8 @@ int main( int argc, const char **argv )
 			pszTURNServer = GetArg();
 		else if ( !strcmp( pszSwitch, "--ice-implementation" ) )
 			g_nICEImplementation = atoi( GetArg() );
+		else if ( !strcmp( pszSwitch, "--ice-enable" ) )
+			g_nICEEnable = atoi( GetArg() );
 		else if ( !strcmp( pszSwitch, "--repeat" ) )
 			g_nRepeat = atoi( GetArg() );
 		else if ( !strcmp( pszSwitch, "--ticks" ) )
@@ -548,12 +551,7 @@ int main( int argc, const char **argv )
 	if ( g_nICEImplementation >= 0 )
 		SteamNetworkingUtils()->SetGlobalConfigValueInt32( k_ESteamNetworkingConfig_P2P_Transport_ICE_Implementation, g_nICEImplementation );
 
-	// Allow sharing of any kind of ICE address.
-	// We don't have any method of relaying (TURN) in this example, so we are essentially
-	// forced to disclose our public address if we want to pierce NAT.  But if we
-	// had relay fallback, or if we only wanted to connect on the LAN, we could restrict
-	// to only sharing private addresses.
-	SteamNetworkingUtils()->SetGlobalConfigValueInt32(k_ESteamNetworkingConfig_P2P_Transport_ICE_Enable, k_nSteamNetworkingConfig_P2P_Transport_ICE_Enable_All );
+	SteamNetworkingUtils()->SetGlobalConfigValueInt32( k_ESteamNetworkingConfig_P2P_Transport_ICE_Enable, g_nICEEnable );
 
 	// Create the signaling service
 	SteamNetworkingErrMsg errMsg;
