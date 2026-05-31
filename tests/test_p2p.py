@@ -617,6 +617,37 @@ CLIENT_SERVER_TEST_CASES = [
     # signals.  Uses real loopback (no mock network), so the route is always 'local'.
     # Signaling loss only slows setup (the library retransmits rendezvous messages);
     # it does not affect route selection or ICE counter values in a predictable way.
+    # ICE_Enable filtering: TURN server is configured but relay candidates are excluded
+    # by ICE_Enable flags (Private=2 + Public=4, no Relay=1).  Both sides are on
+    # full-cone NAT so srflx connectivity works; relay candidates must NOT appear.
+    ( 'full-cone NAT, relay excluded by ICE_Enable',
+      _nat( _SRV_INT, _SRV_GW, 'full-cone' ) + [ '--ice-enable', '6' ],
+      _nat( _CLI_INT, _CLI_GW, 'full-cone' ) + [ '--ice-enable', '6' ],
+      'udp', 1, _CTR_DIRECT_NO_TURN,
+      ( {'host': 1, 'srflx': 1}, {'host': 1, 'srflx': 1} ) ),
+
+    # Public IP disclosure disabled (ICE_Enable = Private=2 + Relay=1, no Public=4).
+    # No srflx candidates gathered or shared; no STUN binding requests sent for srflx.
+    # Same /24 LAN: direct path via private host candidates wins; relay is allocated
+    # but not used for data.
+    ( 'no public IP, same LAN',
+      [ '--mock-adapter', _SRV_INT, '--ice-enable', '3' ],
+      [ '--mock-adapter', _CLI_SAME_LAN, '--ice-enable', '3' ],
+      'local', 1,
+      { 'srflx_send': (0, 0), 'allocate_send': (1, None) },
+      ( {'host': 1, 'relay': 1}, {'host': 1, 'relay': 1} ) ),
+
+    # Public IP disclosure disabled (ICE_Enable = Private + Relay, no Public).
+    # Symmetric NAT: private hosts can't punch through, no srflx to assist.
+    # Falls back to TURN relay.  Verifies srflx_send=0 (no STUN binding attempt).
+    ( 'no public IP, symmetric NAT (relay fallback)',
+      _nat( _SRV_INT, _SRV_GW, 'symmetric' ) + [ '--ice-enable', '3' ],
+      _nat( _CLI_INT, _CLI_GW, 'symmetric' ) + [ '--ice-enable', '3' ],
+      'relay', 1,
+      { 'srflx_send': (0, 0), 'allocate_send': (1, None),
+        'send_ind_send': (1, None), 'data_ind_recv': (1, None) },
+      ( {'host': 1, 'relay': 1}, {'host': 1, 'relay': 1} ) ),
+
     ( 'no-mock native ICE, 30% signaling loss',
       [ '--signaling-loss', '30' ],
       [ '--signaling-loss', '30' ],
