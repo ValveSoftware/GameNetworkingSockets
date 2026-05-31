@@ -53,7 +53,7 @@ namespace SteamNetworkingSocketsLib {
 
     /// Convert EICECandidateType, which is not family specific, to the more
     /// detailed and address-family-specific EICECandidateType.
-    EICECandidateType CalcICECandidateType( ICECandidateKind kind, const SteamNetworkingIPAddr& addr );
+    EICECandidateType CalcICECandidateType( ICECandidateKind kind, const netadr_t& addr );
 
     /// Represents one local network interface used for ICE candidate gathering.
     /// Owns its socket and tracks at most one in-flight server-reflexive STUN request.
@@ -75,9 +75,13 @@ namespace SteamNetworkingSocketsLib {
 
         // Raw UDP socket bound to this interface for sending and receiving
         // ICE traffic.  Null only transiently during construction before
-        // the socket is successfully opened.  Owned by this object;
-        // m_pSocket->m_boundAddr is the local IP:port for this interface.
+        // the socket is successfully opened.  Owned by this object.
         IRawUDPSocket *m_pSocket;
+
+        // Cached copy of m_pSocket->m_boundAddr converted to netadr_t.
+        // Set once when the socket is opened; use this rather than m_pSocket->m_boundAddr
+        // to keep all internal address handling in one type.
+        netadr_t m_boundAddr;
 
         // In-flight STUN bind request for server-reflexive discovery or
         // keepalive, or null if none is active.  At most one per interface.
@@ -86,15 +90,15 @@ namespace SteamNetworkingSocketsLib {
         // Server-reflexive discovery results.  m_addrSTUNServer is also used
         // as a "discovery complete" signal: it is all-zeros until a terminal
         // result (success, no-NAT, or timeout) has been recorded.
-        SteamNetworkingIPAddr m_addrServerReflexive = {};  // all-zeros = not found / no-NAT
-        SteamNetworkingIPAddr m_addrSTUNServer = {};       // server that gave us the result
+        netadr_t m_addrServerReflexive;  // invalid = not found / no-NAT
+        netadr_t m_addrSTUNServer;       // server that gave us the result
         bool m_bServerReflexiveFailed = false;             // true if all STUN servers timed out
 
         // Relay (TURN) discovery results.  m_addrTURNServer is also used
         // as a "discovery complete" signal: it is all-zeros until a terminal
         // result (success or timeout) has been recorded.
-        SteamNetworkingIPAddr m_addrRelayed = {};     // all-zeros = no relay / not yet allocated
-        SteamNetworkingIPAddr m_addrTURNServer = {};  // TURN server that gave us the relay
+        netadr_t m_addrRelayed;     // invalid = no relay / not yet allocated
+        netadr_t m_addrTURNServer;  // TURN server that gave us the relay
         bool m_bRelayFailed = false;                  // true if all TURN servers timed out/failed
 
         // When to send the next TURN Refresh.  Zero means no active allocation.
@@ -108,18 +112,18 @@ namespace SteamNetworkingSocketsLib {
 
         /// Send a packet through this interface to the destination remote address.
         /// If relay address is non-zero, send via Send Indication to the TURN server
-        bool SendPacketGather( int nChunks, const iovec *pChunks, int cbPayload, const SteamNetworkingIPAddr &addrPeer, const SteamNetworkingIPAddr &addrRelay );
+        bool SendPacketGather( int nChunks, const iovec *pChunks, int cbPayload, const netadr_t &addrPeer, const netadr_t &addrRelay );
 
         // Build and dispatch a local candidate discovery notification.
         // Computes the RFC 5245 candidate-attribute string and the family-specific
         // EICECandidateType, then calls m_session's OnLocalCandidateDiscovered callback.
-        void NotifyLocalCandidateDiscovered( ICECandidateKind kind, const SteamNetworkingIPAddr& addr );
+        void NotifyLocalCandidateDiscovered( ICECandidateKind kind, const netadr_t& addr );
 
         // Send a STUN binding/keepalive request
-        void QueueBindRequest( const SteamNetworkingIPAddr &addrSTUNServer, RecvSTUNPacketCallback_t cb, int nEncoding );
+        void QueueBindRequest( const netadr_t &addrSTUNServer, RecvSTUNPacketCallback_t cb, int nEncoding );
 
         // Send a TURN Allocate request
-        void QueueAllocateRequest( const SteamNetworkingIPAddr &addrTURNServer, RecvSTUNPacketCallback_t cb, int nEncoding );
+        void QueueAllocateRequest( const netadr_t &addrTURNServer, RecvSTUNPacketCallback_t cb, int nEncoding );
 
         // Send a TURN Refresh request to keep the allocation alive
         void QueueRefreshRequest( RecvSTUNPacketCallback_t cb, int nEncoding );
@@ -133,14 +137,14 @@ namespace SteamNetworkingSocketsLib {
     };
 
     /// Identifies one local candidate: a socket (interface) plus an optional TURN relay.
-    /// An interface with a relay allocation produces two local candidates — one host
+    /// An interface with a relay allocation produces two local candidates -- one host
     /// (m_addrTURNServer all-zeros, send directly from the socket) and one relay
     /// (m_addrTURNServer non-zero, send via Send Indication to the TURN server).
     struct ICELocalCandidate
     {
         ICESessionInterface *m_pInterface;
-        SteamNetworkingIPAddr m_addrTURNServer;  // all-zeros = host candidate
-        bool IsRelay() const { return !m_addrTURNServer.IsIPv6AllZeros(); }
+        netadr_t m_addrTURNServer;  // invalid = host candidate
+        bool IsRelay() const { return m_addrTURNServer.IsValid(); }
     };
 
     // Parsed representation of an RFC 5245 candidate-attribute line.
@@ -150,7 +154,7 @@ namespace SteamNetworkingSocketsLib {
         int nComponent;
         std::string sTransport;
         int nPriority;
-        SteamNetworkingIPAddr address;
+        netadr_t address;
         std::string sType;
         ICECandidateKind nType;
         CUtlVector< std::pair< std::string, std::string > > vAttrs;
@@ -213,8 +217,8 @@ namespace SteamNetworkingSocketsLib {
         // The local interface this request was sent from.  Set at construction, never null.
         ICESessionInterface * const m_pInterface;
         uint32 m_nTransactionID[3];  // generated at construction
-        SteamNetworkingIPAddr m_remoteAddr; // Address of the peer
-        SteamNetworkingIPAddr m_addrRelay;
+        netadr_t m_remoteAddr; // Address of the peer
+        netadr_t m_addrRelay;
         uint32 m_nMessageType;
         int m_nRetryCount;
         int m_nMaxRetries;
@@ -227,7 +231,7 @@ namespace SteamNetworkingSocketsLib {
         int m_nTURNPermissionRevision;
 
         // Serialize the packet and start the retry loop.
-        void Queue( uint32 nMessageType, int nEncoding, SteamNetworkingIPAddr remoteAddr, RecvSTUNPacketCallback_t cb, STUNAttribute *pExtraAttrs = nullptr, int nExtraAttrs = 0 );
+        void Queue( uint32 nMessageType, int nEncoding, netadr_t remoteAddr, RecvSTUNPacketCallback_t cb, STUNAttribute *pExtraAttrs = nullptr, int nExtraAttrs = 0 );
 
         // Immediately retransmit and reset the exponential backoff schedule, as if
         // the request were freshly queued.  The transaction ID is preserved, so any
@@ -266,10 +270,10 @@ namespace SteamNetworkingSocketsLib {
         struct ICECandidateBase
         {
             ICECandidateKind m_type;
-            SteamNetworkingIPAddr m_addr;
+            netadr_t m_addr;
             uint32 m_nPriority;
             ICECandidateBase();
-            ICECandidateBase( ICECandidateKind t, const SteamNetworkingIPAddr& addr );
+            ICECandidateBase( ICECandidateKind t, const netadr_t& addr );
         };
         EICERole GetRole() { return m_role; }
         EICECandidateType AddPeerCandidate( const RFC5245CandidateAttr& attr );
@@ -393,11 +397,11 @@ namespace SteamNetworkingSocketsLib {
         // Resolved addresses of STUN servers, populated once at construction from the
         // config string.  Used to discover server-reflexive candidates and to dispatch
         // STUN responses back to the correct server.
-        std_vector< SteamNetworkingIPAddr > m_vecSTUNServers;
+        std_vector< netadr_t > m_vecSTUNServers;
 
         // Resolved addresses of TURN servers, populated once at construction from the
         // config.  Used to allocate relay candidates.
-        std_vector< SteamNetworkingIPAddr > m_vecTURNServers;
+        std_vector< netadr_t > m_vecTURNServers;
 
         // De-duplicated lists of peer IP addresses (port zeroed) that we should
         // ask each relay to permit forwarding from.  LAN/loopback/link-local
@@ -406,8 +410,8 @@ namespace SteamNetworkingSocketsLib {
         // incremented so relay interfaces can detect the need to re-send
         // CreatePermission.  IPv4 and IPv6 are tracked separately because each
         // relay interface only needs permissions for its own address family.
-        std_vector<SteamNetworkingIPAddr> m_vecTURNPermittedIPv4;
-        std_vector<SteamNetworkingIPAddr> m_vecTURNPermittedIPv6;
+        std_vector<CIPAddress> m_vecTURNPermittedIPv4;
+        std_vector<CIPAddress> m_vecTURNPermittedIPv6;
         int m_nTURNPermissionRevisionIPv4 = 0;
         int m_nTURNPermissionRevisionIPv6 = 0;
 
@@ -456,7 +460,7 @@ namespace SteamNetworkingSocketsLib {
         void STUNRequestCallback_CreatePermission( const RecvSTUNPktInfo_t &info );
         void STUNRequestCallback_PeerConnectivityCheck( const RecvSTUNPktInfo_t &info );
 
-        void OnPacketReceived( const RecvPktInfo_t &info, ICESessionInterface *pInterface, SteamNetworkingIPAddr *pAddrRelay = nullptr );
+        void OnPacketReceived( const RecvPktInfo_t &info, ICESessionInterface *pInterface, netadr_t *pAddrRelay = nullptr );
         static void StaticPacketReceived( const RecvPktInfo_t &info, ICESessionInterface *pContext );
     };
 
