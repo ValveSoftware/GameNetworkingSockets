@@ -496,14 +496,15 @@ CLIENT_SERVER_TEST_CASES = [
       ( _CAND_NAT_TURN, _CAND_NAT_TURN ) ),
 
     # No-mock tests: run on real network (same host), both implementations.
-    # We verify the route is 'local' (same-host loopback) but do not check the IP.
+    # No STUN/TURN: a local STUN server can't reveal a real public IP, and a local
+    # TURN relay allocating loopback addresses is meaningless.  Host candidates suffice.
     # No counter or candidate constraints: real adapters vary by host.
     ( 'no-mock, default ICE implementation',
       [], [],
-      'local', 0, None, None ),
+      'local', 0, None, None, {'stun': None, 'turn': None} ),
     ( 'no-mock, native ICE implementation',
       [], [],
-      'local', 1, _CTR_DIRECT, None ),
+      'local', 1, None, None, {'stun': None, 'turn': None} ),
 
     # Both on the same private /24 LAN: the core case for 'local' classification.
     # No NAT, so STUN mapped address == host address; srflx is suppressed.
@@ -658,11 +659,11 @@ CLIENT_SERVER_TEST_CASES = [
       'local', 1, None, None ),
 ]
 
-def ClientServerTest( server_extra_args=[], client_extra_args=[], expected_route=None, ice_impl=1, expected_counters=None, expected_candidates=None, timeout_sec=None ):
+def ClientServerTest( server_extra_args=[], client_extra_args=[], expected_route=None, ice_impl=1, expected_counters=None, expected_candidates=None, timeout_sec=None, stun=_DEFAULT_STUN, turn=_DEFAULT_TURN ):
     global g_failed
     impl_args = [ '--ice-implementation', str(ice_impl) ]
-    server = StartClientInThread( "server", "peer_server", "peer_client", server_extra_args + impl_args )
-    client = StartClientInThread( "client", "peer_client", "peer_server", client_extra_args + impl_args )
+    server = StartClientInThread( "server", "peer_server", "peer_client", server_extra_args + impl_args, stun=stun, turn=turn )
+    client = StartClientInThread( "client", "peer_client", "peer_server", client_extra_args + impl_args, stun=stun, turn=turn )
 
     # Wait for clients to shutdown.  Nuke them if necessary
     t = timeout_sec if timeout_sec is not None else 20 * g_repeat
@@ -778,11 +779,13 @@ if not g_server_ready.wait( timeout=g_server_startup_timeout ):
 print( "Signaling server is ready, starting test clients" )
 
 # Run the positive tests
-for desc, srv_args, cli_args, exp_route, ice_impl, exp_counters, exp_candidates in CLIENT_SERVER_TEST_CASES:
+for case in CLIENT_SERVER_TEST_CASES:
+    desc, srv_args, cli_args, exp_route, ice_impl, exp_counters, exp_candidates = case[:7]
+    extra = case[7] if len(case) > 7 else {}
     print( "=================================================================" )
     print( "Test: " + desc )
     print( "=================================================================" )
-    ClientServerTest( srv_args, cli_args, exp_route, ice_impl, exp_counters, exp_candidates )
+    ClientServerTest( srv_args, cli_args, exp_route, ice_impl, exp_counters, exp_candidates, **extra )
     if g_failed:
         break
 
