@@ -1719,6 +1719,20 @@ not_stun:
 
     ++TEST_ICE_ctr_binding_req_recv;
 
+    // Check for ICE role conflict.  Both sides claiming the same role means a bug
+    // in whoever assigned the roles (our protocol layer sets this deterministically,
+    // so this should never happen with a well-behaved peer).
+    if ( m_role == k_EICERole_Controlling )
+    {
+        if ( FindAttributeOfType( vecAttrs.Base(), vecAttrs.Count(), k_nSTUN_Attr_ICEControlling ) )
+            SpewWarning( "ICE: Role conflict -- we are Controlling but peer also sent ICE-CONTROLLING.\n" );
+    }
+    else if ( m_role == k_EICERole_Controlled )
+    {
+        if ( FindAttributeOfType( vecAttrs.Base(), vecAttrs.Count(), k_nSTUN_Attr_ICEControlled ) )
+            SpewWarning( "ICE: Role conflict -- we are Controlled but peer also sent ICE-CONTROLLED.\n" );
+    }
+
     CUtlVector< STUNAttribute > outAttrs;
 
     //
