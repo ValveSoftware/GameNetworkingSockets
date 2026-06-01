@@ -1154,7 +1154,7 @@ bool ICESessionInterface::SendPacketGather( int nChunks, const iovec *pChunks, i
     static const uint32 k_zeroPad = 0;
     iovec relayChunks[5];
     relayChunks[0].iov_base = hdrBuf;
-    relayChunks[0].iov_len = (size_t)( (uint8*)(p+1) - hdrBuf );
+    relayChunks[0].iov_len = (uint8*)(p+1) - hdrBuf;
     int nRelayChunks = 1;
     for ( int i = 0; i < nChunks; ++i )
         relayChunks[nRelayChunks++] = pChunks[i];
