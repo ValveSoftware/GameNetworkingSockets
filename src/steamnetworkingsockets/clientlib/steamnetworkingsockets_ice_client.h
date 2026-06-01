@@ -424,6 +424,10 @@ namespace SteamNetworkingSocketsLib {
         struct TURNCredentials { std::string m_strUsername; std::string m_strPassword; };
         std_vector< TURNCredentials > m_vecTURNCredentials;
 
+        // True if any configured TURN server is on a LAN/private IP.  This doesn't
+        // really happen in production environments, it's only in weird test situations
+        bool m_bAnyTURNServerLANAddress = false;
+
         // De-duplicated lists of peer IP addresses (port zeroed) that we should
         // ask each relay to permit forwarding from.  LAN/loopback/link-local
         // addresses are excluded.  Updated whenever AddPeerCandidate() adds a
