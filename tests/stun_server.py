@@ -7,6 +7,9 @@ Send/Data (TURN).
 """
 
 import argparse
+import hashlib
+import hmac as _hmac
+import os
 import select
 import socket
 import struct
@@ -18,6 +21,11 @@ STUN_MAGIC_COOKIE = 0x2112A442
 # Allocations expire after TURN_DEFAULT_LIFETIME seconds if not refreshed.
 # A Refresh with LIFETIME=0 immediately releases the allocation.
 TURN_DEFAULT_LIFETIME = 600  # seconds (overridden by --allocation-lifetime)
+
+# Long-term credential auth (RFC 5766 §10).  None = no auth required.
+_g_turn_realm    = None
+_g_turn_nonce    = None  # random bytes, generated at startup; hex-encoded for wire
+_g_turn_hmac_key = None  # MD5(username:realm:password)
 
 # Message types
 MSG_BINDING_REQUEST             = 0x0001
@@ -35,13 +43,17 @@ MSG_SEND_INDICATION             = 0x0016
 MSG_DATA_INDICATION             = 0x0017
 
 # Attribute types
+ATTR_USERNAME                   = 0x0006
+ATTR_MESSAGE_INTEGRITY          = 0x0008
+ATTR_ERROR_CODE                 = 0x0009
+ATTR_REALM                      = 0x0014
+ATTR_NONCE                      = 0x0015
 ATTR_XOR_MAPPED_ADDRESS         = 0x0020
 ATTR_XOR_RELAYED_ADDRESS        = 0x0016
 ATTR_XOR_PEER_ADDRESS           = 0x0012
 ATTR_DATA                       = 0x0013
 ATTR_LIFETIME                   = 0x000D
 ATTR_REQUESTED_TRANSPORT        = 0x0019
-ATTR_ERROR_CODE                 = 0x0009
 
 
 class Allocation:
@@ -109,9 +121,65 @@ def _build_data_attr(payload):
     pad = (4 - len(payload) % 4) % 4
     return struct.pack('!HH', ATTR_DATA, len(payload)) + payload + b'\x00' * pad
 
+def _build_str_attr(attr_type, text):
+    raw = text.encode('utf-8') if isinstance(text, str) else text
+    pad = (4 - len(raw) % 4) % 4
+    return struct.pack('!HH', attr_type, len(raw)) + raw + b'\x00' * pad
+
 def _build_response(msg_type, transaction_id, *attr_bytes):
     body = b''.join(attr_bytes)
     return struct.pack('!HHI', msg_type, len(body), STUN_MAGIC_COOKIE) + transaction_id + body
+
+
+# ---------------------------------------------------------------------------
+# Long-term credential auth (RFC 5766 §10)
+# ---------------------------------------------------------------------------
+
+def _build_401_response(msg_error_type, transaction_id):
+    """Build a 401 Unauthorized response with REALM and NONCE."""
+    realm_attr = _build_str_attr(ATTR_REALM, _g_turn_realm)
+    nonce_attr = _build_str_attr(ATTR_NONCE, _g_turn_nonce)
+    error_attr = _build_error_attr(401, b'Unauthorized')
+    return _build_response(msg_error_type, transaction_id, error_attr, realm_attr, nonce_attr)
+
+
+def _check_turn_auth(sock, data, attrs, tid, client_addr, msg_error_type):
+    """Return True if auth is not required or credentials are valid.
+    Send a 401 and return False otherwise."""
+    if _g_turn_hmac_key is None:
+        return True
+
+    username_bytes = _get_attr(attrs, ATTR_USERNAME)
+    realm_bytes    = _get_attr(attrs, ATTR_REALM)
+    nonce_bytes    = _get_attr(attrs, ATTR_NONCE)
+
+    # Find byte offset of MESSAGE-INTEGRITY attribute for HMAC prefix computation.
+    mi_pos = None
+    offset = 20
+    while offset + 4 <= len(data):
+        t, l = struct.unpack_from('!HH', data, offset)
+        if t == ATTR_MESSAGE_INTEGRITY:
+            mi_pos = offset
+            break
+        offset += 4 + l + (4 - l % 4) % 4
+
+    if username_bytes is None or realm_bytes is None or nonce_bytes is None or mi_pos is None:
+        sock.sendto(_build_401_response(msg_error_type, tid), client_addr)
+        return False
+
+    # RFC 5389 §15.4: HMAC covers the STUN message up to (not including) the
+    # MESSAGE-INTEGRITY attribute, with the length field set as if MESSAGE-INTEGRITY
+    # were the last attribute (length = (mi_pos - 20) + 24).
+    prefix = bytearray(data[:mi_pos])
+    struct.pack_into('!H', prefix, 2, mi_pos - 20 + 24)
+    expected_mi = _hmac.new(_g_turn_hmac_key, bytes(prefix), hashlib.sha1).digest()
+
+    mi_value = data[mi_pos + 4: mi_pos + 4 + 20]
+    if len(mi_value) != 20 or not _hmac.compare_digest(mi_value, expected_mi):
+        sock.sendto(_build_401_response(msg_error_type, tid), client_addr)
+        return False
+
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -174,9 +242,13 @@ def _handle_binding_request(sock, data, addr):
 
 
 def _handle_allocate_request(sock, data, addr, server_host):
-    tid  = data[8:20]
-    key  = (addr[0], addr[1])
+    tid   = data[8:20]
+    key   = (addr[0], addr[1])
+    attrs = _parse_attrs(data)
     print("Allocate request from %s:%d" % (addr[0], addr[1]), flush=True)
+
+    if not _check_turn_auth(sock, data, attrs, tid, addr, MSG_ALLOCATE_ERROR):
+        return
 
     if key in _allocations and not _allocations[key].is_expired():
         err = _build_error_attr(437, b'Allocation Mismatch')
@@ -208,15 +280,19 @@ def _handle_allocate_request(sock, data, addr, server_host):
 
 
 def _handle_refresh_request(sock, data, addr):
-    tid  = data[8:20]
-    key  = (addr[0], addr[1])
+    tid   = data[8:20]
+    key   = (addr[0], addr[1])
+    attrs = _parse_attrs(data)
+
+    if not _check_turn_auth(sock, data, attrs, tid, addr, MSG_REFRESH_ERROR):
+        return
+
     alloc = _allocations.get(key)
     if alloc is None or alloc.is_expired():
         err = _build_error_attr(437, b'No Allocation')
         sock.sendto(_build_response(MSG_REFRESH_ERROR, tid, err), addr)
         return
 
-    attrs    = _parse_attrs(data)
     lf_bytes = _get_attr(attrs, ATTR_LIFETIME)
     lifetime = struct.unpack('!I', lf_bytes)[0] if lf_bytes else TURN_DEFAULT_LIFETIME
 
@@ -230,15 +306,18 @@ def _handle_refresh_request(sock, data, addr):
 
 
 def _handle_create_permission_request(sock, data, addr):
-    tid  = data[8:20]
-    key  = (addr[0], addr[1])
+    tid   = data[8:20]
+    key   = (addr[0], addr[1])
+    attrs = _parse_attrs(data)
+
+    if not _check_turn_auth(sock, data, attrs, tid, addr, MSG_CREATE_PERMISSION_ERROR):
+        return
+
     alloc = _allocations.get(key)
     if alloc is None or alloc.is_expired():
         err = _build_error_attr(437, b'No Allocation')
         sock.sendto(_build_response(MSG_CREATE_PERMISSION_ERROR, tid, err), addr)
         return
-
-    attrs = _parse_attrs(data)
     for peer_bytes in _get_attrs(attrs, ATTR_XOR_PEER_ADDRESS):
         peer_ip, _ = _decode_xor_addr(peer_bytes, tid)
         if peer_ip:
@@ -386,7 +465,7 @@ def run(host4, host6, port):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
-        description='STUN (RFC 5389) + TURN (RFC 5766, no auth) server')
+        description='STUN (RFC 5389) + TURN (RFC 5766) server')
     parser.add_argument('--host',  default='0.0.0.0',
                         help='IPv4 address to bind (default: 0.0.0.0)')
     parser.add_argument('--host6', default=None,
@@ -397,7 +476,18 @@ if __name__ == '__main__':
                         help='Extra one-way latency in milliseconds applied to all relayed packets (default: 0)')
     parser.add_argument('--allocation-lifetime', type=int, default=TURN_DEFAULT_LIFETIME, metavar='SEC',
                         help='TURN allocation lifetime in seconds (default: %d)' % TURN_DEFAULT_LIFETIME)
+    parser.add_argument('--username', default=None,
+                        help='Require TURN long-term credential auth with this username')
+    parser.add_argument('--password', default=None,
+                        help='TURN long-term credential password (requires --username)')
+    parser.add_argument('--realm', default='steamgaming.local',
+                        help='TURN auth realm (default: steamgaming.local)')
     args = parser.parse_args()
     _relay_latency_sec = args.relay_latency / 1000.0
     TURN_DEFAULT_LIFETIME = args.allocation_lifetime
+    if args.username and args.password:
+        _g_turn_realm    = args.realm
+        _g_turn_nonce    = os.urandom(16).hex()
+        _g_turn_hmac_key = hashlib.md5(('%s:%s:%s' % (args.username, args.realm, args.password)).encode('utf-8')).digest()
+        print("TURN auth enabled: user=%s realm=%s" % (args.username, args.realm), flush=True)
     run(args.host, args.host6, args.port)
