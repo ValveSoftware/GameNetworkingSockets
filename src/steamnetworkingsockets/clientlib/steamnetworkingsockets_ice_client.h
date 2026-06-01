@@ -101,6 +101,13 @@ namespace SteamNetworkingSocketsLib {
         netadr_t m_addrTURNServer;  // TURN server that gave us the relay
         bool m_bRelayFailed = false;                  // true if all TURN servers timed out/failed
 
+        // TURN long-term credentials (RFC 5766 section 10).  Populated on receipt of a
+        // 401 challenge from the TURN server.  m_strTURNRealm is empty until then.
+        // m_arrTURNKey holds MD5(username:realm:password), the HMAC-SHA1 key.
+        std::string m_strTURNRealm;
+        std::string m_strTURNNonce;
+        uint8 m_arrTURNKey[16] = {};
+
         // When to send the next TURN Refresh.  Zero means no active allocation.
         // Set to now + lifetime/2 when an Allocate or Refresh response is received.
         SteamNetworkingMicroseconds m_usecRefreshAfter = 0;
@@ -127,6 +134,12 @@ namespace SteamNetworkingSocketsLib {
 
         // Send a TURN Refresh request to keep the allocation alive
         void QueueRefreshRequest( RecvSTUNPacketCallback_t cb, int nEncoding );
+
+        // Create and queue any TURN request, attaching long-term auth credentials when
+        // we have them.  pExtraAttrs/nExtraAttrs are request-specific attrs (e.g.
+        // REQUESTED-TRANSPORT for Allocate); auth attrs are appended after them.
+        // Returns false and cleans up m_pPendingSTUNRequest if credential lookup fails.
+        bool QueueTURNRequest( uint32 nMsgType, int nEncoding, const netadr_t &addrTURNServer, RecvSTUNPacketCallback_t cb, STUNAttribute *pExtraAttrs, int nExtraAttrs );
 
         ICESessionInterface( CSteamNetworkingICESession &session, uint32 nPriority, int nPrefixLen )
             : m_session( session ), m_nPriority( nPriority ), m_nPrefixLen( nPrefixLen ), m_pSocket( nullptr ) {}
@@ -168,6 +181,9 @@ namespace SteamNetworkingSocketsLib {
     const uint32 k_nSTUN_Attr_MappedAddress = 0x0001;
     const uint32 k_nSTUN_Attr_UserName = 0x0006;
     const uint32 k_nSTUN_Attr_MessageIntegrity = 0x0008;
+    const uint32 k_nSTUN_Attr_ErrorCode = 0x0009;
+    const uint32 k_nSTUN_Attr_Realm = 0x0014;
+    const uint32 k_nSTUN_Attr_Nonce = 0x0015;
     const uint32 k_nSTUN_Attr_MessageIntegrity_SHA256 = 0x001C;
     const uint32 k_nSTUN_Attr_XORMappedAddress = 0x0020;
     const uint32 k_nSTUN_Attr_Priority = 0x0024;
@@ -402,6 +418,11 @@ namespace SteamNetworkingSocketsLib {
         // Resolved addresses of TURN servers, populated once at construction from the
         // config.  Used to allocate relay candidates.
         std_vector< netadr_t > m_vecTURNServers;
+
+        // Per-server TURN long-term credentials, parallel to m_vecTURNServers.
+        // Empty strings = no auth required for that server.
+        struct TURNCredentials { std::string m_strUsername; std::string m_strPassword; };
+        std_vector< TURNCredentials > m_vecTURNCredentials;
 
         // De-duplicated lists of peer IP addresses (port zeroed) that we should
         // ask each relay to permit forwarding from.  LAN/loopback/link-local
