@@ -30,6 +30,25 @@ class EVPCTXPointer
 };
 
 //-----------------------------------------------------------------------------
+// Generate an MD5 hash
+//-----------------------------------------------------------------------------
+void CCrypto::GenerateMD5Digest( const void *pData, size_t cbData, MD5Digest_t *pOutputDigest )
+{
+	VPROF_BUDGET( "CCrypto::GenerateMD5Digest", VPROF_BUDGETGROUP_ENCRYPTION );
+	Assert( pOutputDigest );
+
+	// NOTE: this will crash if OpenSSL is compiled in FIPS mode,. but I think
+	// we don't really care about that use case.
+
+	EVPCTXPointer<EVP_MD_CTX *, EVP_MD_CTX_free> ctx(EVP_MD_CTX_create());
+	unsigned int digest_len = sizeof(MD5Digest_t);
+	VerifyFatal(ctx.ctx != NULL);
+	VerifyFatal(EVP_DigestInit_ex(ctx.ctx, EVP_md5(), NULL) == 1);
+	VerifyFatal(EVP_DigestUpdate(ctx.ctx, pData, cbData) == 1);
+	VerifyFatal(EVP_DigestFinal(ctx.ctx, *pOutputDigest, &digest_len) == 1);
+}
+
+//-----------------------------------------------------------------------------
 // Generate a SHA256 hash
 //-----------------------------------------------------------------------------
 void CCrypto::GenerateSHA256Digest( const void *pInput, size_t cbInput, SHA256Digest_t *pOutDigest )
@@ -83,7 +102,7 @@ void CCrypto::GenerateHMAC( const uint8 *pubData, uint32 cubData, const uint8 *p
 	Assert( pubKey );
 	Assert( cubKey > 0 );
 	Assert( pOutputDigest );
-	
+
 	unsigned int needed = (unsigned int)sizeof(SHADigest_t);
 	HMAC( EVP_sha1(), pubKey, cubKey, pubData, cubData, (unsigned char*)pOutputDigest, &needed );
 }

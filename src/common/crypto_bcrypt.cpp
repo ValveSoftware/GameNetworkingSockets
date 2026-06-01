@@ -26,9 +26,11 @@ static BCRYPT_ALG_HANDLE hAlgRandom = INVALID_HANDLE_VALUE;
 static BCRYPT_ALG_HANDLE hAlgSHA256 = INVALID_HANDLE_VALUE;
 static BCRYPT_ALG_HANDLE hAlgHMACSHA256 = INVALID_HANDLE_VALUE;
 static BCRYPT_ALG_HANDLE hAlgHMACSHA1 = INVALID_HANDLE_VALUE;
+static BCRYPT_ALG_HANDLE hAlgMD5 = INVALID_HANDLE_VALUE;
 static ULONG cbBufferSHA256 = 0;
 static ULONG cbBufferHMACSHA256 = 0;
 static ULONG cbBufferHMACSHA1 = 0;
+static ULONG cbBufferMD5 = 0;
 
 typedef struct _BCryptContext {
 	BCRYPT_ALG_HANDLE hAlgAES;
@@ -96,6 +98,16 @@ void CCrypto::Init()
 		AssertFatal( hAlgHMACSHA1 != INVALID_HANDLE_VALUE );
 		BCryptGetProperty(hAlgHMACSHA1, BCRYPT_OBJECT_LENGTH, (PUCHAR)&cbBufferHMACSHA1, sizeof(cbBufferHMACSHA1), &garbage, 0 );
 		AssertFatal( cbBufferHMACSHA1 > 0 && cbBufferHMACSHA1 < 16 * 1024 * 1024 );
+
+		BCryptOpenAlgorithmProvider(
+				&hAlgMD5,
+				BCRYPT_MD5_ALGORITHM,
+				nullptr,
+				0
+				);
+		AssertFatal( hAlgMD5 != INVALID_HANDLE_VALUE );
+		BCryptGetProperty(hAlgMD5, BCRYPT_OBJECT_LENGTH, (PUCHAR)&cbBufferMD5, sizeof(cbBufferMD5), &garbage, 0 );
+		AssertFatal( cbBufferMD5 > 0 && cbBufferMD5 < 16 * 1024 * 1024 );
 
 		return true;
 	}();
@@ -297,6 +309,29 @@ void CCrypto::GenerateHMAC256( const uint8 *pubData, uint32 cubData, const uint8
 	AssertFatal(NT_SUCCESS(status));
 	status = BCryptDestroyHash(hHash);
 	AssertFatal(NT_SUCCESS(status));
+}
+
+//-----------------------------------------------------------------------------
+// Purpose: Generate an MD5 hash (used only for TURN long-term credential key derivation)
+//-----------------------------------------------------------------------------
+void CCrypto::GenerateMD5Digest( const void *pData, size_t cbData, MD5Digest_t *pOutputDigest )
+{
+	VPROF_BUDGET( "CCrypto::GenerateMD5Digest", VPROF_BUDGETGROUP_ENCRYPTION );
+	Assert( pOutputDigest );
+
+	CCrypto::Init();
+
+	BCRYPT_HASH_HANDLE hHash = INVALID_HANDLE_VALUE;
+	PUCHAR pbBuffer = (PUCHAR)HeapAlloc(GetProcessHeap(), 0, cbBufferMD5);
+	AssertFatal( pbBuffer );
+	NTSTATUS status = BCryptCreateHash(hAlgMD5, &hHash, pbBuffer, cbBufferMD5, NULL, 0, 0);
+	AssertFatal(NT_SUCCESS(status));
+	status = BCryptHashData(hHash, (PUCHAR)pData, (ULONG)cbData, 0);
+	AssertFatal(NT_SUCCESS(status));
+	status = BCryptFinishHash(hHash, *pOutputDigest, sizeof(MD5Digest_t), 0);
+	AssertFatal(NT_SUCCESS(status));
+	BCryptDestroyHash(hHash);
+	HeapFree(GetProcessHeap(), 0, pbBuffer);
 }
 
 //-----------------------------------------------------------------------------
