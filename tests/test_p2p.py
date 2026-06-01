@@ -720,8 +720,10 @@ CLIENT_SERVER_TEST_CASES = [
 
 def ClientServerTest( server_extra_args=[], client_extra_args=[], expected_route=None, ice_impl=1, expected_counters=None, expected_candidates=None, timeout_sec=None, stun=_DEFAULT_STUN, turn=_DEFAULT_TURN, server_ice_impl=None, client_ice_impl=None ):
     global g_failed
-    srv_impl_args = [ '--ice-implementation', str(server_ice_impl if server_ice_impl is not None else ice_impl) ]
-    cli_impl_args = [ '--ice-implementation', str(client_ice_impl if client_ice_impl is not None else ice_impl) ]
+    _srv_impl = server_ice_impl if server_ice_impl is not None else ice_impl
+    _cli_impl = client_ice_impl if client_ice_impl is not None else ice_impl
+    srv_impl_args = [ '--ice-implementation', str(_srv_impl) ]
+    cli_impl_args = [ '--ice-implementation', str(_cli_impl) ]
     server = StartClientInThread( "server", "peer_server", "peer_client", server_extra_args + srv_impl_args, stun=stun, turn=turn )
     client = StartClientInThread( "client", "peer_client", "peer_server", client_extra_args + cli_impl_args, stun=stun, turn=turn )
 
@@ -740,9 +742,12 @@ def ClientServerTest( server_extra_args=[], client_extra_args=[], expected_route
                 print( "ERROR: %s route type '%s', expected '%s'" % ( peer, thread.route_type, expected_route ) )
                 g_failed = True
 
-    # Verify packet counters if constraints were provided
+    # Verify packet counters if constraints were provided.
+    # Skip for WebRTC (impl=0) peers -- the WebRTC ICE stack doesn't emit TEST_ICE_ctr_* lines.
     if expected_counters is not None:
-        for peer, thread in [ ( 'server', server ), ( 'client', client ) ]:
+        for peer, thread, impl in [ ( 'server', server, _srv_impl ), ( 'client', client, _cli_impl ) ]:
+            if impl == 0:
+                continue
             for name, (lo, hi) in expected_counters.items():
                 val = thread.counters.get( name, 0 )
                 if lo is not None and val < lo:
@@ -899,7 +904,32 @@ for srv_impl, cli_impl, desc in [
     print( "Test: no-mock interop, %s" % desc )
     print( "=================================================================" )
     ClientServerTest( [], [], expected_route='local', stun=None, turn=None,
-                      server_ice_impl=srv_impl, client_ice_impl=cli_impl )
+                      server_ice_impl=srv_impl, client_ice_impl=cli_impl,
+                      expected_counters={ 'allocate_send': (0, 0) } )
+
+# Real-network, relay-only via a TURN server bound to the real LAN IP.
+# The TURN server is on a private address, which is unusual but should be handled
+# identically to any other TURN server from the ICE client's perspective.
+if not g_failed and turn_lan is not None:
+    print( "=================================================================" )
+    print( "Test: no-mock, relay via LAN TURN (%s:%d)" % (g_turn_lan_ip, _TURN_LAN_PORT) )
+    print( "=================================================================" )
+    turn_lan_addr = '%s:%d' % (g_turn_lan_ip, _TURN_LAN_PORT)
+    relay_args = [ '--ice-enable', str(_ICE_ENABLE_RELAY),
+                   '--turn-username', _TURN_USERNAME, '--turn-password', _TURN_PASSWORD ]
+    ClientServerTest( relay_args, relay_args,
+                      expected_route='relay', ice_impl=1,
+                      stun=None, turn=turn_lan_addr,
+                      expected_counters={
+                          # Each interface does 2 allocate sends (unauthenticated 401 + authenticated
+                          # success).  We don't cap the max because the number of real adapters varies
+                          # by machine.
+                          'allocate_send':  (2, None),
+                          'allocate_retx':  (0, 0),    # server responds promptly; no retransmits
+                          'srflx_send':     (0, 0),    # relay-only mode suppresses STUN discovery
+                          'send_ind_send':  (1, None), # data sent out through the relay
+                          'data_ind_recv':  (1, None), # data received through the relay
+                      } )
 
 # Run the expected-failure tests
 if not g_failed:
