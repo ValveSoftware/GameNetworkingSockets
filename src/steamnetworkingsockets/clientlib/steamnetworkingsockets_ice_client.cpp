@@ -1024,10 +1024,65 @@ void ICESessionInterface::QueueBindRequest( const netadr_t &addrSTUNServer, Recv
     m_pPendingSTUNRequest->Queue( k_nSTUN_BindingRequest, nEncoding, addrSTUNServer, cb );
 }
 
-void ICESessionInterface::QueueAllocateRequest( const netadr_t &addrTURNServer, RecvSTUNPacketCallback_t cb, int nEncoding )
+bool ICESessionInterface::QueueTURNRequest( uint32 nMsgType, int nEncoding, const netadr_t &addrTURNServer, RecvSTUNPacketCallback_t cb, STUNAttribute *pExtraAttrs, int nExtraAttrs )
 {
     Assert( !m_pPendingSTUNRequest );
+    m_pPendingSTUNRequest = new CSteamNetworkingSocketsSTUNRequest( this );
 
+    if ( m_strTURNRealm.empty() )
+    {
+        m_pPendingSTUNRequest->Queue( nMsgType, nEncoding | kSTUNPacketEncodingFlags_NoMappedAddress, addrTURNServer, cb, pExtraAttrs, nExtraAttrs );
+        return true;
+    }
+
+    const int nSrvIdx = index_of( m_session.m_vecTURNServers, addrTURNServer );
+    if ( nSrvIdx < 0 )
+    {
+        AssertMsg( false, "TURN server address not in m_vecTURNServers" );
+        delete m_pPendingSTUNRequest;
+        m_pPendingSTUNRequest = nullptr;
+        return false;
+    }
+    const std::string &strUsername = m_session.m_vecTURNCredentials[ nSrvIdx ].m_strUsername;
+
+    // Build combined attr list: caller's request-specific attrs first, then auth attrs.
+    if ( nExtraAttrs > 4 )
+    {
+        AssertMsg( false, "Too many extra attrs for TURN request" );
+        delete m_pPendingSTUNRequest;
+        m_pPendingSTUNRequest = nullptr;
+        return false;
+    }
+    STUNAttribute allAttrs[ 7 ];
+    int nAllAttrs = 0;
+    while ( nAllAttrs < nExtraAttrs )
+    {
+        allAttrs[nAllAttrs] = pExtraAttrs[nAllAttrs];
+        ++nAllAttrs;
+    }
+    allAttrs[ nAllAttrs ].m_nType   = k_nSTUN_Attr_UserName;
+    allAttrs[ nAllAttrs ].m_nLength = (uint32)strUsername.size();
+    allAttrs[ nAllAttrs ].m_pData   = reinterpret_cast<const uint32*>( strUsername.c_str() );
+    ++nAllAttrs;
+    allAttrs[ nAllAttrs ].m_nType   = k_nSTUN_Attr_Realm;
+    allAttrs[ nAllAttrs ].m_nLength = (uint32)m_strTURNRealm.size();
+    allAttrs[ nAllAttrs ].m_pData   = reinterpret_cast<const uint32*>( m_strTURNRealm.c_str() );
+    ++nAllAttrs;
+    allAttrs[ nAllAttrs ].m_nType   = k_nSTUN_Attr_Nonce;
+    allAttrs[ nAllAttrs ].m_nLength = (uint32)m_strTURNNonce.size();
+    allAttrs[ nAllAttrs ].m_pData   = reinterpret_cast<const uint32*>( m_strTURNNonce.c_str() );
+    ++nAllAttrs;
+
+    m_pPendingSTUNRequest->m_strPassword.assign( (const char*)m_arrTURNKey, sizeof( m_arrTURNKey ) );
+    // RFC 5766 mandates HMAC-SHA1 (not SHA256) for long-term credentials
+    m_pPendingSTUNRequest->Queue( nMsgType,
+        nEncoding | kSTUNPacketEncodingFlags_NoMappedAddress | kSTUNPacketEncodingFlags_MessageIntegrity,
+        addrTURNServer, cb, allAttrs, nAllAttrs );
+    return true;
+}
+
+void ICESessionInterface::QueueAllocateRequest( const netadr_t &addrTURNServer, RecvSTUNPacketCallback_t cb, int nEncoding )
+{
     // REQUESTED-TRANSPORT: UDP (IANA protocol 17), protocol byte + 3 RFFU bytes
     uint32 uTransport = htonl( 17u << 24 );
     STUNAttribute reqTransport;
@@ -1035,18 +1090,14 @@ void ICESessionInterface::QueueAllocateRequest( const netadr_t &addrTURNServer, 
     reqTransport.m_nLength = 4;
     reqTransport.m_pData   = &uTransport;
 
-    m_pPendingSTUNRequest = new CSteamNetworkingSocketsSTUNRequest( this );
-    m_pPendingSTUNRequest->Queue( k_nTURN_AllocateRequest, nEncoding | kSTUNPacketEncodingFlags_NoMappedAddress, addrTURNServer, cb, &reqTransport, 1 );
+    QueueTURNRequest( k_nTURN_AllocateRequest, nEncoding, addrTURNServer, cb, &reqTransport, 1 );
 }
 
 void ICESessionInterface::QueueRefreshRequest( RecvSTUNPacketCallback_t cb, int nEncoding )
 {
-    Assert( !m_pPendingSTUNRequest );
     Assert( m_addrTURNServer.IsValid() );
 
-    m_pPendingSTUNRequest = new CSteamNetworkingSocketsSTUNRequest( this );
-    // No extra attributes: server uses its configured lifetime as the default.
-    m_pPendingSTUNRequest->Queue( k_nTURN_RefreshRequest, nEncoding | kSTUNPacketEncodingFlags_NoMappedAddress, m_addrTURNServer, cb );
+    QueueTURNRequest( k_nTURN_RefreshRequest, nEncoding, m_addrTURNServer, cb, nullptr, 0 );
 }
 
 // Send a gathered packet to the pair, routing via TURN Send Indication if the
@@ -1166,21 +1217,29 @@ CSteamNetworkingICESession::CSteamNetworkingICESession( const ICESessionConfig& 
 	}
 
 	m_vecTURNServers.reserve( cfg.m_nTurnServers );
+	m_vecTURNCredentials.reserve( cfg.m_nTurnServers );
 	for ( int i = 0; i < cfg.m_nTurnServers; ++i )
 	{
 		const char *pszHostname = cfg.m_pTurnServers[i].m_pszHost;
 		if ( pszHostname == nullptr )
 			continue;
+		const char *pszUsername = cfg.m_pTurnServers[i].m_pszUsername ? cfg.m_pTurnServers[i].m_pszUsername : "";
+		const char *pszPassword = cfg.m_pTurnServers[i].m_pszPwd     ? cfg.m_pTurnServers[i].m_pszPwd     : "";
 		if ( V_strnicmp( pszHostname, "turn:", 5 ) == 0 )
 			pszHostname = pszHostname + 5;
 		CUtlVector< SteamNetworkingIPAddr > turnServers;
 		ResolveHostname( pszHostname, &turnServers );
 		m_vecTURNServers.reserve( m_vecTURNServers.size() + turnServers.Count() );
+		m_vecTURNCredentials.reserve( m_vecTURNCredentials.size() + turnServers.Count() );
 		for ( const SteamNetworkingIPAddr &ip: turnServers )
 		{
 			netadr_t adr;
 			SteamNetworkingIPAddrToNetAdr( adr, ip );
 			m_vecTURNServers.push_back( adr );
+			TURNCredentials cred;
+			cred.m_strUsername = pszUsername;
+			cred.m_strPassword = pszPassword;
+			m_vecTURNCredentials.push_back( std::move( cred ) );
 		}
 	}
 
@@ -1890,7 +1949,7 @@ void CSteamNetworkingICESession::STUNRequestCallback_AllocateRelay( const RecvST
 
     if ( info.m_pHeader != nullptr )
     {
-        // Got a response -- check for XOR-RELAYED-ADDRESS.
+        // Got a response -- check for XOR-RELAYED-ADDRESS (success).
         const STUNAttribute *pRelayAttr = FindAttributeOfType( info.m_pAttributes, info.m_nAttributes, k_nTURN_Attr_XORRelayedAddress );
         if ( pRelayAttr != nullptr )
         {
@@ -1913,6 +1972,50 @@ void CSteamNetworkingICESession::STUNRequestCallback_AllocateRelay( const RecvST
                 return;
             }
         }
+
+        // Check for a 401 Unauthorized challenge -- the server requires long-term credentials.
+        // Only attempt auth once; if we already set the realm, this 401 means wrong credentials.
+        const STUNAttribute *pErrorAttr = FindAttributeOfType( info.m_pAttributes, info.m_nAttributes, k_nSTUN_Attr_ErrorCode );
+        if ( pErrorAttr != nullptr && pErrorAttr->m_nLength >= 4 && pIntf->m_strTURNRealm.empty() )
+        {
+            const uint8 *pErrBytes = reinterpret_cast<const uint8*>( pErrorAttr->m_pData );
+            int nErrorCode = pErrBytes[2] * 100 + pErrBytes[3];
+            if ( nErrorCode == 401 )
+            {
+                // Extract the realm and nonce from the challenge.
+                const STUNAttribute *pRealmAttr = FindAttributeOfType( info.m_pAttributes, info.m_nAttributes, k_nSTUN_Attr_Realm );
+                const STUNAttribute *pNonceAttr = FindAttributeOfType( info.m_pAttributes, info.m_nAttributes, k_nSTUN_Attr_Nonce );
+                if ( pRealmAttr && pNonceAttr )
+                {
+                    const int nSrvIdx = index_of( m_vecTURNServers, info.m_pRequest->m_remoteAddr );
+                    if ( nSrvIdx < 0 )
+                    {
+                        AssertMsg( false, "TURN server address not in m_vecTURNServers" );
+                        pIntf->m_addrTURNServer = info.m_pRequest->m_remoteAddr;
+                        pIntf->m_bRelayFailed = true;
+                        return;
+                    }
+                    const TURNCredentials &cred = m_vecTURNCredentials[ nSrvIdx ];
+                    if ( !cred.m_strUsername.empty() )
+                    {
+                        // Compute long-term key: MD5(username:realm:password)
+                        pIntf->m_strTURNRealm.assign( reinterpret_cast<const char*>( pRealmAttr->m_pData ), pRealmAttr->m_nLength );
+                        pIntf->m_strTURNNonce.assign( reinterpret_cast<const char*>( pNonceAttr->m_pData ), pNonceAttr->m_nLength );
+                        std::string strKeyInput = cred.m_strUsername + ":" + pIntf->m_strTURNRealm + ":" + cred.m_strPassword;
+                        CCrypto::GenerateMD5Digest( strKeyInput.c_str(), strKeyInput.size(), &pIntf->m_arrTURNKey );
+
+                        SpewVerboseGroup( GlobalConfig::LogLevel_P2PRendezvous.Get(),
+                            "ICE: TURN server %s sent 401, retrying with long-term credentials for user '%s'.\n",
+                            CUtlNetAdrRender( info.m_pRequest->m_remoteAddr ).String(), cred.m_strUsername.c_str() );
+
+                        // Re-queue the allocate with credentials.
+                        pIntf->QueueAllocateRequest( info.m_pRequest->m_remoteAddr, &CSteamNetworkingICESession::STUNRequestCallback_AllocateRelay, m_nEncoding );
+                        return;
+                    }
+                }
+            }
+        }
+
         // Response received but no usable relay address -- error response.
         pIntf->m_addrTURNServer = info.m_pRequest->m_remoteAddr;
         pIntf->m_bRelayFailed = true;
@@ -2041,9 +2144,50 @@ void CSteamNetworkingICESession::Think_TURNMaintenance( SteamNetworkingMicroseco
 
         pRequest->m_nTURNPermissionRevision = nSessionRevision;
         pIntf->m_pPendingSTUNRequest = pRequest;
-        pRequest->Queue( k_nTURN_CreatePermissionRequest, m_nEncoding | kSTUNPacketEncodingFlags_NoMappedAddress,
-            pIntf->m_addrTURNServer, &CSteamNetworkingICESession::STUNRequestCallback_CreatePermission,
-            peerAttrs, nPeerAttrs );
+
+        // Attach long-term credentials if the TURN server required auth.
+        if ( !pIntf->m_strTURNRealm.empty() )
+        {
+            const int nSrvIdx = index_of( m_vecTURNServers, pIntf->m_addrTURNServer );
+            if ( nSrvIdx < 0 )
+            {
+                AssertMsg( false, "TURN server address not in m_vecTURNServers" );
+                delete pRequest;
+                pIntf->m_pPendingSTUNRequest = nullptr;
+                continue;
+            }
+            const std::string &strUsername = m_vecTURNCredentials[ nSrvIdx ].m_strUsername;
+            // Append auth attrs after the peer-address attrs, reusing extra stack space.
+            // k_nMaxPeers is 10, and we have 10 slots; bump is safe because we stop at k_nMaxPeers earlier.
+            STUNAttribute authAttrs[3];
+            authAttrs[0].m_nType   = k_nSTUN_Attr_UserName;
+            authAttrs[0].m_nLength = (uint32)strUsername.size();
+            authAttrs[0].m_pData   = reinterpret_cast<const uint32*>( strUsername.c_str() );
+            authAttrs[1].m_nType   = k_nSTUN_Attr_Realm;
+            authAttrs[1].m_nLength = (uint32)pIntf->m_strTURNRealm.size();
+            authAttrs[1].m_pData   = reinterpret_cast<const uint32*>( pIntf->m_strTURNRealm.c_str() );
+            authAttrs[2].m_nType   = k_nSTUN_Attr_Nonce;
+            authAttrs[2].m_nLength = (uint32)pIntf->m_strTURNNonce.size();
+            authAttrs[2].m_pData   = reinterpret_cast<const uint32*>( pIntf->m_strTURNNonce.c_str() );
+
+            // Build a combined attrs array: peer addrs first, then auth.
+            const int k_nMaxAuthAttrs = 13; // k_nMaxPeers + 3
+            STUNAttribute allAttrs[ k_nMaxAuthAttrs ];
+            for ( int i = 0; i < nPeerAttrs; ++i ) allAttrs[i] = peerAttrs[i];
+            for ( int i = 0; i < 3; ++i ) allAttrs[nPeerAttrs + i] = authAttrs[i];
+
+            pRequest->m_strPassword.assign( (const char*)pIntf->m_arrTURNKey, sizeof( pIntf->m_arrTURNKey ) );
+            pRequest->Queue( k_nTURN_CreatePermissionRequest,
+                m_nEncoding | kSTUNPacketEncodingFlags_NoMappedAddress | kSTUNPacketEncodingFlags_MessageIntegrity,
+                pIntf->m_addrTURNServer, &CSteamNetworkingICESession::STUNRequestCallback_CreatePermission,
+                allAttrs, nPeerAttrs + 3 );
+        }
+        else
+        {
+            pRequest->Queue( k_nTURN_CreatePermissionRequest, m_nEncoding | kSTUNPacketEncodingFlags_NoMappedAddress,
+                pIntf->m_addrTURNServer, &CSteamNetworkingICESession::STUNRequestCallback_CreatePermission,
+                peerAttrs, nPeerAttrs );
+        }
     }
 }
 
