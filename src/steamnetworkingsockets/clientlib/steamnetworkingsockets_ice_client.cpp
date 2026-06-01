@@ -1243,6 +1243,15 @@ CSteamNetworkingICESession::CSteamNetworkingICESession( const ICESessionConfig& 
 		}
 	}
 
+	for ( const netadr_t &srv : m_vecTURNServers )
+	{
+		if ( ClassifyIP( srv ) & k_nIPClassify_LAN )
+		{
+			m_bAnyTURNServerLANAddress = true;
+			break;
+		}
+	}
+
 	m_nPermittedCandidateTypes = cfg.m_nCandidateTypes;
 	m_strLocalUsernameFragment = cfg.m_pszLocalUserFrag;
 	m_strLocalPassword = cfg.m_pszLocalPwd;
@@ -1342,12 +1351,16 @@ EICECandidateType CSteamNetworkingICESession::AddPeerCandidate( const RFC5245Can
 	{
 		m_vecPeerCandidates.push_back( ICEPeerCandidate( candidate, pszFoundation ) );
 
-		// If this is a public IP, register it for TURN CreatePermission so our relay
-		// will forward traffic from it.  Excludes loopback, RFC-1918 private, and
-		// link-local addresses -- forwarding from those would be meaningless (or expose
-		// internal topology).  Dedup by IP (port is ignored for permissions).
+		// Register the peer IP for TURN CreatePermission so our relay will forward
+		// traffic from it.  Normally we only do this for public IPs, because that is the only
+        // type of address that a real TURN server shoud ever care about.
+        // But this is really just an optimization.  If we have a TURN server running
+        // on a LAN port, go ahead and add all remote IPs to the permissions list and
+        // bypass this optimization.
 		const CIPAddress &permIP = static_cast< const CIPAddress &>(candidate.m_addr);
-		if ( ClassifyIP( permIP ) & k_nIPClassify_Public )
+		int nPermClassify = ClassifyIP( permIP );
+		if ( ( nPermClassify & k_nIPClassify_Public ) ||
+		     ( m_bAnyTURNServerLANAddress && !( nPermClassify & k_nIPClassify_Localhost ) && nPermClassify != 0 ) )
 		{
 			bool bIsIPv4 = permIP.GetType() == k_EIPTypeV4;
 			std_vector<CIPAddress> &vecPermitted = bIsIPv4 ? m_vecTURNPermittedIPv4 : m_vecTURNPermittedIPv6;
