@@ -19,6 +19,7 @@ import re
 g_failed = False
 g_server_ready = threading.Event()
 g_stun_ready = threading.Event()
+g_turn_lan_ready = threading.Event()
 g_server_startup_timeout = 3  # seconds
 g_spew_level = None
 g_p2p_rendezvous_level = None
@@ -163,6 +164,29 @@ _DEFAULT_TURN = object()  # sentinel: use the shared TURN server
 # Credentials used by the shared STUN/TURN server and all test clients.
 _TURN_USERNAME = 'testuser'
 _TURN_PASSWORD = 'testpass'
+
+# --ice-enable bitmask values (k_nSteamNetworkingConfig_P2P_Transport_ICE_Enable_*).
+# NOTE: These are the EXTERNAL API bitmask values.  Inside the code, we use a different
+# bitfield of address-family specific candidate type bits.
+_ICE_ENABLE_RELAY   = 1   # relay candidates
+_ICE_ENABLE_PRIVATE = 2   # private (LAN) host candidates
+_ICE_ENABLE_PUBLIC  = 4   # public host + STUN reflexive candidates
+
+
+def _get_lan_ipv4():
+    """Return the primary outbound LAN IPv4 address, or None if not found.
+    Uses a UDP connect to an external IP to ask the OS which source address it would use."""
+    import socket
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(('8.8.8.8', 80))
+        ip = s.getsockname()[0]
+        s.close()
+        if not ip.startswith('127.'):
+            return ip
+    except Exception:
+        pass
+    return None
 
 def StartClientInThread( role, local, remote, extra_args=[], stun=_DEFAULT_STUN, turn=_DEFAULT_TURN ):
     cmdline = [
@@ -694,11 +718,12 @@ CLIENT_SERVER_TEST_CASES = [
       'local', 1, None, None ),
 ]
 
-def ClientServerTest( server_extra_args=[], client_extra_args=[], expected_route=None, ice_impl=1, expected_counters=None, expected_candidates=None, timeout_sec=None, stun=_DEFAULT_STUN, turn=_DEFAULT_TURN ):
+def ClientServerTest( server_extra_args=[], client_extra_args=[], expected_route=None, ice_impl=1, expected_counters=None, expected_candidates=None, timeout_sec=None, stun=_DEFAULT_STUN, turn=_DEFAULT_TURN, server_ice_impl=None, client_ice_impl=None ):
     global g_failed
-    impl_args = [ '--ice-implementation', str(ice_impl) ]
-    server = StartClientInThread( "server", "peer_server", "peer_client", server_extra_args + impl_args, stun=stun, turn=turn )
-    client = StartClientInThread( "client", "peer_client", "peer_server", client_extra_args + impl_args, stun=stun, turn=turn )
+    srv_impl_args = [ '--ice-implementation', str(server_ice_impl if server_ice_impl is not None else ice_impl) ]
+    cli_impl_args = [ '--ice-implementation', str(client_ice_impl if client_ice_impl is not None else ice_impl) ]
+    server = StartClientInThread( "server", "peer_server", "peer_client", server_extra_args + srv_impl_args, stun=stun, turn=turn )
+    client = StartClientInThread( "client", "peer_client", "peer_server", client_extra_args + cli_impl_args, stun=stun, turn=turn )
 
     # Wait for clients to shutdown.  Nuke them if necessary
     t = timeout_sec if timeout_sec is not None else 20 * g_repeat
@@ -792,6 +817,27 @@ if not g_stun_ready.wait( timeout=g_server_startup_timeout ):
 
 print( "STUN server is ready" )
 
+# Start a second TURN server on the real LAN IP (if one exists) for relay-path testing
+# on the real network.  A different port avoids conflicting with the mock STUN server.
+_TURN_LAN_PORT = 3479
+g_turn_lan_ip = _get_lan_ipv4()
+turn_lan = None
+if g_turn_lan_ip:
+    print( "Found LAN IP %s, starting TURN server on port %d" % (g_turn_lan_ip, _TURN_LAN_PORT) )
+    turn_lan = StartProcessInThread( "turn_lan", [ sys.executable, stun_server_script,
+                                                   '--host', g_turn_lan_ip, '--port', str(_TURN_LAN_PORT),
+                                                   '--username', _TURN_USERNAME, '--password', _TURN_PASSWORD ],
+                                     ready_message="STUN/TURN server listening on", ready_event=g_turn_lan_ready )
+    if not g_turn_lan_ready.wait( timeout=g_server_startup_timeout ):
+        print( "WARNING: LAN TURN server failed to start; LAN relay tests will be skipped" )
+        turn_lan.term()
+        turn_lan = None
+        g_turn_lan_ip = None
+    else:
+        print( "LAN TURN server is ready" )
+else:
+    print( "No LAN IP found; LAN relay tests will be skipped" )
+
 # Start the signaling server
 trivial_signaling_server = './trivial_signaling_server.py'
 if not os.path.exists( trivial_signaling_server ):
@@ -840,6 +886,21 @@ if not g_failed:
                       expected_counters={ 'refresh_send': (2, None), 'allocate_send': (2, 2) },
                       timeout_sec=35 * g_repeat )
 
+# Real-network interop tests: native ICE <-> WebRTC ICE, with public STUN (stun.l.google.com).
+# Tests that the two implementations can discover each other and agree on a local path.
+# "Both directions" = each implementation gets a turn as the ICE-controlling side (server).
+for srv_impl, cli_impl, desc in [
+    ( 1, 0, 'native server, WebRTC client' ),
+    ( 0, 1, 'WebRTC server, native client' ),
+]:
+    if g_failed:
+        break
+    print( "=================================================================" )
+    print( "Test: no-mock interop, %s" % desc )
+    print( "=================================================================" )
+    ClientServerTest( [], [], expected_route='local', stun=None, turn=None,
+                      server_ice_impl=srv_impl, client_ice_impl=cli_impl )
+
 # Run the expected-failure tests
 if not g_failed:
     for desc, srv_args, cli_args, kwargs in FAILURE_TEST_CASES:
@@ -855,6 +916,8 @@ really_failed = g_failed
 
 signaling.term()
 stun.term()
+if turn_lan is not None:
+    turn_lan.term()
 
 if really_failed:
     print( "TEST FAILED" )
