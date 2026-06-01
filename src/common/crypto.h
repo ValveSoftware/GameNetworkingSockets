@@ -113,7 +113,7 @@ public:
 namespace CCrypto
 {
 	void Init();
-	
+
 	// Symmetric encryption and authentication using AES-GCM.
 	bool SymmetricAuthEncryptWithIV(
 		const void *pPlaintextData, size_t cbPlaintextData,
@@ -169,9 +169,12 @@ namespace CCrypto
 
 	void GenerateSHA256Digest( const void *pData, size_t cbData, SHA256Digest_t *pOutputDigest );
 
+	// You know that MD5s aren't really cryptographically secure right - so this is just for basic integrity checking type stuff
+	void GenerateMD5Digest( const void *pData, size_t cbData, MD5Digest_t *pOutputDigest );
+
 	// GenerateHMAC256 is our implementation of HMAC-SHA256. Relatively future-proof. You should probably use this unless you have a very good reason not to.
 	void GenerateHMAC256( const uint8 *pubData, uint32 cubData, const uint8 *pubKey, uint32 cubKey, SHA256Digest_t *pOutputDigest );
-	
+
 	// GenerateHMAC is our implementation of HMAC-SHA1. The current standard, although people are moving to HMAC-SHA256.
 	void GenerateHMAC( const uint8 *pubData, uint32 cubData, const uint8 *pubKey, uint32 cubKey, SHADigest_t *pOutputDigest );
 
