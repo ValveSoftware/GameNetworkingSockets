@@ -1014,9 +1014,11 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLa
 			// Clamping the requested stop waiting point to the highest packet number we
 			// received keeps a lot of code simple.  If this clamp activates, the gap map
 			// will get totally emptied by the loop below.
-			if ( unlikely( nMinPktNumToSendAcks > m_statsEndToEnd.m_nMaxRecvPktNum ) )
+			const int nPktNumBeforeSentinelGap = m_receiverState.m_mapPacketGaps.rbegin()->first-1;
+			Assert( nPktNumBeforeSentinelGap <= m_statsEndToEnd.m_nMaxRecvPktNum );
+			if ( unlikely( nMinPktNumToSendAcks > nPktNumBeforeSentinelGap ) )
 			{
-				nMinPktNumToSendAcks = m_statsEndToEnd.m_nMaxRecvPktNum;
+				nMinPktNumToSendAcks = nPktNumBeforeSentinelGap;
 			}
 
 			if ( nMinPktNumToSendAcks == m_receiverState.m_nMinPktNumToSendAcks )
@@ -1047,16 +1049,17 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLa
 			auto h = m_receiverState.m_mapPacketGaps.begin();
 			while ( h->first <= m_receiverState.m_nMinPktNumToSendAcks )
 			{
+				Assert( h->first < h->second.m_nEnd );
 				if ( h->second.m_nEnd > m_receiverState.m_nMinPktNumToSendAcks )
 				{
 
-					// We should never reach the sentinel, due to the clamp
-					// against m_statsEndToEnd.m_nMaxRecvPktNum above.  But we will
-					// add a little paranoia check here, just in case.
-					if ( unlikely( h->second.m_nEnd == INT64_MAX ) )
+					// We should never reach the sentinel, due to the clamp above.
+					// But we will add a little paranoia check here, just in case.
+					if ( unlikely( h->first > nPktNumBeforeSentinelGap ) )
 					{
-						AssertMsgOnce( false, "SNP stop waiting advanced past sentinel gap.  This should never happen!" );
-						DECODE_ERROR( "stop_waiting past sentinel gap" );
+						Assert( h == m_receiverState.m_mapPacketGaps.end() );
+						AssertMsg( false, "SNP stop waiting advanced past sentinel gap.  This should never happen!" );
+						break;
 					}
 
 					// Ug.  You're not supposed to modify the key in a map.
@@ -1080,8 +1083,13 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLa
 					++m_receiverState.m_itPendingNack;
 				}
 
-				// Packet loss is in the past.  Forget about it and move on
+				// Packet loss is in the past.  Forget about it and move on.  While we're here,
+				// let's spot check that the map is not hosed.
+				#ifdef DBGFLAG_ASSERT
+				int64 nCheckPrev = h->second.m_nEnd;
+				#endif
 				h = m_receiverState.m_mapPacketGaps.erase(h);
+				AssertMsg( h->first > nCheckPrev, "PacketGaps map not increasing" );
 			}
 
 			SNP_DebugCheckPacketGapMap();
