@@ -160,6 +160,10 @@ def StartProcessInThread( tag, cmdline, env=None, ready_message=None, ready_even
 _DEFAULT_STUN = object()  # sentinel: use the shared STUN server
 _DEFAULT_TURN = object()  # sentinel: use the shared TURN server
 
+# Credentials used by the shared STUN/TURN server and all test clients.
+_TURN_USERNAME = 'testuser'
+_TURN_PASSWORD = 'testpass'
+
 def StartClientInThread( role, local, remote, extra_args=[], stun=_DEFAULT_STUN, turn=_DEFAULT_TURN ):
     cmdline = [
         "./test_p2p",
@@ -178,6 +182,7 @@ def StartClientInThread( role, local, remote, extra_args=[], stun=_DEFAULT_STUN,
 
     if turn is _DEFAULT_TURN:
         cmdline += [ '--turn-server', "%s:%d" % (g_stun_ip, g_stun_port) ]
+        cmdline += [ '--turn-username', _TURN_USERNAME, '--turn-password', _TURN_PASSWORD ]
     elif turn is not None:
         cmdline += [ '--turn-server', turn ]
     # turn=None: omit --turn-server entirely (no relay)
@@ -443,6 +448,36 @@ FAILURE_TEST_CASES = [
                 'data_ind_recv':      (0, 0),
                 'binding_req_retx':   (4, 4),
                 'allocate_retx':      (4, 4),
+            },
+            expected_candidates=( _CAND_NAT_NO_TURN, _CAND_NAT_NO_TURN ) ) ),
+
+    # TURN wrong password: the server sends a 401 challenge; the client retries with a
+    # bad HMAC (wrong password) and gets a second 401, marking relay as failed.
+    # allocate_send=2: initial (no auth) + one retry (wrong credentials).
+    # No retransmits because the server responds immediately each time.
+    ( 'TURN wrong password (symmetric NAT)',
+      _nat( _SRV_INT, _SRV_GW, 'symmetric' ) + [ '--turn-password', 'wrongpass' ],
+      _nat( _CLI_INT, _CLI_GW, 'symmetric' ) + [ '--turn-password', 'wrongpass' ],
+      dict( expected_counters={
+                'allocate_send':      (2, 2),
+                'allocate_retx':      (0, 0),
+                'data_ind_recv':      (0, 0),
+                'binding_req_retx':   (4, 4),
+            },
+            expected_candidates=( _CAND_NAT_NO_TURN, _CAND_NAT_NO_TURN ) ) ),
+
+    # TURN auth required but no credentials configured: the server sends a 401 challenge;
+    # the client has no username so it does not retry, marking relay as failed immediately.
+    # allocate_send=1: only the initial unauthenticated request.
+    ( 'TURN auth required, no credentials (symmetric NAT)',
+      _nat( _SRV_INT, _SRV_GW, 'symmetric' ),
+      _nat( _CLI_INT, _CLI_GW, 'symmetric' ),
+      dict( turn='%s:%d' % (g_stun_ip, g_stun_port),  # server address only, no credentials
+            expected_counters={
+                'allocate_send':      (1, 1),
+                'allocate_retx':      (0, 0),
+                'data_ind_recv':      (0, 0),
+                'binding_req_retx':   (4, 4),
             },
             expected_candidates=( _CAND_NAT_NO_TURN, _CAND_NAT_NO_TURN ) ) ),
 ]
@@ -745,7 +780,8 @@ if not os.path.exists( stun_server_script ):
 
 stun = StartProcessInThread( "stun", [ sys.executable, stun_server_script,
                                        '--host', g_stun_ip, '--host6', g_stun_ipv6, '--port', str(g_stun_port),
-                                       '--relay-latency', '75', '--allocation-lifetime', '15' ],
+                                       '--relay-latency', '75', '--allocation-lifetime', '15',
+                                       '--username', _TURN_USERNAME, '--password', _TURN_PASSWORD ],
                              ready_message="STUN/TURN server listening on", ready_event=g_stun_ready )
 
 if not g_stun_ready.wait( timeout=g_server_startup_timeout ):
@@ -791,7 +827,8 @@ for case in CLIENT_SERVER_TEST_CASES:
 
 # TURN allocation refresh test: run long enough (~20s, 400 ticks) to see two refreshes.
 # With --allocation-lifetime 15, refreshes fire at ~7.5s and ~15s from allocation.
-# refresh_send >= 2 confirms both fires; allocate_send == 1 confirms no re-allocation.
+# refresh_send >= 2 confirms both fires; allocate_send == 2 confirms the auth challenge/response
+# (one unauthenticated attempt + one with credentials) and no further re-allocation.
 if not g_failed:
     print( "=================================================================" )
     print( "Test: TURN allocation refresh (symmetric NAT, 400 ticks)" )
@@ -800,7 +837,7 @@ if not g_failed:
     _refresh_cli_args = [ '--ticks', '400' ] + _nat( _CLI_INT, _CLI_GW, 'symmetric' )
     ClientServerTest( _refresh_args, _refresh_cli_args,
                       expected_route='relay', ice_impl=1,
-                      expected_counters={ 'refresh_send': (2, None), 'allocate_send': (1, 1) },
+                      expected_counters={ 'refresh_send': (2, None), 'allocate_send': (2, 2) },
                       timeout_sec=35 * g_repeat )
 
 # Run the expected-failure tests

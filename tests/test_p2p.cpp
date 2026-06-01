@@ -69,6 +69,8 @@ void PrintUsage()
 		"  --loglevel-p2prendezvous <level>    P2P rendezvous log level: msg, verbose, debug\n"
 		"  --stun-server <host:port>           STUN server address (default: " DEFAULT_STUN_SERVER ")\n"
 		"  --turn-server <host:port>           TURN relay server address\n"
+		"  --turn-username <user>              TURN long-term credential username\n"
+		"  --turn-password <pass>              TURN long-term credential password\n"
 		"  --ice-implementation <n>            ICE implementation: 0=default, 1=native\n"
 		"  --repeat <n>                        Repeat the connection test N times (default: 1)\n"
 		"  --ticks <n>                         Number of 50ms send/receive ticks per connection (default: 40 = ~2s)\n"
@@ -370,6 +372,8 @@ int main( int argc, const char **argv )
 	const char *pszTrivialSignalingService = "localhost:10000";
 	const char *pszSTUNServer = DEFAULT_STUN_SERVER;
 	const char *pszTURNServer = nullptr;
+	const char *pszTURNUsername = nullptr;
+	const char *pszTURNPassword = nullptr;
 	int g_nICEImplementation = -1; // -1 = not set, use library default
 	int g_nICEEnable = k_nSteamNetworkingConfig_P2P_Transport_ICE_Enable_All;
 	int nSignalingLossPct = 0;
@@ -405,6 +409,10 @@ int main( int argc, const char **argv )
 			pszSTUNServer = GetArg();
 		else if ( !strcmp( pszSwitch, "--turn-server" ) )
 			pszTURNServer = GetArg();
+		else if ( !strcmp( pszSwitch, "--turn-username" ) )
+			pszTURNUsername = GetArg();
+		else if ( !strcmp( pszSwitch, "--turn-password" ) )
+			pszTURNPassword = GetArg();
 		else if ( !strcmp( pszSwitch, "--ice-implementation" ) )
 			g_nICEImplementation = atoi( GetArg() );
 		else if ( !strcmp( pszSwitch, "--ice-enable" ) )
@@ -548,6 +556,10 @@ int main( int argc, const char **argv )
 	SteamNetworkingUtils()->SetGlobalConfigValueString( k_ESteamNetworkingConfig_P2P_STUN_ServerList, pszSTUNServer );
 	if ( pszTURNServer != nullptr )
 		SteamNetworkingUtils()->SetGlobalConfigValueString( k_ESteamNetworkingConfig_P2P_TURN_ServerList, pszTURNServer );
+	if ( pszTURNUsername != nullptr )
+		SteamNetworkingUtils()->SetGlobalConfigValueString( k_ESteamNetworkingConfig_P2P_TURN_UserList, pszTURNUsername );
+	if ( pszTURNPassword != nullptr )
+		SteamNetworkingUtils()->SetGlobalConfigValueString( k_ESteamNetworkingConfig_P2P_TURN_PassList, pszTURNPassword );
 	if ( g_nICEImplementation >= 0 )
 		SteamNetworkingUtils()->SetGlobalConfigValueInt32( k_ESteamNetworkingConfig_P2P_Transport_ICE_Implementation, g_nICEImplementation );
 
