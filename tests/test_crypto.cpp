@@ -339,6 +339,28 @@ void TestSHA256()
 	}
 }
 
+void TestMD5()
+{
+	// RFC 1321 known-answer tests for MD5
+	struct { const char *pszData; const char *pszExpected; } rgTests[] =
+	{
+		{ "",                                "d41d8cd98f00b204e9800998ecf8427e" },
+		{ "a",                               "0cc175b9c0f1b6a831c399e269772661" },
+		{ "abc",                             "900150983cd24fb0d6963f7d28e17f72" },
+		{ "message digest",                  "f96b697d7cb7938d525a2f31aaf161d0" },
+		{ "abcdefghijklmnopqrstuvwxyz",      "c3fcd3d76192e4007dfb496cca67e13b" },
+	};
+	for ( auto &t : rgTests )
+	{
+		MD5Digest_t digest;
+		CCrypto::GenerateMD5Digest( t.pszData, strlen(t.pszData), &digest );
+		char hex[sizeof(MD5Digest_t)*2+1];
+		CCrypto::HexEncode( digest, sizeof(digest), hex, sizeof(hex) );
+		for ( int i = 0; hex[i]; ++i ) hex[i] = tolower(hex[i]);
+		CHECK_EQUAL( 0, strcmp( hex, t.pszExpected ) );
+	}
+}
+
 void TestHMAC()
 {
 	// RFC 2202 / RFC 4231 known-answer tests for HMAC-SHA1 and HMAC-SHA256
@@ -830,6 +852,7 @@ int main()
 
 	TestCryptoEncoding();
 	TestSHA256();
+	TestMD5();
 	TestHMAC();
 	TestSymmetricAuthCryptoVectors();
 	TestEllipticCrypto();
