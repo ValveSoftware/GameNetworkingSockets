@@ -1908,6 +1908,10 @@ public:
 			m_pSockLocal->Close();
 			m_pSockLocal = nullptr;
 		}
+		// Mock sockets are not tracked by s_vecRawSockets, so they must
+		// self-delete here, mirroring how real socket Close() ends with
+		// the object being destroyed (just deferred via the cleanup queue).
+		delete this;
 	}
 
 protected:
