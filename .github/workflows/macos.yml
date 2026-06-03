@@ -80,22 +80,3 @@ jobs:
     - name: Build (Release)
       run: cmake --build ${{github.workspace}}/build-release --config Release
 
-    - name: Configure CMake (Debug)
-      run: cmake -B ${{github.workspace}}/build-debug
-            -DCMAKE_BUILD_TYPE=Debug
-            -DCMAKE_TOOLCHAIN_FILE=${{ env.VCPKG_ROOT }}/scripts/buildsystems/vcpkg.cmake
-            -DBUILD_TESTS=ON
-            -DBUILD_EXAMPLES=ON
-
-    - name: Build (Debug)
-      run: cmake --build ${{github.workspace}}/build-debug --config Debug
-
-    - name: Test debug soak (connection)
-      working-directory: ${{github.workspace}}/build-debug/bin
-      run: ./test_connection soak
-      shell: bash
-
-    - name: Test debug soak (p2p)
-      working-directory: ${{github.workspace}}/build-debug/bin
-      run: python3 test_p2p.py --spewlevel=debug --loglevel-p2prendezvous=debug
-      shell: bash

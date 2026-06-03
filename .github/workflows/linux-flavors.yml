@@ -5,7 +5,7 @@ name: Linux flavors
 # Triggered from the main CI build workflow
 on:
   workflow_run:
-    workflows: ["CI"]
+    workflows: ["Ubuntu"]
     types:
       - completed
   #workflow_call:
