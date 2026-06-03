@@ -170,7 +170,7 @@ namespace SteamNetworkingSocketsLib {
         netadr_t address;
         std::string sType;
         ICECandidateKind nType;
-        CUtlVector< std::pair< std::string, std::string > > vAttrs;
+        std_vector< std::pair< std::string, std::string > > vAttrs;
     };
 
     const uint32 k_nSTUN_MaxPacketSize_Bytes = 576; //  RFC 5389 7.1

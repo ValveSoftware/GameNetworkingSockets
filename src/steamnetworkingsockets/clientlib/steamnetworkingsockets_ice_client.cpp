@@ -792,7 +792,7 @@ bool ParseRFC5245CandidateAttribute( const char *pszAttr, RFC5245CandidateAttr *
         pAttr->nType = ICECandidateKind::None;
     for ( int i = 0; i < vAttrNameBegin.Count(); ++i )
     {
-        pAttr->vAttrs.AddToTail( std::pair<std::string,std::string>( std::string( vAttrNameBegin[i], vAttrNameEnd[i]-vAttrNameBegin[i] ), std::string( vAttrValueBegin[i], vAttrValueEnd[i]-vAttrValueBegin[i] ) ) );
+        pAttr->vAttrs.push_back( std::pair<std::string,std::string>( std::string( vAttrNameBegin[i], vAttrNameEnd[i]-vAttrNameBegin[i] ), std::string( vAttrValueBegin[i], vAttrValueEnd[i]-vAttrValueBegin[i] ) ) );
     }
     return true;
 }
