@@ -139,7 +139,8 @@ jobs:
             vcpkg-${{ runner.os }}-macos-
 
       - name: Install vcpkg dependencies
-        run: "${VCPKG_ROOT}/vcpkg" install
+        run: |
+          "${VCPKG_ROOT}/vcpkg" install
 
       - name: Configure CMake (Debug)
         run: |
