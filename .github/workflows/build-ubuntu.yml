@@ -12,7 +12,6 @@ jobs:
         include:
           - row: clang-openssl-baseline
             compiler: clang
-            build_dir: build-ci-quick-clang
             sanitizer: none
             use_webrtc: false
             crypto: default
@@ -20,7 +19,6 @@ jobs:
             targets: "test_connection test_p2p trivial_signaling_server publish_test_script test_crypto"
           - row: gcc-openssl-crypto
             compiler: gcc
-            build_dir: build-ci-quick-gcc
             sanitizer: none
             use_webrtc: false
             crypto: default
@@ -28,7 +26,6 @@ jobs:
             targets: "test_connection test_p2p trivial_signaling_server publish_test_script test_crypto"
           - row: clang-libsodium
             compiler: clang
-            build_dir: build-ci-quick-sodium
             sanitizer: none
             use_webrtc: false
             crypto: libsodium
@@ -36,7 +33,6 @@ jobs:
             targets: "test_connection test_p2p trivial_signaling_server publish_test_script test_crypto"
           - row: clang-reference-25519
             compiler: clang
-            build_dir: build-ci-quick-ref25519
             sanitizer: none
             use_webrtc: false
             crypto: default
@@ -44,7 +40,6 @@ jobs:
             targets: "test_connection test_p2p trivial_signaling_server publish_test_script test_crypto"
           - row: clang-openssl-webrtc
             compiler: clang
-            build_dir: build-ci-quick-webrtc
             sanitizer: none
             use_webrtc: true
             crypto: default
@@ -71,7 +66,7 @@ jobs:
 
           args=(
             --compiler "${{ matrix.compiler }}"
-            --build-dir "${{ matrix.build_dir }}"
+            --build-dir build
             --sanitizer "${{ matrix.sanitizer }}"
           )
 
@@ -99,7 +94,7 @@ jobs:
           set -euo pipefail
           python3 .github/run-single-config.py \
             --compiler "${{ matrix.compiler }}" \
-            --build-dir "${{ matrix.build_dir }}" \
+            --build-dir build \
             --sanitizer "${{ matrix.sanitizer }}" \
             --phase test \
             --run-tests \
@@ -110,7 +105,7 @@ jobs:
           set -euo pipefail
           python3 .github/run-single-config.py \
             --compiler "${{ matrix.compiler }}" \
-            --build-dir "${{ matrix.build_dir }}" \
+            --build-dir build \
             --sanitizer "${{ matrix.sanitizer }}" \
             --phase test \
             --run-tests \
@@ -121,8 +116,43 @@ jobs:
           set -euo pipefail
           python3 .github/run-single-config.py \
             --compiler "${{ matrix.compiler }}" \
-            --build-dir "${{ matrix.build_dir }}" \
+            --build-dir build \
             --sanitizer "${{ matrix.sanitizer }}" \
+            --phase test \
+            --run-tests \
+            --tests "test_p2p.py:--spewlevel=debug:--loglevel-p2prendezvous=debug"
+
+      - name: Build (ASAN RelWithDebInfo)
+        if: matrix.row == 'clang-openssl-webrtc'
+        run: |
+          set -euo pipefail
+          python3 .github/run-single-config.py \
+            --compiler "${{ matrix.compiler }}" \
+            --build-dir build-asan \
+            --sanitizer asan \
+            --use-webrtc \
+            --targets test_connection test_p2p trivial_signaling_server publish_test_script
+
+      - name: Test connection (ASAN RelWithDebInfo)
+        if: matrix.row == 'clang-openssl-webrtc'
+        run: |
+          set -euo pipefail
+          python3 .github/run-single-config.py \
+            --compiler "${{ matrix.compiler }}" \
+            --build-dir build-asan \
+            --sanitizer asan \
+            --phase test \
+            --run-tests \
+            --tests test_connection:suite-quick
+
+      - name: Test p2p (ASAN RelWithDebInfo)
+        if: matrix.row == 'clang-openssl-webrtc'
+        run: |
+          set -euo pipefail
+          python3 .github/run-single-config.py \
+            --compiler "${{ matrix.compiler }}" \
+            --build-dir build-asan \
+            --sanitizer asan \
             --phase test \
             --run-tests \
             --tests "test_p2p.py:--spewlevel=debug:--loglevel-p2prendezvous=debug"
@@ -133,7 +163,7 @@ jobs:
 
           args=(
             --compiler "${{ matrix.compiler }}"
-            --build-dir "build-debug"
+            --build-dir build-debug
             --build-type Debug
             --sanitizer none
           )
@@ -158,7 +188,7 @@ jobs:
 
           args=(
             --compiler "${{ matrix.compiler }}"
-            --build-dir "build-release"
+            --build-dir build-release
             --build-type Release
             --sanitizer none
           )
