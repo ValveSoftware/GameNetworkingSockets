@@ -1014,7 +1014,7 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLa
 			// Clamping the requested stop waiting point to the highest packet number we
 			// received keeps a lot of code simple.  If this clamp activates, the gap map
 			// will get totally emptied by the loop below.
-			const int nPktNumBeforeSentinelGap = m_receiverState.m_mapPacketGaps.rbegin()->first-1;
+			const int64 nPktNumBeforeSentinelGap = m_receiverState.m_mapPacketGaps.rbegin()->first-1;
 			Assert( nPktNumBeforeSentinelGap <= m_statsEndToEnd.m_nMaxRecvPktNum );
 			if ( unlikely( nMinPktNumToSendAcks > nPktNumBeforeSentinelGap ) )
 			{
@@ -1047,20 +1047,21 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLa
 			// Trim from the front of the packet gap list,
 			// we can stop reporting these losses to the sender
 			auto h = m_receiverState.m_mapPacketGaps.begin();
+			const auto itSentinel = std::prev( m_receiverState.m_mapPacketGaps.end() );
 			while ( h->first <= m_receiverState.m_nMinPktNumToSendAcks )
 			{
 				Assert( h->first < h->second.m_nEnd );
+
+				// We should never reach the sentinel, due to the clamp above.
+				// But add a little paranoia check here and don't crash, just in case.
+				if ( unlikely( h == itSentinel || h->second.m_nEnd == INT64_MAX ) )
+				{
+					AssertMsgOnce( false, "SNP stop waiting advanced past sentinel gap.  This should never happen!" );
+					break;
+				}
+
 				if ( h->second.m_nEnd > m_receiverState.m_nMinPktNumToSendAcks )
 				{
-
-					// We should never reach the sentinel, due to the clamp above.
-					// But we will add a little paranoia check here, just in case.
-					if ( unlikely( h->first > nPktNumBeforeSentinelGap ) )
-					{
-						Assert( h == m_receiverState.m_mapPacketGaps.end() );
-						AssertMsg( false, "SNP stop waiting advanced past sentinel gap.  This should never happen!" );
-						break;
-					}
 
 					// Ug.  You're not supposed to modify the key in a map.
 					// I suppose that's legit, since you could violate the ordering.
@@ -3759,7 +3760,7 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 				// would be to make it more clear what happened.  Either way, the connection
 				// is dead at this point if we get here because of protobuf encoding having
 				// too many continuation bytes.)
-				// 
+				//
 				// Return true here because the packet containing this segment is OK and can be acked.
 				return true;
 			}
@@ -3803,7 +3804,7 @@ bool CSteamNetworkConnectionBase::SNP_ReceiveReliableSegment( int64 nPktNum, int
 			{
 				// We haven't received enough of the message to decode the size
 				// (Probably.  See note above about the possibility of bogus protobuf data.)
-				// 
+				//
 				// Return true here because the packet containing this segment is OK and can be acked.
 				return true;
 			}
