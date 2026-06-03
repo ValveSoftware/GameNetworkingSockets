@@ -25,7 +25,7 @@ enum class ETestConnectionMode
 {
 	Cursory, // Very fast sanity check: 1 condition, short durations
 	Normal,  // Standard: 2 conditions, moderate durations
-	Soak,    // Exhaustive: all conditions, long durations
+	Soak,    // Exhaustive: cumulative superset of Normal; all conditions, long durations
 };
 
 static std::default_random_engine g_rand;
@@ -528,13 +528,13 @@ static void Test_Connection( ETestConnectionMode eMode, const SteamNetworkingIPA
 		TestNetworkConditions( rate, loss, lag, reorderPct, reorderLag, true, eMode );
 	};
 
-	if ( eMode == ETestConnectionMode::Cursory )
+	// ETestConnectionMode::Cursory )
 	{
 		Test(  128000, 10, 50, 2, 50 ); // Low bandwidth, high packet loss
 	}
-	else if ( eMode == ETestConnectionMode::Normal )
+
+	if ( eMode >= ETestConnectionMode::Normal )
 	{
-		Test(  128000, 10, 50, 2, 50 ); // Low bandwidth, high packet loss
 		Test( 1000000,  5, 10, 1, 10 ); // Medium bandwidth, still pretty bad packet loss
 
 		// Zero loss so acks flow freely (stop_waiting tracks within one RTT of
@@ -542,7 +542,8 @@ static void Test_Connection( ETestConnectionMode eMode, const SteamNetworkingIPA
 		// without the retransmission backlog that keeps stop_waiting far behind.
 		TestNetworkConditions( 2000000, 0, 50, 30, 40, false, eMode );
 	}
-	else
+
+	if ( eMode >= ETestConnectionMode::Soak )
 	{
 		Test( 64000, 20, 100, 4, 50 ); // low bandwidth, terrible packet loss
 		Test( 1000000, 20, 100, 4, 10 ); // high bandwidth, terrible packet loss
