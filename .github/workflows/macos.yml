@@ -89,3 +89,13 @@ jobs:
 
     - name: Build (Debug)
       run: cmake --build ${{github.workspace}}/build-debug --config Debug
+
+    - name: Test debug soak (connection)
+      working-directory: ${{github.workspace}}/build-debug/bin
+      run: ./test_connection soak
+      shell: bash
+
+    - name: Test debug soak (p2p)
+      working-directory: ${{github.workspace}}/build-debug/bin
+      run: python3 test_p2p.py --spewlevel=debug --loglevel-p2prendezvous=debug
+      shell: bash

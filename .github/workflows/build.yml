@@ -163,6 +163,17 @@ jobs:
 
           python3 .github/run-single-config.py "${args[@]}"
 
+      - name: Test debug soak
+        if: matrix.row == 'clang-openssl-baseline'
+        run: |
+          set -euo pipefail
+          python3 .github/run-single-config.py \
+            --compiler "${{ matrix.compiler }}" \
+            --build-dir "build-debug" \
+            --phase test \
+            --run-tests \
+            --tests test_connection:soak test_p2p.py:--spewlevel=debug:--loglevel-p2prendezvous=debug
+
       # Don't do it this way.  This causes the main badge to
       # go red if one of the flavors fails.
       ## Trigger testing of more linux flavors
@@ -290,4 +301,14 @@ jobs:
       - name: Build (Debug)
         working-directory: '${{ github.workspace }}/build-debug'
         run: ninja
+        shell: cmd
+
+      - name: Test debug soak (connection)
+        working-directory: '${{ github.workspace }}/build-debug/bin'
+        run: test_connection.exe soak
+        shell: cmd
+
+      - name: Test debug soak (p2p)
+        working-directory: '${{ github.workspace }}/build-debug/bin'
+        run: py -3 test_p2p.py --spewlevel=debug --loglevel-p2prendezvous=debug
         shell: cmd
