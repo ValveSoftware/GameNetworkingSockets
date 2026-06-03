@@ -36,9 +36,9 @@ AGENTS.md
 # Other misc stuff
 *.VC.*
 **/.vscode
-**/build
-**/build-*
-**/build.bat
+/build
+/build-*
+/build.bat
 **/log.txt
 **/.vs
 /src/steamnetworkingsockets/Messageswin64Debug/*
