@@ -77,7 +77,7 @@ struct SFakePeer
 		m_flUnreliableMsgDelay = 0.0f;
 		m_hSteamNetConnection = k_HSteamNetConnection_Invalid;
 		m_bIsConnected = false;
-		m_cbSendBuffer = 2048 * 1024;
+		m_cbSendBuffer = 384 * 1024;
 		memset( &m_realtimeStatus, 0, sizeof(m_realtimeStatus) );
 		m_flSendRate = 0.0f;
 		m_flRecvRate = 0.0f;
