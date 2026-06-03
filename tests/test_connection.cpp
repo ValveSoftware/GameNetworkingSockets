@@ -367,6 +367,10 @@ static void TestNetworkConditions( int rate, float loss, int lag, float reorderP
 {
 	ISteamNetworkingSockets *pSteamSocketNetworking = SteamNetworkingSockets();
 
+	#ifdef _DEBUG
+		rate = std::min( 750000, rate*2/3 );
+	#endif
+
 	TEST_Printf( "---------------------------------------------------\n" );
 	TEST_Printf( "NETWORK CONDITIONS\n" );
 	TEST_Printf( "Rate . . . . . . : %d Bps\n", rate );
