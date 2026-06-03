@@ -77,7 +77,7 @@ struct SFakePeer
 		m_flUnreliableMsgDelay = 0.0f;
 		m_hSteamNetConnection = k_HSteamNetConnection_Invalid;
 		m_bIsConnected = false;
-		m_cbSendBuffer = 384 * 1024;
+		m_cbSendBuffer = 2048 * 1024;
 		memset( &m_realtimeStatus, 0, sizeof(m_realtimeStatus) );
 		m_flSendRate = 0.0f;
 		m_flRecvRate = 0.0f;
@@ -536,6 +536,11 @@ static void Test_Connection( ETestConnectionMode eMode, const SteamNetworkingIPA
 	{
 		Test(  128000, 10, 50, 2, 50 ); // Low bandwidth, high packet loss
 		Test( 1000000,  5, 10, 1, 10 ); // Medium bandwidth, still pretty bad packet loss
+
+		// Zero loss so acks flow freely (stop_waiting tracks within one RTT of
+		// current packet number). Heavy reorder builds reliable stream fragments
+		// without the retransmission backlog that keeps stop_waiting far behind.
+		TestNetworkConditions( 2000000, 0, 50, 30, 40, false, eMode );
 	}
 	else
 	{
@@ -1086,6 +1091,113 @@ void Test_lane_quick_priority_and_background()
 
 }
 
+// Coverage/stress test for a stalled receiver: the application stops draining
+// its receive queue while the peer keeps blasting reliable data, under loss and
+// reorder.  This drives a code path almost nothing else in the suite reaches.
+//
+// Simulates an app stall (e.g. loading assets from disk) while the server is
+// blasting reliable state data.  The client never calls ReceiveMessagesOnConnection,
+// so its application receive queue (RecvBufferMessages) fills up.  Once full,
+// ReceivedMessage() returns false, which propagates to bInhibitMarkReceived in the
+// SNP decoder: the packet is processed (TrackProcessSequencedPacket advances
+// m_nMaxRecvPktNum) but SNP_RecordReceivedPktNum is skipped, so the packet is not
+// entered into the gap map.  Meanwhile the client still sends acks back and the
+// server keeps advancing its stop_waiting.  Layering loss and reorder on the
+// server->client path keeps the gap map churning throughout.
+void Test_recv_buf_full()
+{
+	TEST_Printf( "***************************************************\n" );
+	TEST_Printf( "Test: recv buffer full / stalled receiver under loss+reorder\n" );
+	TEST_Printf( "***************************************************\n" );
+
+	// Network loopback so packets go through the full SNP encode/decode path.
+	HSteamNetConnection hServer, hClient;
+	assert( SteamNetworkingSockets()->CreateSocketPair( &hServer, &hClient, true, nullptr, nullptr ) );
+	SteamNetworkingSockets()->SetConnectionName( hServer, "Server" );
+	SteamNetworkingSockets()->SetConnectionName( hClient, "Client" );
+
+	// Small application receive queue on the client.  After this many messages
+	// are queued without the app draining them, ReceivedMessage() returns false,
+	// which propagates to bInhibitMarkReceived in the SNP decoder.
+	SteamNetworkingUtils()->SetConnectionConfigValueInt32( hClient,
+		k_ESteamNetworkingConfig_RecvBufferMessages, 32 );
+
+	// Moderate send rate -- enough to fill the queue quickly but not so fast
+	// that the service thread starves the client's keepalive sending.
+	const int k_nSendRate = 256 * 1024;
+	SteamNetworkingUtils()->SetConnectionConfigValueInt32( hServer,
+		k_ESteamNetworkingConfig_SendRateMin, k_nSendRate );
+	SteamNetworkingUtils()->SetConnectionConfigValueInt32( hServer,
+		k_ESteamNetworkingConfig_SendRateMax, k_nSendRate );
+
+	// Simulate real-world network conditions: packet loss and reordering on
+	// the server->client path.  This creates non-trivial gap map state on the
+	// client before and during the buffer-full condition, which may interact
+	// with the stop_waiting/sentinel relationship differently.
+	SteamNetworkingUtils()->SetConnectionConfigValueInt32( hClient,
+		k_ESteamNetworkingConfig_FakePacketLoss_Recv, 5 );
+	SteamNetworkingUtils()->SetConnectionConfigValueInt32( hClient,
+		k_ESteamNetworkingConfig_FakePacketReorder_Recv, 10 );
+	SteamNetworkingUtils()->SetConnectionConfigValueInt32( hClient,
+		k_ESteamNetworkingConfig_FakePacketReorder_Time, 20 );
+
+	// Let the connection settle so all handshake traffic is complete and acks
+	// have drained before the burst begins.
+	for ( int i = 0; i < 20; ++i )
+	{
+		TEST_PumpCallbacks();
+		std::this_thread::sleep_for( std::chrono::milliseconds( 10 ) );
+	}
+
+	// Queue up a large initial burst of reliable data -- far more than the
+	// client's RecvBufferMessages limit.  The server drains this at k_nSendRate.
+	static const char kData[ 1000 ] = {};
+	int nSent = 0;
+	for ( int i = 0; i < 2000; ++i )
+	{
+		EResult r = SteamNetworkingSockets()->SendMessageToConnection(
+			hServer, kData, sizeof(kData), k_nSteamNetworkingSend_Reliable, nullptr );
+		if ( r == k_EResultOK )
+			++nSent;
+	}
+	TEST_Printf( "Queued %d messages (~%d KB) for server to send\n", nSent, nSent * (int)sizeof(kData) / 1024 );
+
+	// Continue sending from both sides for several seconds while the client
+	// never drains its receive queue.  The client sends small messages back so
+	// its outgoing packets carry acks, giving the server frequent opportunities
+	// to advance its stop_waiting.  The server keeps queuing small messages to
+	// stay active.  The client never calls ReceiveMessagesOnConnection.
+	static const char kTiny[1] = {};
+	for ( int i = 0; i < 60; ++i )
+	{
+		TEST_PumpCallbacks();
+		std::this_thread::sleep_for( std::chrono::milliseconds( 100 ) );
+
+		SteamNetworkingSockets()->SendMessageToConnection(
+			hServer, kTiny, sizeof(kTiny), k_nSteamNetworkingSend_Unreliable, nullptr );
+		SteamNetworkingSockets()->SendMessageToConnection(
+			hClient, kTiny, sizeof(kTiny), k_nSteamNetworkingSend_Unreliable, nullptr );
+
+		SteamNetConnectionInfo_t infoClient, infoServer;
+		bool bGotClient = SteamNetworkingSockets()->GetConnectionInfo( hClient, &infoClient );
+		SteamNetworkingSockets()->GetConnectionInfo( hServer, &infoServer );
+
+		if ( !bGotClient || infoClient.m_eState != k_ESteamNetworkingConnectionState_Connected )
+		{
+			TEST_Printf( "*** Connection dropped (iter %d) -- stalled receiver was not handled ***\n", i );
+			TEST_Printf( "  Client: state=%d reason=%d '%s'\n",
+				(int)infoClient.m_eState, (int)infoClient.m_eEndReason, infoClient.m_szEndDebug );
+			TEST_Printf( "  Server: state=%d reason=%d '%s'\n",
+				(int)infoServer.m_eState, (int)infoServer.m_eEndReason, infoServer.m_szEndDebug );
+			assert( false );
+		}
+	}
+
+	TEST_Printf( "Connection survived with full receive queue -- OK\n" );
+	SteamNetworkingSockets()->CloseConnection( hServer, 0, nullptr, false );
+	SteamNetworkingSockets()->CloseConnection( hClient, 0, nullptr, false );
+}
+
 void Test_pipe()
 {
 	TEST_Printf( "***************************************************\n" );
@@ -1459,7 +1571,8 @@ int main( int argc, const char **argv  )
 		TEST(lane_quick_queueanddrain),
 		TEST(lane_quick_priority_and_background),
 		TEST(pipe),
-		TEST(send_buffer_full)
+		TEST(send_buffer_full),
+		TEST(recv_buf_full)
 	};
 
 	struct Suite_t {
@@ -1467,7 +1580,7 @@ int main( int argc, const char **argv  )
 		std::vector< Test_t > m_vecTests;
 	};
 	static const Suite_t test_suites[] = {
-		{ "suite-quick", { TEST(identity), TEST(quick), TEST(lane_quick_queueanddrain), TEST(lane_quick_priority_and_background), TEST(pipe), TEST(send_buffer_full) } }
+		{ "suite-quick", { TEST(identity), TEST(quick), TEST(lane_quick_queueanddrain), TEST(lane_quick_priority_and_background), TEST(pipe), TEST(send_buffer_full), TEST(recv_buf_full) } }
 	};
 
 	if ( argc < 2 )
