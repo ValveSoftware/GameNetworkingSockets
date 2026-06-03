@@ -619,6 +619,23 @@ struct SSNPReceiverState
 	/// stop and wait to report more acks until later.
 	void QueueFlushAllAcks( SteamNetworkingMicroseconds usecWhen );
 
+	/// If the pending-ack iterator has advanced onto a gap that has no ack
+	/// deadline (m_usecWhenAckPrior == INT64_MAX), point it back at the
+	/// sentinel.  By the monotonic-deadline invariant documented on
+	/// m_itPendingAck, if the gap it lands on has no deadline, then neither
+	/// does any later gap, so there is genuinely nothing scheduled and the
+	/// sentinel is the canonical representation.  Call this after advancing
+	/// m_itPendingAck (when sending acks, or filling/expiring gaps) to restore
+	/// the invariant.  Idempotent if it already points at the sentinel.
+	inline void CollapsePendingAckIfUnscheduled()
+	{
+		if ( m_itPendingAck->second.m_usecWhenAckPrior != INT64_MAX )
+			return;
+		m_itPendingAck = m_mapPacketGaps.end();
+		--m_itPendingAck;
+		Assert( m_itPendingAck->second.m_nEnd == INT64_MAX ); // must be the sentinel now
+	}
+
 	/// Return the time when we need to flush out acks, or INT64_MAX
 	/// if we don't have any acks pending right now.
 	inline SteamNetworkingMicroseconds TimeWhenFlushAcks() const
