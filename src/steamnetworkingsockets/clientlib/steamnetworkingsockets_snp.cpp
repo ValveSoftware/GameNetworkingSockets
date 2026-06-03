@@ -1092,6 +1092,10 @@ bool CSteamNetworkConnectionBase::ProcessPlainTextDataChunk( int usecTimeSinceLa
 				AssertMsg( h->first > nCheckPrev, "PacketGaps map not increasing" );
 			}
 
+			// If we erased the gap that m_itPendingAck pointed at, it may have
+			// advanced onto a gap with no ack deadline.  Restore the invariant.
+			m_receiverState.CollapsePendingAckIfUnscheduled();
+
 			SNP_DebugCheckPacketGapMap();
 		}
 		else if ( ( nFrameType & 0xf0 ) == 0x90 )
@@ -3035,6 +3039,9 @@ uint8 *CSteamNetworkConnectionBase::SNP_SerializeAckBlocks( const SNPPacketSeria
 				// Mark it as sent
 				m_receiverState.m_itPendingAck->second.m_usecWhenAckPrior = INT64_MAX;
 				++m_receiverState.m_itPendingAck;
+
+				// New pending ack may have no schedule; if so, collapse to sentinel.
+				m_receiverState.CollapsePendingAckIfUnscheduled();
 				SNP_DebugCheckPacketGapMap();
 			}
 
@@ -3112,6 +3119,12 @@ uint8 *CSteamNetworkConnectionBase::SNP_SerializeAckBlocks( const SNPPacketSeria
 				m_receiverState.m_itPendingAck->second.m_usecWhenAckPrior = INT64_MAX;
 				++m_receiverState.m_itPendingAck;
 			} while ( m_receiverState.m_itPendingAck->first <= nAckEnd );
+
+			// The new pending ack might itself be unscheduled (INT64_MAX) if
+			// QueueFlushAllAcks cleared it before it was filled/re-scheduled.
+			// In that case, all remaining gaps are also unscheduled, so collapse
+			// to sentinel.
+			m_receiverState.CollapsePendingAckIfUnscheduled();
 		}
 
 		// Advance pointer to next block that needs to be nacked, past the ones
@@ -4007,12 +4020,7 @@ void CSteamNetworkConnectionBase::SNP_RecordReceivedPktNum( int64 nPktNum, Steam
 				{
 					// Otherwise, we might not have any acks scheduled.  In that
 					// case, the invariant is that m_itPendingAck should point at the sentinel
-					if ( m_receiverState.m_itPendingAck->second.m_usecWhenAckPrior == INT64_MAX )
-					{
-						m_receiverState.m_itPendingAck = m_receiverState.m_mapPacketGaps.end();
-						--m_receiverState.m_itPendingAck;
-						Assert( m_receiverState.m_itPendingAck->second.m_nEnd == INT64_MAX );
-					}
+					m_receiverState.CollapsePendingAckIfUnscheduled();
 				}
 
 				SpewVerboseGroup( m_connectionConfig.LogLevel_PacketGaps.Get(), "[%s] decode pkt %lld, single pkt gap filled", GetDescription(), (long long)nPktNum );
