@@ -12,13 +12,18 @@ is an internet standard protocol for discovering and sharing IP addresses,
 negotiating NAT, and establishing a direct connection or fallback to relaying
 the connection if necessary.
 
-The opensource version of the code can compile with [google webrtc](https://webrtc.googlesource.com/src)'s ICE
-implementation.  We interface with the WebRTC code at a reletaively low level
-and only use it for datagram transport.  We don't use DTLS or WebRTC data
-channels.  (In the future, we may offer alternate NAT traversal
-implementations.  In particular, we'd like to have an implementation that
-uses [PCP](https://tools.ietf.org/html/rfc6887), which is not used by
-the current google WebRTC code.)
+The library includes an ICE client implementation with no external dependencies
+that is compiled in by default.  (See the vcpkg feature `ice` or the cmake flag
+`ENABLE_ICE`).
+
+Alternatively, the library can also be compiled to use
+[Google WebRTC](https://webrtc.googlesource.com/src)'s ICE implementation.
+We interface with the WebRTC code at a relatively low level and only use it
+for datagram transport.  We don't use DTLS or WebRTC data channels.
+See also `k_ESteamNetworkingConfig_P2P_Transport_ICE_Implementation`.
+
+The two candidates are compatible with one another.  (A peer using the WebRTC
+ICE client can conneect to a peer using the native client.)
 
 ## Symmetric connect mode
 
@@ -107,9 +112,10 @@ will need to run your own, or just fail connections that cannot pierce NAT.
 On Steam we use a custom relay service known as [Steam Datgaram Relay](https://partner.steamgames.com/doc/features/multiplayer/steamdatagramrelay)
 -- SDR for short -- carrying packets through our network of relays and
 on our backbone.   (You may see this mentioned in the opensource code here,
-but the SDR support code is not opensource.)  Also, on Steam we always
-relay traffic and do not share IP addresses between untrusted peers, so
-that malicious players cannot DoS attack.
+but the SDR support code is not opensource.)  Also, on Steam we often
+do not share public IP addresses between untrusted peers, so that malicious
+players cannot DoS attack.  In that case NAT punch is not possible and traffic
+would be relayed.
 
 ### Naming hosts and matchmaking
 
@@ -123,13 +129,13 @@ also included with Steam, but outside the scope of a transport library like this
 Assuming you have all of those requirements, you can use SteamNetworkingSockets
 to make P2P connections!
 
-To compile with ICE support, set USE_STEAMWEBRTC when building the project files:
-```
-cmake -DUSE_STEAMWEBRTC=ON (etc...)
-```
+To enable P2P/ICE support, just use the vcpkg feature `ice`, or build with the cmake
+flag `-DENABLE_ICE=ON`.  Note that both of these are the default, so you just need
+to avoid explicitly turning it off.
 
-You'll also need to activate two git submodules to pull down the google WebRTC code.
-(Just run ``cmake`` and follow the instructions.)
+If you want to use the Google WebRTC ICE implementation, set
+`-DUSE_STEAMWEBRTC=ON`.  cmake will automatically activate two git submodules
+and pull down the Google WebRTC code.
 
 Take a look at these files for more information:
 
@@ -150,8 +156,21 @@ Take a look at these files for more information:
 Here are some things we have in mind to make P2P support better:
 
 * Get plugins written for standard, opensource protocols that could be used for
-signaling, such as [XMPP](https://xmpp.org/).  This would be a great project for
+  signaling, such as [XMPP](https://xmpp.org/).  This would be a great project for
   somebody else to do!  We would welcome contributions to this repository, or
   happily link to your own project.  (See issue #136)
 * LAN beacon support, so that P2P connections can be made even when signaling
   is down or the hosts do not have Internet connectivity.  (See issue #82)
+* Support for [PCP](https://tools.ietf.org/html/rfc6887) as an additional
+  NAT traversal mechanism.
+* Shared candidate pool across multiple P2P connections.  Currently, each
+  connection goes through a full ICE gathering process independently, including
+  opening its own sockets and creating its own TURN allocation.  A server forming
+  connections with many peers (e.g. a full mesh) could instead gather candidates
+  once per interface, share a single set of sockets, and reuse a single TURN
+  allocation across all peers.  This would be a significant efficiency improvement.
+* TURN channels, for more efficient relay of data packets once a relayed path
+  is selected.
+* MTU probing: ICE connectivity checks should be sent at the full path MTU, so
+  that MTU issues are discovered during negotiation rather than after the
+  connection is established.
