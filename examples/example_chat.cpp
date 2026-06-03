@@ -401,17 +401,11 @@ private:
 			case k_ESteamNetworkingConnectionState_ClosedByPeer:
 			case k_ESteamNetworkingConnectionState_ProblemDetectedLocally:
 			{
-				// Ignore if they were not previously connected.  (If they disconnected
-				// before we accepted the connection.)
-				if ( pInfo->m_eOldState == k_ESteamNetworkingConnectionState_Connected )
+				// Check if we have this client in our map.  (We may not, if they
+				// disconnected before we finished accepting the connection.)
+				auto itClient = m_mapClients.find( pInfo->m_hConn );
+				if ( itClient != m_mapClients.end() )
 				{
-
-					// Locate the client.  Note that it should have been found, because this
-					// is the only codepath where we remove clients (except on shutdown),
-					// and connection change callbacks are dispatched in queue order.
-					auto itClient = m_mapClients.find( pInfo->m_hConn );
-					assert( itClient != m_mapClients.end() );
-
 					// Select appropriate log messages
 					const char *pszDebugLogAction;
 					if ( pInfo->m_info.m_eState == k_ESteamNetworkingConnectionState_ProblemDetectedLocally )
@@ -441,10 +435,6 @@ private:
 
 					// Send a message so everybody else knows what happened
 					SendStringToAllClients( temp );
-				}
-				else
-				{
-					assert( pInfo->m_eOldState == k_ESteamNetworkingConnectionState_Connecting );
 				}
 
 				// Clean up the connection.  This is important!
