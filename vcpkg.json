@@ -1,7 +1,7 @@
 {
 	"$schema": "https://raw.githubusercontent.com/microsoft/vcpkg/master/scripts/vcpkg.schema.json",
 	"name": "gamenetworkingsockets",
-	"version-string": "1.5.1",
+	"version-string": "1.6.0",
 	"description": "A basic transport layer for games.",
 	"homepage": "https://github.com/ValveSoftware/GameNetworkingSockets",
 	"builtin-baseline": "522253caf47268c1724f486a035e927a42a90092",
@@ -11,7 +11,7 @@
 		{ "name": "vcpkg-cmake", "host": true },
 		{ "name": "vcpkg-cmake-config", "host": true }
 	],
-	"default-features": [ "openssl" ],
+	"default-features": [ "openssl", "ice" ],
 	"features": {
 		"openssl": {
 			"description": "Use OpenSSL as the crypto provider.  This is the default.",
@@ -21,9 +21,12 @@
 			"description": "Use libsodium as the crypto provider.",
 			"dependencies": [ "libsodium" ]
 		},
+		"ice": {
+			"description": "Compile support for P2P connections and the native ICE client (STUN and TURN)."
+		},
 		"webrtc": {
-			"description": "Compiles WebRTC support for P2P.",
-			"dependencies": [ "abseil" ]
+			"description": "Compile the Google WebRTC ICE implementation and use it as the default ICE backend.  Requires 'ice'.",
+			"dependencies": [ "abseil", { "name": "gamenetworkingsockets", "features": [ "ice" ] } ]
 		},
 		"examples": {
 			"description": "Build the examples."

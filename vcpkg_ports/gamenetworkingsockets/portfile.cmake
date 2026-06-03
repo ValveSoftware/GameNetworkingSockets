@@ -23,6 +23,7 @@ endif()
 vcpkg_check_features(
     OUT_FEATURE_OPTIONS FEATURE_OPTIONS
     FEATURES
+		ice ENABLE_ICE
 		webrtc USE_STEAMWEBRTC
 		examples BUILD_EXAMPLES
 		tests BUILD_TESTS
