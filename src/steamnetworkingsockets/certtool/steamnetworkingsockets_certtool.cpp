@@ -639,7 +639,7 @@ int main( int argc, char **argv )
 		{
 			GET_ARG();
 
-			CUtlVectorAutoPurge<char *> vecCodes;
+			CUtlVector<char *> vecCodes;
 			V_AllocAndSplitString( pszArg, ",", vecCodes );
 			if ( vecCodes.IsEmpty() )
 				FatalError( "'%s' isn't a valid comma-separated list of POPs\n", pszArg );
@@ -651,6 +651,7 @@ int main( int argc, char **argv )
 					FatalError( "'%s' isn't a valid POP code\n", pszCode );
 				s_vecPOPIDs.push_back( CalculateSteamNetworkingPOPIDFromString( pszCode ) );
 			}
+			for ( char *p: vecCodes ) delete[] p;
 			continue;
 		}
 
@@ -658,7 +659,7 @@ int main( int argc, char **argv )
 		{
 			GET_ARG();
 
-			CUtlVectorAutoPurge<char *> vecCodes;
+			CUtlVector<char *> vecCodes;
 			V_AllocAndSplitString( pszArg, ",", vecCodes );
 			if ( vecCodes.IsEmpty() )
 				FatalError( "'%s' isn't a valid comma-separated list of AppIDs\n", pszArg );
@@ -670,6 +671,7 @@ int main( int argc, char **argv )
 					FatalError( "'%s' isn't a valid AppID\n", pszCode );
 				s_vecAppIDs.push_back( AppId_t( nAppID ) );
 			}
+			for ( char *p: vecCodes ) delete[] p;
 			continue;
 		}
 

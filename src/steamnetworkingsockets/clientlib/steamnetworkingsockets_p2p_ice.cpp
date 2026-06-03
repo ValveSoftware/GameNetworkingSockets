@@ -122,7 +122,7 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 		cfg.m_nCandidateTypes |= k_EICECandidate_Any_HostPublic|k_EICECandidate_Any_Reflexive;
 
 		{
-			CUtlVectorAutoPurge<char *> tempStunServers;
+			CUtlVector<char *> tempStunServers;
 			V_AllocAndSplitString( m_connectionConfig.P2P_STUN_ServerList.Get().c_str(), ",", tempStunServers );
 			for ( const char *pszAddress: tempStunServers )
 			{
@@ -135,6 +135,7 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 
 				vecStunServers.push_back( std::move( server ) );
 			}
+			for ( char *p: tempStunServers ) delete[] p;
 			// Build the pointer array after vecStunServers is fully populated;
 			// doing it inside the loop would produce dangling pointers on reallocation.
 			for ( const std::string &s: vecStunServers )
@@ -154,15 +155,15 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 
 	// Get the TURN server list
 	std_vector<std::string> vecTurnServerAddrs;
-	CUtlVectorAutoPurge<char*> vecTurnUsers;
-	CUtlVectorAutoPurge<char*> vecTurnPasses;
+	std_vector<std::string> vecTurnUsers;
+	std_vector<std::string> vecTurnPasses;
 	std_vector<ICESessionConfig::TurnServer> vecTurnServers;
 	if ( P2P_Transport_ICE_Enable & k_nSteamNetworkingConfig_P2P_Transport_ICE_Enable_Relay )
 	{
 		cfg.m_nCandidateTypes |= k_EICECandidate_Any_Relay;
 
 		{
-			CUtlVectorAutoPurge<char*> tempTurnServers;
+			CUtlVector<char*> tempTurnServers;
 			V_AllocAndSplitString( m_connectionConfig.P2P_TURN_ServerList.Get().c_str(), ",", tempTurnServers, true );
 			for (const char* pszAddress : tempTurnServers)
 			{
@@ -175,6 +176,7 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 
 				vecTurnServerAddrs.push_back(std::move(server));
 			}
+			for ( char *p: tempTurnServers ) delete[] p;
 		}
 
 		if (vecTurnServerAddrs.empty())
@@ -186,19 +188,22 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 			SpewVerboseGroup(LogLevel_P2PRendezvous(), "[%s] Using TURN server list: %s\n", GetDescription(), m_connectionConfig.P2P_TURN_ServerList.Get().c_str());
 			cfg.m_nTurnServers = len(vecTurnServerAddrs);
 
-			// populate usernames
-			V_AllocAndSplitString( m_connectionConfig.P2P_TURN_UserList.Get().c_str(), ",", vecTurnUsers, true) ;
-
-			// populate passwords
-			V_AllocAndSplitString( m_connectionConfig.P2P_TURN_PassList.Get().c_str(), ",", vecTurnPasses, true );
-
-			// If turn arrays lengths (servers, users and passes) are not match, treat all TURN servers as unauthenticated
-			if ( !vecTurnUsers.IsEmpty() || !vecTurnPasses.IsEmpty() )
+			// populate usernames and passwords
 			{
-				if ( cfg.m_nTurnServers != vecTurnUsers.Count() || cfg.m_nTurnServers != vecTurnPasses.Count() )
+				CUtlVector<char*> tempUsers, tempPasses;
+				V_AllocAndSplitString( m_connectionConfig.P2P_TURN_UserList.Get().c_str(), ",", tempUsers, true );
+				V_AllocAndSplitString( m_connectionConfig.P2P_TURN_PassList.Get().c_str(), ",", tempPasses, true );
+				for ( char *p: tempUsers )  { vecTurnUsers.push_back( p );  delete[] p; }
+				for ( char *p: tempPasses ) { vecTurnPasses.push_back( p ); delete[] p; }
+			}
+
+			// If turn array lengths (servers, users and passes) do not match, treat all TURN servers as unauthenticated
+			if ( !vecTurnUsers.empty() || !vecTurnPasses.empty() )
+			{
+				if ( cfg.m_nTurnServers != (int)vecTurnUsers.size() || cfg.m_nTurnServers != (int)vecTurnPasses.size() )
 				{
-					vecTurnUsers.PurgeAndDeleteElements();
-					vecTurnPasses.PurgeAndDeleteElements();
+					vecTurnUsers.clear();
+					vecTurnPasses.clear();
 					SpewWarningGroup(LogLevel_P2PRendezvous(), "[%s] TURN user/pass list is not same length as address list.  Treating all servers as unauthenticated!\n", GetDescription() );
 				}
 			}
@@ -208,16 +213,8 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 			{
 				ICESessionConfig::TurnServer* turn = push_back_get_ptr( vecTurnServers );
 				turn->m_pszHost = vecTurnServerAddrs[i].c_str();
-
-				if ( vecTurnUsers.Count() > i)
-					turn->m_pszUsername = vecTurnUsers[i];
-				else
-					turn->m_pszUsername = "";
-
-				if ( vecTurnPasses.Count() > i)
-					turn->m_pszPwd = vecTurnPasses[i];
-				else
-					turn->m_pszPwd = "";
+				turn->m_pszUsername = ( i < (int)vecTurnUsers.size() )  ? vecTurnUsers[i].c_str()  : "";
+				turn->m_pszPwd      = ( i < (int)vecTurnPasses.size() ) ? vecTurnPasses[i].c_str() : "";
 			}
 
 			cfg.m_pTurnServers = vecTurnServers.data();
