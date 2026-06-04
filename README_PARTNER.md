@@ -1,10 +1,10 @@
 # About the partner branch
 
-The `partner` branch is intended for use by developers who want access to:
+The `partner` branch is intended for use by developers ("partners") who want access to:
 - the code for interacingt with the Steam Datagram Relay (SDR) network.
 - the NDA-protected code for compiling the library on various consoles platforms.
 
-This branch differs from the main branch in the following ways:
+This branch differs from the master branch in the following ways:
 
 - It contains any extra files neede to support the two use cases mentioned
   above, if the files are not under NDA and not too large.
@@ -12,6 +12,13 @@ This branch differs from the main branch in the following ways:
   bespoke project generator.  cmake is not supported.
 - It contains some symlinks and submodules that reference the files that
   are not publicly available.
+
+**Important confusing note**: there are two things named "partner":
+ - The `partner` *branch* is the opensource branch of GameNetworkingSockets,
+   as previously described.  You are looking at a file in it right now.
+ - The `partner` *submodule* is a private repository that contains code
+   needed for SDR or console support.  The partner branch requires the
+   partner submodule.
 
 # Installation instructions
 
@@ -35,26 +42,22 @@ Building on consoles has only been tested using Visual Studio 2017 or 2019.
 
 4. Initialize some git submodules.
 
-    The `partner` module is always required, and contains some things that
-    are required for all use cases involving SDR or console, and are either non-public
-    or are large and were not included in the partner branch to avoid bloat.
+    As noted, tthe `partner` module is always required, and contains some things that
+    are required for all use cases involving SDR or console.
 
     ```
     ...\GameNetworkingSockets> git submodule update --init modules/partner
     ```
 
-    (Note the difference between the partner *branch*, the publicly-accessible branch of the GameNetworkingSockets
-    repository, and the partner *submodule*, a private repository.)
-
     At this point you may need to sort through github authentication since the repositories
     are not public.
 
     Additional modules may be required depending on what features you need.
+    - `src/external/vjson` - Needed for SDR support.  (Note: SDR support is currently
+      always compiled in, so this submodule is always required.  This might change in the future.)
     - `modules/ps5`, `modules/nswitch`, `modules/xboxone` - support for relevant console
-    - `src/external/vjson` - Currently needed for SDR support.  (Note: SDR support is currently
-      required on consoles.  This will hopefully change in the future.)
-    - `src/external/abseil`, `src/external/webrtc` - Needed to do P2P NAT punching thorugh WebRTC.
-      Note that there is a native ICE client, but it is not thoroughly tested.
+    - `src/external/abseil`, `src/external/webrtc` - Needed if you prefer to do P2P NAT punch
+      using WebRTC's ICE client.  (This is no longer recommended.  The native client is out of beta.)
 
 5. Generate project files using VPC:
 
@@ -65,7 +68,7 @@ Building on consoles has only been tested using Visual Studio 2017 or 2019.
 
     In this command line:
     - `/ps5` selects the target platform.
-    - `@steamnetworkingsockets` says 'build the steamnetworkingsockets project (the client library) and any dependent projects'.  Currently the only dependent project is a "messages" project that runs the protobuf compiler.  This is a separate project for historical reasons and due to how all of this fits into the larger Steaqm codebase.
+    - `@steamnetworkingsockets` says 'build the steamnetworkingsockets project (the client library) and any dependent projects'.  Currently the only dependent project is a "messages" project that runs the protobuf compiler.  This is a separate project for historical reasons and due to how all of this fits into the larger Steam codebase.
     - `/mksln steamnetworkingsockets_ps5.sln` - generate a solution with the given filename.
 
     VPC will locate the platform toolchain from the appropriate environment variables.
@@ -74,8 +77,16 @@ Building on consoles has only been tested using Visual Studio 2017 or 2019.
 
 7. You can enable/disable several features with `STEAMNETWORKINGSOCKETS_xxx` AND `SDR_xxx` defines.  For example, if you don't need to run servers in our dedicated servers, you turn off `SDR_ENABLE_HOSTED_SERVER` and `SDR_ENABLE_HOSTED_CLIENT`.  If you just want to compile the library for a console but don't wnat to talk to relays, turn off `STEAMNETWORKINGSOCKETS_ENABLE_SDR`
 
-# Reading the git history
+# The relationship between the partner and master branchs
 
-Use `git log --first-parent` to read this branch's history clearly. Without it, you
-will see most commits twice — once from the partner branch and once pulled in from
-master via merge commits — which is very confusing.
+The partner branch is not a traditional git branch, in the sense that it always
+differs from the master branch, by design.  Occasionally, the branches are "merged",
+but this does not make them identical like a traditional git merge.  It just marks
+a sync point where any changes in one branch that we want to exist in both branches
+have been merged, and any differences between the branches at that point are intentional.
+
+We use `git cherry-pick` to replay individual changes made in one branch to the other.
+
+**Pro tip**: Use `git log --first-parent` to read this branch's history clearly.
+Without it, you will see most commits twice -- once from the partner branch and
+once pulled in from master via ``cherry-pick`` commits.

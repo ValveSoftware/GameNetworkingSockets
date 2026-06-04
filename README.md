@@ -1,5 +1,7 @@
 # GameNetworkingSockets
-[![Windows, Ubuntu](https://github.com/ValveSoftware/GameNetworkingSockets/actions/workflows/build.yml/badge.svg)](https://github.com/ValveSoftware/GameNetworkingSockets/actions)  [![MacOS](https://github.com/ValveSoftware/GameNetworkingSockets/actions/workflows/macos.yml/badge.svg)](https://github.com/ValveSoftware/GameNetworkingSockets/actions) [![Linux flavors](https://github.com/ValveSoftware/GameNetworkingSockets/actions/workflows/linux-flavors.yml/badge.svg)](https://github.com/ValveSoftware/GameNetworkingSockets/actions)
+
+**You are looking at the partner branch.**
+See [README_PARTNER.md](README_PARTNER.md) for more info.
 
 GameNetworkingSockets is a basic transport layer for games.  The features are:
 
@@ -70,7 +72,9 @@ To get an idea of what the API is like, here are a few things to check out:
 
 ## Building
 
-See [BUILDING](BUILDING.md) for more information.
+The partner branch uses `vpc`, Valve's bespoke project
+generator, not `cmake`.  See [README_PARTNER.md](README_PARTNER.md) for more
+info.
 
 ## Language bindings
 
