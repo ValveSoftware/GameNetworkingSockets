@@ -8,3 +8,6 @@
 [submodule "src/external/vjson"]
 	path = src/external/vjson
 	url = https://github.com/zpostfacto/vjson.git
+[submodule "vcpkg"]
+	path = vcpkg
+	url = https://github.com/microsoft/vcpkg
