@@ -10,7 +10,6 @@
 
 #include "steamnetworkingtypes.h"
 #include "steam_api_common.h"
-#include "isteamclient.h"
 
 struct SteamDatagramRelayAuthTicket;
 struct SteamRelayNetworkStatus_t;
@@ -369,9 +368,13 @@ protected:
 #endif
 
 // Using Steamworks SDK
-#if defined( STEAMNETWORKINGSOCKETS_STEAMAPI )
+#ifdef STEAMNETWORKINGSOCKETS_STEAMAPI
 	STEAM_DEFINE_INTERFACE_ACCESSOR( ISteamNetworkingUtils *, SteamNetworkingUtils_SteamAPI,
-		( (ISteamClient *)SteamInternal_CreateInterface( STEAMCLIENT_INTERFACE_VERSION ) )->GetISteamGenericInterface( 0, SteamAPI_GetHSteamPipe() ? SteamAPI_GetHSteamPipe() : SteamGameServer_GetHSteamPipe(), STEAMNETWORKINGUTILS_INTERFACE_VERSION ),
+		/* Prefer user version of the interface.  But if it isn't found, then use
+		gameserver one.  Yes, this is a completely terrible hack */
+		SteamInternal_FindOrCreateUserInterface( 0, STEAMNETWORKINGUTILS_INTERFACE_VERSION ) ?
+		SteamInternal_FindOrCreateUserInterface( 0, STEAMNETWORKINGUTILS_INTERFACE_VERSION ) :
+		SteamInternal_FindOrCreateGameServerInterface( 0, STEAMNETWORKINGUTILS_INTERFACE_VERSION ),
 		"global",
 		STEAMNETWORKINGUTILS_INTERFACE_VERSION
 	)
