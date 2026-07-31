@@ -77,6 +77,7 @@ constexpr int k_cbETWEventUDPPacketDataSize = 16;
 	#define CMSGHDR WSACMSGHDR
 	#define CMSG_FIRSTHDR WSA_CMSG_FIRSTHDR
 	#define CMSG_NXTHDR WSA_CMSG_NXTHDR
+	#define CMSG_LEN WSA_CMSG_LEN
 #endif
 
 #ifdef _WIN32
