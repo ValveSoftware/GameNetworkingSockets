@@ -1278,6 +1278,14 @@ CSteamNetworkingICESession::~CSteamNetworkingICESession()
         InternalDeleteCandidatePair( pPair );
     m_vecCandidatePairs.clear();
 
+    // Deleting the pairs above should have deleted any pending peer requests.
+    Assert( m_vecPendingPeerRequests.empty() );
+
+    // But just in case, clean up
+    for ( CSteamNetworkingSocketsSTUNRequest *pReq: m_vecPendingPeerRequests )
+        delete pReq;
+    m_vecPendingPeerRequests.clear();
+
     m_vecInterfaces.clear();
 }
 
@@ -1851,7 +1859,8 @@ not_stun:
                 {
                     Assert( pThisPair->m_nState != kICECandidatePairState_InProgress );
                     pThisPair->m_nState = kICECandidatePairState_Waiting;
-                    m_vecTriggeredCheckQueue.push_back( pThisPair );
+                    if ( !has_element( m_vecTriggeredCheckQueue, pThisPair ) )
+                        m_vecTriggeredCheckQueue.push_back( pThisPair );
                 }
             }
         }
@@ -2437,74 +2446,84 @@ void CSteamNetworkingICESession::Think_TestPeerConnectivity()
         }
     }
 
-    if ( pPairToCheck != nullptr )
+    // Didn't find anything to do right now?
+    if ( pPairToCheck == nullptr )
+        return;
+
+    if ( pPairToCheck->m_pPeerRequest )
     {
-        // Trigger the connectivity check here...
-        ICESessionInterface * const pIntf = pPairToCheck->m_localCandidate.m_pInterface;
-        pPairToCheck->m_nState = kICECandidatePairState_InProgress;
-        pPairToCheck->m_pPeerRequest = new CSteamNetworkingSocketsSTUNRequest( pIntf );
-
-        // Build all extra attributes on the stack; Queue() serializes them into the stored packet.
-        STUNAttribute extraAttrs[5];
-        int nExtraAttrs = 0;
-        uint32 uUsernameBuf[ k_nSTUN_MaxPacketSize_Bytes / 4 ];
-        uint32 uPriority;
-        uint32 uRoleBuf[2];
-
-        if ( m_strOutgoingUsername.size() > 0 )
-        {
-            const int nUsernameLength = (int)m_strOutgoingUsername.size();
-            V_memcpy( uUsernameBuf, m_strOutgoingUsername.c_str(), nUsernameLength );
-            extraAttrs[nExtraAttrs].m_nType   = k_nSTUN_Attr_UserName;
-            extraAttrs[nExtraAttrs].m_nLength = nUsernameLength;
-            extraAttrs[nExtraAttrs].m_pData   = uUsernameBuf;
-            ++nExtraAttrs;
-        }
-
-        {
-            // RFC 8445 section 7.2.2: priority attr uses peer-reflexive type preference (110).
-            uPriority = htonl( ( 110u << 24 ) | ( ( pPairToCheck->m_localCandidate.m_pInterface->m_nPriority & 0xFFFF ) << 8 ) | 255u );
-            extraAttrs[nExtraAttrs].m_nType   = k_nSTUN_Attr_Priority;
-            extraAttrs[nExtraAttrs].m_nLength = 4;
-            extraAttrs[nExtraAttrs].m_pData   = &uPriority;
-            ++nExtraAttrs;
-        }
-
-        if ( m_role == k_EICERole_Controlling )
-        {
-            *(uint64*)uRoleBuf = m_nRoleTiebreaker;
-            uRoleBuf[0] = htonl( uRoleBuf[0] );
-            uRoleBuf[1] = htonl( uRoleBuf[1] );
-            extraAttrs[nExtraAttrs].m_nType   = k_nSTUN_Attr_ICEControlling;
-            extraAttrs[nExtraAttrs].m_nLength = 8;
-            extraAttrs[nExtraAttrs].m_pData   = uRoleBuf;
-            ++nExtraAttrs;
-
-			if ( pPairToCheck->m_bNominated )
-			{
-				extraAttrs[nExtraAttrs].m_nType   = k_nSTUN_Attr_UseCandidate;
-				extraAttrs[nExtraAttrs].m_nLength = 0;
-				extraAttrs[nExtraAttrs].m_pData   = nullptr;
-				++nExtraAttrs;
-			}
-        }
-        else if ( m_role == k_EICERole_Controlled )
-        {
-            *(uint64*)uRoleBuf = m_nRoleTiebreaker;
-            uRoleBuf[0] = htonl( uRoleBuf[0] );
-            uRoleBuf[1] = htonl( uRoleBuf[1] );
-            extraAttrs[nExtraAttrs].m_nType   = k_nSTUN_Attr_ICEControlled;
-            extraAttrs[nExtraAttrs].m_nLength = 8;
-            extraAttrs[nExtraAttrs].m_pData   = uRoleBuf;
-            ++nExtraAttrs;
-        }
-
-        pPairToCheck->m_pPeerRequest->m_strPassword = m_strRemotePassword;
-
-        pPairToCheck->m_pPeerRequest->Queue( k_nSTUN_BindingRequest, m_nEncoding | kSTUNPacketEncodingFlags_NoMappedAddress, pPairToCheck->m_remoteCandidate.m_addr, &CSteamNetworkingICESession::STUNRequestCallback_PeerConnectivityCheck, extraAttrs, nExtraAttrs );
-        pPairToCheck->m_pPeerRequest->m_addrRelay = pPairToCheck->m_localCandidate.m_addrTURNServer;
-        m_vecPendingPeerRequests.push_back( pPairToCheck->m_pPeerRequest );
+        // This should never happen: OnPacketReceived only enqueues a pair when it has no
+        // request in flight (otherwise it retriggers the existing one), and the success
+        // callback clears m_pPeerRequest before re-queuing for a nominated check.
+        AssertMsg( false, "Peer connectivity-check pair already has a request in flight" );
+        return;
     }
+
+    // Trigger the connectivity check here...
+    ICESessionInterface * const pIntf = pPairToCheck->m_localCandidate.m_pInterface;
+    pPairToCheck->m_nState = kICECandidatePairState_InProgress;
+    pPairToCheck->m_pPeerRequest = new CSteamNetworkingSocketsSTUNRequest( pIntf );
+
+    // Build all extra attributes on the stack; Queue() serializes them into the stored packet.
+    STUNAttribute extraAttrs[5];
+    int nExtraAttrs = 0;
+    uint32 uUsernameBuf[ k_nSTUN_MaxPacketSize_Bytes / 4 ];
+    uint32 uPriority;
+    uint32 uRoleBuf[2];
+
+    if ( m_strOutgoingUsername.size() > 0 )
+    {
+        const int nUsernameLength = (int)m_strOutgoingUsername.size();
+        V_memcpy( uUsernameBuf, m_strOutgoingUsername.c_str(), nUsernameLength );
+        extraAttrs[nExtraAttrs].m_nType   = k_nSTUN_Attr_UserName;
+        extraAttrs[nExtraAttrs].m_nLength = nUsernameLength;
+        extraAttrs[nExtraAttrs].m_pData   = uUsernameBuf;
+        ++nExtraAttrs;
+    }
+
+    {
+        // RFC 8445 section 7.2.2: priority attr uses peer-reflexive type preference (110).
+        uPriority = htonl( ( 110u << 24 ) | ( ( pPairToCheck->m_localCandidate.m_pInterface->m_nPriority & 0xFFFF ) << 8 ) | 255u );
+        extraAttrs[nExtraAttrs].m_nType   = k_nSTUN_Attr_Priority;
+        extraAttrs[nExtraAttrs].m_nLength = 4;
+        extraAttrs[nExtraAttrs].m_pData   = &uPriority;
+        ++nExtraAttrs;
+    }
+
+    if ( m_role == k_EICERole_Controlling )
+    {
+        *(uint64*)uRoleBuf = m_nRoleTiebreaker;
+        uRoleBuf[0] = htonl( uRoleBuf[0] );
+        uRoleBuf[1] = htonl( uRoleBuf[1] );
+        extraAttrs[nExtraAttrs].m_nType   = k_nSTUN_Attr_ICEControlling;
+        extraAttrs[nExtraAttrs].m_nLength = 8;
+        extraAttrs[nExtraAttrs].m_pData   = uRoleBuf;
+        ++nExtraAttrs;
+
+        if ( pPairToCheck->m_bNominated )
+        {
+            extraAttrs[nExtraAttrs].m_nType   = k_nSTUN_Attr_UseCandidate;
+            extraAttrs[nExtraAttrs].m_nLength = 0;
+            extraAttrs[nExtraAttrs].m_pData   = nullptr;
+            ++nExtraAttrs;
+        }
+    }
+    else if ( m_role == k_EICERole_Controlled )
+    {
+        *(uint64*)uRoleBuf = m_nRoleTiebreaker;
+        uRoleBuf[0] = htonl( uRoleBuf[0] );
+        uRoleBuf[1] = htonl( uRoleBuf[1] );
+        extraAttrs[nExtraAttrs].m_nType   = k_nSTUN_Attr_ICEControlled;
+        extraAttrs[nExtraAttrs].m_nLength = 8;
+        extraAttrs[nExtraAttrs].m_pData   = uRoleBuf;
+        ++nExtraAttrs;
+    }
+
+    pPairToCheck->m_pPeerRequest->m_strPassword = m_strRemotePassword;
+
+    pPairToCheck->m_pPeerRequest->Queue( k_nSTUN_BindingRequest, m_nEncoding | kSTUNPacketEncodingFlags_NoMappedAddress, pPairToCheck->m_remoteCandidate.m_addr, &CSteamNetworkingICESession::STUNRequestCallback_PeerConnectivityCheck, extraAttrs, nExtraAttrs );
+    pPairToCheck->m_pPeerRequest->m_addrRelay = pPairToCheck->m_localCandidate.m_addrTURNServer;
+    m_vecPendingPeerRequests.push_back( pPairToCheck->m_pPeerRequest );
 }
 
 void CSteamNetworkingICESession::STUNRequestCallback_PeerConnectivityCheck( const RecvSTUNPktInfo_t &info )
@@ -2555,7 +2574,8 @@ void CSteamNetworkingICESession::STUNRequestCallback_PeerConnectivityCheck( cons
 		{
 			// Better path than current selection -- nominate it to trigger an upgrade.
 			pPair->m_bNominated = true;
-			m_vecTriggeredCheckQueue.push_back( pPair );
+			if ( !has_element( m_vecTriggeredCheckQueue, pPair ) )
+				m_vecTriggeredCheckQueue.push_back( pPair );
 		}
 		else
 		{
@@ -2570,7 +2590,8 @@ void CSteamNetworkingICESession::STUNRequestCallback_PeerConnectivityCheck( cons
 			if ( !bAlreadyHaveANomination )
 			{
 				pPair->m_bNominated = true;
-				m_vecTriggeredCheckQueue.push_back( pPair );
+				if ( !has_element( m_vecTriggeredCheckQueue, pPair ) )
+					m_vecTriggeredCheckQueue.push_back( pPair );
 			}
 		}
     }
