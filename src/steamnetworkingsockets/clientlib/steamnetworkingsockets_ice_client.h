@@ -300,6 +300,10 @@ namespace SteamNetworkingSocketsLib {
         bool BCanSendEndToEnd() const { return m_pSelectedCandidatePair != nullptr; }
 		int GetPing() const;
 
+        // Returns true if the address is on the same subnet as ANY of our local LAN/localhost
+        // adapters, not just one specific interface.  Used to classify a route as "probably local".
+        bool BIsAddressOnAnyLocalSubnet( const netadr_t &addr ) const;
+
         bool SendPacketGather( int nChunks, const iovec *pChunks, int cbSendTotal );
 
     protected:
