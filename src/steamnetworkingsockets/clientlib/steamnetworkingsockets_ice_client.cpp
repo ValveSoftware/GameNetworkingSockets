@@ -2403,7 +2403,7 @@ void CSteamNetworkingICESession::Think_TestPeerConnectivity()
             }
         }
 
-        std::sort( m_vecCandidatePairs.begin(), m_vecCandidatePairs.end(), []( const ICECandidatePair *pA, const ICECandidatePair *pB ) { return pA->m_nPriority > pB->m_nPriority; } );
+        std::sort( m_vecCandidatePairs.begin(), m_vecCandidatePairs.end(), []( const ICECandidatePair *pA, const ICECandidatePair *pB ) { return pA->BIsPreferredRouteOver( *pB ); } );
     }
 
     ICECandidatePair *pPairToCheck = nullptr;
@@ -2569,10 +2569,10 @@ void CSteamNetworkingICESession::STUNRequestCallback_PeerConnectivityCheck( cons
     }
     pPair->m_nState = kICECandidatePairState_Succeeded;
 
-    // Don't nominate or upgrade to a pair with lower-or-equal priority than the
-    // current selection -- it can't improve our route.
+    // Don't nominate or upgrade to a pair that isn't a better route than the current
+    // selection -- it can't improve our path.  "Better" prefers same-subnet, then priority.
     if ( m_pSelectedCandidatePair != nullptr && m_pSelectedCandidatePair != pPair
-         && pPair->m_nPriority <= m_pSelectedCandidatePair->m_nPriority )
+         && !pPair->BIsPreferredRouteOver( *m_pSelectedCandidatePair ) )
     {
         return;
     }
@@ -2584,7 +2584,7 @@ void CSteamNetworkingICESession::STUNRequestCallback_PeerConnectivityCheck( cons
 	else if ( m_role == k_EICERole_Controlling )
     {
 		if ( m_pSelectedCandidatePair != nullptr
-             && pPair->m_nPriority > m_pSelectedCandidatePair->m_nPriority )
+             && pPair->BIsPreferredRouteOver( *m_pSelectedCandidatePair ) )
 		{
 			// Better path than current selection -- nominate it to trigger an upgrade.
 			pPair->m_bNominated = true;
@@ -2766,6 +2766,11 @@ CSteamNetworkingICESession::ICECandidatePair::ICECandidatePair( const ICELocalCa
     const uint64 D = ( role == k_EICERole_Controlling ) ? nLocalPriority : remoteCandidate.m_nPriority;
     const uint64 G = ( role == k_EICERole_Controlling ) ? remoteCandidate.m_nPriority : nLocalPriority;
     m_nPriority = ( 1ull << 32 ) * MIN( G, D ) + 2 * MAX( G, D ) + ( G > D ? 1 : 0 );
+
+    // Cache whether this pair's two endpoints sit on the same LAN/localhost subnet -- a direct
+    // link.  Used to prefer such pairs during exploration and nomination (BIsPreferredRouteOver).
+    m_bLocalSubnet = IsRemoteAddressOnLocalSubnet( localCandidate.m_pInterface->m_boundAddr, localCandidate.m_pInterface->m_nPrefixLen, remoteCandidate.m_addr );
+
     m_pPeerRequest = nullptr;
 	m_nLastRecordedPing = -1;
 }

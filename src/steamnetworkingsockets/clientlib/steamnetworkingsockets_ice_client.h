@@ -332,12 +332,26 @@ namespace SteamNetworkingSocketsLib {
         {
             ICECandidatePairState m_nState;
             bool m_bNominated;
+            // True if this pair's local and remote endpoints are on the same LAN/localhost
+            // subnet -- i.e. a direct link.  Cached at construction; used to prefer such pairs
+            // during exploration/nomination (BIsPreferredRouteOver).
+            bool m_bLocalSubnet;
             uint64 m_nPriority;
             ICELocalCandidate m_localCandidate;
             ICEPeerCandidate m_remoteCandidate;
             CSteamNetworkingSocketsSTUNRequest *m_pPeerRequest;
 			int m_nLastRecordedPing;
             ICECandidatePair( const ICELocalCandidate& localCandidate, const ICEPeerCandidate& remoteCandidate, EICERole role );
+
+            // Route-selection preference: prefer a same-subnet (direct LAN) pair, then higher
+            // RFC 8445 pair priority.  Used for both check ordering and nomination.  This is a
+            // local policy only; the priorities we put on the wire stay RFC-standard.
+            bool BIsPreferredRouteOver( const ICECandidatePair &x ) const
+            {
+                if ( m_bLocalSubnet != x.m_bLocalSubnet )
+                    return m_bLocalSubnet;
+                return m_nPriority > x.m_nPriority;
+            }
         };
 
         CSteamNetworkingICESessionCallbacks *m_pCallbacks;
