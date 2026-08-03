@@ -1447,6 +1447,20 @@ int CSteamNetworkingICESession::GetPing() const
 	return m_pSelectedCandidatePair->m_nLastRecordedPing;
 }
 
+bool CSteamNetworkingICESession::BIsAddressOnAnyLocalSubnet( const netadr_t &addr ) const
+{
+    // A peer that shares a subnet with any of our LAN/localhost adapters is reachable
+    // directly on that link, so treat the route as local -- not just when it happens to
+    // match the specific interface in the selected pair.  (IsRemoteAddressOnLocalSubnet
+    // applies the LAN/localhost classification guard per interface.)
+    for ( const std::unique_ptr<ICESessionInterface> &pIntf : m_vecInterfaces )
+    {
+        if ( IsRemoteAddressOnLocalSubnet( pIntf->m_boundAddr, pIntf->m_nPrefixLen, addr ) )
+            return true;
+    }
+    return false;
+}
+
 void CSteamNetworkingICESession::StartSession()
 {
     m_nextKeepalive = 0;
@@ -2858,7 +2872,13 @@ void CConnectionTransportP2PICE_Valve::OnConnectionSelected( const ICELocalCandi
     }
     if ( localCandidate.IsRelay() || remoteCandidate.m_type == ICECandidateKind::Relayed )
         m_eCurrentRouteKind = k_ESteamNetTransport_TURN;
-    else if ( IsRemoteAddressOnLocalSubnet( localCandidate.m_pInterface->m_boundAddr, localCandidate.m_pInterface->m_nPrefixLen, remoteCandidate.m_addr ) )
+    else if (
+        // Host and peer-reflexive candidates are real on-link addresses; a successful check to
+        // one that sits on any of our subnets means the peer is directly reachable on that link.
+        // Server-reflexive candidates are the peer's public (NAT) address, so they don't count.
+        ( remoteCandidate.m_type == ICECandidateKind::Host || remoteCandidate.m_type == ICECandidateKind::PeerReflexive )
+        && m_pICESession->BIsAddressOnAnyLocalSubnet( remoteCandidate.m_addr )
+    )
         m_eCurrentRouteKind = k_ESteamNetTransport_UDPProbablyLocal;
     else
         m_eCurrentRouteKind = k_ESteamNetTransport_UDP;
