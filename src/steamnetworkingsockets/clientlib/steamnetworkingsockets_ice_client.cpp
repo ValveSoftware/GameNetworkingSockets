@@ -1705,6 +1705,14 @@ not_stun:
     const STUNAttribute *pUsernameAttr = FindAttributeOfType( vecAttrs.Base(), vecAttrs.Count(), k_nSTUN_Attr_UserName );
     if ( pUsernameAttr != nullptr )
     {
+        // RFC 5389 sec 15.3: a USERNAME is less than 513 bytes.  Reject anything longer before
+        // it can propagate into our username state -- no compliant peer sends it, and an
+        // unbounded network-controlled username must never reach a fixed-size copy downstream.
+        if ( pUsernameAttr->m_nLength > k_nSTUN_MaxUsernameLen_Bytes )
+        {
+            SpewMsgGroup( nLogLevel, "ICE: Dropping binding request: USERNAME length %u exceeds max %u.", pUsernameAttr->m_nLength, k_nSTUN_MaxUsernameLen_Bytes );
+            return;
+        }
         if ( pUsernameAttr->m_nLength < (uint32)m_strIncomingUsername.size() )
         {
             SpewMsgGroup( nLogLevel, "ICE: Incorrect username length; at least %d expected, got %d.", (int)m_strIncomingUsername.size(), pUsernameAttr->m_nLength );
@@ -2481,18 +2489,26 @@ void CSteamNetworkingICESession::Think_TestPeerConnectivity()
     // Build all extra attributes on the stack; Queue() serializes them into the stored packet.
     STUNAttribute extraAttrs[5];
     int nExtraAttrs = 0;
-    uint32 uUsernameBuf[ k_nSTUN_MaxPacketSize_Bytes / 4 ];
+    uint32 uUsernameBuf[ ( k_nSTUN_MaxUsernameLen_Bytes + 3 ) / 4 ];
     uint32 uPriority;
     uint32 uRoleBuf[2];
 
     if ( m_strOutgoingUsername.size() > 0 )
     {
-        const int nUsernameLength = (int)m_strOutgoingUsername.size();
-        V_memcpy( uUsernameBuf, m_strOutgoingUsername.c_str(), nUsernameLength );
-        extraAttrs[nExtraAttrs].m_nType   = k_nSTUN_Attr_UserName;
-        extraAttrs[nExtraAttrs].m_nLength = nUsernameLength;
-        extraAttrs[nExtraAttrs].m_pData   = uUsernameBuf;
-        ++nExtraAttrs;
+        const size_t cbUsername = m_strOutgoingUsername.size();
+        if ( cbUsername <= k_nSTUN_MaxUsernameLen_Bytes )
+        {
+            V_memcpy( uUsernameBuf, m_strOutgoingUsername.c_str(), cbUsername );
+            extraAttrs[nExtraAttrs].m_nType   = k_nSTUN_Attr_UserName;
+            extraAttrs[nExtraAttrs].m_nLength = (uint32)cbUsername;
+            extraAttrs[nExtraAttrs].m_pData   = uUsernameBuf;
+            ++nExtraAttrs;
+        }
+        else
+        {
+            // We should detect/reject this earlier
+            AssertMsg( false, "STUN USERNAME exceeds RFC limit" );
+        }
     }
 
     {

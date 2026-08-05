@@ -174,6 +174,10 @@ namespace SteamNetworkingSocketsLib {
     };
 
     const uint32 k_nSTUN_MaxPacketSize_Bytes = 576; //  RFC 5389 7.1
+    // RFC 5389 sec 15.3: the USERNAME attribute value MUST be less than 513 bytes.  (RFC 8489
+    // sec 14.3 tightens this to fewer than 509; we use the more permissive 5389 limit so we
+    // still accept any peer conforming to either.)  We reject anything longer on ingestion.
+    const uint32 k_nSTUN_MaxUsernameLen_Bytes = 512;
     const uint32 k_nSTUN_CookieValue = 0x2112A442;
     const uint32 k_nSTUN_BindingRequest = 0x0001;
     const uint32 k_nSTUN_BindingResponse = 0x0101;
