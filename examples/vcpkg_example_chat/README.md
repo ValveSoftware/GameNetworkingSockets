@@ -15,7 +15,7 @@ you are pulling in vcpkg's cmake toolchain file.  Then all you need to do is:
 # Building the example project using vcpkg in manifest mode
 
 Here are some specific instructions that build the example project using vcpkg in
-["manifest mode"](https://vcpkg.readthedocs.io/en/latest/users/manifests/).
+["manifest mode"](https://learn.microsoft.com/en-us/vcpkg/concepts/manifest-mode).
 This example assumes Windows, and also it's recommended to run this from a
 Visual Studio command prompt so we know what compiler to use.
 
