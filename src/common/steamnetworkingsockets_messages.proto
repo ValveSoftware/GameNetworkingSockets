@@ -18,7 +18,7 @@ enum ESteamNetworkingSocketsCipher
 	k_ESteamNetworkingSocketsCipher_INVALID = 0; // Dummy value
 	k_ESteamNetworkingSocketsCipher_NULL = 1; // No encryption or authentication
 	k_ESteamNetworkingSocketsCipher_AES_256_GCM = 2; // AES256 in GCM mode with 12-byte security tag.  Basically equivalent to TLS_AES_256_GCM_xxx
-	//k_ESteamNetworkingSocketsCipher_CHACHA20_POLY1305 = 3;
+	k_ESteamNetworkingSocketsCipher_CHACHA20_POLY1305 = 3; // ChaCha20-Poly1305
 };
 
 // Used in crypto handshake.  Clients describe what they are willing to use,
