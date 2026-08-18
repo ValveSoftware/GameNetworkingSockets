@@ -995,17 +995,20 @@ const int k_nSteamNetworkingSend_UnreliableNoNagle = k_nSteamNetworkingSend_Unre
 // messages.  Using this flag on reliable messages is invalid.
 const int k_nSteamNetworkingSend_NoDelay = 4;
 
-// Send an unreliable message, but if it cannot be sent relatively quickly, just drop it instead of queuing it.
-// This is useful for messages that are not useful if they are excessively delayed, such as voice data.
+// Send an unreliable message, and drop it rather than queuing it if the connection is not ready
+// to send it yet.  This is useful for messages that are not useful if they are excessively
+// delayed, such as voice data.
 // NOTE: The Nagle algorithm is not used, and if the message is not dropped, any messages waiting on the
 // Nagle timer are immediately flushed.
 //
-// A message will be dropped under the following circumstances:
-// - the connection is not fully connected.  (E.g. the "Connecting" or "FindingRoute" states)
-// - there is a sufficiently large number of messages queued up already such that the current message
-//   will not be placed on the wire in the next ~200ms or so.
+// Currently, a message will only be dropped if the connection is not fully connected.  (E.g. the
+// "Connecting" or "FindingRoute" states.)  If a message is dropped for this reason, k_EResultIgnored
+// will be returned.
 //
-// If a message is dropped for these reasons, k_EResultIgnored will be returned.
+// Ideally, a message would also be dropped if so much data is already queued up that the current
+// message will not be placed on the wire for a relatively long time (say, ~200ms or so), but this
+// check is not currently implemented.  Messages are queued as usual, subject to the ordinary send
+// buffer limit.  (See k_ESteamNetworkingConfig_SendBufferSize.)
 const int k_nSteamNetworkingSend_UnreliableNoDelay = k_nSteamNetworkingSend_Unreliable|k_nSteamNetworkingSend_NoDelay|k_nSteamNetworkingSend_NoNagle;
 
 // Reliable message send. Can send up to k_cbMaxSteamNetworkingSocketsMessageSizeSend bytes in a single message. 
