@@ -148,6 +148,11 @@ struct Cert
 	CertAuthScope m_authScope;
 	time_t m_timeCreated;
 
+	// Was this cert explicitly installed by the app?  (As opposed to being
+	// received over the network, etc.)  Only app-installed certs may act as
+	// self-signed trusted roots when a hardcoded root CA key is in use.
+	bool m_bTrustedByApp = false;
+
 	bool Setup( const CMsgSteamDatagramCertificateSigned &msgCertSigned, CECSigningPublicKey &outPublicKey, SteamNetworkingErrMsg &errMsg )
 	{
 		m_signed_data = msgCertSigned.cert();
@@ -333,13 +338,13 @@ void CertStore_AddKeyRevocation( uint64 key_id )
 	s_bTrustValid = false;
 }
 
-bool CertStore_AddCertFromBase64( const char *pszBase64, SteamNetworkingErrMsg &errMsg )
+static bool CertStore_AddCert( const char *pszBase64, size_t cchBase64, bool bTrustedByApp, SteamNetworkingErrMsg &errMsg )
 {
 	CertStore_OneTimeInit();
 
 	// Decode
 	CMsgSteamDatagramCertificateSigned msgSignedCert;
-	if ( !ParseCertFromBase64( pszBase64, V_strlen( pszBase64 ), msgSignedCert, errMsg ) )
+	if ( !ParseCertFromBase64( pszBase64, cchBase64, msgSignedCert, errMsg ) )
 		return false;
 
 	CECSigningPublicKey publicKey;
@@ -348,6 +353,7 @@ bool CertStore_AddCertFromBase64( const char *pszBase64, SteamNetworkingErrMsg &
 	Cert cert;
 	if ( !cert.Setup( msgSignedCert, publicKey, errMsg ) )
 		return false;
+	cert.m_bTrustedByApp = bTrustedByApp;
 
 	uint64 key_id = CalculatePublicKeyID( publicKey );
 	PublicKey *pKey = FindPublicKey( key_id );
@@ -369,13 +375,21 @@ bool CertStore_AddCertFromBase64( const char *pszBase64, SteamNetworkingErrMsg &
 
 		// Check if we already have this exact cert,
 		// using the signature as as hash/fingerprint.
-		for ( const Cert &c: pKey->m_vecCerts )
+		for ( Cert &c: pKey->m_vecCerts )
 		{
 			if ( cert.m_signature == c.m_signature )
 			{
 				Assert( cert.m_signed_data == c.m_signed_data );
 				Assert( cert.m_ca_key_id == c.m_ca_key_id );
 				Assert( cert.m_timeCreated == c.m_timeCreated );
+
+				// Upgrade trust if the app is now vouching for a
+				// cert we had previously received some other way
+				if ( bTrustedByApp && !c.m_bTrustedByApp )
+				{
+					c.m_bTrustedByApp = true;
+					s_bTrustValid = false;
+				}
 				return true;
 			}
 		}
@@ -395,6 +409,25 @@ bool CertStore_AddCertFromBase64( const char *pszBase64, SteamNetworkingErrMsg &
 
 	// OK
 	return true;
+}
+
+bool CertStore_AddCertFromBase64( const char *pszBase64, SteamNetworkingErrMsg &errMsg )
+{
+	return CertStore_AddCert( pszBase64, V_strlen( pszBase64 ), false, errMsg );
+}
+
+bool CertStore_AddTrustedCertFromPEM( const char *pszCert, SteamNetworkingErrMsg &errMsg )
+{
+	// Locate the base64 body if this is a PEM-like blob.  If it isn't,
+	// assume we were given the raw base64 body directly.
+	uint32 cchBody = (uint32)V_strlen( pszCert );
+	const char *pszBody = CCrypto::LocatePEMBody( pszCert, &cchBody, "STEAMDATAGRAM CERT" );
+	if ( !pszBody )
+	{
+		pszBody = pszCert;
+		cchBody = (uint32)V_strlen( pszCert );
+	}
+	return CertStore_AddCert( pszBody, cchBody, true, errMsg );
 }
 
 template< int kMaxSize = 1024  >
@@ -457,12 +490,16 @@ static void RecursiveEvaluateKeyTrust( PublicKey *pKey )
 		if ( pSignerKey == pKey )
 		{
 			#ifdef STEAMNETWORKINGSOCKETS_HARDCODED_ROOT_CA_KEY
-				// If hardcoded root cert is in use, only trust the
-				// one hardcoded root key.  (We've already tagged it
-				// as trusted by hardcoded, so we don't get this far
-				// for those keys).
-				cert.m_status_msg = "Trusted root is hardcoded, cannot add more self-signed certs";
-				continue;
+				// If hardcoded root cert is in use, only trust self-signed
+				// certs that the app has explicitly installed.  (We've
+				// already tagged the hardcoded key as trusted by hardcoded,
+				// so we don't get this far for that key.)
+				if ( !cert.m_bTrustedByApp )
+				{
+					cert.m_status_msg = "Trusted root is hardcoded, cannot add more self-signed certs";
+					continue;
+				}
+				cert.m_status_msg = "(Self-signed root, installed by app)";
 			#else
 				// Self signed is OK.
 				cert.m_status_msg = "(Self-signed root)";
