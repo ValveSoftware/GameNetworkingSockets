@@ -170,6 +170,11 @@
 	#elif defined(TARGET_OS_IOS) && TARGET_OS_IOS
 		#define IsIOS() true
 		#define IsPosix() true
+	#elif defined(TARGET_OS_VISION) && TARGET_OS_VISION
+		// visionOS is an iOS-family platform (TARGET_OS_IPHONE is also set),
+		// and everything we care about here behaves the same way.
+		#define IsIOS() true
+		#define IsPosix() true
 	#else
 		// Assume OSX
 		#define SUPPORTS_IOPOLLINGHELPER
