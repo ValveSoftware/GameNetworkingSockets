@@ -1,0 +1,63 @@
+{
+	"version": 3,
+	"cmakeMinimumRequired": {
+		"major": 3,
+		"minor": 21,
+		"patch": 0
+	},
+	"configurePresets": [
+		{
+			"name": "macos",
+			"displayName": "macOS (native, Homebrew dependencies)",
+			"generator": "Ninja",
+			"binaryDir": "${sourceDir}/build/macos",
+			"cacheVariables": {
+				"CMAKE_BUILD_TYPE": "RelWithDebInfo"
+			}
+		},
+		{
+			"name": "ios-device",
+			"displayName": "iOS device (arm64)",
+			"generator": "Ninja",
+			"binaryDir": "${sourceDir}/build/iphoneos-arm64",
+			"cacheVariables": {
+				"CMAKE_SYSTEM_NAME": "iOS",
+				"CMAKE_OSX_SYSROOT": "iphoneos",
+				"CMAKE_OSX_ARCHITECTURES": "arm64",
+				"CMAKE_OSX_DEPLOYMENT_TARGET": "15.0",
+				"CMAKE_BUILD_TYPE": "RelWithDebInfo",
+				"CMAKE_PREFIX_PATH": "${sourceDir}/build/apple-deps/iphoneos-arm64",
+				"CMAKE_FIND_ROOT_PATH": "${sourceDir}/build/apple-deps/iphoneos-arm64",
+				"OPENSSL_ROOT_DIR": "${sourceDir}/build/apple-deps/iphoneos-arm64"
+			}
+		},
+		{
+			"name": "ios-simulator",
+			"inherits": "ios-device",
+			"displayName": "iOS simulator (arm64)",
+			"binaryDir": "${sourceDir}/build/iphonesimulator-arm64",
+			"cacheVariables": {
+				"CMAKE_OSX_SYSROOT": "iphonesimulator",
+				"CMAKE_PREFIX_PATH": "${sourceDir}/build/apple-deps/iphonesimulator-arm64",
+				"CMAKE_FIND_ROOT_PATH": "${sourceDir}/build/apple-deps/iphonesimulator-arm64",
+				"OPENSSL_ROOT_DIR": "${sourceDir}/build/apple-deps/iphonesimulator-arm64"
+			}
+		},
+		{
+			"name": "ios-device-framework",
+			"inherits": "ios-device",
+			"displayName": "iOS device (arm64), as an embeddable .framework",
+			"binaryDir": "${sourceDir}/build/iphoneos-arm64-framework",
+			"cacheVariables": {
+				"BUILD_SHARED_LIB": "ON",
+				"BUILD_FRAMEWORK": "ON"
+			}
+		}
+	],
+	"buildPresets": [
+		{ "name": "macos",                 "configurePreset": "macos" },
+		{ "name": "ios-device",            "configurePreset": "ios-device" },
+		{ "name": "ios-simulator",         "configurePreset": "ios-simulator" },
+		{ "name": "ios-device-framework",  "configurePreset": "ios-device-framework" }
+	]
+}

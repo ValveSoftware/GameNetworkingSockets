@@ -3,7 +3,7 @@ Building
 
 ## Dependencies
 
-* CMake 3.15 or later
+* CMake 3.15 or later (3.21 or later to use the macOS/iOS presets in `CMakePresets.json`)
 * A build tool like Ninja, GNU Make or Visual Studio
 * A C++17-compliant compiler, such as:
   * GCC 7.3 or later
