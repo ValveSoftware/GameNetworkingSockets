@@ -21,6 +21,9 @@ CMakeFiles
 Makefile
 cmake_install.cmake
 
+# Per-user presets, which are local by design and inherit from CMakePresets.json
+CMakeUserPresets.json
+
 # Ignore outputs from "perf record"
 perf.data
 perf.data.old
