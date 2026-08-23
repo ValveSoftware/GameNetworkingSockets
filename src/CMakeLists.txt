@@ -420,12 +420,38 @@ macro(set_clientlib_target_properties GNS_TARGET)
 
 	add_sanitizers(${GNS_TARGET})
 
+	#
+	# Package the shared library as a .framework?  Required to embed it in an
+	# iOS/tvOS app bundle, and convenient on macOS.  The public headers are
+	# copied into Headers/steam/ so that the '#include <steam/...>' spellings
+	# used by the headers themselves keep working against the framework's
+	# header search path.
+	#
+	get_target_property(GNS_TARGET_TYPE ${GNS_TARGET} TYPE)
+	if(BUILD_FRAMEWORK AND GNS_TARGET_TYPE STREQUAL "SHARED_LIBRARY")
+		file(GLOB GNS_PUBLIC_HEADERS "${CMAKE_CURRENT_SOURCE_DIR}/../include/steam/*.h")
+		target_sources(${GNS_TARGET} PRIVATE ${GNS_PUBLIC_HEADERS})
+		set_source_files_properties(${GNS_PUBLIC_HEADERS} PROPERTIES
+			MACOSX_PACKAGE_LOCATION "Headers/steam")
+		set_target_properties(${GNS_TARGET} PROPERTIES
+			FRAMEWORK TRUE
+			MACOSX_FRAMEWORK_IDENTIFIER "com.valvesoftware.GameNetworkingSockets"
+			MACOSX_FRAMEWORK_BUNDLE_VERSION "${GNS_VERSION}"
+			MACOSX_FRAMEWORK_SHORT_VERSION_STRING "${GNS_VERSION}"
+			)
+		if(NOT GNS_APPLE_EMBEDDED)
+			# Versioned bundle layout is a macOS-only thing; iOS frameworks are flat.
+			set_target_properties(${GNS_TARGET} PROPERTIES FRAMEWORK_VERSION A)
+		endif()
+	endif()
+
 	install(
 		TARGETS ${GNS_TARGET}
 		EXPORT GameNetworkingSockets
 		LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
 		ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
 		RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+		FRAMEWORK DESTINATION ${CMAKE_INSTALL_LIBDIR}
 		)
 
 endmacro()

@@ -26,6 +26,9 @@ project(GameNetworkingSockets C CXX)
 
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
+# Keep in sync with vcpkg.json.  Only used to stamp the Apple framework bundle.
+set(GNS_VERSION "1.6.0")
+
 #
 # Apple platforms.  CMAKE_SYSTEM_NAME is "Darwin" for macOS but "iOS", "tvOS",
 # "watchOS" or "visionOS" when cross-compiling with CMake's built-in Apple
@@ -59,7 +62,22 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
 endif()
 
 option(BUILD_STATIC_LIB "Build the static link version of the client library" ON)
-option(BUILD_SHARED_LIB "Build the shared library version of the client library" ON)
+
+# On iOS/tvOS/watchOS/visionOS the supported way to ship a dynamic library
+# inside an app bundle is a framework: that is what Xcode's "Embed & Sign" and
+# the App Store tooling are built around.  A bare .dylib can be embedded and
+# loaded, but you have to arrange the embedding and signing yourself.  So the
+# shared library is off by default there, and turning it on gives you a
+# framework unless you explicitly ask for BUILD_FRAMEWORK=OFF.
+if(GNS_APPLE_EMBEDDED)
+	set(GNS_BUILD_SHARED_LIB_DEFAULT OFF)
+else()
+	set(GNS_BUILD_SHARED_LIB_DEFAULT ON)
+endif()
+option(BUILD_SHARED_LIB "Build the shared library version of the client library" ${GNS_BUILD_SHARED_LIB_DEFAULT})
+cmake_dependent_option(BUILD_FRAMEWORK
+	"On Apple platforms, build the shared library as a .framework bundle instead of a bare dylib"
+	${GNS_APPLE_EMBEDDED} "APPLE AND BUILD_SHARED_LIB" OFF)
 option(BUILD_EXAMPLES "Build the included examples" OFF)
 option(BUILD_TESTS "Build crypto, pki and network connection tests" OFF)
 option(BUILD_TOOLS "Build cert management tool" OFF)
