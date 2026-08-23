@@ -3,12 +3,15 @@ Building
 
 ## Dependencies
 
-* CMake 3.10 or later
+* CMake 3.15 or later
 * A build tool like Ninja, GNU Make or Visual Studio
-* A C++11-compliant compiler, such as:
+* A C++17-compliant compiler, such as:
   * GCC 7.3 or later
   * Clang 3.3 or later
   * Visual Studio 2017 or later
+
+  (The library's own code only needs C++11, but protobuf 22 and later require
+  C++17 of everything that includes their headers.)
 * One of the following crypto solutions:
   * OpenSSL 1.1.1 or later
   * libsodium (can cause issues on Intel machines with AES-NI disabled see [here](https://github.com/ValveSoftware/GameNetworkingSockets/issues/243))
