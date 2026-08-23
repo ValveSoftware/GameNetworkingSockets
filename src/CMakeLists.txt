@@ -18,6 +18,71 @@ endif()
 if(NOT TARGET protobuf::libprotobuf AND TARGET Protobuf::libprotobuf)
 	add_library(protobuf::libprotobuf ALIAS Protobuf::libprotobuf)
 endif()
+
+#
+# When cross-compiling (iOS, tvOS, ...) the protobuf we just found is a target
+# build and ships no runnable protoc, so we need one from the host instead.
+#
+# Only kick in when the protobuf package gave us nothing usable.  Module mode
+# on some distros, and vcpkg, set Protobuf_PROTOC_EXECUTABLE without defining
+# the protobuf::protoc target, and that executable is frequently somewhere that
+# is not on PATH -- so prefer it over a PATH lookup rather than second-guessing
+# a protoc that already works.
+#
+if(NOT TARGET protobuf::protoc)
+	if(Protobuf_PROTOC_EXECUTABLE AND EXISTS "${Protobuf_PROTOC_EXECUTABLE}")
+		set(GNS_HOST_PROTOC "${Protobuf_PROTOC_EXECUTABLE}")
+	else()
+		find_program(GNS_HOST_PROTOC NAMES protoc DOC "Host protoc used to generate the .pb.cc sources")
+	endif()
+	if(NOT GNS_HOST_PROTOC)
+		message(FATAL_ERROR
+			"No usable protoc found.  The protobuf runtime we located is built for "
+			"${CMAKE_SYSTEM_NAME} and contains no host-runnable compiler.  Install "
+			"protoc on the host (e.g. 'brew install protobuf') or point -DGNS_HOST_PROTOC "
+			"at one.")
+	endif()
+	add_executable(protobuf::protoc IMPORTED)
+	set_target_properties(protobuf::protoc PROPERTIES IMPORTED_LOCATION "${GNS_HOST_PROTOC}")
+	set(Protobuf_PROTOC_EXECUTABLE "${GNS_HOST_PROTOC}" CACHE FILEPATH "" FORCE)
+	message(STATUS "Using host protoc: ${GNS_HOST_PROTOC}")
+endif()
+
+#
+# protoc and libprotobuf must be the same version -- generated code from a
+# newer protoc will not compile against an older runtime, and the reverse
+# silently produces subtle breakage.  This is easy to get wrong when the
+# runtime is cross-compiled by hand, so check it up front.
+#
+get_target_property(GNS_PROTOC_LOCATION protobuf::protoc IMPORTED_LOCATION)
+if(NOT GNS_PROTOC_LOCATION)
+	# Config-mode imports use per-configuration properties instead.
+	get_target_property(GNS_PROTOC_LOCATION protobuf::protoc IMPORTED_LOCATION_RELEASE)
+endif()
+if(NOT GNS_PROTOC_LOCATION)
+	set(GNS_PROTOC_LOCATION "${Protobuf_PROTOC_EXECUTABLE}")
+endif()
+if(GNS_PROTOC_LOCATION AND EXISTS "${GNS_PROTOC_LOCATION}" AND Protobuf_VERSION)
+	execute_process(COMMAND "${GNS_PROTOC_LOCATION}" --version
+		OUTPUT_VARIABLE GNS_PROTOC_VERSION_OUTPUT
+		ERROR_QUIET OUTPUT_STRIP_TRAILING_WHITESPACE RESULT_VARIABLE GNS_PROTOC_VERSION_RESULT)
+	if(GNS_PROTOC_VERSION_RESULT EQUAL 0
+			AND GNS_PROTOC_VERSION_OUTPUT MATCHES "([0-9]+\\.[0-9]+(\\.[0-9]+)?)")
+		set(GNS_PROTOC_VERSION ${CMAKE_MATCH_1})
+		# protoc prints the bare release version ("libprotoc 34.1"); the CMake
+		# package decorates it, variously as "34.1.0" (module mode) or with the
+		# C++ ABI major prefixed, "7.34.1" (config mode).  Just require the
+		# release version to appear somewhere in what the package reports.
+		string(FIND "${Protobuf_VERSION}" "${GNS_PROTOC_VERSION}" GNS_PROTOC_VERSION_MATCH)
+		if(GNS_PROTOC_VERSION_MATCH LESS 0)
+			message(WARNING
+				"protoc is version ${GNS_PROTOC_VERSION} (${GNS_PROTOC_LOCATION}) but the "
+				"protobuf runtime we will link against is version ${Protobuf_VERSION}.  These "
+				"must match; expect compile or link errors in the generated .pb.cc files.")
+		endif()
+	endif()
+endif()
+
 find_package(Threads REQUIRED)
 
 set(GNS_COMMON_PROTOS
@@ -325,10 +390,12 @@ macro(set_clientlib_target_properties GNS_TARGET)
 		#if(USE_STEAMWEBRTC AND NOT STEAMWEBRTC_USE_STATIC_LIBS)
 		#	target_link_libraries(${GNS_TARGET} PRIVATE dl)
 		#endif()
-	elseif(CMAKE_SYSTEM_NAME MATCHES Darwin)
-		#if(USE_STEAMWEBRTC AND NOT STEAMWEBRTC_USE_STATIC_LIBS)
-		#	target_link_libraries(${GNS_TARGET} PRIVATE dl)
-		#endif()
+	elseif(APPLE)
+		# macOS, iOS, tvOS, watchOS, visionOS.  The sockets and threading we use
+		# are all in libSystem, but Abseil's time-zone support (pulled in by
+		# protobuf) calls into CoreFoundation, and a static protobuf does not
+		# carry that along the way the shared one does.
+		target_link_libraries(${GNS_TARGET} PUBLIC "-framework CoreFoundation")
 	elseif(CMAKE_SYSTEM_NAME MATCHES FreeBSD)
 
 	elseif(CMAKE_SYSTEM_NAME MATCHES OpenBSD)

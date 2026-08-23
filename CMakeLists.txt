@@ -26,6 +26,23 @@ project(GameNetworkingSockets C CXX)
 
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
+#
+# Apple platforms.  CMAKE_SYSTEM_NAME is "Darwin" for macOS but "iOS", "tvOS",
+# "watchOS" or "visionOS" when cross-compiling with CMake's built-in Apple
+# support.  Everything except macOS is an "embedded" Apple platform: no
+# command-line executables, and shared libraries have to be packaged as
+# frameworks to be loadable from an app bundle.
+#
+if(APPLE)
+	if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+		set(GNS_APPLE_EMBEDDED FALSE)
+	else()
+		set(GNS_APPLE_EMBEDDED TRUE)
+	endif()
+else()
+	set(GNS_APPLE_EMBEDDED FALSE)
+endif()
+
 include(DefaultBuildType)
 find_package(Sanitizers)
 
@@ -153,6 +170,14 @@ function(set_target_common_gns_properties TGT)
 
 	if(CMAKE_SYSTEM_NAME MATCHES Linux)
 		target_compile_definitions(${TGT} PUBLIC LINUX)
+	elseif(CMAKE_SYSTEM_NAME STREQUAL "iOS" OR CMAKE_SYSTEM_NAME STREQUAL "visionOS")
+		# minbase_identify.h works this out from <TargetConditionals.h>; this is
+		# for the handful of places that test the bare IOS macro directly.
+		target_compile_definitions(${TGT} PUBLIC IOS)
+	elseif(CMAKE_SYSTEM_NAME STREQUAL "tvOS")
+		target_compile_definitions(${TGT} PUBLIC TVOS)
+	elseif(CMAKE_SYSTEM_NAME STREQUAL "watchOS")
+		target_compile_definitions(${TGT} PUBLIC WATCHOS)
 	elseif(CMAKE_SYSTEM_NAME MATCHES Darwin)
 		target_compile_definitions(${TGT} PUBLIC OSX)
 	elseif(CMAKE_SYSTEM_NAME MATCHES FreeBSD)
@@ -201,6 +226,13 @@ function(set_target_common_gns_properties TGT)
 		CXX_STANDARD 11
 	)
 endfunction()
+
+if(GNS_APPLE_EMBEDDED AND (BUILD_EXAMPLES OR BUILD_TESTS OR BUILD_TOOLS))
+	message(FATAL_ERROR
+		"BUILD_EXAMPLES/BUILD_TESTS/BUILD_TOOLS produce command-line programs, which "
+		"cannot be built or run for ${CMAKE_SYSTEM_NAME}.  Configure a separate macOS "
+		"build directory for those.")
+endif()
 
 if(BUILD_EXAMPLES)
 	if ( NOT BUILD_SHARED_LIB )

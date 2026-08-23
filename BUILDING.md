@@ -18,7 +18,9 @@ Building
   * [bcrypt](https://docs.microsoft.com/en-us/windows/desktop/api/bcrypt/)
     (Windows only.  Note the primary reason this is supported is to satisfy
     an Xbox requirement.)
-* Google protobuf 2.6.1+
+* Google protobuf 2.6.1+.  protobuf 22 and later also pull in Abseil.  The
+  `protoc` compiler and the `libprotobuf` runtime you link against must be the
+  **same version**; the build prints a warning if it can tell that they aren't.
 * Google [webrtc](https://opensource.google/projects/webrtc) is used for
   NAT piercing (ICE) for P2P connections.  The relevant code is linked in as a
   git submodule.  You'll need to initialize that submodule to compile.

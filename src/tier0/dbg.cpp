@@ -33,7 +33,7 @@ using namespace SteamNetworkingSocketsLib;
 #include <sys/ptrace.h>
 #endif
 
-#if IsOSX() || IsFreeBSD() || IsOpenBSD()
+#if IsOSX() || IsIOS() || IsTVOS() || IsFreeBSD() || IsOpenBSD()
 #include <sys/types.h>
 #include <sys/sysctl.h>
 #endif
@@ -54,7 +54,8 @@ bool Plat_IsInDebugSession()
 {
 #ifdef _WIN32
 	return (IsDebuggerPresent() != 0);
-#elif IsOSX()
+#elif IsOSX() || IsIOS() || IsTVOS()
+	// Apple TN2151 / QA1361.  The same sysctl works on macOS, iOS and tvOS.
 	int mib[4];
 	struct kinfo_proc info;
 	size_t size;
