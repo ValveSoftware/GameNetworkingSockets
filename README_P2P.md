@@ -23,7 +23,7 @@ for datagram transport.  We don't use DTLS or WebRTC data channels.
 See also `k_ESteamNetworkingConfig_P2P_Transport_ICE_Implementation`.
 
 The two candidates are compatible with one another.  (A peer using the WebRTC
-ICE client can conneect to a peer using the native client.)
+ICE client can connect to a peer using the native client.)
 
 ## Symmetric connect mode
 
@@ -53,12 +53,12 @@ when you send and receive messages, the peer is identified by the connection han
 
 Much existing network code is based on UDP with a single socket, where
  connection handles are not used.  Instead, packets are sent with the IP address
- of the recipeient specified for each packet.   (E.g. ``sentto()`` and ``recvfrom()``).
+ of the recipient specified for each packet.   (E.g. ``sendto()`` and ``recvfrom()``).
 [ISteamNetworkingMessages](include/steam/isteamnetworkingmessages.h) was created
 to provide a more "ad-hoc" interface like UDP.  It can be useful when adding P2P
 support to existing code, depending on the abstraction you are working with.  If
-the code you are modifing already has the concept of a connection, then you might
-find it easier to use ISteamNetworkinSockets directly.  But if you are modifying code
+the code you are modifying already has the concept of a connection, then you might
+find it easier to use ISteamNetworkingSockets directly.  But if you are modifying code
 at a lower level, you may find that you need to maintain a table of active connections,
 and each time you send a packet, use the existing connection if one exists, or
 create a new connection if one does not exist.  This is exactly what
@@ -76,7 +76,7 @@ to the code in this library, there are several other prerequisites.
 
 A side channel, capable of relaying small rendezvous
 messages from one host to another.  This means hosts must have a constant
-connection to your service, once that enables you to *push* messages to them.
+connection to your service, one that enables you to *push* messages to them.
 
 SteamNetworkingSockets supports a pluggable signaling service.  The requirements
 placed on your signaling service are relatively minimal:
@@ -102,14 +102,14 @@ servers are relatively low bandwidth, and there are publicly-available ones.
 
 ### Relay fallback
 
-Unfortunatley, for some pairs of hosts, NAT piercing is not successful.
+Unfortunately, for some pairs of hosts, NAT piercing is not successful.
 In this situation, the traffic must be relayed.  In the ICE protocol, this is
 done using [TURN](https://en.wikipedia.org/wiki/Traversal_Using_Relays_around_NAT)
 servers.  (NOTE: Any TURN server also doubles as a STUN server.)  Because the TURN
-server is relaying every packet, is is a relatively costly service, so you probably
+server is relaying every packet, it is a relatively costly service, so you probably
 will need to run your own, or just fail connections that cannot pierce NAT.
 
-On Steam we use a custom relay service known as [Steam Datgaram Relay](https://partner.steamgames.com/doc/features/multiplayer/steamdatagramrelay)
+On Steam we use a custom relay service known as [Steam Datagram Relay](https://partner.steamgames.com/doc/features/multiplayer/steamdatagramrelay)
 -- SDR for short -- carrying packets through our network of relays and
 on our backbone.   (You may see this mentioned in the opensource code here,
 but the SDR support code is not opensource.)  Also, on Steam we often
