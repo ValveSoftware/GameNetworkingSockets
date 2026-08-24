@@ -4,6 +4,8 @@
 #define STEAMNETWORKINGSOCKETS_CONNECTIONS_H
 #pragma once
 
+#include <atomic>
+
 #include "../steamnetworkingsockets_internal.h"
 #ifdef  STEAMNETWORKINGSOCKETS_ENABLE_SDR
 #include "../sdr/steamdatagram_internal.h"
@@ -418,7 +420,14 @@ public:
 	void SetDescription();
 
 	/// High level state of the connection
-	ESteamNetworkingConnectionState GetState() const { return m_eConnectionState; }
+	ESteamNetworkingConnectionState GetState() const
+	{
+		// Always read this like an ordinary variable (e.g. normal mov instruction).
+		// Almost all will happen while we hold the connection lock.  A few exceptions
+		// for performance are done carefully and are the reason for being explicit.
+		// See InternalGetConnectionByHandle.
+		return m_eConnectionState.load( std::memory_order_relaxed );
+	}
 	ESteamNetworkingConnectionState GetWireState() const { return m_eConnectionWireState; }
 
 	/// Check if the connection is 'connected' from the perspective of the wire protocol.
@@ -894,7 +903,12 @@ private:
 	void SNP_QueueReliableSegmentsForRetry( SNPInFlightPacket_t &pkt, int64 nPktNumForDebug, const char *pszDebug );
 
 	void SetState( ESteamNetworkingConnectionState eNewState, SteamNetworkingMicroseconds usecNow );
-	ESteamNetworkingConnectionState m_eConnectionState;
+
+	/// High level state of the connection.  This is atomic not because we rely on
+	/// atomicity/ordering guarantees from it (all real synchronization comes from the
+	/// locks), it's so the intentionally racy fast-path read in InternalGetConnectionByHandle
+	/// is well-defined under the C++ memory model instead of technically-UB.
+	std::atomic<ESteamNetworkingConnectionState> m_eConnectionState;
 
 	/// State of the connection as our peer would observe it.
 	/// (Certain local state transitions are not meaningful.)

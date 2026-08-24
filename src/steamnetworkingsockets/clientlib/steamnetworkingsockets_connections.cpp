@@ -2441,12 +2441,13 @@ void CSteamNetworkConnectionBase::APICloseConnection( int nReason, const char *p
 void CSteamNetworkConnectionBase::SetState( ESteamNetworkingConnectionState eNewState, SteamNetworkingMicroseconds usecNow )
 {
 	// All connection state transitions require the global lock!
+	// Because of this, we use relaxed memory order below.
 	AssertLocksHeldByCurrentThread();
 
-	if ( eNewState == m_eConnectionState )
+	if ( eNewState == m_eConnectionState.load( std::memory_order_relaxed ) )
 		return;
-	const ESteamNetworkingConnectionState eOldState = m_eConnectionState;
-	m_eConnectionState = eNewState;
+	const ESteamNetworkingConnectionState eOldState = m_eConnectionState.load( std::memory_order_relaxed );
+	m_eConnectionState.store( eNewState, std::memory_order_relaxed );
 
 	// Remember when we entered this state
 	m_usecWhenEnteredConnectionState = usecNow;
@@ -3471,7 +3472,7 @@ void CSteamNetworkConnectionBase::Think( SteamNetworkingMicroseconds usecNow )
 			if ( usecNow >= usecTimeout )
 			{
 				SpewBug( "[%s] We are in state %d and have been waiting %.1fs to be cleaned up.  Did you forget to call CloseConnection()?",
-					GetDescription(), m_eConnectionState, ( usecNow - m_usecWhenEnteredConnectionState ) * 1e-6f );
+					GetDescription(), (int)GetState(), ( usecNow - m_usecWhenEnteredConnectionState ) * 1e-6f );
 			}
 			else
 			{
