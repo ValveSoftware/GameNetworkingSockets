@@ -16,35 +16,35 @@ jobs:
             use_webrtc: false
             crypto: default
             crypto25519: default
-            targets: "test_connection test_p2p trivial_signaling_server publish_test_script test_crypto"
+            targets: "test_connection test_p2p trivial_signaling_server publish_test_script test_crypto test_pki"
           - row: gcc-openssl-crypto
             compiler: gcc
             sanitizer: none
             use_webrtc: false
             crypto: default
             crypto25519: default
-            targets: "test_connection test_p2p trivial_signaling_server publish_test_script test_crypto"
+            targets: "test_connection test_p2p trivial_signaling_server publish_test_script test_crypto test_pki"
           - row: clang-libsodium
             compiler: clang
             sanitizer: none
             use_webrtc: false
             crypto: libsodium
             crypto25519: libsodium
-            targets: "test_connection test_p2p trivial_signaling_server publish_test_script test_crypto"
+            targets: "test_connection test_p2p trivial_signaling_server publish_test_script test_crypto test_pki"
           - row: clang-reference-25519
             compiler: clang
             sanitizer: none
             use_webrtc: false
             crypto: default
             crypto25519: Reference
-            targets: "test_connection test_p2p trivial_signaling_server publish_test_script test_crypto"
+            targets: "test_connection test_p2p trivial_signaling_server publish_test_script test_crypto test_pki"
           - row: clang-openssl-webrtc
             compiler: clang
             sanitizer: none
             use_webrtc: true
             crypto: default
             crypto25519: default
-            targets: "test_connection test_p2p trivial_signaling_server publish_test_script test_crypto"
+            targets: "test_connection test_p2p trivial_signaling_server publish_test_script test_crypto test_pki"
     env:
       CI_BUILD: 1
       IMAGE: ubuntu
@@ -99,6 +99,17 @@ jobs:
             --phase test \
             --run-tests \
             --tests test_crypto
+
+      - name: Test pki (RelWithDebInfo)
+        run: |
+          set -euo pipefail
+          python3 .github/run-single-config.py \
+            --compiler "${{ matrix.compiler }}" \
+            --build-dir build \
+            --sanitizer "${{ matrix.sanitizer }}" \
+            --phase test \
+            --run-tests \
+            --tests test_pki
 
       - name: Test connection (RelWithDebInfo)
         run: |

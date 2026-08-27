@@ -60,6 +60,11 @@ jobs:
       run: ./test_crypto
       shell: bash
 
+    - name: Test pki
+      working-directory: ${{github.workspace}}/build/bin
+      run: ./test_pki
+      shell: bash
+
     - name: Test connection
       working-directory: ${{github.workspace}}/build/bin
       run: ./test_connection suite-quick

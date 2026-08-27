@@ -2531,6 +2531,18 @@ STEAMNETWORKINGSOCKETS_INTERFACE void GameNetworkingSockets_Kill()
 	}
 }
 
+STEAMNETWORKINGSOCKETS_INTERFACE bool GameNetworkingSockets_AddTrustedCert( const char *pszCert, SteamNetworkingErrMsg &errMsg )
+{
+	SteamNetworkingGlobalLock lock( "GameNetworkingSockets_AddTrustedCert" );
+	return CertStore_AddTrustedCertFromPEM( pszCert, errMsg );
+}
+
+STEAMNETWORKINGSOCKETS_INTERFACE void GameNetworkingSockets_SetAppID( AppId_t nAppID )
+{
+	SteamNetworkingGlobalLock lock( "GameNetworkingSockets_SetAppID" );
+	( (CSteamNetworkingUtils *)SteamNetworkingUtils() )->SetAppID( nAppID );
+}
+
 STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets *SteamNetworkingSockets_LibV12()
 {
 	return s_pSteamNetworkingSockets;
