@@ -15,6 +15,8 @@ namespace SteamNetworkingSocketsLib {
     class CSteamNetworkingSocketsSTUNRequest;
     class CSteamNetworkingICESessionCallbacks;
     class CSteamNetworkingICESession;
+    struct ICEServerEntry;
+    struct ICEDNSResolveState;
 
     struct STUNHeader
     {
@@ -449,6 +451,10 @@ namespace SteamNetworkingSocketsLib {
         // True if any configured TURN server is on a LAN/private IP.  This doesn't
         // really happen in production environments, it's only in weird test situations
         bool m_bAnyTURNServerLANAddress = false;
+
+        std::shared_ptr<ICEDNSResolveState> m_pDNSResolveState;
+        void AddServers( std_vector< ICEServerEntry > &vecEntries );
+        void Think_ApplyPendingDNSResults();
 
         // De-duplicated lists of peer IP addresses (port zeroed) that we should
         // ask each relay to permit forwarding from.  LAN/loopback/link-local
