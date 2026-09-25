@@ -2220,8 +2220,9 @@ bool CSteamNetworkingUtils::SetConfigValue( ESteamNetworkingConfigValue eValue,
 		case k_ESteamNetworkingConfig_ConnectionUserData:
 		{
 
-			// We only need special handling when modifying a connection
-			if ( eScopeType != k_ESteamNetworkingConfig_Connection )
+			// We only need special handling when modifying a connection.
+			// Clearing it (NULL) falls through and is rejected by SetConfigValueTyped.
+			if ( eScopeType != k_ESteamNetworkingConfig_Connection || pValue == nullptr )
 				break;
 
 			// Process the user argument, maybe performing type conversion

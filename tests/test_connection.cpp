@@ -1227,6 +1227,9 @@ void Test_pipe()
 		assert( infoBob.m_identityRemote == identAlice );
 	}
 
+	// Connection user data cannot be cleared.  Passing NULL should fail, not crash.
+	assert( !SteamNetworkingUtils()->SetConfigValue( k_ESteamNetworkingConfig_ConnectionUserData, k_ESteamNetworkingConfig_Connection, hAlice, k_ESteamNetworkingConfig_Int64, nullptr ) );
+
 	// Wire up to the global peer state used by TestNetworkConditions / PumpCallbacksAndMakeSureStillConnected.
 	g_peerClient.Reset();
 	g_peerServer.Reset();
