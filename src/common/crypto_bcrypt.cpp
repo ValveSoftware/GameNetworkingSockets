@@ -39,6 +39,7 @@ typedef struct _BCryptContext {
 	ULONG cbKeyObject;
 
 	_BCryptContext() {
+		hAlgAES = INVALID_HANDLE_VALUE;
 		hKey = INVALID_HANDLE_VALUE;
 		pbKeyObject = NULL;
 		cbKeyObject = 0;
@@ -189,7 +190,7 @@ bool AES_GCM_EncryptContext::Encrypt(
 			( PUCHAR )pEncryptedDataAndTag, *pcbEncryptedDataAndTag,
 			&ct_size,
 			0 );
-	AssertFatal( ( ct_size + m_cbTag ) < *pcbEncryptedDataAndTag );
+	AssertFatal( ( ct_size + m_cbTag ) <= *pcbEncryptedDataAndTag );
 	memcpy( ( PUCHAR )( pEncryptedDataAndTag ) + ct_size, buffer, m_cbTag );
 	ct_size += m_cbTag;
 	*pcbEncryptedDataAndTag = ct_size;
@@ -258,6 +259,7 @@ void CCrypto::GenerateSHA256Digest( const void *pInput, size_t cbInput, SHA256Di
 	AssertFatal(NT_SUCCESS(status));
 	status = BCryptDestroyHash(hHashSHA256);
 	AssertFatal(NT_SUCCESS(status));
+	HeapFree(GetProcessHeap(), 0, pbBuffer);
 }
 
 //-----------------------------------------------------------------------------
@@ -310,6 +312,7 @@ void CCrypto::GenerateHMAC256( const uint8 *pubData, uint32 cubData, const uint8
 	AssertFatal(NT_SUCCESS(status));
 	status = BCryptDestroyHash(hHash);
 	AssertFatal(NT_SUCCESS(status));
+	HeapFree(GetProcessHeap(), 0, pbBuffer);
 }
 
 //-----------------------------------------------------------------------------
@@ -363,6 +366,7 @@ void CCrypto::GenerateHMAC( const uint8 *pubData, uint32 cubData, const uint8 *p
 	AssertFatal(NT_SUCCESS(status));
 	status = BCryptDestroyHash(hHash);
 	AssertFatal(NT_SUCCESS(status));
+	HeapFree(GetProcessHeap(), 0, pbBuffer);
 }
 
 #endif // VALVE_CRYPTO_BCRYPT
