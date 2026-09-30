@@ -208,7 +208,8 @@ bool AES_GCM_DecryptContext::Decrypt(
 	BCRYPT_INIT_AUTH_MODE_INFO(paddingInfo);
 	char buffer[32] = { 0 };
 	AssertFatal( m_cbTag <= sizeof( buffer ) );
-	AssertFatal( m_cbTag <= cbEncryptedDataAndTag );
+	if ( m_cbTag > cbEncryptedDataAndTag )
+		return false;
 	memcpy( buffer, ( PUCHAR )pEncryptedDataAndTag + cbEncryptedDataAndTag - m_cbTag, m_cbTag );
 	cbEncryptedDataAndTag -= m_cbTag;
 	paddingInfo.pbTag = m_cbTag ? ( PUCHAR )buffer : NULL;
