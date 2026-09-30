@@ -3220,7 +3220,7 @@ void CSteamNetworkConnectionBase::ConnectionState_ClosedByPeer( int nReason, con
 {
 
 	// Check our state
-	switch ( m_eConnectionState )
+	switch ( GetState() )
 	{
 		case k_ESteamNetworkingConnectionState_Dead:
 		case k_ESteamNetworkingConnectionState_None:
@@ -3417,7 +3417,7 @@ void CSteamNetworkConnectionBase::Think( SteamNetworkingMicroseconds usecNow )
 	}
 
 	// Check our state
-	switch ( m_eConnectionState )
+	switch ( GetState() )
 	{
 		case k_ESteamNetworkingConnectionState_Dead:
 		case k_ESteamNetworkingConnectionState_None:
