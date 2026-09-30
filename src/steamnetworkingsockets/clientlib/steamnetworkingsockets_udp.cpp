@@ -201,14 +201,26 @@ void CSteamNetworkListenSocketDirectUDP::ReceivedFromUnknownHost( const RecvPktI
 		}
 		else
 		{
-			// A stray data packet.  Just ignore it.
-			//
-			// When clients are able to actually establish a connection, after that connection
-			// is over we will use the FinWait state to close down the connection gracefully.
-			// But since we don't have that connection in our table anymore, either this guy
-			// never had a connection, or else we believe he knows that the connection was closed,
-			// or the FinWait state has timed out.
-			ReportBadPacket( "Data", "Stray data packet from host with no connection.  Ignoring." );
+			// A stray data packet.  Either this host never had a connection, or the
+			// connection was closed and our FinWait state has already timed out, so the
+			// only other way they will find out is by timing out themselves.  Tell them.
+			// The data header only carries the recipient's connection ID, so that's all
+			// we can echo back.
+			if ( cbPkt >= (int)sizeof(UDPDataMsgHdr) )
+			{
+				const UDPDataMsgHdr *hdr = (const UDPDataMsgHdr *)pPkt;
+				uint32 unToConnectionID = LittleDWord( hdr->m_unToConnectionID );
+
+				// Rate limit, since the source address could be spoofed and they haven't
+				// presented any evidence that we previously really did have a connection.
+				if ( unToConnectionID && BCheckGlobalSpamReplyRateLimit( usecNow ) )
+				{
+					CMsgSteamSockets_UDP_NoConnection msgReply;
+					msgReply.set_to_connection_id( unToConnectionID );
+					pSock->SendMsg( k_ESteamNetworkingUDPMsg_NoConnection, msgReply, adrFrom );
+				}
+			}
+			ReportBadPacket( "Data", "Stray data packet from host with no connection." );
 		}
 	}
 	else if ( *pPkt == k_ESteamNetworkingUDPMsg_ChallengeRequest )
@@ -924,8 +936,12 @@ void CConnectionTransportUDPBase::Received_ConnectionClosed( const CMsgSteamSock
 
 void CConnectionTransportUDPBase::Received_NoConnection( const CMsgSteamSockets_UDP_NoConnection &msg, SteamNetworkingMicroseconds usecNow )
 {
-	// Make sure it's an ack of something we would have sent
-	if ( msg.to_connection_id() != ConnectionIDLocal() || msg.from_connection_id() != m_connection.m_unConnectionIDRemote )
+	// Make sure it's an ack of something we would have sent.  A reply to a stray
+	// data packet won't have the peer's connection ID, because the data packet
+	// header only carries ours.  Our connection ID is random, and the bound
+	// socket has already checked the source address, so that is enough.
+	if ( msg.to_connection_id() != ConnectionIDLocal()
+		|| ( msg.from_connection_id() != 0 && msg.from_connection_id() != m_connection.m_unConnectionIDRemote ) )
 	{
 		ReportBadUDPPacketFromConnectionPeer( "NoConnection", "Old/incorrect connection ID.  Message is for a stale connection, or is spoofed.  Ignoring." );
 		return;
