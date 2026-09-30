@@ -46,8 +46,8 @@ using namespace SteamNetworkingSocketsLib;
 #include <sys/proc.h>
 #endif
 
-#if IsPlaystation() && defined(_DEBUG)
-// NDA material
+#if IsPlaystation()
+#include "tier0/dbg_playstation.h"
 #endif
 
 bool Plat_IsInDebugSession()
@@ -119,7 +119,7 @@ bool Plat_IsInDebugSession()
 	}
 	return (nTracePid != 0);
 #elif IsPlaystation()
-	// NDA material
+	return Plat_IsInDebugSession_Playstation();
 #elif IsNintendoSwitch()
 	return false;
 #else
