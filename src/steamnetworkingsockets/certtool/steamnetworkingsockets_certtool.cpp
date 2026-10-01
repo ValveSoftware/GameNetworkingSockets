@@ -286,7 +286,7 @@ void GenKeyPair()
 	}
 	for ( SteamNetworkingPOPID id: s_vecPOPIDs )
 	{
-		char szTemp[ 8 ];
+		char szTemp[ 8 ]{};
 		GetSteamNetworkingLocationPOPStringFromID( id, szTemp );
 		sComment += szTemp;
 		sComment += '-';
@@ -334,7 +334,7 @@ static const char k_szSDRCertPEMFooter[] = "-----END STEAMDATAGRAM CERT-----";
 
 void PrintCertInfo( const CMsgSteamDatagramCertificateSigned &msgSigned, vjson::Object &outJSON )
 {
-	char szTemp[ 256 ];
+	char szTemp[ 256 ]{};
 
 	CMsgSteamDatagramCertificate msgCert;
 	msgCert.ParseFromString( msgSigned.cert() );
