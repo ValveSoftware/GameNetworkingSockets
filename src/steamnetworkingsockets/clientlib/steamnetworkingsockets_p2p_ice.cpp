@@ -297,12 +297,29 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 						SteamNetworkingGlobalLock::SetLongLockWarningThresholdMS( "LoadICEDll", 500 );
 						static const char pszExportFunc[] = "CreateWebRTCICESession";
 
+						const char *pszModule = nullptr;
+						#ifdef _WIN64
+							pszModule = "steamwebrtc64.dll";
+						#elif defined( WIN32 )
+							pszModule = "steamwebrtc.dll";
+						#elif defined( OSX )
+							pszModule = "libsteamwebrtc.dylib";
+						#elif defined( IOS ) || defined( TVOS ) || defined( VISIONOS )
+							pszModule = "steamwebrtc.framework/steamwebrtc";
+						#elif defined( LINUX ) || defined( ANDROID )
+							pszModule = "libsteamwebrtc.so";
+						#else
+							#error Need steamwebrtc for this platform
+						#endif
+
+						#ifdef STEAMNETWORKINGSOCKETS_STEAMCLIENT
+							char szModulePath[256];
+							V_ComposeFileName( g_szSteamInstallPath, pszModule, szModulePath, sizeof(szModulePath) );
+							pszModule = szModulePath;
+						#endif
+
 						#if defined( _WINDOWS )
-							#ifdef _WIN64
-								static const char pszModule[] = "steamwebrtc64.dll";
-							#else
-								static const char pszModule[] = "steamwebrtc.dll";
-							#endif
+
 							HMODULE h = ::LoadLibraryA( pszModule );
 							if ( h == NULL )
 							{
@@ -312,11 +329,6 @@ void CSteamNetworkConnectionP2P::CheckInitICE()
 							}
 							g_SteamNetworkingSockets_CreateICESessionFunc = (CreateICESession_t)::GetProcAddress( h, pszExportFunc );
 						#elif IsPosix()
-							#if IsOSX() || defined( IOS ) || defined( TVOS )
-								static const char pszModule[] = "libsteamwebrtc.dylib";
-							#else
-								static const char pszModule[] = "libsteamwebrtc.so";
-							#endif
 							void* h = dlopen(pszModule, RTLD_LAZY);
 							if ( h == NULL )
 							{
