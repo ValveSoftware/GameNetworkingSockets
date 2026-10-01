@@ -28,11 +28,22 @@ namespace SteamNetworkingSocketsLib {
 // Allow up to N seconds of grace when deciding if a remote cert has expired.
 // This is a hack we use when we think there is a chance that the user's
 // local clock might be off.  (Often their clock shows the correct time to
-// them, but they have the wrong time zone set.)  If we have an authoritative
-// source of time, we always prefer to use that and not enable this hack.
-// Allowing certs to live for an extra 24 hiours is not a huge security risk
-// in most cases.
-int s_csecsCertExpiryGrace = 0;
+// them, but they have the wrong time zone set.)  We set this to 24 hours by
+// default.  Allowing certs to live for an extra 24 hours is not a huge security
+// risk in most cases.  If we know that our time source is not way off, we can
+// clear this
+int s_csecsCertExpiryGrace = 24*3600;
+
+// Check cert expiry.  Returns 0 if cert is OK, or a positive number indicating
+// how long ago the cert expired.  We use long long because all of the call sites
+// will want to print it, and this is the easiest way to deal with printf specifiers
+inline long long CertStore_SecondsExpired( time_t timeNow, time_t timeExpiry )
+{
+	long long csecsExpired = (long long)timeNow - (long long)timeExpiry;
+	if ( csecsExpired <= s_csecsCertExpiryGrace )
+		return 0;
+	return csecsExpired;
+}
 
 template <typename T, T kInvalidItem >
 void CertAuthParameter<T,kInvalidItem>::SetIntersection( const CertAuthParameter<T,kInvalidItem> &a, const CertAuthParameter<T,kInvalidItem> &b )
@@ -635,8 +646,8 @@ const CertAuthScope *CertStore_CheckCASignature( const std::string &signed_data,
 	}
 
 	// Is any part of the chain expired?
-	long long csecsExpired = timeNow - pKey->m_effectiveAuthScope.m_timeExpiry;
-	if ( csecsExpired > s_csecsCertExpiryGrace )
+	long long csecsExpired = CertStore_SecondsExpired( timeNow, pKey->m_effectiveAuthScope.m_timeExpiry );
+	if ( csecsExpired > 0 )
 	{
 		V_sprintf_safe( errMsg, "CA key %llu (or an antecedent) expired %lld seconds ago!", (unsigned long long)nCAKeyID, csecsExpired );
 		return nullptr;
@@ -671,10 +682,11 @@ const CertAuthScope *CertStore_CheckCert( const CMsgSteamDatagramCertificateSign
 	}
 
 	// Check expiry
-	if ( (time_t)outMsgCert.time_expiry() < timeNow )
+	long long csecsExpired = CertStore_SecondsExpired( timeNow, outMsgCert.time_expiry() );
+	if ( csecsExpired > 0 )
 	{
 		V_sprintf_safe( errMsg, "Cert expired %lld seconds ago at %lld (current time %lld)",
-			(long long)( timeNow - outMsgCert.time_expiry() ), (long long)outMsgCert.time_expiry(), (long long)timeNow );
+			csecsExpired, (long long)outMsgCert.time_expiry(), (long long)timeNow );
 		return nullptr;
 	}
 
@@ -731,9 +743,10 @@ const CertAuthScope *CertStore_CheckPublicKey( uint64 nKeyID, time_t timeNow, St
 		return nullptr;
 	}
 	time_t expiry = pPubKey->m_effectiveAuthScope.m_timeExpiry;
-	if ( expiry < timeNow )
+	long long csecsExpired = CertStore_SecondsExpired( timeNow, expiry );
+	if ( csecsExpired > 0 )
 	{
-		V_sprintf_safe( errMsg, "Public key ID%llu at %llu (%.1f hours ago).", nKeyID, (unsigned long long)expiry, (timeNow - expiry) / 3600.0 );
+		V_sprintf_safe( errMsg, "Public key ID%llu expired at %llu (%.1f hours ago).", nKeyID, (unsigned long long)expiry, csecsExpired / 3600.0 );
 		return nullptr;
 	}
 

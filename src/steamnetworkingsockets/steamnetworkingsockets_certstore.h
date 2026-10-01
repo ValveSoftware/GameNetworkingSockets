@@ -153,4 +153,6 @@ extern void CertStore_ValidateStatics( CValidator &validator );
 
 }
 
+extern "C" void SteamNetworkingSockets_CertStore_SetExpiryGraceSeconds( int csecs );
+
 #endif // STEAMNETWORKINGSOCKETS_CERTSTORE_H
