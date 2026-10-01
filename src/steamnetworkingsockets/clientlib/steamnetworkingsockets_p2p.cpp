@@ -3022,23 +3022,18 @@ bool CSteamNetworkingSockets::InternalReceivedP2PSignal( const CMsgSteamNetworki
 				return false;
 			}
 
+			// Make sure we have a recent cert and the PKI
+			AuthenticationNeeded();
+
 			// Are we ready with authentication?
-			// This is actually not really correct to use a #define here.  Really, we ought
-			// to create a connection and check AllowLocalUnsignedCert/AllowRemoteUnsignedCert.
-			if ( BCanRequestCert() )
+			// This is oversly strict.  A connection that allows unsigned certs could proceed
+			// here, but we don't know the connection type yet.  Really, we ought to create a
+			// connection and check AllowLocalUnsignedCert/AllowRemoteUnsignedCert.
+			if ( m_AuthenticationStatus.m_eAvail != k_ESteamNetworkingAvailability_Current && BCanRequestCert() )
 			{
-
-				// Make sure we have a recent cert.  Start requesting another if needed.
-				AuthenticationNeeded();
-
-				// If we don't have a signed cert now, then we cannot accept this connection!
-				// P2P connections always require certs issued by Steam!
-				if ( !m_msgSignedCert.has_ca_signature() )
-				{
-					SpewWarning( "Ignoring P2P connection request from %s.  We cannot accept it since we don't have a cert yet!\n",
-						SteamNetworkingIdentityRender( identityRemote ).c_str() );
-					return true; // Return true because the signal is valid, we just cannot do anything with it right now
-				}
+				SpewWarning( "Ignoring P2P connection request from %s.  Auth not ready.  %s\n",
+					SteamNetworkingIdentityRender( identityRemote ).c_str(), m_AuthenticationStatus.m_debugMsg );
+				return true; // Return true because the signal is valid, we just cannot do anything with it right now
 			}
 
 			// Determine virtual ports, and locate the listen socket, if any
