@@ -466,7 +466,7 @@ public:
 	///   exchanging a few messages.
 	/// - To assign all lanes the same priority, you may use pLanePriorities=NULL.
 	/// - If you wish all lanes with the same priority to share bandwidth equally (or
-	///   if no two lanes have the same priority value, and thus priority values are
+	///   if no two lanes have the same priority value, and thus weight values are
 	///   irrelevant), you may use pLaneWeights=NULL
 	/// - Priorities and weights determine the order that messages are SENT on the wire.
 	///   There are NO GUARANTEES on the order that messages are RECEIVED!  Due to packet
