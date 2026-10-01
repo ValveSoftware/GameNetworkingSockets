@@ -3962,6 +3962,9 @@ void SteamNetworkingSocketsLowLevelDecRef()
 void SteamNetworkingSocketsLowLevelValidate( CValidator &validator )
 {
 	ValidateRecursive( s_vecRawSockets );
+
+	// The service thread object itself.  (Not recursive; std::thread has nothing we can claim.)
+	validator.ClaimMemory( s_pServiceThread );
 }
 #endif
 
