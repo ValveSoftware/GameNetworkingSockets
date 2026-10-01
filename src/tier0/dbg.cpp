@@ -31,6 +31,7 @@ using namespace SteamNetworkingSocketsLib;
 
 #if IsLinux()
 #include <sys/ptrace.h>
+#include <fcntl.h>
 #endif
 
 #if IsOSX() || IsIOS() || IsTVOS() || IsFreeBSD() || IsOpenBSD()
@@ -92,32 +93,34 @@ bool Plat_IsInDebugSession()
 	    return false;
 	return ((info.p_psflags & PS_TRACED) != 0);
 #elif IsLinux()
-	static FILE *fp;
-	if ( !fp )
-	{
-		char rgchProcStatusFile[256]; rgchProcStatusFile[0] = '\0';
-		snprintf( rgchProcStatusFile, sizeof(rgchProcStatusFile), "/proc/%d/status", getpid() );
-		fp = fopen( rgchProcStatusFile, "r" );
-	}
+	//if ( RUNNING_ON_VALGRIND )
+	//	return true;
 
-	char rgchLine[256]; rgchLine[0] = '\0';
-	int nTracePid = 0;
-	if ( fp )
-	{
-		const char *pszSearchString = "TracerPid:";
-		const uint cchSearchString = strlen( pszSearchString );
-		rewind( fp );
-		while ( fgets( rgchLine, sizeof(rgchLine), fp ) )
-		{
-			if ( !strncasecmp( pszSearchString, rgchLine, cchSearchString ) )
-			{
-				char *pszVal = rgchLine+cchSearchString+1;
-				nTracePid = atoi( pszVal );
-				break;
-			}
-		}
-	}
-	return (nTracePid != 0);
+	int nFd = open( "/proc/self/status", O_RDONLY | O_CLOEXEC );
+	if ( nFd < 0 )
+		return false;
+
+	// TracerPid always appears within the first few lines of the status output,
+	// so a single 1024 bytes read should be enough to read the data.
+	char rgchStatus[ 1024 ];
+	ssize_t cbRead = read( nFd, rgchStatus, sizeof( rgchStatus ) - 1 );
+	close( nFd );
+	if ( cbRead <= 0 )
+		return false;
+
+	rgchStatus[ cbRead ] = '\0';
+
+	static constexpr const char rgchTracerPidPrefix[] = "TracerPid:\t";
+	const char *pszTracerPid = strstr( rgchStatus, rgchTracerPidPrefix );
+	if ( !pszTracerPid )
+		return false;
+
+	static constexpr size_t nValueOffset = sizeof( rgchTracerPidPrefix ) - 1;
+	if ( pszTracerPid + nValueOffset >= rgchStatus + cbRead )
+		return false;
+
+	// TracerPid: will always be '0' when no tracer is hooked to the process
+	return ( pszTracerPid[ nValueOffset ] != '0' );
 #elif IsPlaystation()
 	return Plat_IsInDebugSession_Playstation();
 #elif IsNintendoSwitch()
