@@ -92,6 +92,21 @@ void IPv6IPToString( char *pszOutText, const unsigned char *ip )
 	*p = '\0';
 }
 
+void IPv6IPToStringWithScope( char *pszOutText, const unsigned char *ip, uint32_t scope )
+{
+	char *p = pszOutText;
+	IPv6IPToString( p, ip );
+
+	if ( scope == 0 )
+		return;
+
+	while( *p )
+		++p;
+
+	snprintf( p, 12, "%%%d", scope );
+}
+
+
 void IPv6AddrToString( char *pszOutText, const unsigned char *ip, uint16_t port, uint32_t scope )
 {
 	char *p = pszOutText;

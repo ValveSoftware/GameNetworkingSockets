@@ -24,6 +24,11 @@ extern "C" {
 /// Your buffer MUST be at least k_cchMaxIPV6AddrStringWithoutPort bytes.
 extern void IPv6IPToString( char *pszOutText, const unsigned char *ip );
 
+/// Format an IPv6 address to the canonical form according to RFC5952.
+/// The address should be 16 bytes (e.g. same as in6_addr::s6_addr).
+/// Your buffer MUST be at least k_cchMaxIPV6AddrStringWithoutPort bytes.
+extern void IPv6IPToStringWithScope( char *pszOutText, const unsigned char *ip, uint32_t scope );
+
 /// Format IPv6 IP and port to string.  This uses the recommended
 /// bracket notation, eg [1234::1]:12345.  Your buffer MUST be
 /// at least k_cchMaxIPV6AddrStringWithPort bytes.
