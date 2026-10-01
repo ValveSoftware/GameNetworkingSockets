@@ -46,9 +46,9 @@ typedef char SteamNetworkingErrMsg[ 1024 ];
 
 	#define MSG_NOSIGNAL 0
 
-	inline bool SetSocketNonBlocking( SOCKET s )
+	inline bool SetSocketNonBlocking( SOCKET s, bool bNonBlocking = true )
 	{
-		unsigned long opt = 1;
+		unsigned long opt = bNonBlocking ? 1 : 0;
 		return ioctlsocket( s, FIONBIO, &opt ) == 0;
 	}
 
@@ -99,9 +99,9 @@ typedef char SteamNetworkingErrMsg[ 1024 ];
 
 	#define WAKE_THREAD_USING_SOCKET_PAIR
 
-	inline bool SetSocketNonBlocking( SOCKET s )
+	inline bool SetSocketNonBlocking( SOCKET s, bool bNonBlocking = true )
 	{
-		unsigned long opt = 1;
+		unsigned long opt = bNonBlocking ? 1 : 0;
 		return ioctl( s, FIONBIO, &opt ) == 0;
 	}
 
