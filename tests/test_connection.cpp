@@ -11,6 +11,7 @@
 
 #include <steam/steamnetworkingsockets.h>
 #include <steam/isteamnetworkingutils.h>
+#include <tier1/utlvector.h>
 #ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
 #include <steam/steam_api.h>
 #endif
@@ -1558,6 +1559,34 @@ void Test_send_buffer_full()
 	SteamNetworkingSockets()->CloseConnection( hRecver, 0, nullptr, false );
 }
 
+namespace SteamNetworkingSocketsLib {
+extern bool ResolveHostnameCached( const char* pszHostname, CUtlVector< SteamNetworkingIPAddr > *pAddrs );
+extern void ClearHostnameCache();
+}
+using SteamNetworkingSocketsLib::ResolveHostnameCached;
+using SteamNetworkingSocketsLib::ClearHostnameCache;
+
+static void Test_dns_cache()
+{
+	TEST_Printf( "Testing DNS resolution caching...\n" );
+
+	CUtlVector< SteamNetworkingIPAddr > addrs1;
+	bool b1 = ResolveHostnameCached( "127.0.0.1:3478", &addrs1 );
+	assert( b1 );
+	assert( addrs1.Count() >= 1 );
+	assert( addrs1[0].GetIPv4() == 0x7f000001 );
+	assert( addrs1[0].m_port == 3478 );
+
+	CUtlVector< SteamNetworkingIPAddr > addrs2;
+	bool b2 = ResolveHostnameCached( "127.0.0.1:3478", &addrs2 );
+	assert( b2 );
+	assert( addrs2.Count() >= 1 );
+	assert( addrs2[0].GetIPv4() == 0x7f000001 );
+
+	ClearHostnameCache();
+	TEST_Printf( "DNS resolution cache test passed!\n" );
+}
+
 int main( int argc, const char **argv  )
 {
 	typedef void (*FnTest)(void);
@@ -1577,7 +1606,8 @@ int main( int argc, const char **argv  )
 		TEST(lane_quick_priority_and_background),
 		TEST(pipe),
 		TEST(send_buffer_full),
-		TEST(recv_buf_full)
+		TEST(recv_buf_full),
+		TEST(dns_cache)
 	};
 
 	struct Suite_t {
@@ -1585,7 +1615,7 @@ int main( int argc, const char **argv  )
 		std::vector< Test_t > m_vecTests;
 	};
 	static const Suite_t test_suites[] = {
-		{ "suite-quick", { TEST(identity), TEST(quick), TEST(lane_quick_queueanddrain), TEST(lane_quick_priority_and_background), TEST(pipe), TEST(send_buffer_full), TEST(recv_buf_full) } }
+		{ "suite-quick", { TEST(identity), TEST(quick), TEST(lane_quick_queueanddrain), TEST(lane_quick_priority_and_background), TEST(pipe), TEST(send_buffer_full), TEST(recv_buf_full), TEST(dns_cache) } }
 	};
 
 	if ( argc < 2 )

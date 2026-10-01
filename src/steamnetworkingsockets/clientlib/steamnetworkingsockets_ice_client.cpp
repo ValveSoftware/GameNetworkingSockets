@@ -1205,7 +1205,7 @@ CSteamNetworkingICESession::CSteamNetworkingICESession( const ICESessionConfig& 
 			if ( V_strnicmp( pszHostname, "stun:", 5 ) == 0 )
 				pszHostname = pszHostname + 5;
 			CUtlVector< SteamNetworkingIPAddr > stunServers;
-			ResolveHostname( pszHostname, &stunServers );
+			ResolveHostnameCached( pszHostname, &stunServers );
 			m_vecSTUNServers.reserve( m_vecSTUNServers.size() + stunServers.Count() );
 			for ( const SteamNetworkingIPAddr &ip: stunServers )
 			{
@@ -1228,7 +1228,7 @@ CSteamNetworkingICESession::CSteamNetworkingICESession( const ICESessionConfig& 
 		if ( V_strnicmp( pszHostname, "turn:", 5 ) == 0 )
 			pszHostname = pszHostname + 5;
 		CUtlVector< SteamNetworkingIPAddr > turnServers;
-		ResolveHostname( pszHostname, &turnServers );
+		ResolveHostnameCached( pszHostname, &turnServers );
 		m_vecTURNServers.reserve( m_vecTURNServers.size() + turnServers.Count() );
 		m_vecTURNCredentials.reserve( m_vecTURNCredentials.size() + turnServers.Count() );
 		for ( const SteamNetworkingIPAddr &ip: turnServers )
@@ -2805,6 +2805,7 @@ CConnectionTransportP2PICE_Valve::CConnectionTransportP2PICE_Valve( CSteamNetwor
 void CConnectionTransportP2PICE_Valve::Init( const ICESessionConfig& cfg )
 {
 	AssertLocksHeldByCurrentThread( "CConnectionTransportP2PICE_Valve::Init" );
+	SteamNetworkingGlobalLock::SetLongLockWarningThresholdMS( "CConnectionTransportP2PICE_Valve::Init", 500 );
 
     Assert( m_pICESession == nullptr );
 	m_pICESession = new CSteamNetworkingICESession( cfg, this );
