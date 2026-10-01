@@ -25,6 +25,15 @@
 
 namespace SteamNetworkingSocketsLib {
 
+// Allow up to N seconds of grace when deciding if a remote cert has expired.
+// This is a hack we use when we think there is a chance that the user's
+// local clock might be off.  (Often their clock shows the correct time to
+// them, but they have the wrong time zone set.)  If we have an authoritative
+// source of time, we always prefer to use that and not enable this hack.
+// Allowing certs to live for an extra 24 hiours is not a huge security risk
+// in most cases.
+int s_csecsCertExpiryGrace = 0;
+
 template <typename T, T kInvalidItem >
 void CertAuthParameter<T,kInvalidItem>::SetIntersection( const CertAuthParameter<T,kInvalidItem> &a, const CertAuthParameter<T,kInvalidItem> &b )
 {
@@ -626,9 +635,10 @@ const CertAuthScope *CertStore_CheckCASignature( const std::string &signed_data,
 	}
 
 	// Is any part of the chain expired?
-	if ( pKey->m_effectiveAuthScope.m_timeExpiry < timeNow )
+	long long csecsExpired = timeNow - pKey->m_effectiveAuthScope.m_timeExpiry;
+	if ( csecsExpired > s_csecsCertExpiryGrace )
 	{
-		V_sprintf_safe( errMsg, "CA key %llu (or an antecedent) expired %lld seconds ago!", (unsigned long long)nCAKeyID, (long long)( timeNow - pKey->m_effectiveAuthScope.m_timeExpiry ) );
+		V_sprintf_safe( errMsg, "CA key %llu (or an antecedent) expired %lld seconds ago!", (unsigned long long)nCAKeyID, csecsExpired );
 		return nullptr;
 	}
 
@@ -851,3 +861,9 @@ void CertStore_ValidateStatics( CValidator &validator )
 #endif
 
 } // namespace SteamNetworkingSocketsLib
+
+extern "C" void SteamNetworkingSockets_CertStore_SetExpiryGraceSeconds( int csecs )
+{
+	Assert( csecs >= 0 );
+	SteamNetworkingSocketsLib::s_csecsCertExpiryGrace = csecs;
+}
