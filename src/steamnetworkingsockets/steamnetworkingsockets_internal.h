@@ -1145,6 +1145,10 @@ inline uint8 IPv4_TOS_DSCP( uint8 tos )
 	inline uint8 ResolveECNSendGlobal() { return 0; }
 #endif
 
+#ifdef STEAMNETWORKINGSOCKETS_STEAMCLIENT
+extern char g_szSteamInstallPath[256];
+#endif
+
 } // namespace SteamNetworkingSocketsLib
 
 #include <tier0/memdbgon.h>
