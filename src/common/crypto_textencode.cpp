@@ -1,4 +1,4 @@
-//========= Copyright Valve LLC, All rights reserved. ========================
+//========== Copyright (c) Valve Corporation. All Rights Reserved. ===========
 
 // Note: not using precompiled headers! This file is included directly by
 // several different projects and may include Crypto++ headers depending

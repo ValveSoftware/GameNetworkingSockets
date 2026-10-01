@@ -1,4 +1,4 @@
-//====== Copyright Valve Corporation, All rights reserved. ====================
+//========== Copyright (c) Valve Corporation. All Rights Reserved. ============
 
 #ifndef CSTEAMNETWORKINGMESSAGES_H
 #define CSTEAMNETWORKINGMESSAGES_H

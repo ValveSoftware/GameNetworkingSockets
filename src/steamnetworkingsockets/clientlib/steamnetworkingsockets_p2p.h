@@ -1,4 +1,4 @@
-//====== Copyright Valve Corporation, All rights reserved. ====================
+//========== Copyright (c) Valve Corporation. All Rights Reserved. ============
 
 #ifndef STEAMNETWORKINGSOCKETS_P2P_H
 #define STEAMNETWORKINGSOCKETS_P2P_H

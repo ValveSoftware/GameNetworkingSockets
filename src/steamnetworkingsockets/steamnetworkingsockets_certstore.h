@@ -1,4 +1,4 @@
-//====== Copyright Valve Corporation, All rights reserved. ====================
+//========== Copyright (c) Valve Corporation. All Rights Reserved. ============
 //
 // Implements a store of CA certificates, e.g. certificates that are not
 // assigned to a particular identity.  Also contains functions for checking

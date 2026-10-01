@@ -1,4 +1,4 @@
-//====== Copyright Valve Corporation, All rights reserved. ====================
+//========== Copyright (c) Valve Corporation. All Rights Reserved. ============
 
 // Ug, I didn't know ostream used exceptions.  Isn't there a decent
 // stream implementation that won't bring in 10000000000 dependencies?

@@ -1,4 +1,4 @@
-//====== Copyright Valve Corporation, All rights reserved. ====================
+//========== Copyright (c) Valve Corporation. All Rights Reserved. ============
 //
 // Wire format messages for Steam networking sockets.
 // These messages are used for all connection types (relayed and direct)

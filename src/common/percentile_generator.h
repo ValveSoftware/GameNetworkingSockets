@@ -1,4 +1,4 @@
-//====== Copyright Valve Corporation, All rights reserved. ====================
+//========== Copyright (c) Valve Corporation. All Rights Reserved. ============
 
 #ifndef PERCENTILE_GENERATOR_H
 #define PERCENTILE_GENERATOR_H
