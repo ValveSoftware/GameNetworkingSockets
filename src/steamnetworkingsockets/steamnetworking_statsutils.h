@@ -68,10 +68,10 @@ extern void LinkStatsLifetimeMsgToStruct( const CMsgSteamDatagramLinkLifetimeSta
 /// Track the rate that something is happening
 struct Rate_t
 {
-	void Reset() { memset( this, 0, sizeof(*this) ); }
+	void Reset() { m_nCurrentInterval = 0; m_nAccumulator = 0; m_flRate = 0.0f; }
 
 	int64	m_nCurrentInterval;
-	int64	m_nAccumulator; // does not include the currentinterval
+	int64	m_nAccumulator; // does not include the current interval
 	float	m_flRate;
 
 	int64 Total() const { return m_nAccumulator + m_nCurrentInterval; }
@@ -96,13 +96,42 @@ struct Rate_t
 	}
 };
 
+/// Track a count of something that can reset on the interval.
+/// This is very clearly a glorified int - the important thing is
+/// that it has the same interface as Rate_t, so we can handle a
+/// bunch of counters the same, we just use a different counter
+/// class based on whether we actually need an instantaneous rate
+/// and/or lifetime count
+struct SimpleCount_t
+{
+	void Reset() { m_nCurrentInterval = 0; }
+
+	int64	m_nCurrentInterval;
+
+	inline void Process( int64 nIncrement )
+	{
+		m_nCurrentInterval += nIncrement;
+	}
+
+	inline void UpdateInterval( float /* flIntervalDuration */ )
+	{
+		m_nCurrentInterval = 0;
+	}
+
+	inline void operator+=( const SimpleCount_t &x )
+	{
+		m_nCurrentInterval += x.m_nCurrentInterval;
+	}
+};
+
 /// Track flow rate (number and bytes)
-struct PacketRate_t
+template<typename TCtr>
+struct PacketCountAndBytes_t
 {
 	void Reset() { memset( this, 0, sizeof(*this) ); }
 
-	Rate_t m_packets;
-	Rate_t m_bytes;
+	TCtr m_packets;
+	TCtr m_bytes;
 
 	inline void ProcessPacket( int sz )
 	{
@@ -116,12 +145,16 @@ struct PacketRate_t
 		m_bytes.UpdateInterval( flIntervalDuration );
 	}
 
-	inline void operator+=( const PacketRate_t &x )
+	inline void operator+=( const PacketCountAndBytes_t<TCtr> &x )
 	{
 		m_packets += x.m_packets;
 		m_bytes += x.m_bytes;
 	}
 };
+
+using PacketSimpleCount_t = PacketCountAndBytes_t<SimpleCount_t>;
+using PacketRate_t = PacketCountAndBytes_t<Rate_t>;
+
 
 /// Class used to track ping values
 struct PingTracker
