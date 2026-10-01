@@ -1,4 +1,4 @@
-//========= Copyright Valve LLC, All rights reserved. =========================
+//========== Copyright (c) Valve Corporation. All Rights Reserved. ============
 
 #ifndef CRYPTO_25519_H
 #define CRYPTO_25519_H

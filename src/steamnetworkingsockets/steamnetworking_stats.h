@@ -1,4 +1,4 @@
-//====== Copyright Valve Corporation, All rights reserved. ====================
+//========== Copyright (c) Valve Corporation. All Rights Reserved. ============
 //
 // Some public types for communicating detailed connection stats
 //

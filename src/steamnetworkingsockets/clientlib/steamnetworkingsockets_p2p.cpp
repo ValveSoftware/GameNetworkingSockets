@@ -1,4 +1,4 @@
-//====== Copyright Valve Corporation, All rights reserved. ====================
+//========== Copyright (c) Valve Corporation. All Rights Reserved. ============
 
 #include "steamnetworkingsockets_p2p.h"
 #include "csteamnetworkingsockets.h"

@@ -1,4 +1,4 @@
-//====== Copyright Valve Corporation, All rights reserved. ====================
+//========== Copyright (c) Valve Corporation. All Rights Reserved. ============
 //
 // Utilities that are useful to central/backend/matchmaking servers
 // to interface with the Steam datagram relay network

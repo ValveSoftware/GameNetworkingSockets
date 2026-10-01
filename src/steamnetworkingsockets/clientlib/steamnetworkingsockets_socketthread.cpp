@@ -1,4 +1,4 @@
-//====== Copyright Valve Corporation, All rights reserved. ====================
+//========== Copyright (c) Valve Corporation. All Rights Reserved. ============
 //
 // Socket and service thread management for SteamNetworkingSockets.
 //

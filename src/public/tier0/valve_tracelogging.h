@@ -1,4 +1,4 @@
-//====== Copyright Valve Corporation, All rights reserved. ====================
+//========== Copyright (c) Valve Corporation. All Rights Reserved. ============
 //
 // Define a very thin wrapper around ETW TraceLogging.  This is the newest
 // way Microsoft has made to emit ETW events that does not require you to

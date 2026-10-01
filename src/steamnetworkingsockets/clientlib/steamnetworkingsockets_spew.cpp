@@ -1,4 +1,4 @@
-//====== Copyright Valve Corporation, All rights reserved. ====================
+//========== Copyright (c) Valve Corporation. All Rights Reserved. ============
 //
 // Diagnostic output/logging ("spew") for SteamNetworkingSockets.
 //

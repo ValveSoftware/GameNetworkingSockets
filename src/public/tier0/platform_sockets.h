@@ -1,4 +1,4 @@
-//====== Copyright Valve Corporation, All rights reserved. ====================
+//========== Copyright (c) Valve Corporation. All Rights Reserved. ============
 //
 // Include the relevant platform-specific headers for socket-related
 // stuff, and declare some functions make them look as similar to

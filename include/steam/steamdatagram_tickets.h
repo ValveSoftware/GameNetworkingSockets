@@ -1,4 +1,4 @@
-//====== Copyright Valve Corporation, All rights reserved. ====================
+//========== Copyright (c) Valve Corporation. All Rights Reserved. ============
 //
 // Types and utilities for handling steam datagram tickets.  These are
 // useful for both the client and the backend ticket generating authority.

@@ -1,4 +1,4 @@
-//========= Copyright Valve LLC, All rights reserved. ========================
+//========== Copyright (c) Valve Corporation. All Rights Reserved. ===========
 
 #include <tier0/dbg.h>
 #include "crypto.h"

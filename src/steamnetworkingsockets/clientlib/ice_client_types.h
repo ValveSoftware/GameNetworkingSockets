@@ -1,4 +1,4 @@
-//===================== Copyright (c) Valve Corporation. All Rights Reserved. ======================
+//========== Copyright (c) Valve Corporation. All Rights Reserved. =================================
 //
 // Some types used to interface with different ICE client implementations
 

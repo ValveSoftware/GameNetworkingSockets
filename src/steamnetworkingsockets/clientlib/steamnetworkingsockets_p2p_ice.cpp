@@ -1,4 +1,4 @@
-//====== Copyright Valve Corporation, All rights reserved. ====================
+//========== Copyright (c) Valve Corporation. All Rights Reserved. ============
 
 #include "../steamnetworkingsockets_internal.h"
 #ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE

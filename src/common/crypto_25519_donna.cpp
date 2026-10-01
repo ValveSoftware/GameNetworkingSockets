@@ -1,4 +1,4 @@
-//========= Copyright Valve LLC, All rights reserved. ========================
+//========== Copyright (c) Valve Corporation. All Rights Reserved. ===========
 
 #include "crypto.h"
 #include "crypto_25519.h"
