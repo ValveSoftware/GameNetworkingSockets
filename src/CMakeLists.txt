@@ -401,7 +401,8 @@ macro(set_clientlib_target_properties GNS_TARGET)
 	elseif(CMAKE_SYSTEM_NAME MATCHES OpenBSD)
 
 	elseif(CMAKE_SYSTEM_NAME MATCHES Android)
-
+		# Static protobuf references __android_log_write
+		target_link_libraries(${GNS_TARGET} PUBLIC log)
 	elseif(CMAKE_SYSTEM_NAME MATCHES Windows)
 		if(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
 			get_target_property(TARGET_TYPE ${GNS_TARGET} TYPE)
