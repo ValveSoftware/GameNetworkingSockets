@@ -446,6 +446,17 @@ FAILURE_TEST_CASES = [
             },
             expected_candidates=( {'host': 1}, {'host': 1} ) ) ),
 
+    # Same as above, but the dead STUN server is listed twice (like several hostnames
+    # resolving to one IP).  The duplicate is skipped, so the server is tried once and
+    # then discovery gives up, instead of failing over to the same entry forever.  The
+    # longer connection timeout leaves room for more attempts, which must not happen.
+    ( 'STUN unavailable, duplicate server entries',
+      _nat( _SRV_INT, _SRV_GW, 'full-cone' ) + [ '--timeout-ms', '16000' ],
+      _nat( _CLI_INT, _CLI_GW, 'full-cone' ) + [ '--timeout-ms', '16000' ],
+      dict( stun='%s,%s' % ( _DEAD_SERVER, _DEAD_SERVER ), turn=None,
+            expected_counters={ 'binding_req_retx': (4, 4) },
+            expected_candidates=( {'host': 1}, {'host': 1} ) ) ),
+
     # TURN not configured: symmetric NAT requires relay; without it the connection must fail.
     # Connectivity checks to srflx candidates retransmit 4 times before giving up.
     ( 'TURN not configured (symmetric NAT)',
@@ -471,6 +482,18 @@ FAILURE_TEST_CASES = [
                 'allocate_send':      (1, None),
                 'data_ind_recv':      (0, 0),
                 'binding_req_retx':   (4, 4),
+                'allocate_retx':      (4, 4),
+            },
+            expected_candidates=( _CAND_NAT_NO_TURN, _CAND_NAT_NO_TURN ) ) ),
+
+    # Same as above, but the dead TURN server is listed twice.  The duplicate is
+    # skipped, so there is one allocate attempt and then relay discovery gives up.
+    ( 'TURN unreachable, duplicate server entries (symmetric NAT)',
+      _nat( _SRV_INT, _SRV_GW, 'symmetric' ) + [ '--timeout-ms', '16000' ],
+      _nat( _CLI_INT, _CLI_GW, 'symmetric' ) + [ '--timeout-ms', '16000' ],
+      dict( turn='%s,%s' % ( _DEAD_SERVER, _DEAD_SERVER ),
+            expected_counters={
+                'allocate_send':      (1, 1),
                 'allocate_retx':      (4, 4),
             },
             expected_candidates=( _CAND_NAT_NO_TURN, _CAND_NAT_NO_TURN ) ) ),
