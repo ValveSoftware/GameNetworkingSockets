@@ -346,6 +346,8 @@ extern void WakeServiceThread();
 extern bool IsRouteToAddressProbablyLocal( netadr_t addr );
 
 extern bool ResolveHostname( const char* pszHostname, CUtlVector< SteamNetworkingIPAddr > *pAddrs );
+extern bool ResolveHostnameCached( const char* pszHostname, CUtlVector< SteamNetworkingIPAddr > *pAddrs );
+extern void ClearHostnameCache();
 
 struct LocalAddress_t
 {

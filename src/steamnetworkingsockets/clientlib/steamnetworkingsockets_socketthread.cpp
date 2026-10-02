@@ -11,6 +11,8 @@
 #include <thread>
 #include <mutex>
 #include <atomic>
+#include <unordered_map>
+#include <string>
 
 #include "steamnetworkingsockets_lowlevel.h"
 #include "steamnetworkingsockets_mock.h"
@@ -4048,6 +4050,58 @@ bool ResolveHostname( const char* pszHostname, CUtlVector< SteamNetworkingIPAddr
 	pAddrs->AddToTail( addr );
 	return true;
 #endif
+}
+
+static std::mutex s_dnsCacheMutex;
+static std::unordered_map<std::string, CUtlVector<SteamNetworkingIPAddr>> s_dnsCache;
+
+bool ResolveHostnameCached( const char* pszHostname, CUtlVector< SteamNetworkingIPAddr > *pAddrs )
+{
+	if ( !pszHostname || !*pszHostname )
+		return false;
+
+	{
+		SteamNetworkingIPAddr addr;
+		if ( addr.ParseString( pszHostname ) )
+		{
+			pAddrs->AddToTail( addr );
+			return true;
+		}
+	}
+
+	std::string sKey( pszHostname );
+	{
+		std::lock_guard<std::mutex> lock( s_dnsCacheMutex );
+		auto it = s_dnsCache.find( sKey );
+		if ( it != s_dnsCache.end() )
+		{
+			for ( int i = 0; i < it->second.Count(); ++i )
+			{
+				pAddrs->AddToTail( it->second[i] );
+			}
+			return true;
+		}
+	}
+
+	CUtlVector<SteamNetworkingIPAddr> resolved;
+	bool bOk = ResolveHostname( pszHostname, &resolved );
+	if ( bOk && resolved.Count() > 0 )
+	{
+		std::lock_guard<std::mutex> lock( s_dnsCacheMutex );
+		s_dnsCache[sKey] = resolved;
+		for ( int i = 0; i < resolved.Count(); ++i )
+		{
+			pAddrs->AddToTail( resolved[i] );
+		}
+		return true;
+	}
+	return bOk;
+}
+
+void ClearHostnameCache()
+{
+	std::lock_guard<std::mutex> lock( s_dnsCacheMutex );
+	s_dnsCache.clear();
 }
 
 inline bool GetLocalAddresses_IsReserved( const SteamNetworkingIPAddr &ipAddr )

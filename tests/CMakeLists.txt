@@ -12,6 +12,7 @@ add_executable(
 	test_common.cpp
 	test_connection.cpp)
 set_target_common_gns_properties( test_connection )
+target_include_directories(test_connection PRIVATE ../src ../src/public ../src/common ../include)
 target_link_libraries(test_connection ${GAMENETWORKINGSOCKETS_LIB})
 add_sanitizers(test_connection)
 add_test(NAME connection_quick COMMAND test_connection suite-quick WORKING_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
