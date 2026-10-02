@@ -12,6 +12,10 @@
 #include "crypto.h"
 #include "steamnetworkingsockets_mock.h"
 
+#include <atomic>
+#include <mutex>
+#include <thread>
+
 // Put everything in a namespace, so we don't violate the one definition rule
 namespace SteamNetworkingSocketsLib {
 
@@ -1174,6 +1178,118 @@ bool ICESessionInterface::SendPacketGather( int nChunks, const iovec *pChunks, i
 // CSteamNetworkingICESession
 //
 /////////////////////////////////////////////////////////////////////////////
+
+struct ICEServerEntry
+{
+	bool m_bIsTURN = false;
+	std::string m_strHost;
+	std::string m_strUsername;
+	std::string m_strPassword;
+	std_vector< netadr_t > m_vecAddrs;
+};
+
+struct ICEDNSResolveState
+{
+	std_vector< ICEServerEntry > m_vecEntries; // Written by the worker before m_bDone is set
+	std::atomic<bool> m_bDone{ false };
+};
+
+using ICEDNSThreads = std_vector< std::pair< std::thread, std::shared_ptr<ICEDNSResolveState> > >;
+
+// Leaked on purpose: joinable threads would terminate at exit.
+static std::mutex s_mutexDNSThreads;
+static ICEDNSThreads &s_vecDNSThreads = *new ICEDNSThreads;
+
+static void AddICEDNSThread( std::thread thread, std::shared_ptr<ICEDNSResolveState> pState )
+{
+	std::lock_guard<std::mutex> lock( s_mutexDNSThreads );
+	for ( auto it = s_vecDNSThreads.begin(); it != s_vecDNSThreads.end(); )
+	{
+		if ( it->second->m_bDone )
+		{
+			it->first.join();
+			it = s_vecDNSThreads.erase( it );
+		}
+		else
+		{
+			++it;
+		}
+	}
+	s_vecDNSThreads.emplace_back( std::move( thread ), std::move( pState ) );
+}
+
+void JoinICEDNSThreads()
+{
+	ICEDNSThreads vecThreads;
+	{
+		std::lock_guard<std::mutex> lock( s_mutexDNSThreads );
+		vecThreads.swap( s_vecDNSThreads );
+	}
+	for ( auto &thread : vecThreads )
+		thread.first.join();
+}
+
+static void ResolveServers( std_vector< ICEServerEntry > &vecEntries )
+{
+	for ( ICEServerEntry &entry : vecEntries )
+	{
+		CUtlVector< SteamNetworkingIPAddr > vecResolved;
+		ResolveHostname( entry.m_strHost.c_str(), &vecResolved );
+		for ( const SteamNetworkingIPAddr &ip : vecResolved )
+		{
+			netadr_t adr;
+			SteamNetworkingIPAddrToNetAdr( adr, ip );
+			entry.m_vecAddrs.push_back( adr );
+		}
+	}
+}
+
+static void RunICEDNSResolveWorker( std::shared_ptr<ICEDNSResolveState> pState, std_vector< ICEServerEntry > vecEntries )
+{
+	ResolveServers( vecEntries );
+
+	pState->m_vecEntries = std::move( vecEntries );
+	pState->m_bDone = true;
+}
+
+void CSteamNetworkingICESession::AddServers( std_vector< ICEServerEntry > &vecEntries )
+{
+	for ( const ICEServerEntry &entry : vecEntries )
+	{
+		for ( const netadr_t &adr : entry.m_vecAddrs )
+		{
+			if ( !entry.m_bIsTURN )
+			{
+				m_vecSTUNServers.push_back( adr );
+				continue;
+			}
+
+			m_vecTURNServers.push_back( adr );
+			TURNCredentials cred;
+			cred.m_strUsername = entry.m_strUsername;
+			cred.m_strPassword = entry.m_strPassword;
+			m_vecTURNCredentials.push_back( std::move( cred ) );
+
+			if ( ClassifyIP( adr ) & k_nIPClassify_LAN )
+				m_bAnyTURNServerLANAddress = true;
+		}
+	}
+}
+
+// Discovery skips empty server lists until the lookups finish.
+void CSteamNetworkingICESession::Think_ApplyPendingDNSResults()
+{
+	if ( !m_pDNSResolveState )
+		return;
+
+	if ( !m_pDNSResolveState->m_bDone )
+		return;
+	std_vector< ICEServerEntry > vecEntries = std::move( m_pDNSResolveState->m_vecEntries );
+	m_pDNSResolveState.reset();
+
+	AddServers( vecEntries );
+}
+
 CSteamNetworkingICESession::CSteamNetworkingICESession( EICERole role, CSteamNetworkingICESessionCallbacks *pCallbacks, int nEncoding )
 {
     m_nEncoding = nEncoding;
@@ -1198,27 +1314,32 @@ CSteamNetworkingICESession::CSteamNetworkingICESession( const ICESessionConfig& 
 
 	m_vecSTUNServers.reserve( cfg.m_nStunServers );
 
+	std_vector< ICEServerEntry > vecEntries;
+	bool bAllLiterals = true;
+	auto AddEntry = [&]( bool bIsTURN, const char *pszHost, const char *pszUsername, const char *pszPassword )
 	{
-		for ( int i = 0; i < cfg.m_nStunServers; ++i )
-		{
-			const char *pszHostname = cfg.m_pStunServers[i];
-			if ( V_strnicmp( pszHostname, "stun:", 5 ) == 0 )
-				pszHostname = pszHostname + 5;
-			CUtlVector< SteamNetworkingIPAddr > stunServers;
-			ResolveHostname( pszHostname, &stunServers );
-			m_vecSTUNServers.reserve( m_vecSTUNServers.size() + stunServers.Count() );
-			for ( const SteamNetworkingIPAddr &ip: stunServers )
-			{
-				netadr_t adr;
-				SteamNetworkingIPAddrToNetAdr( adr, ip );
-				m_vecSTUNServers.push_back( adr );
-			}
-		}
+		ICEServerEntry entry;
+		entry.m_bIsTURN = bIsTURN;
+		entry.m_strHost = pszHost;
+		entry.m_strUsername = pszUsername;
+		entry.m_strPassword = pszPassword;
+		vecEntries.push_back( std::move( entry ) );
+
+		SteamNetworkingIPAddr addr;
+		if ( !addr.ParseString( pszHost ) )
+			bAllLiterals = false;
+	};
+
+	for ( int i = 0; i < cfg.m_nStunServers; ++i )
+	{
+		const char *pszHostname = cfg.m_pStunServers[i];
+		if ( V_strnicmp( pszHostname, "stun:", 5 ) == 0 )
+			pszHostname = pszHostname + 5;
+		AddEntry( false, pszHostname, "", "" );
 	}
 
 	m_vecTURNServers.reserve( cfg.m_nTurnServers );
-	m_vecTURNCredentials.reserve( cfg.m_nTurnServers );
-	for ( int i = 0; i < cfg.m_nTurnServers; ++i )
+	m_vecTURNCredentials.reserve( cfg.m_nTurnServers );	for ( int i = 0; i < cfg.m_nTurnServers; ++i )
 	{
 		const char *pszHostname = cfg.m_pTurnServers[i].m_pszHost;
 		if ( pszHostname == nullptr )
@@ -1227,29 +1348,19 @@ CSteamNetworkingICESession::CSteamNetworkingICESession( const ICESessionConfig& 
 		const char *pszPassword = cfg.m_pTurnServers[i].m_pszPwd     ? cfg.m_pTurnServers[i].m_pszPwd     : "";
 		if ( V_strnicmp( pszHostname, "turn:", 5 ) == 0 )
 			pszHostname = pszHostname + 5;
-		CUtlVector< SteamNetworkingIPAddr > turnServers;
-		ResolveHostname( pszHostname, &turnServers );
-		m_vecTURNServers.reserve( m_vecTURNServers.size() + turnServers.Count() );
-		m_vecTURNCredentials.reserve( m_vecTURNCredentials.size() + turnServers.Count() );
-		for ( const SteamNetworkingIPAddr &ip: turnServers )
-		{
-			netadr_t adr;
-			SteamNetworkingIPAddrToNetAdr( adr, ip );
-			m_vecTURNServers.push_back( adr );
-			TURNCredentials cred;
-			cred.m_strUsername = pszUsername;
-			cred.m_strPassword = pszPassword;
-			m_vecTURNCredentials.push_back( std::move( cred ) );
-		}
+		AddEntry( true, pszHostname, pszUsername, pszPassword );
 	}
 
-	for ( const netadr_t &srv : m_vecTURNServers )
+	// Global lock is held here, so hostnames are resolved in the background.
+	if ( bAllLiterals )
 	{
-		if ( ClassifyIP( srv ) & k_nIPClassify_LAN )
-		{
-			m_bAnyTURNServerLANAddress = true;
-			break;
-		}
+		ResolveServers( vecEntries );
+		AddServers( vecEntries );
+	}
+	else
+	{
+		m_pDNSResolveState = std::make_shared<ICEDNSResolveState>();
+		AddICEDNSThread( std::thread( RunICEDNSResolveWorker, m_pDNSResolveState, std::move( vecEntries ) ), m_pDNSResolveState );
 	}
 
 	m_nPermittedCandidateTypes = cfg.m_nCandidateTypes;
@@ -1923,6 +2034,8 @@ void CSteamNetworkingICESession::Think( SteamNetworkingMicroseconds usecNow )
 	SteamNetworkingGlobalLock::AssertHeldByCurrentThread( "CSteamNetworkingICESession::Think" );
 
     SetNextThinkTime( usecNow + SteamNetworkingMicroseconds( 50000 ) ); // 50ms think rate
+
+    Think_ApplyPendingDNSResults();
 
     if ( m_bInterfaceListStale )
     {
