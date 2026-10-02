@@ -1211,7 +1211,10 @@ CSteamNetworkingICESession::CSteamNetworkingICESession( const ICESessionConfig& 
 			{
 				netadr_t adr;
 				SteamNetworkingIPAddrToNetAdr( adr, ip );
-				m_vecSTUNServers.push_back( adr );
+
+				// Skip duplicates, so a dead server listed twice is only tried once.
+				if ( index_of( m_vecSTUNServers, adr ) < 0 )
+					m_vecSTUNServers.push_back( adr );
 			}
 		}
 	}
@@ -1235,6 +1238,11 @@ CSteamNetworkingICESession::CSteamNetworkingICESession( const ICESessionConfig& 
 		{
 			netadr_t adr;
 			SteamNetworkingIPAddrToNetAdr( adr, ip );
+
+			// Skip duplicates, keeping the first entry's credentials.  Credentials
+			// are looked up by address, so a later duplicate could never use its own.
+			if ( index_of( m_vecTURNServers, adr ) >= 0 )
+				continue;
 			m_vecTURNServers.push_back( adr );
 			TURNCredentials cred;
 			cred.m_strUsername = pszUsername;
