@@ -125,6 +125,8 @@ bool Plat_IsInDebugSession()
 	return Plat_IsInDebugSession_Playstation();
 #elif IsNintendoSwitch()
 	return false;
+#elif IsAndroid()
+	return false;
 #else
 	#error "HALP"
 #endif
