@@ -111,6 +111,13 @@ extern void CertStore_Reset();
 /// only if there was a parse error.  DOES NOT check for expiry or validate any signatures, etc.
 extern bool CertStore_AddCertFromBase64( const char *pszBase64, SteamNetworkingErrMsg &errMsg );
 
+/// Add a cert that the application has explicitly asked us to trust.  Accepts either a
+/// PEM-like blob or the raw base-64 body of one.  Unlike certs added by
+/// CertStore_AddCertFromBase64, if such a cert is self-signed, it is accepted as a trusted
+/// root, even when a hardcoded root CA key is in use.  (The hardcoded key remains trusted.)
+/// Returns false only if there was a parse error.
+extern bool CertStore_AddTrustedCertFromPEM( const char *pszCert, SteamNetworkingErrMsg &errMsg );
+
 /// Adds a key revocation entry.
 extern void CertStore_AddKeyRevocation( uint64 key_id );
 
