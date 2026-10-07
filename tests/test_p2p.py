@@ -20,6 +20,7 @@ g_failed = False
 g_server_ready = threading.Event()
 g_stun_ready = threading.Event()
 g_turn_lan_ready = threading.Event()
+g_stun_loopback_ready = threading.Event()
 g_server_startup_timeout = 30  # seconds.  Generous, because cold-starting a second Python interpreter on a Windows CI runner can take several seconds.
 g_spew_level = None
 g_p2p_rendezvous_level = None
@@ -241,6 +242,8 @@ _SRV_INT2 = '127.0.3.2'    # second server internal address
 _CLI_INT2 = '127.0.4.2'    # second client internal address
 _DEAD_INT = '127.0.9.2'    # address used for disabled adapters
 _CLI_SAME_LAN = '127.0.1.3' # client on the same /24 private LAN as _SRV_INT
+_SRV_LO   = '127.0.0.2'    # server adapter that can reach "localhost"
+_CLI_LO   = '127.0.0.3'    # client adapter that can reach "localhost"
 
 # Mock network address constants -- IPv6
 # Mirrors the IPv4 layout: fd7f:0:100::x = public, fd7f:0:X::x = private LAN X
@@ -253,7 +256,7 @@ _CLI_INT_V6 = 'fd7f:0:2::2'    # client internal address behind NAT (IPv6)
 _ALL_MOCK_ADDRS = [
     g_stun_ip,
     _SRV_GW, _CLI_GW, _SRV_GW2, _CLI_GW2,
-    _SRV_INT, _CLI_INT, _SRV_INT2, _CLI_INT2, _DEAD_INT, _CLI_SAME_LAN,
+    _SRV_INT, _CLI_INT, _SRV_INT2, _CLI_INT2, _DEAD_INT, _CLI_SAME_LAN, _SRV_LO, _CLI_LO,
     g_stun_ipv6,
     _SRV_GW_V6, _CLI_GW_V6, _SRV_INT_V6, _CLI_INT_V6,
 ]
@@ -383,6 +386,12 @@ def _parse_candidate_log( filename ):
 # Packets are sent successfully but never answered, so the connection timeout drives failure.
 _DEAD_SERVER = '%s:9999' % g_stun_ip
 
+# Hostname servers.  The mock network only reaches "localhost" from adapters on 127.0.0.0/24.
+_STUN_LOOPBACK_PORT = 3480
+_LOCALHOST_SERVER = 'localhost:%d' % _STUN_LOOPBACK_PORT
+_DEAD_LOCALHOST_SERVER = 'localhost:9999'
+_TURN_CREDENTIAL_ARGS = [ '--turn-username', _TURN_USERNAME, '--turn-password', _TURN_PASSWORD ]
+
 
 def ClientServerExpectedFailureTest( server_extra_args=[], client_extra_args=[], ice_impl=1,
                                      stun=_DEFAULT_STUN, turn=_DEFAULT_TURN,
@@ -498,6 +507,20 @@ FAILURE_TEST_CASES = [
             },
             expected_candidates=( _CAND_NAT_NO_TURN, _CAND_NAT_NO_TURN ) ) ),
 
+    # Same as the duplicate cases above, but with hostnames, which are added after a
+    # background lookup.  Private candidates are disabled so the adapters can't connect directly.
+    ( 'STUN and TURN unreachable, duplicate hostname entries',
+      [ '--mock-adapter', _SRV_LO, '--ice-enable', str(_ICE_ENABLE_RELAY | _ICE_ENABLE_PUBLIC), '--timeout-ms', '16000' ] + _TURN_CREDENTIAL_ARGS,
+      [ '--mock-adapter', _CLI_LO, '--ice-enable', str(_ICE_ENABLE_RELAY | _ICE_ENABLE_PUBLIC), '--timeout-ms', '16000' ] + _TURN_CREDENTIAL_ARGS,
+      dict( stun='%s,%s' % ( _DEAD_LOCALHOST_SERVER, _DEAD_LOCALHOST_SERVER ),
+            turn='%s,%s' % ( _DEAD_LOCALHOST_SERVER, _DEAD_LOCALHOST_SERVER ),
+            expected_counters={
+                'srflx_send':         (1, 1),
+                'binding_req_retx':   (4, 4),
+                'allocate_send':      (1, 1),
+                'allocate_retx':      (4, 4),
+            } ) ),
+
     # TURN wrong password: the server sends a 401 challenge; the client retries with a
     # bad HMAC (wrong password) and gets a second 401, marking relay as failed.
     # allocate_send=2: initial (no auth) + one retry (wrong credentials).
@@ -587,6 +610,21 @@ CLIENT_SERVER_TEST_CASES = [
     ( 'no-mock, native ICE implementation',
       [], [],
       'local', 1, None, None, {'stun': None, 'turn': None} ),
+
+    # Hostname STUN and TURN servers.  The relay candidate needs the right TURN credentials.
+    ( 'hostname STUN and TURN servers',
+      [ '--mock-adapter', _SRV_LO ] + _TURN_CREDENTIAL_ARGS,
+      [ '--mock-adapter', _CLI_LO ] + _TURN_CREDENTIAL_ARGS,
+      'local', 1, { 'srflx_send': (1, None), 'allocate_send': (1, None) },
+      ( _CAND_DIRECT_TURN, _CAND_DIRECT_TURN ),
+      {'stun': _LOCALHOST_SERVER, 'turn': _LOCALHOST_SERVER} ),
+
+    # Same, relay only.  The TURN server is on a LAN address, so non-public peers need permissions.
+    ( 'hostname TURN server (relay only)',
+      [ '--mock-adapter', _SRV_LO, '--ice-enable', str(_ICE_ENABLE_RELAY) ] + _TURN_CREDENTIAL_ARGS,
+      [ '--mock-adapter', _CLI_LO, '--ice-enable', str(_ICE_ENABLE_RELAY) ] + _TURN_CREDENTIAL_ARGS,
+      'relay', 1, _CTR_RELAY, None,
+      {'stun': None, 'turn': _LOCALHOST_SERVER} ),
 
     # Both on the same private /24 LAN: the core case for 'local' classification.
     # No NAT, so STUN mapped address == host address; srflx is suppressed.
@@ -866,6 +904,18 @@ if g_turn_lan_ip:
 else:
     print( "No LAN IP found; LAN relay tests will be skipped" )
 
+# STUN/TURN server on loopback, for the "localhost" cases.
+stun_loopback = StartProcessInThread( "stun_loopback", [ sys.executable, stun_server_script,
+                                                         '--host', '127.0.0.1', '--port', str(_STUN_LOOPBACK_PORT),
+                                                         '--username', _TURN_USERNAME, '--password', _TURN_PASSWORD ],
+                                      ready_message="STUN/TURN server listening on", ready_event=g_stun_loopback_ready )
+if not g_stun_loopback_ready.wait( timeout=g_server_startup_timeout ):
+    print( "ERROR: loopback STUN server failed to start within %d seconds" % g_server_startup_timeout )
+    g_failed = True
+    stun_loopback.term()
+    stun.term()
+    sys.exit(1)
+
 # Start the signaling server
 trivial_signaling_server = './trivial_signaling_server.py'
 if not os.path.exists( trivial_signaling_server ):
@@ -969,6 +1019,7 @@ really_failed = g_failed
 
 signaling.term()
 stun.term()
+stun_loopback.term()
 if turn_lan is not None:
     turn_lan.term()
 

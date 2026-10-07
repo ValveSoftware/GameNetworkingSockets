@@ -3870,6 +3870,10 @@ void SteamNetworkingSocketsLowLevelDecRef()
 	if ( s_pServiceThread )
 		StopServiceThread();
 
+	#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+		JoinICEDNSThreads();
+	#endif
+
 	// Destory wake communication objects
 	#if defined( _WIN32 )
 		if ( s_hEventWakeThread != INVALID_HANDLE_VALUE )

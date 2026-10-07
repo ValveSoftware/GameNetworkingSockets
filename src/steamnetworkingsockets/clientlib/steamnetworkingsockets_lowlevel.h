@@ -347,6 +347,11 @@ extern bool IsRouteToAddressProbablyLocal( netadr_t addr );
 
 extern bool ResolveHostname( const char* pszHostname, CUtlVector< SteamNetworkingIPAddr > *pAddrs );
 
+#ifdef STEAMNETWORKINGSOCKETS_ENABLE_ICE
+/// Wait for ICE STUN/TURN hostname lookups that are still running.
+extern void JoinICEDNSThreads();
+#endif
+
 struct LocalAddress_t
 {
 	SteamNetworkingIPAddr m_addr;
