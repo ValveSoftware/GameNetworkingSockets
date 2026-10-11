@@ -18,6 +18,7 @@
 
 #include <steam/steamnetworkingsockets.h>
 #include <steam/isteamnetworkingutils.h>
+#include "lan_discovery.h"
 #ifndef STEAMNETWORKINGSOCKETS_OPENSOURCE
 #include <steam/steam_api.h>
 #endif
@@ -250,6 +251,8 @@ public:
 		if ( m_hPollGroup == k_HSteamNetPollGroup_Invalid )
 			FatalError( "Failed to listen on port %d", nPort );
 		Printf( "Server listening on port %d\n", nPort );
+		CLanDiscoveryBeacon beacon;
+		beacon.Start( nPort, "SteamNetworkingChatServer" );
 
 		while ( !g_bQuit )
 		{
@@ -698,7 +701,7 @@ void PrintUsageAndExit( int rc = 1 )
 	fflush(stderr);
 	printf(
 R"usage(Usage:
-    example_chat client SERVER_ADDR
+    example_chat client [SERVER_ADDR]    (omit SERVER_ADDR to auto-discover on LAN)
     example_chat server [--port PORT]
 )usage"
 	);
@@ -752,8 +755,23 @@ int main( int argc, const char *argv[] )
 		PrintUsageAndExit();
 	}
 
-	if ( bClient == bServer || ( bClient && addrServer.IsIPv6AllZeros() ) )
+	if ( bClient == bServer )
 		PrintUsageAndExit();
+
+	if ( bClient && addrServer.IsIPv6AllZeros() )
+	{
+		Printf( "No server address specified. Searching for servers on LAN...\n" );
+		std::vector<DiscoveredServer_t> vecServers;
+		if ( !CLanDiscoveryClient::Discover( vecServers ) || vecServers.empty() )
+		{
+			FatalError( "No server discovered on the local network. Specify SERVER_ADDR manually." );
+		}
+
+		addrServer = vecServers[0].m_addr;
+		char szAddr[64];
+		addrServer.ToString( szAddr, sizeof(szAddr), true );
+		Printf( "Discovered '%s' at %s! Connecting...\n", vecServers[0].m_strServerName.c_str(), szAddr );
+	}
 
 	// Create client and server sockets
 	InitSteamDatagramConnectionSockets();
