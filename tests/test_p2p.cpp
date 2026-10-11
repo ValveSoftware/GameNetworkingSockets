@@ -14,6 +14,7 @@
 #include <steam/steamnetworkingsockets.h>
 #include <steam/isteamnetworkingutils.h>
 #include "../examples/trivial_signaling_client.h"
+#include "../examples/xmpp_signaling_client.h"
 #include "../src/steamnetworkingsockets/clientlib/steamnetworkingsockets_mock.h"
 
 #define DEFAULT_STUN_SERVER "stun.l.google.com:19302"
@@ -370,6 +371,7 @@ int main( int argc, const char **argv )
 	SteamNetworkingIdentity identityLocal; identityLocal.Clear();
 	SteamNetworkingIdentity identityRemote; identityRemote.Clear();
 	const char *pszTrivialSignalingService = "localhost:10000";
+	const char *pszXmppSignalingService = nullptr;
 	const char *pszSTUNServer = DEFAULT_STUN_SERVER;
 	const char *pszTURNServer = nullptr;
 	const char *pszTURNUsername = nullptr;
@@ -405,6 +407,8 @@ int main( int argc, const char **argv )
 			ParseIdentity( identityRemote );
 		else if ( !strcmp( pszSwitch, "--signaling-server" ) )
 			pszTrivialSignalingService = GetArg();
+		else if ( !strcmp( pszSwitch, "--xmpp-signaling" ) )
+			pszXmppSignalingService = GetArg();
 		else if ( !strcmp( pszSwitch, "--stun-server" ) )
 			pszSTUNServer = GetArg();
 		else if ( !strcmp( pszSwitch, "--turn-server" ) )
@@ -567,9 +571,77 @@ int main( int argc, const char **argv )
 
 	// Create the signaling service
 	SteamNetworkingErrMsg errMsg;
-	ITrivialSignalingClient *pSignaling = CreateTrivialSignalingClient( pszTrivialSignalingService, SteamNetworkingSockets(), errMsg, nSignalingLossPct, nSignalingDupPct );
-	if ( pSignaling == nullptr )
-		TEST_Fatal( "Failed to initializing signaling client.  %s", errMsg );
+	struct ISignalingClient
+	{
+		virtual ISteamNetworkingConnectionSignaling *CreateSignalingForConnection( const SteamNetworkingIdentity &identityPeer, SteamNetworkingErrMsg &errMsg ) = 0;
+		virtual void Poll() = 0;
+		virtual void Release() = 0;
+		virtual ~ISignalingClient() {}
+	};
+
+	struct TrivialSignalingAdapter : ISignalingClient
+	{
+		ITrivialSignalingClient *m_pClient;
+		TrivialSignalingAdapter( ITrivialSignalingClient *p ) : m_pClient( p ) {}
+		virtual ISteamNetworkingConnectionSignaling *CreateSignalingForConnection( const SteamNetworkingIdentity &identityPeer, SteamNetworkingErrMsg &errMsg ) override
+		{
+			return m_pClient->CreateSignalingForConnection( identityPeer, errMsg );
+		}
+		virtual void Poll() override { m_pClient->Poll(); }
+		virtual void Release() override { m_pClient->Release(); delete this; }
+	};
+
+	struct XmppSignalingAdapter : ISignalingClient
+	{
+		IXmppSignalingClient *m_pClient;
+		XmppSignalingAdapter( IXmppSignalingClient *p ) : m_pClient( p ) {}
+		virtual ISteamNetworkingConnectionSignaling *CreateSignalingForConnection( const SteamNetworkingIdentity &identityPeer, SteamNetworkingErrMsg &errMsg ) override
+		{
+			return m_pClient->CreateSignalingForConnection( identityPeer, errMsg );
+		}
+		virtual void Poll() override { m_pClient->Poll(); }
+		virtual void Release() override { m_pClient->Release(); delete this; }
+	};
+
+	ISignalingClient *pSignaling = nullptr;
+	if ( pszXmppSignalingService != nullptr )
+	{
+		// Validate XMPP helper functions
+		{
+			const char *pszTest = "Hello P2P!";
+			std::string sB64 = XmppBase64Encode( pszTest, (int)strlen( pszTest ) );
+			std::string sDec;
+			bool bOk = XmppBase64Decode( sB64.c_str(), (int)sB64.length(), sDec );
+			assert( bOk && sDec == pszTest );
+
+			std::string sStanza = XmppFormatMessageStanza( "alice@test.org", "bob@test.org", pszTest, (int)strlen( pszTest ) );
+			std::string sFrom, sPayload;
+			bOk = XmppExtractMessage( sStanza, sFrom, sPayload );
+			assert( bOk && sFrom == "alice@test.org" && sPayload == pszTest );
+			(void)bOk;
+		}
+
+		std::string sJid = SteamNetworkingIdentityRender( identityLocal ).c_str();
+		sJid += "@localhost/test";
+		IXmppSignalingClient *pXmpp = CreateXmppSignalingClient(
+			pszXmppSignalingService,
+			sJid.c_str(),
+			"pass",
+			/*bUseTLS*/ false,
+			SteamNetworkingSockets(),
+			errMsg
+		);
+		if ( pXmpp == nullptr )
+			TEST_Fatal( "Failed to initialize XMPP signaling client. %s", errMsg );
+		pSignaling = new XmppSignalingAdapter( pXmpp );
+	}
+	else
+	{
+		ITrivialSignalingClient *pTrivial = CreateTrivialSignalingClient( pszTrivialSignalingService, SteamNetworkingSockets(), errMsg, nSignalingLossPct, nSignalingDupPct );
+		if ( pTrivial == nullptr )
+			TEST_Fatal( "Failed to initializing signaling client.  %s", errMsg );
+		pSignaling = new TrivialSignalingAdapter( pTrivial );
+	}
 
 	SteamNetworkingUtils()->SetGlobalCallback_SteamNetConnectionStatusChanged( OnSteamNetConnectionStatusChanged );
 
