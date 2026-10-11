@@ -2100,6 +2100,9 @@ void CSteamNetworkingICESession::STUNRequestCallback_AllocateRelay( const RecvST
     }
 
     // Try the next TURN server.
+    pIntf->m_strTURNRealm.clear();
+    pIntf->m_strTURNNonce.clear();
+    memset( pIntf->m_arrTURNKey, 0, sizeof( pIntf->m_arrTURNKey ) );
     pIntf->QueueAllocateRequest( m_vecTURNServers[nNextTURNServerIdx], &CSteamNetworkingICESession::STUNRequestCallback_AllocateRelay, m_nEncoding );
 }
 
