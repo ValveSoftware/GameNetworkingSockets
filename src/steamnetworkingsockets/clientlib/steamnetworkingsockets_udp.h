@@ -156,6 +156,9 @@ protected:
 	virtual void TrackSentStats( UDPSendPacketContext_t &ctx );
 
 	virtual void RecvValidUDPDataPacket( UDPRecvPacketContext_t &ctx );
+
+	// Rate limiter for incoming authenticated UDP data packets
+	TokenBucketRateLimiter m_rateLimiterRecvPackets;
 };
 
 

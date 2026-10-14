@@ -1197,6 +1197,21 @@ enum ESteamNetworkingConfigValue
 	/// disables Nagle!
 	k_ESteamNetworkingConfig_RecvMaxSegmentsPerPacket = 50,
 
+	/// [connection int32] Max packet rate allowed from a peer, in packets per second.
+	/// If a peer exceeds this rate, excess packets are dropped.  This protects basic
+	/// UDPv4 and P2P connections from malicious peers flooding packets (relayed connections
+	/// on Steam are already rate limited by SDR relays).
+	///
+	/// The rate limit is enforced using a token bucket after cryptographic verification
+	/// (the nonce/auth tag), so spoofed packets will not consume tokens of a legitimate peer.
+	/// 0 disables rate limiting (the default).
+	k_ESteamNetworkingConfig_RecvRateLimit_PacketRate = 61,
+
+	/// [connection int32] Max burst of packets allowed from a peer.
+	/// Used in conjunction with k_ESteamNetworkingConfig_RecvRateLimit_PacketRate.
+	/// 0 (the default) will default the burst capacity to RecvRateLimit_PacketRate.
+	k_ESteamNetworkingConfig_RecvRateLimit_PacketBurst = 62,
+
 	/// [connection int64] Get/set userdata as a configuration option.
 	/// The default value is -1.   You may want to set the user data as
 	/// a config value, instead of using ISteamNetworkingSockets::SetConnectionUserData

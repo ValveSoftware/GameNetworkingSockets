@@ -1203,6 +1203,88 @@ void Test_recv_buf_full()
 	SteamNetworkingSockets()->CloseConnection( hClient, 0, nullptr, false );
 }
 
+void Test_recv_rate_limit()
+{
+	TEST_Printf( "***************************************************\n" );
+	TEST_Printf( "Test: recv packet rate limit / token bucket rate limiter\n" );
+	TEST_Printf( "***************************************************\n" );
+
+	// Network loopback so packets go through the full SNP encode/decode path.
+	HSteamNetConnection hServer, hClient;
+	assert( SteamNetworkingSockets()->CreateSocketPair( &hServer, &hClient, true, nullptr, nullptr ) );
+	SteamNetworkingSockets()->SetConnectionName( hServer, "Server" );
+	SteamNetworkingSockets()->SetConnectionName( hClient, "Client" );
+
+	// Configure rate limiting on the receiver: 10 pkts/sec steady rate, 5 packet burst
+	const int k_nRateLimit = 10;
+	const int k_nBurstLimit = 5;
+	SteamNetworkingUtils()->SetConnectionConfigValueInt32( hServer,
+		k_ESteamNetworkingConfig_RecvRateLimit_PacketRate, k_nRateLimit );
+	SteamNetworkingUtils()->SetConnectionConfigValueInt32( hServer,
+		k_ESteamNetworkingConfig_RecvRateLimit_PacketBurst, k_nBurstLimit );
+
+	// Let handshake complete
+	for ( int i = 0; i < 20; ++i )
+	{
+		TEST_PumpCallbacks();
+		std::this_thread::sleep_for( std::chrono::milliseconds( 10 ) );
+	}
+
+	// Send immediate burst of 15 packets.
+	// We use 1000-byte messages to prevent packing into single UDP packet
+	// (MTU is ~1300), ensures 1 message per 1 UDP packet on the wire.
+	static const char kData[ 1000 ] = "hello";
+	const int k_nPacketsToSend = 15;
+	for ( int i = 0; i < k_nPacketsToSend; ++i )
+	{
+		EResult r = SteamNetworkingSockets()->SendMessageToConnection( hClient, kData, sizeof( kData ), k_nSteamNetworkingSend_UnreliableNoNagle, nullptr );
+		assert( r == k_EResultOK );
+		SteamNetworkingSockets()->FlushMessagesOnConnection( hClient );
+		std::this_thread::sleep_for( std::chrono::milliseconds( 2 ) );
+	}
+
+	std::this_thread::sleep_for( std::chrono::milliseconds( 50 ) );
+	TEST_PumpCallbacks();
+
+	// Verify server received only up to the burst limit, dropping the excess
+	SteamNetworkingMessage_t *pMsg = nullptr;
+	int nRecvCount = 0;
+	while ( SteamNetworkingSockets()->ReceiveMessagesOnConnection( hServer, &pMsg, 1 ) == 1 )
+	{
+		++nRecvCount;
+		pMsg->Release();
+	}
+	TEST_Printf( "Sent %d packets in quick burst: server received %d (burst limit = %d)\n",
+		k_nPacketsToSend, nRecvCount, k_nBurstLimit );
+	assert( nRecvCount <= k_nBurstLimit + 1 );
+	assert( nRecvCount < k_nPacketsToSend );
+
+	// Pause 300ms to allow tokens to refill, then send 1 more packet
+	std::this_thread::sleep_for( std::chrono::milliseconds( 300 ) );
+	TEST_PumpCallbacks();
+
+	// Send 1 more packet.  This should succeed now that tokens have replenished
+	EResult r = SteamNetworkingSockets()->SendMessageToConnection(
+		hClient, kData, sizeof( kData ), k_nSteamNetworkingSend_UnreliableNoNagle, nullptr );
+	assert( r == k_EResultOK );
+	SteamNetworkingSockets()->FlushMessagesOnConnection( hClient );
+	std::this_thread::sleep_for( std::chrono::milliseconds( 50 ) );
+	TEST_PumpCallbacks();
+	int nRecvAfterPause = 0;
+	while ( SteamNetworkingSockets()->ReceiveMessagesOnConnection( hServer, &pMsg, 1 ) == 1 )
+	{
+		++nRecvAfterPause;
+		pMsg->Release();
+	}
+	TEST_Printf( "After pause to replenish tokens: server received %d packet(s)\n", nRecvAfterPause );
+	assert( nRecvAfterPause == 1 );
+
+	// Cleanup
+	SteamNetworkingSockets()->CloseConnection( hServer, 0, nullptr, false );
+	SteamNetworkingSockets()->CloseConnection( hClient, 0, nullptr, false );
+	TEST_Printf( "Test_recv_rate_limit: PASSED!\n" );
+}
+
 void Test_pipe()
 {
 	TEST_Printf( "***************************************************\n" );
@@ -1580,7 +1662,8 @@ int main( int argc, const char **argv  )
 		TEST(lane_quick_priority_and_background),
 		TEST(pipe),
 		TEST(send_buffer_full),
-		TEST(recv_buf_full)
+		TEST(recv_buf_full),
+		TEST(recv_rate_limit)
 	};
 
 	struct Suite_t {
@@ -1588,7 +1671,7 @@ int main( int argc, const char **argv  )
 		std::vector< Test_t > m_vecTests;
 	};
 	static const Suite_t test_suites[] = {
-		{ "suite-quick", { TEST(identity), TEST(quick), TEST(lane_quick_queueanddrain), TEST(lane_quick_priority_and_background), TEST(pipe), TEST(send_buffer_full), TEST(recv_buf_full) } }
+		{ "suite-quick", { TEST(identity), TEST(quick), TEST(lane_quick_queueanddrain), TEST(lane_quick_priority_and_background), TEST(pipe), TEST(send_buffer_full), TEST(recv_buf_full), TEST(recv_rate_limit) } }
 	};
 
 	if ( argc < 2 )

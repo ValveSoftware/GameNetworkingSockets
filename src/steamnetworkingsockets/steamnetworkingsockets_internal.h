@@ -873,6 +873,8 @@ struct ConnectionConfig
 	ConfigValue<int32> RecvBufferMessages;
 	ConfigValue<int32> RecvMaxMessageSize; // NOTE - use GetEffectiveRecvMaxMessageSize()!
 	ConfigValue<int32> RecvMaxSegmentsPerPacket;
+	ConfigValue<int32> RecvRateLimit_PacketRate;
+	ConfigValue<int32> RecvRateLimit_PacketBurst;
 	ConfigValue<int32> SendRateMin;
 	ConfigValue<int32> SendRateMax;
 	ConfigValue<int32> MTU_PacketSize;

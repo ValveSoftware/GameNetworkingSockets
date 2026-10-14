@@ -800,6 +800,24 @@ void CConnectionTransportUDPBase::Received_Data( const uint8 *pPkt, int cbPkt, S
 	if ( !m_connection.DecryptDataChunk( nWirePktNumber, cbPkt, pChunk, cbChunk, ctx ) )
 		return;
 
+	// Check packet rate limit.  Only authenticated packets from connected peers
+	// consume tokens, preventing spoofed packet DoS.
+	int nRate = m_connection.m_connectionConfig.RecvRateLimit_PacketRate.Get();
+	if ( nRate > 0 )
+	{
+		int nBurst = m_connection.m_connectionConfig.RecvRateLimit_PacketBurst.Get();
+		if ( nBurst <= 0 )
+		{
+			nBurst = Max( nRate, 1 );
+		}
+
+		if ( !m_rateLimiterRecvPackets.BCheck( usecNow, (float)nRate, (float)nBurst ) )
+		{
+			SpewWarningRateLimited( usecNow, "[%s] Packet rate limit exceeded, dropping packet\n", ConnectionDescription() );
+			return;
+		}
+	}
+
 	// This is a valid packet.  P2P connections might want to make a note of this
 	RecvValidUDPDataPacket( ctx );
 
