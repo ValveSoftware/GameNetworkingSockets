@@ -88,7 +88,7 @@ class RunProcessInThread(threading.Thread):
         else:
             self.env = dict( os.environ )
         self.popen_kwargs = popen_kwargs
-        self.log = open( self.tag + ".log", "wt" )
+        self.log = open( self.tag + ".log", "wt", encoding="utf-8", errors="replace" )
         self.process = None
         self.route_type = None
         self.counters = {}  # populated from TEST_ICE_ctr_xxx=N lines in output
