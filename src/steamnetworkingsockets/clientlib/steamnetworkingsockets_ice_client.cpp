@@ -2099,7 +2099,15 @@ void CSteamNetworkingICESession::STUNRequestCallback_AllocateRelay( const RecvST
         return;
     }
 
-    // Try the next TURN server.
+    // Try the next TURN server.  The realm and nonce came from the server that issued them, so they
+    // have to be dropped before the next server is asked.  Otherwise the Allocate we send carries the
+    // previous server's realm and key, the 401 that comes back is read as a wrong-credentials answer
+    // rather than a challenge (see the m_strTURNRealm check in the 401 handling above), and relay is
+    // marked failed.  m_arrTURNKey is left alone: it is only used while m_strTURNRealm is set, and it
+    // is recomputed from the new realm when the next server challenges.
+    pIntf->m_strTURNRealm.clear();
+    pIntf->m_strTURNNonce.clear();
+
     pIntf->QueueAllocateRequest( m_vecTURNServers[nNextTURNServerIdx], &CSteamNetworkingICESession::STUNRequestCallback_AllocateRelay, m_nEncoding );
 }
 
@@ -2140,6 +2148,16 @@ void CSteamNetworkingICESession::STUNRequestCallback_RefreshAllocation( const Re
     pIntf->m_addrTURNServer.Clear();   // clears "discovery done" signal; re-allocation starts next tick
     pIntf->m_usecRefreshAfter  = 0;
     pIntf->m_nTURNPermissionRevision = 0;
+
+    // The realm, nonce and key belong to the server that issued them, and were only valid
+    // for the allocation that just expired.  Drop them so that the fresh allocation starts
+    // unauthenticated and gets a new challenge.  Think_DiscoverRelayCandidate restarts at the
+    // first TURN server in the list, which need not be the server these credentials came
+    // from; sending them there is answered with 401, and since a 401 is only acted on while
+    // the realm is empty, the relay would never be re-established.
+    pIntf->m_strTURNRealm.clear();
+    pIntf->m_strTURNNonce.clear();
+
     // Leave m_bRelayFailed = false so Think_DiscoverRelayCandidate retries.
 }
 
