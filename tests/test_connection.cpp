@@ -876,6 +876,75 @@ void Test_lane_quick_queueanddrain()
 	SteamNetworkingSockets()->CloseConnection( hRecver, 0, nullptr, false );
 }
 
+// Reconfigure lanes, changing which lane has the highest priority.  Each lane
+// must end up in the priority class that matches its new priority, not the old one.
+void Test_lane_quick_reconfigure()
+{
+	HSteamNetConnection hSender, hRecver;
+	SteamNetworkingIdentity identSender, identRecver;
+	identSender.SetGenericString( "sender" );
+	identRecver.SetGenericString( "receiver" );
+	assert( SteamNetworkingSockets()->CreateSocketPair( &hSender, &hRecver, true, &identRecver, &identSender ) );
+
+	// Set the send rate to a fixed value
+	const int k_nSendRate = 128*1024;
+	SteamNetworkingUtils()->SetConnectionConfigValueInt32( hSender, k_ESteamNetworkingConfig_SendRateMin, k_nSendRate );
+	SteamNetworkingUtils()->SetConnectionConfigValueInt32( hSender, k_ESteamNetworkingConfig_SendRateMax, k_nSendRate );
+
+	// Configure lanes, with lane 0 having the highest priority.
+	constexpr int k_nLanes = 2;
+	{
+		int priorities[k_nLanes] = { 0, 1 };
+		assert( k_EResultOK == SteamNetworkingSockets()->ConfigureConnectionLanes( hSender, k_nLanes, priorities, nullptr ) );
+	}
+
+	// Now swap them, so lane 1 has the highest priority
+	{
+		int priorities[k_nLanes] = { 1, 0 };
+		assert( k_EResultOK == SteamNetworkingSockets()->ConfigureConnectionLanes( hSender, k_nLanes, priorities, nullptr ) );
+	}
+
+	// Queue up the same amount of data on each lane
+	constexpr int k_nMsgPerLane = 64;
+	constexpr int k_cbMsg = 1024;
+	constexpr int k_cbLaneData = k_nMsgPerLane * k_cbMsg;
+	SteamNetworkingUtils()->SetConnectionConfigValueInt32( hSender, k_ESteamNetworkingConfig_SendBufferSize, k_nLanes*k_cbLaneData + 1024 );
+	{
+		SteamNetworkingMessage_t *pMessages[k_nLanes*k_nMsgPerLane];
+		int idxMsg = 0;
+		for ( int idxLane = 0 ; idxLane < k_nLanes ; ++idxLane )
+		{
+			for ( int j = 0 ; j < k_nMsgPerLane ; ++j )
+			{
+				SteamNetworkingMessage_t *pMsg = SteamNetworkingUtils()->AllocateMessage( k_cbMsg );
+				pMsg->m_conn = hSender;
+				pMsg->m_nFlags = 0;
+				pMsg->m_idxLane = (uint16)idxLane;
+				pMessages[idxMsg++] = pMsg;
+			}
+		}
+		SteamNetworkingSockets()->SendMessages( idxMsg, pMessages, nullptr, true );
+	}
+
+	SteamNetConnectionRealTimeStatus_t status;
+	SteamNetConnectionRealTimeLaneStatus_t laneStatus[k_nLanes];
+	assert( k_EResultOK == SteamNetworkingSockets()->GetConnectionRealTimeStatus( hSender, &status, k_nLanes, laneStatus ) );
+
+	// Lane 1 now has the highest priority, so it should drain first, all by itself.
+	// Lane 0 should not start draining until lane 1 is done.
+	const SteamNetworkingMicroseconds usecTol = 50*1000;
+	const SteamNetworkingMicroseconds usecLane = (SteamNetworkingMicroseconds)( k_cbLaneData * 1e6 / k_nSendRate );
+	TEST_Printf( "Lane queue times after reconfigure: lane0 %.1fms lane1 %.1fms, expected %.1fms and %.1fms\n",
+		laneStatus[0].m_usecQueueTime*1e-3, laneStatus[1].m_usecQueueTime*1e-3, usecLane*2e-3, usecLane*1e-3 );
+	assert( laneStatus[1].m_usecQueueTime < usecLane + usecTol );
+	assert( laneStatus[1].m_usecQueueTime > usecLane - usecTol );
+	assert( laneStatus[0].m_usecQueueTime < usecLane*2 + usecTol );
+	assert( laneStatus[0].m_usecQueueTime > usecLane*2 - usecTol );
+
+	SteamNetworkingSockets()->CloseConnection( hSender, 0, nullptr, false );
+	SteamNetworkingSockets()->CloseConnection( hRecver, 0, nullptr, false );
+}
+
 // Test a particular use case that we have specifically been asked about:
 // Three lanes:
 // - Lane for most gameplay traffic.
@@ -1577,6 +1646,7 @@ int main( int argc, const char **argv  )
 		TEST(soak),
 		TEST(netloopback_throughput),
 		TEST(lane_quick_queueanddrain),
+		TEST(lane_quick_reconfigure),
 		TEST(lane_quick_priority_and_background),
 		TEST(pipe),
 		TEST(send_buffer_full),
@@ -1588,7 +1658,7 @@ int main( int argc, const char **argv  )
 		std::vector< Test_t > m_vecTests;
 	};
 	static const Suite_t test_suites[] = {
-		{ "suite-quick", { TEST(identity), TEST(quick), TEST(lane_quick_queueanddrain), TEST(lane_quick_priority_and_background), TEST(pipe), TEST(send_buffer_full), TEST(recv_buf_full) } }
+		{ "suite-quick", { TEST(identity), TEST(quick), TEST(lane_quick_queueanddrain), TEST(lane_quick_reconfigure), TEST(lane_quick_priority_and_background), TEST(pipe), TEST(send_buffer_full), TEST(recv_buf_full) } }
 	};
 
 	if ( argc < 2 )
