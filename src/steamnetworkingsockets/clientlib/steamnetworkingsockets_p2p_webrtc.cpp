@@ -131,7 +131,7 @@ void CConnectionTransportP2PICE_WebRTC::UpdateRoute()
 	EICECandidateType eLocalCandidate, eRemoteCandidate;
 	if ( !m_pICESession->GetRoute( eLocalCandidate, eRemoteCandidate, szRemoteAddress ) )
 	{
-		SpewMsgGroup( LogLevel_P2PRendezvous(), "[%s] ICE route is unkown\n", ConnectionDescription() );
+		SpewMsgGroup( LogLevel_P2PRendezvous(), "[%s] ICE route is unknown\n", ConnectionDescription() );
 		m_eCurrentRouteKind = k_ESteamNetTransport_Unknown;
 		m_currentRouteRemoteAddress.Clear();
 	}

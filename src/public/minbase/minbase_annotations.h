@@ -78,7 +78,7 @@
 
 // For temporarily suppressing warnings -- the warnings are suppressed for the next source line.
 #define ANALYZE_SUPPRESS(wnum) __pragma(warning(suppress: wnum))
-#define ANALYZE_SUPPRESS2(wnum1, wnum2) __pragma(warning(supress: wnum1  wnum2))
+#define ANALYZE_SUPPRESS2(wnum1, wnum2) __pragma(warning(suppress: wnum1  wnum2))
 #define ANALYZE_SUPPRESS3(wnum1, wnum2, wnum3) __pragma(warning(suppress: wnum1 wnum2 wnum3))
 #define ANALYZE_SUPPRESS4(wnum1, wnum2, wnum3, wnum4) __pragma(warning(suppress: wnum1 wnum2 wnum3 wnum4))
 
