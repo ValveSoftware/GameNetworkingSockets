@@ -1096,6 +1096,75 @@ void Test_lane_quick_priority_and_background()
 
 }
 
+// Regression test for lane IDs >= 8.  Lanes 1-7 are selected on the wire with
+// a single byte.  Higher lane IDs need that byte plus a varint.  See issue #455.
+void Test_lane_many()
+{
+	TEST_Printf( "***************************************************\n" );
+	TEST_Printf( "Test: send on many lanes (lane IDs encoded with a varint)\n" );
+	TEST_Printf( "***************************************************\n" );
+
+	// Network loopback, so packets go through the full SNP encode/decode path.
+	// (With internal buffers, lane select headers are never serialized.)
+	HSteamNetConnection hSender, hRecver;
+	assert( SteamNetworkingSockets()->CreateSocketPair( &hSender, &hRecver, true, nullptr, nullptr ) );
+	SteamNetworkingSockets()->SetConnectionName( hSender, "Sender" );
+	SteamNetworkingSockets()->SetConnectionName( hRecver, "Recver" );
+
+	// Lane 0 needs no header, 1-7 need 1 byte, 8-127 need 2 bytes, 128+ need 3 bytes
+	constexpr int k_nLanes = 130;
+	assert( k_EResultOK == SteamNetworkingSockets()->ConfigureConnectionLanes( hSender, k_nLanes, nullptr, nullptr ) );
+
+	// Send one reliable message on each lane.  The payload is the lane number,
+	// so the receiver can check that each message arrived on the right lane.
+	for ( int idxLane = 0 ; idxLane < k_nLanes ; ++idxLane )
+	{
+		SteamNetworkingMessage_t *pMsg = SteamNetworkingUtils()->AllocateMessage( sizeof(int) );
+		pMsg->m_conn = hSender;
+		pMsg->m_nFlags = k_nSteamNetworkingSend_Reliable;
+		pMsg->m_idxLane = (uint16)idxLane;
+		memcpy( pMsg->m_pData, &idxLane, sizeof(int) );
+		SteamNetworkingSockets()->SendMessages( 1, &pMsg, nullptr, true );
+	}
+
+	// Receive until every lane has delivered its message, or give up after ~2 seconds
+	bool bReceived[ k_nLanes ] = {};
+	int nReceived = 0;
+	for ( int iter = 0 ; iter < 200 && nReceived < k_nLanes ; ++iter )
+	{
+		TEST_PumpCallbacks();
+		std::this_thread::sleep_for( std::chrono::milliseconds( 10 ) );
+
+		SteamNetworkingMessage_t *pMsg;
+		while ( SteamNetworkingSockets()->ReceiveMessagesOnConnection( hRecver, &pMsg, 1 ) == 1 )
+		{
+			int idxLaneInPayload;
+			assert( pMsg->m_cbSize == sizeof(int) );
+			memcpy( &idxLaneInPayload, pMsg->m_pData, sizeof(int) );
+			assert( idxLaneInPayload >= 0 && idxLaneInPayload < k_nLanes );
+			assert( pMsg->m_idxLane == idxLaneInPayload );
+			assert( !bReceived[ idxLaneInPayload ] );
+			bReceived[ idxLaneInPayload ] = true;
+			++nReceived;
+			pMsg->Release();
+		}
+
+		// If a lane select header is encoded wrong, the receiver gets a
+		// decode error and closes the connection.
+		SteamNetConnectionInfo_t info;
+		assert( SteamNetworkingSockets()->GetConnectionInfo( hRecver, &info ) );
+		if ( info.m_eState != k_ESteamNetworkingConnectionState_Connected )
+		{
+			TEST_Printf( "Connection dropped: %s\n", info.m_szEndDebug );
+			assert( false );
+		}
+	}
+	assert( nReceived == k_nLanes );
+
+	SteamNetworkingSockets()->CloseConnection( hSender, 0, nullptr, false );
+	SteamNetworkingSockets()->CloseConnection( hRecver, 0, nullptr, false );
+}
+
 // Coverage/stress test for a stalled receiver: the application stops draining
 // its receive queue while the peer keeps blasting reliable data, under loss and
 // reorder.  This drives a code path almost nothing else in the suite reaches.
@@ -1578,6 +1647,7 @@ int main( int argc, const char **argv  )
 		TEST(netloopback_throughput),
 		TEST(lane_quick_queueanddrain),
 		TEST(lane_quick_priority_and_background),
+		TEST(lane_many),
 		TEST(pipe),
 		TEST(send_buffer_full),
 		TEST(recv_buf_full)
@@ -1588,7 +1658,7 @@ int main( int argc, const char **argv  )
 		std::vector< Test_t > m_vecTests;
 	};
 	static const Suite_t test_suites[] = {
-		{ "suite-quick", { TEST(identity), TEST(quick), TEST(lane_quick_queueanddrain), TEST(lane_quick_priority_and_background), TEST(pipe), TEST(send_buffer_full), TEST(recv_buf_full) } }
+		{ "suite-quick", { TEST(identity), TEST(quick), TEST(lane_quick_queueanddrain), TEST(lane_quick_priority_and_background), TEST(lane_many), TEST(pipe), TEST(send_buffer_full), TEST(recv_buf_full) } }
 	};
 
 	if ( argc < 2 )
