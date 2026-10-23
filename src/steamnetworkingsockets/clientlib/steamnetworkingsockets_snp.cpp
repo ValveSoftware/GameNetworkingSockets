@@ -2139,7 +2139,7 @@ template<bool k_bUnreliableOnly> struct SNPSegmentCollector<k_bUnreliableOnly,fa
 			} else {
 				pNewLane->m_hdr[0] = 0x8f;
 				uint8 *p = SerializeVarInt( &pNewLane->m_hdr[1], (unsigned)nLaneID );
-				pNewLane->m_cbHdr = p - &pNewLane->m_hdr[1];
+				pNewLane->m_cbHdr = p - pNewLane->m_hdr;
 			}
 			m_cbRemainingForSegments -= pNewLane->m_cbHdr;
 		}
