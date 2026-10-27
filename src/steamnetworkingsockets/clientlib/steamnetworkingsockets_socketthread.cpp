@@ -2602,6 +2602,9 @@ static bool PollRawUDPSockets( int nMaxTimeoutMS, bool bManualPoll )
 	// and we assume that it will have locked the lock exactly once.
 	AssertGlobalLockHeldExactlyOnce();
 
+	// Clean up any sockets that were closed and marked pending destruction before polling
+	ProcessPendingDestroyClosedRawUDPSockets();
+
 	// Sanity check all of our sockets are alive
 	#ifdef DBGFLAG_ASSERT
 		for ( CRawUDPSocketImpl *pSock: s_vecRawSockets )
