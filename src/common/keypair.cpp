@@ -9,6 +9,10 @@
 #include "crypto_25519.h"
 #include <tier1/utlbuffer.h>
 
+#ifdef _WIN32
+#include <malloc.h> // alloca; MSVC's <exception> only includes it when _HAS_EXCEPTIONS=1
+#endif
+
 static const char k_szOpenSSHPrivatKeyPEMHeader[] = "-----BEGIN OPENSSH PRIVATE KEY-----";
 static const char k_szOpenSSHPrivatKeyPEMFooter[] = "-----END OPENSSH PRIVATE KEY-----";
 
