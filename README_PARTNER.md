@@ -1,12 +1,12 @@
 # About the partner branch
 
 The `partner` branch is intended for use by developers ("partners") who want access to:
-- the code for interacingt with the Steam Datagram Relay (SDR) network.
+- the code for interacting with the Steam Datagram Relay (SDR) network.
 - the NDA-protected code for compiling the library on various consoles platforms.
 
 This branch differs from the master branch in the following ways:
 
-- It contains any extra files neede to support the two use cases mentioned
+- It contains any extra files needed to support the two use cases mentioned
   above, if the files are not under NDA and not too large.
 - Generally, the project files for this branch are made using VPC, Valve's
   bespoke project generator.  cmake is not supported.
@@ -42,7 +42,7 @@ Building on consoles has only been tested using Visual Studio 2017 or 2019.
 
 4. Initialize some git submodules.
 
-    As noted, tthe `partner` module is always required, and contains some things that
+    As noted, the `partner` module is always required, and contains some things that
     are required for all use cases involving SDR or console.
 
     ```
@@ -75,9 +75,9 @@ Building on consoles has only been tested using Visual Studio 2017 or 2019.
 
 6. Open the solution and build in Visual Studio.
 
-7. You can enable/disable several features with `STEAMNETWORKINGSOCKETS_xxx` AND `SDR_xxx` defines.  For example, if you don't need to run servers in our dedicated servers, you turn off `SDR_ENABLE_HOSTED_SERVER` and `SDR_ENABLE_HOSTED_CLIENT`.  If you just want to compile the library for a console but don't wnat to talk to relays, turn off `STEAMNETWORKINGSOCKETS_ENABLE_SDR`
+7. You can enable/disable several features with `STEAMNETWORKINGSOCKETS_xxx` AND `SDR_xxx` defines.  For example, if you don't need to run servers in our dedicated servers, you turn off `SDR_ENABLE_HOSTED_SERVER` and `SDR_ENABLE_HOSTED_CLIENT`.  If you just want to compile the library for a console but don't want to talk to relays, turn off `STEAMNETWORKINGSOCKETS_ENABLE_SDR`
 
-# The relationship between the partner and master branchs
+# The relationship between the partner and master branches
 
 The partner branch is not a traditional git branch, in the sense that it always
 differs from the master branch, by design.  Occasionally, the branches are "merged",
