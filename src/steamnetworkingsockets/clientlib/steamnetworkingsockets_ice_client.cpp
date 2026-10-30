@@ -2339,6 +2339,18 @@ void CSteamNetworkingICESession::STUNRequestCallback_ServerReflexiveKeepAlive( c
 
     const int nSTUNServerIdx = std::max( 0, index_of( m_vecSTUNServers, info.m_pRequest->m_remoteAddr ) );
     const int nNextSTUNServerIdx = ( nSTUNServerIdx + 1 ) % len( m_vecSTUNServers );
+
+    // If the request failed because the packet could not be sent at all (airplane mode
+    // or connection drops for whatever reason), requeuing right away would spam STUN requests:
+    // each new request fails immediately and queues another request, causing the service thread
+    // to never sleep.  Instead, we can save the server to try next and leave the attempt to the
+    // regular keepalive timer.
+    if ( info.m_pRequest->m_usecLastSentTime == 0 )
+    {
+        pIntf->m_addrSTUNServer = m_vecSTUNServers[ nNextSTUNServerIdx ];
+        return;
+    }
+
     pIntf->QueueBindRequest( m_vecSTUNServers[ nNextSTUNServerIdx ], &CSteamNetworkingICESession::STUNRequestCallback_ServerReflexiveKeepAlive, m_nEncoding );
 }
 
