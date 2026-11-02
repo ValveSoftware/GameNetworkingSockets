@@ -681,19 +681,22 @@ CLIENT_SERVER_TEST_CASES = [
       ( _CAND_IPV6_NAT, _CAND_IPV6_NAT ) ),
 
     # Packet loss: relay can win the initial nomination race over the direct path
-    # (relay responses bypass the lossy adapter; see the route-upgrade commit for the
-    # full analysis), but the ICE client now continues probing higher-priority pairs
-    # after selection and upgrades when one succeeds.  We therefore expect to end up
-    # on 'udp' (direct srflx path).
+    # (relay responses bypass the lossy adapter). The ICE client keeps probing
+    # higher priority pairs after selection and upgrades when one succeeds.  We
+    # therefore expect to end up on 'udp' (direct srflx path).
     #
-    # Spurious-failure analysis (at the time of this writing):
-    #   Each STUN round trip succeeds with P = 0.9 * 0.9 = 0.81 under 10% outbound
-    #   loss per side.  The request schedule is 5 total sends (1 initial + 4 retx).
-    #   P(all 5 fail) = 0.19^5 ~= 0.025% (~1 in 4000 runs).  Triggered checks from
-    #   the remote side add extra attempts, so the real rate is lower still.
+    # The route is sampled when the client closes, so the upgrade has to land within
+    # the tick window.  Each STUN round trip succeeds with P = 0.9 * 0.9 = 0.81, and
+    # the direct path needs several of these in sequence (check, nomination, and the
+    # controlled side's own check) after the relay path has already connected.  With
+    # the default 40 ticks (~2s after connect) a run of lost retransmits can push the
+    # upgrade past the close, so this case runs 100 ticks (~5s), enough for several
+    # full retransmit cycles (sends at 0, 0.4, 1.0, 1.9, 3.25s).  Every incoming
+    # check from the peer also retriggers our own request immediately, which shortens
+    # this further.
     ( 'full-cone NAT, 10% packet loss',
-      [ '--mock-loss', '10' ] + _nat( _SRV_INT, _SRV_GW, 'full-cone' ),
-      [ '--mock-loss', '10' ] + _nat( _CLI_INT, _CLI_GW, 'full-cone' ),
+      [ '--mock-loss', '10', '--ticks', '100' ] + _nat( _SRV_INT, _SRV_GW, 'full-cone' ),
+      [ '--mock-loss', '10', '--ticks', '100' ] + _nat( _CLI_INT, _CLI_GW, 'full-cone' ),
       'udp', 1, _CTR_DIRECT, None ),
 
     # Signaling impairment: verify connection succeeds despite lossy or duplicate
