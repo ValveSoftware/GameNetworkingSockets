@@ -50,7 +50,7 @@ jobs:
       IMAGE: ubuntu
       IMAGE_TAG: noble
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Note only alpine needs "preinstall" step
       - name: Update packages
         run: sudo -E bash .github/update-packages.sh
