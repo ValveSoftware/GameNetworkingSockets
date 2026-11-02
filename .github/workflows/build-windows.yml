@@ -17,7 +17,7 @@ jobs:
       VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/vcpkg-bincache
       VCPKG_BINARY_SOURCES: clear;files,${{ github.workspace }}/vcpkg-bincache,readwrite
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup mock IPs
         run: py -3 tests/test_p2p.py --setup-mock-ips
@@ -57,7 +57,7 @@ jobs:
         shell: pwsh
 
       - name: Restore vcpkg caches
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ${{ env.VCPKG_ROOT }}/downloads

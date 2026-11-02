@@ -16,13 +16,13 @@ jobs:
     name: Build And Test iOS (simulator)
     runs-on: macos-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
 
     - name: Install Homebrew dependencies
       run: brew install ninja protobuf
 
     - name: Cache Apple dependency builds (OpenSSL, protobuf/Abseil for iOS)
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: build/apple-deps
         key: apple-deps-ios-${{ hashFiles('cmake/apple/build-apple-deps.sh') }}
