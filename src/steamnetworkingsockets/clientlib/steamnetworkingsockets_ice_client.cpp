@@ -1026,12 +1026,12 @@ void ICESessionInterface::QueueBindRequest( const netadr_t &addrSTUNServer, Recv
 
 bool ICESessionInterface::QueueTURNRequest( uint32 nMsgType, int nEncoding, const netadr_t &addrTURNServer, RecvSTUNPacketCallback_t cb, STUNAttribute *pExtraAttrs, int nExtraAttrs )
 {
-    Assert( !m_pPendingSTUNRequest );
-    m_pPendingSTUNRequest = new CSteamNetworkingSocketsSTUNRequest( this );
+    Assert( !m_pPendingTURNRequest );
+    m_pPendingTURNRequest = new CSteamNetworkingSocketsSTUNRequest( this );
 
     if ( m_strTURNRealm.empty() )
     {
-        m_pPendingSTUNRequest->Queue( nMsgType, nEncoding | kSTUNPacketEncodingFlags_NoMappedAddress, addrTURNServer, cb, pExtraAttrs, nExtraAttrs );
+        m_pPendingTURNRequest->Queue( nMsgType, nEncoding | kSTUNPacketEncodingFlags_NoMappedAddress, addrTURNServer, cb, pExtraAttrs, nExtraAttrs );
         return true;
     }
 
@@ -1039,8 +1039,8 @@ bool ICESessionInterface::QueueTURNRequest( uint32 nMsgType, int nEncoding, cons
     if ( nSrvIdx < 0 )
     {
         AssertMsg( false, "TURN server address not in m_vecTURNServers" );
-        delete m_pPendingSTUNRequest;
-        m_pPendingSTUNRequest = nullptr;
+        delete m_pPendingTURNRequest;
+        m_pPendingTURNRequest = nullptr;
         return false;
     }
     const std::string &strUsername = m_session.m_vecTURNCredentials[ nSrvIdx ].m_strUsername;
@@ -1049,8 +1049,8 @@ bool ICESessionInterface::QueueTURNRequest( uint32 nMsgType, int nEncoding, cons
     if ( nExtraAttrs > 4 )
     {
         AssertMsg( false, "Too many extra attrs for TURN request" );
-        delete m_pPendingSTUNRequest;
-        m_pPendingSTUNRequest = nullptr;
+        delete m_pPendingTURNRequest;
+        m_pPendingTURNRequest = nullptr;
         return false;
     }
     STUNAttribute allAttrs[ 7 ];
@@ -1073,9 +1073,9 @@ bool ICESessionInterface::QueueTURNRequest( uint32 nMsgType, int nEncoding, cons
     allAttrs[ nAllAttrs ].m_pData   = reinterpret_cast<const uint32*>( m_strTURNNonce.c_str() );
     ++nAllAttrs;
 
-    m_pPendingSTUNRequest->m_strPassword.assign( (const char*)m_arrTURNKey, sizeof( m_arrTURNKey ) );
+    m_pPendingTURNRequest->m_strPassword.assign( (const char*)m_arrTURNKey, sizeof( m_arrTURNKey ) );
     // RFC 5766 mandates HMAC-SHA1 (not SHA256) for long-term credentials
-    m_pPendingSTUNRequest->Queue( nMsgType,
+    m_pPendingTURNRequest->Queue( nMsgType,
         nEncoding | kSTUNPacketEncodingFlags_NoMappedAddress | kSTUNPacketEncodingFlags_MessageIntegrity,
         addrTURNServer, cb, allAttrs, nAllAttrs );
     return true;
@@ -1279,6 +1279,11 @@ CSteamNetworkingICESession::~CSteamNetworkingICESession()
         {
             delete pIntf->m_pPendingSTUNRequest;
             pIntf->m_pPendingSTUNRequest = nullptr;
+        }
+        if ( pIntf->m_pPendingTURNRequest )
+        {
+            delete pIntf->m_pPendingTURNRequest;
+            pIntf->m_pPendingTURNRequest = nullptr;
         }
     }
 
@@ -1531,6 +1536,11 @@ void CSteamNetworkingICESession::GatherInterfaces()
                 delete intf->m_pPendingSTUNRequest;
                 intf->m_pPendingSTUNRequest = nullptr;
             }
+            if ( intf->m_pPendingTURNRequest )
+            {
+                delete intf->m_pPendingTURNRequest;
+                intf->m_pPendingTURNRequest = nullptr;
+            }
 
             erase_at( m_vecInterfaces, i );
             continue;
@@ -1571,6 +1581,21 @@ void CSteamNetworkingICESession::GatherInterfaces()
         pNewIntf->NotifyLocalCandidateDiscovered( ICECandidateKind::Host, pNewIntf->m_boundAddr );
         m_bCandidatePairsNeedUpdate = true;
     }
+}
+
+CSteamNetworkingSocketsSTUNRequest *CSteamNetworkingICESession::FindPendingRequest( ICESessionInterface *pInterface, const STUNHeader &header )
+{
+    for ( CSteamNetworkingSocketsSTUNRequest *p : { pInterface->m_pPendingSTUNRequest, pInterface->m_pPendingTURNRequest } )
+    {
+        if ( p && p->BMatchesTransactionID( header ) )
+            return p;
+    }
+    for ( CSteamNetworkingSocketsSTUNRequest *p : m_vecPendingPeerRequests )
+    {
+        if ( p->m_pInterface == pInterface && p->BMatchesTransactionID( header ) )
+            return p;
+    }
+    return nullptr;
 }
 
 void CSteamNetworkingICESession::OnPacketReceived( const RecvPktInfo_t &info, ICESessionInterface *pInterface, netadr_t *pAddrRelay )
@@ -1663,27 +1688,7 @@ not_stun:
     // STUN responses: route to the matching in-flight request by transaction ID.
     if ( header.m_nMessageType != k_nSTUN_BindingRequest )
     {
-        // Fast path: check the interface's own server-reflexive request first (O(1)).
-        CSteamNetworkingSocketsSTUNRequest *pRequest = pInterface->m_pPendingSTUNRequest;
-        if ( pRequest == nullptr
-            || pRequest->m_nTransactionID[0] != header.m_nTransactionID[0]
-            || pRequest->m_nTransactionID[1] != header.m_nTransactionID[1]
-            || pRequest->m_nTransactionID[2] != header.m_nTransactionID[2] )
-        {
-            pRequest = nullptr;
-            for ( CSteamNetworkingSocketsSTUNRequest *p : m_vecPendingPeerRequests )
-            {
-                if ( p->m_pInterface == pInterface
-                    && p->m_nTransactionID[0] == header.m_nTransactionID[0]
-                    && p->m_nTransactionID[1] == header.m_nTransactionID[1]
-                    && p->m_nTransactionID[2] == header.m_nTransactionID[2] )
-                {
-                    pRequest = p;
-                    break;
-                }
-            }
-        }
-        if ( pRequest )
+        if ( CSteamNetworkingSocketsSTUNRequest *pRequest = FindPendingRequest( pInterface, header ) )
         {
             pRequest->ReplyPacketReceived( info, header );
         }
@@ -1862,12 +1867,15 @@ not_stun:
             m_pSelectedCandidatePair == nullptr
             || pThisPair->m_nPriority > m_pSelectedCandidatePair->m_nPriority
         ) {
+            // Only defer to a pending nomination on a pair at least as good as this one.
+            // A better pair nominated when a worse check is in flight should still win.
             bool bAlreadyHaveANomination = false;
             for ( ICECandidatePair *pOtherPair : m_vecCandidatePairs )
             {
                 if (
                     pOtherPair->m_bNominated
                     && ( pOtherPair->m_nState == kICECandidatePairState_InProgress || pOtherPair->m_nState == kICECandidatePairState_Waiting )
+                    && !pThisPair->BIsPreferredRouteOver( *pOtherPair )
                 ) {
                     bAlreadyHaveANomination = true;
                 }
@@ -1989,7 +1997,7 @@ void CSteamNetworkingICESession::Think_DiscoverRelayCandidate()
     for ( const std::unique_ptr<ICESessionInterface> &pIntf : m_vecInterfaces )
     {
         // Skip if relay discovery is done or a request is already in flight.
-        if ( pIntf->m_addrTURNServer.IsValid() || pIntf->m_pPendingSTUNRequest != nullptr )
+        if ( pIntf->m_addrTURNServer.IsValid() || pIntf->m_pPendingTURNRequest != nullptr )
             continue;
 
         // Find the first TURN server matching this interface's address family.
@@ -2007,7 +2015,7 @@ void CSteamNetworkingICESession::Think_DiscoverRelayCandidate()
 void CSteamNetworkingICESession::STUNRequestCallback_AllocateRelay( const RecvSTUNPktInfo_t &info )
 {
     ICESessionInterface * const pIntf = info.m_pRequest->m_pInterface;
-    pIntf->m_pPendingSTUNRequest = nullptr;
+    pIntf->m_pPendingTURNRequest = nullptr;
 
     // If we already have a result for this interface, ignore duplicates.
     if ( pIntf->m_addrTURNServer.IsValid() )
@@ -2106,7 +2114,7 @@ void CSteamNetworkingICESession::STUNRequestCallback_AllocateRelay( const RecvST
 void CSteamNetworkingICESession::STUNRequestCallback_RefreshAllocation( const RecvSTUNPktInfo_t &info )
 {
     ICESessionInterface * const pIntf = info.m_pRequest->m_pInterface;
-    pIntf->m_pPendingSTUNRequest = nullptr;
+    pIntf->m_pPendingTURNRequest = nullptr;
 
     if ( info.m_pHeader != nullptr )
     {
@@ -2150,7 +2158,7 @@ void CSteamNetworkingICESession::Think_TURNMaintenance( SteamNetworkingMicroseco
         // Must have a completed relay allocation, not a busy slot, and no in-flight request.
         if ( !pIntf->m_addrTURNServer.IsValid() || pIntf->m_bRelayFailed )
             continue;
-        if ( pIntf->m_pPendingSTUNRequest != nullptr )
+        if ( pIntf->m_pPendingTURNRequest != nullptr )
             continue;
 
         // Refresh takes priority over CreatePermission.
@@ -2209,7 +2217,7 @@ void CSteamNetworkingICESession::Think_TURNMaintenance( SteamNetworkingMicroseco
         }
 
         pRequest->m_nTURNPermissionRevision = nSessionRevision;
-        pIntf->m_pPendingSTUNRequest = pRequest;
+        pIntf->m_pPendingTURNRequest = pRequest;
 
         // Attach long-term credentials if the TURN server required auth.
         if ( !pIntf->m_strTURNRealm.empty() )
@@ -2219,7 +2227,7 @@ void CSteamNetworkingICESession::Think_TURNMaintenance( SteamNetworkingMicroseco
             {
                 AssertMsg( false, "TURN server address not in m_vecTURNServers" );
                 delete pRequest;
-                pIntf->m_pPendingSTUNRequest = nullptr;
+                pIntf->m_pPendingTURNRequest = nullptr;
                 continue;
             }
             const std::string &strUsername = m_vecTURNCredentials[ nSrvIdx ].m_strUsername;
@@ -2260,7 +2268,7 @@ void CSteamNetworkingICESession::Think_TURNMaintenance( SteamNetworkingMicroseco
 void CSteamNetworkingICESession::STUNRequestCallback_CreatePermission( const RecvSTUNPktInfo_t &info )
 {
     ICESessionInterface * const pIntf = info.m_pRequest->m_pInterface;
-    pIntf->m_pPendingSTUNRequest = nullptr;
+    pIntf->m_pPendingTURNRequest = nullptr;
 
     if ( info.m_pHeader == nullptr )
     {
@@ -2617,12 +2625,12 @@ void CSteamNetworkingICESession::STUNRequestCallback_PeerConnectivityCheck( cons
 		}
 		else
 		{
-			// Once we have a selected pair, or any nominated pair (including ones queued
-			// but not yet sent), don't nominate more.
+			// Once we have a selected pair or a nominated pair at least as good as this one
+			// (including any queued but not yet sent), don't nominate more.
 			bool bAlreadyHaveANomination = ( m_pSelectedCandidatePair != nullptr );
 			for ( ICECandidatePair *pOtherPair : m_vecCandidatePairs )
 			{
-				if ( pOtherPair->m_bNominated )
+				if ( pOtherPair->m_bNominated && !pPair->BIsPreferredRouteOver( *pOtherPair ) )
 					bAlreadyHaveANomination = true;
 			}
 			if ( !bAlreadyHaveANomination )
