@@ -2386,8 +2386,11 @@ void CSteamNetworkingICESession::Think_TestPeerConnectivity()
             ICELocalCandidate localCandidates[2];
             int nLocalCandidates = 0;
 
-            // Host candidate -- always present.
-            localCandidates[nLocalCandidates++] = { pIntf.get(), {} };
+            // Host candidate.  Relay-only: every check must go through TURN, never
+            // directly from our socket, or a direct route could be found and our
+            // address exposed.
+            if ( m_nPermittedCandidateTypes & ~k_EICECandidate_Any_Relay )
+                localCandidates[nLocalCandidates++] = { pIntf.get(), {} };
 
             // Relay candidate -- only when an allocation has succeeded.
             if ( pIntf->m_addrTURNServer.IsValid() && !pIntf->m_bRelayFailed )
