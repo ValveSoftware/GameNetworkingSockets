@@ -577,6 +577,17 @@ CLIENT_SERVER_TEST_CASES = [
       'relay', 1, _CTR_RELAY,
       ( _CAND_NAT_TURN, _CAND_NAT_TURN ) ),
 
+    # In relay-only mode, host-socket checks to the remote relay are dropped by
+    # TURN. With multiple interfaces, these host pairs can consume the timeout
+    # before the relay pairs get checked.
+    ( 'relay-only, multiple symmetric NAT adapters',
+      ( _nat( _SRV_INT, _SRV_GW, 'symmetric' ) + _nat( _SRV_INT2, _SRV_GW2, 'symmetric' )
+        + [ '--ice-enable', str(_ICE_ENABLE_RELAY) ] ),
+      ( _nat( _CLI_INT, _CLI_GW, 'symmetric' ) + _nat( _CLI_INT2, _CLI_GW2, 'symmetric' )
+        + [ '--ice-enable', str(_ICE_ENABLE_RELAY) ] ),
+      'relay', 1, _CTR_RELAY,
+      ( {'relay': 2}, {'relay': 2} ) ),
+
     # No-mock tests: run on real network (same host), both implementations.
     # No STUN/TURN: a local STUN server can't reveal a real public IP, and a local
     # TURN relay allocating loopback addresses is meaningless.  Host candidates suffice.
