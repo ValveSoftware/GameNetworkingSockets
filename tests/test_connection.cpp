@@ -8,6 +8,10 @@
 #include <random>
 #include <chrono>
 #include <thread>
+#include <atomic>
+#include <memory>
+#include <mutex>
+#include <vector>
 
 #include <steam/steamnetworkingsockets.h>
 #include <steam/isteamnetworkingutils.h>
@@ -1561,6 +1565,125 @@ void Test_send_buffer_full()
 	SteamNetworkingSockets()->CloseConnection( hRecver, 0, nullptr, false );
 }
 
+
+// Message objects are recycled through per-thread caches and a shared pool.
+// Make sure recycled messages come back fully initialized, including when they
+// are allocated on one thread and released on another, and when threads exit.
+void Test_message_pool()
+{
+	TEST_Printf( "***************************************************\n" );
+	TEST_Printf( "Message pool\n" );
+	TEST_Printf( "***************************************************\n" );
+
+	ISteamNetworkingUtils *pUtils = SteamNetworkingUtils();
+
+	auto CheckFresh = []( SteamNetworkingMessage_t *pMsg, int cbSize )
+	{
+		assert( pMsg );
+		assert( pMsg->m_cbSize == cbSize );
+		assert( ( pMsg->m_pData != nullptr ) == ( cbSize > 0 ) );
+		assert( ( pMsg->m_pfnFreeData != nullptr ) == ( cbSize > 0 ) );
+		assert( pMsg->m_pfnRelease != nullptr );
+		assert( pMsg->m_conn == k_HSteamNetConnection_Invalid );
+		assert( pMsg->m_identityPeer.IsInvalid() );
+		assert( pMsg->m_nConnUserData == 0 );
+		assert( pMsg->m_usecTimeReceived == 0 );
+		assert( pMsg->m_nMessageNumber == 0 );
+		assert( pMsg->m_nChannel == -1 );
+		assert( pMsg->m_nFlags == 0 );
+		assert( pMsg->m_nUserData == 0 );
+		assert( pMsg->m_idxLane == 0 );
+	};
+
+	// Dirty every field we are allowed to touch, so a recycled message that
+	// isn't reinitialized would be caught.
+	auto Scribble = []( SteamNetworkingMessage_t *pMsg )
+	{
+		if ( pMsg->m_cbSize > 0 )
+			memset( pMsg->m_pData, 0xcc, pMsg->m_cbSize );
+		pMsg->m_conn = 1234;
+		pMsg->m_nConnUserData = 5678;
+		pMsg->m_nChannel = 3;
+		pMsg->m_nFlags = k_nSteamNetworkingSend_Reliable;
+		pMsg->m_nUserData = 0x1badf00d;
+		pMsg->m_idxLane = 2;
+	};
+
+	// Many more messages than any cache holds, same thread
+	{
+		std::vector<SteamNetworkingMessage_t *> vecMsgs;
+		for ( int round = 0 ; round < 3 ; ++round )
+		{
+			for ( int i = 0 ; i < 5000 ; ++i )
+			{
+				int cbSize = ( i % 3 ) * 100;
+				SteamNetworkingMessage_t *pMsg = pUtils->AllocateMessage( cbSize );
+				CheckFresh( pMsg, cbSize );
+				Scribble( pMsg );
+				vecMsgs.push_back( pMsg );
+			}
+			for ( SteamNetworkingMessage_t *pMsg: vecMsgs )
+				pMsg->Release();
+			vecMsgs.clear();
+		}
+	}
+
+	// Allocate on producer threads, release on consumer threads.  The threads
+	// exit afterwards, so their cached objects go back to the shared pool.
+	{
+		const int k_nPairs = 4;
+		const int k_nMsgsPerPair = 20000;
+		std::vector<std::thread> threads;
+		std::vector<std::vector<SteamNetworkingMessage_t *>> handoff( k_nPairs );
+		std::vector<std::unique_ptr<std::mutex>> locks;
+		for ( int i = 0 ; i < k_nPairs ; ++i )
+			locks.emplace_back( new std::mutex );
+		std::atomic<int> nReleased{ 0 };
+		for ( int p = 0 ; p < k_nPairs ; ++p )
+		{
+			threads.emplace_back( [&, p]() {
+				for ( int i = 0 ; i < k_nMsgsPerPair ; ++i )
+				{
+					int cbSize = ( i & 1 ) ? 16 : 0;
+					SteamNetworkingMessage_t *pMsg = pUtils->AllocateMessage( cbSize );
+					CheckFresh( pMsg, cbSize );
+					Scribble( pMsg );
+					std::lock_guard<std::mutex> lock( *locks[p] );
+					handoff[p].push_back( pMsg );
+				}
+			} );
+			threads.emplace_back( [&, p]() {
+				int nDone = 0;
+				std::vector<SteamNetworkingMessage_t *> vecLocal;
+				while ( nDone < k_nMsgsPerPair )
+				{
+					{
+						std::lock_guard<std::mutex> lock( *locks[p] );
+						vecLocal.swap( handoff[p] );
+					}
+					for ( SteamNetworkingMessage_t *pMsg: vecLocal )
+						pMsg->Release();
+					nDone += (int)vecLocal.size();
+					vecLocal.clear();
+					std::this_thread::yield();
+				}
+				nReleased += nDone;
+			} );
+		}
+		for ( std::thread &t: threads )
+			t.join();
+		assert( nReleased == k_nPairs * k_nMsgsPerPair );
+	}
+
+	// Messages recycled from exited threads come back clean
+	for ( int i = 0 ; i < 2000 ; ++i )
+	{
+		SteamNetworkingMessage_t *pMsg = pUtils->AllocateMessage( 32 );
+		CheckFresh( pMsg, 32 );
+		pMsg->Release();
+	}
+}
+
 int main( int argc, const char **argv  )
 {
 	typedef void (*FnTest)(void);
@@ -1580,7 +1703,8 @@ int main( int argc, const char **argv  )
 		TEST(lane_quick_priority_and_background),
 		TEST(pipe),
 		TEST(send_buffer_full),
-		TEST(recv_buf_full)
+		TEST(recv_buf_full),
+		TEST(message_pool)
 	};
 
 	struct Suite_t {
@@ -1588,7 +1712,7 @@ int main( int argc, const char **argv  )
 		std::vector< Test_t > m_vecTests;
 	};
 	static const Suite_t test_suites[] = {
-		{ "suite-quick", { TEST(identity), TEST(quick), TEST(lane_quick_queueanddrain), TEST(lane_quick_priority_and_background), TEST(pipe), TEST(send_buffer_full), TEST(recv_buf_full) } }
+		{ "suite-quick", { TEST(identity), TEST(quick), TEST(lane_quick_queueanddrain), TEST(lane_quick_priority_and_background), TEST(pipe), TEST(send_buffer_full), TEST(recv_buf_full), TEST(message_pool) } }
 	};
 
 	if ( argc < 2 )

@@ -79,6 +79,169 @@ bool BCheckGlobalSpamReplyRateLimit( SteamNetworkingMicroseconds usecNow )
 //
 /////////////////////////////////////////////////////////////////////////////
 
+// CSteamNetworkingMessage objects are allocated and freed for every message
+// sent and received, so we recycle them instead of hitting the heap each time.
+//
+// Each thread keeps a small cache of free objects, so the common case is a
+// lock-free push/pop.  Messages are often allocated on one thread and freed
+// on another (e.g. received on the service thread and released by the app),
+// so when a thread's cache fills up it hands a batch to a shared depot, and a
+// thread with an empty cache refills from the depot before going to the heap.
+// Both the caches and the depot are bounded; anything beyond that is freed.
+//
+// Pooling hides use-after-free bugs from AddressSanitizer, so it is off in
+// ASan builds.  It can also be disabled with
+// STEAMNETWORKINGSOCKETS_ENABLE_MESSAGE_POOL=0.
+#ifndef STEAMNETWORKINGSOCKETS_ENABLE_MESSAGE_POOL
+	#if defined( __SANITIZE_ADDRESS__ )
+		#define STEAMNETWORKINGSOCKETS_ENABLE_MESSAGE_POOL 0
+	#elif defined( __has_feature )
+		#if __has_feature( address_sanitizer )
+			#define STEAMNETWORKINGSOCKETS_ENABLE_MESSAGE_POOL 0
+		#endif
+	#endif
+#endif
+#ifndef STEAMNETWORKINGSOCKETS_ENABLE_MESSAGE_POOL
+	// Old Apple toolchains don't have thread_local (see GetThreadDebugInfo)
+	#if defined(__APPLE__) && __clang_major__ < 8
+		#define STEAMNETWORKINGSOCKETS_ENABLE_MESSAGE_POOL 0
+	#else
+		#define STEAMNETWORKINGSOCKETS_ENABLE_MESSAGE_POOL 1
+	#endif
+#endif
+
+#if STEAMNETWORKINGSOCKETS_ENABLE_MESSAGE_POOL
+
+constexpr int k_nMessagePoolThreadCacheMax = 64; // Max free objects cached per thread
+constexpr int k_nMessagePoolTransferBatch = 32; // Objects moved to/from the depot at once
+constexpr int k_nMessagePoolDepotMax = 1024; // Max free objects in the shared depot
+
+// Per-thread cache.  Deliberately trivially destructible, so that it remains
+// usable (in "disabled" mode) even after this thread's cleanup has run.
+struct MessagePoolThreadCache
+{
+	CSteamNetworkingMessage *m_arpFree[ k_nMessagePoolThreadCacheMax ];
+	int m_nFree;
+	bool m_bCleanupRegistered;
+	bool m_bDisabled; // Thread is exiting, don't cache anything else
+};
+static thread_local MessagePoolThreadCache tls_messagePoolCache;
+
+static ShortDurationMutexImpl s_lockMessagePoolDepot; // Leaf lock, never take another lock while holding it
+static CSteamNetworkingMessage *s_arpMessagePoolDepot[ k_nMessagePoolDepotMax ];
+static int s_nMessagePoolDepot;
+
+struct MessagePool
+{
+	// Move free objects from the end of a thread's cache into the depot.
+	// Objects that don't fit are freed.
+	static void ReturnToDepot( MessagePoolThreadCache &cache, int nCount )
+	{
+		Assert( nCount <= cache.m_nFree );
+		int nMoved;
+		{
+			std::lock_guard<ShortDurationMutexImpl> lock( s_lockMessagePoolDepot );
+			nMoved = std::min( nCount, k_nMessagePoolDepotMax - s_nMessagePoolDepot );
+			memcpy( &s_arpMessagePoolDepot[ s_nMessagePoolDepot ], &cache.m_arpFree[ cache.m_nFree - nMoved ], nMoved * sizeof(CSteamNetworkingMessage *) );
+			s_nMessagePoolDepot += nMoved;
+		}
+		cache.m_nFree -= nMoved;
+		for ( int i = nMoved ; i < nCount ; ++i )
+			delete cache.m_arpFree[ --cache.m_nFree ];
+	}
+
+	static void RegisterThreadCleanup( MessagePoolThreadCache &cache );
+
+	static CSteamNetworkingMessage *Alloc()
+	{
+		MessagePoolThreadCache &cache = tls_messagePoolCache;
+		if ( likely( cache.m_nFree > 0 ) )
+			return cache.m_arpFree[ --cache.m_nFree ];
+
+		// Cache is empty.  Try to grab a batch from the depot
+		if ( !cache.m_bDisabled )
+		{
+			{
+				std::lock_guard<ShortDurationMutexImpl> lock( s_lockMessagePoolDepot );
+				int n = std::min( k_nMessagePoolTransferBatch, s_nMessagePoolDepot );
+				s_nMessagePoolDepot -= n;
+				memcpy( cache.m_arpFree, &s_arpMessagePoolDepot[ s_nMessagePoolDepot ], n * sizeof(CSteamNetworkingMessage *) );
+				cache.m_nFree = n;
+			}
+			if ( cache.m_nFree > 0 )
+			{
+				if ( !cache.m_bCleanupRegistered )
+					RegisterThreadCleanup( cache );
+				return cache.m_arpFree[ --cache.m_nFree ];
+			}
+		}
+
+		return new CSteamNetworkingMessage;
+	}
+
+	static void Free( CSteamNetworkingMessage *pMsg )
+	{
+		MessagePoolThreadCache &cache = tls_messagePoolCache;
+		if ( unlikely( cache.m_bDisabled ) )
+		{
+			delete pMsg;
+			return;
+		}
+		if ( unlikely( !cache.m_bCleanupRegistered ) )
+			RegisterThreadCleanup( cache );
+		if ( unlikely( cache.m_nFree >= k_nMessagePoolThreadCacheMax ) )
+			ReturnToDepot( cache, k_nMessagePoolTransferBatch );
+		cache.m_arpFree[ cache.m_nFree++ ] = pMsg;
+	}
+
+	static void FreeAll()
+	{
+		MessagePoolThreadCache &cache = tls_messagePoolCache;
+		while ( cache.m_nFree > 0 )
+			delete cache.m_arpFree[ --cache.m_nFree ];
+
+		std::lock_guard<ShortDurationMutexImpl> lock( s_lockMessagePoolDepot );
+		while ( s_nMessagePoolDepot > 0 )
+			delete s_arpMessagePoolDepot[ --s_nMessagePoolDepot ];
+	}
+};
+
+// Runs when a thread that used the pool exits: give its free objects back to
+// the depot for other threads to use.
+struct MessagePoolThreadCleanup
+{
+	~MessagePoolThreadCleanup()
+	{
+		MessagePoolThreadCache &cache = tls_messagePoolCache;
+		cache.m_bDisabled = true;
+		MessagePool::ReturnToDepot( cache, cache.m_nFree );
+	}
+};
+
+void MessagePool::RegisterThreadCleanup( MessagePoolThreadCache &cache )
+{
+	// Constructing this thread_local registers its destructor to run at thread exit
+	static thread_local MessagePoolThreadCleanup tls_cleanup;
+	(void)tls_cleanup;
+	cache.m_bCleanupRegistered = true;
+}
+
+#else // #if STEAMNETWORKINGSOCKETS_ENABLE_MESSAGE_POOL
+
+struct MessagePool
+{
+	static inline CSteamNetworkingMessage *Alloc() { return new CSteamNetworkingMessage; }
+	static inline void Free( CSteamNetworkingMessage *pMsg ) { delete pMsg; }
+	static inline void FreeAll() {}
+};
+
+#endif // #if STEAMNETWORKINGSOCKETS_ENABLE_MESSAGE_POOL
+
+void CSteamNetworkingMessage::FreePooledMessages()
+{
+	MessagePool::FreeAll();
+}
+
 void CSteamNetworkingMessage::DefaultFreeData( SteamNetworkingMessage_t *pMsg )
 {
 	free( pMsg->m_pData );
@@ -103,15 +266,18 @@ void CSteamNetworkingMessage::ReleaseFunc( SteamNetworkingMessage_t *pIMsg )
 	Assert( !pMsg->m_linksSecondaryQueue.m_pPrev );
 	Assert( !pMsg->m_linksSecondaryQueue.m_pNext );
 
-	// Self destruct
-	// FIXME Should avoid this dynamic memory call with some sort of pooling
-	delete pMsg;
+	// Self destruct (return the object to the pool)
+	MessagePool::Free( pMsg );
 }
 
 CSteamNetworkingMessage *CSteamNetworkingMessage::New( uint32 cbSize )
 {
-	// FIXME Should avoid this dynamic memory call with some sort of pooling
-	CSteamNetworkingMessage *pMsg = new CSteamNetworkingMessage;
+	CSteamNetworkingMessage *pMsg = MessagePool::Alloc();
+	if ( pMsg == nullptr )
+	{
+		SpewError( "Failed to allocate message" );
+		return nullptr;
+	}
 
 	// NOTE: Intentionally not memsetting the whole thing;
 	// this struct is pretty big.
@@ -122,7 +288,7 @@ CSteamNetworkingMessage *CSteamNetworkingMessage::New( uint32 cbSize )
 		pMsg->m_pData = malloc( cbSize );
 		if ( pMsg->m_pData == nullptr )
 		{
-			delete pMsg;
+			MessagePool::Free( pMsg );
 			SpewError( "Failed to allocate %d-byte message buffer", cbSize );
 			return nullptr;
 		}
@@ -150,6 +316,7 @@ CSteamNetworkingMessage *CSteamNetworkingMessage::New( uint32 cbSize )
 	pMsg->m_nMessageNumber = 0;
 	pMsg->m_nChannel = -1;
 	pMsg->m_nFlags = 0;
+	pMsg->m_nUserData = 0; // Objects are reused, don't leak the previous message's value
 	pMsg->m_idxLane = 0;
 	pMsg->m_links.Clear();
 	pMsg->m_linksSecondaryQueue.Clear();

@@ -85,6 +85,13 @@ public:
 	static CSteamNetworkingMessage *New( uint32 cbSize );
 	static void DefaultFreeData( SteamNetworkingMessage_t *pMsg );
 
+	/// Free the message objects that are cached for reuse by the current
+	/// thread and the shared pool.  (Other threads free their own caches
+	/// when they exit.)
+	static void FreePooledMessages();
+
+	friend struct MessagePool;
+
 	/// OK to delay sending this message until this time.  Set to zero to explicitly force
 	/// Nagle timer to expire and send now (but this should behave the same as if the
 	/// timer < usecNow).  If the timer is cleared, then all messages with lower message numbers

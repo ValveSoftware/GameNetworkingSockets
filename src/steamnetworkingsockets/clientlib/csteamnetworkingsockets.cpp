@@ -2530,6 +2530,9 @@ STEAMNETWORKINGSOCKETS_INTERFACE void GameNetworkingSockets_Kill()
 		s_pSteamNetworkingSockets->Destroy();
 		s_pSteamNetworkingSockets = nullptr;
 	}
+
+	// Release message objects that were being kept around for reuse
+	CSteamNetworkingMessage::FreePooledMessages();
 }
 
 STEAMNETWORKINGSOCKETS_INTERFACE ISteamNetworkingSockets *SteamNetworkingSockets_LibV12()

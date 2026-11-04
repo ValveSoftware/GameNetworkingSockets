@@ -57,3 +57,10 @@ if(ENABLE_ICE)
 	add_custom_target( publish_test_script ALL DEPENDS ${P2P_TEST_SCRIPT} ${STUN_SERVER_SCRIPT} )
 	add_test(NAME p2p COMMAND ${P2P_TEST_SCRIPT} WORKING_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
 endif()
+
+# Message allocation / pipe throughput microbenchmark (not run by ctest)
+add_executable(
+	bench_messages
+	bench_messages.cpp)
+set_target_common_gns_properties( bench_messages )
+target_link_libraries(bench_messages ${GAMENETWORKINGSOCKETS_LIB})
