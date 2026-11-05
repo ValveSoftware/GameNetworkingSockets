@@ -1845,11 +1845,12 @@ bool CSteamNetworkConnectionBase::SNP_SendPacket( CConnectionTransport *pTranspo
 	AssertLocksHeldByCurrentThread( "SNP_SendPacket" );
 
 	// Check calling conditions, and don't crash
-	if ( !BStateIsActive() || m_senderState.m_mapInFlightPacketsByPktNum.empty() || !pTransport )
+	if ( !BStateIsActive() || m_senderState.m_mapInFlightPacketsByPktNum.empty() || !pTransport || !m_bCryptKeysValid )
 	{
 		Assert( BStateIsActive() );
 		Assert( !m_senderState.m_mapInFlightPacketsByPktNum.empty() );
 		Assert( pTransport );
+		Assert( m_bCryptKeysValid );
 		return false;
 	}
 
