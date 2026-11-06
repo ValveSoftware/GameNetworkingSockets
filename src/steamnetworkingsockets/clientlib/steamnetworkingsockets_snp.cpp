@@ -1957,7 +1957,7 @@ bool CSteamNetworkConnectionBase::SNP_SendPacket( CConnectionTransport *pTranspo
 	}
 	if ( nBytesSent <= 0 )
 	{
-		// We have potentially transfered ownership of some reliable messages
+		// We have potentially transferred ownership of some reliable messages
 		// to the segments in helper.m_insertInflightPkt.  We must not leak those!
 		SNP_QueueReliableSegmentsForRetry( helper.m_insertInflightPkt.second, 0, "Send fail" );
 		return false;
