@@ -1856,7 +1856,7 @@ bool CSteamNetworkConnectionBase::SNP_SendPacket( CConnectionTransport *pTranspo
 	// Assume that we'll be successful in sending a packet, so go ahead and start filling
 	// out the in flight packet record.
 	SNPPacketSerializeHelper helper;
-	Assert( m_senderState.m_mapInFlightPacketsByPktNum.lower_bound( m_statsEndToEnd.m_nNextSendSequenceNumber ) == m_senderState.m_mapInFlightPacketsByPktNum.end() );
+	Assert( m_senderState.m_mapInFlightPacketsByPktNum.rbegin()->first < m_statsEndToEnd.m_nNextSendSequenceNumber );
 	helper.m_insertInflightPkt.first = m_statsEndToEnd.m_nNextSendSequenceNumber;
 	helper.m_insertInflightPkt.second.m_usecWhenSent = ctx.m_usecNow;
 	helper.m_insertInflightPkt.second.m_bNack = false;
@@ -1963,9 +1963,9 @@ bool CSteamNetworkConnectionBase::SNP_SendPacket( CConnectionTransport *pTranspo
 		return false;
 	}
 
-	// We sent a packet.  Track it
-	auto pairInsertResult = m_senderState.m_mapInFlightPacketsByPktNum.insert( helper.m_insertInflightPkt );
-	Assert( pairInsertResult.second ); // We should have inserted a new element, not updated an existing element
+	// We sent a packet.  Track it.  Packet numbers only go up, so it goes at the
+	// end of the map, and passing that as a hint saves searching for its place.
+	auto itInserted = m_senderState.m_mapInFlightPacketsByPktNum.insert( m_senderState.m_mapInFlightPacketsByPktNum.end(), helper.m_insertInflightPkt );
 
 	// If we sent any reliable data, we should expect a reply
 	if ( !helper.InFlightPkt().m_vecReliableSegments.empty() )
@@ -1976,7 +1976,7 @@ bool CSteamNetworkConnectionBase::SNP_SendPacket( CConnectionTransport *pTranspo
 
 	// If we aren't already tracking anything to timeout, then this is the next one.
 	if ( m_senderState.m_itNextInFlightPacketToTimeout == m_senderState.m_mapInFlightPacketsByPktNum.end() )
-		m_senderState.m_itNextInFlightPacketToTimeout = pairInsertResult.first;
+		m_senderState.m_itNextInFlightPacketToTimeout = itInserted;
 
 	// Make sure we didn't hose data structures
 	m_senderState.MaybeCheckInFlightPacketMap();
@@ -2846,12 +2846,12 @@ done_with_all_segments:
 void CSteamNetworkConnectionBase::SNP_SentNonDataPacket( CConnectionTransport *pTransport, int cbPkt, SteamNetworkingMicroseconds usecNow )
 {
 	std::pair<int64,SNPInFlightPacket_t> pairInsert( m_statsEndToEnd.m_nNextSendSequenceNumber-1, SNPInFlightPacket_t{ usecNow, false, pTransport, {} } );
-	auto pairInsertResult = m_senderState.m_mapInFlightPacketsByPktNum.insert( pairInsert );
-	Assert( pairInsertResult.second ); // We should have inserted a new element, not updated an existing element.  Probably an order of operations bug with m_nNextSendSequenceNumber
+	Assert( m_senderState.m_mapInFlightPacketsByPktNum.rbegin()->first < pairInsert.first ); // We should have inserted a new element, not updated an existing element.  Probably an order of operations bug with m_nNextSendSequenceNumber
+	auto itInserted = m_senderState.m_mapInFlightPacketsByPktNum.insert( m_senderState.m_mapInFlightPacketsByPktNum.end(), pairInsert );
 
 	// If we aren't already tracking anything to timeout, then this is the next one.
 	if ( m_senderState.m_itNextInFlightPacketToTimeout == m_senderState.m_mapInFlightPacketsByPktNum.end() )
-		m_senderState.m_itNextInFlightPacketToTimeout = pairInsertResult.first;
+		m_senderState.m_itNextInFlightPacketToTimeout = itInserted;
 
 	// Make sure we didn't hose data structures
 	m_senderState.MaybeCheckInFlightPacketMap();
