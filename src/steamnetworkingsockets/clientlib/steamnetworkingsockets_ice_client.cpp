@@ -107,7 +107,8 @@ static uint32* WriteGenericSTUNAttribute( uint32 *pData, STUNAttribute* pAttribu
         return pData;
     pData[0] = htonl( ( ( pAttribute->m_nType & 0xFFFF ) << 16 ) | ( pAttribute->m_nLength & 0xFFFF ) );
     ++pData;
-    V_memcpy( pData, pAttribute->m_pData, pAttribute->m_nLength );
+    if ( pAttribute->m_nLength > 0 )
+        V_memcpy( pData, pAttribute->m_pData, pAttribute->m_nLength );
     byte* pDataByte = (byte*)pData;
     for( uint32 i = pAttribute->m_nLength; ( i & 3 ) != 0; ++i )
     {
