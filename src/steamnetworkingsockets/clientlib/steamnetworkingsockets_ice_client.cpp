@@ -1633,12 +1633,48 @@ not_stun:
 
         ++TEST_ICE_ctr_data_ind_recv;
 
-        // TODO: avoid heap allocation per packet
-        CUtlVector<STUNAttribute> vecAttrs;
-        ParseSTUNAttributes( info, nullptr, 0, &vecAttrs );
+        // Find the first XOR-PEER-ADDRESS and DATA attributes without building a vector.
+        // The walk mirrors ParseSTUNAttributes( info, nullptr, 0, ... ): same decode, and it
+        // ends at the same early-out points, so the attributes found are the same.
+        STUNAttribute peerAttr, dataAttr;
+        const STUNAttribute *pPeerAttr = nullptr;
+        const STUNAttribute *pDataAttr = nullptr;
+        {
+            const uint32 * const pMessage = reinterpret_cast< const uint32* >( info.m_pPkt );
+            const uint32 * const pMessageEnd = pMessage + info.m_cbPkt / 4;
+            const uint32 *pAttrPtr = &pMessage[5];
+            while ( pAttrPtr < pMessageEnd && !( pPeerAttr && pDataAttr ) )
+            {
+                STUNAttribute attr;
+                const uint32 * const pThisAttrPtr = pAttrPtr;
+                pAttrPtr = DecodeSTUNAttribute( pAttrPtr, pMessageEnd, &attr );
+                if ( pAttrPtr == nullptr )
+                    break;
+                if ( !pPeerAttr && attr.m_nType == k_nTURN_Attr_XORPeerAddress )
+                {
+                    peerAttr = attr;
+                    pPeerAttr = &peerAttr;
+                }
+                if ( !pDataAttr && attr.m_nType == k_nTURN_Attr_Data )
+                {
+                    dataAttr = attr;
+                    pDataAttr = &dataAttr;
+                }
 
-        const STUNAttribute *pPeerAttr = FindAttributeOfType( vecAttrs.Base(), vecAttrs.Count(), k_nTURN_Attr_XORPeerAddress );
-        const STUNAttribute *pDataAttr = FindAttributeOfType( vecAttrs.Base(), vecAttrs.Count(), k_nTURN_Attr_Data );
+                // Same early-outs as ParseSTUNAttributes with no key: a bad fingerprint, or any
+                // message-integrity attribute (which cannot be verified here), ends the walk.
+                if ( attr.m_nType == k_nSTUN_Attr_Fingerprint )
+                {
+                    if ( attr.m_nLength != 4 || ( ntohl( attr.m_pData[0] ) ^ 0x5354554e ) != CRC32( reinterpret_cast<const unsigned char*>( pMessage ), uint32( pThisAttrPtr - pMessage ) * 4 ) )
+                        break;
+                }
+                else if ( attr.m_nType == k_nSTUN_Attr_MessageIntegrity || attr.m_nType == k_nSTUN_Attr_MessageIntegrity_SHA256 )
+                {
+                    break;
+                }
+            }
+        }
+
         if ( pPeerAttr == nullptr || pDataAttr == nullptr )
         {
             SpewVerboseGroup( GlobalConfig::LogLevel_P2PRendezvous.Get(), "ICE: Dropping Data Indication from TURN: missing peer-address or data attribute.\n" );
