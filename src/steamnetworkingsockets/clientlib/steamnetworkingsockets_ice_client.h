@@ -179,6 +179,7 @@ namespace SteamNetworkingSocketsLib {
     // still accept any peer conforming to either.)  We reject anything longer on ingestion.
     const uint32 k_nSTUN_MaxUsernameLen_Bytes = 512;
     const uint32 k_nSTUN_CookieValue = 0x2112A442;
+    const uint32 k_nSTUN_FingerprintXOR = 0x5354554e; // RFC 5389 15.5
     const uint32 k_nSTUN_BindingRequest = 0x0001;
     const uint32 k_nSTUN_BindingResponse = 0x0101;
     const uint32 k_nSTUN_BindingErrorResponse = 0x0111;
