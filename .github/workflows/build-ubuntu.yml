@@ -53,11 +53,11 @@ jobs:
       - uses: actions/checkout@v4
       # Note only alpine needs "preinstall" step
       - name: Update packages
-        run: sudo -E bash .github/update-packages.sh
+        run: sudo --preserve-env=CI_BUILD,IMAGE,IMAGE_TAG bash .github/update-packages.sh
       - name: Install dependencies
         run: |
-          sudo -E bash .github/install.sh
-          sudo -E bash .github/install-post.sh
+          sudo --preserve-env=CI_BUILD,IMAGE,IMAGE_TAG bash .github/install.sh
+          sudo --preserve-env=CI_BUILD,IMAGE,IMAGE_TAG bash .github/install-post.sh
       - name: Setup mock IPs
         run: sudo python3 tests/test_p2p.py --setup-mock-ips
       - name: Build (RelWithDebInfo)

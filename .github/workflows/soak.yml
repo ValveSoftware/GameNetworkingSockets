@@ -49,11 +49,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Update packages
-        run: sudo -E bash .github/update-packages.sh
+        run: sudo --preserve-env=CI_BUILD,IMAGE,IMAGE_TAG bash .github/update-packages.sh
       - name: Install dependencies
         run: |
-          sudo -E bash .github/install.sh
-          sudo -E bash .github/install-post.sh
+          sudo --preserve-env=CI_BUILD,IMAGE,IMAGE_TAG bash .github/install.sh
+          sudo --preserve-env=CI_BUILD,IMAGE,IMAGE_TAG bash .github/install-post.sh
       - name: Build (Debug)
         run: |
           python3 .github/run-single-config.py \
