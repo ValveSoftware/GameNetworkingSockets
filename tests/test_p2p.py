@@ -578,9 +578,10 @@ CLIENT_SERVER_TEST_CASES = [
     # so we fail over to the second, which has a different realm.  The second server must get
     # an unauthenticated Allocate, not one using the first server's realm and nonce.
     # allocate_send=4: unauthenticated + authenticated to each server.
+    # TURN credentials are a list with one entry per server.
     ( 'TURN failover after a challenge (symmetric NAT)',
-      _nat( _SRV_INT, _SRV_GW, 'symmetric' ) + [ '--turn-username', _TURN_USERNAME, '--turn-password', _TURN_PASSWORD, '--timeout-ms', '16000' ],
-      _nat( _CLI_INT, _CLI_GW, 'symmetric' ) + [ '--turn-username', _TURN_USERNAME, '--turn-password', _TURN_PASSWORD, '--timeout-ms', '16000' ],
+      _nat( _SRV_INT, _SRV_GW, 'symmetric' ) + [ '--turn-username', _TURN_USERNAME + ',' + _TURN_USERNAME, '--turn-password', _TURN_PASSWORD + ',' + _TURN_PASSWORD, '--timeout-ms', '16000' ],
+      _nat( _CLI_INT, _CLI_GW, 'symmetric' ) + [ '--turn-username', _TURN_USERNAME + ',' + _TURN_USERNAME, '--turn-password', _TURN_PASSWORD + ',' + _TURN_PASSWORD, '--timeout-ms', '16000' ],
       'relay', 1,
       { 'allocate_send': (4, 4), 'send_ind_send': (1, None), 'data_ind_recv': (1, None) },
       None,
