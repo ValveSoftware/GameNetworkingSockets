@@ -26,6 +26,7 @@ TURN_DEFAULT_LIFETIME = 600  # seconds (overridden by --allocation-lifetime)
 _g_turn_realm    = None
 _g_turn_nonce    = None  # random bytes, generated at startup; hex-encoded for wire
 _g_turn_hmac_key = None  # MD5(username:realm:password)
+_g_challenge_only = False  # never answer an authenticated Allocate
 
 # Message types
 MSG_BINDING_REQUEST             = 0x0001
@@ -246,6 +247,10 @@ def _handle_allocate_request(sock, data, addr, server_host):
     key   = (addr[0], addr[1])
     attrs = _parse_attrs(data)
     print("Allocate request from %s:%d" % (addr[0], addr[1]), flush=True)
+
+    # Act like a server that goes away right after issuing a challenge
+    if _g_challenge_only and _get_attr(attrs, ATTR_REALM) is not None:
+        return
 
     if not _check_turn_auth(sock, data, attrs, tid, addr, MSG_ALLOCATE_ERROR):
         return
@@ -482,9 +487,12 @@ if __name__ == '__main__':
                         help='TURN long-term credential password (requires --username)')
     parser.add_argument('--realm', default='steamgaming.local',
                         help='TURN auth realm (default: steamgaming.local)')
+    parser.add_argument('--challenge-only', action='store_true',
+                        help='Send 401 challenges, but never answer an authenticated Allocate')
     args = parser.parse_args()
     _relay_latency_sec = args.relay_latency / 1000.0
     TURN_DEFAULT_LIFETIME = args.allocation_lifetime
+    _g_challenge_only = args.challenge_only
     if args.username and args.password:
         _g_turn_realm    = args.realm
         _g_turn_nonce    = os.urandom(16).hex()
