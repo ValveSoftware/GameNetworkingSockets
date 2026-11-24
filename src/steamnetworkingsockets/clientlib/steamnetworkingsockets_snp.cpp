@@ -591,6 +591,7 @@ EResult CSteamNetworkConnectionBase::SNP_ConfigureLanes( int nLanes, const int *
 	// of each, and assign each lane its priority class index
 	{
 		int i = 0;
+		m_senderState.m_vecLanes[ pPriorityClass[0].m_idxLane ].m_idxPriorityClass = 0;
 		for ( int j = 1 ; j < nLanes ; ++j )
 		{
 			if ( pPriorityClass[i].m_nPriority == pPriorityClass[j].m_nPriority )
