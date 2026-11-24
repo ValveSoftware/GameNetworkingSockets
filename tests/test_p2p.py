@@ -20,6 +20,7 @@ g_failed = False
 g_server_ready = threading.Event()
 g_stun_ready = threading.Event()
 g_turn_lan_ready = threading.Event()
+g_turn_challenge_only_ready = threading.Event()
 g_server_startup_timeout = 30  # seconds.  Generous, because cold-starting a second Python interpreter on a Windows CI runner can take several seconds.
 g_spew_level = None
 g_p2p_rendezvous_level = None
@@ -383,6 +384,11 @@ def _parse_candidate_log( filename ):
 # Packets are sent successfully but never answered, so the connection timeout drives failure.
 _DEAD_SERVER = '%s:9999' % g_stun_ip
 
+# TURN server that issues a 401 challenge, then never answers the authenticated Allocate.
+# It uses a different realm from the shared server.
+_TURN_CHALLENGE_ONLY_PORT = 3480
+_TURN_CHALLENGE_ONLY_SERVER = '%s:%d' % ( g_stun_ip, _TURN_CHALLENGE_ONLY_PORT )
+
 
 def ClientServerExpectedFailureTest( server_extra_args=[], client_extra_args=[], ice_impl=1,
                                      stun=_DEFAULT_STUN, turn=_DEFAULT_TURN,
@@ -568,6 +574,18 @@ _CAND_MULTI       = {'host': 2, 'srflx': 1, 'relay': 2}   # two adapters: one pu
 # All mocked tests must use 1: the mock network is only wired into the native ICE path.
 # The two no-mock entries exercise both implementations on the real loopback network.
 CLIENT_SERVER_TEST_CASES = [
+    # TURN failover after a challenge: the first TURN server challenges, then goes silent,
+    # so we fail over to the second, which has a different realm.  The second server must get
+    # an unauthenticated Allocate, not one using the first server's realm and nonce.
+    # allocate_send=4: unauthenticated + authenticated to each server.
+    ( 'TURN failover after a challenge (symmetric NAT)',
+      _nat( _SRV_INT, _SRV_GW, 'symmetric' ) + [ '--turn-username', _TURN_USERNAME, '--turn-password', _TURN_PASSWORD, '--timeout-ms', '16000' ],
+      _nat( _CLI_INT, _CLI_GW, 'symmetric' ) + [ '--turn-username', _TURN_USERNAME, '--turn-password', _TURN_PASSWORD, '--timeout-ms', '16000' ],
+      'relay', 1,
+      { 'allocate_send': (4, 4), 'send_ind_send': (1, None), 'data_ind_recv': (1, None) },
+      None,
+      dict( turn='%s,%s:%d' % ( _TURN_CHALLENGE_ONLY_SERVER, g_stun_ip, g_stun_port ), timeout_sec=30 ) ),
+
     # Symmetric NAT on both sides: reflexive candidates cannot traverse this NAT type,
     # so connectivity requires TURN relay.  This test is expected to fail until the
     # relay data path (Send/Data Indication) is implemented.
@@ -877,6 +895,23 @@ if g_turn_lan_ip:
 else:
     print( "No LAN IP found; LAN relay tests will be skipped" )
 
+# Start a TURN server that challenges and then goes silent, for the TURN failover test.
+turn_challenge_only = StartProcessInThread(
+    "turn_challenge_only",
+    [
+        sys.executable, stun_server_script,
+        '--host', g_stun_ip, '--port', str(_TURN_CHALLENGE_ONLY_PORT),
+        '--username', _TURN_USERNAME, '--password', _TURN_PASSWORD,
+        '--realm', 'challenge.local', '--challenge-only',
+    ],
+    ready_message="STUN/TURN server listening on", ready_event=g_turn_challenge_only_ready )
+if not g_turn_challenge_only_ready.wait( timeout=g_server_startup_timeout ):
+    print( "ERROR: Challenge-only TURN server failed to start within %d seconds" % g_server_startup_timeout )
+    g_failed = True
+    turn_challenge_only.term()
+    stun.term()
+    sys.exit(1)
+
 # Start the signaling server
 trivial_signaling_server = './trivial_signaling_server.py'
 if not os.path.exists( trivial_signaling_server ):
@@ -980,6 +1015,7 @@ really_failed = g_failed
 
 signaling.term()
 stun.term()
+turn_challenge_only.term()
 if turn_lan is not None:
     turn_lan.term()
 
