@@ -15,6 +15,8 @@ namespace SteamNetworkingSocketsLib {
     class CSteamNetworkingSocketsSTUNRequest;
     class CSteamNetworkingICESessionCallbacks;
     class CSteamNetworkingICESession;
+    struct ICEServerEntry;
+    struct ICEDNSResolveState;
 
     struct STUNHeader
     {
@@ -450,6 +452,10 @@ namespace SteamNetworkingSocketsLib {
         // really happen in production environments, it's only in weird test situations
         bool m_bAnyTURNServerLANAddress = false;
 
+        std::shared_ptr<ICEDNSResolveState> m_pDNSResolveState;
+        void AddServers( std_vector< ICEServerEntry > &vecEntries );
+        void Think_ApplyPendingDNSResults();
+
         // De-duplicated lists of peer IP addresses (port zeroed) that we should
         // ask each relay to permit forwarding from.  LAN/loopback/link-local
         // addresses are excluded.  Updated whenever AddPeerCandidate() adds a
@@ -461,6 +467,7 @@ namespace SteamNetworkingSocketsLib {
         std_vector<CIPAddress> m_vecTURNPermittedIPv6;
         int m_nTURNPermissionRevisionIPv4 = 0;
         int m_nTURNPermissionRevisionIPv6 = 0;
+        void RegisterTURNPermission( const CIPAddress &permIP );
 
         // Candidates received from the remote peer via signaling.  Paired with
         // m_vecInterfaces to form m_vecCandidatePairs.
