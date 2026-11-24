@@ -2100,7 +2100,11 @@ void CSteamNetworkingICESession::STUNRequestCallback_AllocateRelay( const RecvST
         return;
     }
 
-    // Try the next TURN server.
+    // Try the next TURN server.  Our realm and nonce came from the previous server,
+    // so start unauthenticated and let this server issue its own challenge.
+    pIntf->m_strTURNRealm.clear();
+    pIntf->m_strTURNNonce.clear();
+
     pIntf->QueueAllocateRequest( m_vecTURNServers[nNextTURNServerIdx], &CSteamNetworkingICESession::STUNRequestCallback_AllocateRelay, m_nEncoding );
 }
 
@@ -2141,6 +2145,12 @@ void CSteamNetworkingICESession::STUNRequestCallback_RefreshAllocation( const Re
     pIntf->m_addrTURNServer.Clear();   // clears "discovery done" signal; re-allocation starts next tick
     pIntf->m_usecRefreshAfter  = 0;
     pIntf->m_nTURNPermissionRevision = 0;
+
+    // Re-allocation restarts at the first TURN server, which might not be the one that
+    // issued our realm and nonce.  Start unauthenticated and get a fresh challenge.
+    pIntf->m_strTURNRealm.clear();
+    pIntf->m_strTURNNonce.clear();
+
     // Leave m_bRelayFailed = false so Think_DiscoverRelayCandidate retries.
 }
 
