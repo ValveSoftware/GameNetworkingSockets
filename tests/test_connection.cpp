@@ -1699,6 +1699,85 @@ void Test_send_buffer_full()
 	SteamNetworkingSockets()->CloseConnection( hRecver, 0, nullptr, false );
 }
 
+// The server forgets a connection without the client finding out: the server's
+// ConnectionClosed is lost, and its FinWait state times out.  When the client
+// sends more data, the server's listen socket should reply with NoConnection,
+// so the client finds out right away instead of waiting out its timeout.
+void Test_udp_noconnection()
+{
+	TEST_Printf( "***************************************************\n" );
+	TEST_Printf( "Test: listen socket replies NoConnection to a forgotten connection\n" );
+	TEST_Printf( "***************************************************\n" );
+
+	static HSteamListenSocket s_hListenSocket;
+	static HSteamNetConnection s_hServer;
+	static HSteamNetConnection s_hClient;
+	static int s_nClientEndReason;
+	s_hServer = k_HSteamNetConnection_Invalid;
+	s_hClient = k_HSteamNetConnection_Invalid;
+	s_nClientEndReason = 0;
+
+	SteamNetworkingUtils()->SetGlobalCallback_SteamNetConnectionStatusChanged( []( SteamNetConnectionStatusChangedCallback_t *pInfo )
+	{
+		if ( pInfo->m_info.m_eState == k_ESteamNetworkingConnectionState_Connecting && pInfo->m_info.m_hListenSocket == s_hListenSocket )
+		{
+			s_hServer = pInfo->m_hConn;
+			SteamNetworkingSockets()->AcceptConnection( pInfo->m_hConn );
+		}
+		else if ( pInfo->m_hConn == s_hClient
+			&& ( pInfo->m_info.m_eState == k_ESteamNetworkingConnectionState_ClosedByPeer || pInfo->m_info.m_eState == k_ESteamNetworkingConnectionState_ProblemDetectedLocally ) )
+		{
+			TEST_Printf( "Client connection ended, reason %d: %s\n", pInfo->m_info.m_eEndReason, pInfo->m_info.m_szEndDebug );
+			s_nClientEndReason = pInfo->m_info.m_eEndReason;
+		}
+	} );
+
+	SteamNetworkingIPAddr addrBind, addrConnect;
+	addrBind.SetIPv4( 0, k_nStartingServerPort + 10 );
+	addrConnect.SetIPv4( 0x7f000001, k_nStartingServerPort + 10 );
+	s_hListenSocket = SteamNetworkingSockets()->CreateListenSocketIP( addrBind, 0, nullptr );
+	assert( s_hListenSocket != k_HSteamListenSocket_Invalid );
+
+	// Long timeout, so the only way the client finds out quickly is the NoConnection reply
+	SteamNetworkingConfigValue_t opt;
+	opt.SetInt32( k_ESteamNetworkingConfig_TimeoutConnected, 60*1000 );
+	s_hClient = SteamNetworkingSockets()->ConnectByIPAddress( addrConnect, 1, &opt );
+	assert( s_hClient != k_HSteamNetConnection_Invalid );
+
+	// Wait for both sides to connect
+	for (;;)
+	{
+		TEST_PumpCallbacks();
+		SteamNetConnectionInfo_t info;
+		assert( SteamNetworkingSockets()->GetConnectionInfo( s_hClient, &info ) );
+		if ( info.m_eState == k_ESteamNetworkingConnectionState_Connected && s_hServer != k_HSteamNetConnection_Invalid )
+			break;
+	}
+
+	// Close the server side with all packets dropped, so the client never hears
+	// about it.  Wait for the server's FinWait state to time out.
+	SteamNetworkingUtils()->SetGlobalConfigValueFloat( k_ESteamNetworkingConfig_FakePacketLoss_Send, 100.0f );
+	SteamNetworkingSockets()->CloseConnection( s_hServer, 0, nullptr, false );
+	SteamNetworkingMicroseconds usecWaitUntil = SteamNetworkingUtils()->GetLocalTimestamp() + 6*1000*1000;
+	while ( SteamNetworkingUtils()->GetLocalTimestamp() < usecWaitUntil )
+		TEST_PumpCallbacks();
+	SteamNetworkingUtils()->SetGlobalConfigValueFloat( k_ESteamNetworkingConfig_FakePacketLoss_Send, 0.0f );
+
+	// Send from the client.  The server's listen socket no longer knows the
+	// connection, and should reply with NoConnection.
+	usecWaitUntil = SteamNetworkingUtils()->GetLocalTimestamp() + 2*1000*1000;
+	while ( s_nClientEndReason == 0 && SteamNetworkingUtils()->GetLocalTimestamp() < usecWaitUntil )
+	{
+		SteamNetworkingSockets()->SendMessageToConnection( s_hClient, "x", 1, k_nSteamNetworkingSend_UnreliableNoNagle, nullptr );
+		TEST_PumpCallbacks();
+	}
+	assert( s_nClientEndReason == k_ESteamNetConnectionEnd_Misc_PeerSentNoConnection );
+
+	SteamNetworkingSockets()->CloseConnection( s_hClient, 0, nullptr, false );
+	SteamNetworkingSockets()->CloseListenSocket( s_hListenSocket );
+	SteamNetworkingUtils()->SetGlobalCallback_SteamNetConnectionStatusChanged( nullptr );
+}
+
 int main( int argc, const char **argv  )
 {
 	typedef void (*FnTest)(void);
@@ -1720,7 +1799,8 @@ int main( int argc, const char **argv  )
 		TEST(lane_many),
 		TEST(pipe),
 		TEST(send_buffer_full),
-		TEST(recv_buf_full)
+		TEST(recv_buf_full),
+		TEST(udp_noconnection),
 	};
 
 	struct Suite_t {
@@ -1738,6 +1818,7 @@ int main( int argc, const char **argv  )
 			TEST(pipe),
 			TEST(send_buffer_full),
 			TEST(recv_buf_full),
+			TEST(udp_noconnection),
 		} }
 	};
 
