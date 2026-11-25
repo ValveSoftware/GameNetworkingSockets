@@ -36,9 +36,14 @@ if(ENABLE_ICE)
 		test_p2p
 		test_common.cpp
 		test_p2p.cpp
-		../examples/trivial_signaling_client.cpp)
+		../examples/trivial_signaling_client.cpp
+		../examples/xmpp_signaling_client.cpp)
 	set_target_common_gns_properties( test_p2p )
 	target_link_libraries(test_p2p GameNetworkingSockets::static_mock)
+	if( TARGET OpenSSL::SSL )
+		target_link_libraries(test_p2p OpenSSL::SSL)
+		target_compile_definitions(test_p2p PRIVATE XMPP_HAS_OPENSSL=1)
+	endif()
 	add_sanitizers(test_p2p)
 
 	# Publish the test scripts
@@ -56,4 +61,14 @@ if(ENABLE_ICE)
 		DEPENDS ${STUN_SERVER_SCRIPT_SRC} )
 	add_custom_target( publish_test_script ALL DEPENDS ${P2P_TEST_SCRIPT} ${STUN_SERVER_SCRIPT} )
 	add_test(NAME p2p COMMAND ${P2P_TEST_SCRIPT} WORKING_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
+
+	# Publish XMPP test script
+	set( XMPP_TEST_SCRIPT ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/test_xmpp_signaling.py )
+	set( XMPP_TEST_SCRIPT_SRC ${CMAKE_CURRENT_SOURCE_DIR}/test_xmpp_signaling.py )
+	add_custom_command(
+		OUTPUT ${XMPP_TEST_SCRIPT}
+		COMMAND ${CMAKE_COMMAND} -E copy ${XMPP_TEST_SCRIPT_SRC} ${XMPP_TEST_SCRIPT}
+		DEPENDS ${XMPP_TEST_SCRIPT_SRC} )
+	add_custom_target( publish_xmpp_test_script ALL DEPENDS ${XMPP_TEST_SCRIPT} )
+	add_test(NAME xmpp_signaling COMMAND ${XMPP_TEST_SCRIPT} WORKING_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
 endif()
