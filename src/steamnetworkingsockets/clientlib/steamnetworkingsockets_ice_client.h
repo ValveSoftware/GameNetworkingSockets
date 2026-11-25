@@ -56,7 +56,7 @@ namespace SteamNetworkingSocketsLib {
     EICECandidateType CalcICECandidateType( ICECandidateKind kind, const netadr_t& addr );
 
     /// Represents one local network interface used for ICE candidate gathering.
-    /// Owns its socket and tracks at most one in-flight server-reflexive STUN request.
+    /// Owns its socket and tracks at most one in-flight STUN bind request and one TURN request.
     struct ICESessionInterface
     {
         // The session that owns this interface.
@@ -86,6 +86,11 @@ namespace SteamNetworkingSocketsLib {
         // In-flight STUN bind request for server-reflexive discovery or
         // keepalive, or null if none is active.  At most one per interface.
         CSteamNetworkingSocketsSTUNRequest *m_pPendingSTUNRequest = nullptr;
+
+        // In-flight TURN request (Allocate, Refresh, or CreatePermission), or null if
+        // none is active.  At most one per interface.  Separate from the bind request
+        // so relay allocation does not have to wait for server-reflexive discovery.
+        CSteamNetworkingSocketsSTUNRequest *m_pPendingTURNRequest = nullptr;
 
         // Server-reflexive discovery results.  m_addrSTUNServer is also used
         // as a "discovery complete" signal: it is all-zeros until a terminal
@@ -138,7 +143,7 @@ namespace SteamNetworkingSocketsLib {
         // Create and queue any TURN request, attaching long-term auth credentials when
         // we have them.  pExtraAttrs/nExtraAttrs are request-specific attrs (e.g.
         // REQUESTED-TRANSPORT for Allocate); auth attrs are appended after them.
-        // Returns false and cleans up m_pPendingSTUNRequest if credential lookup fails.
+        // Returns false and cleans up m_pPendingTURNRequest if credential lookup fails.
         bool QueueTURNRequest( uint32 nMsgType, int nEncoding, const netadr_t &addrTURNServer, RecvSTUNPacketCallback_t cb, STUNAttribute *pExtraAttrs, int nExtraAttrs );
 
         ICESessionInterface( CSteamNetworkingICESession &session, uint32 nPriority, int nPrefixLen )
@@ -237,6 +242,10 @@ namespace SteamNetworkingSocketsLib {
         // The local interface this request was sent from.  Set at construction, never null.
         ICESessionInterface * const m_pInterface;
         uint32 m_nTransactionID[3];  // generated at construction
+        bool BMatchesTransactionID( const STUNHeader &header ) const
+        {
+            return memcmp( m_nTransactionID, header.m_nTransactionID, sizeof( m_nTransactionID ) ) == 0;
+        }
         netadr_t m_remoteAddr; // Address of the peer
         netadr_t m_addrRelay;
         uint32 m_nMessageType;
@@ -506,6 +515,9 @@ namespace SteamNetworkingSocketsLib {
         void STUNRequestCallback_RefreshAllocation( const RecvSTUNPktInfo_t &info );
         void STUNRequestCallback_CreatePermission( const RecvSTUNPktInfo_t &info );
         void STUNRequestCallback_PeerConnectivityCheck( const RecvSTUNPktInfo_t &info );
+
+        // The in-flight request on this interface that a STUN response belongs to, or null.
+        CSteamNetworkingSocketsSTUNRequest *FindPendingRequest( ICESessionInterface *pInterface, const STUNHeader &header );
 
         void OnPacketReceived( const RecvPktInfo_t &info, ICESessionInterface *pInterface, netadr_t *pAddrRelay = nullptr );
         static void StaticPacketReceived( const RecvPktInfo_t &info, ICESessionInterface *pContext );
