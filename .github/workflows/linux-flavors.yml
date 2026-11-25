@@ -62,6 +62,10 @@ jobs:
             ci_dist_upgrade: 0
     steps:
       - uses: actions/checkout@v7
+      # TSan can't handle 32 bits of mmap randomization, and its fallback
+      # (re-exec with ADDR_NO_RANDOMIZE) is blocked by Docker's seccomp profile.
+      - name: Reduce ASLR entropy, for ThreadSanitizer
+        run: sudo sysctl vm.mmap_rnd_bits=28
       - name: Launch container
         run: |
           docker run -d --rm --name github-docker-builder -e LC_ALL="C" -e LANG="C" -v ${{ github.workspace }}:/build -w /build ${{ matrix.docker_image }}:${{ matrix.docker_tag }} tail -f /dev/null
