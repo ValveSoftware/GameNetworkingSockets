@@ -354,8 +354,17 @@ static uint32* ReserveFingerprintAttribute( uint32 *pBuffer )
 static uint32* WriteFingerprintAttribute( uint32 *pBuffer, uint32 *pMessageStart )
 {
     pBuffer[0] = htonl( ( k_nSTUN_Attr_Fingerprint << 16 ) | 4 );
-    pBuffer[1] = htonl( 0x5354554e ^ CRC32( reinterpret_cast<unsigned char*>( pMessageStart ), uint32( pBuffer - pMessageStart ) * 4 ) );
+    pBuffer[1] = htonl( k_nSTUN_FingerprintXOR ^ CRC32( reinterpret_cast<unsigned char*>( pMessageStart ), uint32( pBuffer - pMessageStart ) * 4 ) );
     return &pBuffer[2];
+}
+
+// pAttrStart points at the fingerprint attribute's header; the CRC covers everything before it.
+static bool BCheckFingerprint( const STUNAttribute &attr, const uint32 *pMessage, const uint32 *pAttrStart )
+{
+    if ( attr.m_nLength != 4 )
+        return false;
+    const uint32 uDataCRC = CRC32( reinterpret_cast<const unsigned char*>( pMessage ), uint32( pAttrStart - pMessage ) * 4 );
+    return ( ntohl( attr.m_pData[0] ) ^ k_nSTUN_FingerprintXOR ) == uDataCRC;
 }
 
 
@@ -414,15 +423,9 @@ static bool ParseSTUNAttributes( const RecvPktInfo_t &info, const uint8 *pubKey,
         switch ( attr.m_nType )
         {
             case k_nSTUN_Attr_Fingerprint:
-            {
-                if ( attr.m_nLength != 4 )
-                    return false;
-                const uint32 uPacketCRC = ntohl( attr.m_pData[0] ) ^ 0x5354554e;
-                const uint32 uDataCRC = CRC32( reinterpret_cast<const unsigned char*>( pMessage ), uint32( pThisAttrPtr - pMessage ) * 4 );
-                if ( uPacketCRC != uDataCRC )
+                if ( !BCheckFingerprint( attr, pMessage, pThisAttrPtr ) )
                     return false;
                 break;
-            }
 
             case k_nSTUN_Attr_MessageIntegrity_SHA256:
             {
@@ -1634,12 +1637,38 @@ not_stun:
 
         ++TEST_ICE_ctr_data_ind_recv;
 
-        // TODO: avoid heap allocation per packet
-        CUtlVector<STUNAttribute> vecAttrs;
-        ParseSTUNAttributes( info, nullptr, 0, &vecAttrs );
+        // Walk the attributes in place; stops where ParseSTUNAttributes would with no key.
+        STUNAttribute peerAttr, dataAttr;
+        const STUNAttribute *pPeerAttr = nullptr;
+        const STUNAttribute *pDataAttr = nullptr;
+        {
+            const uint32 * const pMessage = reinterpret_cast< const uint32* >( info.m_pPkt );
+            const uint32 * const pMessageEnd = pMessage + info.m_cbPkt / 4;
+            const uint32 *pAttrPtr = &pMessage[5];
+            while ( pAttrPtr < pMessageEnd && !( pPeerAttr && pDataAttr ) )
+            {
+                STUNAttribute attr;
+                const uint32 * const pThisAttrPtr = pAttrPtr;
+                pAttrPtr = DecodeSTUNAttribute( pAttrPtr, pMessageEnd, &attr );
+                if ( pAttrPtr == nullptr )
+                    break;
+                if ( !pPeerAttr && attr.m_nType == k_nTURN_Attr_XORPeerAddress )
+                {
+                    peerAttr = attr;
+                    pPeerAttr = &peerAttr;
+                }
+                if ( !pDataAttr && attr.m_nType == k_nTURN_Attr_Data )
+                {
+                    dataAttr = attr;
+                    pDataAttr = &dataAttr;
+                }
+                if ( attr.m_nType == k_nSTUN_Attr_Fingerprint && !BCheckFingerprint( attr, pMessage, pThisAttrPtr ) )
+                    break;
+                if ( attr.m_nType == k_nSTUN_Attr_MessageIntegrity || attr.m_nType == k_nSTUN_Attr_MessageIntegrity_SHA256 )
+                    break; // can't verify without a key
+            }
+        }
 
-        const STUNAttribute *pPeerAttr = FindAttributeOfType( vecAttrs.Base(), vecAttrs.Count(), k_nTURN_Attr_XORPeerAddress );
-        const STUNAttribute *pDataAttr = FindAttributeOfType( vecAttrs.Base(), vecAttrs.Count(), k_nTURN_Attr_Data );
         if ( pPeerAttr == nullptr || pDataAttr == nullptr )
         {
             SpewVerboseGroup( GlobalConfig::LogLevel_P2PRendezvous.Get(), "ICE: Dropping Data Indication from TURN: missing peer-address or data attribute.\n" );
