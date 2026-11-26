@@ -30,6 +30,16 @@ add_test(NAME crypto COMMAND test_crypto WORKING_DIRECTORY ${CMAKE_RUNTIME_OUTPU
 # Test data for the crypto test when the project is built
 file(COPY aesgcmtestvectors DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
 
+add_executable(
+	test_pki
+	test_pki.cpp
+	)
+set_target_common_gns_properties( test_pki )
+target_include_directories(test_pki PRIVATE ../src ../src/public ../src/common ../include "${CMAKE_BINARY_DIR}/src")
+target_link_libraries(test_pki GameNetworkingSockets::static)
+add_sanitizers(test_pki)
+add_test(NAME pki COMMAND test_pki WORKING_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
+
 # P2P test
 if(ENABLE_ICE)
 	add_executable(

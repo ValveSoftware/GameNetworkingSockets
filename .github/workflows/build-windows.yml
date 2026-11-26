@@ -89,6 +89,11 @@ jobs:
         run: test_crypto.exe
         shell: cmd
 
+      - name: Test pki
+        working-directory: '${{ github.workspace }}/build/bin'
+        run: test_pki.exe
+        shell: cmd
+
       - name: Test connection
         working-directory: '${{ github.workspace }}/build/bin'
         run: test_connection.exe suite-quick

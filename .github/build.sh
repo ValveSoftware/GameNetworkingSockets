@@ -111,13 +111,13 @@ run_matrix_for_current_compiler() {
 
 	# Build some tests with sanitizers
 	if [[ ${build_sanitizers} -ne 0 ]]; then
-		run_single --compiler "${compiler}" --build-dir build-asan --sanitizer asan --targets test_connection test_crypto --run-tests
+		run_single --compiler "${compiler}" --build-dir build-asan --sanitizer asan --targets test_connection test_crypto test_pki --run-tests
 		run_single --compiler "${compiler}" --build-dir build-asan --sanitizer asan \
 			--run-tests --tests test_connection:soak \
 			--phase test
-		run_single --compiler "${compiler}" --build-dir build-ubsan --sanitizer ubsan --targets test_connection test_crypto --run-tests
+		run_single --compiler "${compiler}" --build-dir build-ubsan --sanitizer ubsan --targets test_connection test_crypto test_pki --run-tests
 		if [[ ${CXX} == *clang* ]]; then
-			run_single --compiler "${compiler}" --build-dir build-tsan --sanitizer tsan --targets test_connection test_crypto --run-tests
+			run_single --compiler "${compiler}" --build-dir build-tsan --sanitizer tsan --targets test_connection test_crypto test_pki --run-tests
 		fi
 	fi
 
@@ -127,7 +127,7 @@ run_matrix_for_current_compiler() {
 		run_single --compiler "${compiler}" --build-dir build-tsan \
 			--sanitizer tsan \
 			--crypto libsodium --crypto25519 libsodium \
-			--targets test_connection test_crypto \
+			--targets test_connection test_crypto test_pki \
 			--run-tests
 	fi
 
@@ -151,14 +151,14 @@ run_matrix_for_current_compiler() {
 	fi
 
 	# Build binaries with reference ed25519/curve25519
-	run_single --compiler "${compiler}" --build-dir build-cmake-ref --build-type RelWithDebInfo --crypto25519 Reference --run-tests --tests test_crypto
+	run_single --compiler "${compiler}" --build-dir build-cmake-ref --build-type RelWithDebInfo --crypto25519 Reference --run-tests --tests test_crypto test_pki
 
 	# Build binaries with libsodium for ed25519/curve25519 only
-	run_single --compiler "${compiler}" --build-dir build-cmake-sodium25519 --build-type RelWithDebInfo --crypto25519 libsodium --run-tests --tests test_crypto
+	run_single --compiler "${compiler}" --build-dir build-cmake-sodium25519 --build-type RelWithDebInfo --crypto25519 libsodium --run-tests --tests test_crypto test_pki
 
 	# Build binaries with libsodium
 	if [[ ${build_libsodium} -ne 0 ]]; then
-		run_single --compiler "${compiler}" --build-dir build-cmake-sodium --build-type RelWithDebInfo --crypto libsodium --crypto25519 libsodium --run-tests --tests test_crypto
+		run_single --compiler "${compiler}" --build-dir build-cmake-sodium --build-type RelWithDebInfo --crypto libsodium --crypto25519 libsodium --run-tests --tests test_crypto test_pki
 	fi
 }
 
