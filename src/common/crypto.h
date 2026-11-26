@@ -27,7 +27,7 @@ public:
 	void Wipe();
 
 protected:
-	void *m_ctx;
+	void *m_ctx = nullptr;
 
 	uint32 m_cbIV, m_cbTag;
 };
@@ -68,6 +68,9 @@ public:
 
 	// Initialize context with the specified private key, IV size, and tag size
 	bool InitCipher( const void *pKey, size_t cbKey, size_t cbIV, size_t cbTag, bool bEncrypt );
+
+	// Determine whether AES_GCM is supported on this system + crypto backend
+	static bool IsAvailable();
 };
 
 /// Encryption context for AES-GCM
@@ -107,6 +110,58 @@ public:
 		const void *pIV,
 		void *pPlaintextData, uint32 *pcbPlaintextData,
 		const void *pAdditionalAuthenticationData, size_t cbAuthenticationData // Optional additional authentication data.  Not encrypted, but will be included in the tag, so it can be authenticated.
+	) override;
+};
+
+/// Base class for ChaCha20-Poly1305 encryption and decryption
+class ChaCha20_Poly1305_CipherContext : public SymmetricCryptContextBase
+{
+public:
+
+	// Initialize context with the specified private key, IV size, and tag size
+	bool InitCipher(const void* pKey, size_t cbKey, size_t cbIV, size_t cbTag, bool bEncrypt);
+
+	// Determine whether ChaCha20-Poly1305 is supported on this system + crypto backend
+	static bool IsAvailable();
+};
+
+/// Encryption context for ChaCha20-Poly1305
+class ChaCha20_Poly1305_EncryptContext final : public ChaCha20_Poly1305_CipherContext, public ISymmetricEncryptContext
+{
+public:
+
+	// Initialize context with the specified private key, IV size, and tag size
+	inline bool Init(const void* pKey, size_t cbKey, size_t cbIV, size_t cbTag)
+	{
+		return InitCipher(pKey, cbKey, cbIV, cbTag, true);
+	}
+
+	// Implements ISymmetricEncryptContext
+	virtual bool Encrypt(
+		const void* pPlaintextData, size_t cbPlaintextData,
+		const void* pIV,
+		void* pEncryptedDataAndTag, uint32* pcbEncryptedDataAndTag,
+		const void* pAdditionalAuthenticationData, size_t cbAuthenticationData // Optional additional authentication data.  Not encrypted, but will be included in the tag, so it can be authenticated.
+	) override;
+};
+
+/// Decryption context for ChaCha20-Poly1305
+class ChaCha20_Poly1305_DecryptContext final : public ChaCha20_Poly1305_CipherContext, public ISymmetricDecryptContext
+{
+public:
+
+	// Initialize context with the specified private key, IV size, and tag size
+	inline bool Init(const void* pKey, size_t cbKey, size_t cbIV, size_t cbTag)
+	{
+		return InitCipher(pKey, cbKey, cbIV, cbTag, false);
+	}
+
+	// Implements ISymmetricDecryptContext
+	virtual bool Decrypt(
+		const void* pEncryptedDataAndTag, size_t cbEncryptedDataAndTag,
+		const void* pIV,
+		void* pPlaintextData, uint32* pcbPlaintextData,
+		const void* pAdditionalAuthenticationData, size_t cbAuthenticationData // Optional additional authentication data.  Not encrypted, but will be included in the tag, so it can be authenticated.
 	) override;
 };
 

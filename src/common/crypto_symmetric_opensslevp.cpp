@@ -9,6 +9,87 @@
 
 extern void OneTimeCryptoInitOpenSSL();
 
+namespace
+{
+
+enum class SupportedCipherTypes
+{
+	AES_GCM,
+	CHACHA20_POLY1305
+};
+
+template <SupportedCipherTypes CipherType>
+const EVP_CIPHER* GetCipherForKeySize(size_t cbKey)
+{
+	static_assert(CipherType == SupportedCipherTypes::AES_GCM || CipherType == SupportedCipherTypes::CHACHA20_POLY1305,
+		"Unsupported cipher type");
+
+	// Select the cipher based on the size of the key
+	if constexpr ( CipherType == SupportedCipherTypes::AES_GCM )
+	{
+		const EVP_CIPHER* cipher = nullptr;
+		switch (cbKey)
+		{
+			case 128 / 8: cipher = EVP_aes_128_gcm(); break;
+			case 192 / 8: cipher = EVP_aes_192_gcm(); break;
+			case 256 / 8: cipher = EVP_aes_256_gcm(); break;
+		}
+		return cipher;
+	}
+	else if constexpr ( CipherType == SupportedCipherTypes::CHACHA20_POLY1305 )
+	{
+#if !defined( OPENSSL_NO_CHACHA ) && !defined( OPENSSL_NO_POLY1305 )
+		return cbKey == 32 ? EVP_chacha20_poly1305() : nullptr;
+#else
+		AssertMsg(false, "OpenSSL configured without ChaCha20-Poly1305 support!");
+		return nullptr;
+#endif
+	}
+	return nullptr;
+}
+
+void ResetCipherContext(EVP_CIPHER_CTX* ctx)
+{
+#if OPENSSL_VERSION_NUMBER < 0x10100000
+	EVP_CIPHER_CTX_cleanup( ctx );
+	EVP_CIPHER_CTX_init( ctx );
+#else
+	EVP_CIPHER_CTX_reset( ctx );
+#endif
+}
+
+EVP_CIPHER_CTX* NewCipherContext()
+{
+#if OPENSSL_VERSION_NUMBER < 0x10100000
+	auto ctx = new EVP_CIPHER_CTX;
+	if ( !ctx )
+		return nullptr;
+	EVP_CIPHER_CTX_init( ctx );
+	return ctx;
+#else
+	return EVP_CIPHER_CTX_new();
+#endif
+}
+
+bool SetCommonCipherParams(EVP_CIPHER_CTX* ctx, const EVP_CIPHER* cipher, const void* pKey, bool bEncrypt, size_t cbIV)
+{
+	// Setup for encryption setting the key
+	if ( EVP_CipherInit_ex( ctx, cipher, nullptr, (const uint8*)pKey, nullptr, bEncrypt ? 1 : 0 ) != 1 )
+	{
+		return false;
+	}
+
+	// Set IV length
+	if ( EVP_CIPHER_CTX_ctrl( ctx, EVP_CTRL_GCM_SET_IVLEN, (int)cbIV, NULL ) != 1 )
+	{
+		AssertMsg(false, "Bad IV size");
+		return false;
+	}
+	return true;
+}
+
+} // anonymous namespace
+
 SymmetricCryptContextBase::SymmetricCryptContextBase()
 {
 	m_ctx = nullptr;
@@ -38,36 +119,20 @@ bool AES_GCM_CipherContext::InitCipher( const void *pKey, size_t cbKey, size_t c
 	EVP_CIPHER_CTX *ctx = (EVP_CIPHER_CTX*)m_ctx;
 	if ( ctx )
 	{
-		#if OPENSSL_VERSION_NUMBER < 0x10100000
-			EVP_CIPHER_CTX_cleanup( ctx );
-			EVP_CIPHER_CTX_init( ctx );
-		#else
-			EVP_CIPHER_CTX_reset( ctx );
-		#endif
+		ResetCipherContext( ctx );
 	}
 	else
 	{
-		#if OPENSSL_VERSION_NUMBER < 0x10100000
-			ctx = new EVP_CIPHER_CTX;
-			if ( !ctx )
-				return false;
-			EVP_CIPHER_CTX_init( ctx );
-		#else
-			ctx = EVP_CIPHER_CTX_new();
-			if ( !ctx )
-				return false;
-		#endif
+		ctx = NewCipherContext();
+		if ( !ctx )
+		{
+			return false;
+		}
 		m_ctx = ctx;
 	}
 
 	// Select the cipher based on the size of the key
-	const EVP_CIPHER *cipher = nullptr;
-	switch ( cbKey )
-	{
-		case 128/8: cipher = EVP_aes_128_gcm(); break;
-		case 192/8: cipher = EVP_aes_192_gcm(); break;
-		case 256/8: cipher = EVP_aes_256_gcm(); break;
-	}
+	const EVP_CIPHER *cipher = GetCipherForKeySize<SupportedCipherTypes::AES_GCM>(cbKey);
 	if ( cipher == nullptr )
 	{
 		AssertMsg( false, "Invalid AES-GCM key size" );
@@ -75,17 +140,8 @@ bool AES_GCM_CipherContext::InitCipher( const void *pKey, size_t cbKey, size_t c
 		return false;
 	}
 
-	// Setup for encryption setting the key
-	if ( EVP_CipherInit_ex( ctx, cipher, nullptr, (const uint8*)pKey, nullptr, bEncrypt ? 1 : 0 ) != 1 )
+	if (!SetCommonCipherParams(ctx, cipher, pKey, bEncrypt, cbIV))
 	{
-		Wipe();
-		return false;
-	}
-
-	// Set IV length
-	if ( EVP_CIPHER_CTX_ctrl( ctx, EVP_CTRL_GCM_SET_IVLEN, (int)cbIV, NULL) != 1 )
-	{
-		AssertMsg( false, "Bad IV size" );
 		Wipe();
 		return false;
 	}
@@ -93,6 +149,11 @@ bool AES_GCM_CipherContext::InitCipher( const void *pKey, size_t cbKey, size_t c
 	// Remember parameters
 	m_cbIV = (uint32)cbIV;
 	m_cbTag = (uint32)cbTag;
+	return true;
+}
+
+bool AES_GCM_CipherContext::IsAvailable()
+{
 	return true;
 }
 
@@ -255,6 +316,219 @@ bool AES_GCM_DecryptContext::Decrypt(
 	return true;
 }
 
+bool ChaCha20_Poly1305_CipherContext::InitCipher(const void* pKey, size_t cbKey, size_t cbIV, size_t cbTag, bool bEncrypt)
+{
+	EVP_CIPHER_CTX* ctx = (EVP_CIPHER_CTX*)m_ctx;
+	if ( ctx )
+	{
+		ResetCipherContext( ctx );
+	}
+	else
+	{
+		ctx = NewCipherContext();
+		if ( !ctx )
+		{
+			return false;
+		}
+		m_ctx = ctx;
+	}
+
+	const EVP_CIPHER* cipher = GetCipherForKeySize<SupportedCipherTypes::CHACHA20_POLY1305>(cbKey);
+	if ( cipher == nullptr )
+	{
+		AssertMsg(false, "Bad private key size. Only 256 bit-wide keys are supported for ChaCha20-Poly1305");
+		Wipe();
+		return false;
+	}
+
+	// Setup for encryption setting the key
+	if (EVP_CipherInit_ex(ctx, cipher, nullptr, (const uint8*)pKey, nullptr, bEncrypt ? 1 : 0) != 1)
+	{
+		Wipe();
+		return false;
+	}
+
+	// Set IV length
+	if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_SET_IVLEN, (int)cbIV, NULL) != 1)
+	{
+		AssertMsg(false, "Bad IV size");
+		Wipe();
+		return false;
+	}
+
+	// Remember parameters
+	m_cbIV = (uint32)cbIV;
+	m_cbTag = (uint32)cbTag;
+	return true;
+}
+
+bool ChaCha20_Poly1305_CipherContext::IsAvailable()
+{
+#if !defined(OPENSSL_NO_CHACHA) && !defined(OPENSSL_NO_POLY1305)
+	return true;
+#else
+	return false;
+#endif
+}
+
+bool ChaCha20_Poly1305_EncryptContext::Encrypt(
+	const void* pPlaintextData, size_t cbPlaintextData,
+	const void* pIV,
+	void* pEncryptedDataAndTag, uint32* pcbEncryptedDataAndTag,
+	const void* pAdditionalAuthenticationData, size_t cbAuthenticationData // Optional additional authentication data.  Not encrypted, but will be included in the tag, so it can be authenticated.
+) {
+	EVP_CIPHER_CTX* ctx = (EVP_CIPHER_CTX*)m_ctx;
+	if (!ctx)
+	{
+		AssertMsg(false, "Not initialized!");
+		*pcbEncryptedDataAndTag = 0;
+		return false;
+	}
+
+	// Calculate size of encrypted data.  Note that GCM does not use padding.
+	uint32 cbEncryptedWithoutTag = (uint32)cbPlaintextData;
+	uint32 cbEncryptedTotal = cbEncryptedWithoutTag + m_cbTag;
+
+	// Make sure their buffer is big enough
+	if (cbEncryptedTotal > *pcbEncryptedDataAndTag)
+	{
+		AssertMsg(false, "Buffer isn't big enough to hold padded+encrypted data and tag");
+		return false;
+	}
+
+	// This function really shouldn't fail unless we have a bug,
+	// so people might not check the return value.  So make sure
+	// if we do fail, they don't think anything was encrypted.
+	*pcbEncryptedDataAndTag = 0;
+
+	// Set IV
+	VerifyFatal(EVP_EncryptInit_ex(ctx, nullptr, nullptr, nullptr, (const uint8*)pIV) == 1);
+
+	int nBytesWritten;
+
+	// AAD, if any
+	if (cbAuthenticationData > 0 && pAdditionalAuthenticationData)
+	{
+		VerifyFatal(EVP_EncryptUpdate(ctx, nullptr, &nBytesWritten, (const uint8*)pAdditionalAuthenticationData, (int)cbAuthenticationData) == 1);
+	}
+	else
+	{
+		Assert(cbAuthenticationData == 0);
+	}
+
+	// Now the actual plaintext to be encrypted
+	uint8* pOut = (uint8*)pEncryptedDataAndTag;
+	VerifyFatal(EVP_EncryptUpdate(ctx, pOut, &nBytesWritten, (const uint8*)pPlaintextData, (int)cbPlaintextData) == 1);
+	pOut += nBytesWritten;
+
+	// Finish up
+	VerifyFatal(EVP_EncryptFinal_ex(ctx, pOut, &nBytesWritten) == 1);
+	pOut += nBytesWritten;
+
+	// Make sure that we have the expected number of encrypted bytes at this point
+	VerifyFatal((uint8*)pEncryptedDataAndTag + cbEncryptedWithoutTag == pOut);
+
+	// Append the tag
+	if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_GET_TAG, (int)m_cbTag, pOut) != 1)
+	{
+		AssertMsg(false, "Bad tag size");
+		return false;
+	}
+
+	// Give the caller back the size of everything
+	*pcbEncryptedDataAndTag = cbEncryptedTotal;
+
+	// Success.
+	return true;
+}
+
+bool ChaCha20_Poly1305_DecryptContext::Decrypt(
+	const void* pEncryptedDataAndTag, size_t cbEncryptedDataAndTag,
+	const void* pIV,
+	void* pPlaintextData, uint32* pcbPlaintextData,
+	const void* pAdditionalAuthenticationData, size_t cbAuthenticationData
+) {
+
+	EVP_CIPHER_CTX* ctx = (EVP_CIPHER_CTX*)m_ctx;
+	if (!ctx)
+	{
+		AssertMsg(false, "Not initialized!");
+		*pcbPlaintextData = 0;
+		return false;
+	}
+
+	// Make sure buffer and tag sizes aren't totally bogus
+	if (m_cbTag > cbEncryptedDataAndTag)
+	{
+		AssertMsg(false, "Encrypted size doesn't make sense for tag size");
+		*pcbPlaintextData = 0;
+		return false;
+	}
+	uint32 cbEncryptedDataWithoutTag = uint32(cbEncryptedDataAndTag - m_cbTag);
+
+	// Make sure their buffer is big enough.  Remember that in GCM mode,
+	// there is no padding, so if this fails, we indeed would have overflowed
+	if (cbEncryptedDataWithoutTag > *pcbPlaintextData)
+	{
+		AssertMsg(false, "Buffer might not be big enough to hold decrypted data");
+		*pcbPlaintextData = 0;
+		return false;
+	}
+
+	// People really have to check the return value, but in case they
+	// don't, make sure they don't think we decrypted any data
+	*pcbPlaintextData = 0;
+
+	// Set IV
+	VerifyFatal(EVP_DecryptInit_ex(ctx, nullptr, nullptr, nullptr, (const uint8*)pIV) == 1);
+
+	int nBytesWritten;
+
+	// AAD, if any
+	if (cbAuthenticationData > 0 && pAdditionalAuthenticationData)
+	{
+		// I don't think it's actually possible to failed here, but
+		// since the caller really must be checking the return value,
+		// let's not make this fatal
+		if (EVP_DecryptUpdate(ctx, nullptr, &nBytesWritten, (const uint8*)pAdditionalAuthenticationData, (int)cbAuthenticationData) != 1)
+		{
+			AssertMsg(false, "EVP_DecryptUpdate failed?");
+			return false;
+		}
+	}
+	else
+	{
+		Assert(cbAuthenticationData == 0);
+	}
+
+	uint8* pOut = (uint8*)pPlaintextData;
+	const uint8* pIn = (const uint8*)pEncryptedDataAndTag;
+
+	// Now the actual ciphertext to be decrypted
+	if (EVP_DecryptUpdate(ctx, pOut, &nBytesWritten, pIn, (int)cbEncryptedDataWithoutTag) != 1)
+		return false;
+	pOut += nBytesWritten;
+	pIn += cbEncryptedDataWithoutTag;
+
+	// Set expected tag value
+	if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_AEAD_SET_TAG, (int)m_cbTag, const_cast<uint8*>(pIn)) != 1)
+	{
+		AssertMsg(false, "Bad tag size");
+		return false;
+	}
+
+	// Finish up, and check tag
+	if (EVP_DecryptFinal_ex(ctx, pOut, &nBytesWritten) <= 0)
+		return false; // data has been tamped with
+	pOut += nBytesWritten;
+
+	// Make sure we got back the size we expected, and return the size
+	VerifyFatal(pOut == (uint8*)pPlaintextData + cbEncryptedDataWithoutTag);
+	*pcbPlaintextData = cbEncryptedDataWithoutTag;
+
+	// Success.
+	return true;
+}
 
 //
 // !KLUDGE! This is not specific to OpenSSL, and I'd like to put it in crypto.cpp.
