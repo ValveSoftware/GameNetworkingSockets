@@ -35,7 +35,9 @@ jobs:
       # We must do this before setting up our local vcpkg,
       # Because it will set VCPKG_ROOT to point to some global
       # install of vcpkg, and we don't want that
-      - uses: ilammy/msvc-dev-cmd@v1
+      - uses: TheMrMilchmann/setup-msvc-dev@v4
+        with:
+          arch: x64
 
       - name: set VCPKG_ROOT
         run: |
